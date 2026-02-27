@@ -4,8 +4,8 @@ import io.aaps.copilot.domain.model.ActionProposal
 
 data class SafetyPolicyConfig(
     val killSwitch: Boolean,
-    val minTargetMmol: Double = 4.4,
-    val maxTargetMmol: Double = 8.0,
+    val minTargetMmol: Double = 4.0,
+    val maxTargetMmol: Double = 10.0,
     val maxActionsIn6Hours: Int = 3
 )
 

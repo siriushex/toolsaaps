@@ -38,7 +38,7 @@ class SegmentProfileGuardRule : TargetRule {
             else -> return RuleDecision(id, RuleState.NO_MATCH, listOf("segment_neutral"), null)
         }
 
-        val boundedTarget = target.coerceIn(4.4, 8.0)
+        val boundedTarget = target.coerceIn(4.0, 10.0)
         if (abs(boundedTarget - context.baseTargetMmol) < 0.15) {
             return RuleDecision(id, RuleState.NO_MATCH, listOf("close_to_base_target"), null)
         }

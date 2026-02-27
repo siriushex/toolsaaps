@@ -362,7 +362,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setBaseTarget(mmol: Double) {
         viewModelScope.launch {
-            container.settingsStore.update { it.copy(baseTargetMmol = mmol.coerceIn(4.4, 8.0)) }
+            container.settingsStore.update { it.copy(baseTargetMmol = mmol.coerceIn(4.0, 10.0)) }
             val settings = container.settingsStore.settings.first()
             container.analyticsRepository.recalculate(settings)
             messageState.value = "Base target updated"
@@ -470,7 +470,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     postHypoThresholdMmol = thresholdMmol.coerceIn(2.2, 4.8),
                     postHypoDeltaThresholdMmol5m = deltaThresholdMmol5m.coerceIn(0.05, 1.0),
-                    postHypoTargetMmol = targetMmol.coerceIn(4.0, 8.0),
+                    postHypoTargetMmol = targetMmol.coerceIn(4.0, 10.0),
                     postHypoDurationMinutes = durationMinutes.coerceIn(15, 180),
                     postHypoLookbackMinutes = lookbackMinutes.coerceIn(30, 240)
                 )
@@ -537,7 +537,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendManualTempTarget(targetRaw: String, durationRaw: String, reasonRaw: String) {
         viewModelScope.launch {
-            val targetMmol = parseFlexibleDouble(targetRaw)?.takeIf { it in 3.0..15.0 }
+            val targetMmol = parseFlexibleDouble(targetRaw)?.takeIf { it in 4.0..10.0 }
             val durationMinutes = durationRaw.trim().toIntOrNull()?.takeIf { it in 5..720 }
             if (targetMmol == null || durationMinutes == null) {
                 messageState.value = "Manual temp target failed: invalid target/duration"

@@ -85,7 +85,7 @@ class PatternAnalyzer(
             highRate >= config.highRateTrigger && lowRate < config.lowRateTrigger * 0.6 -> baseTarget - 0.20
             else -> baseTarget
         }
-        return roundToStep(min(8.0, max(4.4, adjusted)), step = 0.05)
+        return roundToStep(min(10.0, max(4.0, adjusted)), step = 0.05)
     }
 
     private fun roundToStep(value: Double, step: Double): Double {

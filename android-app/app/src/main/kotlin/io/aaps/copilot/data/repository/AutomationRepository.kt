@@ -8,7 +8,9 @@ import io.aaps.copilot.data.remote.cloud.CloudGlucosePoint
 import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
 import io.aaps.copilot.data.remote.cloud.PredictRequest
 import io.aaps.copilot.domain.model.ActionCommand
+import io.aaps.copilot.domain.model.ActionProposal
 import io.aaps.copilot.domain.model.DayType
+import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.ProfileEstimate
 import io.aaps.copilot.domain.model.ProfileSegmentEstimate
 import io.aaps.copilot.domain.model.ProfileTimeSlot
@@ -25,6 +27,8 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
+import kotlin.math.abs
+import kotlin.math.floor
 
 class AutomationRepository(
     private val db: CopilotDatabase,
@@ -175,13 +179,18 @@ class AutomationRepository(
 
             if (effectiveDecision.state == RuleState.TRIGGERED && effectiveDecision.actionProposal != null) {
                 val idempotencyKey = "${effectiveDecision.ruleId}:${now / (30 * 60 * 1000L)}"
+                val normalizedAction = alignTempTargetToBaseTarget(
+                    action = effectiveDecision.actionProposal,
+                    forecasts = mergedForecasts,
+                    baseTargetMmol = settings.baseTargetMmol
+                )
                 val command = ActionCommand(
                     id = UUID.randomUUID().toString(),
-                    type = effectiveDecision.actionProposal.type,
+                    type = normalizedAction.type,
                     params = mapOf(
-                        "targetMmol" to effectiveDecision.actionProposal.targetMmol.toString(),
-                        "durationMinutes" to effectiveDecision.actionProposal.durationMinutes.toString(),
-                        "reason" to effectiveDecision.actionProposal.reason
+                        "targetMmol" to normalizedAction.targetMmol.toString(),
+                        "durationMinutes" to normalizedAction.durationMinutes.toString(),
+                        "reason" to normalizedAction.reason
                     ),
                     safetySnapshot = SafetySnapshot(
                         killSwitch = settings.killSwitch,
@@ -212,6 +221,35 @@ class AutomationRepository(
                 "decisions" to decisions.size
             )
         )
+    }
+
+    private fun alignTempTargetToBaseTarget(
+        action: ActionProposal,
+        forecasts: List<Forecast>,
+        baseTargetMmol: Double
+    ): ActionProposal {
+        if (!action.type.equals("temp_target", ignoreCase = true)) return action
+        val boundedBase = baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+        val boundedProposed = action.targetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+        val forecast60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+            ?: return action.copy(targetMmol = boundedProposed)
+
+        val driftVsBase = forecast60 - boundedBase
+        if (abs(driftVsBase) < 0.15) {
+            return action.copy(targetMmol = boundedProposed)
+        }
+
+        // Move temp target so 1h trajectory drifts toward base target.
+        val correction = (-driftVsBase * ALIGN_GAIN).coerceIn(-MAX_ALIGN_STEP_MMOL, MAX_ALIGN_STEP_MMOL)
+        val aligned = roundToStep((boundedProposed + correction).coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL), 0.05)
+        val reason = if (action.reason.contains("base_align_60m")) action.reason else "${action.reason}|base_align_60m"
+        return action.copy(targetMmol = aligned, reason = reason)
+    }
+
+    private fun roundToStep(value: Double, step: Double): Double {
+        if (step <= 0.0) return value
+        val scaled = value / step
+        return floor(scaled + 0.5) * step
     }
 
     suspend fun runDryRunSimulation(days: Int): DryRunReport {
@@ -452,6 +490,10 @@ class AutomationRepository(
 
     private companion object {
         private const val SENSOR_BLOCK_TTL_MS = 30 * 60 * 1000L
+        private const val MIN_TARGET_MMOL = 4.0
+        private const val MAX_TARGET_MMOL = 10.0
+        private const val ALIGN_GAIN = 0.35
+        private const val MAX_ALIGN_STEP_MMOL = 1.20
     }
 
     private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toDomain(): ProfileEstimate = ProfileEstimate(
