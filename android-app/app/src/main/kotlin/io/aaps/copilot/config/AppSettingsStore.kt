@@ -28,7 +28,8 @@ class AppSettingsStore(context: Context) {
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
             strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
-            localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] ?: false,
+            localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
+                ?: prefs[KEY_NS_URL].orEmpty().isBlank(),
             localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
             localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
             localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
@@ -70,7 +71,8 @@ class AppSettingsStore(context: Context) {
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
                 localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
                 strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
-                localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] ?: false,
+                localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
+                    ?: prefs[KEY_NS_URL].orEmpty().isBlank(),
                 localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
                 localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
                 localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
