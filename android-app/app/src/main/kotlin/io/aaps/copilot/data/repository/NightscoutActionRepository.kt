@@ -92,7 +92,7 @@ class NightscoutActionRepository(
                         "duration" to duration,
                         "targetTop" to target,
                         "targetBottom" to target,
-                        "units" to "mmol/L",
+                        "units" to "mmol",
                         "reason" to reason,
                         "notes" to "copilot:${command.idempotencyKey}",
                         "_id" to buildTreatmentId("tt", command.idempotencyKey)
@@ -355,13 +355,13 @@ class NightscoutActionRepository(
     ): List<BroadcastChannel> {
         val rawChannels = listOf(
             BroadcastChannel(
-                name = "local_treatments",
-                action = ACTION_LOCAL_TREATMENTS,
+                name = "ns_emulator_treatments",
+                action = ACTION_NS_EMULATOR,
                 packageName = aapsPackage
             ),
             BroadcastChannel(
-                name = "ns_emulator_treatments",
-                action = ACTION_NS_EMULATOR,
+                name = "local_treatments",
+                action = ACTION_LOCAL_TREATMENTS,
                 packageName = aapsPackage
             ),
             BroadcastChannel(
