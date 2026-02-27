@@ -5,6 +5,7 @@
     <queries>
         <package android:name="info.nightscout.androidaps" />
         <package android:name="info.nightscout.aaps" />
+        <package android:name="app.aaps" />
         <package android:name="com.eveningoutpost.dexdrip" />
         <package android:name="com.eveningoutpost.dexdrip.debug" />
     </queries>
@@ -64,6 +65,10 @@
                 <action android:name="com.eveningoutpost.dexdrip.NS_EMULATOR" />
                 <action android:name="info.nightscout.client.NEW_SGV" />
                 <action android:name="info.nightscout.client.NEW_TREATMENT" />
+                <action android:name="info.nightscout.client.NEW_DEVICESTATUS" />
+                <action android:name="info.nightscout.client.NEW_PROFILE" />
+                <action android:name="info.nightscout.androidaps.status" />
+                <action android:name="app.aaps.status" />
                 <action android:name="io.aaps.copilot.BROADCAST_TEST_INGEST" />
             </intent-filter>
         </receiver>

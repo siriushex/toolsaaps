@@ -426,6 +426,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setExportFolderUri(exportUri: String?) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(exportFolderUri = exportUri)
+            }
+            messageState.value = "Export folder saved"
+        }
+    }
+
     fun setBaseTarget(mmol: Double) {
         viewModelScope.launch {
             container.settingsStore.update { it.copy(baseTargetMmol = mmol.coerceIn(4.0, 10.0)) }
@@ -1402,6 +1411,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val tokenAliases: List<String> = emptyList()
     )
 
+    private fun telemetryCoverageSpecs(): List<TelemetryCoverageSpec> = listOf(
+        TelemetryCoverageSpec(
+            primaryKey = "iob_units",
+            label = "IOB",
+            staleThresholdMin = 30L,
+            tokenAliases = listOf("iob", "insulinonboard")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "cob_grams",
+            label = "COB",
+            staleThresholdMin = 30L,
+            tokenAliases = listOf("cob", "carbsonboard")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "carbs_grams",
+            label = "Carbs",
+            staleThresholdMin = 240L,
+            tokenAliases = listOf("carbs", "enteredcarbs", "mealcarbs")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "insulin_units",
+            label = "Insulin",
+            staleThresholdMin = 240L,
+            tokenAliases = listOf("insulin", "bolus")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "dia_hours",
+            label = "DIA",
+            staleThresholdMin = 24 * 60L,
+            tokenAliases = listOf("dia", "insulinactiontime")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "steps_count",
+            label = "Steps",
+            staleThresholdMin = 24 * 60L,
+            tokenAliases = listOf("steps", "stepcount")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "activity_ratio",
+            label = "Activity ratio",
+            staleThresholdMin = 180L,
+            tokenAliases = listOf("activity", "activityratio", "sensitivityratio")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "heart_rate_bpm",
+            label = "Heart rate",
+            staleThresholdMin = 180L,
+            tokenAliases = listOf("heart", "heartrate")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "uam_value",
+            label = "UAM",
+            staleThresholdMin = 180L,
+            tokenAliases = listOf("uam")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "isf_value",
+            label = "ISF",
+            staleThresholdMin = 7 * 24 * 60L,
+            tokenAliases = listOf("isf", "sens", "sensitivity")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "cr_value",
+            label = "CR",
+            staleThresholdMin = 7 * 24 * 60L,
+            tokenAliases = listOf("cr", "carb_ratio", "carbratio", "icratio")
+        )
+    )
+
     private fun buildTelemetryCoverageLines(
         samples: List<TelemetrySampleEntity>,
         nowTs: Long
@@ -1410,30 +1488,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return listOf("No telemetry received yet")
         }
         val latestByKey = latestTelemetryByKey(samples)
-        val required = listOf(
-            TelemetryCoverageSpec(primaryKey = "iob_units", label = "IOB", staleThresholdMin = 30L),
-            TelemetryCoverageSpec(primaryKey = "cob_grams", label = "COB", staleThresholdMin = 30L),
-            TelemetryCoverageSpec(primaryKey = "carbs_grams", label = "Carbs", staleThresholdMin = 240L),
-            TelemetryCoverageSpec(primaryKey = "insulin_units", label = "Insulin", staleThresholdMin = 240L),
-            TelemetryCoverageSpec(primaryKey = "dia_hours", label = "DIA", staleThresholdMin = 24 * 60L),
-            TelemetryCoverageSpec(primaryKey = "steps_count", label = "Steps", staleThresholdMin = 24 * 60L),
-            TelemetryCoverageSpec(primaryKey = "activity_ratio", label = "Activity ratio", staleThresholdMin = 180L),
-            TelemetryCoverageSpec(primaryKey = "heart_rate_bpm", label = "Heart rate", staleThresholdMin = 180L),
-            TelemetryCoverageSpec(primaryKey = "uam_value", label = "UAM", staleThresholdMin = 180L, tokenAliases = listOf("uam")),
-            TelemetryCoverageSpec(
-                primaryKey = "isf_value",
-                label = "ISF",
-                staleThresholdMin = 7 * 24 * 60L,
-                tokenAliases = listOf("isf", "sens", "sensitivity")
-            ),
-            TelemetryCoverageSpec(
-                primaryKey = "cr_value",
-                label = "CR",
-                staleThresholdMin = 7 * 24 * 60L,
-                tokenAliases = listOf("cr", "carb_ratio", "carbratio", "icratio")
-            )
-        )
-        return required.map { spec ->
+        return telemetryCoverageSpecs().map { spec ->
             val sample = resolveTelemetrySample(spec, latestByKey)
             if (sample == null) {
                 "${spec.label}: MISSING"
@@ -1468,20 +1523,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "temp_target_duration_min",
             "profile_percent"
         )
-        val syntheticPrimary = listOf(
-            TelemetryCoverageSpec(
-                primaryKey = "isf_value",
-                label = "ISF",
-                staleThresholdMin = 7 * 24 * 60L,
-                tokenAliases = listOf("isf", "sens", "sensitivity")
-            ),
-            TelemetryCoverageSpec(
-                primaryKey = "cr_value",
-                label = "CR",
-                staleThresholdMin = 7 * 24 * 60L,
-                tokenAliases = listOf("cr", "carb_ratio", "carbratio", "icratio")
-            )
-        )
+        val syntheticPrimary = telemetryCoverageSpecs()
         val resolvedSyntheticKeys = mutableSetOf<String>()
         val primaryLines = primaryKeys.mapNotNull { key ->
             latestByKey[key]?.let { sample -> formatTelemetryLine(sample) }

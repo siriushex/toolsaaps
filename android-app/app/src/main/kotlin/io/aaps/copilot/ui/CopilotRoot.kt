@@ -101,9 +101,6 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
     } else {
         true
     }
-    var nsUrl by remember(state.nightscoutUrl) { mutableStateOf(state.nightscoutUrl) }
-    var nsSecret by remember { mutableStateOf("") }
-    var cloudUrl by remember(state.cloudUrl) { mutableStateOf(state.cloudUrl) }
     var exportUri by remember(state.exportUri) { mutableStateOf(state.exportUri.orEmpty()) }
     var localNightscoutEnabled by remember(state.localNightscoutEnabled) {
         mutableStateOf(state.localNightscoutEnabled)
@@ -111,11 +108,6 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
     var localNightscoutPort by remember(state.localNightscoutPort) {
         mutableStateOf(state.localNightscoutPort.toString())
     }
-    var localCommandFallbackEnabled by remember(state.localCommandFallbackEnabled) {
-        mutableStateOf(state.localCommandFallbackEnabled)
-    }
-    var localCommandPackage by remember(state.localCommandPackage) { mutableStateOf(state.localCommandPackage) }
-    var localCommandAction by remember(state.localCommandAction) { mutableStateOf(state.localCommandAction) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -193,38 +185,6 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = vm::openCertificateSettings) {
             Text("Open certificate settings")
         }
-        HorizontalDivider()
-        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Text("Local temp target fallback relay")
-            Switch(
-                checked = localCommandFallbackEnabled,
-                onCheckedChange = { localCommandFallbackEnabled = it }
-            )
-        }
-        OutlinedTextField(
-            value = localCommandPackage,
-            onValueChange = { localCommandPackage = it },
-            label = { Text("Fallback package (optional)") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = localCommandAction,
-            onValueChange = { localCommandAction = it },
-            label = { Text("Fallback action") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Button(
-            onClick = {
-                vm.setLocalCommandFallbackConfig(
-                    enabled = localCommandFallbackEnabled,
-                    packageName = localCommandPackage,
-                    action = localCommandAction
-                )
-            }
-        ) {
-            Text("Save fallback relay")
-        }
-        Text("Custom relay is used after built-in LOCAL_TREATMENTS and NS_EMULATOR channels.")
         if (!hasAllFilesAccess) {
             Button(onClick = {
                 val intent = Intent(
@@ -246,15 +206,12 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         } else {
             state.autoConnectLines.forEach { Text(it) }
         }
-        OutlinedTextField(value = nsUrl, onValueChange = { nsUrl = it }, label = { Text("Nightscout URL") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = nsSecret, onValueChange = { nsSecret = it }, label = { Text("API Secret") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = cloudUrl, onValueChange = { cloudUrl = it }, label = { Text("Cloud API URL") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = exportUri, onValueChange = { exportUri = it }, label = { Text("AAPS export path/SAF URI") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = { folderPicker.launch(null) }) {
             Text("Pick export folder")
         }
-        Button(onClick = { vm.saveConnections(nsUrl, nsSecret, cloudUrl, exportUri.ifBlank { null }) }) {
-            Text("Save")
+        Button(onClick = { vm.setExportFolderUri(exportUri.ifBlank { null }) }) {
+            Text("Save export folder")
         }
         HorizontalDivider()
         Text("Transport diagnostics")

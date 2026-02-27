@@ -95,20 +95,27 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
             // Some devices/OS builds do not expose sender package for implicit broadcasts.
             // In strict mode, still allow known glucose channels to prevent stale CGM stream.
             return action.startsWith("com.eveningoutpost.dexdrip.") ||
-                action.startsWith("info.nightscout.client.")
+                isAapsBroadcastAction(action)
         }
         return when {
             action.startsWith("com.eveningoutpost.dexdrip.") -> senderPackage.startsWith("com.eveningoutpost.dexdrip")
-            action.startsWith("info.nightscout.client.") -> senderPackage in TRUSTED_AAPS_PACKAGES
+            isAapsBroadcastAction(action) -> senderPackage in TRUSTED_AAPS_PACKAGES
             else -> senderPackage == appPackage
         }
+    }
+
+    private fun isAapsBroadcastAction(action: String): Boolean {
+        return action.startsWith("info.nightscout.client.") ||
+            action.startsWith("info.nightscout.androidaps.") ||
+            action.startsWith("app.aaps.")
     }
 
     private companion object {
         const val TEST_ACTION = "io.aaps.copilot.BROADCAST_TEST_INGEST"
         val TRUSTED_AAPS_PACKAGES = setOf(
             "info.nightscout.androidaps",
-            "info.nightscout.aaps"
+            "info.nightscout.aaps",
+            "app.aaps"
         )
         val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }

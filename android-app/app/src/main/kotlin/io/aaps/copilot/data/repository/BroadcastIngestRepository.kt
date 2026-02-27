@@ -1,6 +1,7 @@
 package io.aaps.copilot.data.repository
 
 import android.content.Intent
+import android.os.Bundle
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
@@ -70,15 +71,57 @@ class BroadcastIngestRepository(
     @Suppress("DEPRECATION")
     private fun flattenExtras(intent: Intent): Map<String, String> {
         val bundle = intent.extras ?: return emptyMap()
-        val raw = mutableMapOf<String, String>()
+        val raw = linkedMapOf<String, String>()
         bundle.keySet().forEach { key ->
-            val value = bundle.get(key) ?: return@forEach
-            raw[key] = value.toString()
-            if (value is String) {
-                parseJsonPayload(value).forEach { (k, v) -> raw.putIfAbsent(k, v) }
-            }
+            flattenExtraValue(prefix = key, value = bundle.get(key), out = raw)
         }
         return raw
+    }
+
+    private fun flattenExtraValue(
+        prefix: String,
+        value: Any?,
+        out: MutableMap<String, String>
+    ) {
+        when (value) {
+            null -> return
+            is Bundle -> {
+                value.keySet().forEach { key ->
+                    val nextPrefix = if (prefix.isBlank()) key else "$prefix.$key"
+                    @Suppress("DEPRECATION")
+                    flattenExtraValue(nextPrefix, value.get(key), out)
+                }
+            }
+            is Map<*, *> -> {
+                value.forEach { (k, v) ->
+                    val mapKey = k?.toString()?.trim().orEmpty()
+                    if (mapKey.isEmpty()) return@forEach
+                    val nextPrefix = if (prefix.isBlank()) mapKey else "$prefix.$mapKey"
+                    flattenExtraValue(nextPrefix, v, out)
+                }
+            }
+            is Array<*> -> value.forEachIndexed { index, item ->
+                val nextPrefix = "$prefix[$index]"
+                flattenExtraValue(nextPrefix, item, out)
+            }
+            is Iterable<*> -> value.forEachIndexed { index, item ->
+                val nextPrefix = "$prefix[$index]"
+                flattenExtraValue(nextPrefix, item, out)
+            }
+            is String -> {
+                val text = value.trim()
+                if (text.isNotEmpty()) {
+                    out[prefix] = text
+                    parseJsonPayload(text).forEach { (k, v) ->
+                        out.putIfAbsent(k, v)
+                        if (prefix.isNotBlank()) out.putIfAbsent("$prefix.$k", v)
+                    }
+                }
+            }
+            else -> if (prefix.isNotBlank()) {
+                out[prefix] = value.toString()
+            }
+        }
     }
 
     private fun parseJsonPayload(raw: String): Map<String, String> {
