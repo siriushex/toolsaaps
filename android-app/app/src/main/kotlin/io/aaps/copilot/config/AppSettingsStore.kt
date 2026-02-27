@@ -28,6 +28,11 @@ class AppSettingsStore(context: Context) {
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
+            postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
+            postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
+            postHypoTargetMmol = prefs[KEY_POST_HYPO_TARGET_MMOL] ?: DEFAULT_POST_HYPO_TARGET_MMOL,
+            postHypoDurationMinutes = prefs[KEY_POST_HYPO_DURATION_MINUTES] ?: DEFAULT_POST_HYPO_DURATION_MINUTES,
+            postHypoLookbackMinutes = prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] ?: DEFAULT_POST_HYPO_LOOKBACK_MINUTES,
             rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
             rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
             ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
@@ -59,6 +64,11 @@ class AppSettingsStore(context: Context) {
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
                 localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
+                postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
+                postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
+                postHypoTargetMmol = prefs[KEY_POST_HYPO_TARGET_MMOL] ?: DEFAULT_POST_HYPO_TARGET_MMOL,
+                postHypoDurationMinutes = prefs[KEY_POST_HYPO_DURATION_MINUTES] ?: DEFAULT_POST_HYPO_DURATION_MINUTES,
+                postHypoLookbackMinutes = prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] ?: DEFAULT_POST_HYPO_LOOKBACK_MINUTES,
                 rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
                 rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
                 ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
@@ -86,6 +96,11 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
+            prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = next.postHypoThresholdMmol
+            prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
+            prefs[KEY_POST_HYPO_TARGET_MMOL] = next.postHypoTargetMmol
+            prefs[KEY_POST_HYPO_DURATION_MINUTES] = next.postHypoDurationMinutes
+            prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] = next.postHypoLookbackMinutes
             prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
             prefs[KEY_RULE_SEGMENT_ENABLED] = next.ruleSegmentEnabled
@@ -119,6 +134,11 @@ class AppSettingsStore(context: Context) {
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
         private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
+        private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
+        private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
+        private val KEY_POST_HYPO_TARGET_MMOL = doublePreferencesKey("post_hypo_target_mmol")
+        private val KEY_POST_HYPO_DURATION_MINUTES = intPreferencesKey("post_hypo_duration_minutes")
+        private val KEY_POST_HYPO_LOOKBACK_MINUTES = intPreferencesKey("post_hypo_lookback_minutes")
         private val KEY_RULE_POST_HYPO_ENABLED = booleanPreferencesKey("rule_post_hypo_enabled")
         private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
         private val KEY_RULE_SEGMENT_ENABLED = booleanPreferencesKey("rule_segment_enabled")
@@ -137,6 +157,11 @@ class AppSettingsStore(context: Context) {
         private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
         private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
         private const val DEFAULT_BASE_TARGET_MMOL = 5.5
+        private const val DEFAULT_POST_HYPO_THRESHOLD_MMOL = 3.0
+        private const val DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = 0.20
+        private const val DEFAULT_POST_HYPO_TARGET_MMOL = 4.4
+        private const val DEFAULT_POST_HYPO_DURATION_MINUTES = 60
+        private const val DEFAULT_POST_HYPO_LOOKBACK_MINUTES = 90
         private const val DEFAULT_POST_HYPO_PRIORITY = 100
         private const val DEFAULT_PATTERN_PRIORITY = 50
         private const val DEFAULT_SEGMENT_PRIORITY = 40
@@ -162,6 +187,11 @@ data class AppSettings(
     val rootExperimentalEnabled: Boolean,
     val localBroadcastIngestEnabled: Boolean,
     val baseTargetMmol: Double,
+    val postHypoThresholdMmol: Double,
+    val postHypoDeltaThresholdMmol5m: Double,
+    val postHypoTargetMmol: Double,
+    val postHypoDurationMinutes: Int,
+    val postHypoLookbackMinutes: Int,
     val rulePostHypoEnabled: Boolean,
     val rulePatternEnabled: Boolean,
     val ruleSegmentEnabled: Boolean,

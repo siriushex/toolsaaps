@@ -8,6 +8,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Incremental cloud sync pull/push (`/v1/sync/pull`, `/v1/sync/push`)
 - 5m and 1h glucose forecasts (on-device + optional cloud override)
 - Rule engine with hard safety guardrails and kill switch
+- Tunable `PostHypoReboundGuard` thresholds (hypo threshold, rebound delta, temp target, duration, lookback)
 - Rule control: enable/disable per rule, priority ordering, and dry-run simulation
 - Single-action arbitration per automation cycle + configurable per-rule cooldown windows
 - Live cooldown status per rule in `Rules & Automation`

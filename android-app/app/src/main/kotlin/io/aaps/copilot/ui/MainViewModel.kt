@@ -176,6 +176,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             killSwitch = settings.killSwitch,
             localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
             baseTargetMmol = settings.baseTargetMmol,
+            postHypoThresholdMmol = settings.postHypoThresholdMmol,
+            postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
+            postHypoTargetMmol = settings.postHypoTargetMmol,
+            postHypoDurationMinutes = settings.postHypoDurationMinutes,
+            postHypoLookbackMinutes = settings.postHypoLookbackMinutes,
             latestGlucoseMmol = latest?.mmol,
             glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null,
             forecast5m = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol,
@@ -344,6 +349,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             messageState.value = "Safety limits updated"
+        }
+    }
+
+    fun setPostHypoTuning(
+        thresholdMmol: Double,
+        deltaThresholdMmol5m: Double,
+        targetMmol: Double,
+        durationMinutes: Int,
+        lookbackMinutes: Int
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    postHypoThresholdMmol = thresholdMmol.coerceIn(2.2, 4.8),
+                    postHypoDeltaThresholdMmol5m = deltaThresholdMmol5m.coerceIn(0.05, 1.0),
+                    postHypoTargetMmol = targetMmol.coerceIn(4.0, 8.0),
+                    postHypoDurationMinutes = durationMinutes.coerceIn(15, 180),
+                    postHypoLookbackMinutes = lookbackMinutes.coerceIn(30, 240)
+                )
+            }
+            messageState.value = "Post-hypo rule tuning updated"
         }
     }
 
@@ -653,6 +679,11 @@ data class MainUiState(
     val killSwitch: Boolean = false,
     val localBroadcastIngestEnabled: Boolean = true,
     val baseTargetMmol: Double = 5.5,
+    val postHypoThresholdMmol: Double = 3.0,
+    val postHypoDeltaThresholdMmol5m: Double = 0.20,
+    val postHypoTargetMmol: Double = 4.4,
+    val postHypoDurationMinutes: Int = 60,
+    val postHypoLookbackMinutes: Int = 90,
     val latestGlucoseMmol: Double? = null,
     val glucoseDelta: Double? = null,
     val forecast5m: Double? = null,

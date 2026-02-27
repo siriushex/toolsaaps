@@ -17,8 +17,9 @@ class PostHypoReboundGuardRule : TargetRule {
         }
 
         val sorted = context.glucose.sortedBy { it.ts }
-        val hypo = sorted.lastOrNull { it.valueMmol <= 3.0 } ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("no_hypo"), null)
-        if (context.nowTs - hypo.ts > 90 * 60 * 1000L) {
+        val hypo = sorted.lastOrNull { it.valueMmol <= context.postHypoThresholdMmol }
+            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("no_hypo"), null)
+        if (context.nowTs - hypo.ts > context.postHypoLookbackMinutes * 60 * 1000L) {
             return RuleDecision(id, RuleState.NO_MATCH, listOf("hypo_outside_window"), null)
         }
 
@@ -29,22 +30,35 @@ class PostHypoReboundGuardRule : TargetRule {
 
         val d1 = afterHypo[1].valueMmol - afterHypo[0].valueMmol
         val d2 = afterHypo[2].valueMmol - afterHypo[1].valueMmol
-        val rebound = d1 > 0.2 && d2 > 0.2
+        val rebound = d1 > context.postHypoDeltaThresholdMmol5m && d2 > context.postHypoDeltaThresholdMmol5m
 
         if (!rebound) {
             return RuleDecision(id, RuleState.NO_MATCH, listOf("no_rebound"), null)
         }
 
-        if (context.activeTempTargetMmol != null && context.activeTempTargetMmol in 4.3..4.7) {
+        val targetLower = context.postHypoTargetMmol - 0.1
+        val targetUpper = context.postHypoTargetMmol + 0.1
+        if (context.activeTempTargetMmol != null && context.activeTempTargetMmol in targetLower..targetUpper) {
             return RuleDecision(id, RuleState.BLOCKED, listOf("already_in_target_band"), null)
         }
 
         val action = ActionProposal(
             type = "temp_target",
-            targetMmol = 4.4,
-            durationMinutes = 60,
+            targetMmol = context.postHypoTargetMmol,
+            durationMinutes = context.postHypoDurationMinutes,
             reason = "post_hypo_rebound"
         )
-        return RuleDecision(id, RuleState.TRIGGERED, listOf("hypo_plus_rising_trend"), action)
+        return RuleDecision(
+            id,
+            RuleState.TRIGGERED,
+            listOf(
+                "hypo_plus_rising_trend",
+                "hypoThreshold=${context.postHypoThresholdMmol}",
+                "deltaThreshold=${context.postHypoDeltaThresholdMmol5m}",
+                "target=${context.postHypoTargetMmol}",
+                "duration=${context.postHypoDurationMinutes}"
+            ),
+            action
+        )
     }
 }

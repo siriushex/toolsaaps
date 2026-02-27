@@ -337,6 +337,11 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var targetInput by remember(state.baseTargetMmol) { mutableStateOf(String.format("%.1f", state.baseTargetMmol)) }
+    var postHypoThreshold by remember(state.postHypoThresholdMmol) { mutableStateOf(String.format("%.2f", state.postHypoThresholdMmol)) }
+    var postHypoDelta by remember(state.postHypoDeltaThresholdMmol5m) { mutableStateOf(String.format("%.2f", state.postHypoDeltaThresholdMmol5m)) }
+    var postHypoTarget by remember(state.postHypoTargetMmol) { mutableStateOf(String.format("%.1f", state.postHypoTargetMmol)) }
+    var postHypoDuration by remember(state.postHypoDurationMinutes) { mutableStateOf(state.postHypoDurationMinutes.toString()) }
+    var postHypoLookback by remember(state.postHypoLookbackMinutes) { mutableStateOf(state.postHypoLookbackMinutes.toString()) }
     var maxActions by remember(state.maxActionsIn6Hours) { mutableStateOf(state.maxActionsIn6Hours.toString()) }
     var staleMax by remember(state.staleDataMaxMinutes) { mutableStateOf(state.staleDataMaxMinutes.toString()) }
     var patternMinSamples by remember(state.patternMinSamplesPerWindow) { mutableStateOf(state.patternMinSamplesPerWindow.toString()) }
@@ -379,6 +384,49 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             )
         }) {
             Text("Apply safety limits")
+        }
+        HorizontalDivider()
+        Text("Post-hypo rebound rule tuning")
+        OutlinedTextField(
+            value = postHypoThreshold,
+            onValueChange = { postHypoThreshold = it },
+            label = { Text("Hypo threshold mmol/L") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = postHypoDelta,
+            onValueChange = { postHypoDelta = it },
+            label = { Text("Delta threshold mmol/5m") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = postHypoTarget,
+            onValueChange = { postHypoTarget = it },
+            label = { Text("Temp target mmol/L") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = postHypoDuration,
+            onValueChange = { postHypoDuration = it },
+            label = { Text("Temp target duration minutes") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = postHypoLookback,
+            onValueChange = { postHypoLookback = it },
+            label = { Text("Hypo lookback minutes") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = {
+            vm.setPostHypoTuning(
+                thresholdMmol = postHypoThreshold.toDoubleOrNull() ?: state.postHypoThresholdMmol,
+                deltaThresholdMmol5m = postHypoDelta.toDoubleOrNull() ?: state.postHypoDeltaThresholdMmol5m,
+                targetMmol = postHypoTarget.toDoubleOrNull() ?: state.postHypoTargetMmol,
+                durationMinutes = postHypoDuration.toIntOrNull() ?: state.postHypoDurationMinutes,
+                lookbackMinutes = postHypoLookback.toIntOrNull() ?: state.postHypoLookbackMinutes
+            )
+        }) {
+            Text("Apply post-hypo tuning")
         }
         HorizontalDivider()
         Text("Pattern reliability tuning")
