@@ -49,10 +49,14 @@ cd android-app
 - `info.nightscout.client.NEW_SGV`
 - `info.nightscout.client.NEW_TREATMENT`
 
+For stable delivery on modern Android, send to explicit package
+`io.aaps.predictivecopilot` (same setting should be used in xDrip broadcast config).
+
 Quick manual test:
 
 ```bash
 adb shell am broadcast \
+  -p io.aaps.predictivecopilot \
   -a io.aaps.copilot.BROADCAST_TEST_INGEST \
   --es units mmol \
   --ef sgv 5.8 \
