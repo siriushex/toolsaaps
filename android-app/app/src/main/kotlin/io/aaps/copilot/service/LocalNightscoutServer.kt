@@ -378,15 +378,23 @@ class LocalNightscoutServer(
                 }.getOrNull() ?: return@forEach
                 if (request.eventType.isBlank()) return@forEach
 
-                val timestamp = parseFlexibleTimestamp(request.createdAt) ?: System.currentTimeMillis()
+                val timestamp = parseFlexibleTimestamp(request.createdAt)
+                    ?: normalizeEpochMillis(request.date)
+                    ?: normalizeEpochMillis(request.mills)
+                    ?: System.currentTimeMillis()
                 val treatmentId = "local-ns-${timestamp}-${UUID.randomUUID()}"
+                val durationMinutes = request.duration
+                    ?: request.durationInMilliseconds?.let { (it / 60_000L).toInt() }
 
                 val payload = linkedMapOf<String, String>().apply {
-                    request.duration?.let { put("duration", it.toString()) }
+                    durationMinutes?.let { put("duration", it.toString()) }
+                    request.durationInMilliseconds?.let { put("durationInMilliseconds", it.toString()) }
                     request.targetTop?.let { put("targetTop", it.toString()) }
                     request.targetBottom?.let { put("targetBottom", it.toString()) }
                     request.carbs?.let { put("carbs", it.toString()) }
                     request.insulin?.let { put("insulin", it.toString()) }
+                    request.units?.let { put("units", it) }
+                    request.isValid?.let { put("isValid", it.toString()) }
                     request.reason?.let { put("reason", it) }
                     request.notes?.let { put("notes", it) }
                 }
@@ -407,13 +415,17 @@ class LocalNightscoutServer(
 
                 responses += NightscoutTreatment(
                     id = treatmentId,
+                    date = timestamp,
                     createdAt = Instant.ofEpochMilli(timestamp).toString(),
                     eventType = request.eventType,
                     carbs = request.carbs,
                     insulin = request.insulin,
-                    duration = request.duration,
+                    duration = durationMinutes,
+                    durationInMilliseconds = request.durationInMilliseconds,
                     targetTop = request.targetTop,
                     targetBottom = request.targetBottom,
+                    units = request.units,
+                    isValid = request.isValid ?: true,
                     reason = request.reason,
                     notes = request.notes
                 )
@@ -503,6 +515,7 @@ class LocalNightscoutServer(
             }.getOrDefault(emptyMap())
             return NightscoutTreatment(
                 id = id,
+                date = timestamp,
                 createdAt = Instant.ofEpochMilli(timestamp).toString(),
                 eventType = toNightscoutEventType(type),
                 carbs = payload["carbs"]?.toDoubleOrNull(),
@@ -512,8 +525,11 @@ class LocalNightscoutServer(
                 rate = payload["rate"]?.toDoubleOrNull(),
                 percentage = payload["percentage"]?.toIntOrNull(),
                 duration = payload["duration"]?.toIntOrNull() ?: payload["durationMinutes"]?.toIntOrNull(),
+                durationInMilliseconds = payload["durationInMilliseconds"]?.toLongOrNull(),
                 targetTop = payload["targetTop"]?.toDoubleOrNull(),
                 targetBottom = payload["targetBottom"]?.toDoubleOrNull(),
+                units = payload["units"],
+                isValid = payload["isValid"]?.toBooleanStrictOrNull() ?: true,
                 reason = payload["reason"],
                 notes = payload["notes"]
             )
@@ -558,6 +574,11 @@ class LocalNightscoutServer(
             val value = raw.trim()
             return runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
                 ?: value.toLongOrNull()?.let { ts -> if (ts < 10_000_000_000L) ts * 1000L else ts }
+        }
+
+        private fun normalizeEpochMillis(raw: Long?): Long? {
+            val value = raw ?: return null
+            return if (value < 10_000_000_000L) value * 1000L else value
         }
 
         private fun normalizeEventType(eventType: String): String {

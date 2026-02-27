@@ -11,6 +11,7 @@ data class NightscoutSgvEntry(
 
 data class NightscoutTreatment(
     @SerializedName("_id") val id: String? = null,
+    @SerializedName("date") val date: Long? = null,
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("eventType") val eventType: String,
     @SerializedName("carbs") val carbs: Double? = null,
@@ -20,8 +21,11 @@ data class NightscoutTreatment(
     @SerializedName("rate") val rate: Double? = null,
     @SerializedName("percentage") val percentage: Int? = null,
     @SerializedName("duration") val duration: Int? = null,
+    @SerializedName("durationInMilliseconds") val durationInMilliseconds: Long? = null,
     @SerializedName("targetTop") val targetTop: Double? = null,
     @SerializedName("targetBottom") val targetBottom: Double? = null,
+    @SerializedName("units") val units: String? = null,
+    @SerializedName("isValid") val isValid: Boolean? = null,
     @SerializedName("reason") val reason: String? = null,
     @SerializedName("notes") val notes: String? = null
 )
@@ -43,13 +47,18 @@ data class NightscoutStatusResponse(
 )
 
 data class NightscoutTreatmentRequest(
-    @SerializedName("created_at") val createdAt: String,
+    @SerializedName("created_at") val createdAt: String? = null,
+    @SerializedName("date") val date: Long? = null,
+    @SerializedName("mills") val mills: Long? = null,
     @SerializedName("eventType") val eventType: String,
     @SerializedName("duration") val duration: Int? = null,
+    @SerializedName("durationInMilliseconds") val durationInMilliseconds: Long? = null,
     @SerializedName("targetTop") val targetTop: Double? = null,
     @SerializedName("targetBottom") val targetBottom: Double? = null,
+    @SerializedName("units") val units: String? = null,
     @SerializedName("carbs") val carbs: Double? = null,
     @SerializedName("insulin") val insulin: Double? = null,
+    @SerializedName("isValid") val isValid: Boolean? = null,
     @SerializedName("reason") val reason: String? = null,
     @SerializedName("notes") val notes: String? = null
 )
