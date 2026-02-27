@@ -96,6 +96,7 @@ class AutomationRepository(
         val dataFresh = now - latest.ts <= settings.staleDataMaxMinutes * 60 * 1000L
         val actionsLast6h = actionRepository.countSentActionsLast6h()
         val activeTempTarget = resolveActiveTempTarget(now)
+        val sensorBlocked = isSensorBlocked(therapy, now)
 
         val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -132,7 +133,7 @@ class AutomationRepository(
             dataFresh = dataFresh,
             activeTempTargetMmol = activeTempTarget,
             actionsLast6h = actionsLast6h,
-            sensorBlocked = false,
+            sensorBlocked = sensorBlocked,
             currentProfileEstimate = currentProfile,
             currentProfileSegment = currentSegment
         )
@@ -268,7 +269,7 @@ class AutomationRepository(
                 dataFresh = true,
                 activeTempTargetMmol = null,
                 actionsLast6h = 0,
-                sensorBlocked = false,
+                sensorBlocked = isSensorBlocked(tWindow, pointTs),
                 currentProfileEstimate = profile,
                 currentProfileSegment = segment
             )
@@ -421,11 +422,29 @@ class AutomationRepository(
             .isNotEmpty()
     }
 
+    private fun isSensorBlocked(
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        nowTs: Long
+    ): Boolean {
+        val lastSensorState = therapy
+            .asSequence()
+            .filter { it.type.equals("sensor_state", ignoreCase = true) }
+            .maxByOrNull { it.ts } ?: return false
+
+        val blocked = lastSensorState.payload["blocked"]?.equals("true", ignoreCase = true) == true
+        if (!blocked) return false
+        return nowTs - lastSensorState.ts <= SENSOR_BLOCK_TTL_MS
+    }
+
     private fun resolveTimeSlot(hour: Int): ProfileTimeSlot = when (hour) {
         in 0..5 -> ProfileTimeSlot.NIGHT
         in 6..11 -> ProfileTimeSlot.MORNING
         in 12..17 -> ProfileTimeSlot.AFTERNOON
         else -> ProfileTimeSlot.EVENING
+    }
+
+    private companion object {
+        private const val SENSOR_BLOCK_TTL_MS = 30 * 60 * 1000L
     }
 
     private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toDomain(): ProfileEstimate = ProfileEstimate(

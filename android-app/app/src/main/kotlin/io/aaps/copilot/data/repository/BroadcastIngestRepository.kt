@@ -144,11 +144,6 @@ class BroadcastIngestRepository(
     }
 
     private fun parseTherapy(action: String, extras: Map<String, String>): List<TherapyEventEntity> {
-        if (action.endsWith("NEW_SGV") || action.endsWith("BgEstimate")) {
-            // Glucose-only broadcast.
-            return emptyList()
-        }
-
         val ts = normalizeTimestamp(
             findLong(
                 extras,
@@ -162,6 +157,34 @@ class BroadcastIngestRepository(
                 )
             ) ?: System.currentTimeMillis()
         )
+
+        val source = when {
+            action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
+            action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
+            else -> "local_broadcast"
+        }
+
+        if (action.endsWith("BgEstimateNoData")) {
+            return listOf(
+                TherapyEventEntity(
+                    id = "br-$source-sensor_state-$ts-${action.hashCode()}",
+                    timestamp = ts,
+                    type = "sensor_state",
+                    payloadJson = JSONObject(
+                        mapOf(
+                            "blocked" to "true",
+                            "reason" to "no_data_broadcast",
+                            "action" to action
+                        )
+                    ).toString()
+                )
+            )
+        }
+
+        if (action.endsWith("NEW_SGV") || action.endsWith("BgEstimate")) {
+            // Glucose-only broadcast.
+            return emptyList()
+        }
 
         val carbs = findDouble(extras, listOf("carbs", "grams", "enteredCarbs"))
         val insulin = findDouble(extras, listOf("insulin", "insulinUnits", "bolus", "enteredInsulin"))
@@ -190,11 +213,6 @@ class BroadcastIngestRepository(
             else -> null
         } ?: return emptyList()
 
-        val source = when {
-            action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
-            action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
-            else -> "local_broadcast"
-        }
         val id = "br-$source-${typeAndPayload.first}-$ts-${typeAndPayload.second.hashCode()}"
         return listOf(
             TherapyEventEntity(

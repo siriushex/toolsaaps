@@ -61,6 +61,9 @@ On Android 14+ the receiver also validates sender package where available:
 - xDrip actions: packages starting with `com.eveningoutpost.dexdrip`
 - AAPS client actions: `info.nightscout.androidaps` / `info.nightscout.aaps`
 
+`com.eveningoutpost.dexdrip.BgEstimateNoData` is tracked as `sensor_state(blocked=true)` and
+temporarily blocks safety-sensitive automation decisions.
+
 For stable delivery on modern Android, send to explicit package
 `io.aaps.predictivecopilot` (same setting should be used in xDrip broadcast config).
 
