@@ -56,6 +56,10 @@ Each accepted local broadcast also enqueues an immediate reactive automation cyc
 This channel can be toggled in app UI:
 `Onboarding & Connect -> Local xDrip/AAPS broadcast ingest`.
 
+On Android 14+ the receiver also validates sender package where available:
+- xDrip actions: packages starting with `com.eveningoutpost.dexdrip`
+- AAPS client actions: `info.nightscout.androidaps` / `info.nightscout.aaps`
+
 For stable delivery on modern Android, send to explicit package
 `io.aaps.predictivecopilot` (same setting should be used in xDrip broadcast config).
 

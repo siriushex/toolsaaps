@@ -3,6 +3,7 @@ package io.aaps.copilot.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.scheduler.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -20,11 +21,25 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         receiverScope.launch {
             runCatching {
+                val action = payload.action.orEmpty()
+                val senderPackage = senderPackageOrNull()
+                if (!isTrustedSender(action = action, senderPackage = senderPackage, appPackage = context.packageName)) {
+                    app.container.auditLogger.warn(
+                        "broadcast_ingest_skipped",
+                        mapOf(
+                            "reason" to "untrusted_sender",
+                            "action" to action,
+                            "senderPackage" to senderPackage.orEmpty()
+                        )
+                    )
+                    return@runCatching
+                }
+
                 val settings = app.container.settingsStore.settings.first()
                 if (!settings.localBroadcastIngestEnabled) {
                     app.container.auditLogger.warn(
                         "broadcast_ingest_skipped",
-                        mapOf("reason" to "disabled_in_settings", "action" to payload.action.orEmpty())
+                        mapOf("reason" to "disabled_in_settings", "action" to action)
                     )
                     return@runCatching
                 }
@@ -53,7 +68,27 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
+    private fun senderPackageOrNull(): String? =
+        if (Build.VERSION.SDK_INT >= 34) getSentFromPackage() else null
+
+    private fun isTrustedSender(action: String, senderPackage: String?, appPackage: String): Boolean {
+        if (senderPackage.isNullOrBlank()) return true
+        if (action == TEST_ACTION) {
+            return senderPackage == "com.android.shell" || senderPackage == appPackage
+        }
+        return when {
+            action.startsWith("com.eveningoutpost.dexdrip.") -> senderPackage.startsWith("com.eveningoutpost.dexdrip")
+            action.startsWith("info.nightscout.client.") -> senderPackage in TRUSTED_AAPS_PACKAGES
+            else -> senderPackage == appPackage
+        }
+    }
+
     private companion object {
+        const val TEST_ACTION = "io.aaps.copilot.BROADCAST_TEST_INGEST"
+        val TRUSTED_AAPS_PACKAGES = setOf(
+            "info.nightscout.androidaps",
+            "info.nightscout.aaps"
+        )
         val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }
