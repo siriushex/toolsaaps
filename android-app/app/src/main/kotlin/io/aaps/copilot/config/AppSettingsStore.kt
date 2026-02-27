@@ -31,7 +31,7 @@ class AppSettingsStore(context: Context) {
             localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
                 ?: prefs[KEY_NS_URL].orEmpty().isBlank(),
             localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
-            localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
+            localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
             localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
             localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
@@ -74,7 +74,7 @@ class AppSettingsStore(context: Context) {
                 localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
                     ?: prefs[KEY_NS_URL].orEmpty().isBlank(),
                 localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
-                localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
+                localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
                 localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
                 localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,

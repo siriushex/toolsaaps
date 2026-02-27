@@ -1,6 +1,9 @@
 package io.aaps.copilot.service
 
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -64,6 +67,7 @@ class LocalNightscoutServer(
         for (candidatePort in candidatePorts) {
             val next = EmbeddedServer(
                 port = candidatePort,
+                context = context,
                 db = db,
                 gson = gson,
                 auditLogger = auditLogger,
@@ -144,6 +148,7 @@ class LocalNightscoutServer(
 
     private class EmbeddedServer(
         port: Int,
+        private val context: Context,
         private val db: CopilotDatabase,
         private val gson: Gson,
         private val auditLogger: AuditLogger,
@@ -928,6 +933,9 @@ class LocalNightscoutServer(
             if (parsed.objects.isEmpty()) {
                 return jsonBadRequest("empty_payload")
             }
+            val fromCopilotClient = session.headers[HEADER_COPILOT_CLIENT]
+                ?.trim()
+                ?.isNotEmpty() == true
 
             val responses = mutableListOf<NightscoutTreatment>()
             val therapyRows = mutableListOf<TherapyEventEntity>()
@@ -1012,8 +1020,107 @@ class LocalNightscoutServer(
             }
             triggerReactiveAutomation("treatments", therapyRows.size, telemetryRows.size)
             emitTreatmentDeltaToSockets(responses)
+            if (fromCopilotClient) {
+                relayTreatmentsToAaps(responses)
+            }
 
             return if (parsed.wasArray) jsonOk(responses) else jsonOk(responses.first())
+        }
+
+        private fun relayTreatmentsToAaps(treatments: List<NightscoutTreatment>) {
+            if (treatments.isEmpty()) return
+            val targetPackage = resolveInstalledAapsPackage() ?: run {
+                runBlocking {
+                    auditLogger.warn(
+                        "local_nightscout_relay_skipped",
+                        mapOf("reason" to "aaps_package_not_found", "count" to treatments.size)
+                    )
+                }
+                return
+            }
+
+            var delivered = 0
+            treatments.forEach { treatment ->
+                val mills = treatment.date ?: parseFlexibleTimestamp(treatment.createdAt) ?: System.currentTimeMillis()
+                val json = JsonObject().apply {
+                    addProperty("eventType", treatment.eventType)
+                    addProperty("mills", mills)
+                    treatment.id?.let { addProperty("_id", it) }
+                    treatment.carbs?.let { addProperty("carbs", it) }
+                    treatment.insulin?.let { addProperty("insulin", it) }
+                    treatment.duration?.let { addProperty("duration", it) }
+                    treatment.durationInMilliseconds?.let { addProperty("durationInMilliseconds", it) }
+                    treatment.targetTop?.let { addProperty("targetTop", it) }
+                    treatment.targetBottom?.let { addProperty("targetBottom", it) }
+                    treatment.units?.let { addProperty("units", normalizeUnitsForAaps(it)) }
+                    treatment.reason?.let { addProperty("reason", it) }
+                    treatment.notes?.let { addProperty("notes", it) }
+                    treatment.isValid.let { addProperty("isValid", it) }
+                }
+                val payload = JsonArray().apply { add(json) }.toString()
+                val intent = Intent(ACTION_NS_EMULATOR).apply {
+                    setPackage(targetPackage)
+                    addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                    putExtra("collection", "treatments")
+                    putExtra("data", payload)
+                }
+
+                if (resolveReceiverCount(intent) <= 0) return@forEach
+                runCatching {
+                    context.sendBroadcast(intent)
+                    delivered++
+                }
+            }
+
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_relay_to_aaps",
+                    mapOf(
+                        "targetPackage" to targetPackage,
+                        "received" to treatments.size,
+                        "delivered" to delivered
+                    )
+                )
+            }
+        }
+
+        private fun normalizeUnitsForAaps(units: String): String {
+            return when (units.trim().lowercase()) {
+                "mmol/l", "mmol\\l", "mmol l", "mmol" -> "mmol"
+                "mgdl", "mg dl", "mg/dl" -> "mg/dl"
+                else -> units
+            }
+        }
+
+        private fun resolveInstalledAapsPackage(): String? {
+            val candidates = listOf(AAPS_PACKAGE_LEGACY, AAPS_PACKAGE_MODERN)
+            return candidates.firstOrNull { packageName ->
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        context.packageManager.getPackageInfo(
+                            packageName,
+                            PackageManager.PackageInfoFlags.of(0)
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        context.packageManager.getPackageInfo(packageName, 0)
+                    }
+                }.isSuccess
+            }
+        }
+
+        private fun resolveReceiverCount(intent: Intent): Int {
+            return runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.queryBroadcastReceivers(
+                        intent,
+                        PackageManager.ResolveInfoFlags.of(0)
+                    ).size
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.queryBroadcastReceivers(intent, 0).size
+                }
+            }.getOrDefault(0)
         }
 
         private fun handlePostDeviceStatus(session: IHTTPSession): Response {
@@ -1304,6 +1411,9 @@ class LocalNightscoutServer(
         private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
         private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
         private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
+        private const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
+        private const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
+        private const val AAPS_PACKAGE_MODERN = "app.aaps"
         private const val PORT_SCAN_WINDOW = 30
         private const val SOCKET_ENGINE_PROTOCOL_VERSION = 4
         private const val SOCKET_PING_INTERVAL_MS = 25_000
