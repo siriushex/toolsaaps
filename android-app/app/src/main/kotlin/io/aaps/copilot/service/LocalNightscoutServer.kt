@@ -22,7 +22,8 @@ import kotlinx.coroutines.runBlocking
 class LocalNightscoutServer(
     private val db: CopilotDatabase,
     private val gson: Gson,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val onReactiveDataIngested: (() -> Unit)? = null
 ) {
 
     @Volatile
@@ -44,7 +45,8 @@ class LocalNightscoutServer(
             port = safePort,
             db = db,
             gson = gson,
-            auditLogger = auditLogger
+            auditLogger = auditLogger,
+            onReactiveDataIngested = onReactiveDataIngested
         )
         runCatching {
             next.start(SOCKET_TIMEOUT_MS, false)
@@ -90,7 +92,8 @@ class LocalNightscoutServer(
         port: Int,
         private val db: CopilotDatabase,
         private val gson: Gson,
-        private val auditLogger: AuditLogger
+        private val auditLogger: AuditLogger,
+        private val onReactiveDataIngested: (() -> Unit)?
     ) : NanoHTTPD(HOST, port) {
 
         override fun serve(session: IHTTPSession): Response {
@@ -193,6 +196,9 @@ class LocalNightscoutServer(
                     "local_nightscout_entries_post",
                     mapOf("received" to parsed.objects.size, "inserted" to rows.size)
                 )
+            }
+            if (rows.isNotEmpty()) {
+                triggerReactiveAutomation("entries", rows.size, 0)
             }
 
             return jsonOk(
@@ -311,6 +317,7 @@ class LocalNightscoutServer(
                     )
                 )
             }
+            triggerReactiveAutomation("treatments", therapyRows.size, telemetryRows.size)
 
             return if (parsed.wasArray) jsonOk(responses) else jsonOk(responses.first())
         }
@@ -356,6 +363,9 @@ class LocalNightscoutServer(
                         mapOf("received" to parsed.objects.size, "telemetry" to 0)
                     )
                 }
+            }
+            if (telemetryRows.isNotEmpty()) {
+                triggerReactiveAutomation("devicestatus", parsed.objects.size, telemetryRows.size)
             }
             return jsonOk(
                 mapOf(
@@ -509,6 +519,24 @@ class LocalNightscoutServer(
             val objects: List<JsonObject>,
             val wasArray: Boolean
         )
+
+        private fun triggerReactiveAutomation(
+            channel: String,
+            inserted: Int,
+            telemetry: Int
+        ) {
+            onReactiveDataIngested?.invoke()
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_reactive_automation_enqueued",
+                    mapOf(
+                        "channel" to channel,
+                        "inserted" to inserted,
+                        "telemetry" to telemetry
+                    )
+                )
+            }
+        }
     }
 
     private companion object {

@@ -88,6 +88,7 @@ Transport note:
   - `GET/POST /api/v1/devicestatus(.json)`
 - Runtime is pinned by a foreground service and auto-restored on boot/package update when enabled.
 - Use `Run Nightscout self-test` button in Onboarding to validate read/write transport immediately from phone.
+- Each accepted local Nightscout POST (`entries`, `treatments`, `devicestatus`) enqueues reactive automation worker (`copilot.sync.reactive`) for faster rule evaluation.
 - Nightscout sync also ingests `devicestatus` and maps known telemetry keys into local snapshot storage.
 - Optional outbound local fallback relay for `temp target` and `carbs` is available (`Onboarding & Connect`), intended only for compatible AAPS forks.
 - Primary delivery path remains Nightscout API; local relay is fallback-only when Nightscout delivery fails.

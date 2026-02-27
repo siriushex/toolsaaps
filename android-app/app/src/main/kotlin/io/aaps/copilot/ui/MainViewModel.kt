@@ -159,6 +159,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val lastLocalNsEntries = audits.firstOrNull { it.message == "local_nightscout_entries_post" }
         val lastLocalNsTreatments = audits.firstOrNull { it.message == "local_nightscout_treatments_post" }
         val lastLocalNsDeviceStatus = audits.firstOrNull { it.message == "local_nightscout_devicestatus_post" }
+        val lastLocalNsReactive = audits.firstOrNull { it.message == "local_nightscout_reactive_automation_enqueued" }
         val transportStatusLines = buildList {
             val effectiveNightscoutUrl = settings.resolvedNightscoutUrl()
             add(
@@ -220,6 +221,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 add(
                     "Local NS devicestatus POST: ${formatTs(it.timestamp)} " +
                         "(received=${auditMetaField(it, "received") ?: "?"}, telemetry=${auditMetaField(it, "telemetry") ?: "?"})"
+                )
+            }
+            lastLocalNsReactive?.let {
+                add(
+                    "Local NS reactive automation: ${formatTs(it.timestamp)} " +
+                        "(channel=${auditMetaField(it, "channel") ?: "?"}, inserted=${auditMetaField(it, "inserted") ?: "?"}, telemetry=${auditMetaField(it, "telemetry") ?: "?"})"
                 )
             }
         }

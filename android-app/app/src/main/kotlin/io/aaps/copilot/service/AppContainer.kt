@@ -23,6 +23,7 @@ import io.aaps.copilot.domain.rules.PostHypoReboundGuardRule
 import io.aaps.copilot.domain.rules.RuleEngine
 import io.aaps.copilot.domain.rules.SegmentProfileGuardRule
 import io.aaps.copilot.domain.safety.SafetyPolicy
+import io.aaps.copilot.scheduler.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,7 +49,10 @@ class AppContainer(context: Context) {
     private val localNightscoutServer = LocalNightscoutServer(
         db = db,
         gson = gson,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        onReactiveDataIngested = {
+            WorkScheduler.triggerReactiveAutomation(context.applicationContext)
+        }
     )
 
     val syncRepository = SyncRepository(
