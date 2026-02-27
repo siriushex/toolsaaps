@@ -214,19 +214,6 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = { vm.setExportFolderUri(exportUri.ifBlank { null }) }) {
             Text("Save export folder")
         }
-        HorizontalDivider()
-        Text("Transport diagnostics")
-        Button(onClick = vm::runNightscoutSelfTest) {
-            Text("Run Nightscout self-test")
-        }
-        Button(onClick = vm::runAapsTlsDiagnostic) {
-            Text("Run AAPS TLS diagnostic")
-        }
-        if (state.transportStatusLines.isEmpty()) {
-            Text("No transport diagnostics yet")
-        } else {
-            state.transportStatusLines.forEach { Text(it) }
-        }
     }
 }
 
@@ -283,25 +270,6 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Transport diagnostics")
-                    Button(
-                        onClick = vm::runNightscoutSelfTest,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Run Nightscout self-test")
-                    }
-                    Button(
-                        onClick = vm::runAapsTlsDiagnostic,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Run AAPS TLS diagnostic")
-                    }
-                    if (state.transportStatusLines.isEmpty()) {
-                        Text("No transport diagnostics yet")
-                    } else {
-                        state.transportStatusLines.forEach { Text(it) }
-                    }
-                    HorizontalDivider()
                     Text("Manual outbound test")
                     Text("Sends treatment commands through outbound chain: Nightscout API -> LOCAL_TREATMENTS -> NS_EMULATOR -> custom relay.")
                     OutlinedTextField(
