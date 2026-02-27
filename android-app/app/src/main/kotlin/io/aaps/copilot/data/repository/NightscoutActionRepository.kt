@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import com.google.gson.Gson
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.config.resolvedNightscoutUrl
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
@@ -35,10 +36,11 @@ class NightscoutActionRepository(
         }
 
         val nowIso = Instant.now().toString()
+        val nightscoutUrl = settings.resolvedNightscoutUrl()
         var lastError = "missing_nightscout_url"
-        if (settings.nightscoutUrl.isNotBlank()) {
+        if (nightscoutUrl.isNotBlank()) {
             val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
-            val nsApi = apiFactory.nightscoutApi(settings)
+            val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
 
             val request = NightscoutTreatmentRequest(
                 createdAt = nowIso,
@@ -113,9 +115,10 @@ class NightscoutActionRepository(
         val settings = settingsStore.settings.first()
         val nowIso = Instant.now().toString()
 
+        val nightscoutUrl = settings.resolvedNightscoutUrl()
         var lastError = "missing_nightscout_url"
-        if (settings.nightscoutUrl.isNotBlank()) {
-            val nsApi = apiFactory.nightscoutApi(settings)
+        if (nightscoutUrl.isNotBlank()) {
+            val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
             val request = NightscoutTreatmentRequest(
                 createdAt = nowIso,
                 eventType = "Carb Correction",

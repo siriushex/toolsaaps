@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.config.resolvedNightscoutUrl
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.local.entity.AuditLogEntity
@@ -153,6 +154,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val lastBroadcastIngest = audits.firstOrNull { it.message == "broadcast_ingest_completed" }
         val lastBroadcastSkip = audits.firstOrNull { it.message == "broadcast_ingest_skipped" }
         val transportStatusLines = buildList {
+            val effectiveNightscoutUrl = settings.resolvedNightscoutUrl()
+            add(
+                "Local Nightscout emulator: " + if (settings.localNightscoutEnabled) {
+                    "enabled (http://127.0.0.1:${settings.localNightscoutPort})"
+                } else {
+                    "disabled"
+                }
+            )
+            add(
+                "Effective Nightscout URL: " + if (effectiveNightscoutUrl.isNotBlank()) {
+                    effectiveNightscoutUrl
+                } else {
+                    "not configured"
+                }
+            )
             add(
                 "Inbound local broadcast: " + if (settings.localBroadcastIngestEnabled) {
                     "enabled"
@@ -228,6 +244,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             cloudUrl = settings.cloudBaseUrl,
             exportUri = settings.exportFolderUri,
             killSwitch = settings.killSwitch,
+            localNightscoutEnabled = settings.localNightscoutEnabled,
+            localNightscoutPort = settings.localNightscoutPort,
+            resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
             localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
             strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation,
             localCommandFallbackEnabled = settings.localCommandFallbackEnabled,
@@ -413,6 +432,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Local command fallback enabled"
             } else {
                 "Local command fallback disabled"
+            }
+        }
+    }
+
+    fun setLocalNightscoutConfig(enabled: Boolean, port: Int) {
+        viewModelScope.launch {
+            val safePort = port.coerceIn(1_024, 65_535)
+            container.settingsStore.update {
+                it.copy(
+                    localNightscoutEnabled = enabled,
+                    localNightscoutPort = safePort
+                )
+            }
+            messageState.value = if (enabled) {
+                "Local Nightscout enabled at http://127.0.0.1:$safePort"
+            } else {
+                "Local Nightscout disabled"
             }
         }
     }
@@ -1071,6 +1107,9 @@ data class MainUiState(
     val cloudUrl: String = "",
     val exportUri: String? = null,
     val killSwitch: Boolean = false,
+    val localNightscoutEnabled: Boolean = false,
+    val localNightscoutPort: Int = 17580,
+    val resolvedNightscoutUrl: String = "",
     val localBroadcastIngestEnabled: Boolean = true,
     val strictBroadcastSenderValidation: Boolean = false,
     val localCommandFallbackEnabled: Boolean = false,

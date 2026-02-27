@@ -2,6 +2,7 @@ package io.aaps.copilot.data.repository
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import io.aaps.copilot.config.resolvedNightscoutUrl
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.SyncStateEntity
@@ -28,12 +29,13 @@ class SyncRepository(
 
     suspend fun syncNightscoutIncremental() {
         val settings = settingsStore.settings.first()
-        if (settings.nightscoutUrl.isBlank()) {
+        val nightscoutUrl = settings.resolvedNightscoutUrl()
+        if (nightscoutUrl.isBlank()) {
             auditLogger.warn("nightscout_sync_skipped", mapOf("reason" to "missing_url"))
             return
         }
 
-        val nsApi = apiFactory.nightscoutApi(settings)
+        val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
         val since = db.syncStateDao().bySource(SOURCE_NIGHTSCOUT)?.lastSyncedTimestamp ?: 0L
         val query = mapOf(
             "count" to "2000",

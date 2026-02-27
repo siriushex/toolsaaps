@@ -28,6 +28,8 @@ class AppSettingsStore(context: Context) {
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
             strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
+            localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] ?: false,
+            localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
             localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
             localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
             localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
@@ -68,6 +70,8 @@ class AppSettingsStore(context: Context) {
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
                 localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
                 strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
+                localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] ?: false,
+                localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
                 localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
                 localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
                 localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
@@ -104,6 +108,8 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
             prefs[KEY_STRICT_BROADCAST_VALIDATION] = next.strictBroadcastSenderValidation
+            prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] = next.localNightscoutEnabled
+            prefs[KEY_LOCAL_NIGHTSCOUT_PORT] = next.localNightscoutPort
             prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] = next.localCommandFallbackEnabled
             prefs[KEY_LOCAL_COMMAND_PACKAGE] = next.localCommandPackage
             prefs[KEY_LOCAL_COMMAND_ACTION] = next.localCommandAction
@@ -146,6 +152,8 @@ class AppSettingsStore(context: Context) {
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
         private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
         private val KEY_STRICT_BROADCAST_VALIDATION = booleanPreferencesKey("strict_broadcast_sender_validation")
+        private val KEY_LOCAL_NIGHTSCOUT_ENABLED = booleanPreferencesKey("local_nightscout_enabled")
+        private val KEY_LOCAL_NIGHTSCOUT_PORT = intPreferencesKey("local_nightscout_port")
         private val KEY_LOCAL_COMMAND_FALLBACK_ENABLED = booleanPreferencesKey("local_command_fallback_enabled")
         private val KEY_LOCAL_COMMAND_PACKAGE = stringPreferencesKey("local_command_package")
         private val KEY_LOCAL_COMMAND_ACTION = stringPreferencesKey("local_command_action")
@@ -191,6 +199,7 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
         private const val DEFAULT_MAX_ACTIONS_6H = 3
         private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
+        private const val DEFAULT_LOCAL_NIGHTSCOUT_PORT = 17580
         private const val DEFAULT_LOCAL_COMMAND_PACKAGE = "info.nightscout.androidaps"
         private const val DEFAULT_LOCAL_COMMAND_ACTION = "info.nightscout.client.NEW_TREATMENT"
     }
@@ -205,6 +214,8 @@ data class AppSettings(
     val rootExperimentalEnabled: Boolean,
     val localBroadcastIngestEnabled: Boolean,
     val strictBroadcastSenderValidation: Boolean,
+    val localNightscoutEnabled: Boolean,
+    val localNightscoutPort: Int,
     val localCommandFallbackEnabled: Boolean,
     val localCommandPackage: String,
     val localCommandAction: String,
@@ -232,3 +243,9 @@ data class AppSettings(
     val staleDataMaxMinutes: Int,
     val exportFolderUri: String?
 )
+
+fun AppSettings.resolvedNightscoutUrl(): String {
+    val explicit = nightscoutUrl.trim()
+    if (explicit.isNotBlank()) return explicit
+    return if (localNightscoutEnabled) "http://127.0.0.1:$localNightscoutPort" else ""
+}

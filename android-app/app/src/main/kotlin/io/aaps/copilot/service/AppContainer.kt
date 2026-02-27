@@ -23,6 +23,11 @@ import io.aaps.copilot.domain.rules.PostHypoReboundGuardRule
 import io.aaps.copilot.domain.rules.RuleEngine
 import io.aaps.copilot.domain.rules.SegmentProfileGuardRule
 import io.aaps.copilot.domain.safety.SafetyPolicy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class AppContainer(context: Context) {
 
@@ -39,6 +44,12 @@ class AppContainer(context: Context) {
 
     val apiFactory = ApiFactory()
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val localNightscoutServer = LocalNightscoutServer(
+        db = db,
+        gson = gson,
+        auditLogger = auditLogger
+    )
 
     val syncRepository = SyncRepository(
         db = db,
@@ -122,4 +133,15 @@ class AppContainer(context: Context) {
         apiFactory = apiFactory,
         auditLogger = auditLogger
     )
+
+    init {
+        appScope.launch {
+            settingsStore.settings.collectLatest { settings ->
+                localNightscoutServer.update(
+                    enabled = settings.localNightscoutEnabled,
+                    port = settings.localNightscoutPort
+                )
+            }
+        }
+    }
 }

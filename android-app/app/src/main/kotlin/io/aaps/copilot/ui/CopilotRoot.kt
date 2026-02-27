@@ -105,6 +105,12 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
     var nsSecret by remember { mutableStateOf("") }
     var cloudUrl by remember(state.cloudUrl) { mutableStateOf(state.cloudUrl) }
     var exportUri by remember(state.exportUri) { mutableStateOf(state.exportUri.orEmpty()) }
+    var localNightscoutEnabled by remember(state.localNightscoutEnabled) {
+        mutableStateOf(state.localNightscoutEnabled)
+    }
+    var localNightscoutPort by remember(state.localNightscoutPort) {
+        mutableStateOf(state.localNightscoutPort.toString())
+    }
     var localCommandFallbackEnabled by remember(state.localCommandFallbackEnabled) {
         mutableStateOf(state.localCommandFallbackEnabled)
     }
@@ -149,6 +155,33 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
             } else {
                 "Permissive mode: accept broadcasts when sender package cannot be resolved."
             }
+        )
+        HorizontalDivider()
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Local Nightscout emulator (127.0.0.1)")
+            Switch(
+                checked = localNightscoutEnabled,
+                onCheckedChange = { localNightscoutEnabled = it }
+            )
+        }
+        OutlinedTextField(
+            value = localNightscoutPort,
+            onValueChange = { localNightscoutPort = it },
+            label = { Text("Local Nightscout port") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = {
+                vm.setLocalNightscoutConfig(
+                    enabled = localNightscoutEnabled,
+                    port = localNightscoutPort.toIntOrNull() ?: state.localNightscoutPort
+                )
+            }
+        ) {
+            Text("Save local Nightscout")
+        }
+        Text(
+            "Loopback URL for AAPS/Copilot: http://127.0.0.1:${localNightscoutPort.toIntOrNull() ?: state.localNightscoutPort}"
         )
         HorizontalDivider()
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
