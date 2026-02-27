@@ -18,6 +18,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Weekday/weekend pattern discovery by hour with reliability gating (`min samples`, `min active days`)
 - Adaptive target rule only on validated risk windows (reduces noisy auto-actions)
 - Long-window ISF/CR estimation from historical events with outlier trimming and sample counters
+- UAM-aware ISF/CR estimation: auto-filters noisy correction samples during UAM windows and reports UAM counters
 - Segmented ISF/CR profile (`weekday/weekend x night/morning/afternoon/evening`)
 - Segment-aware auto rule (`SegmentProfileGuard`) for gentle temp-target bias by sensitivity slot
 - Configurable pattern thresholds + analytics lookback directly in Safety settings

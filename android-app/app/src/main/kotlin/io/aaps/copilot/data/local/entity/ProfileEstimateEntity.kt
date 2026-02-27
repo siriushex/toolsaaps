@@ -13,5 +13,9 @@ data class ProfileEstimateEntity(
     val sampleCount: Int,
     val isfSampleCount: Int,
     val crSampleCount: Int,
-    val lookbackDays: Int
+    val lookbackDays: Int,
+    val telemetryIsfSampleCount: Int,
+    val telemetryCrSampleCount: Int,
+    val uamObservedCount: Int,
+    val uamFilteredIsfSamples: Int
 )

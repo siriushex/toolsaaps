@@ -30,7 +30,11 @@ data class ProfileEstimate(
     val sampleCount: Int,
     val isfSampleCount: Int,
     val crSampleCount: Int,
-    val lookbackDays: Int
+    val lookbackDays: Int,
+    val telemetryIsfSampleCount: Int = 0,
+    val telemetryCrSampleCount: Int = 0,
+    val uamObservedCount: Int = 0,
+    val uamFilteredIsfSamples: Int = 0
 )
 
 data class ProfileSegmentEstimate(

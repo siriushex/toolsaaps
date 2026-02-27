@@ -595,6 +595,8 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         Text("CR estimate: ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
         Text("Confidence: ${state.profileConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
         Text("Samples: total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
+        Text("Telemetry samples: ISF=${state.profileTelemetryIsfSamples ?: "-"}, CR=${state.profileTelemetryCrSamples ?: "-"}")
+        Text("UAM: observed=${state.profileUamObservedCount ?: "-"}, filtered ISF samples=${state.profileUamFilteredIsfSamples ?: "-"}")
         Text("Lookback: ${state.profileLookbackDays ?: "-"} days")
         HorizontalDivider()
         Text("Segmented ISF/CR")

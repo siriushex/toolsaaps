@@ -461,7 +461,11 @@ class AutomationRepository(
         sampleCount = sampleCount,
         isfSampleCount = isfSampleCount,
         crSampleCount = crSampleCount,
-        lookbackDays = lookbackDays
+        lookbackDays = lookbackDays,
+        telemetryIsfSampleCount = telemetryIsfSampleCount,
+        telemetryCrSampleCount = telemetryCrSampleCount,
+        uamObservedCount = uamObservedCount,
+        uamFilteredIsfSamples = uamFilteredIsfSamples
     )
 
     private fun io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity.toDomain(): ProfileSegmentEstimate =

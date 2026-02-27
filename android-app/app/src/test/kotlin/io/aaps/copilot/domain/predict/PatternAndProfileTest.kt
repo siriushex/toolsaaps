@@ -145,4 +145,63 @@ class PatternAndProfileTest {
         assertThat(weekendMorning!!.crGramPerUnit).isWithin(0.01).of(11.0)
         assertThat(weekdayEvening!!.isfMmolPerUnit).isWithin(0.01).of(1.6)
     }
+
+    @Test
+    fun profileEstimator_usesTelemetryForIsfAndCr_whenTherapySparse() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(ts = now, valueMmol = 6.0, source = "test", quality = DataQuality.OK)
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now - 60_000, key = "isf_value", valueDouble = 54.0),
+            TelemetrySignal(ts = now - 60_000, key = "cr_value", valueDouble = 11.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapyEvents = emptyList(), telemetrySignals = telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.isfMmolPerUnit).isWithin(0.02).of(3.0)
+        assertThat(estimate.crGramPerUnit).isWithin(0.01).of(11.0)
+        assertThat(estimate.telemetryIsfSampleCount).isEqualTo(1)
+        assertThat(estimate.telemetryCrSampleCount).isEqualTo(1)
+    }
+
+    @Test
+    fun profileEstimator_filtersIsfSamples_whenUamObservedNearCorrection() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(now - 10 * 60_000, 9.2, "test", DataQuality.OK),
+            GlucosePoint(now + 90 * 60_000, 7.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(
+                ts = now,
+                type = "correction_bolus",
+                payload = mapOf("units" to "1.0")
+            )
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now + 5 * 60_000, key = "ns_openaps_suggested_predbg_uam_0", valueDouble = 1.0),
+            TelemetrySignal(ts = now - 30_000, key = "isf_value", valueDouble = 50.0),
+            TelemetrySignal(ts = now - 30_000, key = "cr_value", valueDouble = 10.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy, telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.uamObservedCount).isEqualTo(1)
+        assertThat(estimate.uamFilteredIsfSamples).isAtLeast(1)
+    }
 }

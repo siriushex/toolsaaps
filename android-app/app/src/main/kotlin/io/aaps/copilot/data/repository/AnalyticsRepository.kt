@@ -11,6 +11,7 @@ import io.aaps.copilot.domain.predict.PatternAnalyzer
 import io.aaps.copilot.domain.predict.PatternAnalyzerConfig
 import io.aaps.copilot.domain.predict.ProfileEstimator
 import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
+import io.aaps.copilot.domain.predict.TelemetrySignal
 import kotlinx.coroutines.flow.Flow
 
 class AnalyticsRepository(
@@ -25,6 +26,14 @@ class AnalyticsRepository(
         val historyStart = System.currentTimeMillis() - lookbackDays * 24L * 60 * 60 * 1000
         val glucose = db.glucoseDao().since(historyStart).map { it.toDomain() }
         val therapy = db.therapyDao().since(historyStart).map { it.toDomain(gson) }
+        val telemetry = db.telemetryDao().since(historyStart).map { sample ->
+            TelemetrySignal(
+                ts = sample.timestamp,
+                key = sample.key,
+                valueDouble = sample.valueDouble,
+                valueText = sample.valueText
+            )
+        }
 
         val windows = patternAnalyzer.analyze(
             glucoseHistory = glucose,
@@ -57,8 +66,8 @@ class AnalyticsRepository(
         val profileEstimator = ProfileEstimator(
             ProfileEstimatorConfig(lookbackDays = lookbackDays)
         )
-        val profileEstimate = profileEstimator.estimate(glucose, therapy)
-        val segmentEstimates = profileEstimator.estimateSegments(glucose, therapy)
+        val profileEstimate = profileEstimator.estimate(glucose, therapy, telemetry)
+        val segmentEstimates = profileEstimator.estimateSegments(glucose, therapy, telemetry)
         db.profileSegmentEstimateDao().clear()
         db.profileSegmentEstimateDao().upsertAll(
             segmentEstimates.map {
@@ -87,7 +96,11 @@ class AnalyticsRepository(
                     sampleCount = estimate.sampleCount,
                     isfSampleCount = estimate.isfSampleCount,
                     crSampleCount = estimate.crSampleCount,
-                    lookbackDays = estimate.lookbackDays
+                    lookbackDays = estimate.lookbackDays,
+                    telemetryIsfSampleCount = estimate.telemetryIsfSampleCount,
+                    telemetryCrSampleCount = estimate.telemetryCrSampleCount,
+                    uamObservedCount = estimate.uamObservedCount,
+                    uamFilteredIsfSamples = estimate.uamFilteredIsfSamples
                 )
             )
             auditLogger.info(
@@ -99,7 +112,11 @@ class AnalyticsRepository(
                     "samples" to estimate.sampleCount,
                     "isfSamples" to estimate.isfSampleCount,
                     "crSamples" to estimate.crSampleCount,
-                    "lookbackDays" to estimate.lookbackDays
+                    "lookbackDays" to estimate.lookbackDays,
+                    "telemetryIsfSamples" to estimate.telemetryIsfSampleCount,
+                    "telemetryCrSamples" to estimate.telemetryCrSampleCount,
+                    "uamObservedCount" to estimate.uamObservedCount,
+                    "uamFilteredIsfSamples" to estimate.uamFilteredIsfSamples
                 )
             )
         } ?: auditLogger.warn(
