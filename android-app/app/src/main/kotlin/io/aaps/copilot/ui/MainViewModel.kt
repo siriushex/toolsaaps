@@ -530,7 +530,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 uri
             }.onSuccess {
                 messageState.value =
-                    "TLS certificate exported to Downloads. Install it in Android as CA/User certificate, then reconnect AAPS NSClient."
+                    "TLS certificate exported to Downloads. Install it in Android as CA certificate, then reconnect AAPS NSClient."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
             }
@@ -550,7 +550,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 context.startActivity(installIntent)
             }.onSuccess {
                 messageState.value =
-                    "System certificate installer opened. Confirm install, then restart AAPS NSClient."
+                    "System certificate installer opened. Install as CA certificate if offered, then restart AAPS NSClient."
             }.onFailure {
                 messageState.value = "Certificate install launch failed: ${it.message}"
             }
@@ -1182,7 +1182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "AAPS transport: FAIL (reason=NS_HTTP_NO_SOCKET)",
                 "Source error: HTTPS request seen (${formatTs(latestExternalAaps.timestamp)} $method $path), but no socket session",
                 "Hint 1: in AAPS use NSClientV1 and URL exactly $loopbackUrl",
-                "Hint 2: install/trust loopback certificate and restart NSClient"
+                "Hint 2: install loopback certificate as CA and restart NSClient"
             )
         }
 
@@ -1204,7 +1204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "AAPS transport: FAIL (reason=$reasonCode)",
             "Source error: $sourceError",
             "Hint 1: in AAPS NSClient set URL exactly $loopbackUrl",
-            "Hint 2: install loopback certificate and trust it in Android",
+            "Hint 2: install loopback certificate as CA in Android",
             "Hint 3: restart AAPS NSClient and trigger sync",
             secretHint
         )
