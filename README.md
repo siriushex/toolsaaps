@@ -4,6 +4,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 
 - Full-history Nightscout sync + AAPS export baseline import
 - Auto-bootstrap on first launch: AAPS export path discovery + optional root bootstrap for local DB
+- Local real-time intake via broadcast (`com.eveningoutpost.dexdrip.*`, `info.nightscout.client.*`)
 - Incremental cloud sync pull/push (`/v1/sync/pull`, `/v1/sync/push`)
 - 5m and 1h glucose forecasts (on-device + optional cloud override)
 - Rule engine with hard safety guardrails and kill switch
@@ -36,6 +37,26 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 ```bash
 cd android-app
 ./gradlew :app:assembleDebug
+```
+
+### Local broadcast ingest
+
+`AAPS Predictive Copilot` listens to these broadcast actions automatically:
+
+- `com.eveningoutpost.dexdrip.BgEstimate`
+- `com.eveningoutpost.dexdrip.BgEstimateNoData`
+- `com.eveningoutpost.dexdrip.NS_EMULATOR`
+- `info.nightscout.client.NEW_SGV`
+- `info.nightscout.client.NEW_TREATMENT`
+
+Quick manual test:
+
+```bash
+adb shell am broadcast \
+  -a io.aaps.copilot.BROADCAST_TEST_INGEST \
+  --es units mmol \
+  --ef sgv 5.8 \
+  --el timestamp $(date +%s)
 ```
 
 ## Backend quick start

@@ -10,6 +10,7 @@ import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.repository.AnalyticsRepository
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
+import io.aaps.copilot.data.repository.BroadcastIngestRepository
 import io.aaps.copilot.data.repository.InsightsRepository
 import io.aaps.copilot.data.repository.NightscoutActionRepository
 import io.aaps.copilot.data.repository.RootDbExperimentalRepository
@@ -64,6 +65,11 @@ class AppContainer(context: Context) {
         context = context,
         db = db,
         settingsStore = settingsStore,
+        auditLogger = auditLogger
+    )
+
+    val broadcastIngestRepository = BroadcastIngestRepository(
+        db = db,
         auditLogger = auditLogger
     )
 

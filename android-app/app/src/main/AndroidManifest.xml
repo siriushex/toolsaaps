@@ -26,6 +26,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".receiver.LocalDataBroadcastReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.eveningoutpost.dexdrip.BgEstimate" />
+                <action android:name="com.eveningoutpost.dexdrip.BgEstimateNoData" />
+                <action android:name="com.eveningoutpost.dexdrip.NS_EMULATOR" />
+                <action android:name="info.nightscout.client.NEW_SGV" />
+                <action android:name="info.nightscout.client.NEW_TREATMENT" />
+                <action android:name="io.aaps.copilot.BROADCAST_TEST_INGEST" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
