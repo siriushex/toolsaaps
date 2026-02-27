@@ -192,7 +192,14 @@ class AutomationRepository(
                     idempotencyKey = idempotencyKey
                 )
 
-                actionRepository.submitTempTarget(command)
+                when (command.type.lowercase()) {
+                    "temp_target" -> actionRepository.submitTempTarget(command)
+                    "carbs" -> actionRepository.submitCarbs(command)
+                    else -> auditLogger.warn(
+                        "automation_action_skipped",
+                        mapOf("reason" to "unsupported_action_type", "type" to command.type)
+                    )
+                }
             }
         }
 

@@ -38,9 +38,11 @@ data class NightscoutDeviceStatus(
 data class NightscoutTreatmentRequest(
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("eventType") val eventType: String,
-    @SerializedName("duration") val duration: Int,
-    @SerializedName("targetTop") val targetTop: Double,
-    @SerializedName("targetBottom") val targetBottom: Double,
-    @SerializedName("reason") val reason: String,
-    @SerializedName("notes") val notes: String
+    @SerializedName("duration") val duration: Int? = null,
+    @SerializedName("targetTop") val targetTop: Double? = null,
+    @SerializedName("targetBottom") val targetBottom: Double? = null,
+    @SerializedName("carbs") val carbs: Double? = null,
+    @SerializedName("insulin") val insulin: Double? = null,
+    @SerializedName("reason") val reason: String? = null,
+    @SerializedName("notes") val notes: String? = null
 )

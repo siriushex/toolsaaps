@@ -752,8 +752,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val channel = payloadField(command.payloadJson, "deliveryChannel") ?: "nightscout"
             val target = payloadField(command.payloadJson, "targetMmol")
             val duration = payloadField(command.payloadJson, "durationMinutes")
+            val carbs = payloadField(command.payloadJson, "carbsGrams")
+                ?: payloadField(command.payloadJson, "carbs")
+                ?: payloadField(command.payloadJson, "grams")
             val details = when {
                 target != null && duration != null -> "target=$target mmol/L, duration=${duration}m"
+                carbs != null -> "carbs=${carbs}g"
                 target != null -> "target=$target mmol/L"
                 else -> command.payloadJson.take(80)
             }
