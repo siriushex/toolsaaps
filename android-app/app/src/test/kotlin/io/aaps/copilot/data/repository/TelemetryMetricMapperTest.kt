@@ -87,4 +87,48 @@ class TelemetryMetricMapperTest {
         val byKey = samples.associateBy { it.key }
         assertThat(byKey["uam_value"]?.valueDouble).isEqualTo(0.0)
     }
+
+    @Test
+    fun extractsProfilePercentAndIsfCr_fromStatusReasonText() {
+        val ts = 1_700_001_000_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "profile" to "основной (120%)",
+                "enacted.reason" to "COB: 24,8, ISF: 2,3, CR: 8,33, Target: 4,4"
+            )
+        )
+        val byKey = samples.groupBy { it.key }
+        assertThat(byKey["profile_percent"]?.first()?.valueDouble).isWithin(0.01).of(120.0)
+        assertThat(byKey["isf_value"]?.first()?.valueDouble).isWithin(0.01).of(2.3)
+        assertThat(byKey["cr_value"]?.first()?.valueDouble).isWithin(0.01).of(8.33)
+    }
+
+    @Test
+    fun dropsOutOfRangeCanonicalValues() {
+        val ts = 1_700_001_100_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "iob" to "999",
+                "cob" to "1200",
+                "dia" to "0.1",
+                "heartRate" to "4",
+                "isf" to "200",
+                "cr" to "0.5",
+                "custom.metric" to "42"
+            )
+        )
+
+        val byKey = samples.groupBy { it.key }
+        assertThat(byKey).doesNotContainKey("iob_units")
+        assertThat(byKey).doesNotContainKey("cob_grams")
+        assertThat(byKey).doesNotContainKey("dia_hours")
+        assertThat(byKey).doesNotContainKey("heart_rate_bpm")
+        assertThat(byKey).doesNotContainKey("isf_value")
+        assertThat(byKey).doesNotContainKey("cr_value")
+        assertThat(byKey).containsKey("raw_custom_metric")
+    }
 }

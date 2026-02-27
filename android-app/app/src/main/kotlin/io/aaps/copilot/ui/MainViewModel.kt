@@ -27,11 +27,13 @@ import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.repository.CloudAnalysisHistoryUiModel
 import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.GlucoseSanitizer
+import io.aaps.copilot.data.repository.TherapySanitizer
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
@@ -83,6 +85,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val uiState: StateFlow<MainUiState> = combine(
         db.glucoseDao().observeLatest(limit = 720),
+        db.therapyDao().observeLatest(limit = 600),
         db.forecastDao().observeLatest(limit = 600),
         db.baselineDao().observeLatest(limit = 600),
         db.ruleExecutionDao().observeLatest(limit = 20),
@@ -106,33 +109,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Suppress("UNCHECKED_CAST")
         val glucose = GlucoseSanitizer.filterEntities(values[0] as List<GlucoseSampleEntity>)
         @Suppress("UNCHECKED_CAST")
-        val forecasts = values[1] as List<ForecastEntity>
+        val therapy = TherapySanitizer.filterEntities(values[1] as List<TherapyEventEntity>)
         @Suppress("UNCHECKED_CAST")
-        val baseline = values[2] as List<BaselinePointEntity>
+        val forecasts = values[2] as List<ForecastEntity>
         @Suppress("UNCHECKED_CAST")
-        val ruleExec = values[3] as List<RuleExecutionEntity>
+        val baseline = values[3] as List<BaselinePointEntity>
         @Suppress("UNCHECKED_CAST")
-        val actionCommands = values[4] as List<ActionCommandEntity>
+        val ruleExec = values[4] as List<RuleExecutionEntity>
         @Suppress("UNCHECKED_CAST")
-        val audits = values[5] as List<AuditLogEntity>
+        val actionCommands = values[5] as List<ActionCommandEntity>
         @Suppress("UNCHECKED_CAST")
-        val telemetry = values[6] as List<TelemetrySampleEntity>
+        val audits = values[6] as List<AuditLogEntity>
         @Suppress("UNCHECKED_CAST")
-        val patterns = values[7] as List<PatternWindowEntity>
-        val profile = values[8] as ProfileEstimateEntity?
+        val telemetry = values[7] as List<TelemetrySampleEntity>
         @Suppress("UNCHECKED_CAST")
-        val profileSegments = values[9] as List<ProfileSegmentEstimateEntity>
+        val patterns = values[8] as List<PatternWindowEntity>
+        val profile = values[9] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[10] as List<SyncStateEntity>
-        val settings = values[11] as AppSettings
-        val autoConnect = values[12] as AutoConnectUi?
-        val message = values[13] as String?
-        val dryRun = values[14] as DryRunUi?
-        val cloudReplay = values[15] as CloudReplayUiModel?
-        val cloudJobs = values[16] as CloudJobsUiModel?
-        val analysisHistory = values[17] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[18] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[19] as InsightsFilterUi
+        val profileSegments = values[10] as List<ProfileSegmentEstimateEntity>
+        @Suppress("UNCHECKED_CAST")
+        val syncStates = values[11] as List<SyncStateEntity>
+        val settings = values[12] as AppSettings
+        val autoConnect = values[13] as AutoConnectUi?
+        val message = values[14] as String?
+        val dryRun = values[15] as DryRunUi?
+        val cloudReplay = values[16] as CloudReplayUiModel?
+        val cloudJobs = values[17] as CloudJobsUiModel?
+        val analysisHistory = values[18] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[19] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[20] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -277,7 +282,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "${item.weekStart}: runs=${item.totalRuns}, ok=${item.successRuns}, fail=${item.failedRuns}, an=${item.anomaliesCount}, rec=${item.recommendationsCount}"
         } ?: emptyList()
         val ruleCooldownLines = buildRuleCooldownLines(ruleExec, settings, now)
-        val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, now)
+        val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, therapy, profile, now)
         val telemetryLines = buildTelemetryLines(telemetry)
         val actionLines = buildActionLines(actionCommands)
         val forecast30Latest = forecasts.firstOrNull { it.horizonMinutes == 30 }?.valueMmol
@@ -1435,6 +1440,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrNull()
     }
 
+    private fun payloadDouble(payloadJson: String, vararg keys: String): Double? {
+        return runCatching {
+            val obj = JSONObject(payloadJson)
+            keys.firstNotNullOfOrNull { key ->
+                obj.opt(key)?.toString()?.replace(",", ".")?.toDoubleOrNull()
+            }
+        }.getOrNull()
+    }
+
     private data class ParsedRuleAction(
         val targetMmol: Double?,
         val durationMinutes: Int?
@@ -1592,21 +1606,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildTelemetryCoverageLines(
         samples: List<TelemetrySampleEntity>,
+        therapyEvents: List<TherapyEventEntity>,
+        profile: ProfileEstimateEntity?,
         nowTs: Long
     ): List<String> {
-        if (samples.isEmpty()) {
-            return listOf("No telemetry received yet")
-        }
         val latestByKey = latestTelemetryByKey(samples)
-        return telemetryCoverageSpecs().map { spec ->
+        val therapyFallback = resolveTherapyFallback(therapyEvents)
+        val lines = telemetryCoverageSpecs().map { spec ->
             val sample = resolveTelemetrySample(spec, latestByKey)
+            val fallback = resolveCoverageFallback(spec, therapyFallback, profile, nowTs)
             if (sample == null) {
-                "${spec.label}: MISSING"
+                fallback ?: "${spec.label}: MISSING"
+            } else if (fallback != null && shouldPreferFallback(spec, sample)) {
+                "$fallback [override]"
             } else {
                 val ageMin = ((nowTs - sample.timestamp).coerceAtLeast(0L)) / 60_000L
                 val freshness = if (ageMin <= spec.staleThresholdMin) "fresh" else "stale ${ageMin}m"
                 "${spec.label}: ${formatTelemetryLine(sample)} [$freshness]"
             }
+        }
+        return if (samples.isEmpty()) {
+            listOf("Telemetry stream is empty; fallback/profile values are shown when available.") + lines
+        } else {
+            lines
         }
     }
 
@@ -1698,6 +1720,88 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .lowercase(Locale.US)
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
+    }
+
+    private data class TherapyCoverageFallback(
+        val carbsGrams: Double?,
+        val carbsTs: Long?,
+        val insulinUnits: Double?,
+        val insulinTs: Long?
+    )
+
+    private fun resolveTherapyFallback(events: List<TherapyEventEntity>): TherapyCoverageFallback {
+        var carbs: Double? = null
+        var carbsTs: Long? = null
+        var insulin: Double? = null
+        var insulinTs: Long? = null
+
+        events.sortedByDescending { it.timestamp }.forEach { event ->
+            if (carbs == null && (event.type.equals("carbs", true) || event.type.equals("meal_bolus", true))) {
+                val grams = payloadDouble(event.payloadJson, "grams", "carbs", "enteredCarbs", "mealCarbs")
+                if (grams != null && grams in 1.0..300.0) {
+                    carbs = grams
+                    carbsTs = event.timestamp
+                }
+            }
+            if (insulin == null && (event.type.equals("meal_bolus", true) || event.type.equals("correction_bolus", true))) {
+                val units = payloadDouble(event.payloadJson, "units", "bolusUnits", "insulin", "enteredInsulin")
+                if (units != null && units in 0.05..25.0) {
+                    insulin = units
+                    insulinTs = event.timestamp
+                }
+            }
+            if (carbs != null && insulin != null) return@forEach
+        }
+
+        return TherapyCoverageFallback(
+            carbsGrams = carbs,
+            carbsTs = carbsTs,
+            insulinUnits = insulin,
+            insulinTs = insulinTs
+        )
+    }
+
+    private fun resolveCoverageFallback(
+        spec: TelemetryCoverageSpec,
+        therapyFallback: TherapyCoverageFallback,
+        profile: ProfileEstimateEntity?,
+        nowTs: Long
+    ): String? {
+        return when (spec.primaryKey) {
+            "carbs_grams" -> therapyFallback.carbsGrams?.let {
+                val ageMin = minutesSince(nowTs, therapyFallback.carbsTs) ?: 0L
+                val freshness = if (ageMin <= spec.staleThresholdMin) "fresh" else "stale ${ageMin}m"
+                "Carbs: ${String.format(Locale.US, "%.1f", it)} g (therapy fallback, ${formatTs(therapyFallback.carbsTs)}) [$freshness]"
+            }
+            "insulin_units" -> therapyFallback.insulinUnits?.let {
+                val ageMin = minutesSince(nowTs, therapyFallback.insulinTs) ?: 0L
+                val freshness = if (ageMin <= spec.staleThresholdMin) "fresh" else "stale ${ageMin}m"
+                "Insulin: ${String.format(Locale.US, "%.2f", it)} U (therapy fallback, ${formatTs(therapyFallback.insulinTs)}) [$freshness]"
+            }
+            "isf_value" -> profile?.isfMmolPerUnit?.let {
+                "ISF: ${String.format(Locale.US, "%.2f", it)} mmol/L/U (profile estimate)"
+            }
+            "cr_value" -> profile?.crGramPerUnit?.let {
+                "CR: ${String.format(Locale.US, "%.2f", it)} g/U (profile estimate)"
+            }
+            "uam_value" -> profile?.uamObservedCount?.let {
+                val carbs = profile.uamEstimatedRecentCarbsGrams
+                "UAM: observed=$it, recent=${String.format(Locale.US, "%.1f", carbs)} g (profile analyzer)"
+            }
+            else -> null
+        }
+    }
+
+    private fun shouldPreferFallback(
+        spec: TelemetryCoverageSpec,
+        sample: TelemetrySampleEntity
+    ): Boolean {
+        if (!sample.source.endsWith("_broadcast")) return false
+        return when (spec.primaryKey) {
+            "carbs_grams" -> (sample.valueDouble ?: 0.0) <= 0.0
+            "insulin_units" -> true
+            else -> false
+        }
     }
 
     private fun formatTelemetryLine(sample: TelemetrySampleEntity): String {

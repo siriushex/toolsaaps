@@ -154,7 +154,7 @@ class SyncRepository(
                 quality = sample.quality
             )
         }
-        val therapyRows = db.therapyDao().since(since).map { event ->
+        val therapyRows = TherapySanitizer.filterEntities(db.therapyDao().since(since)).map { event ->
             CloudTherapyEvent(
                 id = event.id,
                 ts = event.timestamp,
@@ -210,7 +210,7 @@ class SyncRepository(
 
     suspend fun recentTherapyEvents(hoursBack: Int): List<TherapyEvent> {
         val since = System.currentTimeMillis() - hoursBack * 60 * 60 * 1000L
-        return db.therapyDao().since(since).map { it.toDomain(gson) }
+        return TherapySanitizer.filterEntities(db.therapyDao().since(since)).map { it.toDomain(gson) }
     }
 
     private fun normalizeEventType(eventType: String): String {

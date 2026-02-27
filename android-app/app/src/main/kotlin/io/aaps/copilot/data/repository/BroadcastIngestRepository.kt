@@ -23,6 +23,7 @@ class BroadcastIngestRepository(
         }
 
         pruneLegacyInvalidLocalBroadcastGlucose()
+        pruneLegacyBroadcastArtifacts()
 
         val extras = flattenExtras(intent)
         val source = resolveSource(action)
@@ -178,29 +179,19 @@ class BroadcastIngestRepository(
         if (action.endsWith("NEW_TREATMENT") || action.endsWith("BgEstimateNoData")) return null
         if (action.startsWith("info.nightscout.androidaps.")) return null
 
-        val valueWithKey = findDoubleWithKey(
-            extras,
-            listOf(
-                "com.eveningoutpost.dexdrip.Extras.BgEstimate",
-                "sgv",
-                "mgdl",
-                "glucose",
-                "bgestimate"
-            )
-        ) ?: return null
-        val valueRaw = valueWithKey.first
-        val valueKey = valueWithKey.second
+        val glucose = GlucoseValueResolver.resolve(extras) ?: return null
 
         val units = findStringExact(
             extras,
             listOf("com.eveningoutpost.dexdrip.Extras.Display.Units", "display.units", "display_units", "units", "unit")
-        )?.lowercase()
-            ?: if (valueKey.lowercase(Locale.US).contains("mgdl")) "mgdl" else null
+        )?.lowercase(Locale.US)
+            ?: if (glucose.key.lowercase(Locale.US).contains("mgdl")) "mgdl" else null
         val mmol = normalizeGlucoseMmol(
-            valueRaw = valueRaw,
-            valueKey = valueKey,
+            valueRaw = glucose.valueRaw,
+            valueKey = glucose.key,
             units = units
-        ).coerceIn(1.0, 33.0)
+        )
+        if (mmol !in 1.0..33.0) return null
 
         val ts = normalizeTimestamp(
             findLong(
@@ -230,6 +221,11 @@ class BroadcastIngestRepository(
         val ts = extractTimestamp(extras)
         val source = resolveSource(action)
 
+        if (action.startsWith("info.nightscout.androidaps.")) {
+            // androidaps.* broadcasts contain status/derived fields, not authoritative therapy events.
+            return emptyList()
+        }
+
         if (action.endsWith("BgEstimateNoData")) {
             return listOf(
                 TherapyEventEntity(
@@ -252,12 +248,12 @@ class BroadcastIngestRepository(
             return emptyList()
         }
 
-        val carbs = findDouble(extras, listOf("carbs", "grams", "enteredCarbs"))
-        val insulin = findDouble(extras, listOf("insulin", "insulinUnits", "bolus", "enteredInsulin"))
-        val duration = findLong(extras, listOf("duration", "durationInMinutes"))?.toInt()
-        val targetBottom = findDouble(extras, listOf("targetBottom", "target_bottom", "targetLow"))
-        val targetTop = findDouble(extras, listOf("targetTop", "target_top", "targetHigh"))
-        val eventType = findString(extras, listOf("eventType", "event_type", "type"))?.lowercase()
+        val carbs = findDoubleExact(extras, listOf("carbs", "grams", "enteredCarbs", "mealCarbs"))
+        val insulin = findDoubleExact(extras, listOf("insulin", "insulinUnits", "bolus", "enteredInsulin", "bolusUnits"))
+        val duration = findLongExact(extras, listOf("duration", "durationInMinutes"))?.toInt()
+        val targetBottom = findDoubleExact(extras, listOf("targetBottom", "target_bottom", "targetLow"))
+        val targetTop = findDoubleExact(extras, listOf("targetTop", "target_top", "targetHigh"))
+        val eventType = findStringExact(extras, listOf("eventType", "event_type", "type"))?.lowercase()
 
         val typeAndPayload = when {
             eventType?.contains("temp") == true && duration != null && (targetBottom != null || targetTop != null) -> {
@@ -309,21 +305,18 @@ class BroadcastIngestRepository(
         return findString(extras, keys)?.replace(",", ".")?.toDoubleOrNull()
     }
 
-    private fun findDoubleWithKey(extras: Map<String, String>, keys: List<String>): Pair<Double, String>? {
-        keys.forEach { key ->
-            extras.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.let { entry ->
-                entry.value.replace(",", ".").toDoubleOrNull()?.let { parsed ->
-                    return parsed to entry.key
-                }
-            }
-        }
-        val tokenMatch = findEntryByToken(extras, keys) ?: return null
-        val parsed = tokenMatch.value.replace(",", ".").toDoubleOrNull() ?: return null
-        return parsed to tokenMatch.key
+    private fun findDoubleExact(extras: Map<String, String>, keys: List<String>): Double? {
+        return findStringExact(extras, keys)?.replace(",", ".")?.toDoubleOrNull()
     }
 
     private fun findLong(extras: Map<String, String>, keys: List<String>): Long? {
         val raw = findString(extras, keys) ?: return null
+        return raw.toLongOrNull()
+            ?: raw.toDoubleOrNull()?.toLong()
+    }
+
+    private fun findLongExact(extras: Map<String, String>, keys: List<String>): Long? {
+        val raw = findStringExact(extras, keys) ?: return null
         return raw.toLongOrNull()
             ?: raw.toDoubleOrNull()?.toLong()
     }
@@ -393,6 +386,23 @@ class BroadcastIngestRepository(
             auditLogger.info(
                 "broadcast_glucose_cleanup",
                 mapOf("removed" to removed, "source" to "local_broadcast", "thresholdMmol" to 30.0)
+            )
+        }
+    }
+
+    private suspend fun pruneLegacyBroadcastArtifacts() {
+        val removedTherapy = db.therapyDao().deleteLegacyBroadcastArtifacts()
+        val removedUam = db.telemetryDao().deleteByKeyAboveThreshold(
+            key = "uam_value",
+            threshold = 1.5
+        )
+        if (removedTherapy > 0 || removedUam > 0) {
+            auditLogger.info(
+                "broadcast_legacy_cleanup",
+                mapOf(
+                    "therapyRemoved" to removedTherapy,
+                    "telemetryRemoved" to removedUam
+                )
             )
         }
     }

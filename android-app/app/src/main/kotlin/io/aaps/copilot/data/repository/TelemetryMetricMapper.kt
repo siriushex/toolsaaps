@@ -57,6 +57,19 @@ object TelemetryMetricMapper {
             )
         }
 
+        fun addNumericExact(canonicalKey: String, unit: String?, aliases: List<String>) {
+            val raw = findValueExact(values, aliases) ?: return
+            val parsed = raw.toDoubleOrNullLocale() ?: return
+            output += sample(
+                timestamp = timestamp,
+                source = source,
+                key = canonicalKey,
+                valueDouble = parsed,
+                valueText = null,
+                unit = unit
+            )
+        }
+
         fun addTempTargetNumeric(canonicalKey: String, aliases: List<String>) {
             val raw = findValue(values, aliases) ?: return
             val parsed = raw.toDoubleOrNullLocale() ?: return
@@ -96,23 +109,125 @@ object TelemetryMetricMapper {
             )
         }
 
+        fun addDiaHours(canonicalKey: String, aliases: List<String>) {
+            val raw = findValue(values, aliases) ?: return
+            val parsed = raw.toDoubleOrNullLocale() ?: return
+            val hours = when {
+                parsed in 0.0..24.0 -> parsed
+                parsed in 25.0..1440.0 -> parsed / 60.0
+                parsed in 1441.0..100_000_000.0 -> parsed / 3_600_000.0
+                else -> return
+            }
+            output += sample(
+                timestamp = timestamp,
+                source = source,
+                key = canonicalKey,
+                valueDouble = hours,
+                valueText = null,
+                unit = "h"
+            )
+        }
+
+        fun addProfilePercent(canonicalKey: String, aliases: List<String>) {
+            val exactNumeric = findValueExact(values, aliases)?.toDoubleOrNullLocale()
+            if (exactNumeric != null && exactNumeric in 10.0..300.0) {
+                output += sample(
+                    timestamp = timestamp,
+                    source = source,
+                    key = canonicalKey,
+                    valueDouble = exactNumeric,
+                    valueText = null,
+                    unit = "%"
+                )
+                return
+            }
+
+            val profileText = findValue(values, listOf("profile")) ?: return
+            val extracted = Regex("""\((\d{2,3}(?:[.,]\d+)?)%\)""")
+                .find(profileText)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.replace(",", ".")
+                ?.toDoubleOrNull()
+                ?.takeIf { it in 10.0..300.0 }
+                ?: return
+
+            output += sample(
+                timestamp = timestamp,
+                source = source,
+                key = canonicalKey,
+                valueDouble = extracted,
+                valueText = null,
+                unit = "%"
+            )
+        }
+
+        fun addIsfCrFromReason(reasonAliases: List<String>) {
+            val reason = findValue(values, reasonAliases) ?: return
+            val isfRaw = Regex("""\bISF:\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE)
+                .find(reason)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.replace(",", ".")
+                ?.toDoubleOrNull()
+            val crRaw = Regex("""\bCR:\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE)
+                .find(reason)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.replace(",", ".")
+                ?.toDoubleOrNull()
+
+            if (isfRaw != null) {
+                val isfMmol = if (isfRaw > 12.0) UnitConverter.mgdlToMmol(isfRaw) else isfRaw
+                if (isfMmol in 0.2..18.0) {
+                    output += sample(
+                        timestamp = timestamp,
+                        source = source,
+                        key = "isf_value",
+                        valueDouble = isfMmol,
+                        valueText = null,
+                        unit = "mmol/L/U"
+                    )
+                }
+            }
+            if (crRaw != null && crRaw in 2.0..60.0) {
+                output += sample(
+                    timestamp = timestamp,
+                    source = source,
+                    key = "cr_value",
+                    valueDouble = crRaw,
+                    valueText = null,
+                    unit = "g/U"
+                )
+            }
+        }
+
         addNumeric("iob_units", "U", listOf("iob", "iobtotal", "insulinonboard"))
         addNumeric("cob_grams", "g", listOf("cob", "carbsonboard"))
-        addNumeric("carbs_grams", "g", listOf("carbs", "grams", "enteredCarbs", "mealCarbs"))
-        addNumeric("insulin_units", "U", listOf("insulin", "insulinUnits", "bolus", "enteredInsulin", "units"))
-        addNumeric("dia_hours", "h", listOf("dia", "insulinActionTime", "insulinactiontime"))
+        addNumericExact("carbs_grams", "g", listOf("carbs", "grams", "enteredCarbs", "mealCarbs"))
+        addNumericExact("insulin_units", "U", listOf("insulin", "insulinUnits", "bolus", "enteredInsulin"))
+        addDiaHours("dia_hours", listOf("dia", "insulinActionTime", "insulinactiontime", "insulinEndTime"))
         addNumeric("steps_count", "steps", listOf("steps", "stepCount", "step_count"))
         addNumeric("activity_ratio", null, listOf("activity", "activityRatio", "sensitivityRatio"))
         addNumeric("heart_rate_bpm", "bpm", listOf("heartRate", "heart_rate", "bpm"))
         addTempTargetNumeric("temp_target_low_mmol", listOf("targetBottom", "target_bottom", "targetLow"))
         addTempTargetNumeric("temp_target_high_mmol", listOf("targetTop", "target_top", "targetHigh"))
         addNumeric("temp_target_duration_min", "min", listOf("duration", "durationInMinutes"))
-        addNumeric("profile_percent", "%", listOf("percentage", "profilePercentage"))
+        addProfilePercent("profile_percent", listOf("percentage", "profilePercentage"))
         addUam("uam_value", listOf("enableUAM", "unannouncedMeal", "uamDetected", "hasUam", "isUam", "uam"))
         addNumeric("isf_value", null, listOf("isf", "sens", "sensitivity"))
         addNumeric("cr_value", null, listOf("cr", "carbRatio", "carb_ratio", "icRatio"))
-        addNumeric("basal_rate_u_h", "U/h", listOf("absolute", "basalRate", "basal_rate", "tempBasal"))
+        addNumericExact("basal_rate_u_h", "U/h", listOf("rate", "absolute", "basalRate", "basal_rate"))
         addNumeric("insulin_req_units", "U", listOf("insulinReq", "insulin_required"))
+        addIsfCrFromReason(
+            listOf(
+                "reason",
+                "enacted.reason",
+                "suggested.reason",
+                "openaps.enacted.reason",
+                "openaps.suggested.reason"
+            )
+        )
 
         addText("activity_label", listOf("exercise", "activityType", "sport", "workout"))
         addText("dia_source", listOf("diaSource", "insulinCurve"))
@@ -125,7 +240,7 @@ object TelemetryMetricMapper {
             values = values
         )
 
-        return output.distinctBy { it.id }
+        return sanitizeSamples(output)
     }
 
     fun fromNightscoutTreatment(
@@ -148,7 +263,7 @@ object TelemetryMetricMapper {
                 output += sample(timestamp, source, "temp_target_high_mmol", it, null, "mmol/L")
             }
         }
-        return output.distinctBy { it.id }
+        return sanitizeSamples(output)
     }
 
     fun fromFlattenedNightscoutDeviceStatus(
@@ -201,7 +316,7 @@ object TelemetryMetricMapper {
             values = normalized
         )
 
-        return output.distinctBy { it.id }
+        return sanitizeSamples(output)
     }
 
     private fun normalizeTempTargetMmol(raw: Double): Double {
@@ -241,6 +356,15 @@ object TelemetryMetricMapper {
         aliases.forEach { alias ->
             val aliasLower = alias.lowercase(Locale.US)
             values.entries.firstOrNull { (key, _) -> keyContainsAliasToken(key, aliasLower) }?.value?.let {
+                return it
+            }
+        }
+        return null
+    }
+
+    private fun findValueExact(values: Map<String, String>, aliases: List<String>): String? {
+        aliases.forEach { alias ->
+            values.entries.firstOrNull { it.key.equals(alias, ignoreCase = true) }?.value?.let {
                 return it
             }
         }
@@ -350,6 +474,38 @@ object TelemetryMetricMapper {
     private fun isSensitiveKey(key: String): Boolean {
         val lowered = key.lowercase(Locale.US)
         return SENSITIVE_KEY_PARTS.any { lowered.contains(it) }
+    }
+
+    private fun sanitizeSamples(samples: List<TelemetrySampleEntity>): List<TelemetrySampleEntity> {
+        return samples
+            .asSequence()
+            .mapNotNull(::sanitizeSample)
+            .distinctBy { it.id }
+            .toList()
+    }
+
+    private fun sanitizeSample(sample: TelemetrySampleEntity): TelemetrySampleEntity? {
+        val value = sample.valueDouble ?: return sample
+        val inRange = when (sample.key) {
+            "iob_units" -> value in 0.0..30.0
+            "cob_grams" -> value in 0.0..400.0
+            "carbs_grams" -> value in 0.0..400.0
+            "insulin_units" -> value in 0.0..40.0
+            "dia_hours" -> value in 0.5..24.0
+            "steps_count" -> value in 0.0..150_000.0
+            "activity_ratio" -> value in 0.2..3.0
+            "heart_rate_bpm" -> value in 25.0..240.0
+            "temp_target_low_mmol", "temp_target_high_mmol" -> value in 3.0..15.0
+            "temp_target_duration_min" -> value in 5.0..720.0
+            "profile_percent" -> value in 10.0..300.0
+            "uam_value" -> value in 0.0..1.5
+            "isf_value" -> value in 0.2..18.0
+            "cr_value" -> value in 2.0..60.0
+            "basal_rate_u_h" -> value in 0.0..15.0
+            "insulin_req_units" -> value in -5.0..20.0
+            else -> true
+        }
+        return sample.takeIf { inRange }
     }
 
     private fun sample(

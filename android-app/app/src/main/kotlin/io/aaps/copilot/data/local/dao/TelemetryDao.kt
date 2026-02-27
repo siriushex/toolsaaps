@@ -18,4 +18,7 @@ interface TelemetryDao {
 
     @Query("SELECT * FROM telemetry_samples WHERE timestamp >= :since ORDER BY timestamp ASC")
     suspend fun since(since: Long): List<TelemetrySampleEntity>
+
+    @Query("DELETE FROM telemetry_samples WHERE key = :key AND valueDouble > :threshold")
+    suspend fun deleteByKeyAboveThreshold(key: String, threshold: Double): Int
 }
