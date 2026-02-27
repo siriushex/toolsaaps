@@ -155,7 +155,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
             add("Outbound temp target/carbs: Nightscout API")
-            add("Direct AAPS treatment broadcast: not supported on standard AAPS build")
+            add(
+                "Local fallback relay: " + if (settings.localCommandFallbackEnabled) {
+                    "enabled (${settings.localCommandPackage} / ${settings.localCommandAction})"
+                } else {
+                    "disabled"
+                }
+            )
+            add("Direct AAPS treatment broadcast: experimental fallback only (build-dependent)")
             lastBroadcastIngest?.let {
                 add("Last broadcast ingest: ${formatTs(it.timestamp)}")
             }
@@ -209,6 +216,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             killSwitch = settings.killSwitch,
             localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
             strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation,
+            localCommandFallbackEnabled = settings.localCommandFallbackEnabled,
+            localCommandPackage = settings.localCommandPackage,
+            localCommandAction = settings.localCommandAction,
             baseTargetMmol = settings.baseTargetMmol,
             postHypoThresholdMmol = settings.postHypoThresholdMmol,
             postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
@@ -355,6 +365,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Strict sender validation enabled"
             } else {
                 "Strict sender validation disabled"
+            }
+        }
+    }
+
+    fun setLocalCommandFallbackConfig(enabled: Boolean, packageName: String, action: String) {
+        viewModelScope.launch {
+            val normalizedPackage = packageName.trim()
+            val normalizedAction = action.trim()
+            container.settingsStore.update {
+                it.copy(
+                    localCommandFallbackEnabled = enabled,
+                    localCommandPackage = normalizedPackage.ifBlank { "info.nightscout.androidaps" },
+                    localCommandAction = normalizedAction.ifBlank { "info.nightscout.client.NEW_TREATMENT" }
+                )
+            }
+            messageState.value = if (enabled) {
+                "Local command fallback enabled"
+            } else {
+                "Local command fallback disabled"
             }
         }
     }
@@ -810,6 +839,9 @@ data class MainUiState(
     val killSwitch: Boolean = false,
     val localBroadcastIngestEnabled: Boolean = true,
     val strictBroadcastSenderValidation: Boolean = false,
+    val localCommandFallbackEnabled: Boolean = false,
+    val localCommandPackage: String = "info.nightscout.androidaps",
+    val localCommandAction: String = "info.nightscout.client.NEW_TREATMENT",
     val baseTargetMmol: Double = 5.5,
     val postHypoThresholdMmol: Double = 3.0,
     val postHypoDeltaThresholdMmol5m: Double = 0.20,

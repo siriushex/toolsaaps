@@ -76,6 +76,8 @@ Transport note:
   same local broadcast channel.
 - For `temp target` and `carbs` delivery into AAPS loop, use Nightscout API path.
 - Nightscout sync also ingests `devicestatus` and maps known telemetry keys into local snapshot storage.
+- Optional outbound local fallback relay for `temp target` is available (`Onboarding & Connect`), intended only for compatible AAPS forks.
+- Primary delivery path remains Nightscout API; local relay is fallback-only when Nightscout delivery fails.
 
 Quick manual test:
 

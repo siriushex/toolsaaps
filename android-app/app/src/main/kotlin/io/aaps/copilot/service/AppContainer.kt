@@ -81,6 +81,7 @@ class AppContainer(context: Context) {
     )
 
     val actionRepository = NightscoutActionRepository(
+        context = context,
         db = db,
         settingsStore = settingsStore,
         apiFactory = apiFactory,

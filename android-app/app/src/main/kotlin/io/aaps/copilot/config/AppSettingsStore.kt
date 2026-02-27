@@ -28,6 +28,9 @@ class AppSettingsStore(context: Context) {
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
             strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
+            localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
+            localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
+            localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
             postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
             postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -65,6 +68,9 @@ class AppSettingsStore(context: Context) {
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
                 localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
                 strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
+                localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: false,
+                localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
+                localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
                 postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
                 postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -98,6 +104,9 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
             prefs[KEY_STRICT_BROADCAST_VALIDATION] = next.strictBroadcastSenderValidation
+            prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] = next.localCommandFallbackEnabled
+            prefs[KEY_LOCAL_COMMAND_PACKAGE] = next.localCommandPackage
+            prefs[KEY_LOCAL_COMMAND_ACTION] = next.localCommandAction
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
             prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = next.postHypoThresholdMmol
             prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
@@ -137,6 +146,9 @@ class AppSettingsStore(context: Context) {
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
         private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
         private val KEY_STRICT_BROADCAST_VALIDATION = booleanPreferencesKey("strict_broadcast_sender_validation")
+        private val KEY_LOCAL_COMMAND_FALLBACK_ENABLED = booleanPreferencesKey("local_command_fallback_enabled")
+        private val KEY_LOCAL_COMMAND_PACKAGE = stringPreferencesKey("local_command_package")
+        private val KEY_LOCAL_COMMAND_ACTION = stringPreferencesKey("local_command_action")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
         private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
@@ -179,6 +191,8 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
         private const val DEFAULT_MAX_ACTIONS_6H = 3
         private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
+        private const val DEFAULT_LOCAL_COMMAND_PACKAGE = "info.nightscout.androidaps"
+        private const val DEFAULT_LOCAL_COMMAND_ACTION = "info.nightscout.client.NEW_TREATMENT"
     }
 }
 
@@ -191,6 +205,9 @@ data class AppSettings(
     val rootExperimentalEnabled: Boolean,
     val localBroadcastIngestEnabled: Boolean,
     val strictBroadcastSenderValidation: Boolean,
+    val localCommandFallbackEnabled: Boolean,
+    val localCommandPackage: String,
+    val localCommandAction: String,
     val baseTargetMmol: Double,
     val postHypoThresholdMmol: Double,
     val postHypoDeltaThresholdMmol5m: Double,

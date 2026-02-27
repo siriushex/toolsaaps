@@ -105,6 +105,11 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
     var nsSecret by remember { mutableStateOf("") }
     var cloudUrl by remember(state.cloudUrl) { mutableStateOf(state.cloudUrl) }
     var exportUri by remember(state.exportUri) { mutableStateOf(state.exportUri.orEmpty()) }
+    var localCommandFallbackEnabled by remember(state.localCommandFallbackEnabled) {
+        mutableStateOf(state.localCommandFallbackEnabled)
+    }
+    var localCommandPackage by remember(state.localCommandPackage) { mutableStateOf(state.localCommandPackage) }
+    var localCommandAction by remember(state.localCommandAction) { mutableStateOf(state.localCommandAction) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -145,6 +150,38 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
                 "Permissive mode: accept broadcasts when sender package cannot be resolved."
             }
         )
+        HorizontalDivider()
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Local temp target fallback relay")
+            Switch(
+                checked = localCommandFallbackEnabled,
+                onCheckedChange = { localCommandFallbackEnabled = it }
+            )
+        }
+        OutlinedTextField(
+            value = localCommandPackage,
+            onValueChange = { localCommandPackage = it },
+            label = { Text("Fallback package (optional)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = localCommandAction,
+            onValueChange = { localCommandAction = it },
+            label = { Text("Fallback action") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = {
+                vm.setLocalCommandFallbackConfig(
+                    enabled = localCommandFallbackEnabled,
+                    packageName = localCommandPackage,
+                    action = localCommandAction
+                )
+            }
+        ) {
+            Text("Save fallback relay")
+        }
+        Text("Use only for compatible AAPS forks; standard AAPS may ignore local treatment broadcasts.")
         if (!hasAllFilesAccess) {
             Button(onClick = {
                 val intent = Intent(
