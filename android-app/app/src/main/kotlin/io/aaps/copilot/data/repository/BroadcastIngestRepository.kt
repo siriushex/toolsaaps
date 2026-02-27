@@ -6,7 +6,7 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
-import io.aaps.copilot.util.UnitConverter
+import io.aaps.copilot.util.GlucoseUnitNormalizer
 import kotlin.math.abs
 import java.time.Instant
 import java.util.Locale
@@ -210,7 +210,7 @@ class BroadcastIngestRepository(
             listOf("com.eveningoutpost.dexdrip.Extras.Display.Units", "display.units", "display_units", "units", "unit")
         )?.lowercase(Locale.US)
             ?: if (glucose.key.lowercase(Locale.US).contains("mgdl")) "mgdl" else null
-        val mmol = normalizeGlucoseMmol(
+        val mmol = GlucoseUnitNormalizer.normalizeToMmol(
             valueRaw = glucose.valueRaw,
             valueKey = glucose.key,
             units = units
@@ -420,31 +420,6 @@ class BroadcastIngestRepository(
         action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
         action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
         else -> "local_broadcast"
-    }
-
-    private fun normalizeGlucoseMmol(
-        valueRaw: Double,
-        valueKey: String,
-        units: String?
-    ): Double {
-        val normalizedKey = normalizeKey(valueKey)
-        val keyIndicatesMgdl = normalizedKey.contains("mgdl")
-        val keyIndicatesMmol = normalizedKey.contains("mmol")
-        val keySuggestsBgEstimate = normalizedKey.contains("bgestimate")
-        val explicitMmol = units?.contains("mmol") == true
-        val explicitMg = units?.contains("mg") == true
-
-        return when {
-            keyIndicatesMgdl -> UnitConverter.mgdlToMmol(valueRaw)
-            keyIndicatesMmol -> valueRaw
-            explicitMg -> UnitConverter.mgdlToMmol(valueRaw)
-            // Some AAPS/xDrip payloads publish mg/dL values with display units=mmol.
-            explicitMmol && (valueRaw > 30.0 || (keySuggestsBgEstimate && valueRaw >= 18.0)) ->
-                UnitConverter.mgdlToMmol(valueRaw)
-            explicitMmol -> valueRaw
-            valueRaw > 35.0 -> UnitConverter.mgdlToMmol(valueRaw)
-            else -> valueRaw
-        }
     }
 
     private suspend fun pruneLegacyInvalidLocalBroadcastGlucose() {
