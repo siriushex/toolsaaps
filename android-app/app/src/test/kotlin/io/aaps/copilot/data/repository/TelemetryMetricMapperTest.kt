@@ -89,6 +89,22 @@ class TelemetryMetricMapperTest {
     }
 
     @Test
+    fun mapsFutureCarbsAndDropsZeroTherapyCarbs() {
+        val ts = 1_700_000_950_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "carbs" to "0",
+                "futureCarbs" to "12.5"
+            )
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey).doesNotContainKey("carbs_grams")
+        assertThat(byKey["future_carbs_grams"]?.valueDouble).isEqualTo(12.5)
+    }
+
+    @Test
     fun extractsProfilePercentAndIsfCr_fromStatusReasonText() {
         val ts = 1_700_001_000_000L
         val samples = TelemetryMetricMapper.fromKeyValueMap(

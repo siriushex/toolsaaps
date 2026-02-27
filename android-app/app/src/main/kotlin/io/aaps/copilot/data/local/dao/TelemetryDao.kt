@@ -21,4 +21,10 @@ interface TelemetryDao {
 
     @Query("DELETE FROM telemetry_samples WHERE key = :key AND valueDouble > :threshold")
     suspend fun deleteByKeyAboveThreshold(key: String, threshold: Double): Int
+
+    @Query(
+        "DELETE FROM telemetry_samples " +
+            "WHERE source = :source AND key = :key AND (valueDouble IS NULL OR valueDouble <= :threshold)"
+    )
+    suspend fun deleteBySourceAndKeyAtOrBelow(source: String, key: String, threshold: Double): Int
 }

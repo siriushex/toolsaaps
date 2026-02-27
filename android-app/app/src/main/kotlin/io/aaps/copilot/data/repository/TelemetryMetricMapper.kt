@@ -228,6 +228,7 @@ object TelemetryMetricMapper {
         addNumeric("cob_grams", "g", listOf("cob", "carbsonboard", "openaps.suggested.cob"))
         addNumericExact("carbs_grams", "g", listOf("carbs", "grams", "enteredCarbs", "mealCarbs"))
         addNumericExact("insulin_units", "U", listOf("insulin", "insulinUnits", "bolus", "enteredInsulin"))
+        addNumeric("future_carbs_grams", "g", listOf("futureCarbs", "future_carbs", "openaps.suggested.futureCarbs"))
         addDiaHours(
             "dia_hours",
             listOf("dia", "insulinActionTime", "insulinactiontime", "insulinEndTime", "insulinendtime", "iat")
@@ -553,8 +554,9 @@ object TelemetryMetricMapper {
         val inRange = when (sample.key) {
             "iob_units" -> value in 0.0..30.0
             "cob_grams" -> value in 0.0..400.0
-            "carbs_grams" -> value in 0.0..400.0
-            "insulin_units" -> value in 0.0..40.0
+            "carbs_grams" -> value in 0.1..400.0
+            "insulin_units" -> value in 0.01..40.0
+            "future_carbs_grams" -> value in 0.0..400.0
             "dia_hours" -> value in 0.5..24.0
             "steps_count" -> value in 0.0..150_000.0
             "activity_ratio" -> value in 0.2..3.0

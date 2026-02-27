@@ -8,6 +8,7 @@ import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.util.UnitConverter
 import kotlin.math.abs
+import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONArray
@@ -217,7 +218,7 @@ class BroadcastIngestRepository(
         if (mmol !in 1.0..33.0) return null
 
         val ts = normalizeTimestamp(
-            findLong(
+            findTimestamp(
                 extras,
                 listOf(
                     "com.eveningoutpost.dexdrip.Extras.Time",
@@ -344,6 +345,41 @@ class BroadcastIngestRepository(
             ?: raw.toDoubleOrNull()?.toLong()
     }
 
+    private fun findTimestamp(extras: Map<String, String>, keys: List<String>): Long? {
+        keys.forEach { key ->
+            val exact = extras.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value
+            val parsedExact = parseTimestampValue(exact)
+            if (parsedExact != null) return parsedExact
+        }
+        keys.forEach { key ->
+            val byToken = findStringByToken(extras, listOf(key))
+            val parsedToken = parseTimestampValue(byToken)
+            if (parsedToken != null) return parsedToken
+        }
+        return null
+    }
+
+    private fun parseTimestampValue(raw: String?): Long? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty()) return null
+
+        val numeric = trimmed.toLongOrNull()
+            ?: trimmed.toDoubleOrNull()?.toLong()
+        if (numeric != null) {
+            return if (numeric < 10_000_000_000L) numeric * 1000L else numeric
+        }
+
+        val iso = runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
+        if (iso != null) return iso
+
+        val normalized = if (trimmed.endsWith("Z") || trimmed.contains("+")) {
+            trimmed
+        } else {
+            trimmed.replace(' ', 'T') + "Z"
+        }
+        return runCatching { Instant.parse(normalized).toEpochMilli() }.getOrNull()
+    }
+
     private fun parseTelemetry(
         action: String,
         source: String,
@@ -358,13 +394,15 @@ class BroadcastIngestRepository(
 
         // Status broadcasts may arrive every few seconds; keep canonical metrics +
         // a minimal raw diagnostic subset to avoid DB contention and drops.
-        val canonical = mapped.filterNot { it.key.startsWith("raw_") }
+        val canonical = mapped.filterNot {
+            it.key.startsWith("raw_") || it.key in STATUS_EXCLUDED_CANONICAL_KEYS
+        }
         val diagnostic = mapped.filter { it.key in STATUS_DIAGNOSTIC_RAW_KEYS }
         return (canonical + diagnostic).distinctBy { it.id }
     }
 
     private fun extractTimestamp(extras: Map<String, String>): Long = normalizeTimestamp(
-        findLong(
+        findTimestamp(
             extras,
             listOf(
                 "com.eveningoutpost.dexdrip.Extras.Time",
@@ -428,15 +466,35 @@ class BroadcastIngestRepository(
             key = "uam_value",
             threshold = 1.5
         )
+        val removedStatusCarbsNoise = db.telemetryDao().deleteBySourceAndKeyAtOrBelow(
+            source = "aaps_broadcast",
+            key = "carbs_grams",
+            threshold = 0.0
+        )
+        val removedStatusInsulinNoise = db.telemetryDao().deleteBySourceAndKeyAtOrBelow(
+            source = "aaps_broadcast",
+            key = "insulin_units",
+            threshold = 0.0
+        )
         val dedupNightscout = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "nightscout")
         val dedupAaps = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "aaps_broadcast")
         val dedupLocal = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "local_broadcast")
-        if (removedTherapy > 0 || removedUam > 0 || dedupNightscout > 0 || dedupAaps > 0 || dedupLocal > 0) {
+        if (
+            removedTherapy > 0 ||
+            removedUam > 0 ||
+            removedStatusCarbsNoise > 0 ||
+            removedStatusInsulinNoise > 0 ||
+            dedupNightscout > 0 ||
+            dedupAaps > 0 ||
+            dedupLocal > 0
+        ) {
             auditLogger.info(
                 "broadcast_legacy_cleanup",
                 mapOf(
                     "therapyRemoved" to removedTherapy,
                     "telemetryRemoved" to removedUam,
+                    "statusCarbsNoiseRemoved" to removedStatusCarbsNoise,
+                    "statusInsulinNoiseRemoved" to removedStatusInsulinNoise,
                     "glucoseDedupNightscout" to dedupNightscout,
                     "glucoseDedupAaps" to dedupAaps,
                     "glucoseDedupLocal" to dedupLocal
@@ -519,6 +577,13 @@ class BroadcastIngestRepository(
         private const val GLUCOSE_OUTLIER_WINDOW_MS = 10 * 60_000L
         private const val GLUCOSE_OUTLIER_DELTA_MMOL = 8.0
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
+
+        private val STATUS_EXCLUDED_CANONICAL_KEYS = setOf(
+            // status payloads may carry these as predictive/placeholder values (often zero),
+            // not confirmed therapy entries.
+            "carbs_grams",
+            "insulin_units"
+        )
 
         private val STATUS_DIAGNOSTIC_RAW_KEYS = setOf(
             "raw_reason",
