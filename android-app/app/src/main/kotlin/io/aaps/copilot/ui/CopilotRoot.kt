@@ -183,12 +183,15 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         Text(
             "Loopback URL for AAPS/Copilot: https://127.0.0.1:${localNightscoutPort.toIntOrNull() ?: state.localNightscoutPort}"
         )
-        Text("If AAPS reports certificate errors, allow self-signed certificate for this loopback endpoint.")
+        Text("If AAPS reports TLS errors, install Copilot certificate as CA in Android and restart NSClient.")
         Button(onClick = vm::installLocalNightscoutCertificate) {
             Text("Install loopback TLS certificate")
         }
         Button(onClick = vm::exportLocalNightscoutCertificate) {
-            Text("Export loopback TLS certificate (.crt)")
+            Text("Export loopback TLS certificate (.cer/.crt)")
+        }
+        Button(onClick = vm::openCertificateSettings) {
+            Text("Open certificate settings")
         }
         HorizontalDivider()
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {

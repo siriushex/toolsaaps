@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import android.security.KeyChain
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -503,34 +504,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val context = getApplication<Application>().applicationContext
                 val certificate = LocalNightscoutTls.loadCertificate(context)
-                val pem = LocalNightscoutTls.toPem(certificate).toByteArray()
-                val fileName = "copilot-local-nightscout-127.0.0.1.crt"
-
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/x-x509-ca-cert")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        put(MediaStore.MediaColumns.IS_PENDING, 1)
-                    }
-                }
+                val derBytes = certificate.encoded
+                val pemBytes = LocalNightscoutTls.toPem(certificate).toByteArray()
                 val resolver = context.contentResolver
-                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    ?: error("failed_to_create_download_entry")
-                resolver.openOutputStream(uri)?.use { output ->
-                    output.write(pem)
-                } ?: error("failed_to_open_output_stream")
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val finalizeValues = ContentValues().apply {
-                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                fun exportDownload(fileName: String, mimeType: String, payload: ByteArray) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
                     }
-                    resolver.update(uri, finalizeValues, null, null)
+                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                        ?: error("failed_to_create_download_entry:$fileName")
+                    resolver.openOutputStream(uri)?.use { output ->
+                        output.write(payload)
+                    } ?: error("failed_to_open_output_stream:$fileName")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val finalizeValues = ContentValues().apply {
+                            put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        }
+                        resolver.update(uri, finalizeValues, null, null)
+                    }
                 }
-                uri
+
+                exportDownload(
+                    fileName = "copilot-local-nightscout-127.0.0.1.cer",
+                    mimeType = "application/pkix-cert",
+                    payload = derBytes
+                )
+                exportDownload(
+                    fileName = "copilot-local-nightscout-127.0.0.1.crt",
+                    mimeType = "application/x-x509-ca-cert",
+                    payload = pemBytes
+                )
             }.onSuccess {
                 messageState.value =
-                    "TLS certificate exported to Downloads. Install it in Android as CA certificate, then reconnect AAPS NSClient."
+                    "TLS cert exported to Downloads (.cer + .crt). Install as CA certificate in Android, then reconnect AAPS NSClient."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
             }
@@ -550,9 +562,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 context.startActivity(installIntent)
             }.onSuccess {
                 messageState.value =
-                    "System certificate installer opened. Install as CA certificate if offered, then restart AAPS NSClient."
+                    "System certificate installer opened. If CA install is not offered, export cert and install it manually from Android settings."
             }.onFailure {
                 messageState.value = "Certificate install launch failed: ${it.message}"
+            }
+        }
+    }
+
+    fun openCertificateSettings() {
+        viewModelScope.launch {
+            runCatching {
+                val context = getApplication<Application>().applicationContext
+                val intent = Intent(Settings.ACTION_SECURITY_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            }.onSuccess {
+                messageState.value = "Android security settings opened. Install CA certificate from Downloads."
+            }.onFailure {
+                messageState.value = "Failed to open security settings: ${it.message}"
             }
         }
     }

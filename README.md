@@ -81,7 +81,7 @@ Transport note:
 - For `temp target` and `carbs` delivery into AAPS loop, use Nightscout API path.
 - Built-in local Nightscout emulator is available in app:
   `Onboarding & Connect -> Local Nightscout emulator (127.0.0.1)`.
-  For `https://127.0.0.1:<port>` in AAPS, install Copilot certificate in Android as **CA certificate**.
+  For `https://127.0.0.1:<port>` in AAPS, install Copilot certificate in Android as **CA certificate** (`.cer` preferred).
   It exposes:
   - `GET /api/v1/status.json`
   - `GET/POST /api/v1/entries(.json)` and `GET/POST /api/v1/entries/sgv.json`
