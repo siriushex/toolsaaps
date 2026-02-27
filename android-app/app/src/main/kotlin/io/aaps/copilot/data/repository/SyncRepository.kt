@@ -9,6 +9,7 @@ import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.remote.cloud.CloudGlucosePoint
 import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
 import io.aaps.copilot.data.remote.cloud.SyncPushRequest
+import io.aaps.copilot.data.remote.nightscout.NightscoutDeviceStatus
 import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.TherapyEvent
@@ -54,40 +55,84 @@ class SyncRepository(
                 "count" to "2000",
                 "find[created_at][\$gte]" to Instant.ofEpochMilli(since).toString()
             )
-        ).mapNotNull { treatment ->
-            val ts = runCatching { Instant.parse(treatment.createdAt).toEpochMilli() }.getOrNull() ?: return@mapNotNull null
+        )
+
+        val treatmentRows = mutableListOf<TherapyEventEntity>()
+        val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
+
+        treatments.forEach { treatment ->
+            val ts = parseNightscoutTimestamp(treatment.createdAt) ?: return@forEach
             val payload = mutableMapOf<String, String>()
             treatment.duration?.let { payload["duration"] = it.toString() }
             treatment.targetTop?.let { payload["targetTop"] = it.toString() }
             treatment.targetBottom?.let { payload["targetBottom"] = it.toString() }
             treatment.reason?.let { payload["reason"] = it }
             treatment.notes?.let { payload["notes"] = it }
+            treatment.carbs?.let { payload["carbs"] = it.toString() }
+            treatment.insulin?.let { payload["insulin"] = it.toString() }
+            treatment.enteredBy?.let { payload["enteredBy"] = it }
+            treatment.absolute?.let { payload["absolute"] = it.toString() }
+            treatment.rate?.let { payload["rate"] = it.toString() }
+            treatment.percentage?.let { payload["percentage"] = it.toString() }
 
             val id = treatment.id ?: "ns-$ts-${treatment.eventType.hashCode()}"
-            TherapyEventEntity(
+            treatmentRows += TherapyEventEntity(
                 id = id,
                 timestamp = ts,
                 type = normalizeEventType(treatment.eventType),
                 payloadJson = gson.toJson(payload)
             )
+            telemetryRows += TelemetryMetricMapper.fromNightscoutTreatment(
+                timestamp = ts,
+                source = SOURCE_NIGHTSCOUT_TREATMENT,
+                eventType = treatment.eventType,
+                payload = payload
+            )
+        }
+
+        val deviceStatuses = runCatching {
+            nsApi.getDeviceStatus(
+                mapOf(
+                    "count" to "2000",
+                    "find[created_at][\$gte]" to Instant.ofEpochMilli(since).toString()
+                )
+            )
+        }.onFailure {
+            auditLogger.warn("nightscout_devicestatus_failed", mapOf("error" to (it.message ?: "unknown")))
+        }.getOrDefault(emptyList())
+
+        deviceStatuses.forEach { status ->
+            val ts = parseNightscoutTimestamp(status.createdAt) ?: status.date ?: return@forEach
+            telemetryRows += telemetryFromDeviceStatus(status, ts)
         }
 
         if (glucoseRows.isNotEmpty()) {
             db.glucoseDao().upsertAll(glucoseRows)
         }
-        if (treatments.isNotEmpty()) {
-            db.therapyDao().upsertAll(treatments)
+        if (treatmentRows.isNotEmpty()) {
+            db.therapyDao().upsertAll(treatmentRows)
+        }
+        if (telemetryRows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
         }
 
         val nextSince = maxOf(
             glucoseRows.maxOfOrNull { it.timestamp } ?: since,
-            treatments.maxOfOrNull { it.timestamp } ?: since
+            treatmentRows.maxOfOrNull { it.timestamp } ?: since,
+            deviceStatuses.maxOfOrNull { parseNightscoutTimestamp(it.createdAt) ?: it.date ?: 0L } ?: since
         )
 
         db.syncStateDao().upsert(SyncStateEntity(source = SOURCE_NIGHTSCOUT, lastSyncedTimestamp = nextSince))
         auditLogger.info(
             "nightscout_sync_completed",
-            mapOf("since" to since, "nextSince" to nextSince, "glucose" to glucoseRows.size, "treatments" to treatments.size)
+            mapOf(
+                "since" to since,
+                "nextSince" to nextSince,
+                "glucose" to glucoseRows.size,
+                "treatments" to treatmentRows.size,
+                "telemetry" to telemetryRows.size,
+                "deviceStatus" to deviceStatuses.size
+            )
         )
     }
 
@@ -182,8 +227,32 @@ class SyncRepository(
         }.getOrDefault(emptyMap())
     }
 
+    private fun parseNightscoutTimestamp(raw: String?): Long? {
+        if (raw.isNullOrBlank()) return null
+        val trimmed = raw.trim()
+        return runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
+            ?: trimmed.toLongOrNull()?.let { ts -> if (ts < 10_000_000_000L) ts * 1000L else ts }
+    }
+
+    private fun telemetryFromDeviceStatus(
+        status: NightscoutDeviceStatus,
+        timestamp: Long
+    ): List<io.aaps.copilot.data.local.entity.TelemetrySampleEntity> {
+        val flattened = linkedMapOf<String, String>()
+        TelemetryMetricMapper.flattenAny("openaps", status.openaps, flattened)
+        TelemetryMetricMapper.flattenAny("pump", status.pump, flattened)
+        TelemetryMetricMapper.flattenAny("uploader", status.uploader, flattened)
+        return TelemetryMetricMapper.fromFlattenedNightscoutDeviceStatus(
+            timestamp = timestamp,
+            source = SOURCE_NIGHTSCOUT_DEVICESTATUS,
+            flattened = flattened
+        )
+    }
+
     companion object {
         private const val SOURCE_NIGHTSCOUT = "nightscout"
         private const val SOURCE_CLOUD_PUSH = "cloud_push"
+        private const val SOURCE_NIGHTSCOUT_TREATMENT = "nightscout_treatment"
+        private const val SOURCE_NIGHTSCOUT_DEVICESTATUS = "nightscout_devicestatus"
     }
 }

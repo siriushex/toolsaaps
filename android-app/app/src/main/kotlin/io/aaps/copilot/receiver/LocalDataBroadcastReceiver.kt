@@ -59,7 +59,8 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
                         mapOf(
                             "action" to payload.action.orEmpty(),
                             "glucose" to result.glucoseImported,
-                            "therapy" to result.therapyImported
+                            "therapy" to result.therapyImported,
+                            "telemetry" to result.telemetryImported
                         )
                     )
                 }

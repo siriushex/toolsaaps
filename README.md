@@ -5,6 +5,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Full-history Nightscout sync + AAPS export baseline import
 - Auto-bootstrap on first launch: AAPS export path discovery + optional root bootstrap for local DB
 - Local real-time intake via broadcast (`com.eveningoutpost.dexdrip.*`, `info.nightscout.client.*`)
+- Telemetry layer for full context snapshot (IOB/COB/carbs/insulin/DIA/steps/activity/temp-target + raw incoming metrics)
 - Incremental cloud sync pull/push (`/v1/sync/pull`, `/v1/sync/push`)
 - 5m and 1h glucose forecasts (on-device + optional cloud override)
 - Rule engine with hard safety guardrails and kill switch
@@ -27,6 +28,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Daily analysis history with filters (source/status/days) + weekly trend (weeks)
 - Insights export (history + trend) to CSV/PDF
 - Daily AI insights via OpenAI on backend
+- Dedicated `Telemetry` screen with coverage status for key parameters and full latest-by-key input list
 
 ## Structure
 
@@ -73,6 +75,7 @@ Transport note:
 - Standard AAPS builds receive local BG broadcasts, but treatment commands are not consumed from the
   same local broadcast channel.
 - For `temp target` and `carbs` delivery into AAPS loop, use Nightscout API path.
+- Nightscout sync also ingests `devicestatus` and maps known telemetry keys into local snapshot storage.
 
 Quick manual test:
 

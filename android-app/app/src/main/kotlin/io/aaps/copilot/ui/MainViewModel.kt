@@ -14,6 +14,7 @@ import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
 import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.SyncStateEntity
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.repository.CloudAnalysisHistoryUiModel
 import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
@@ -61,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         db.baselineDao().observeLatest(limit = 600),
         db.ruleExecutionDao().observeLatest(limit = 20),
         db.auditLogDao().observeLatest(limit = 50),
+        db.telemetryDao().observeLatest(limit = 1500),
         container.analyticsRepository.observePatterns(),
         container.analyticsRepository.observeProfileEstimate(),
         container.analyticsRepository.observeProfileSegments(),
@@ -85,20 +87,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Suppress("UNCHECKED_CAST")
         val audits = values[4] as List<AuditLogEntity>
         @Suppress("UNCHECKED_CAST")
-        val patterns = values[5] as List<PatternWindowEntity>
-        val profile = values[6] as ProfileEstimateEntity?
+        val telemetry = values[5] as List<TelemetrySampleEntity>
         @Suppress("UNCHECKED_CAST")
-        val profileSegments = values[7] as List<ProfileSegmentEstimateEntity>
+        val patterns = values[6] as List<PatternWindowEntity>
+        val profile = values[7] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[8] as List<SyncStateEntity>
-        val settings = values[9] as AppSettings
-        val message = values[10] as String?
-        val dryRun = values[11] as DryRunUi?
-        val cloudReplay = values[12] as CloudReplayUiModel?
-        val cloudJobs = values[13] as CloudJobsUiModel?
-        val analysisHistory = values[14] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[15] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[16] as InsightsFilterUi
+        val profileSegments = values[8] as List<ProfileSegmentEstimateEntity>
+        @Suppress("UNCHECKED_CAST")
+        val syncStates = values[9] as List<SyncStateEntity>
+        val settings = values[10] as AppSettings
+        val message = values[11] as String?
+        val dryRun = values[12] as DryRunUi?
+        val cloudReplay = values[13] as CloudReplayUiModel?
+        val cloudJobs = values[14] as CloudJobsUiModel?
+        val analysisHistory = values[15] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[16] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[17] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -187,6 +191,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "${item.weekStart}: runs=${item.totalRuns}, ok=${item.successRuns}, fail=${item.failedRuns}, an=${item.anomaliesCount}, rec=${item.recommendationsCount}"
         } ?: emptyList()
         val ruleCooldownLines = buildRuleCooldownLines(ruleExec, settings, now)
+        val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, now)
+        val telemetryLines = buildTelemetryLines(telemetry)
         val profileSegmentLines = profileSegments
             .sortedWith(compareBy<ProfileSegmentEstimateEntity> { it.dayType }.thenBy { it.timeSlot })
             .map { segment ->
@@ -281,6 +287,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             baselineDeltaLines = baselineDeltas.map {
                 "${it.horizonMinutes}m ${it.algorithm}: ${if (it.deltaMmol >= 0) "+" else ""}${"%.2f".format(it.deltaMmol)} mmol/L"
             },
+            telemetryCoverageLines = telemetryCoverageLines,
+            telemetryLines = telemetryLines,
             transportStatusLines = transportStatusLines,
             syncStatusLines = syncStatusLines,
             jobStatusLines = jobStatusLines,
@@ -710,6 +718,89 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    private fun buildTelemetryCoverageLines(
+        samples: List<TelemetrySampleEntity>,
+        nowTs: Long
+    ): List<String> {
+        if (samples.isEmpty()) {
+            return listOf("No telemetry received yet")
+        }
+        val latestByKey = latestTelemetryByKey(samples)
+        val required = listOf(
+            Triple("iob_units", "IOB", 30L),
+            Triple("cob_grams", "COB", 30L),
+            Triple("carbs_grams", "Carbs", 240L),
+            Triple("insulin_units", "Insulin", 240L),
+            Triple("dia_hours", "DIA", 24 * 60L),
+            Triple("steps_count", "Steps", 24 * 60L),
+            Triple("activity_ratio", "Activity ratio", 180L),
+            Triple("heart_rate_bpm", "Heart rate", 180L),
+            Triple("isf_value", "ISF", 7 * 24 * 60L),
+            Triple("cr_value", "CR", 7 * 24 * 60L)
+        )
+        return required.map { (key, label, staleThresholdMin) ->
+            val sample = latestByKey[key]
+            if (sample == null) {
+                "$label: MISSING"
+            } else {
+                val ageMin = ((nowTs - sample.timestamp).coerceAtLeast(0L)) / 60_000L
+                val freshness = if (ageMin <= staleThresholdMin) "fresh" else "stale ${ageMin}m"
+                "$label: ${formatTelemetryLine(sample)} [$freshness]"
+            }
+        }
+    }
+
+    private fun buildTelemetryLines(samples: List<TelemetrySampleEntity>): List<String> {
+        if (samples.isEmpty()) return emptyList()
+        val latestByKey = latestTelemetryByKey(samples)
+        val primaryKeys = listOf(
+            "iob_units",
+            "cob_grams",
+            "carbs_grams",
+            "insulin_units",
+            "dia_hours",
+            "steps_count",
+            "activity_ratio",
+            "activity_label",
+            "heart_rate_bpm",
+            "isf_value",
+            "cr_value",
+            "basal_rate_u_h",
+            "insulin_req_units",
+            "temp_target_low_mmol",
+            "temp_target_high_mmol",
+            "temp_target_duration_min",
+            "profile_percent"
+        )
+        val primaryLines = primaryKeys.mapNotNull { key ->
+            latestByKey[key]?.let { sample -> formatTelemetryLine(sample) }
+        }
+        val otherLines = latestByKey
+            .filterKeys { it !in primaryKeys }
+            .values
+            .sortedBy { it.key }
+            .map { sample -> formatTelemetryLine(sample) }
+        return primaryLines + otherLines
+    }
+
+    private fun latestTelemetryByKey(samples: List<TelemetrySampleEntity>): Map<String, TelemetrySampleEntity> {
+        return samples
+            .groupBy { it.key }
+            .mapValues { (_, values) -> values.maxByOrNull { it.timestamp } }
+            .filterValues { it != null }
+            .mapValues { it.value!! }
+    }
+
+    private fun formatTelemetryLine(sample: TelemetrySampleEntity): String {
+        val title = sample.key.replace('_', ' ')
+        val value = sample.valueDouble?.let {
+            if (sample.unit == "steps") String.format("%.0f", it) else String.format("%.2f", it)
+        } ?: sample.valueText.orEmpty()
+        val unit = sample.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+        return "$title: $value$unit (${sample.source}, ${formatTs(sample.timestamp)})"
+    }
+
 }
 
 data class MainUiState(
@@ -759,6 +850,8 @@ data class MainUiState(
     val weekendHotHours: List<PatternWindow> = emptyList(),
     val qualityMetrics: List<QualityMetricUi> = emptyList(),
     val baselineDeltaLines: List<String> = emptyList(),
+    val telemetryCoverageLines: List<String> = emptyList(),
+    val telemetryLines: List<String> = emptyList(),
     val transportStatusLines: List<String> = emptyList(),
     val syncStatusLines: List<String> = emptyList(),
     val jobStatusLines: List<String> = emptyList(),

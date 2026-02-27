@@ -40,6 +40,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 private enum class Screen(val title: String) {
     ONBOARDING("Onboarding & Connect"),
     DASHBOARD("Live Dashboard"),
+    TELEMETRY("Telemetry"),
     FORECAST("Forecast Studio"),
     REPLAY("Replay Lab"),
     RULES("Rules & Automation"),
@@ -80,6 +81,7 @@ fun CopilotRoot(vm: MainViewModel = viewModel()) {
             when (screen) {
                 Screen.ONBOARDING -> OnboardingScreen(state, vm)
                 Screen.DASHBOARD -> DashboardScreen(state, vm)
+                Screen.TELEMETRY -> TelemetryScreen(state)
                 Screen.FORECAST -> ForecastScreen(state)
                 Screen.REPLAY -> ReplayLabScreen(state, vm)
                 Screen.RULES -> RulesScreen(state, vm)
@@ -179,21 +181,67 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
 
 @Composable
 private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Current glucose: ${state.latestGlucoseMmol?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
-        Text("Delta: ${state.glucoseDelta?.let { String.format("%+.2f", it) } ?: "-"}")
-        Text("Forecast 5m: ${state.forecast5m?.let { String.format("%.2f", it) } ?: "-"}")
-        Text("Forecast 1h: ${state.forecast60m?.let { String.format("%.2f", it) } ?: "-"}")
-        Text("Last rule: ${state.lastRuleId ?: "-"} / ${state.lastRuleState ?: "-"}")
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = vm::runAutomationNow) { Text("Run automation") }
-            Button(onClick = vm::runDailyAnalysisNow) { Text("Run daily analysis") }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Current glucose: ${state.latestGlucoseMmol?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
+            Text("Delta: ${state.glucoseDelta?.let { String.format("%+.2f", it) } ?: "-"}")
+            Text("Forecast 5m: ${state.forecast5m?.let { String.format("%.2f", it) } ?: "-"}")
+            Text("Forecast 1h: ${state.forecast60m?.let { String.format("%.2f", it) } ?: "-"}")
+            Text("Last rule: ${state.lastRuleId ?: "-"} / ${state.lastRuleState ?: "-"}")
         }
 
-        HorizontalDivider()
-        Text("Sync health")
-        state.syncStatusLines.forEach { Text(it) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = vm::runAutomationNow) { Text("Run automation") }
+                Button(onClick = vm::runDailyAnalysisNow) { Text("Run daily analysis") }
+            }
+        }
+
+        item {
+            HorizontalDivider()
+            Text("Sync health")
+        }
+        items(state.syncStatusLines) { Text(it) }
+
+        item {
+            HorizontalDivider()
+            Text("Telemetry coverage")
+        }
+        items(state.telemetryCoverageLines) { Text(it) }
+
+        item {
+            HorizontalDivider()
+            Text("Telemetry snapshot (top 12)")
+        }
+        if (state.telemetryLines.isEmpty()) {
+            item { Text("No telemetry yet") }
+        } else {
+            items(state.telemetryLines.take(12)) { Text(it) }
+            item { Text("Open 'Telemetry' screen for full list") }
+        }
+    }
+}
+
+@Composable
+private fun TelemetryScreen(state: MainUiState) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Telemetry coverage")
+        }
+        items(state.telemetryCoverageLines) { line ->
+            Text(line)
+        }
+        item {
+            HorizontalDivider()
+            Text("All incoming parameters (latest by key)")
+        }
+        if (state.telemetryLines.isEmpty()) {
+            item { Text("No telemetry yet") }
+        } else {
+            items(state.telemetryLines) { line ->
+                Text(line)
+            }
+        }
     }
 }
 

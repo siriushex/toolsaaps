@@ -13,6 +13,9 @@ interface NightscoutApi {
     @GET("api/v1/treatments.json")
     suspend fun getTreatments(@QueryMap query: Map<String, String>): List<NightscoutTreatment>
 
+    @GET("api/v1/devicestatus.json")
+    suspend fun getDeviceStatus(@QueryMap query: Map<String, String>): List<NightscoutDeviceStatus>
+
     @POST("api/v1/treatments.json")
     suspend fun postTreatment(@Body request: NightscoutTreatmentRequest): NightscoutTreatment
 }

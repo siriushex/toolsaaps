@@ -17,15 +17,18 @@ class BroadcastIngestRepository(
         val action = intent.action.orEmpty()
         if (action.isBlank()) {
             auditLogger.warn("broadcast_ingest_skipped", mapOf("reason" to "missing_action"))
-            return IngestResult(0, 0, "missing_action")
+            return IngestResult(0, 0, 0, "missing_action")
         }
 
         val extras = flattenExtras(intent)
+        val source = resolveSource(action)
         val glucose = parseGlucose(action, extras)
         val therapy = parseTherapy(action, extras)
+        val telemetry = parseTelemetry(action, source, extras)
 
         var importedGlucose = 0
         var importedTherapy = 0
+        var importedTelemetry = 0
 
         glucose?.let { sample ->
             val maxTs = db.glucoseDao().maxTimestamp() ?: 0L
@@ -38,20 +41,29 @@ class BroadcastIngestRepository(
             db.therapyDao().upsertAll(therapy)
             importedTherapy = therapy.size
         }
+        if (telemetry.isNotEmpty()) {
+            db.telemetryDao().upsertAll(telemetry)
+            importedTelemetry = telemetry.size
+        }
 
-        if (importedGlucose == 0 && importedTherapy == 0) {
+        if (importedGlucose == 0 && importedTherapy == 0 && importedTelemetry == 0) {
             auditLogger.warn(
                 "broadcast_ingest_no_data",
                 mapOf("action" to action, "keys" to extras.keys.take(20))
             )
-            return IngestResult(0, 0, "no_supported_payload")
+            return IngestResult(0, 0, 0, "no_supported_payload")
         }
 
         auditLogger.info(
             "broadcast_ingest_completed",
-            mapOf("action" to action, "glucose" to importedGlucose, "therapy" to importedTherapy)
+            mapOf(
+                "action" to action,
+                "glucose" to importedGlucose,
+                "therapy" to importedTherapy,
+                "telemetry" to importedTelemetry
+            )
         )
-        return IngestResult(importedGlucose, importedTherapy, null)
+        return IngestResult(importedGlucose, importedTherapy, importedTelemetry, null)
     }
 
     @Suppress("DEPRECATION")
@@ -74,21 +86,46 @@ class BroadcastIngestRepository(
         return runCatching {
             when {
                 trimmed.startsWith("{") -> {
-                    val obj = JSONObject(trimmed)
-                    obj.keys().asSequence().associateWith { key -> obj.opt(key)?.toString().orEmpty() }
+                    val out = linkedMapOf<String, String>()
+                    flattenJsonValue(prefix = "", value = JSONObject(trimmed), out = out)
+                    out
                 }
                 trimmed.startsWith("[") -> {
                     val array = JSONArray(trimmed)
                     if (array.length() == 0) {
                         emptyMap()
                     } else {
-                        val first = array.optJSONObject(0) ?: return@runCatching emptyMap()
-                        first.keys().asSequence().associateWith { key -> first.opt(key)?.toString().orEmpty() }
+                        val out = linkedMapOf<String, String>()
+                        flattenJsonValue(prefix = "", value = array, out = out)
+                        out
                     }
                 }
                 else -> emptyMap()
             }
         }.getOrDefault(emptyMap())
+    }
+
+    private fun flattenJsonValue(prefix: String, value: Any?, out: MutableMap<String, String>) {
+        when (value) {
+            null -> return
+            is JSONObject -> {
+                val iterator = value.keys()
+                while (iterator.hasNext()) {
+                    val key = iterator.next()
+                    val nextPrefix = if (prefix.isBlank()) key else "$prefix.$key"
+                    flattenJsonValue(nextPrefix, value.opt(key), out)
+                }
+            }
+            is JSONArray -> {
+                for (index in 0 until value.length()) {
+                    val nextPrefix = if (prefix.isBlank()) "[$index]" else "$prefix[$index]"
+                    flattenJsonValue(nextPrefix, value.opt(index), out)
+                }
+            }
+            else -> if (prefix.isNotBlank()) {
+                out[prefix] = value.toString()
+            }
+        }
     }
 
     private fun parseGlucose(action: String, extras: Map<String, String>): GlucoseSampleEntity? {
@@ -129,11 +166,7 @@ class BroadcastIngestRepository(
             ) ?: System.currentTimeMillis()
         )
 
-        val source = when {
-            action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
-            action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
-            else -> "local_broadcast"
-        }
+        val source = resolveSource(action)
 
         return GlucoseSampleEntity(
             timestamp = ts,
@@ -144,25 +177,8 @@ class BroadcastIngestRepository(
     }
 
     private fun parseTherapy(action: String, extras: Map<String, String>): List<TherapyEventEntity> {
-        val ts = normalizeTimestamp(
-            findLong(
-                extras,
-                listOf(
-                    "timestamp",
-                    "time",
-                    "date",
-                    "mills",
-                    "created_at",
-                    "com.eveningoutpost.dexdrip.Extras.Time"
-                )
-            ) ?: System.currentTimeMillis()
-        )
-
-        val source = when {
-            action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
-            action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
-            else -> "local_broadcast"
-        }
+        val ts = extractTimestamp(extras)
+        val source = resolveSource(action)
 
         if (action.endsWith("BgEstimateNoData")) {
             return listOf(
@@ -240,6 +256,36 @@ class BroadcastIngestRepository(
             ?: raw.toDoubleOrNull()?.toLong()
     }
 
+    private fun parseTelemetry(
+        action: String,
+        source: String,
+        extras: Map<String, String>
+    ) = TelemetryMetricMapper.fromKeyValueMap(
+        timestamp = extractTimestamp(extras),
+        source = source,
+        values = extras
+    )
+
+    private fun extractTimestamp(extras: Map<String, String>): Long = normalizeTimestamp(
+        findLong(
+            extras,
+            listOf(
+                "com.eveningoutpost.dexdrip.Extras.Time",
+                "timestamp",
+                "time",
+                "date",
+                "mills",
+                "created_at"
+            )
+        ) ?: System.currentTimeMillis()
+    )
+
+    private fun resolveSource(action: String): String = when {
+        action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
+        action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
+        else -> "local_broadcast"
+    }
+
     private fun normalizeTimestamp(ts: Long): Long {
         if (ts < 10_000_000_000L) return ts * 1000L
         return ts
@@ -248,6 +294,7 @@ class BroadcastIngestRepository(
     data class IngestResult(
         val glucoseImported: Int,
         val therapyImported: Int,
+        val telemetryImported: Int,
         val warning: String?
     )
 }
