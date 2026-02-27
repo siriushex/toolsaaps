@@ -167,6 +167,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val lastLocalNsTreatments = audits.firstOrNull { it.message == "local_nightscout_treatments_post" }
         val lastLocalNsDeviceStatus = audits.firstOrNull { it.message == "local_nightscout_devicestatus_post" }
         val lastLocalNsReactive = audits.firstOrNull { it.message == "local_nightscout_reactive_automation_enqueued" }
+        val tlsDiagnosticLines = buildAapsTlsDiagnosticLines(
+            settings = settings,
+            audits = audits,
+            nowTs = now
+        )
         val transportStatusLines = buildList {
             val effectiveNightscoutUrl = settings.resolvedNightscoutUrl()
             add(
@@ -236,6 +241,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "(channel=${auditMetaField(it, "channel") ?: "?"}, inserted=${auditMetaField(it, "inserted") ?: "?"}, telemetry=${auditMetaField(it, "telemetry") ?: "?"})"
                 )
             }
+            addAll(tlsDiagnosticLines)
         }
 
         val jobStatusLines = if (cloudJobs == null) {
@@ -839,6 +845,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun runAapsTlsDiagnostic() {
+        viewModelScope.launch {
+            val nowTs = System.currentTimeMillis()
+            val settings = container.settingsStore.settings.first()
+            val audits = db.auditLogDao().observeLatest(limit = 500).first()
+            val lines = buildAapsTlsDiagnosticLines(settings, audits, nowTs)
+            messageState.value = if (lines.isEmpty()) {
+                "AAPS TLS diagnostic: no data"
+            } else {
+                lines.take(3).joinToString(" | ")
+            }
+        }
+    }
+
     fun runDailyAnalysisNow() {
         viewModelScope.launch {
             val result = container.insightsRepository.runDailyAnalysis()
@@ -1082,6 +1102,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return host.equals("127.0.0.1") || host.equals("localhost", ignoreCase = true)
     }
 
+    private fun buildAapsTlsDiagnosticLines(
+        settings: AppSettings,
+        audits: List<AuditLogEntity>,
+        nowTs: Long
+    ): List<String> {
+        val loopbackUrl = "https://127.0.0.1:${settings.localNightscoutPort}"
+        if (!settings.localNightscoutEnabled) {
+            return listOf(
+                "AAPS TLS handshake: OFF",
+                "Source error: local Nightscout emulator is disabled",
+                "Hint 1: enable local Nightscout and save settings"
+            )
+        }
+
+        val recentStartFailure = audits.firstOrNull {
+            it.message == "local_nightscout_start_failed" &&
+                nowTs - it.timestamp <= LOCAL_NS_START_FAILURE_WINDOW_MS
+        }
+        if (recentStartFailure != null) {
+            val failureReason = auditMetaField(recentStartFailure, "error") ?: "unknown"
+            return listOf(
+                "AAPS TLS handshake: FAIL",
+                "Source error: local Nightscout start failed ($failureReason)",
+                "Hint 1: free/change local port and tap Save local Nightscout",
+                "Hint 2: confirm loopback URL in AAPS is $loopbackUrl"
+            )
+        }
+
+        val recentExternal = audits
+            .asSequence()
+            .filter { it.message == "local_nightscout_external_request" }
+            .filter { nowTs - it.timestamp <= TLS_DIAGNOSTIC_WINDOW_MS }
+            .toList()
+            .sortedByDescending { it.timestamp }
+
+        val recentOkHttp = recentExternal.filter {
+            auditMetaField(it, "source").equals("okhttp", ignoreCase = true)
+        }
+        if (recentOkHttp.isNotEmpty()) {
+            val last = recentOkHttp.first()
+            val method = auditMetaField(last, "method") ?: "GET"
+            val path = auditMetaField(last, "path") ?: "/api/v1/*"
+            return listOf(
+                "AAPS TLS handshake: OK",
+                "Last AAPS-like request: ${formatTs(last.timestamp)} ($method $path)",
+                "Loopback endpoint: $loopbackUrl"
+            )
+        }
+
+        val recentBrowser = recentExternal.filter {
+            auditMetaField(it, "source").equals("browser", ignoreCase = true)
+        }
+        val sourceError = if (recentBrowser.isNotEmpty()) {
+            "browser HTTPS traffic exists, but no AAPS/okhttp requests in last ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m"
+        } else {
+            "no successful external HTTPS requests to local NS in last ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m"
+        }
+        val secretHint = if (settings.apiSecret.isBlank()) {
+            "Hint 4: set non-empty API Secret in Copilot and AAPS"
+        } else {
+            "Hint 4: verify API Secret in AAPS equals Copilot value"
+        }
+        return listOf(
+            "AAPS TLS handshake: FAIL",
+            "Source error: $sourceError",
+            "Hint 1: in AAPS NSClient set URL exactly $loopbackUrl",
+            "Hint 2: install loopback certificate and trust it in Android",
+            "Hint 3: restart AAPS NSClient and trigger sync",
+            secretHint
+        )
+    }
+
     private fun buildActionLines(commands: List<ActionCommandEntity>): List<String> {
         if (commands.isEmpty()) return listOf("No auto-actions yet")
         return commands.take(12).map { command ->
@@ -1303,6 +1395,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } ?: sample.valueText.orEmpty()
         val unit = sample.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
         return "$title: $value$unit (${sample.source}, ${formatTs(sample.timestamp)})"
+    }
+
+    private companion object {
+        private const val TLS_DIAGNOSTIC_WINDOW_MINUTES = 15
+        private const val TLS_DIAGNOSTIC_WINDOW_MS = TLS_DIAGNOSTIC_WINDOW_MINUTES * 60_000L
+        private const val LOCAL_NS_START_FAILURE_WINDOW_MS = 60 * 60_000L
     }
 
 }

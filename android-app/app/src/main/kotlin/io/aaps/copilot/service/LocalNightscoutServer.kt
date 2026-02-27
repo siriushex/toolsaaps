@@ -147,8 +147,15 @@ class LocalNightscoutServer(
         private val onReactiveDataIngested: (() -> Unit)?
     ) : NanoHTTPD(HOST, port) {
 
+        @Volatile
+        private var lastExternalRequestLogTimestamp = 0L
+
+        @Volatile
+        private var lastExternalRequestSignature = ""
+
         override fun serve(session: IHTTPSession): Response {
             val path = session.uri.trim()
+            maybeAuditExternalRequest(session, path)
             return runCatching {
                 when {
                     path.isBlank() || path == "/" -> htmlOk(
@@ -191,6 +198,52 @@ class LocalNightscoutServer(
                     CONTENT_TYPE_JSON,
                     gson.toJson(mapOf("status" to "error", "message" to (error.message ?: "internal_error")))
                 )
+            }
+        }
+
+        private fun maybeAuditExternalRequest(session: IHTTPSession, path: String) {
+            if (!path.startsWith("/api/v1/", ignoreCase = true)) return
+            val copilotHeader = session.headers[HEADER_COPILOT_CLIENT]?.trim().orEmpty()
+            if (copilotHeader.isNotBlank()) return
+
+            val method = session.method.name
+            val userAgentRaw = session.headers["user-agent"]?.trim().orEmpty()
+            val userAgent = userAgentRaw.take(MAX_USER_AGENT_LENGTH)
+            val source = classifyExternalSource(userAgent)
+            val signature = "$source|$method|$path"
+            val nowTs = System.currentTimeMillis()
+
+            synchronized(this) {
+                if (
+                    lastExternalRequestSignature == signature &&
+                    nowTs - lastExternalRequestLogTimestamp < EXTERNAL_REQUEST_LOG_DEBOUNCE_MS
+                ) {
+                    return
+                }
+                lastExternalRequestSignature = signature
+                lastExternalRequestLogTimestamp = nowTs
+            }
+
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_external_request",
+                    mapOf(
+                        "method" to method,
+                        "path" to path,
+                        "source" to source,
+                        "remote" to session.remoteIpAddress.orEmpty(),
+                        "userAgent" to userAgent.ifBlank { "unknown" }
+                    )
+                )
+            }
+        }
+
+        private fun classifyExternalSource(userAgent: String): String {
+            return when {
+                userAgent.contains("okhttp", ignoreCase = true) -> "okhttp"
+                userAgent.contains("mozilla", ignoreCase = true) -> "browser"
+                userAgent.contains("dalvik", ignoreCase = true) -> "dalvik"
+                else -> "unknown"
             }
         }
 
@@ -614,14 +667,17 @@ class LocalNightscoutServer(
         }
     }
 
-        private companion object {
+    private companion object {
         private const val HOST = "127.0.0.1"
         private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
         private const val CONTENT_TYPE_HTML = "text/html; charset=utf-8"
         private const val SOCKET_TIMEOUT_MS = 15_000
+        private const val HEADER_COPILOT_CLIENT = "x-aaps-copilot-client"
+        private const val EXTERNAL_REQUEST_LOG_DEBOUNCE_MS = 2_000L
+        private const val MAX_USER_AGENT_LENGTH = 160
         private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
-            private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
-            private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
-            private const val PORT_SCAN_WINDOW = 30
-        }
+        private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
+        private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
+        private const val PORT_SCAN_WINDOW = 30
+    }
 }

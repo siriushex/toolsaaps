@@ -32,6 +32,12 @@ class ApiFactory {
         val base = normalizeBaseUrl(baseUrl)
         val clientBuilder = baseClientBuilder()
             .addInterceptor(NightscoutAuthInterceptor { apiSecret })
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header(COPILOT_CLIENT_HEADER, COPILOT_CLIENT_VALUE)
+                    .build()
+                chain.proceed(request)
+            }
         if (isLoopbackHttps(base)) {
             configureLoopbackTls(clientBuilder)
         }
@@ -92,5 +98,10 @@ class ApiFactory {
         builder.hostnameVerifier { hostname, _ ->
             hostname.equals("127.0.0.1") || hostname.equals("localhost", ignoreCase = true)
         }
+    }
+
+    private companion object {
+        private const val COPILOT_CLIENT_HEADER = "X-AAPS-Copilot-Client"
+        private const val COPILOT_CLIENT_VALUE = "io.aaps.predictivecopilot"
     }
 }

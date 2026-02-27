@@ -258,6 +258,9 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = vm::runNightscoutSelfTest) {
             Text("Run Nightscout self-test")
         }
+        Button(onClick = vm::runAapsTlsDiagnostic) {
+            Text("Run AAPS TLS diagnostic")
+        }
         if (state.transportStatusLines.isEmpty()) {
             Text("No transport diagnostics yet")
         } else {
