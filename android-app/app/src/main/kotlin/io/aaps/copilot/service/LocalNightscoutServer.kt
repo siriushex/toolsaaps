@@ -151,6 +151,22 @@ class LocalNightscoutServer(
             val path = session.uri.trim()
             return runCatching {
                 when {
+                    path.isBlank() || path == "/" -> htmlOk(
+                        """
+                        <html lang="en">
+                        <head><meta charset="utf-8"><title>AAPS Predictive Copilot Local Nightscout</title></head>
+                        <body>
+                        <h2>AAPS Predictive Copilot Local Nightscout</h2>
+                        <p>Loopback API is running.</p>
+                        <ul>
+                        <li><a href="/api/v1/status.json">/api/v1/status.json</a></li>
+                        <li><a href="/api/v1/entries/sgv.json?count=1">/api/v1/entries/sgv.json?count=1</a></li>
+                        <li><a href="/api/v1/treatments.json?count=1">/api/v1/treatments.json?count=1</a></li>
+                        </ul>
+                        </body>
+                        </html>
+                        """.trimIndent()
+                    )
                     path.equals("/api/v1/status.json", ignoreCase = true) -> jsonOk(
                         mapOf(
                             "status" to "ok",
@@ -535,6 +551,14 @@ class LocalNightscoutServer(
             )
         }
 
+        private fun htmlOk(body: String): Response {
+            return newFixedLengthResponse(
+                Response.Status.OK,
+                CONTENT_TYPE_HTML,
+                body
+            )
+        }
+
         private fun JsonElement.asJsonObjectOrNull(): JsonObject? {
             return if (isJsonObject) asJsonObject else null
         }
@@ -591,10 +615,11 @@ class LocalNightscoutServer(
     }
 
         private companion object {
-            private const val HOST = "127.0.0.1"
-            private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
-            private const val SOCKET_TIMEOUT_MS = 15_000
-            private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
+        private const val HOST = "127.0.0.1"
+        private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
+        private const val CONTENT_TYPE_HTML = "text/html; charset=utf-8"
+        private const val SOCKET_TIMEOUT_MS = 15_000
+        private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
             private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
             private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
             private const val PORT_SCAN_WINDOW = 30

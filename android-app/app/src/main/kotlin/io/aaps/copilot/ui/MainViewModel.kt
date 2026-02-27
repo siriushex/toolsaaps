@@ -2,9 +2,11 @@ package io.aaps.copilot.ui
 
 import android.app.Application
 import android.content.ContentValues
+import android.content.Intent
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.security.KeyChain
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
@@ -525,6 +527,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "TLS certificate exported to Downloads. Install it in Android as CA/User certificate, then reconnect AAPS NSClient."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
+            }
+        }
+    }
+
+    fun installLocalNightscoutCertificate() {
+        viewModelScope.launch {
+            runCatching {
+                val context = getApplication<Application>().applicationContext
+                val certificate = LocalNightscoutTls.loadCertificate(context)
+                val installIntent = KeyChain.createInstallIntent().apply {
+                    putExtra(KeyChain.EXTRA_CERTIFICATE, certificate.encoded)
+                    putExtra(KeyChain.EXTRA_NAME, "AAPS Copilot Loopback 127.0.0.1")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(installIntent)
+            }.onSuccess {
+                messageState.value =
+                    "System certificate installer opened. Confirm install, then restart AAPS NSClient."
+            }.onFailure {
+                messageState.value = "Certificate install launch failed: ${it.message}"
             }
         }
     }
