@@ -210,7 +210,9 @@ class LocalNightscoutServer(
         }
 
         private fun maybeAuditExternalRequest(session: IHTTPSession, path: String) {
-            if (!path.startsWith("/api/v1/", ignoreCase = true)) return
+            val isApiPath = path.startsWith("/api/v1/", ignoreCase = true)
+            val isSocketPath = path.startsWith("/socket.io", ignoreCase = true)
+            if (!isApiPath && !isSocketPath) return
             val copilotHeader = session.headers[HEADER_COPILOT_CLIENT]?.trim().orEmpty()
             if (copilotHeader.isNotBlank()) return
 
@@ -272,7 +274,7 @@ class LocalNightscoutServer(
         private fun handleSocketIoGet(session: IHTTPSession): Response {
             val sid = firstParam(session, "sid")
             if (sid.isNullOrBlank()) {
-                val created = createSocketSession()
+                val created = createSocketSession(session)
                 val handshake = JsonObject().apply {
                     addProperty("sid", created.sid)
                     add("upgrades", JsonArray())
@@ -320,22 +322,32 @@ class LocalNightscoutServer(
             return textResponse(Response.Status.OK, "ok")
         }
 
-        private fun createSocketSession(): SocketSession {
+        private fun createSocketSession(httpSession: IHTTPSession): SocketSession {
             val now = System.currentTimeMillis()
             val nextId = socketSessionCounter.getAndIncrement()
             val sid = "copilot-eio-$nextId-${UUID.randomUUID().toString().take(8)}"
             val socketSid = "copilot-sio-$nextId-${UUID.randomUUID().toString().take(8)}"
+            val userAgent = httpSession.headers["user-agent"]?.trim()?.take(MAX_USER_AGENT_LENGTH).orEmpty()
+            val source = classifyExternalSource(userAgent)
             return SocketSession(
                 sid = sid,
                 socketSid = socketSid,
                 createdAt = now,
-                lastSeenAt = now
+                lastSeenAt = now,
+                source = source,
+                userAgent = userAgent
             ).also { session ->
                 socketSessions[sid] = session
                 runBlocking {
                     auditLogger.info(
                         "local_nightscout_socket_session_created",
-                        mapOf("sid" to sid, "socketSid" to socketSid)
+                        mapOf(
+                            "sid" to sid,
+                            "socketSid" to socketSid,
+                            "source" to source,
+                            "remote" to httpSession.remoteIpAddress.orEmpty(),
+                            "userAgent" to userAgent.ifBlank { "unknown" }
+                        )
                     )
                 }
             }
@@ -464,6 +476,17 @@ class LocalNightscoutServer(
             session.authorized = true
             val fromTs = payload?.get("from").asLongOrNull()?.coerceAtLeast(0L) ?: 0L
             session.fromTs = fromTs
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_socket_authorize",
+                    mapOf(
+                        "sid" to session.sid,
+                        "socketSid" to session.socketSid,
+                        "source" to session.source,
+                        "fromTs" to fromTs
+                    )
+                )
+            }
 
             packetId?.let { ackId ->
                 val auth = JsonObject().apply {
@@ -495,6 +518,18 @@ class LocalNightscoutServer(
             if (collection == "treatments" && data != null) {
                 upsertTreatmentFromSocketPayload(data, preferredId = generatedId)
             }
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_socket_dbadd",
+                    mapOf(
+                        "sid" to session.sid,
+                        "socketSid" to session.socketSid,
+                        "source" to session.source,
+                        "collection" to collection,
+                        "id" to generatedId
+                    )
+                )
+            }
 
             packetId?.let { ackId ->
                 val response = JsonObject().apply { addProperty("_id", generatedId) }
@@ -514,6 +549,18 @@ class LocalNightscoutServer(
 
             if (collection == "treatments" && data != null) {
                 upsertTreatmentFromSocketPayload(data, preferredId = id)
+            }
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_socket_dbupdate",
+                    mapOf(
+                        "sid" to session.sid,
+                        "socketSid" to session.socketSid,
+                        "source" to session.source,
+                        "collection" to collection,
+                        "id" to id.orEmpty()
+                    )
+                )
             }
 
             packetId?.let { ackId ->
@@ -1218,6 +1265,8 @@ class LocalNightscoutServer(
             val socketSid: String,
             val createdAt: Long,
             @Volatile var lastSeenAt: Long,
+            val source: String,
+            val userAgent: String,
             @Volatile var connected: Boolean = false,
             @Volatile var authorized: Boolean = false,
             @Volatile var fromTs: Long = 0L,
