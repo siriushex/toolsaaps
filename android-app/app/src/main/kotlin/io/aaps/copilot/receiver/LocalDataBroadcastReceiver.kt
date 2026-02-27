@@ -91,7 +91,11 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
             return senderPackage == "com.android.shell" || senderPackage == appPackage
         }
         if (senderPackage.isNullOrBlank()) {
-            return !strictValidation
+            if (!strictValidation) return true
+            // Some devices/OS builds do not expose sender package for implicit broadcasts.
+            // In strict mode, still allow known glucose channels to prevent stale CGM stream.
+            return action.startsWith("com.eveningoutpost.dexdrip.") ||
+                action.startsWith("info.nightscout.client.")
         }
         return when {
             action.startsWith("com.eveningoutpost.dexdrip.") -> senderPackage.startsWith("com.eveningoutpost.dexdrip")

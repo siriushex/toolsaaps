@@ -5,6 +5,7 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.util.UnitConverter
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -129,22 +130,26 @@ class BroadcastIngestRepository(
     }
 
     private fun parseGlucose(action: String, extras: Map<String, String>): GlucoseSampleEntity? {
-        val valueRaw = findDouble(
+        if (action.endsWith("NEW_TREATMENT") || action.endsWith("BgEstimateNoData")) return null
+
+        val valueWithKey = findDoubleWithKey(
             extras,
             listOf(
                 "com.eveningoutpost.dexdrip.Extras.BgEstimate",
                 "sgv",
                 "mgdl",
                 "glucose",
-                "bg",
-                "value"
+                "bgestimate"
             )
         ) ?: return null
+        val valueRaw = valueWithKey.first
+        val valueKey = valueWithKey.second
 
-        val units = findString(
+        val units = findStringExact(
             extras,
-            listOf("com.eveningoutpost.dexdrip.Extras.Display.Units", "units", "unit")
+            listOf("com.eveningoutpost.dexdrip.Extras.Display.Units", "display.units", "display_units", "units", "unit")
         )?.lowercase()
+            ?: if (valueKey.lowercase(Locale.US).contains("mgdl")) "mgdl" else null
         val mmol = when {
             units?.contains("mmol") == true -> valueRaw
             units?.contains("mg") == true -> UnitConverter.mgdlToMmol(valueRaw)
@@ -241,6 +246,15 @@ class BroadcastIngestRepository(
     }
 
     private fun findString(extras: Map<String, String>, keys: List<String>): String? {
+        keys.firstNotNullOfOrNull { key ->
+            extras.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value?.takeIf { it.isNotBlank() }?.let {
+                return it
+            }
+        }
+        return findStringByToken(extras, keys)
+    }
+
+    private fun findStringExact(extras: Map<String, String>, keys: List<String>): String? {
         return keys.firstNotNullOfOrNull { key ->
             extras.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value?.takeIf { it.isNotBlank() }
         }
@@ -248,6 +262,19 @@ class BroadcastIngestRepository(
 
     private fun findDouble(extras: Map<String, String>, keys: List<String>): Double? {
         return findString(extras, keys)?.replace(",", ".")?.toDoubleOrNull()
+    }
+
+    private fun findDoubleWithKey(extras: Map<String, String>, keys: List<String>): Pair<Double, String>? {
+        keys.forEach { key ->
+            extras.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.let { entry ->
+                entry.value.replace(",", ".").toDoubleOrNull()?.let { parsed ->
+                    return parsed to entry.key
+                }
+            }
+        }
+        val tokenMatch = findEntryByToken(extras, keys) ?: return null
+        val parsed = tokenMatch.value.replace(",", ".").toDoubleOrNull() ?: return null
+        return parsed to tokenMatch.key
     }
 
     private fun findLong(extras: Map<String, String>, keys: List<String>): Long? {
@@ -289,6 +316,29 @@ class BroadcastIngestRepository(
     private fun normalizeTimestamp(ts: Long): Long {
         if (ts < 10_000_000_000L) return ts * 1000L
         return ts
+    }
+
+    private fun findStringByToken(extras: Map<String, String>, keys: List<String>): String? {
+        return findEntryByToken(extras, keys)?.value?.takeIf { it.isNotBlank() }
+    }
+
+    private fun findEntryByToken(extras: Map<String, String>, keys: List<String>): Map.Entry<String, String>? {
+        val tokens = keys.map { normalizeKey(it) }.filter { it.isNotBlank() }
+        return extras.entries.firstOrNull { entry ->
+            val key = normalizeKey(entry.key)
+            val keyParts = key.split('_').filter { it.isNotBlank() }
+            tokens.any { token ->
+                key == token || key.endsWith("_$token") || keyParts.contains(token)
+            }
+        }
+    }
+
+    private fun normalizeKey(value: String): String {
+        return value
+            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
     }
 
     data class IngestResult(

@@ -66,6 +66,7 @@ Optional strict mode is available in the same screen:
 On Android 14+ the receiver also validates sender package where available:
 - xDrip actions: packages starting with `com.eveningoutpost.dexdrip`
 - AAPS client actions: `info.nightscout.androidaps` / `info.nightscout.aaps`
+- If sender package is unavailable (OEM/OS-dependent behavior), known xDrip/AAPS action families are still accepted to avoid stale glucose stream in strict mode.
 
 `com.eveningoutpost.dexdrip.BgEstimateNoData` is tracked as `sensor_state(blocked=true)` and
 temporarily blocks safety-sensitive automation decisions.
