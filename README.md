@@ -79,6 +79,15 @@ Transport note:
 - Standard AAPS builds receive local BG broadcasts, but treatment commands are not consumed from the
   same local broadcast channel.
 - For `temp target` and `carbs` delivery into AAPS loop, use Nightscout API path.
+- Built-in local Nightscout emulator is available in app:
+  `Onboarding & Connect -> Local Nightscout emulator (127.0.0.1)`.
+  It exposes:
+  - `GET /api/v1/status.json`
+  - `GET /api/v1/entries/sgv.json`
+  - `GET/POST /api/v1/treatments(.json)`
+  - `GET /api/v1/devicestatus(.json)`
+- Runtime is pinned by a foreground service and auto-restored on boot/package update when enabled.
+- Use `Run Nightscout self-test` button in Onboarding to validate read/write transport immediately from phone.
 - Nightscout sync also ingests `devicestatus` and maps known telemetry keys into local snapshot storage.
 - Optional outbound local fallback relay for `temp target` and `carbs` is available (`Onboarding & Connect`), intended only for compatible AAPS forks.
 - Primary delivery path remains Nightscout API; local relay is fallback-only when Nightscout delivery fails.

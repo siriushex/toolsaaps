@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.work.Configuration
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.service.AppContainer
+import io.aaps.copilot.service.LocalNightscoutServiceController
 
 class CopilotApp : Application(), Configuration.Provider {
 
@@ -14,6 +15,7 @@ class CopilotApp : Application(), Configuration.Provider {
         super.onCreate()
         container = AppContainer(this)
         WorkScheduler.schedule(this)
+        LocalNightscoutServiceController.start(this)
     }
 
     override val workManagerConfiguration: Configuration

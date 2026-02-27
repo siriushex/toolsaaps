@@ -30,6 +30,7 @@ import io.aaps.copilot.domain.model.PatternWindow
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
+import io.aaps.copilot.service.LocalNightscoutServiceController
 import java.net.URI
 import java.time.Instant
 import java.time.ZoneId
@@ -447,6 +448,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     localNightscoutPort = safePort
                 )
             }
+            LocalNightscoutServiceController.reconcile(getApplication(), enabled)
             messageState.value = if (enabled) {
                 "Local Nightscout enabled at http://127.0.0.1:$safePort"
             } else {
