@@ -15,7 +15,7 @@ class RuleEngine(
         config: SafetyPolicyConfig,
         runtimeConfig: RuleRuntimeConfig = RuleRuntimeConfig.allEnabled(rules.map { it.id })
     ): List<RuleDecision> {
-        return rules
+        val evaluated = rules
             .sortedByDescending { runtimeConfig.priorities[it.id] ?: 0 }
             .map { rule ->
             if (!runtimeConfig.enabledRuleIds.contains(rule.id)) {
@@ -46,6 +46,23 @@ class RuleEngine(
                         actionProposal = null
                     )
                 }
+            }
+        }
+
+        // Safety arbitration: keep only the highest-priority triggered action per cycle.
+        var winnerRuleId: String? = null
+        return evaluated.map { decision ->
+            if (decision.state != RuleState.TRIGGERED || decision.actionProposal == null) {
+                decision
+            } else if (winnerRuleId == null) {
+                winnerRuleId = decision.ruleId
+                decision
+            } else {
+                decision.copy(
+                    state = RuleState.BLOCKED,
+                    reasons = decision.reasons + "skipped_due_to_higher_priority:${winnerRuleId}",
+                    actionProposal = null
+                )
             }
         }
     }

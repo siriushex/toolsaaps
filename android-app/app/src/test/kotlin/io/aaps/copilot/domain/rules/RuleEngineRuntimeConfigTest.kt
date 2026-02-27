@@ -57,4 +57,40 @@ class RuleEngineRuntimeConfigTest {
         assertThat(result[0].reasons).contains("rule_disabled")
         assertThat(result[1].ruleId).isEqualTo("A")
     }
+
+    @Test
+    fun keepsOnlyHighestPriorityTriggeredAction() {
+        val top = FixedRule("Top", RuleState.TRIGGERED)
+        val low = FixedRule("Low", RuleState.TRIGGERED)
+        val engine = RuleEngine(listOf(top, low), SafetyPolicy())
+
+        val runtime = RuleRuntimeConfig(
+            enabledRuleIds = setOf("Top", "Low"),
+            priorities = mapOf("Top" to 100, "Low" to 10)
+        )
+
+        val result = engine.evaluate(
+            context = RuleContext(
+                nowTs = 0,
+                glucose = emptyList(),
+                therapyEvents = emptyList(),
+                forecasts = emptyList(),
+                currentDayPattern = null,
+                baseTargetMmol = 5.5,
+                dataFresh = true,
+                activeTempTargetMmol = null,
+                actionsLast6h = 0,
+                sensorBlocked = false
+            ),
+            config = SafetyPolicyConfig(killSwitch = false),
+            runtimeConfig = runtime
+        )
+
+        assertThat(result).hasSize(2)
+        assertThat(result[0].ruleId).isEqualTo("Top")
+        assertThat(result[0].state).isEqualTo(RuleState.TRIGGERED)
+        assertThat(result[1].ruleId).isEqualTo("Low")
+        assertThat(result[1].state).isEqualTo(RuleState.BLOCKED)
+        assertThat(result[1].reasons).contains("skipped_due_to_higher_priority:Top")
+    }
 }

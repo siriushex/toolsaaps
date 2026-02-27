@@ -123,25 +123,40 @@ class AutomationRepository(
         )
 
         for (decision in decisions) {
+            val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
+                val cooldownMinutes = ruleCooldownMinutes(decision.ruleId)
+                if (cooldownMinutes > 0 && isRuleInCooldown(decision.ruleId, now, cooldownMinutes)) {
+                    decision.copy(
+                        state = RuleState.BLOCKED,
+                        reasons = decision.reasons + "rule_cooldown_active:${cooldownMinutes}m",
+                        actionProposal = null
+                    )
+                } else {
+                    decision
+                }
+            } else {
+                decision
+            }
+
             db.ruleExecutionDao().insert(
                 RuleExecutionEntity(
                     timestamp = now,
-                    ruleId = decision.ruleId,
-                    state = decision.state.name,
-                    reasonsJson = gson.toJson(decision.reasons),
-                    actionJson = decision.actionProposal?.let { gson.toJson(it) }
+                    ruleId = effectiveDecision.ruleId,
+                    state = effectiveDecision.state.name,
+                    reasonsJson = gson.toJson(effectiveDecision.reasons),
+                    actionJson = effectiveDecision.actionProposal?.let { gson.toJson(it) }
                 )
             )
 
-            if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
-                val idempotencyKey = "${decision.ruleId}:${now / (30 * 60 * 1000L)}"
+            if (effectiveDecision.state == RuleState.TRIGGERED && effectiveDecision.actionProposal != null) {
+                val idempotencyKey = "${effectiveDecision.ruleId}:${now / (30 * 60 * 1000L)}"
                 val command = ActionCommand(
                     id = UUID.randomUUID().toString(),
-                    type = decision.actionProposal.type,
+                    type = effectiveDecision.actionProposal.type,
                     params = mapOf(
-                        "targetMmol" to decision.actionProposal.targetMmol.toString(),
-                        "durationMinutes" to decision.actionProposal.durationMinutes.toString(),
-                        "reason" to decision.actionProposal.reason
+                        "targetMmol" to effectiveDecision.actionProposal.targetMmol.toString(),
+                        "durationMinutes" to effectiveDecision.actionProposal.durationMinutes.toString(),
+                        "reason" to effectiveDecision.actionProposal.reason
                     ),
                     safetySnapshot = SafetySnapshot(
                         killSwitch = settings.killSwitch,
@@ -183,6 +198,7 @@ class AutomationRepository(
         }
 
         val counters = mutableMapOf<String, Triple<Int, Int, Int>>()
+        val lastTriggeredTsByRule = mutableMapOf<String, Long>()
         val runtimeConfig = runtimeConfig(settings)
 
         for (index in 7 until glucose.size step 2) {
@@ -238,8 +254,25 @@ class AutomationRepository(
             )
 
             decisions.forEach { decision ->
-                val current = counters[decision.ruleId] ?: Triple(0, 0, 0)
-                counters[decision.ruleId] = when (decision.state) {
+                val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
+                    val cooldown = ruleCooldownMinutes(decision.ruleId)
+                    val lastTs = lastTriggeredTsByRule[decision.ruleId]
+                    if (cooldown > 0 && lastTs != null && (pointTs - lastTs) < cooldown * 60_000L) {
+                        decision.copy(
+                            state = RuleState.BLOCKED,
+                            reasons = decision.reasons + "rule_cooldown_active:${cooldown}m",
+                            actionProposal = null
+                        )
+                    } else {
+                        lastTriggeredTsByRule[decision.ruleId] = pointTs
+                        decision
+                    }
+                } else {
+                    decision
+                }
+
+                val current = counters[effectiveDecision.ruleId] ?: Triple(0, 0, 0)
+                counters[effectiveDecision.ruleId] = when (effectiveDecision.state) {
                     RuleState.TRIGGERED -> Triple(current.first + 1, current.second, current.third)
                     RuleState.BLOCKED -> Triple(current.first, current.second + 1, current.third)
                     RuleState.NO_MATCH -> Triple(current.first, current.second, current.third + 1)
@@ -342,6 +375,21 @@ class AutomationRepository(
             "SegmentProfileGuard.v1" to settings.ruleSegmentPriority
         )
         return RuleRuntimeConfig(enabledRuleIds = enabled, priorities = priorities)
+    }
+
+    private fun ruleCooldownMinutes(ruleId: String): Int = when (ruleId) {
+        "PostHypoReboundGuard.v1" -> 30
+        "PatternAdaptiveTarget.v1" -> 60
+        "SegmentProfileGuard.v1" -> 60
+        else -> 0
+    }
+
+    private suspend fun isRuleInCooldown(ruleId: String, nowTs: Long, cooldownMinutes: Int): Boolean {
+        if (cooldownMinutes <= 0) return false
+        val since = nowTs - cooldownMinutes * 60_000L
+        return db.ruleExecutionDao()
+            .findByStateSince(ruleId = ruleId, state = RuleState.TRIGGERED.name, since = since)
+            .isNotEmpty()
     }
 
     private fun resolveTimeSlot(hour: Int): ProfileTimeSlot = when (hour) {
