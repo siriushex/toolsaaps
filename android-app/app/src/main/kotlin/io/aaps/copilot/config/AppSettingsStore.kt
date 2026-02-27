@@ -1,0 +1,118 @@
+package io.aaps.copilot.config
+
+import android.content.Context
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStoreFile
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+class AppSettingsStore(context: Context) {
+
+    private val dataStore = PreferenceDataStoreFactory.create(
+        produceFile = { context.preferencesDataStoreFile("copilot_settings.preferences_pb") }
+    )
+
+    val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
+        AppSettings(
+            nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
+            apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
+            cloudBaseUrl = prefs[KEY_CLOUD_URL].orEmpty(),
+            openAiApiKey = prefs[KEY_OPENAI_KEY].orEmpty(),
+            killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
+            rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
+            baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
+            rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
+            rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
+            rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
+            rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
+            maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
+            staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
+            exportFolderUri = prefs[KEY_EXPORT_URI]
+        )
+    }
+
+    suspend fun update(updater: (AppSettings) -> AppSettings) {
+        dataStore.edit { prefs ->
+            val current = AppSettings(
+                nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
+                apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
+                cloudBaseUrl = prefs[KEY_CLOUD_URL].orEmpty(),
+                openAiApiKey = prefs[KEY_OPENAI_KEY].orEmpty(),
+                killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
+                rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
+                baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
+                rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
+                rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
+                rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
+                rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
+                maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
+                staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
+                exportFolderUri = prefs[KEY_EXPORT_URI]
+            )
+            val next = updater(current)
+            prefs[KEY_NS_URL] = next.nightscoutUrl
+            prefs[KEY_NS_SECRET] = next.apiSecret
+            prefs[KEY_CLOUD_URL] = next.cloudBaseUrl
+            prefs[KEY_OPENAI_KEY] = next.openAiApiKey
+            prefs[KEY_KILL_SWITCH] = next.killSwitch
+            prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
+            prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
+            prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
+            prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
+            prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
+            prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
+            prefs[KEY_MAX_ACTIONS_6H] = next.maxActionsIn6Hours
+            prefs[KEY_STALE_DATA_MAX_MINUTES] = next.staleDataMaxMinutes
+            if (next.exportFolderUri.isNullOrBlank()) {
+                prefs.remove(KEY_EXPORT_URI)
+            } else {
+                prefs[KEY_EXPORT_URI] = next.exportFolderUri
+            }
+        }
+    }
+
+    companion object {
+        private val KEY_NS_URL = stringPreferencesKey("nightscout_url")
+        private val KEY_NS_SECRET = stringPreferencesKey("nightscout_secret")
+        private val KEY_CLOUD_URL = stringPreferencesKey("cloud_base_url")
+        private val KEY_OPENAI_KEY = stringPreferencesKey("openai_api_key")
+        private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
+        private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
+        private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
+        private val KEY_RULE_POST_HYPO_ENABLED = booleanPreferencesKey("rule_post_hypo_enabled")
+        private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
+        private val KEY_RULE_POST_HYPO_PRIORITY = intPreferencesKey("rule_post_hypo_priority")
+        private val KEY_RULE_PATTERN_PRIORITY = intPreferencesKey("rule_pattern_priority")
+        private val KEY_MAX_ACTIONS_6H = intPreferencesKey("max_actions_in_6h")
+        private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
+        private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
+        private const val DEFAULT_BASE_TARGET_MMOL = 5.5
+        private const val DEFAULT_POST_HYPO_PRIORITY = 100
+        private const val DEFAULT_PATTERN_PRIORITY = 50
+        private const val DEFAULT_MAX_ACTIONS_6H = 3
+        private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
+    }
+}
+
+data class AppSettings(
+    val nightscoutUrl: String,
+    val apiSecret: String,
+    val cloudBaseUrl: String,
+    val openAiApiKey: String,
+    val killSwitch: Boolean,
+    val rootExperimentalEnabled: Boolean,
+    val baseTargetMmol: Double,
+    val rulePostHypoEnabled: Boolean,
+    val rulePatternEnabled: Boolean,
+    val rulePostHypoPriority: Int,
+    val rulePatternPriority: Int,
+    val maxActionsIn6Hours: Int,
+    val staleDataMaxMinutes: Int,
+    val exportFolderUri: String?
+)

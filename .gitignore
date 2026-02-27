@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Android / Gradle
+**/build/
+.gradle/
+android-app/.gradle/
+android-app/local.properties
+*.apk
+*.aab
+*.iml
+.idea/
+
+# Kotlin / JVM
+*.class
+*.kotlin_module
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+.venv312/
+backend/.venv/
+backend/.venv312/
+
+# Runtime artifacts
+*.db
+*.sqlite
+backend/copilot.db

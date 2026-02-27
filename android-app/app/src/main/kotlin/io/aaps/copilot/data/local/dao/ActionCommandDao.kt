@@ -1,0 +1,23 @@
+package io.aaps.copilot.data.local.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import io.aaps.copilot.data.local.entity.ActionCommandEntity
+
+@Dao
+interface ActionCommandDao {
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(command: ActionCommandEntity)
+
+    @Query("SELECT * FROM action_commands WHERE idempotencyKey = :idempotencyKey LIMIT 1")
+    suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity?
+
+    @Query("SELECT COUNT(*) FROM action_commands WHERE status = :status AND timestamp >= :since")
+    suspend fun countByStatusSince(status: String, since: Long): Int
+
+    @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun latest(limit: Int): List<ActionCommandEntity>
+}
