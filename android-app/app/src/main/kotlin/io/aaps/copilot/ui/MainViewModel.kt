@@ -205,7 +205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "disabled"
                 }
             )
-            add("Outbound temp target/carbs: Nightscout API")
+            add("Outbound temp target/carbs: Nightscout API -> LOCAL_TREATMENTS -> NS_EMULATOR -> custom relay")
             add(
                 "Local fallback relay: " + if (settings.localCommandFallbackEnabled) {
                     "enabled (${settings.localCommandPackage} / ${settings.localCommandAction})"
@@ -213,7 +213,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "disabled"
                 }
             )
-            add("Direct AAPS treatment broadcast: experimental fallback only (build-dependent)")
+            add("Direct AAPS broadcasts: build-dependent, use Action delivery/Audit log for per-channel validation")
             lastBroadcastIngest?.let {
                 add("Last broadcast ingest: ${formatTs(it.timestamp)}")
             }

@@ -224,7 +224,7 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         ) {
             Text("Save fallback relay")
         }
-        Text("Use only for compatible AAPS forks; standard AAPS may ignore local treatment broadcasts.")
+        Text("Custom relay is used after built-in LOCAL_TREATMENTS and NS_EMULATOR channels.")
         if (!hasAllFilesAccess) {
             Button(onClick = {
                 val intent = Intent(
@@ -338,7 +338,7 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
                     }
                     HorizontalDivider()
                     Text("Manual outbound test")
-                    Text("Sends treatment commands through configured outbound chain (Nightscout API, fallback relay if enabled).")
+                    Text("Sends treatment commands through outbound chain: Nightscout API -> LOCAL_TREATMENTS -> NS_EMULATOR -> custom relay.")
                     OutlinedTextField(
                         value = manualTempTarget,
                         onValueChange = { manualTempTarget = it },
