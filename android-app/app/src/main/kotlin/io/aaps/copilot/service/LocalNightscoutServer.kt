@@ -1,6 +1,7 @@
 package io.aaps.copilot.service
 
 import android.content.Context
+import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -18,6 +19,8 @@ import io.aaps.copilot.data.repository.TelemetryMetricMapper
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.runBlocking
 
 class LocalNightscoutServer(
@@ -153,6 +156,9 @@ class LocalNightscoutServer(
         @Volatile
         private var lastExternalRequestSignature = ""
 
+        private val socketSessions = ConcurrentHashMap<String, SocketSession>()
+        private val socketSessionCounter = AtomicLong(1L)
+
         override fun serve(session: IHTTPSession): Response {
             val path = session.uri.trim()
             maybeAuditExternalRequest(session, path)
@@ -190,6 +196,8 @@ class LocalNightscoutServer(
                         path.equals("/api/v1/treatments", ignoreCase = true) -> handleTreatments(session)
                     path.equals("/api/v1/devicestatus.json", ignoreCase = true) ||
                         path.equals("/api/v1/devicestatus", ignoreCase = true) -> handleDeviceStatus(session)
+                    path.equals("/socket.io/", ignoreCase = true) ||
+                        path.equals("/socket.io", ignoreCase = true) -> handleSocketIo(session)
                     else -> jsonNotFound()
                 }
             }.getOrElse { error ->
@@ -245,6 +253,505 @@ class LocalNightscoutServer(
                 userAgent.contains("dalvik", ignoreCase = true) -> "dalvik"
                 else -> "unknown"
             }
+        }
+
+        private fun handleSocketIo(session: IHTTPSession): Response {
+            val transport = firstParam(session, "transport")?.lowercase()
+            val protocolVersion = firstInt(session, "EIO", -1)
+            if (transport != "polling" || protocolVersion != SOCKET_ENGINE_PROTOCOL_VERSION) {
+                return textResponse(Response.Status.BAD_REQUEST, "invalid socket transport")
+            }
+            pruneStaleSocketSessions()
+            return when (session.method) {
+                Method.GET -> handleSocketIoGet(session)
+                Method.POST -> handleSocketIoPost(session)
+                else -> textResponse(Response.Status.METHOD_NOT_ALLOWED, "method not allowed")
+            }
+        }
+
+        private fun handleSocketIoGet(session: IHTTPSession): Response {
+            val sid = firstParam(session, "sid")
+            if (sid.isNullOrBlank()) {
+                val created = createSocketSession()
+                val handshake = JsonObject().apply {
+                    addProperty("sid", created.sid)
+                    add("upgrades", JsonArray())
+                    addProperty("pingInterval", SOCKET_PING_INTERVAL_MS)
+                    addProperty("pingTimeout", SOCKET_PING_TIMEOUT_MS)
+                    addProperty("maxPayload", SOCKET_MAX_PAYLOAD_BYTES)
+                }
+                return socketIoPayloadResponse(listOf("$ENGINE_PACKET_OPEN${gson.toJson(handshake)}"))
+            }
+
+            val active = socketSessions[sid]
+                ?: return textResponse(Response.Status.BAD_REQUEST, "unknown sid")
+            active.lastSeenAt = System.currentTimeMillis()
+            val packets = synchronized(active) {
+                if (active.outboundPackets.isEmpty()) {
+                    listOf(ENGINE_PACKET_NOOP.toString())
+                } else {
+                    val next = active.outboundPackets.toList()
+                    active.outboundPackets.clear()
+                    next
+                }
+            }
+            return socketIoPayloadResponse(packets)
+        }
+
+        private fun handleSocketIoPost(session: IHTTPSession): Response {
+            val sid = firstParam(session, "sid")
+                ?: return textResponse(Response.Status.BAD_REQUEST, "missing sid")
+            val active = socketSessions[sid]
+                ?: return textResponse(Response.Status.BAD_REQUEST, "unknown sid")
+            active.lastSeenAt = System.currentTimeMillis()
+
+            val packets = decodeEnginePayload(readBody(session))
+            packets.forEach { packet ->
+                runCatching { handleEnginePacket(active, packet) }
+                    .onFailure { error ->
+                        runBlocking {
+                            auditLogger.warn(
+                                "local_nightscout_socket_packet_parse_failed",
+                                mapOf("sid" to sid, "error" to (error.message ?: "unknown"))
+                            )
+                        }
+                    }
+            }
+            return textResponse(Response.Status.OK, "ok")
+        }
+
+        private fun createSocketSession(): SocketSession {
+            val now = System.currentTimeMillis()
+            val nextId = socketSessionCounter.getAndIncrement()
+            val sid = "copilot-eio-$nextId-${UUID.randomUUID().toString().take(8)}"
+            val socketSid = "copilot-sio-$nextId-${UUID.randomUUID().toString().take(8)}"
+            return SocketSession(
+                sid = sid,
+                socketSid = socketSid,
+                createdAt = now,
+                lastSeenAt = now
+            ).also { session ->
+                socketSessions[sid] = session
+                runBlocking {
+                    auditLogger.info(
+                        "local_nightscout_socket_session_created",
+                        mapOf("sid" to sid, "socketSid" to socketSid)
+                    )
+                }
+            }
+        }
+
+        private fun pruneStaleSocketSessions() {
+            val now = System.currentTimeMillis()
+            val iterator = socketSessions.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                val session = entry.value
+                if (now - session.lastSeenAt <= SOCKET_SESSION_TTL_MS) continue
+                iterator.remove()
+            }
+        }
+
+        private fun decodeEnginePayload(raw: String): List<String> {
+            val text = raw.trim()
+            if (text.isBlank()) return emptyList()
+            return text.split(ENGINE_PACKET_SEPARATOR)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+        }
+
+        private fun handleEnginePacket(session: SocketSession, rawPacket: String) {
+            if (rawPacket.isEmpty()) return
+            when (rawPacket.first()) {
+                ENGINE_PACKET_PING -> enqueueEnginePacket(session, ENGINE_PACKET_PONG.toString())
+                ENGINE_PACKET_MESSAGE -> handleSocketPacket(session, rawPacket.drop(1))
+                ENGINE_PACKET_CLOSE -> socketSessions.remove(session.sid)
+                else -> Unit
+            }
+        }
+
+        private fun handleSocketPacket(session: SocketSession, raw: String) {
+            val packet = parseSocketPacket(raw) ?: return
+            if (packet.namespace != "/" && packet.namespace.isNotBlank()) return
+
+            when (packet.type) {
+                SOCKET_PACKET_CONNECT -> {
+                    session.connected = true
+                    val payload = JsonObject().apply { addProperty("sid", session.socketSid) }
+                    enqueueSocketPacket(
+                        session = session,
+                        packetType = SOCKET_PACKET_CONNECT,
+                        packetId = null,
+                        payload = payload
+                    )
+                }
+
+                SOCKET_PACKET_DISCONNECT -> {
+                    socketSessions.remove(session.sid)
+                }
+
+                SOCKET_PACKET_EVENT -> handleSocketEvent(session, packet)
+            }
+        }
+
+        private fun parseSocketPacket(raw: String): ParsedSocketPacket? {
+            if (raw.isBlank()) return null
+            var index = 0
+            val type = raw[index].digitToIntOrNull() ?: return null
+            index += 1
+
+            if (type == SOCKET_PACKET_BINARY_EVENT || type == SOCKET_PACKET_BINARY_ACK) {
+                val attachmentsSeparator = raw.indexOf('-', startIndex = index)
+                if (attachmentsSeparator < 0) return null
+                index = attachmentsSeparator + 1
+            }
+
+            var namespace = "/"
+            if (index < raw.length && raw[index] == '/') {
+                val namespaceEnd = raw.indexOf(',', startIndex = index)
+                if (namespaceEnd >= 0) {
+                    namespace = raw.substring(index, namespaceEnd)
+                    index = namespaceEnd + 1
+                } else {
+                    namespace = raw.substring(index)
+                    index = raw.length
+                }
+            }
+
+            val idStart = index
+            while (index < raw.length && raw[index].isDigit()) {
+                index += 1
+            }
+            val packetId = if (index > idStart) {
+                raw.substring(idStart, index).toIntOrNull()
+            } else {
+                null
+            }
+
+            val payload = if (index < raw.length) {
+                runCatching { JsonParser.parseString(raw.substring(index)) }.getOrNull()
+            } else {
+                null
+            }
+
+            return ParsedSocketPacket(
+                type = type,
+                namespace = namespace,
+                packetId = packetId,
+                payload = payload
+            )
+        }
+
+        private fun handleSocketEvent(session: SocketSession, packet: ParsedSocketPacket) {
+            val payloadArray = packet.payload?.asJsonArrayOrNull() ?: return
+            if (payloadArray.size() == 0) return
+            val eventName = payloadArray[0].asStringOrNull()?.trim().orEmpty()
+            if (eventName.isBlank()) return
+            val args = payloadArray.getOrNull(1)
+
+            when (eventName) {
+                "authorize" -> handleSocketAuthorize(session, packet.packetId, args?.asJsonObjectOrNull())
+                "dbAdd" -> handleSocketDbAdd(session, packet.packetId, args?.asJsonObjectOrNull())
+                "dbUpdate" -> handleSocketDbUpdate(session, packet.packetId, args?.asJsonObjectOrNull())
+            }
+        }
+
+        private fun handleSocketAuthorize(
+            session: SocketSession,
+            packetId: Int?,
+            payload: JsonObject?
+        ) {
+            session.authorized = true
+            val fromTs = payload?.get("from").asLongOrNull()?.coerceAtLeast(0L) ?: 0L
+            session.fromTs = fromTs
+
+            packetId?.let { ackId ->
+                val auth = JsonObject().apply {
+                    addProperty("read", true)
+                    addProperty("write", true)
+                    addProperty("write_treatment", true)
+                }
+                enqueueSocketAck(session, ackId, listOf(auth))
+            }
+
+            enqueueSocketEvent(
+                session = session,
+                eventName = "dataUpdate",
+                payload = buildDataUpdatePayload(fromTs = fromTs, delta = false)
+            )
+        }
+
+        private fun handleSocketDbAdd(
+            session: SocketSession,
+            packetId: Int?,
+            payload: JsonObject?
+        ) {
+            val collection = payload?.findText("collection")?.lowercase().orEmpty()
+            val data = payload?.get("data")?.asJsonObjectOrNull()
+            val generatedId = data?.findText("_id")
+                ?: data?.findText("identifier")
+                ?: "local-ns-${System.currentTimeMillis()}-${UUID.randomUUID()}"
+
+            if (collection == "treatments" && data != null) {
+                upsertTreatmentFromSocketPayload(data, preferredId = generatedId)
+            }
+
+            packetId?.let { ackId ->
+                val response = JsonObject().apply { addProperty("_id", generatedId) }
+                val nested = JsonArray().apply { add(response) }
+                enqueueSocketAck(session, ackId, listOf(nested))
+            }
+        }
+
+        private fun handleSocketDbUpdate(
+            session: SocketSession,
+            packetId: Int?,
+            payload: JsonObject?
+        ) {
+            val collection = payload?.findText("collection")?.lowercase().orEmpty()
+            val id = payload?.findText("_id")
+            val data = payload?.get("data")?.asJsonObjectOrNull()
+
+            if (collection == "treatments" && data != null) {
+                upsertTreatmentFromSocketPayload(data, preferredId = id)
+            }
+
+            packetId?.let { ackId ->
+                val response = JsonObject().apply { addProperty("result", "success") }
+                enqueueSocketAck(session, ackId, listOf(response))
+            }
+        }
+
+        private fun upsertTreatmentFromSocketPayload(
+            payload: JsonObject,
+            preferredId: String?
+        ) {
+            val request = runCatching {
+                gson.fromJson(payload, NightscoutTreatmentRequest::class.java)
+            }.getOrNull() ?: return
+            if (request.eventType.isBlank()) return
+
+            val timestamp = parseFlexibleTimestamp(request.createdAt)
+                ?: parseFlexibleTimestamp(payload.findText("timestamp"))
+                ?: parseFlexibleTimestamp(payload.findText("date"))
+                ?: parseFlexibleTimestamp(payload.findText("mills"))
+                ?: System.currentTimeMillis()
+            val treatmentId = preferredId
+                ?: payload.findText("_id")
+                ?: payload.findText("identifier")
+                ?: "local-ns-${timestamp}-${UUID.randomUUID()}"
+            val durationMinutes = request.duration
+                ?: request.durationInMilliseconds?.let { (it / 60_000L).toInt() }
+            val sourceEventType = request.eventType
+            val normalizedType = normalizeEventType(sourceEventType)
+
+            val payloadMap = linkedMapOf<String, String>().apply {
+                durationMinutes?.let { put("duration", it.toString()) }
+                request.durationInMilliseconds?.let { put("durationInMilliseconds", it.toString()) }
+                request.targetTop?.let { put("targetTop", it.toString()) }
+                request.targetBottom?.let { put("targetBottom", it.toString()) }
+                request.carbs?.let { put("carbs", it.toString()) }
+                request.insulin?.let { put("insulin", it.toString()) }
+                request.units?.let { put("units", it) }
+                request.isValid?.let { put("isValid", it.toString()) }
+                request.reason?.let { put("reason", it) }
+                request.notes?.let { put("notes", it) }
+            }
+
+            val therapyRow = TherapyEventEntity(
+                id = treatmentId,
+                timestamp = timestamp,
+                type = normalizedType,
+                payloadJson = gson.toJson(payloadMap)
+            )
+            val telemetryRows = TelemetryMetricMapper.fromNightscoutTreatment(
+                timestamp = timestamp,
+                source = SOURCE_LOCAL_NS_TREATMENT,
+                eventType = sourceEventType,
+                payload = payloadMap
+            )
+
+            runBlocking {
+                db.therapyDao().upsertAll(listOf(therapyRow))
+                if (telemetryRows.isNotEmpty()) {
+                    db.telemetryDao().upsertAll(telemetryRows)
+                }
+            }
+
+            val treatment = NightscoutTreatment(
+                id = treatmentId,
+                date = timestamp,
+                createdAt = Instant.ofEpochMilli(timestamp).toString(),
+                eventType = sourceEventType,
+                carbs = request.carbs,
+                insulin = request.insulin,
+                duration = durationMinutes,
+                durationInMilliseconds = request.durationInMilliseconds,
+                targetTop = request.targetTop,
+                targetBottom = request.targetBottom,
+                units = request.units,
+                isValid = request.isValid ?: true,
+                reason = request.reason,
+                notes = request.notes
+            )
+            emitTreatmentDeltaToSockets(listOf(treatment))
+        }
+
+        private fun emitTreatmentDeltaToSockets(treatments: List<NightscoutTreatment>) {
+            if (treatments.isEmpty()) return
+            val payload = JsonObject().apply {
+                addProperty("delta", true)
+                val treatmentsJson = JsonArray()
+                treatments.forEach { treatment ->
+                    treatmentsJson.add(treatment.toSocketTreatmentJson())
+                }
+                add("treatments", treatmentsJson)
+            }
+            broadcastSocketEvent("dataUpdate", payload)
+        }
+
+        private fun buildDataUpdatePayload(fromTs: Long, delta: Boolean): JsonObject {
+            val since = fromTs.coerceAtLeast(0L)
+            val glucoseRows = runBlocking { db.glucoseDao().since(since).takeLast(SOCKET_DATAUPDATE_MAX_ROWS) }
+            val treatmentRows = runBlocking { db.therapyDao().since(since).takeLast(SOCKET_DATAUPDATE_MAX_ROWS) }
+
+            return JsonObject().apply {
+                if (delta) {
+                    addProperty("delta", true)
+                } else {
+                    add("status", buildSocketStatusPayload())
+                }
+                if (treatmentRows.isNotEmpty()) {
+                    val treatments = JsonArray()
+                    treatmentRows.forEach { row ->
+                        treatments.add(row.toNightscoutTreatment(gson).toSocketTreatmentJson())
+                    }
+                    add("treatments", treatments)
+                }
+                if (glucoseRows.isNotEmpty()) {
+                    val sgvs = JsonArray()
+                    glucoseRows.forEach { sample -> sgvs.add(sample.toSocketSgvJson()) }
+                    add("sgvs", sgvs)
+                }
+            }
+        }
+
+        private fun buildSocketStatusPayload(): JsonObject {
+            return JsonObject().apply {
+                addProperty("status", "ok")
+                addProperty("name", "AAPS Predictive Copilot Local NS")
+                addProperty("version", "15.0.0-local")
+                addProperty("versionNum", 150_000)
+                addProperty("serverTime", Instant.now().toString())
+                addProperty("apiEnabled", true)
+                addProperty("careportalEnabled", true)
+                addProperty("boluscalcEnabled", true)
+                addProperty("head", "copilot-local")
+                add("settings", JsonObject().apply {
+                    addProperty("units", "mmol")
+                    addProperty("timeFormat", 24)
+                })
+                add("extendedSettings", JsonObject())
+            }
+        }
+
+        private fun NightscoutTreatment.toSocketTreatmentJson(): JsonObject {
+            val objectJson = gson.toJsonTree(this).asJsonObject
+            val ts = date ?: parseFlexibleTimestamp(createdAt) ?: System.currentTimeMillis()
+            objectJson.addProperty("date", ts)
+            objectJson.addProperty("mills", ts)
+            return objectJson
+        }
+
+        private fun GlucoseSampleEntity.toSocketSgvJson(): JsonObject {
+            return JsonObject().apply {
+                addProperty("date", timestamp)
+                addProperty("mills", timestamp)
+                addProperty("sgv", UnitConverter.mmolToMgdl(mmol))
+                addProperty("device", "copilot-local-ns")
+                addProperty("type", "sgv")
+            }
+        }
+
+        private fun broadcastSocketEvent(eventName: String, payload: JsonObject) {
+            socketSessions.values
+                .asSequence()
+                .filter { it.connected && it.authorized }
+                .forEach { session ->
+                    enqueueSocketEvent(
+                        session = session,
+                        eventName = eventName,
+                        payload = payload
+                    )
+                }
+        }
+
+        private fun enqueueSocketEvent(
+            session: SocketSession,
+            eventName: String,
+            payload: JsonObject
+        ) {
+            val data = JsonArray().apply {
+                add(eventName)
+                add(payload)
+            }
+            enqueueSocketPacket(
+                session = session,
+                packetType = SOCKET_PACKET_EVENT,
+                packetId = null,
+                payload = data
+            )
+        }
+
+        private fun enqueueSocketAck(
+            session: SocketSession,
+            ackId: Int,
+            args: List<JsonElement>
+        ) {
+            val payload = JsonArray().apply { args.forEach { add(it) } }
+            enqueueSocketPacket(
+                session = session,
+                packetType = SOCKET_PACKET_ACK,
+                packetId = ackId,
+                payload = payload
+            )
+        }
+
+        private fun enqueueSocketPacket(
+            session: SocketSession,
+            packetType: Int,
+            packetId: Int?,
+            payload: JsonElement?
+        ) {
+            val builder = StringBuilder().append(packetType)
+            packetId?.let { builder.append(it) }
+            payload?.let { builder.append(gson.toJson(it)) }
+            enqueueEnginePacket(session, "$ENGINE_PACKET_MESSAGE${builder}")
+        }
+
+        private fun enqueueEnginePacket(session: SocketSession, packet: String) {
+            synchronized(session) {
+                session.outboundPackets += packet
+            }
+        }
+
+        private fun socketIoPayloadResponse(packets: List<String>): Response {
+            val payload = if (packets.isEmpty()) {
+                ENGINE_PACKET_NOOP.toString()
+            } else {
+                packets.joinToString(ENGINE_PACKET_SEPARATOR.toString())
+            }
+            return newFixedLengthResponse(
+                Response.Status.OK,
+                CONTENT_TYPE_TEXT,
+                payload
+            ).apply {
+                addHeader("Cache-Control", "no-store")
+            }
+        }
+
+        private fun textResponse(status: Response.Status, text: String): Response {
+            return newFixedLengthResponse(status, CONTENT_TYPE_TEXT, text)
         }
 
         private fun handleEntries(session: IHTTPSession): Response {
@@ -319,6 +826,13 @@ class LocalNightscoutServer(
             }
             if (rows.isNotEmpty()) {
                 triggerReactiveAutomation("entries", rows.size, 0)
+                val deltaPayload = JsonObject().apply {
+                    addProperty("delta", true)
+                    val sgvs = JsonArray()
+                    rows.forEach { row -> sgvs.add(row.toSocketSgvJson()) }
+                    add("sgvs", sgvs)
+                }
+                broadcastSocketEvent("dataUpdate", deltaPayload)
             }
 
             return jsonOk(
@@ -450,6 +964,7 @@ class LocalNightscoutServer(
                 )
             }
             triggerReactiveAutomation("treatments", therapyRows.size, telemetryRows.size)
+            emitTreatmentDeltaToSockets(responses)
 
             return if (parsed.wasArray) jsonOk(responses) else jsonOk(responses.first())
         }
@@ -637,6 +1152,23 @@ class LocalNightscoutServer(
             return if (isJsonObject) asJsonObject else null
         }
 
+        private fun JsonElement.asJsonArrayOrNull(): JsonArray? {
+            return if (isJsonArray) asJsonArray else null
+        }
+
+        private fun JsonElement.asStringOrNull(): String? {
+            return runCatching { asString }
+                .getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }
+
+        private fun JsonElement?.asLongOrNull(): Long? {
+            val element = this ?: return null
+            return runCatching { element.asLong }.getOrNull()
+                ?: runCatching { element.asString }.getOrNull()?.toLongOrNull()
+        }
+
         private fun JsonObject.findText(field: String): String? {
             return runCatching { get(field) }
                 .getOrNull()
@@ -664,9 +1196,32 @@ class LocalNightscoutServer(
                 .getOrDefault(emptyMap())
         }
 
+        private fun JsonArray.getOrNull(index: Int): JsonElement? {
+            if (index < 0 || index >= size()) return null
+            return get(index)
+        }
+
         private data class ParsedJsonPayload(
             val objects: List<JsonObject>,
             val wasArray: Boolean
+        )
+
+        private data class ParsedSocketPacket(
+            val type: Int,
+            val namespace: String,
+            val packetId: Int?,
+            val payload: JsonElement?
+        )
+
+        private data class SocketSession(
+            val sid: String,
+            val socketSid: String,
+            val createdAt: Long,
+            @Volatile var lastSeenAt: Long,
+            @Volatile var connected: Boolean = false,
+            @Volatile var authorized: Boolean = false,
+            @Volatile var fromTs: Long = 0L,
+            val outboundPackets: MutableList<String> = mutableListOf()
         )
 
         private fun triggerReactiveAutomation(
@@ -692,6 +1247,7 @@ class LocalNightscoutServer(
         private const val HOST = "127.0.0.1"
         private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
         private const val CONTENT_TYPE_HTML = "text/html; charset=utf-8"
+        private const val CONTENT_TYPE_TEXT = "text/plain; charset=utf-8"
         private const val SOCKET_TIMEOUT_MS = 15_000
         private const val HEADER_COPILOT_CLIENT = "x-aaps-copilot-client"
         private const val EXTERNAL_REQUEST_LOG_DEBOUNCE_MS = 2_000L
@@ -700,5 +1256,24 @@ class LocalNightscoutServer(
         private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
         private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
         private const val PORT_SCAN_WINDOW = 30
+        private const val SOCKET_ENGINE_PROTOCOL_VERSION = 4
+        private const val SOCKET_PING_INTERVAL_MS = 25_000
+        private const val SOCKET_PING_TIMEOUT_MS = 20_000
+        private const val SOCKET_MAX_PAYLOAD_BYTES = 1_000_000
+        private const val SOCKET_SESSION_TTL_MS = 3 * 60_000L
+        private const val SOCKET_DATAUPDATE_MAX_ROWS = 1_200
+        private const val SOCKET_PACKET_CONNECT = 0
+        private const val SOCKET_PACKET_DISCONNECT = 1
+        private const val SOCKET_PACKET_EVENT = 2
+        private const val SOCKET_PACKET_ACK = 3
+        private const val SOCKET_PACKET_BINARY_EVENT = 5
+        private const val SOCKET_PACKET_BINARY_ACK = 6
+        private const val ENGINE_PACKET_OPEN = '0'
+        private const val ENGINE_PACKET_CLOSE = '1'
+        private const val ENGINE_PACKET_PING = '2'
+        private const val ENGINE_PACKET_PONG = '3'
+        private const val ENGINE_PACKET_MESSAGE = '4'
+        private const val ENGINE_PACKET_NOOP = '6'
+        private const val ENGINE_PACKET_SEPARATOR = '\u001e'
     }
 }

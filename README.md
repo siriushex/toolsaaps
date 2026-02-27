@@ -86,6 +86,7 @@ Transport note:
   - `GET/POST /api/v1/entries(.json)` and `GET/POST /api/v1/entries/sgv.json`
   - `GET/POST /api/v1/treatments(.json)`
   - `GET/POST /api/v1/devicestatus(.json)`
+  - `GET/POST /socket.io/` (Engine.IO v4 polling + Socket.IO protocol 5 for AAPS `NSClientV1`).
 - Runtime is pinned by a foreground service and auto-restored on boot/package update when enabled.
 - If requested local port is busy, Copilot auto-selects the next free loopback port and updates app settings.
 - Cleartext `http://127.0.0.1:<port>` transport is enabled for local loopback integration.
