@@ -9,6 +9,9 @@ import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
 import io.aaps.copilot.data.remote.cloud.PredictRequest
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.DayType
+import io.aaps.copilot.domain.model.ProfileEstimate
+import io.aaps.copilot.domain.model.ProfileSegmentEstimate
+import io.aaps.copilot.domain.model.ProfileTimeSlot
 import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.PredictionEngine
@@ -76,8 +79,8 @@ class AutomationRepository(
         val activeTempTarget = resolveActiveTempTarget(now)
 
         val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
-        val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) "WEEKEND" else "WEEKDAY"
-        val currentPattern = db.patternDao().byDayAndHour(dayType, zoned.hour)?.let {
+        val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
+        val currentPattern = db.patternDao().byDayAndHour(dayType.name, zoned.hour)?.let {
             io.aaps.copilot.domain.model.PatternWindow(
                 dayType = io.aaps.copilot.domain.model.DayType.valueOf(it.dayType),
                 hour = it.hour,
@@ -89,6 +92,11 @@ class AutomationRepository(
                 isRiskWindow = it.isRiskWindow
             )
         }
+        val currentProfile = db.profileEstimateDao().active()?.toDomain()
+        val currentSlot = resolveTimeSlot(zoned.hour)
+        val currentSegment = db.profileSegmentEstimateDao()
+            .byDayTypeAndTimeSlot(dayType.name, currentSlot.name)
+            ?.toDomain()
 
         val context = RuleContext(
             nowTs = now,
@@ -100,7 +108,9 @@ class AutomationRepository(
             dataFresh = dataFresh,
             activeTempTargetMmol = activeTempTarget,
             actionsLast6h = actionsLast6h,
-            sensorBlocked = false
+            sensorBlocked = false,
+            currentProfileEstimate = currentProfile,
+            currentProfileSegment = currentSegment
         )
 
         val decisions = ruleEngine.evaluate(
@@ -165,6 +175,8 @@ class AutomationRepository(
         val glucose = db.glucoseDao().since(startTs).map { it.toDomain() }.sortedBy { it.ts }
         val therapy = db.therapyDao().since(startTs).map { it.toDomain(gson) }.sortedBy { it.ts }
         val patterns = db.patternDao().all()
+        val profile = db.profileEstimateDao().active()?.toDomain()
+        val segments = db.profileSegmentEstimateDao().all().associateBy { it.dayType to it.timeSlot }
 
         if (glucose.size < 8) {
             return DryRunReport(periodDays, glucose.size, emptyList())
@@ -198,6 +210,8 @@ class AutomationRepository(
                     isRiskWindow = it.isRiskWindow
                 )
             }
+            val segmentSlot = resolveTimeSlot(zoned.hour)
+            val segment = segments[dayType.name to segmentSlot.name]?.toDomain()
 
             val context = RuleContext(
                 nowTs = pointTs,
@@ -209,7 +223,9 @@ class AutomationRepository(
                 dataFresh = true,
                 activeTempTargetMmol = null,
                 actionsLast6h = 0,
-                sensorBlocked = false
+                sensorBlocked = false,
+                currentProfileEstimate = profile,
+                currentProfileSegment = segment
             )
 
             val decisions = ruleEngine.evaluate(
@@ -318,11 +334,42 @@ class AutomationRepository(
         val enabled = buildSet {
             if (settings.rulePostHypoEnabled) add("PostHypoReboundGuard.v1")
             if (settings.rulePatternEnabled) add("PatternAdaptiveTarget.v1")
+            if (settings.ruleSegmentEnabled) add("SegmentProfileGuard.v1")
         }
         val priorities = mapOf(
             "PostHypoReboundGuard.v1" to settings.rulePostHypoPriority,
-            "PatternAdaptiveTarget.v1" to settings.rulePatternPriority
+            "PatternAdaptiveTarget.v1" to settings.rulePatternPriority,
+            "SegmentProfileGuard.v1" to settings.ruleSegmentPriority
         )
         return RuleRuntimeConfig(enabledRuleIds = enabled, priorities = priorities)
     }
+
+    private fun resolveTimeSlot(hour: Int): ProfileTimeSlot = when (hour) {
+        in 0..5 -> ProfileTimeSlot.NIGHT
+        in 6..11 -> ProfileTimeSlot.MORNING
+        in 12..17 -> ProfileTimeSlot.AFTERNOON
+        else -> ProfileTimeSlot.EVENING
+    }
+
+    private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toDomain(): ProfileEstimate = ProfileEstimate(
+        isfMmolPerUnit = isfMmolPerUnit,
+        crGramPerUnit = crGramPerUnit,
+        confidence = confidence,
+        sampleCount = sampleCount,
+        isfSampleCount = isfSampleCount,
+        crSampleCount = crSampleCount,
+        lookbackDays = lookbackDays
+    )
+
+    private fun io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity.toDomain(): ProfileSegmentEstimate =
+        ProfileSegmentEstimate(
+            dayType = DayType.valueOf(dayType),
+            timeSlot = ProfileTimeSlot.valueOf(timeSlot),
+            isfMmolPerUnit = isfMmolPerUnit,
+            crGramPerUnit = crGramPerUnit,
+            confidence = confidence,
+            isfSampleCount = isfSampleCount,
+            crSampleCount = crSampleCount,
+            lookbackDays = lookbackDays
+        )
 }

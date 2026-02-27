@@ -29,8 +29,10 @@ class AppSettingsStore(context: Context) {
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
             rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
             rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
+            ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
             rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
             rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
+            ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
             patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
             patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
             patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
@@ -54,8 +56,10 @@ class AppSettingsStore(context: Context) {
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
                 rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
                 rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
+                ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
                 rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
                 rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
+                ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
                 patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
                 patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
                 patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
@@ -75,8 +79,10 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
             prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
+            prefs[KEY_RULE_SEGMENT_ENABLED] = next.ruleSegmentEnabled
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
+            prefs[KEY_RULE_SEGMENT_PRIORITY] = next.ruleSegmentPriority
             prefs[KEY_PATTERN_MIN_SAMPLES] = next.patternMinSamplesPerWindow
             prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] = next.patternMinActiveDaysPerWindow
             prefs[KEY_PATTERN_LOW_RATE_TRIGGER] = next.patternLowRateTrigger
@@ -102,8 +108,10 @@ class AppSettingsStore(context: Context) {
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_RULE_POST_HYPO_ENABLED = booleanPreferencesKey("rule_post_hypo_enabled")
         private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
+        private val KEY_RULE_SEGMENT_ENABLED = booleanPreferencesKey("rule_segment_enabled")
         private val KEY_RULE_POST_HYPO_PRIORITY = intPreferencesKey("rule_post_hypo_priority")
         private val KEY_RULE_PATTERN_PRIORITY = intPreferencesKey("rule_pattern_priority")
+        private val KEY_RULE_SEGMENT_PRIORITY = intPreferencesKey("rule_segment_priority")
         private val KEY_PATTERN_MIN_SAMPLES = intPreferencesKey("pattern_min_samples")
         private val KEY_PATTERN_MIN_ACTIVE_DAYS = intPreferencesKey("pattern_min_active_days")
         private val KEY_PATTERN_LOW_RATE_TRIGGER = doublePreferencesKey("pattern_low_rate_trigger")
@@ -115,6 +123,7 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_BASE_TARGET_MMOL = 5.5
         private const val DEFAULT_POST_HYPO_PRIORITY = 100
         private const val DEFAULT_PATTERN_PRIORITY = 50
+        private const val DEFAULT_SEGMENT_PRIORITY = 40
         private const val DEFAULT_PATTERN_MIN_SAMPLES = 40
         private const val DEFAULT_PATTERN_MIN_ACTIVE_DAYS = 7
         private const val DEFAULT_PATTERN_LOW_RATE_TRIGGER = 0.12
@@ -135,8 +144,10 @@ data class AppSettings(
     val baseTargetMmol: Double,
     val rulePostHypoEnabled: Boolean,
     val rulePatternEnabled: Boolean,
+    val ruleSegmentEnabled: Boolean,
     val rulePostHypoPriority: Int,
     val rulePatternPriority: Int,
+    val ruleSegmentPriority: Int,
     val patternMinSamplesPerWindow: Int,
     val patternMinActiveDaysPerWindow: Int,
     val patternLowRateTrigger: Double,

@@ -189,8 +189,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileSegmentLines = profileSegmentLines,
             rulePostHypoEnabled = settings.rulePostHypoEnabled,
             rulePatternEnabled = settings.rulePatternEnabled,
+            ruleSegmentEnabled = settings.ruleSegmentEnabled,
             rulePostHypoPriority = settings.rulePostHypoPriority,
             rulePatternPriority = settings.rulePatternPriority,
+            ruleSegmentPriority = settings.ruleSegmentPriority,
             patternMinSamplesPerWindow = settings.patternMinSamplesPerWindow,
             patternMinActiveDaysPerWindow = settings.patternMinActiveDaysPerWindow,
             patternLowRateTrigger = settings.patternLowRateTrigger,
@@ -289,16 +291,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setRuleConfig(
         postHypoEnabled: Boolean,
         patternEnabled: Boolean,
+        segmentEnabled: Boolean,
         postHypoPriority: Int,
-        patternPriority: Int
+        patternPriority: Int,
+        segmentPriority: Int
     ) {
         viewModelScope.launch {
             container.settingsStore.update {
                 it.copy(
                     rulePostHypoEnabled = postHypoEnabled,
                     rulePatternEnabled = patternEnabled,
+                    ruleSegmentEnabled = segmentEnabled,
                     rulePostHypoPriority = postHypoPriority.coerceIn(0, 200),
-                    rulePatternPriority = patternPriority.coerceIn(0, 200)
+                    rulePatternPriority = patternPriority.coerceIn(0, 200),
+                    ruleSegmentPriority = segmentPriority.coerceIn(0, 200)
                 )
             }
             messageState.value = "Rule config updated"
@@ -587,8 +593,10 @@ data class MainUiState(
     val profileSegmentLines: List<String> = emptyList(),
     val rulePostHypoEnabled: Boolean = true,
     val rulePatternEnabled: Boolean = true,
+    val ruleSegmentEnabled: Boolean = true,
     val rulePostHypoPriority: Int = 100,
     val rulePatternPriority: Int = 50,
+    val ruleSegmentPriority: Int = 40,
     val patternMinSamplesPerWindow: Int = 40,
     val patternMinActiveDaysPerWindow: Int = 7,
     val patternLowRateTrigger: Double = 0.12,

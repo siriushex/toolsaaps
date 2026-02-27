@@ -18,6 +18,7 @@ import io.aaps.copilot.domain.predict.PredictionEngine
 import io.aaps.copilot.domain.rules.PatternAdaptiveTargetRule
 import io.aaps.copilot.domain.rules.PostHypoReboundGuardRule
 import io.aaps.copilot.domain.rules.RuleEngine
+import io.aaps.copilot.domain.rules.SegmentProfileGuardRule
 import io.aaps.copilot.domain.safety.SafetyPolicy
 
 class AppContainer(context: Context) {
@@ -71,7 +72,8 @@ class AppContainer(context: Context) {
     private val ruleEngine = RuleEngine(
         rules = listOf(
             PostHypoReboundGuardRule(),
-            PatternAdaptiveTargetRule()
+            PatternAdaptiveTargetRule(),
+            SegmentProfileGuardRule()
         ),
         safetyPolicy = SafetyPolicy()
     )

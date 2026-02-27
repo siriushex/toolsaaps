@@ -3,6 +3,8 @@ package io.aaps.copilot.domain.rules
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.PatternWindow
+import io.aaps.copilot.domain.model.ProfileEstimate
+import io.aaps.copilot.domain.model.ProfileSegmentEstimate
 import io.aaps.copilot.domain.model.TherapyEvent
 
 data class RuleContext(
@@ -15,5 +17,7 @@ data class RuleContext(
     val dataFresh: Boolean,
     val activeTempTargetMmol: Double?,
     val actionsLast6h: Int,
-    val sensorBlocked: Boolean = false
+    val sensorBlocked: Boolean = false,
+    val currentProfileEstimate: ProfileEstimate? = null,
+    val currentProfileSegment: ProfileSegmentEstimate? = null
 )

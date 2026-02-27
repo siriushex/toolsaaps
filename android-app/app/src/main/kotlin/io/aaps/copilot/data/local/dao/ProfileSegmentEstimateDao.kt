@@ -16,6 +16,12 @@ interface ProfileSegmentEstimateDao {
     @Query("DELETE FROM profile_segment_estimates")
     suspend fun clear()
 
+    @Query("SELECT * FROM profile_segment_estimates WHERE dayType = :dayType AND timeSlot = :timeSlot ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun byDayTypeAndTimeSlot(dayType: String, timeSlot: String): ProfileSegmentEstimateEntity?
+
+    @Query("SELECT * FROM profile_segment_estimates")
+    suspend fun all(): List<ProfileSegmentEstimateEntity>
+
     @Query("SELECT * FROM profile_segment_estimates ORDER BY dayType, timeSlot")
     fun observeAll(): Flow<List<ProfileSegmentEstimateEntity>>
 }

@@ -197,8 +197,10 @@ private fun ForecastScreen(state: MainUiState) {
 private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
     var postEnabled by remember(state.rulePostHypoEnabled) { mutableStateOf(state.rulePostHypoEnabled) }
     var patternEnabled by remember(state.rulePatternEnabled) { mutableStateOf(state.rulePatternEnabled) }
+    var segmentEnabled by remember(state.ruleSegmentEnabled) { mutableStateOf(state.ruleSegmentEnabled) }
     var postPriority by remember(state.rulePostHypoPriority) { mutableStateOf(state.rulePostHypoPriority.toString()) }
     var patternPriority by remember(state.rulePatternPriority) { mutableStateOf(state.rulePatternPriority.toString()) }
+    var segmentPriority by remember(state.ruleSegmentPriority) { mutableStateOf(state.ruleSegmentPriority.toString()) }
     var dryRunDays by remember { mutableStateOf("14") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -223,12 +225,24 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
             label = { Text("Pattern priority (0..200)") },
             modifier = Modifier.fillMaxWidth()
         )
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("SegmentProfileGuard")
+            Switch(checked = segmentEnabled, onCheckedChange = { segmentEnabled = it })
+        }
+        OutlinedTextField(
+            value = segmentPriority,
+            onValueChange = { segmentPriority = it },
+            label = { Text("Segment priority (0..200)") },
+            modifier = Modifier.fillMaxWidth()
+        )
         Button(onClick = {
             vm.setRuleConfig(
                 postHypoEnabled = postEnabled,
                 patternEnabled = patternEnabled,
+                segmentEnabled = segmentEnabled,
                 postHypoPriority = postPriority.toIntOrNull() ?: state.rulePostHypoPriority,
-                patternPriority = patternPriority.toIntOrNull() ?: state.rulePatternPriority
+                patternPriority = patternPriority.toIntOrNull() ?: state.rulePatternPriority,
+                segmentPriority = segmentPriority.toIntOrNull() ?: state.ruleSegmentPriority
             )
         }) {
             Text("Save rule config")
