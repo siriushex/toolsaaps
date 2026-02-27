@@ -43,7 +43,8 @@ class LocalNightscoutServer(
         val next = EmbeddedServer(
             port = safePort,
             db = db,
-            gson = gson
+            gson = gson,
+            auditLogger = auditLogger
         )
         runCatching {
             next.start(SOCKET_TIMEOUT_MS, false)
@@ -88,7 +89,8 @@ class LocalNightscoutServer(
     private class EmbeddedServer(
         port: Int,
         private val db: CopilotDatabase,
-        private val gson: Gson
+        private val gson: Gson,
+        private val auditLogger: AuditLogger
     ) : NanoHTTPD(HOST, port) {
 
         override fun serve(session: IHTTPSession): Response {
@@ -185,6 +187,12 @@ class LocalNightscoutServer(
 
             if (rows.isNotEmpty()) {
                 runBlocking { db.glucoseDao().upsertAll(rows) }
+            }
+            runBlocking {
+                auditLogger.info(
+                    "local_nightscout_entries_post",
+                    mapOf("received" to parsed.objects.size, "inserted" to rows.size)
+                )
             }
 
             return jsonOk(
@@ -294,6 +302,14 @@ class LocalNightscoutServer(
                 if (telemetryRows.isNotEmpty()) {
                     db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
                 }
+                auditLogger.info(
+                    "local_nightscout_treatments_post",
+                    mapOf(
+                        "received" to parsed.objects.size,
+                        "inserted" to therapyRows.size,
+                        "telemetry" to telemetryRows.size
+                    )
+                )
             }
 
             return if (parsed.wasArray) jsonOk(responses) else jsonOk(responses.first())
@@ -328,6 +344,17 @@ class LocalNightscoutServer(
             if (telemetryRows.isNotEmpty()) {
                 runBlocking {
                     db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
+                    auditLogger.info(
+                        "local_nightscout_devicestatus_post",
+                        mapOf("received" to parsed.objects.size, "telemetry" to telemetryRows.size)
+                    )
+                }
+            } else {
+                runBlocking {
+                    auditLogger.warn(
+                        "local_nightscout_devicestatus_post",
+                        mapOf("received" to parsed.objects.size, "telemetry" to 0)
+                    )
                 }
             }
             return jsonOk(
