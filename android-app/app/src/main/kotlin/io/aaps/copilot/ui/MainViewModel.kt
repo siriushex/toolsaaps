@@ -1574,7 +1574,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             primaryKey = "uam_value",
             label = "UAM",
             staleThresholdMin = 180L,
-            tokenAliases = listOf("uam")
+            exactAliases = listOf("enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam")
         ),
         TelemetryCoverageSpec(
             primaryKey = "isf_value",
@@ -1653,10 +1653,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun latestTelemetryByKey(samples: List<TelemetrySampleEntity>): Map<String, TelemetrySampleEntity> {
         return samples
+            .filter { isTelemetrySampleUsable(it) }
             .groupBy { it.key }
             .mapValues { (_, values) -> values.maxByOrNull { it.timestamp } }
             .filterValues { it != null }
             .mapValues { it.value!! }
+    }
+
+    private fun isTelemetrySampleUsable(sample: TelemetrySampleEntity): Boolean {
+        if (sample.key != "uam_value") return true
+        val numeric = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
+        return numeric == null || numeric in 0.0..1.5
     }
 
     private fun resolveTelemetrySample(

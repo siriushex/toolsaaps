@@ -71,4 +71,20 @@ class TelemetryMetricMapperTest {
         assertThat(nsByKey).containsKey("ns_openaps_iob_iob")
         assertThat(nsByKey).containsKey("ns_uploader_battery")
     }
+
+    @Test
+    fun doesNotMapPredictedUamBgSeries_asUamFlag() {
+        val ts = 1_700_000_900_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "predBGs.UAM[0]" to "155",
+                "predBGs.UAM[1]" to "149",
+                "openaps.suggested.enableUAM" to "false"
+            )
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey["uam_value"]?.valueDouble).isEqualTo(0.0)
+    }
 }

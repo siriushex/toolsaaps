@@ -84,12 +84,8 @@ object TelemetryMetricMapper {
         }
 
         fun addUam(canonicalKey: String, aliases: List<String>) {
-            val raw = findValue(values, aliases)?.trim()?.lowercase(Locale.US) ?: return
-            val parsed = when (raw) {
-                "true", "yes", "on", "enabled" -> 1.0
-                "false", "no", "off", "disabled" -> 0.0
-                else -> raw.toDoubleOrNullLocale()
-            } ?: return
+            val raw = findUamValue(values, aliases) ?: return
+            val parsed = parseUamFlag(raw) ?: return
             output += sample(
                 timestamp = timestamp,
                 source = source,
@@ -112,7 +108,7 @@ object TelemetryMetricMapper {
         addTempTargetNumeric("temp_target_high_mmol", listOf("targetTop", "target_top", "targetHigh"))
         addNumeric("temp_target_duration_min", "min", listOf("duration", "durationInMinutes"))
         addNumeric("profile_percent", "%", listOf("percentage", "profilePercentage"))
-        addUam("uam_value", listOf("uam", "enableUAM", "unannouncedMeal", "uamDetected"))
+        addUam("uam_value", listOf("enableUAM", "unannouncedMeal", "uamDetected", "hasUam", "isUam", "uam"))
         addNumeric("isf_value", null, listOf("isf", "sens", "sensitivity"))
         addNumeric("cr_value", null, listOf("cr", "carbRatio", "carb_ratio", "icRatio"))
         addNumeric("basal_rate_u_h", "U/h", listOf("absolute", "basalRate", "basal_rate", "tempBasal"))
@@ -181,7 +177,18 @@ object TelemetryMetricMapper {
         addPattern("carbs_grams", "g", listOf("carbs"))
         addPattern("heart_rate_bpm", "bpm", listOf("heart", "heartrate"))
         addPattern("profile_percent", "%", listOf("profilepercentage", "percent"))
-        addPattern("uam_value", null, listOf("uam"))
+        findUamValue(normalized, listOf("enableUAM", "unannouncedMeal", "uamDetected", "hasUam", "isUam", "uam"))
+            ?.let(::parseUamFlag)
+            ?.let { parsed ->
+                output += sample(
+                    timestamp = timestamp,
+                    source = source,
+                    key = "uam_value",
+                    valueDouble = parsed,
+                    valueText = null,
+                    unit = null
+                )
+            }
         addPattern("isf_value", null, listOf("sens", "isf"))
         addPattern("cr_value", null, listOf("carb_ratio", "carbratio", "icratio"))
         addPattern("basal_rate_u_h", "U/h", listOf("absolute", "basalrate", "tempbasal"))
@@ -240,6 +247,29 @@ object TelemetryMetricMapper {
         return null
     }
 
+    private fun findUamValue(values: Map<String, String>, aliases: List<String>): String? {
+        val normalizedAliases = aliases
+            .map { normalizeAliasKey(it) }
+            .filter { it.isNotBlank() }
+        if (normalizedAliases.isEmpty()) return null
+
+        return values.entries.firstOrNull { (key, _) ->
+            val normalizedKey = normalizeAliasKey(key)
+            normalizedAliases.any { alias ->
+                normalizedKey == alias || normalizedKey.endsWith("_$alias")
+            }
+        }?.value
+    }
+
+    private fun parseUamFlag(raw: String): Double? {
+        val normalized = raw.trim().lowercase(Locale.US)
+        return when (normalized) {
+            "true", "yes", "on", "enabled", "active" -> 1.0
+            "false", "no", "off", "disabled", "inactive" -> 0.0
+            else -> normalized.toDoubleOrNullLocale()?.takeIf { it in 0.0..1.0 }
+        }
+    }
+
     private fun keyContainsAliasToken(key: String, aliasLower: String): Boolean {
         if (aliasLower.isBlank()) return false
         val normalizedKey = key
@@ -252,6 +282,14 @@ object TelemetryMetricMapper {
         if (compactAlias.isBlank()) return false
         val compactKey = normalizedKey.replace(Regex("[^a-z0-9]"), "")
         return compactKey.endsWith(compactAlias)
+    }
+
+    private fun normalizeAliasKey(value: String): String {
+        return value
+            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
     }
 
     private fun appendRawSamples(

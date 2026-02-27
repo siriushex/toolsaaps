@@ -187,7 +187,7 @@ class PatternAndProfileTest {
             )
         )
         val telemetry = listOf(
-            TelemetrySignal(ts = now + 5 * 60_000, key = "ns_openaps_suggested_predbg_uam_0", valueDouble = 1.0),
+            TelemetrySignal(ts = now + 5 * 60_000, key = "uam_value", valueDouble = 1.0),
             TelemetrySignal(ts = now - 30_000, key = "isf_value", valueDouble = 50.0),
             TelemetrySignal(ts = now - 30_000, key = "cr_value", valueDouble = 10.0)
         )
@@ -203,5 +203,39 @@ class PatternAndProfileTest {
         assertThat(estimate).isNotNull()
         assertThat(estimate!!.uamObservedCount).isEqualTo(1)
         assertThat(estimate.uamFilteredIsfSamples).isAtLeast(1)
+    }
+
+    @Test
+    fun profileEstimator_ignoresPredictedUamBgSeries_whenEstimatingUam() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(now - 10 * 60_000, 9.0, "test", DataQuality.OK),
+            GlucosePoint(now + 90 * 60_000, 7.2, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(
+                ts = now,
+                type = "correction_bolus",
+                payload = mapOf("units" to "1.0")
+            )
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now + 5 * 60_000, key = "raw_predbgs_uam_0", valueDouble = 155.0),
+            TelemetrySignal(ts = now - 30_000, key = "isf_value", valueDouble = 50.0),
+            TelemetrySignal(ts = now - 30_000, key = "cr_value", valueDouble = 10.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy, telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.uamObservedCount).isEqualTo(0)
+        assertThat(estimate.uamFilteredIsfSamples).isEqualTo(0)
+        assertThat(estimate.uamEstimatedCarbsGrams).isWithin(0.001).of(0.0)
     }
 }

@@ -299,7 +299,7 @@ class AutomationRepository(
         val rows = db.telemetryDao().since(nowTs - TELEMETRY_LOOKBACK_MS)
         if (rows.isEmpty()) return emptyMap()
         val latestByKey = rows
-            .filter { it.valueDouble != null }
+            .filter { it.valueDouble != null && telemetryValueUsable(it.key, it.valueDouble) }
             .groupBy { it.key }
             .mapValues { (_, values) -> values.maxByOrNull { it.timestamp }?.valueDouble }
             .toMutableMap()
@@ -315,8 +315,17 @@ class AutomationRepository(
         alias("iob_units", listOf("iob", "insulinonboard"))
         alias("cob_grams", listOf("cob", "carbsonboard"))
         alias("activity_ratio", listOf("activity", "activityratio", "sensitivityratio"))
-        alias("uam_value", listOf("uam"))
+        alias("uam_value", listOf("enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam"))
         return latestByKey
+    }
+
+    private fun telemetryValueUsable(key: String, value: Double?): Boolean {
+        if (value == null) return false
+        val normalizedKey = normalizeTelemetryKey(key)
+        if (normalizedKey == "uam_value") {
+            return value in 0.0..1.5
+        }
+        return true
     }
 
     private fun telemetryKeyContainsAlias(key: String, alias: String): Boolean {

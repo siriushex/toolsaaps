@@ -249,8 +249,10 @@ class ProfileEstimator(
             .asSequence()
             .filter { isUamKey(it.key) }
             .mapNotNull { signal ->
-                val value = signal.numericValue() ?: return@mapNotNull null
-                if (value > 0.0) signal.ts else null
+                when (signal.uamActivation()) {
+                    true -> signal.ts
+                    else -> null
+                }
             }
             .toSet()
     }
@@ -425,7 +427,34 @@ class ProfileEstimator(
 
     private fun isUamKey(key: String): Boolean {
         val normalized = normalizeKey(key)
-        return Regex("(^|_)uam(_|$)").containsMatchIn(normalized)
+        if (normalized.contains("predbg") || Regex("_uam_\\d+$").containsMatchIn(normalized)) return false
+        return normalized == "uam_value" ||
+            normalized == "uam" ||
+            normalized.endsWith("_uam") ||
+            normalized.endsWith("_enable_uam") ||
+            normalized.endsWith("_uam_detected") ||
+            normalized.endsWith("_unannounced_meal") ||
+            normalized.endsWith("_has_uam") ||
+            normalized.endsWith("_is_uam")
+    }
+
+    private fun TelemetrySignal.uamActivation(): Boolean? {
+        val text = valueText?.trim()?.lowercase()
+        if (text != null) {
+            when (text) {
+                "true", "yes", "on", "enabled", "active" -> return true
+                "false", "no", "off", "disabled", "inactive" -> return false
+            }
+        }
+
+        val numeric = numericValue() ?: return null
+        return when {
+            numeric < 0.0 -> null
+            numeric <= 0.0 -> false
+            numeric in 0.0..1.0 -> numeric >= 0.5
+            numeric in 1.0..1.5 -> true
+            else -> null
+        }
     }
 
     private fun normalizeKey(raw: String): String {
