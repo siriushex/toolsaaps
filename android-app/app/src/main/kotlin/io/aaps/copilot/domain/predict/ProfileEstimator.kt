@@ -21,7 +21,16 @@ data class ProfileEstimatorConfig(
     val uamWindowBeforeMinutes: Int = 20,
     val uamWindowAfterMinutes: Int = 110,
     val uamEpisodeGapMinutes: Int = 20,
-    val uamRecentWindowMinutes: Int = 360
+    val uamRecentWindowMinutes: Int = 360,
+    val uamMinEpisodePoints: Int = 2,
+    val uamEpisodeMaxMinutes: Int = 90,
+    val uamPeakSearchMinutes: Int = 120,
+    val uamIgnoreAnnouncedCarbsBeforeMinutes: Int = 45,
+    val uamIgnoreAnnouncedCarbsAfterMinutes: Int = 120,
+    val uamMinRiseMmol: Double = 0.35,
+    val uamEpisodeMaxGrams: Double = 90.0,
+    val uamTotalMaxGrams: Double = 240.0,
+    val uamRecentMaxGrams: Double = 120.0
 )
 
 data class TelemetrySignal(
@@ -61,6 +70,7 @@ class ProfileEstimator(
         val cr = median(crSamples)
         val uamCarbEstimate = estimateUamCarbs(
             glucose = sortedGlucose,
+            therapyEvents = sortedEvents,
             uamPoints = uamPoints,
             isfMmolPerUnit = isf,
             crGramPerUnit = cr
@@ -287,6 +297,7 @@ class ProfileEstimator(
 
     private fun estimateUamCarbs(
         glucose: List<GlucosePoint>,
+        therapyEvents: List<TherapyEvent>,
         uamPoints: Set<Long>,
         isfMmolPerUnit: Double,
         crGramPerUnit: Double
@@ -305,29 +316,50 @@ class ProfileEstimator(
         var acceptedEpisodes = 0
 
         episodes.forEach { episode ->
+            if (episode.points < config.uamMinEpisodePoints) return@forEach
+            if (hasAnnouncedCarbsNearEpisode(therapyEvents, episode.startTs)) return@forEach
+
             val baseline = glucose.closestTo(
                 targetTs = episode.startTs - 10 * 60_000L,
-                maxDistanceMs = 40 * 60_000L
+                maxDistanceMs = 35 * 60_000L
             ) ?: return@forEach
 
+            val effectiveEnd = minOf(
+                episode.endTs,
+                episode.startTs + config.uamEpisodeMaxMinutes * 60_000L
+            )
+            val peakWindowEnd = minOf(
+                effectiveEnd + 30 * 60_000L,
+                episode.startTs + config.uamPeakSearchMinutes * 60_000L
+            )
             val peak = glucose
                 .asSequence()
                 .filter { point ->
-                    point.ts in (episode.startTs + 5 * 60_000L)..(episode.endTs + 120 * 60_000L)
+                    point.ts in (episode.startTs + 5 * 60_000L)..peakWindowEnd
                 }
                 .maxByOrNull { it.valueMmol }
                 ?: return@forEach
 
             val rise = peak.valueMmol - baseline.valueMmol
-            if (rise < 0.30) return@forEach
+            if (rise < config.uamMinRiseMmol) return@forEach
 
-            val grams = (rise / csfMmolPerGram).coerceIn(0.0, 250.0)
+            val durationMinutes = ((effectiveEnd - episode.startTs).coerceAtLeast(5 * 60_000L)) / 60_000.0
+            val expectedPoints = (durationMinutes / 5.0).coerceAtLeast(1.0)
+            val densityFactor = (episode.points / expectedPoints).coerceIn(0.4, 1.0)
+            val confidenceFactor = when {
+                episode.points >= 6 -> 1.0
+                episode.points >= 4 -> 0.85
+                else -> 0.70
+            }
+
+            val gramsRaw = rise / csfMmolPerGram
+            val grams = (gramsRaw * densityFactor * confidenceFactor).coerceIn(0.0, config.uamEpisodeMaxGrams)
             if (grams < 1.0) return@forEach
 
             acceptedEpisodes += 1
-            total += grams
+            total = (total + grams).coerceAtMost(config.uamTotalMaxGrams)
             if (episode.endTs >= recentCutoff) {
-                recent += grams
+                recent = (recent + grams).coerceAtMost(config.uamRecentMaxGrams)
             }
         }
 
@@ -336,6 +368,18 @@ class ProfileEstimator(
             totalGrams = total,
             recentGrams = recent
         )
+    }
+
+    private fun hasAnnouncedCarbsNearEpisode(events: List<TherapyEvent>, episodeStartTs: Long): Boolean {
+        val from = episodeStartTs - config.uamIgnoreAnnouncedCarbsBeforeMinutes * 60_000L
+        val to = episodeStartTs + config.uamIgnoreAnnouncedCarbsAfterMinutes * 60_000L
+        return events.any { event ->
+            event.ts in from..to &&
+                (
+                    event.type.equals("meal_bolus", ignoreCase = true) ||
+                        event.type.equals("carbs", ignoreCase = true)
+                    )
+        }
     }
 
     private fun buildUamEpisodes(sortedPoints: List<Long>): List<UamEpisode> {

@@ -238,4 +238,65 @@ class PatternAndProfileTest {
         assertThat(estimate.uamFilteredIsfSamples).isEqualTo(0)
         assertThat(estimate.uamEstimatedCarbsGrams).isWithin(0.001).of(0.0)
     }
+
+    @Test
+    fun profileEstimator_skipsUamCarbEstimate_whenAnnouncedCarbsNearby() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(now - 10 * 60_000, 6.0, "test", DataQuality.OK),
+            GlucosePoint(now + 25 * 60_000, 7.4, "test", DataQuality.OK),
+            GlucosePoint(now + 60 * 60_000, 7.8, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(now + 2 * 60_000, "carbs", mapOf("grams" to "18"))
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now + 5 * 60_000, key = "uam_value", valueDouble = 1.0),
+            TelemetrySignal(ts = now + 10 * 60_000, key = "uam_value", valueDouble = 1.0),
+            TelemetrySignal(ts = now - 30_000, key = "isf_value", valueDouble = 50.0),
+            TelemetrySignal(ts = now - 30_000, key = "cr_value", valueDouble = 10.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy, telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.uamObservedCount).isEqualTo(2)
+        assertThat(estimate.uamEpisodeCount).isEqualTo(0)
+        assertThat(estimate.uamEstimatedCarbsGrams).isWithin(0.001).of(0.0)
+        assertThat(estimate.uamEstimatedRecentCarbsGrams).isWithin(0.001).of(0.0)
+    }
+
+    @Test
+    fun profileEstimator_requiresAtLeastTwoUamPoints_forUamCarbEpisode() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(now - 10 * 60_000, 6.1, "test", DataQuality.OK),
+            GlucosePoint(now + 30 * 60_000, 7.6, "test", DataQuality.OK),
+            GlucosePoint(now + 55 * 60_000, 7.9, "test", DataQuality.OK)
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now + 5 * 60_000, key = "uam_value", valueDouble = 1.0),
+            TelemetrySignal(ts = now - 30_000, key = "isf_value", valueDouble = 50.0),
+            TelemetrySignal(ts = now - 30_000, key = "cr_value", valueDouble = 10.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapyEvents = emptyList(), telemetrySignals = telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.uamObservedCount).isEqualTo(1)
+        assertThat(estimate.uamEpisodeCount).isEqualTo(0)
+        assertThat(estimate.uamEstimatedCarbsGrams).isWithin(0.001).of(0.0)
+    }
 }
