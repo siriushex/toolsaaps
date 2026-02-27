@@ -133,6 +133,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "Cloud push last sync: ${formatTs(cloudPushSyncTs)} (backlog ${minutesLabel(cloudPushBacklogMinutes)})",
         ) + listOfNotNull(lastSyncIssue?.let { "Last sync issue: $it" })
 
+        val lastBroadcastIngest = audits.firstOrNull { it.message == "broadcast_ingest_completed" }
+        val lastBroadcastSkip = audits.firstOrNull { it.message == "broadcast_ingest_skipped" }
+        val transportStatusLines = buildList {
+            add(
+                "Inbound local broadcast: " + if (settings.localBroadcastIngestEnabled) {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            )
+            add(
+                "Strict sender validation: " + if (settings.strictBroadcastSenderValidation) {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            )
+            add("Outbound temp target/carbs: Nightscout API")
+            add("Direct AAPS treatment broadcast: not supported on standard AAPS build")
+            lastBroadcastIngest?.let {
+                add("Last broadcast ingest: ${formatTs(it.timestamp)}")
+            }
+            lastBroadcastSkip?.let {
+                add("Last broadcast skip: ${formatTs(it.timestamp)} (${it.message})")
+            }
+        }
+
         val jobStatusLines = if (cloudJobs == null) {
             emptyList()
         } else {
@@ -254,6 +281,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             baselineDeltaLines = baselineDeltas.map {
                 "${it.horizonMinutes}m ${it.algorithm}: ${if (it.deltaMmol >= 0) "+" else ""}${"%.2f".format(it.deltaMmol)} mmol/L"
             },
+            transportStatusLines = transportStatusLines,
             syncStatusLines = syncStatusLines,
             jobStatusLines = jobStatusLines,
             insightsFilterLabel = insightsFilterLabel,
@@ -731,6 +759,7 @@ data class MainUiState(
     val weekendHotHours: List<PatternWindow> = emptyList(),
     val qualityMetrics: List<QualityMetricUi> = emptyList(),
     val baselineDeltaLines: List<String> = emptyList(),
+    val transportStatusLines: List<String> = emptyList(),
     val syncStatusLines: List<String> = emptyList(),
     val jobStatusLines: List<String> = emptyList(),
     val insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8",

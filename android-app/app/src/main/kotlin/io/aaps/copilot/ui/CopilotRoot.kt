@@ -167,6 +167,13 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = { vm.saveConnections(nsUrl, nsSecret, cloudUrl, exportUri.ifBlank { null }) }) {
             Text("Save")
         }
+        HorizontalDivider()
+        Text("Transport diagnostics")
+        if (state.transportStatusLines.isEmpty()) {
+            Text("No transport diagnostics yet")
+        } else {
+            state.transportStatusLines.forEach { Text(it) }
+        }
     }
 }
 

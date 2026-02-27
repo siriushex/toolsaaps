@@ -69,6 +69,11 @@ temporarily blocks safety-sensitive automation decisions.
 For stable delivery on modern Android, send to explicit package
 `io.aaps.predictivecopilot` (same setting should be used in xDrip broadcast config).
 
+Transport note:
+- Standard AAPS builds receive local BG broadcasts, but treatment commands are not consumed from the
+  same local broadcast channel.
+- For `temp target` and `carbs` delivery into AAPS loop, use Nightscout API path.
+
 Quick manual test:
 
 ```bash
