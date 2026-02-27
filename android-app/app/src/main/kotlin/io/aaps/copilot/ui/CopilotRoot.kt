@@ -1,6 +1,10 @@
 package io.aaps.copilot.ui
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -90,6 +94,11 @@ fun CopilotRoot(vm: MainViewModel = viewModel()) {
 @Composable
 private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
     val context = LocalContext.current
+    val hasAllFilesAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        true
+    }
     var nsUrl by remember(state.nightscoutUrl) { mutableStateOf(state.nightscoutUrl) }
     var nsSecret by remember { mutableStateOf("") }
     var cloudUrl by remember(state.cloudUrl) { mutableStateOf(state.cloudUrl) }
@@ -105,10 +114,25 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("All-files access: ${if (hasAllFilesAccess) "granted" else "required for auto-discovery"}")
+        if (!hasAllFilesAccess) {
+            Button(onClick = {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
+                )
+                context.startActivity(intent)
+            }) {
+                Text("Grant all-files access")
+            }
+        }
+        Button(onClick = { vm.runAutoConnectNow() }) {
+            Text("Auto-connect AAPS now")
+        }
         OutlinedTextField(value = nsUrl, onValueChange = { nsUrl = it }, label = { Text("Nightscout URL") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = nsSecret, onValueChange = { nsSecret = it }, label = { Text("API Secret") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = cloudUrl, onValueChange = { cloudUrl = it }, label = { Text("Cloud API URL") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = exportUri, onValueChange = { exportUri = it }, label = { Text("AAPS export SAF URI") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = exportUri, onValueChange = { exportUri = it }, label = { Text("AAPS export path/SAF URI") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = { folderPicker.launch(null) }) {
             Text("Pick export folder")
         }

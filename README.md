@@ -3,6 +3,7 @@
 Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 
 - Full-history Nightscout sync + AAPS export baseline import
+- Auto-bootstrap on first launch: AAPS export path discovery + optional root bootstrap for local DB
 - Incremental cloud sync pull/push (`/v1/sync/pull`, `/v1/sync/push`)
 - 5m and 1h glucose forecasts (on-device + optional cloud override)
 - Rule engine with hard safety guardrails and kill switch

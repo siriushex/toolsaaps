@@ -6,11 +6,13 @@ import com.google.gson.Gson
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.repository.AapsExportRepository
+import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.repository.AnalyticsRepository
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.InsightsRepository
 import io.aaps.copilot.data.repository.NightscoutActionRepository
+import io.aaps.copilot.data.repository.RootDbExperimentalRepository
 import io.aaps.copilot.data.repository.SyncRepository
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.PatternAnalyzer
@@ -52,6 +54,19 @@ class AppContainer(context: Context) {
         auditLogger = auditLogger
     )
 
+    val autoConnectRepository = AapsAutoConnectRepository(
+        context = context,
+        settingsStore = settingsStore,
+        auditLogger = auditLogger
+    )
+
+    val rootDbRepository = RootDbExperimentalRepository(
+        context = context,
+        db = db,
+        settingsStore = settingsStore,
+        auditLogger = auditLogger
+    )
+
     val analyticsRepository = AnalyticsRepository(
         db = db,
         patternAnalyzer = PatternAnalyzer(),
@@ -83,6 +98,8 @@ class AppContainer(context: Context) {
         settingsStore = settingsStore,
         syncRepository = syncRepository,
         exportRepository = exportRepository,
+        autoConnectRepository = autoConnectRepository,
+        rootDbRepository = rootDbRepository,
         analyticsRepository = analyticsRepository,
         actionRepository = actionRepository,
         predictionEngine = predictionEngine,

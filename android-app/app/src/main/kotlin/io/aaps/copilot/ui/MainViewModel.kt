@@ -50,6 +50,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val baselineComparator = BaselineComparator()
 
     init {
+        runAutoConnectNow(silent = true)
         refreshCloudJobs(silent = true)
         refreshAnalysisInsights(silent = true)
     }
@@ -386,6 +387,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess {
                 messageState.value = it
                 refreshCloudJobs(silent = true)
+            }
+        }
+    }
+
+    fun runAutoConnectNow(silent: Boolean = false) {
+        viewModelScope.launch {
+            runCatching {
+                val result = container.autoConnectRepository.bootstrap()
+                if (result.rootEnabled) {
+                    container.rootDbRepository.syncIfEnabled()
+                }
+                container.exportRepository.importBaselineFromExports()
+                result
+            }.onSuccess { result ->
+                if (!silent) {
+                    messageState.value = "Auto-connect: export=${result.exportConnected}, ns=${result.nightscoutConfigured}, root=${result.rootEnabled}, filesAccess=${result.hasAllFilesAccess}"
+                }
+            }.onFailure {
+                if (!silent) {
+                    messageState.value = "Auto-connect failed: ${it.message}"
+                }
             }
         }
     }

@@ -30,6 +30,8 @@ class AutomationRepository(
     private val settingsStore: AppSettingsStore,
     private val syncRepository: SyncRepository,
     private val exportRepository: AapsExportRepository,
+    private val autoConnectRepository: AapsAutoConnectRepository,
+    private val rootDbRepository: RootDbExperimentalRepository,
     private val analyticsRepository: AnalyticsRepository,
     private val actionRepository: NightscoutActionRepository,
     private val predictionEngine: PredictionEngine,
@@ -53,7 +55,9 @@ class AutomationRepository(
     )
 
     suspend fun runAutomationCycle() {
+        autoConnectRepository.bootstrap()
         val settings = settingsStore.settings.first()
+        rootDbRepository.syncIfEnabled()
         syncRepository.syncNightscoutIncremental()
         syncRepository.pushCloudIncremental()
         exportRepository.importBaselineFromExports()

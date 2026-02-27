@@ -8,6 +8,7 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.BaselinePointEntity
 import io.aaps.copilot.util.UnitConverter
 import java.io.BufferedReader
+import java.io.File
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -24,19 +25,13 @@ class AapsExportRepository(
 
     suspend fun importBaselineFromExports() = withContext(Dispatchers.IO) {
         val settings = settingsStore.settings.first()
-        val uriString = settings.exportFolderUri
-        if (uriString.isNullOrBlank()) {
+        val location = settings.exportFolderUri
+        if (location.isNullOrBlank()) {
             auditLogger.warn("baseline_import_skipped", mapOf("reason" to "missing_export_uri"))
             return@withContext
         }
 
-        val root = DocumentFile.fromTreeUri(context, Uri.parse(uriString))
-        if (root == null || !root.exists()) {
-            auditLogger.warn("baseline_import_skipped", mapOf("reason" to "invalid_export_uri"))
-            return@withContext
-        }
-
-        val jsonFiles = root.listFiles().filter { it.isFile && it.name?.endsWith(".json", ignoreCase = true) == true }
+        val jsonFiles = discoverJsonFiles(location)
         if (jsonFiles.isEmpty()) {
             auditLogger.warn("baseline_import_skipped", mapOf("reason" to "no_json_files"))
             return@withContext
@@ -45,7 +40,10 @@ class AapsExportRepository(
         val points = mutableListOf<BaselinePointEntity>()
         for (file in jsonFiles) {
             runCatching {
-                context.contentResolver.openInputStream(file.uri)?.bufferedReader()?.use(BufferedReader::readText)
+                when (file) {
+                    is JsonSource.Document -> context.contentResolver.openInputStream(file.document.uri)?.bufferedReader()?.use(BufferedReader::readText)
+                    is JsonSource.Path -> file.file.takeIf { it.exists() }?.readText()
+                }
             }.onSuccess { json ->
                 if (json != null) {
                     points += parseResultFile(json)
@@ -55,10 +53,44 @@ class AapsExportRepository(
 
         if (points.isNotEmpty()) {
             db.baselineDao().upsertAll(points)
-            auditLogger.info("baseline_import_completed", mapOf("points" to points.size, "files" to jsonFiles.size))
+            auditLogger.info(
+                "baseline_import_completed",
+                mapOf("points" to points.size, "files" to jsonFiles.size, "location" to location.take(120))
+            )
         } else {
             auditLogger.warn("baseline_import_empty", mapOf("files" to jsonFiles.size))
         }
+    }
+
+    private suspend fun discoverJsonFiles(location: String): List<JsonSource> {
+        val path = normalizePath(location)
+        if (path != null) {
+            val root = File(path)
+            if (!root.exists() || !root.isDirectory) {
+                auditLogger.warn("baseline_import_skipped", mapOf("reason" to "invalid_export_path", "path" to path))
+                return emptyList()
+            }
+            return root.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".json", ignoreCase = true) }
+                ?.map { JsonSource.Path(it) }
+                .orEmpty()
+        }
+
+        val root = DocumentFile.fromTreeUri(context, Uri.parse(location))
+        if (root == null || !root.exists()) {
+            auditLogger.warn("baseline_import_skipped", mapOf("reason" to "invalid_export_uri"))
+            return emptyList()
+        }
+        return root.listFiles()
+            .filter { it.isFile && it.name?.endsWith(".json", ignoreCase = true) == true }
+            .map { JsonSource.Document(it) }
+    }
+
+    private fun normalizePath(location: String): String? {
+        val trimmed = location.trim()
+        if (trimmed.startsWith("/")) return trimmed
+        if (trimmed.startsWith("file://")) return runCatching { Uri.parse(trimmed).path }.getOrNull()
+        return null
     }
 
     private fun parseResultFile(content: String): List<BaselinePointEntity> {
@@ -119,5 +151,10 @@ class AapsExportRepository(
             horizon += 5
         }
         return points
+    }
+
+    private sealed interface JsonSource {
+        data class Document(val document: DocumentFile) : JsonSource
+        data class Path(val file: File) : JsonSource
     }
 }
