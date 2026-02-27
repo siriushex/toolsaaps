@@ -19,6 +19,7 @@ class AppSettingsStore(context: Context) {
     )
 
     val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
+        val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
         AppSettings(
             nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
             apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
@@ -43,7 +44,7 @@ class AppSettingsStore(context: Context) {
             rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
             rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
             ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
-            adaptiveControllerEnabled = prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] ?: false,
+            adaptiveControllerEnabled = adaptiveEnabled,
             rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
             rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
             ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
@@ -74,6 +75,7 @@ class AppSettingsStore(context: Context) {
 
     suspend fun update(updater: (AppSettings) -> AppSettings) {
         dataStore.edit { prefs ->
+            val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
             val current = AppSettings(
                 nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
                 apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
@@ -98,7 +100,7 @@ class AppSettingsStore(context: Context) {
                 rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
                 rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
                 ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
-                adaptiveControllerEnabled = prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] ?: false,
+                adaptiveControllerEnabled = adaptiveEnabled,
                 rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
                 rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
                 ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
@@ -149,6 +151,7 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
             prefs[KEY_RULE_SEGMENT_ENABLED] = next.ruleSegmentEnabled
             prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = next.adaptiveControllerEnabled
+            prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] = true
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
             prefs[KEY_RULE_SEGMENT_PRIORITY] = next.ruleSegmentPriority
@@ -176,6 +179,28 @@ class AppSettingsStore(context: Context) {
         }
     }
 
+    suspend fun ensureAdaptiveControllerDefaultEnabled(): Boolean {
+        var enabledNow = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] == true) return@edit
+            prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = true
+            prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] = true
+            enabledNow = true
+        }
+        return enabledNow
+    }
+
+    private fun resolveAdaptiveControllerEnabled(prefs: Preferences): Boolean {
+        val stored = prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED]
+        val migrationDone = prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] ?: false
+        return when {
+            stored == null -> true
+            stored -> true
+            migrationDone -> false
+            else -> true
+        }
+    }
+
     companion object {
         private val KEY_NS_URL = stringPreferencesKey("nightscout_url")
         private val KEY_NS_SECRET = stringPreferencesKey("nightscout_secret")
@@ -200,6 +225,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
         private val KEY_RULE_SEGMENT_ENABLED = booleanPreferencesKey("rule_segment_enabled")
         private val KEY_ADAPTIVE_CONTROLLER_ENABLED = booleanPreferencesKey("adaptive_controller_enabled")
+        private val KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE = booleanPreferencesKey("adaptive_default_migration_done")
         private val KEY_RULE_POST_HYPO_PRIORITY = intPreferencesKey("rule_post_hypo_priority")
         private val KEY_RULE_PATTERN_PRIORITY = intPreferencesKey("rule_pattern_priority")
         private val KEY_RULE_SEGMENT_PRIORITY = intPreferencesKey("rule_segment_priority")

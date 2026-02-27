@@ -41,22 +41,21 @@ class NightscoutActionRepository(
 
         val nowMs = System.currentTimeMillis()
         val nowIso = Instant.now().toString()
-        val nightscoutUrl = settings.resolvedNightscoutUrl()
-        var lastError = "missing_nightscout_url"
-        if (nightscoutUrl.isNotBlank()) {
-            val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
-            val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
+        val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
+        val request = NightscoutTreatmentRequest(
+            createdAt = nowIso,
+            eventType = "Temporary Target",
+            duration = duration,
+            targetTop = targetMgdl,
+            targetBottom = targetMgdl,
+            reason = reason,
+            notes = "copilot:${command.idempotencyKey}"
+        )
 
-            val request = NightscoutTreatmentRequest(
-                createdAt = nowIso,
-                eventType = "Temporary Target",
-                duration = duration,
-                targetTop = targetMgdl,
-                targetBottom = targetMgdl,
-                reason = reason,
-                notes = "copilot:${command.idempotencyKey}"
-            )
-
+        val nightscoutTargets = nightscoutWriteTargets(settings)
+        var lastError = if (nightscoutTargets.isEmpty()) "missing_nightscout_url" else "nightscout_post_failed"
+        for (targetUrl in nightscoutTargets) {
+            val nsApi = apiFactory.nightscoutApi(targetUrl, settings.apiSecret)
             val nsSuccess = runCatching {
                 nsApi.postTreatment(request)
             }.onFailure { error ->
@@ -64,8 +63,22 @@ class NightscoutActionRepository(
             }.isSuccess
 
             if (nsSuccess) {
-                markSent(command, channel = "nightscout")
-                auditLogger.info("temp_target_sent", mapOf("targetMmol" to target, "duration" to duration, "reason" to reason))
+                val channel = if (isLocalNightscoutTarget(targetUrl, settings)) {
+                    "nightscout_local"
+                } else {
+                    "nightscout"
+                }
+                markSent(command, channel = channel)
+                auditLogger.info(
+                    "temp_target_sent",
+                    mapOf(
+                        "targetMmol" to target,
+                        "duration" to duration,
+                        "reason" to reason,
+                        "channel" to channel,
+                        "targetUrl" to targetUrl
+                    )
+                )
                 return true
             }
         }
@@ -138,25 +151,39 @@ class NightscoutActionRepository(
         val nowMs = System.currentTimeMillis()
         val nowIso = Instant.now().toString()
 
-        val nightscoutUrl = settings.resolvedNightscoutUrl()
-        var lastError = "missing_nightscout_url"
-        if (nightscoutUrl.isNotBlank()) {
-            val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
-            val request = NightscoutTreatmentRequest(
-                createdAt = nowIso,
-                eventType = "Carb Correction",
-                carbs = carbs,
-                reason = reason,
-                notes = "copilot:${command.idempotencyKey}"
-            )
+        val request = NightscoutTreatmentRequest(
+            createdAt = nowIso,
+            eventType = "Carb Correction",
+            carbs = carbs,
+            reason = reason,
+            notes = "copilot:${command.idempotencyKey}"
+        )
+
+        val nightscoutTargets = nightscoutWriteTargets(settings)
+        var lastError = if (nightscoutTargets.isEmpty()) "missing_nightscout_url" else "nightscout_post_failed"
+        for (targetUrl in nightscoutTargets) {
+            val nsApi = apiFactory.nightscoutApi(targetUrl, settings.apiSecret)
             val nsSuccess = runCatching {
                 nsApi.postTreatment(request)
             }.onFailure { error ->
                 lastError = error.message ?: "nightscout_unknown_error"
             }.isSuccess
             if (nsSuccess) {
-                markSent(command, channel = "nightscout")
-                auditLogger.info("carbs_sent", mapOf("carbsGrams" to carbs, "reason" to reason))
+                val channel = if (isLocalNightscoutTarget(targetUrl, settings)) {
+                    "nightscout_local"
+                } else {
+                    "nightscout"
+                }
+                markSent(command, channel = channel)
+                auditLogger.info(
+                    "carbs_sent",
+                    mapOf(
+                        "carbsGrams" to carbs,
+                        "reason" to reason,
+                        "channel" to channel,
+                        "targetUrl" to targetUrl
+                    )
+                )
                 return true
             }
         }
@@ -209,7 +236,11 @@ class NightscoutActionRepository(
 
     suspend fun countSentActionsLast6h(): Int {
         val since = System.currentTimeMillis() - 6 * 60 * 60 * 1000L
-        return db.actionCommandDao().countByStatusSince(STATUS_SENT, since)
+        return db.actionCommandDao().countByStatusSinceExcludingPrefix(
+            status = STATUS_SENT,
+            since = since,
+            excludedPrefix = "$MANUAL_IDEMPOTENCY_PREFIX%"
+        )
     }
 
     private suspend fun registerPendingCommand(command: ActionCommand): Boolean? {
@@ -348,6 +379,24 @@ class NightscoutActionRepository(
         )
     }
 
+    private fun nightscoutWriteTargets(settings: AppSettings): List<String> {
+        val targets = LinkedHashSet<String>()
+        val resolved = normalizeTargetUrl(settings.resolvedNightscoutUrl())
+        if (resolved.isNotEmpty()) targets += resolved
+        if (settings.localNightscoutEnabled) {
+            targets += normalizeTargetUrl(localNightscoutUrl(settings))
+        }
+        return targets.toList()
+    }
+
+    private fun localNightscoutUrl(settings: AppSettings): String =
+        "https://127.0.0.1:${settings.localNightscoutPort}"
+
+    private fun isLocalNightscoutTarget(url: String, settings: AppSettings): Boolean =
+        normalizeTargetUrl(url) == normalizeTargetUrl(localNightscoutUrl(settings))
+
+    private fun normalizeTargetUrl(url: String): String = url.trim().trimEnd('/')
+
     private fun buildBroadcastChannels(
         aapsPackage: String?,
         customPackage: String?,
@@ -410,6 +459,7 @@ class NightscoutActionRepository(
     }
 
     private companion object {
+        const val MANUAL_IDEMPOTENCY_PREFIX = "manual:"
         const val STATUS_PENDING = "PENDING"
         const val STATUS_SENT = "SENT"
         const val STATUS_FAILED = "FAILED"

@@ -19,6 +19,16 @@ interface ActionCommandDao {
     @Query("SELECT COUNT(*) FROM action_commands WHERE status = :status AND timestamp >= :since")
     suspend fun countByStatusSince(status: String, since: Long): Int
 
+    @Query(
+        "SELECT COUNT(*) FROM action_commands " +
+            "WHERE status = :status AND timestamp >= :since AND idempotencyKey NOT LIKE :excludedPrefix"
+    )
+    suspend fun countByStatusSinceExcludingPrefix(
+        status: String,
+        since: Long,
+        excludedPrefix: String
+    ): Int
+
     @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<ActionCommandEntity>
 

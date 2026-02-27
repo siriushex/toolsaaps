@@ -521,7 +521,10 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Text("Enable adaptive controller")
             Switch(
                 checked = adaptiveEnabled,
-                onCheckedChange = { adaptiveEnabled = it }
+                onCheckedChange = {
+                    adaptiveEnabled = it
+                    vm.setAdaptiveControllerEnabled(it)
+                }
             )
         }
         OutlinedTextField(

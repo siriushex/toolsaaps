@@ -143,6 +143,13 @@ class AppContainer(context: Context) {
 
     init {
         appScope.launch {
+            val migrationEnabled = settingsStore.ensureAdaptiveControllerDefaultEnabled()
+            if (migrationEnabled) {
+                WorkScheduler.triggerReactiveAutomation(context.applicationContext)
+                auditLogger.info("adaptive_controller_default_enabled", emptyMap<String, Any>())
+            }
+        }
+        appScope.launch {
             settingsStore.settings.collectLatest { settings ->
                 val actualPort = localNightscoutServer.update(
                     enabled = settings.localNightscoutEnabled,

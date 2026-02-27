@@ -43,6 +43,7 @@ import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutTls
 import java.net.URI
@@ -766,6 +767,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             messageState.value = "Adaptive controller settings updated"
+        }
+    }
+
+    fun setAdaptiveControllerEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(adaptiveControllerEnabled = enabled) }
+            if (enabled) {
+                WorkScheduler.triggerReactiveAutomation(getApplication())
+            }
+            messageState.value = if (enabled) {
+                "Adaptive controller enabled"
+            } else {
+                "Adaptive controller disabled"
+            }
         }
     }
 
@@ -1866,7 +1881,7 @@ data class MainUiState(
     val postHypoTargetMmol: Double = 4.4,
     val postHypoDurationMinutes: Int = 60,
     val postHypoLookbackMinutes: Int = 90,
-    val adaptiveControllerEnabled: Boolean = false,
+    val adaptiveControllerEnabled: Boolean = true,
     val adaptiveControllerPriority: Int = 120,
     val adaptiveControllerRetargetMinutes: Int = 5,
     val adaptiveControllerSafetyProfile: String = "BALANCED",
