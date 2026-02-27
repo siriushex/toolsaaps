@@ -17,5 +17,14 @@ data class ProfileEstimateEntity(
     val telemetryIsfSampleCount: Int,
     val telemetryCrSampleCount: Int,
     val uamObservedCount: Int,
-    val uamFilteredIsfSamples: Int
+    val uamFilteredIsfSamples: Int,
+    val uamEpisodeCount: Int,
+    val uamEstimatedCarbsGrams: Double,
+    val uamEstimatedRecentCarbsGrams: Double,
+    val calculatedIsfMmolPerUnit: Double?,
+    val calculatedCrGramPerUnit: Double?,
+    val calculatedConfidence: Double?,
+    val calculatedSampleCount: Int,
+    val calculatedIsfSampleCount: Int,
+    val calculatedCrSampleCount: Int
 )

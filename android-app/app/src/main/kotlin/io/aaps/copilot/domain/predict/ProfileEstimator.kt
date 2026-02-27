@@ -19,7 +19,9 @@ data class ProfileEstimatorConfig(
     val trimFraction: Double = 0.10,
     val lookbackDays: Int = 365,
     val uamWindowBeforeMinutes: Int = 20,
-    val uamWindowAfterMinutes: Int = 110
+    val uamWindowAfterMinutes: Int = 110,
+    val uamEpisodeGapMinutes: Int = 20,
+    val uamRecentWindowMinutes: Int = 360
 )
 
 data class TelemetrySignal(
@@ -57,6 +59,12 @@ class ProfileEstimator(
 
         val isf = median(isfSamples)
         val cr = median(crSamples)
+        val uamCarbEstimate = estimateUamCarbs(
+            glucose = sortedGlucose,
+            uamPoints = uamPoints,
+            isfMmolPerUnit = isf,
+            crGramPerUnit = cr
+        )
         val sampleCount = isfSamples.size + crSamples.size
         val rawConfidence = (
             (isfSamples.size / (config.minIsfSamples * 4.0)) * 0.5 +
@@ -76,7 +84,10 @@ class ProfileEstimator(
             telemetryIsfSampleCount = telemetryIsfSamples.size,
             telemetryCrSampleCount = telemetryCrSamples.size,
             uamObservedCount = uamPoints.size,
-            uamFilteredIsfSamples = isfBuild.filteredByUam
+            uamFilteredIsfSamples = isfBuild.filteredByUam,
+            uamEpisodeCount = uamCarbEstimate.episodeCount,
+            uamEstimatedCarbsGrams = uamCarbEstimate.totalGrams,
+            uamEstimatedRecentCarbsGrams = uamCarbEstimate.recentGrams
         )
     }
 
@@ -272,6 +283,84 @@ class ProfileEstimator(
         return uamPoints.any { it in from..to }
     }
 
+    private fun estimateUamCarbs(
+        glucose: List<GlucosePoint>,
+        uamPoints: Set<Long>,
+        isfMmolPerUnit: Double,
+        crGramPerUnit: Double
+    ): UamCarbEstimate {
+        if (glucose.isEmpty() || uamPoints.isEmpty()) return UamCarbEstimate.EMPTY
+        if (isfMmolPerUnit <= 0.0 || crGramPerUnit <= 0.0) return UamCarbEstimate.EMPTY
+
+        val csfMmolPerGram = (isfMmolPerUnit / crGramPerUnit).takeIf { it > 0.0 } ?: return UamCarbEstimate.EMPTY
+        val episodes = buildUamEpisodes(uamPoints.toList().sorted())
+        if (episodes.isEmpty()) return UamCarbEstimate.EMPTY
+
+        val latestTs = glucose.maxOf { it.ts }
+        val recentCutoff = latestTs - config.uamRecentWindowMinutes * 60_000L
+        var total = 0.0
+        var recent = 0.0
+        var acceptedEpisodes = 0
+
+        episodes.forEach { episode ->
+            val baseline = glucose.closestTo(
+                targetTs = episode.startTs - 10 * 60_000L,
+                maxDistanceMs = 40 * 60_000L
+            ) ?: return@forEach
+
+            val peak = glucose
+                .asSequence()
+                .filter { point ->
+                    point.ts in (episode.startTs + 5 * 60_000L)..(episode.endTs + 120 * 60_000L)
+                }
+                .maxByOrNull { it.valueMmol }
+                ?: return@forEach
+
+            val rise = peak.valueMmol - baseline.valueMmol
+            if (rise < 0.30) return@forEach
+
+            val grams = (rise / csfMmolPerGram).coerceIn(0.0, 250.0)
+            if (grams < 1.0) return@forEach
+
+            acceptedEpisodes += 1
+            total += grams
+            if (episode.endTs >= recentCutoff) {
+                recent += grams
+            }
+        }
+
+        return UamCarbEstimate(
+            episodeCount = acceptedEpisodes,
+            totalGrams = total,
+            recentGrams = recent
+        )
+    }
+
+    private fun buildUamEpisodes(sortedPoints: List<Long>): List<UamEpisode> {
+        if (sortedPoints.isEmpty()) return emptyList()
+        val maxGapMs = config.uamEpisodeGapMinutes * 60_000L
+        val episodes = mutableListOf<UamEpisode>()
+
+        var start = sortedPoints.first()
+        var end = sortedPoints.first()
+        var points = 1
+
+        for (index in 1 until sortedPoints.size) {
+            val ts = sortedPoints[index]
+            if (ts - end <= maxGapMs) {
+                end = ts
+                points += 1
+                continue
+            }
+            episodes += UamEpisode(startTs = start, endTs = end, points = points)
+            start = ts
+            end = ts
+            points = 1
+        }
+        episodes += UamEpisode(startTs = start, endTs = end, points = points)
+        return episodes
+    }
+
     private fun trimOutliers(values: List<Double>): List<Double> {
         if (values.size < 5) return values.sorted()
         val sorted = values.sorted()
@@ -356,4 +445,24 @@ class ProfileEstimator(
         val samples: List<TimedSample>,
         val filteredByUam: Int
     )
+
+    private data class UamEpisode(
+        val startTs: Long,
+        val endTs: Long,
+        val points: Int
+    )
+
+    private data class UamCarbEstimate(
+        val episodeCount: Int,
+        val totalGrams: Double,
+        val recentGrams: Double
+    ) {
+        companion object {
+            val EMPTY = UamCarbEstimate(
+                episodeCount = 0,
+                totalGrams = 0.0,
+                recentGrams = 0.0
+            )
+        }
+    }
 }

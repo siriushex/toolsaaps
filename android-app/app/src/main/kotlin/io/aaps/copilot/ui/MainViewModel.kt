@@ -29,6 +29,7 @@ import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -251,6 +252,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileTelemetryCrSamples = profile?.telemetryCrSampleCount,
             profileUamObservedCount = profile?.uamObservedCount,
             profileUamFilteredIsfSamples = profile?.uamFilteredIsfSamples,
+            profileUamEpisodes = profile?.uamEpisodeCount,
+            profileUamCarbsGrams = profile?.uamEstimatedCarbsGrams,
+            profileUamRecentCarbsGrams = profile?.uamEstimatedRecentCarbsGrams,
+            profileCalculatedIsf = profile?.calculatedIsfMmolPerUnit,
+            profileCalculatedCr = profile?.calculatedCrGramPerUnit,
+            profileCalculatedConfidence = profile?.calculatedConfidence,
+            profileCalculatedSamples = profile?.calculatedSampleCount,
+            profileCalculatedIsfSamples = profile?.calculatedIsfSampleCount,
+            profileCalculatedCrSamples = profile?.calculatedCrSampleCount,
             profileLookbackDays = profile?.lookbackDays,
             profileSegmentLines = profileSegmentLines,
             rulePostHypoEnabled = settings.rulePostHypoEnabled,
@@ -805,6 +815,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private data class TelemetryCoverageSpec(
+        val primaryKey: String,
+        val label: String,
+        val staleThresholdMin: Long,
+        val exactAliases: List<String> = emptyList(),
+        val tokenAliases: List<String> = emptyList()
+    )
+
     private fun buildTelemetryCoverageLines(
         samples: List<TelemetrySampleEntity>,
         nowTs: Long
@@ -814,25 +832,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val latestByKey = latestTelemetryByKey(samples)
         val required = listOf(
-            Triple("iob_units", "IOB", 30L),
-            Triple("cob_grams", "COB", 30L),
-            Triple("carbs_grams", "Carbs", 240L),
-            Triple("insulin_units", "Insulin", 240L),
-            Triple("dia_hours", "DIA", 24 * 60L),
-            Triple("steps_count", "Steps", 24 * 60L),
-            Triple("activity_ratio", "Activity ratio", 180L),
-            Triple("heart_rate_bpm", "Heart rate", 180L),
-            Triple("isf_value", "ISF", 7 * 24 * 60L),
-            Triple("cr_value", "CR", 7 * 24 * 60L)
+            TelemetryCoverageSpec(primaryKey = "iob_units", label = "IOB", staleThresholdMin = 30L),
+            TelemetryCoverageSpec(primaryKey = "cob_grams", label = "COB", staleThresholdMin = 30L),
+            TelemetryCoverageSpec(primaryKey = "carbs_grams", label = "Carbs", staleThresholdMin = 240L),
+            TelemetryCoverageSpec(primaryKey = "insulin_units", label = "Insulin", staleThresholdMin = 240L),
+            TelemetryCoverageSpec(primaryKey = "dia_hours", label = "DIA", staleThresholdMin = 24 * 60L),
+            TelemetryCoverageSpec(primaryKey = "steps_count", label = "Steps", staleThresholdMin = 24 * 60L),
+            TelemetryCoverageSpec(primaryKey = "activity_ratio", label = "Activity ratio", staleThresholdMin = 180L),
+            TelemetryCoverageSpec(primaryKey = "heart_rate_bpm", label = "Heart rate", staleThresholdMin = 180L),
+            TelemetryCoverageSpec(primaryKey = "uam_value", label = "UAM", staleThresholdMin = 180L, tokenAliases = listOf("uam")),
+            TelemetryCoverageSpec(
+                primaryKey = "isf_value",
+                label = "ISF",
+                staleThresholdMin = 7 * 24 * 60L,
+                tokenAliases = listOf("isf", "sens", "sensitivity")
+            ),
+            TelemetryCoverageSpec(
+                primaryKey = "cr_value",
+                label = "CR",
+                staleThresholdMin = 7 * 24 * 60L,
+                tokenAliases = listOf("cr", "carb_ratio", "carbratio", "icratio")
+            )
         )
-        return required.map { (key, label, staleThresholdMin) ->
-            val sample = latestByKey[key]
+        return required.map { spec ->
+            val sample = resolveTelemetrySample(spec, latestByKey)
             if (sample == null) {
-                "$label: MISSING"
+                "${spec.label}: MISSING"
             } else {
                 val ageMin = ((nowTs - sample.timestamp).coerceAtLeast(0L)) / 60_000L
-                val freshness = if (ageMin <= staleThresholdMin) "fresh" else "stale ${ageMin}m"
-                "$label: ${formatTelemetryLine(sample)} [$freshness]"
+                val freshness = if (ageMin <= spec.staleThresholdMin) "fresh" else "stale ${ageMin}m"
+                "${spec.label}: ${formatTelemetryLine(sample)} [$freshness]"
             }
         }
     }
@@ -850,6 +879,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "activity_ratio",
             "activity_label",
             "heart_rate_bpm",
+            "uam_value",
             "isf_value",
             "cr_value",
             "basal_rate_u_h",
@@ -859,11 +889,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "temp_target_duration_min",
             "profile_percent"
         )
+        val syntheticPrimary = listOf(
+            TelemetryCoverageSpec(
+                primaryKey = "isf_value",
+                label = "ISF",
+                staleThresholdMin = 7 * 24 * 60L,
+                tokenAliases = listOf("isf", "sens", "sensitivity")
+            ),
+            TelemetryCoverageSpec(
+                primaryKey = "cr_value",
+                label = "CR",
+                staleThresholdMin = 7 * 24 * 60L,
+                tokenAliases = listOf("cr", "carb_ratio", "carbratio", "icratio")
+            )
+        )
+        val resolvedSyntheticKeys = mutableSetOf<String>()
         val primaryLines = primaryKeys.mapNotNull { key ->
             latestByKey[key]?.let { sample -> formatTelemetryLine(sample) }
+        } + syntheticPrimary.mapNotNull { spec ->
+            val sample = resolveTelemetrySample(spec, latestByKey) ?: return@mapNotNull null
+            resolvedSyntheticKeys += sample.key
+            if (sample.key in primaryKeys) return@mapNotNull null
+            formatTelemetryLine(sample)
         }
         val otherLines = latestByKey
-            .filterKeys { it !in primaryKeys }
+            .filterKeys { it !in primaryKeys && it !in resolvedSyntheticKeys }
             .values
             .sortedBy { it.key }
             .map { sample -> formatTelemetryLine(sample) }
@@ -876,6 +926,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .mapValues { (_, values) -> values.maxByOrNull { it.timestamp } }
             .filterValues { it != null }
             .mapValues { it.value!! }
+    }
+
+    private fun resolveTelemetrySample(
+        spec: TelemetryCoverageSpec,
+        latestByKey: Map<String, TelemetrySampleEntity>
+    ): TelemetrySampleEntity? {
+        val exactKeys = listOf(spec.primaryKey) + spec.exactAliases
+        exactKeys.forEach { key ->
+            latestByKey[key]?.let { return it }
+        }
+        if (spec.tokenAliases.isEmpty()) return null
+        return latestByKey.values
+            .asSequence()
+            .filter { sample ->
+                spec.tokenAliases.any { alias -> keyContainsAliasToken(sample.key, alias) }
+            }
+            .maxByOrNull { it.timestamp }
+    }
+
+    private fun keyContainsAliasToken(key: String, alias: String): Boolean {
+        val normalizedAlias = normalizeTelemetryKey(alias)
+        if (normalizedAlias.isBlank()) return false
+        val normalizedKey = normalizeTelemetryKey(key)
+        if (normalizedKey == normalizedAlias || normalizedKey.endsWith("_$normalizedAlias")) return true
+        val parts = normalizedKey.split('_').filter { it.isNotBlank() }
+        return parts.contains(normalizedAlias)
+    }
+
+    private fun normalizeTelemetryKey(value: String): String {
+        return value
+            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
     }
 
     private fun formatTelemetryLine(sample: TelemetrySampleEntity): String {
@@ -921,6 +1005,15 @@ data class MainUiState(
     val profileTelemetryCrSamples: Int? = null,
     val profileUamObservedCount: Int? = null,
     val profileUamFilteredIsfSamples: Int? = null,
+    val profileUamEpisodes: Int? = null,
+    val profileUamCarbsGrams: Double? = null,
+    val profileUamRecentCarbsGrams: Double? = null,
+    val profileCalculatedIsf: Double? = null,
+    val profileCalculatedCr: Double? = null,
+    val profileCalculatedConfidence: Double? = null,
+    val profileCalculatedSamples: Int? = null,
+    val profileCalculatedIsfSamples: Int? = null,
+    val profileCalculatedCrSamples: Int? = null,
     val profileLookbackDays: Int? = null,
     val profileSegmentLines: List<String> = emptyList(),
     val rulePostHypoEnabled: Boolean = true,

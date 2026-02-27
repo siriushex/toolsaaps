@@ -67,6 +67,7 @@ class AnalyticsRepository(
             ProfileEstimatorConfig(lookbackDays = lookbackDays)
         )
         val profileEstimate = profileEstimator.estimate(glucose, therapy, telemetry)
+        val calculatedEstimate = profileEstimator.estimate(glucose, therapy, emptyList())
         val segmentEstimates = profileEstimator.estimateSegments(glucose, therapy, telemetry)
         db.profileSegmentEstimateDao().clear()
         db.profileSegmentEstimateDao().upsertAll(
@@ -100,7 +101,16 @@ class AnalyticsRepository(
                     telemetryIsfSampleCount = estimate.telemetryIsfSampleCount,
                     telemetryCrSampleCount = estimate.telemetryCrSampleCount,
                     uamObservedCount = estimate.uamObservedCount,
-                    uamFilteredIsfSamples = estimate.uamFilteredIsfSamples
+                    uamFilteredIsfSamples = estimate.uamFilteredIsfSamples,
+                    uamEpisodeCount = estimate.uamEpisodeCount,
+                    uamEstimatedCarbsGrams = estimate.uamEstimatedCarbsGrams,
+                    uamEstimatedRecentCarbsGrams = estimate.uamEstimatedRecentCarbsGrams,
+                    calculatedIsfMmolPerUnit = calculatedEstimate?.isfMmolPerUnit,
+                    calculatedCrGramPerUnit = calculatedEstimate?.crGramPerUnit,
+                    calculatedConfidence = calculatedEstimate?.confidence,
+                    calculatedSampleCount = calculatedEstimate?.sampleCount ?: 0,
+                    calculatedIsfSampleCount = calculatedEstimate?.isfSampleCount ?: 0,
+                    calculatedCrSampleCount = calculatedEstimate?.crSampleCount ?: 0
                 )
             )
             auditLogger.info(
@@ -116,7 +126,14 @@ class AnalyticsRepository(
                     "telemetryIsfSamples" to estimate.telemetryIsfSampleCount,
                     "telemetryCrSamples" to estimate.telemetryCrSampleCount,
                     "uamObservedCount" to estimate.uamObservedCount,
-                    "uamFilteredIsfSamples" to estimate.uamFilteredIsfSamples
+                    "uamFilteredIsfSamples" to estimate.uamFilteredIsfSamples,
+                    "uamEpisodeCount" to estimate.uamEpisodeCount,
+                    "uamEstimatedCarbsGrams" to estimate.uamEstimatedCarbsGrams,
+                    "uamEstimatedRecentCarbsGrams" to estimate.uamEstimatedRecentCarbsGrams,
+                    "calculatedIsf" to calculatedEstimate?.isfMmolPerUnit,
+                    "calculatedCr" to calculatedEstimate?.crGramPerUnit,
+                    "calculatedConfidence" to calculatedEstimate?.confidence,
+                    "calculatedSamples" to (calculatedEstimate?.sampleCount ?: 0)
                 )
             )
         } ?: auditLogger.warn(

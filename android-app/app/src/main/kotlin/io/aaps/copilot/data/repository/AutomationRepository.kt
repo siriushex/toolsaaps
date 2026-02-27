@@ -465,7 +465,10 @@ class AutomationRepository(
         telemetryIsfSampleCount = telemetryIsfSampleCount,
         telemetryCrSampleCount = telemetryCrSampleCount,
         uamObservedCount = uamObservedCount,
-        uamFilteredIsfSamples = uamFilteredIsfSamples
+        uamFilteredIsfSamples = uamFilteredIsfSamples,
+        uamEpisodeCount = uamEpisodeCount,
+        uamEstimatedCarbsGrams = uamEstimatedCarbsGrams,
+        uamEstimatedRecentCarbsGrams = uamEstimatedRecentCarbsGrams
     )
 
     private fun io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity.toDomain(): ProfileSegmentEstimate =

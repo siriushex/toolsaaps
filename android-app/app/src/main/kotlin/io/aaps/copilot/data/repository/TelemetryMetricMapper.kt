@@ -67,6 +67,23 @@ object TelemetryMetricMapper {
             )
         }
 
+        fun addUam(canonicalKey: String, aliases: List<String>) {
+            val raw = findValue(values, aliases)?.trim()?.lowercase(Locale.US) ?: return
+            val parsed = when (raw) {
+                "true", "yes", "on", "enabled" -> 1.0
+                "false", "no", "off", "disabled" -> 0.0
+                else -> raw.toDoubleOrNullLocale()
+            } ?: return
+            output += sample(
+                timestamp = timestamp,
+                source = source,
+                key = canonicalKey,
+                valueDouble = parsed,
+                valueText = null,
+                unit = null
+            )
+        }
+
         addNumeric("iob_units", "U", listOf("iob", "iobtotal", "insulinonboard"))
         addNumeric("cob_grams", "g", listOf("cob", "carbsonboard"))
         addNumeric("carbs_grams", "g", listOf("carbs", "grams", "enteredCarbs", "mealCarbs"))
@@ -79,6 +96,7 @@ object TelemetryMetricMapper {
         addNumeric("temp_target_high_mmol", "mmol/L", listOf("targetTop", "target_top", "targetHigh"))
         addNumeric("temp_target_duration_min", "min", listOf("duration", "durationInMinutes"))
         addNumeric("profile_percent", "%", listOf("percentage", "profilePercentage"))
+        addUam("uam_value", listOf("uam", "enableUAM", "unannouncedMeal", "uamDetected"))
         addNumeric("isf_value", null, listOf("isf", "sens", "sensitivity"))
         addNumeric("cr_value", null, listOf("cr", "carbRatio", "carb_ratio", "icRatio"))
         addNumeric("basal_rate_u_h", "U/h", listOf("absolute", "basalRate", "basal_rate", "tempBasal"))
@@ -143,6 +161,7 @@ object TelemetryMetricMapper {
         addPattern("carbs_grams", "g", listOf("carbs"))
         addPattern("heart_rate_bpm", "bpm", listOf("heart", "heartrate"))
         addPattern("profile_percent", "%", listOf("profilepercentage", "percent"))
+        addPattern("uam_value", null, listOf("uam"))
         addPattern("isf_value", null, listOf("sens", "isf"))
         addPattern("cr_value", null, listOf("carb_ratio", "carbratio", "icratio"))
         addPattern("basal_rate_u_h", "U/h", listOf("absolute", "basalrate", "tempbasal"))

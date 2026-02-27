@@ -34,7 +34,10 @@ data class ProfileEstimate(
     val telemetryIsfSampleCount: Int = 0,
     val telemetryCrSampleCount: Int = 0,
     val uamObservedCount: Int = 0,
-    val uamFilteredIsfSamples: Int = 0
+    val uamFilteredIsfSamples: Int = 0,
+    val uamEpisodeCount: Int = 0,
+    val uamEstimatedCarbsGrams: Double = 0.0,
+    val uamEstimatedRecentCarbsGrams: Double = 0.0
 )
 
 data class ProfileSegmentEstimate(

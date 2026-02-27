@@ -42,7 +42,7 @@ import io.aaps.copilot.data.local.entity.TherapyEventEntity
         ProfileSegmentEstimateEntity::class,
         TelemetrySampleEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {

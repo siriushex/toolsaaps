@@ -591,12 +591,24 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Text("Apply pattern tuning")
         }
         HorizontalDivider()
-        Text("ISF estimate: ${state.profileIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
-        Text("CR estimate: ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
+        Text("ISF estimate (merged/OpenAPS+history): ${state.profileIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
+        Text("CR estimate (merged/OpenAPS+history): ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
         Text("Confidence: ${state.profileConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
-        Text("Samples: total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
+        Text("Samples (merged): total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
         Text("Telemetry samples: ISF=${state.profileTelemetryIsfSamples ?: "-"}, CR=${state.profileTelemetryCrSamples ?: "-"}")
+        Text("ISF calculated (history-only): ${state.profileCalculatedIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
+        Text("CR calculated (history-only): ${state.profileCalculatedCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
+        Text(
+            "Samples (history-only): total=${state.profileCalculatedSamples ?: "-"}, " +
+                "ISF=${state.profileCalculatedIsfSamples ?: "-"}, CR=${state.profileCalculatedCrSamples ?: "-"}"
+        )
+        Text("Confidence (history-only): ${state.profileCalculatedConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
         Text("UAM: observed=${state.profileUamObservedCount ?: "-"}, filtered ISF samples=${state.profileUamFilteredIsfSamples ?: "-"}")
+        Text(
+            "UAM carbs estimate: total=${state.profileUamCarbsGrams?.let { String.format("%.1f g", it) } ?: "-"}, " +
+                "recent=${state.profileUamRecentCarbsGrams?.let { String.format("%.1f g", it) } ?: "-"}, " +
+                "episodes=${state.profileUamEpisodes ?: "-"}"
+        )
         Text("Lookback: ${state.profileLookbackDays ?: "-"} days")
         HorizontalDivider()
         Text("Segmented ISF/CR")
