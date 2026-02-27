@@ -423,15 +423,23 @@ class BroadcastIngestRepository(
         else -> "local_broadcast"
     }
 
-    private suspend fun pruneLegacyInvalidLocalBroadcastGlucose() {
-        val removed = db.glucoseDao().deleteBySourceAndThreshold(
+    private suspend fun pruneLegacyInvalidBroadcastGlucose() {
+        val removedLocal = db.glucoseDao().deleteBySourceAndThreshold(
             source = "local_broadcast",
             thresholdMmol = 30.0
         )
-        if (removed > 0) {
+        val removedXdrip = db.glucoseDao().deleteBySourceAndThreshold(
+            source = "xdrip_broadcast",
+            thresholdMmol = 30.0
+        )
+        if (removedLocal > 0 || removedXdrip > 0) {
             auditLogger.info(
                 "broadcast_glucose_cleanup",
-                mapOf("removed" to removed, "source" to "local_broadcast", "thresholdMmol" to 30.0)
+                mapOf(
+                    "removedLocal" to removedLocal,
+                    "removedXdrip" to removedXdrip,
+                    "thresholdMmol" to 30.0
+                )
             )
         }
     }
@@ -452,6 +460,26 @@ class BroadcastIngestRepository(
             key = "insulin_units",
             threshold = 0.0
         )
+        val removedIobOutsideRange = db.telemetryDao().deleteByKeyOutsideRange(
+            key = "iob_units",
+            minValue = 0.0,
+            maxValue = 30.0
+        )
+        val removedCobOutsideRange = db.telemetryDao().deleteByKeyOutsideRange(
+            key = "cob_grams",
+            minValue = 0.0,
+            maxValue = 400.0
+        )
+        val removedTempTargetLowOutsideRange = db.telemetryDao().deleteByKeyOutsideRange(
+            key = "temp_target_low_mmol",
+            minValue = 3.0,
+            maxValue = 15.0
+        )
+        val removedTempTargetHighOutsideRange = db.telemetryDao().deleteByKeyOutsideRange(
+            key = "temp_target_high_mmol",
+            minValue = 3.0,
+            maxValue = 15.0
+        )
         val dedupNightscout = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "nightscout")
         val dedupAaps = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "aaps_broadcast")
         val dedupLocal = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "local_broadcast")
@@ -460,6 +488,10 @@ class BroadcastIngestRepository(
             removedUam > 0 ||
             removedStatusCarbsNoise > 0 ||
             removedStatusInsulinNoise > 0 ||
+            removedIobOutsideRange > 0 ||
+            removedCobOutsideRange > 0 ||
+            removedTempTargetLowOutsideRange > 0 ||
+            removedTempTargetHighOutsideRange > 0 ||
             dedupNightscout > 0 ||
             dedupAaps > 0 ||
             dedupLocal > 0
@@ -471,6 +503,10 @@ class BroadcastIngestRepository(
                     "telemetryRemoved" to removedUam,
                     "statusCarbsNoiseRemoved" to removedStatusCarbsNoise,
                     "statusInsulinNoiseRemoved" to removedStatusInsulinNoise,
+                    "iobOutsideRangeRemoved" to removedIobOutsideRange,
+                    "cobOutsideRangeRemoved" to removedCobOutsideRange,
+                    "tempTargetLowOutsideRangeRemoved" to removedTempTargetLowOutsideRange,
+                    "tempTargetHighOutsideRangeRemoved" to removedTempTargetHighOutsideRange,
                     "glucoseDedupNightscout" to dedupNightscout,
                     "glucoseDedupAaps" to dedupAaps,
                     "glucoseDedupLocal" to dedupLocal
@@ -485,7 +521,7 @@ class BroadcastIngestRepository(
         if (now - last < MAINTENANCE_INTERVAL_MS) return
         if (!lastMaintenanceAtMs.compareAndSet(last, now)) return
         runCatching {
-            pruneLegacyInvalidLocalBroadcastGlucose()
+            pruneLegacyInvalidBroadcastGlucose()
             pruneLegacyBroadcastArtifacts()
         }.onFailure {
             auditLogger.warn(

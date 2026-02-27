@@ -1542,25 +1542,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             primaryKey = "iob_units",
             label = "IOB",
             staleThresholdMin = 30L,
+            exactAliases = listOf("raw_iob"),
             tokenAliases = listOf("iob", "insulinonboard")
         ),
         TelemetryCoverageSpec(
             primaryKey = "cob_grams",
             label = "COB",
             staleThresholdMin = 30L,
+            exactAliases = listOf("raw_cob"),
             tokenAliases = listOf("cob", "carbsonboard")
         ),
         TelemetryCoverageSpec(
             primaryKey = "carbs_grams",
             label = "Carbs",
             staleThresholdMin = 240L,
+            exactAliases = listOf("status_carbs_grams", "raw_carbs"),
             tokenAliases = listOf("carbs", "enteredcarbs", "mealcarbs")
         ),
         TelemetryCoverageSpec(
             primaryKey = "insulin_units",
             label = "Insulin",
             staleThresholdMin = 240L,
-            tokenAliases = listOf("insulin", "bolus")
+            exactAliases = listOf("status_insulin_units", "raw_insulin", "raw_insulin_units"),
+            tokenAliases = listOf("insulin_units", "bolusunits", "enteredinsulin")
         ),
         TelemetryCoverageSpec(
             primaryKey = "dia_hours",
@@ -1806,10 +1810,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         spec: TelemetryCoverageSpec,
         sample: TelemetrySampleEntity
     ): Boolean {
-        if (!sample.source.endsWith("_broadcast")) return false
         return when (spec.primaryKey) {
-            "carbs_grams" -> (sample.valueDouble ?: 0.0) <= 0.0
-            "insulin_units" -> true
+            "carbs_grams" -> {
+                sample.key == "carbs_grams" &&
+                    sample.source == "aaps_broadcast" &&
+                    (sample.valueDouble ?: 0.0) <= 0.0
+            }
+            "insulin_units" -> {
+                sample.key == "insulin_units" && sample.source == "aaps_broadcast"
+            }
             else -> false
         }
     }
