@@ -156,6 +156,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val lastBroadcastIngest = audits.firstOrNull { it.message == "broadcast_ingest_completed" }
         val lastBroadcastSkip = audits.firstOrNull { it.message == "broadcast_ingest_skipped" }
+        val lastLocalNsEntries = audits.firstOrNull { it.message == "local_nightscout_entries_post" }
+        val lastLocalNsTreatments = audits.firstOrNull { it.message == "local_nightscout_treatments_post" }
+        val lastLocalNsDeviceStatus = audits.firstOrNull { it.message == "local_nightscout_devicestatus_post" }
         val transportStatusLines = buildList {
             val effectiveNightscoutUrl = settings.resolvedNightscoutUrl()
             add(
@@ -200,6 +203,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             lastBroadcastSkip?.let {
                 add("Last broadcast skip: ${formatTs(it.timestamp)} (${it.message})")
+            }
+            lastLocalNsEntries?.let {
+                add(
+                    "Local NS entries POST: ${formatTs(it.timestamp)} " +
+                        "(received=${auditMetaField(it, "received") ?: "?"}, inserted=${auditMetaField(it, "inserted") ?: "?"})"
+                )
+            }
+            lastLocalNsTreatments?.let {
+                add(
+                    "Local NS treatments POST: ${formatTs(it.timestamp)} " +
+                        "(received=${auditMetaField(it, "received") ?: "?"}, inserted=${auditMetaField(it, "inserted") ?: "?"}, telemetry=${auditMetaField(it, "telemetry") ?: "?"})"
+                )
+            }
+            lastLocalNsDeviceStatus?.let {
+                add(
+                    "Local NS devicestatus POST: ${formatTs(it.timestamp)} " +
+                        "(received=${auditMetaField(it, "received") ?: "?"}, telemetry=${auditMetaField(it, "telemetry") ?: "?"})"
+                )
             }
         }
 
@@ -1010,6 +1031,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun payloadField(payloadJson: String, key: String): String? {
         return runCatching {
             JSONObject(payloadJson).optString(key).takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    private fun auditMetaField(entry: AuditLogEntity, key: String): String? {
+        return runCatching {
+            val value = JSONObject(entry.metadataJson).opt(key)
+            when (value) {
+                null,
+                JSONObject.NULL -> null
+                is String -> value.takeIf { it.isNotBlank() }
+                else -> value.toString()
+            }
         }.getOrNull()
     }
 
