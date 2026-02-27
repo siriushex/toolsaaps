@@ -22,14 +22,17 @@ import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.toDomain
+import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.PatternWindow
+import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
 import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -532,6 +535,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendManualTempTarget(targetRaw: String, durationRaw: String, reasonRaw: String) {
+        viewModelScope.launch {
+            val targetMmol = parseFlexibleDouble(targetRaw)?.takeIf { it in 3.0..15.0 }
+            val durationMinutes = durationRaw.trim().toIntOrNull()?.takeIf { it in 5..720 }
+            if (targetMmol == null || durationMinutes == null) {
+                messageState.value = "Manual temp target failed: invalid target/duration"
+                return@launch
+            }
+
+            val reason = reasonRaw.trim().ifBlank { "manual_ui_temp_target" }
+            val sent = runCatching {
+                val command = buildManualCommand(
+                    type = "temp_target",
+                    params = mapOf(
+                        "targetMmol" to String.format(Locale.US, "%.2f", targetMmol),
+                        "durationMinutes" to durationMinutes.toString(),
+                        "reason" to reason
+                    )
+                )
+                container.actionRepository.submitTempTarget(command)
+            }.getOrDefault(false)
+
+            messageState.value = if (sent) {
+                "Manual temp target sent (${String.format(Locale.US, "%.2f", targetMmol)} mmol/L, ${durationMinutes}m)"
+            } else {
+                "Manual temp target failed (check Action delivery / Audit Log)"
+            }
+        }
+    }
+
+    fun sendManualCarbs(carbsRaw: String, reasonRaw: String) {
+        viewModelScope.launch {
+            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it in 1.0..300.0 }
+            if (carbsGrams == null) {
+                messageState.value = "Manual carbs failed: invalid grams value"
+                return@launch
+            }
+
+            val reason = reasonRaw.trim().ifBlank { "manual_ui_carbs" }
+            val sent = runCatching {
+                val command = buildManualCommand(
+                    type = "carbs",
+                    params = mapOf(
+                        "carbsGrams" to String.format(Locale.US, "%.1f", carbsGrams),
+                        "reason" to reason
+                    )
+                )
+                container.actionRepository.submitCarbs(command)
+            }.getOrDefault(false)
+
+            messageState.value = if (sent) {
+                "Manual carbs sent (${String.format(Locale.US, "%.1f", carbsGrams)} g)"
+            } else {
+                "Manual carbs failed (check Action delivery / Audit Log)"
+            }
+        }
+    }
+
     fun runAutoConnectNow(silent: Boolean = false) {
         viewModelScope.launch {
             runCatching {
@@ -758,6 +819,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             add("xDrip package: ${result.xdripPackage ?: "not installed"}")
             add("All-files access: ${if (result.hasAllFilesAccess) "granted" else "missing"}")
         }
+    }
+
+    private suspend fun buildManualCommand(
+        type: String,
+        params: Map<String, String>
+    ): ActionCommand {
+        val settings = container.settingsStore.settings.first()
+        val nowTs = System.currentTimeMillis()
+        val latestGlucoseTs = db.glucoseDao().maxTimestamp()
+        val dataFresh = if (latestGlucoseTs == null) {
+            false
+        } else {
+            nowTs - latestGlucoseTs <= settings.staleDataMaxMinutes * 60_000L
+        }
+        val actionsLast6h = container.actionRepository.countSentActionsLast6h()
+        return ActionCommand(
+            id = UUID.randomUUID().toString(),
+            type = type,
+            params = params,
+            safetySnapshot = SafetySnapshot(
+                killSwitch = settings.killSwitch,
+                dataFresh = dataFresh,
+                activeTempTargetMmol = null,
+                actionsLast6h = actionsLast6h
+            ),
+            idempotencyKey = "manual:$type:$nowTs:${UUID.randomUUID()}"
+        )
+    }
+
+    private fun parseFlexibleDouble(raw: String): Double? {
+        val normalized = raw.trim().replace(',', '.')
+        return normalized.toDoubleOrNull()
     }
 
     private fun buildActionLines(commands: List<ActionCommandEntity>): List<String> {

@@ -225,6 +225,16 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
 
 @Composable
 private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
+    var manualTempTarget by remember(state.postHypoTargetMmol) {
+        mutableStateOf(String.format("%.1f", state.postHypoTargetMmol))
+    }
+    var manualTempDuration by remember(state.postHypoDurationMinutes) {
+        mutableStateOf(state.postHypoDurationMinutes.toString())
+    }
+    var manualTempReason by remember { mutableStateOf("manual_ui_temp_target") }
+    var manualCarbsGrams by remember { mutableStateOf("10") }
+    var manualCarbsReason by remember { mutableStateOf("manual_ui_carbs") }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text("Current glucose: ${state.latestGlucoseMmol?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
@@ -250,6 +260,73 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
         item {
             HorizontalDivider()
             Text("Action delivery")
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Manual outbound test")
+                    Text("Sends treatment commands through configured outbound chain (Nightscout API, fallback relay if enabled).")
+                    OutlinedTextField(
+                        value = manualTempTarget,
+                        onValueChange = { manualTempTarget = it },
+                        label = { Text("Temp target (mmol/L)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = manualTempDuration,
+                        onValueChange = { manualTempDuration = it },
+                        label = { Text("Duration (minutes)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = manualTempReason,
+                        onValueChange = { manualTempReason = it },
+                        label = { Text("Temp target reason") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            vm.sendManualTempTarget(
+                                targetRaw = manualTempTarget,
+                                durationRaw = manualTempDuration,
+                                reasonRaw = manualTempReason
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Send temp target")
+                    }
+                    HorizontalDivider()
+                    OutlinedTextField(
+                        value = manualCarbsGrams,
+                        onValueChange = { manualCarbsGrams = it },
+                        label = { Text("Carbs (grams)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = manualCarbsReason,
+                        onValueChange = { manualCarbsReason = it },
+                        label = { Text("Carbs reason") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            vm.sendManualCarbs(
+                                carbsRaw = manualCarbsGrams,
+                                reasonRaw = manualCarbsReason
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Send carbs")
+                    }
+                }
+            }
         }
         items(state.actionLines) { Text(it) }
 
