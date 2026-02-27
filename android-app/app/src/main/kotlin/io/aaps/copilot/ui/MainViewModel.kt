@@ -675,6 +675,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val nowIso = Instant.now().toString()
+                val nowMs = System.currentTimeMillis()
                 nsApi.postTreatment(
                     NightscoutTreatmentRequest(
                         createdAt = nowIso,
@@ -695,12 +696,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         notes = "copilot:self_test"
                     )
                 )
+                nsApi.postSgvEntries(
+                    listOf(
+                        mapOf(
+                            "date" to nowMs,
+                            "sgv" to 108,
+                            "type" to "sgv",
+                            "device" to "copilot_self_test"
+                        )
+                    )
+                )
+                nsApi.postDeviceStatus(
+                    listOf(
+                        mapOf(
+                            "created_at" to nowIso,
+                            "openaps" to mapOf(
+                                "iob" to mapOf("iob" to 1.1),
+                                "suggested" to mapOf(
+                                    "COB" to 12,
+                                    "insulinReq" to 0.4,
+                                    "predBGs" to mapOf("UAM" to listOf(118, 125))
+                                ),
+                                "profile" to mapOf(
+                                    "dia" to 5,
+                                    "sens" to 45,
+                                    "carb_ratio" to 10
+                                )
+                            ),
+                            "uploader" to mapOf("battery" to 90)
+                        )
+                    )
+                )
                 val latest = nsApi.getTreatments(mapOf("count" to "6"))
+                val sgvEcho = nsApi.getSgvEntries(mapOf("count" to "3"))
                 val echoed = latest.count {
                     it.reason?.contains("copilot_self_test", ignoreCase = true) == true ||
                         it.notes?.contains("copilot:self_test", ignoreCase = true) == true
                 }
-                "Local Nightscout self-test OK ($statusText). Echoed treatments: $echoed"
+                val telemetryEcho = db.telemetryDao()
+                    .since(nowMs - 5 * 60_000L)
+                    .count { it.source == "local_nightscout_devicestatus" }
+                "Local Nightscout self-test OK ($statusText). Echoed treatments: $echoed, sgv points: ${sgvEcho.size}, devicestatus telemetry: $telemetryEcho"
             }.onSuccess { message ->
                 messageState.value = message
             }.onFailure { error ->

@@ -13,11 +13,17 @@ interface NightscoutApi {
     @GET("api/v1/entries/sgv.json")
     suspend fun getSgvEntries(@QueryMap query: Map<String, String>): List<NightscoutSgvEntry>
 
+    @POST("api/v1/entries/sgv.json")
+    suspend fun postSgvEntries(@Body payload: List<Map<String, @JvmSuppressWildcards Any?>>): Any
+
     @GET("api/v1/treatments.json")
     suspend fun getTreatments(@QueryMap query: Map<String, String>): List<NightscoutTreatment>
 
     @GET("api/v1/devicestatus.json")
     suspend fun getDeviceStatus(@QueryMap query: Map<String, String>): List<NightscoutDeviceStatus>
+
+    @POST("api/v1/devicestatus.json")
+    suspend fun postDeviceStatus(@Body payload: List<Map<String, @JvmSuppressWildcards Any?>>): Any
 
     @POST("api/v1/treatments.json")
     suspend fun postTreatment(@Body request: NightscoutTreatmentRequest): NightscoutTreatment

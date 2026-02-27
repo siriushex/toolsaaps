@@ -1,9 +1,13 @@
 package io.aaps.copilot.service
 
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import fi.iki.elonen.NanoHTTPD
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.remote.nightscout.NightscoutSgvEntry
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatment
@@ -100,11 +104,13 @@ class LocalNightscoutServer(
                         )
                     )
 
-                    path.equals("/api/v1/entries/sgv.json", ignoreCase = true) -> handleSgv(session)
+                    path.equals("/api/v1/entries/sgv.json", ignoreCase = true) ||
+                        path.equals("/api/v1/entries.json", ignoreCase = true) ||
+                        path.equals("/api/v1/entries", ignoreCase = true) -> handleEntries(session)
                     path.equals("/api/v1/treatments.json", ignoreCase = true) ||
                         path.equals("/api/v1/treatments", ignoreCase = true) -> handleTreatments(session)
                     path.equals("/api/v1/devicestatus.json", ignoreCase = true) ||
-                        path.equals("/api/v1/devicestatus", ignoreCase = true) -> jsonOk(emptyList<Any>())
+                        path.equals("/api/v1/devicestatus", ignoreCase = true) -> handleDeviceStatus(session)
                     else -> jsonNotFound()
                 }
             }.getOrElse { error ->
@@ -116,7 +122,14 @@ class LocalNightscoutServer(
             }
         }
 
-        private fun handleSgv(session: IHTTPSession): Response {
+        private fun handleEntries(session: IHTTPSession): Response {
+            if (session.method == Method.POST) {
+                return handlePostEntries(session)
+            }
+            return handleGetEntries(session)
+        }
+
+        private fun handleGetEntries(session: IHTTPSession): Response {
             val count = firstInt(session, "count", 200).coerceIn(1, 5_000)
             val since = firstLong(session, "find[date][\$gte]", 0L).coerceAtLeast(0L)
             val rows = runBlocking {
@@ -143,11 +156,59 @@ class LocalNightscoutServer(
             return jsonOk(selected)
         }
 
+        private fun handlePostEntries(session: IHTTPSession): Response {
+            val parsed = parseJsonObjects(readBody(session))
+                ?: return jsonBadRequest("invalid_json")
+            if (parsed.objects.isEmpty()) {
+                return jsonBadRequest("empty_payload")
+            }
+
+            val maxKnownTs = runBlocking { db.glucoseDao().maxTimestamp() ?: 0L }
+            val rows = parsed.objects.mapNotNull { entry ->
+                val sgvRaw = entry.findNumeric("sgv") ?: entry.findNumeric("glucose") ?: entry.findNumeric("value")
+                val ts = parseFlexibleTimestamp(entry.findText("dateString"))
+                    ?: parseFlexibleTimestamp(entry.findText("created_at"))
+                    ?: parseFlexibleTimestamp(entry.findText("sysTime"))
+                    ?: entry.findNumeric("date")?.toLong()
+                    ?: entry.findNumeric("mills")?.toLong()
+                    ?: System.currentTimeMillis()
+                if (sgvRaw == null || ts <= maxKnownTs) return@mapNotNull null
+                val mmol = if (sgvRaw > 35.0) UnitConverter.mgdlToMmol(sgvRaw) else sgvRaw
+                val source = entry.findText("device")?.ifBlank { SOURCE_LOCAL_NS_ENTRY } ?: SOURCE_LOCAL_NS_ENTRY
+                GlucoseSampleEntity(
+                    timestamp = ts,
+                    mmol = mmol.coerceIn(1.0, 33.0),
+                    source = source,
+                    quality = "OK"
+                )
+            }
+
+            if (rows.isNotEmpty()) {
+                runBlocking { db.glucoseDao().upsertAll(rows) }
+            }
+
+            return jsonOk(
+                mapOf(
+                    "status" to "ok",
+                    "received" to parsed.objects.size,
+                    "inserted" to rows.size
+                )
+            )
+        }
+
         private fun handleTreatments(session: IHTTPSession): Response {
             return if (session.method == Method.POST) {
                 handlePostTreatment(session)
             } else {
                 handleGetTreatments(session)
+            }
+        }
+
+        private fun handleDeviceStatus(session: IHTTPSession): Response {
+            return if (session.method == Method.POST) {
+                handlePostDeviceStatus(session)
+            } else {
+                jsonOk(emptyList<Any>())
             }
         }
 
@@ -167,57 +228,115 @@ class LocalNightscoutServer(
         }
 
         private fun handlePostTreatment(session: IHTTPSession): Response {
-            val body = readBody(session)
-            val request = runCatching {
-                gson.fromJson(body, NightscoutTreatmentRequest::class.java)
-            }.getOrNull() ?: return jsonBadRequest("invalid_json")
-            if (request.eventType.isBlank()) return jsonBadRequest("missing_event_type")
-
-            val timestamp = parseFlexibleTimestamp(request.createdAt) ?: System.currentTimeMillis()
-            val treatmentId = "local-ns-${timestamp}-${UUID.randomUUID()}"
-
-            val payload = linkedMapOf<String, String>().apply {
-                request.duration?.let { put("duration", it.toString()) }
-                request.targetTop?.let { put("targetTop", it.toString()) }
-                request.targetBottom?.let { put("targetBottom", it.toString()) }
-                request.carbs?.let { put("carbs", it.toString()) }
-                request.insulin?.let { put("insulin", it.toString()) }
-                request.reason?.let { put("reason", it) }
-                request.notes?.let { put("notes", it) }
+            val parsed = parseJsonObjects(readBody(session))
+                ?: return jsonBadRequest("invalid_json")
+            if (parsed.objects.isEmpty()) {
+                return jsonBadRequest("empty_payload")
             }
 
-            val entity = TherapyEventEntity(
-                id = treatmentId,
-                timestamp = timestamp,
-                type = normalizeEventType(request.eventType),
-                payloadJson = gson.toJson(payload)
-            )
-            runBlocking {
-                db.therapyDao().upsertAll(listOf(entity))
-                val telemetry = TelemetryMetricMapper.fromNightscoutTreatment(
+            val responses = mutableListOf<NightscoutTreatment>()
+            val therapyRows = mutableListOf<TherapyEventEntity>()
+            val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
+
+            parsed.objects.forEach { item ->
+                val request = runCatching {
+                    gson.fromJson(item, NightscoutTreatmentRequest::class.java)
+                }.getOrNull() ?: return@forEach
+                if (request.eventType.isBlank()) return@forEach
+
+                val timestamp = parseFlexibleTimestamp(request.createdAt) ?: System.currentTimeMillis()
+                val treatmentId = "local-ns-${timestamp}-${UUID.randomUUID()}"
+
+                val payload = linkedMapOf<String, String>().apply {
+                    request.duration?.let { put("duration", it.toString()) }
+                    request.targetTop?.let { put("targetTop", it.toString()) }
+                    request.targetBottom?.let { put("targetBottom", it.toString()) }
+                    request.carbs?.let { put("carbs", it.toString()) }
+                    request.insulin?.let { put("insulin", it.toString()) }
+                    request.reason?.let { put("reason", it) }
+                    request.notes?.let { put("notes", it) }
+                }
+
+                therapyRows += TherapyEventEntity(
+                    id = treatmentId,
+                    timestamp = timestamp,
+                    type = normalizeEventType(request.eventType),
+                    payloadJson = gson.toJson(payload)
+                )
+
+                telemetryRows += TelemetryMetricMapper.fromNightscoutTreatment(
                     timestamp = timestamp,
                     source = SOURCE_LOCAL_NS_TREATMENT,
                     eventType = request.eventType,
                     payload = payload
                 )
-                if (telemetry.isNotEmpty()) {
-                    db.telemetryDao().upsertAll(telemetry)
+
+                responses += NightscoutTreatment(
+                    id = treatmentId,
+                    createdAt = Instant.ofEpochMilli(timestamp).toString(),
+                    eventType = request.eventType,
+                    carbs = request.carbs,
+                    insulin = request.insulin,
+                    duration = request.duration,
+                    targetTop = request.targetTop,
+                    targetBottom = request.targetBottom,
+                    reason = request.reason,
+                    notes = request.notes
+                )
+            }
+
+            if (therapyRows.isEmpty()) {
+                return jsonBadRequest("missing_event_type")
+            }
+
+            runBlocking {
+                db.therapyDao().upsertAll(therapyRows)
+                if (telemetryRows.isNotEmpty()) {
+                    db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
                 }
             }
 
-            val response = NightscoutTreatment(
-                id = treatmentId,
-                createdAt = Instant.ofEpochMilli(timestamp).toString(),
-                eventType = request.eventType,
-                carbs = request.carbs,
-                insulin = request.insulin,
-                duration = request.duration,
-                targetTop = request.targetTop,
-                targetBottom = request.targetBottom,
-                reason = request.reason,
-                notes = request.notes
+            return if (parsed.wasArray) jsonOk(responses) else jsonOk(responses.first())
+        }
+
+        private fun handlePostDeviceStatus(session: IHTTPSession): Response {
+            val parsed = parseJsonObjects(readBody(session))
+                ?: return jsonBadRequest("invalid_json")
+            if (parsed.objects.isEmpty()) {
+                return jsonBadRequest("empty_payload")
+            }
+
+            val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
+            parsed.objects.forEach { payload ->
+                val payloadMap = payload.toMap(gson)
+                val ts = parseFlexibleTimestamp(payload.findText("created_at"))
+                    ?: payload.findNumeric("date")?.toLong()
+                    ?: payload.findNumeric("mills")?.toLong()
+                    ?: System.currentTimeMillis()
+                val flattened = linkedMapOf<String, String>()
+                TelemetryMetricMapper.flattenAny("openaps", payloadMap["openaps"], flattened)
+                TelemetryMetricMapper.flattenAny("pump", payloadMap["pump"], flattened)
+                TelemetryMetricMapper.flattenAny("uploader", payloadMap["uploader"], flattened)
+                if (flattened.isNotEmpty()) {
+                    telemetryRows += TelemetryMetricMapper.fromFlattenedNightscoutDeviceStatus(
+                        timestamp = ts,
+                        source = SOURCE_LOCAL_NS_DEVICESTATUS,
+                        flattened = flattened
+                    )
+                }
+            }
+            if (telemetryRows.isNotEmpty()) {
+                runBlocking {
+                    db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
+                }
+            }
+            return jsonOk(
+                mapOf(
+                    "status" to "ok",
+                    "received" to parsed.objects.size,
+                    "telemetry" to telemetryRows.size
+                )
             )
-            return jsonOk(response)
         }
 
         private fun TherapyEventEntity.toNightscoutTreatment(gson: Gson): NightscoutTreatment {
@@ -247,6 +366,25 @@ class LocalNightscoutServer(
             val files = HashMap<String, String>()
             session.parseBody(files)
             return files["postData"].orEmpty()
+        }
+
+        private fun parseJsonObjects(raw: String): ParsedJsonPayload? {
+            val text = raw.trim()
+            if (text.isBlank()) return ParsedJsonPayload(objects = emptyList(), wasArray = false)
+            val root = runCatching { JsonParser.parseString(text) }.getOrNull() ?: return null
+            return when {
+                root.isJsonObject -> ParsedJsonPayload(
+                    objects = listOf(root.asJsonObject),
+                    wasArray = false
+                )
+
+                root.isJsonArray -> ParsedJsonPayload(
+                    objects = root.asJsonArray.mapNotNull { it.asJsonObjectOrNull() },
+                    wasArray = true
+                )
+
+                else -> null
+            }
         }
 
         private fun firstParam(session: IHTTPSession, key: String): String? =
@@ -308,12 +446,50 @@ class LocalNightscoutServer(
                 gson.toJson(mapOf("status" to "not_found"))
             )
         }
+
+        private fun JsonElement.asJsonObjectOrNull(): JsonObject? {
+            return if (isJsonObject) asJsonObject else null
+        }
+
+        private fun JsonObject.findText(field: String): String? {
+            return runCatching { get(field) }
+                .getOrNull()
+                ?.takeIf { !it.isJsonNull }
+                ?.asString
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }
+
+        private fun JsonObject.findNumeric(field: String): Double? {
+            val direct = runCatching { get(field) }.getOrNull()
+            if (direct != null && !direct.isJsonNull) {
+                runCatching { return direct.asDouble }
+                val text = runCatching { direct.asString }.getOrNull()
+                if (!text.isNullOrBlank()) {
+                    return text.replace(",", ".").toDoubleOrNull()
+                }
+            }
+            return null
+        }
+
+        private fun JsonObject.toMap(gson: Gson): Map<String, Any?> {
+            val type = object : TypeToken<Map<String, Any?>>() {}.type
+            return runCatching { gson.fromJson<Map<String, Any?>>(this, type).orEmpty() }
+                .getOrDefault(emptyMap())
+        }
+
+        private data class ParsedJsonPayload(
+            val objects: List<JsonObject>,
+            val wasArray: Boolean
+        )
     }
 
     private companion object {
         private const val HOST = "127.0.0.1"
         private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
         private const val SOCKET_TIMEOUT_MS = 15_000
+        private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
         private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
+        private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
     }
 }

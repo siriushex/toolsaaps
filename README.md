@@ -83,9 +83,9 @@ Transport note:
   `Onboarding & Connect -> Local Nightscout emulator (127.0.0.1)`.
   It exposes:
   - `GET /api/v1/status.json`
-  - `GET /api/v1/entries/sgv.json`
+  - `GET/POST /api/v1/entries(.json)` and `GET/POST /api/v1/entries/sgv.json`
   - `GET/POST /api/v1/treatments(.json)`
-  - `GET /api/v1/devicestatus(.json)`
+  - `GET/POST /api/v1/devicestatus(.json)`
 - Runtime is pinned by a foreground service and auto-restored on boot/package update when enabled.
 - Use `Run Nightscout self-test` button in Onboarding to validate read/write transport immediately from phone.
 - Nightscout sync also ingests `devicestatus` and maps known telemetry keys into local snapshot storage.
