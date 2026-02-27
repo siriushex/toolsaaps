@@ -164,7 +164,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val effectiveNightscoutUrl = settings.resolvedNightscoutUrl()
             add(
                 "Local Nightscout emulator: " + if (settings.localNightscoutEnabled) {
-                    "enabled (http://127.0.0.1:${settings.localNightscoutPort})"
+                    "enabled (https://127.0.0.1:${settings.localNightscoutPort})"
                 } else {
                     "disabled"
                 }
@@ -478,7 +478,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             LocalNightscoutServiceController.reconcile(getApplication(), enabled)
             messageState.value = if (enabled) {
-                "Local Nightscout enabled at http://127.0.0.1:$safePort"
+                "Local Nightscout enabled at https://127.0.0.1:$safePort"
             } else {
                 "Local Nightscout disabled"
             }

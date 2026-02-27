@@ -1,5 +1,6 @@
 package io.aaps.copilot.service
 
+import android.content.Context
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -15,11 +16,15 @@ import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.TelemetryMetricMapper
 import io.aaps.copilot.util.UnitConverter
+import java.security.KeyStore
 import java.time.Instant
 import java.util.UUID
+import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.SSLServerSocketFactory
 import kotlinx.coroutines.runBlocking
 
 class LocalNightscoutServer(
+    private val context: Context,
     private val db: CopilotDatabase,
     private val gson: Gson,
     private val auditLogger: AuditLogger,
@@ -43,6 +48,15 @@ class LocalNightscoutServer(
         val alreadyRunningPort = currentPort
         stopLocked()
         val candidatePorts = buildCandidatePorts(safePort)
+        val sslSocketFactory = runCatching { buildLocalTlsSocketFactory() }.getOrElse { error ->
+            runBlocking {
+                auditLogger.error(
+                    "local_nightscout_tls_init_failed",
+                    mapOf("error" to (error.message ?: "unknown"))
+                )
+            }
+            return null
+        }
         var lastError: Throwable? = null
 
         for (candidatePort in candidatePorts) {
@@ -54,6 +68,7 @@ class LocalNightscoutServer(
                 onReactiveDataIngested = onReactiveDataIngested
             )
             val started = runCatching {
+                next.makeSecure(sslSocketFactory, null)
                 next.start(SOCKET_TIMEOUT_MS, false)
                 true
             }.getOrElse { error ->
@@ -69,7 +84,7 @@ class LocalNightscoutServer(
                 auditLogger.info(
                     "local_nightscout_started",
                     mapOf(
-                        "url" to "http://127.0.0.1:$candidatePort",
+                        "url" to "https://127.0.0.1:$candidatePort",
                         "requestedPort" to safePort,
                         "actualPort" to candidatePort,
                         "reusedPortAfterRestart" to (alreadyRunningPort == candidatePort)
@@ -110,11 +125,21 @@ class LocalNightscoutServer(
         runBlocking {
             auditLogger.info(
                 "local_nightscout_stopped",
-                mapOf("url" to currentPort?.let { "http://127.0.0.1:$it" }.orEmpty())
+                mapOf("url" to currentPort?.let { "https://127.0.0.1:$it" }.orEmpty())
             )
         }
         server = null
         currentPort = null
+    }
+
+    private fun buildLocalTlsSocketFactory(): SSLServerSocketFactory {
+        val keyStore = KeyStore.getInstance(LOCAL_TLS_KEYSTORE_TYPE)
+        context.assets.open(LOCAL_TLS_KEYSTORE_ASSET).use { input ->
+            keyStore.load(input, LOCAL_TLS_KEYSTORE_PASSWORD.toCharArray())
+        }
+        val keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+        keyManagerFactory.init(keyStore, LOCAL_TLS_KEYSTORE_PASSWORD.toCharArray())
+        return NanoHTTPD.makeSSLSocketFactory(keyStore, keyManagerFactory)
     }
 
     private fun buildCandidatePorts(requestedPort: Int): List<Int> {
@@ -580,6 +605,9 @@ class LocalNightscoutServer(
         private const val HOST = "127.0.0.1"
         private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
         private const val SOCKET_TIMEOUT_MS = 15_000
+        private const val LOCAL_TLS_KEYSTORE_ASSET = "local_ns_keystore.p12"
+        private const val LOCAL_TLS_KEYSTORE_TYPE = "PKCS12"
+        private const val LOCAL_TLS_KEYSTORE_PASSWORD = "copilotlocal"
         private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
         private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
         private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"

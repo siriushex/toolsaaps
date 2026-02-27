@@ -181,8 +181,9 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
             Text("Save local Nightscout")
         }
         Text(
-            "Loopback URL for AAPS/Copilot: http://127.0.0.1:${localNightscoutPort.toIntOrNull() ?: state.localNightscoutPort}"
+            "Loopback URL for AAPS/Copilot: https://127.0.0.1:${localNightscoutPort.toIntOrNull() ?: state.localNightscoutPort}"
         )
+        Text("If AAPS reports certificate errors, allow self-signed certificate for this loopback endpoint.")
         HorizontalDivider()
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Local temp target fallback relay")

@@ -1,6 +1,7 @@
 package io.aaps.copilot.data.repository
 
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
+import io.aaps.copilot.util.UnitConverter
 import java.util.Locale
 
 object TelemetryMetricMapper {
@@ -33,6 +34,7 @@ object TelemetryMetricMapper {
     private const val MAX_RAW_SAMPLES_PER_PAYLOAD = 160
     private const val MAX_RAW_KEY_LENGTH = 84
     private const val MAX_TEXT_VALUE_LENGTH = 96
+    private const val TEMP_TARGET_MGDL_THRESHOLD = 30.0
 
     fun fromKeyValueMap(
         timestamp: Long,
@@ -52,6 +54,20 @@ object TelemetryMetricMapper {
                 valueDouble = parsed,
                 valueText = null,
                 unit = unit
+            )
+        }
+
+        fun addTempTargetNumeric(canonicalKey: String, aliases: List<String>) {
+            val raw = findValue(values, aliases) ?: return
+            val parsed = raw.toDoubleOrNullLocale() ?: return
+            val mmol = normalizeTempTargetMmol(parsed)
+            output += sample(
+                timestamp = timestamp,
+                source = source,
+                key = canonicalKey,
+                valueDouble = mmol,
+                valueText = null,
+                unit = "mmol/L"
             )
         }
 
@@ -92,8 +108,8 @@ object TelemetryMetricMapper {
         addNumeric("steps_count", "steps", listOf("steps", "stepCount", "step_count"))
         addNumeric("activity_ratio", null, listOf("activity", "activityRatio", "sensitivityRatio"))
         addNumeric("heart_rate_bpm", "bpm", listOf("heartRate", "heart_rate", "bpm"))
-        addNumeric("temp_target_low_mmol", "mmol/L", listOf("targetBottom", "target_bottom", "targetLow"))
-        addNumeric("temp_target_high_mmol", "mmol/L", listOf("targetTop", "target_top", "targetHigh"))
+        addTempTargetNumeric("temp_target_low_mmol", listOf("targetBottom", "target_bottom", "targetLow"))
+        addTempTargetNumeric("temp_target_high_mmol", listOf("targetTop", "target_top", "targetHigh"))
         addNumeric("temp_target_duration_min", "min", listOf("duration", "durationInMinutes"))
         addNumeric("profile_percent", "%", listOf("percentage", "profilePercentage"))
         addUam("uam_value", listOf("uam", "enableUAM", "unannouncedMeal", "uamDetected"))
@@ -125,10 +141,14 @@ object TelemetryMetricMapper {
         val output = fromKeyValueMap(timestamp, source, payload).toMutableList()
         val event = eventType.orEmpty().lowercase(Locale.US)
         if (event.contains("temp") && event.contains("target")) {
-            payload["targetBottom"]?.toDoubleOrNullLocale()?.let {
+            val lowMmol = payload["targetBottomMmol"]?.toDoubleOrNullLocale()
+                ?: payload["targetBottom"]?.toDoubleOrNullLocale()?.let(::normalizeTempTargetMmol)
+            val highMmol = payload["targetTopMmol"]?.toDoubleOrNullLocale()
+                ?: payload["targetTop"]?.toDoubleOrNullLocale()?.let(::normalizeTempTargetMmol)
+            lowMmol?.let {
                 output += sample(timestamp, source, "temp_target_low_mmol", it, null, "mmol/L")
             }
-            payload["targetTop"]?.toDoubleOrNullLocale()?.let {
+            highMmol?.let {
                 output += sample(timestamp, source, "temp_target_high_mmol", it, null, "mmol/L")
             }
         }
@@ -175,6 +195,10 @@ object TelemetryMetricMapper {
         )
 
         return output.distinctBy { it.id }
+    }
+
+    private fun normalizeTempTargetMmol(raw: Double): Double {
+        return if (raw > TEMP_TARGET_MGDL_THRESHOLD) UnitConverter.mgdlToMmol(raw) else raw
     }
 
     fun flattenAny(

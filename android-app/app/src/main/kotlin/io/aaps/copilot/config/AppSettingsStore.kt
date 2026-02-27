@@ -249,5 +249,5 @@ data class AppSettings(
 fun AppSettings.resolvedNightscoutUrl(): String {
     val explicit = nightscoutUrl.trim()
     if (explicit.isNotBlank()) return explicit
-    return if (localNightscoutEnabled) "http://127.0.0.1:$localNightscoutPort" else ""
+    return if (localNightscoutEnabled) "https://127.0.0.1:$localNightscoutPort" else ""
 }

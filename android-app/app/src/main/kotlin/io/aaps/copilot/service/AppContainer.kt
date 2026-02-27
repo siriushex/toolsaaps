@@ -47,6 +47,7 @@ class AppContainer(context: Context) {
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val localNightscoutServer = LocalNightscoutServer(
+        context = context.applicationContext,
         db = db,
         gson = gson,
         auditLogger = auditLogger,
