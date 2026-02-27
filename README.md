@@ -15,7 +15,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Replay Lab screen with filters (days/step/horizon) and CSV/PDF export
 - Sync health observability (data age, NS sync lag, cloud push backlog)
 - Cloud scheduler status view (daily analysis + weekly retrain)
-- Daily analysis history with filters (source/status) + weekly trend
+- Daily analysis history with filters (source/status/days) + weekly trend (weeks)
 - Insights export (history + trend) to CSV/PDF
 - Daily AI insights via OpenAI on backend
 

@@ -139,7 +139,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val analysisHistoryLines = analysisHistory?.items?.map { item ->
             val counts = "an=${item.anomalies.size}, rec=${item.recommendations.size}"
-            "${item.date} ${item.source} ${item.status} | ${formatTs(item.runTs)} | $counts"
+            val summaryPreview = item.summary.replace('\n', ' ').trim().take(120)
+            val anomalyPreview = item.anomalies.firstOrNull()?.replace('\n', ' ')?.take(80)
+            val recommendationPreview = item.recommendations.firstOrNull()?.replace('\n', ' ')?.take(80)
+            buildList {
+                add("${item.date} ${item.source} ${item.status} | ${formatTs(item.runTs)} | $counts")
+                if (summaryPreview.isNotBlank()) add("  summary: $summaryPreview")
+                if (!anomalyPreview.isNullOrBlank()) add("  top anomaly: $anomalyPreview")
+                if (!recommendationPreview.isNullOrBlank()) add("  top rec: $recommendationPreview")
+                if (!item.errorMessage.isNullOrBlank()) add("  error: ${item.errorMessage.take(120)}")
+            }.joinToString(separator = "\n")
         } ?: emptyList()
         val analysisTrendLines = analysisTrend?.items?.map { item ->
             "${item.weekStart}: runs=${item.totalRuns}, ok=${item.successRuns}, fail=${item.failedRuns}, an=${item.anomaliesCount}, rec=${item.recommendationsCount}"
@@ -336,10 +345,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun applyInsightsFilters(sourceRaw: String, statusRaw: String) {
+    fun applyInsightsFilters(sourceRaw: String, statusRaw: String, daysRaw: String, weeksRaw: String) {
         val source = normalizeFilter(sourceRaw)
         val status = normalizeFilter(statusRaw)?.uppercase()
-        insightsFilterState.value = InsightsFilterUi(source = source, status = status)
+        val days = daysRaw.trim().toIntOrNull()?.coerceIn(1, 365) ?: 60
+        val weeks = weeksRaw.trim().toIntOrNull()?.coerceIn(1, 52) ?: 8
+        insightsFilterState.value = InsightsFilterUi(
+            source = source,
+            status = status,
+            days = days,
+            weeks = weeks
+        )
         refreshAnalysisInsights(silent = false)
     }
 
@@ -355,7 +371,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     limit = 30,
                     source = filter.source,
                     status = filter.status,
-                    days = 60
+                    days = filter.days
                 )
             }.onSuccess { history ->
                 analysisHistoryState.value = history
@@ -370,7 +386,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             runCatching {
                 container.insightsRepository.fetchAnalysisTrend(
-                    weeks = 8,
+                    weeks = filter.weeks,
                     source = filter.source,
                     status = filter.status
                 )
@@ -492,7 +508,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildInsightsFilterLabel(filter: InsightsFilterUi): String =
-        "Filters: source=${filter.source ?: "all"}, status=${filter.status ?: "all"}"
+        "Filters: source=${filter.source ?: "all"}, status=${filter.status ?: "all"}, days=${filter.days}, weeks=${filter.weeks}"
 }
 
 data class MainUiState(
@@ -522,7 +538,7 @@ data class MainUiState(
     val baselineDeltaLines: List<String> = emptyList(),
     val syncStatusLines: List<String> = emptyList(),
     val jobStatusLines: List<String> = emptyList(),
-    val insightsFilterLabel: String = "Filters: source=all, status=all",
+    val insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8",
     val analysisHistoryLines: List<String> = emptyList(),
     val analysisTrendLines: List<String> = emptyList(),
     val dryRun: DryRunUi? = null,
@@ -547,5 +563,7 @@ data class DryRunUi(
 
 data class InsightsFilterUi(
     val source: String? = null,
-    val status: String? = null
+    val status: String? = null,
+    val days: Int = 60,
+    val weeks: Int = 8
 )

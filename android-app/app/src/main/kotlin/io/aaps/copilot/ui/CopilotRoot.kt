@@ -301,6 +301,8 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
 private fun InsightsScreen(state: MainUiState, vm: MainViewModel) {
     var sourceFilter by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf("") }
+    var daysFilter by remember { mutableStateOf("60") }
+    var weeksFilter by remember { mutableStateOf("8") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("OpenAI/cloud insights run daily via worker")
@@ -317,8 +319,22 @@ private fun InsightsScreen(state: MainUiState, vm: MainViewModel) {
             label = { Text("Status filter (all/SUCCESS/FAILED)") },
             modifier = Modifier.fillMaxWidth()
         )
+        OutlinedTextField(
+            value = daysFilter,
+            onValueChange = { daysFilter = it },
+            label = { Text("History days (1..365)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = weeksFilter,
+            onValueChange = { weeksFilter = it },
+            label = { Text("Trend weeks (1..52)") },
+            modifier = Modifier.fillMaxWidth()
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.applyInsightsFilters(sourceFilter, statusFilter) }) { Text("Apply filters") }
+            Button(onClick = { vm.applyInsightsFilters(sourceFilter, statusFilter, daysFilter, weeksFilter) }) {
+                Text("Apply filters")
+            }
             Button(onClick = vm::runDailyAnalysisNow) { Text("Run now") }
             Button(onClick = { vm.refreshCloudJobs() }) { Text("Refresh jobs") }
             Button(onClick = { vm.refreshAnalysisHistory() }) { Text("Refresh history") }
