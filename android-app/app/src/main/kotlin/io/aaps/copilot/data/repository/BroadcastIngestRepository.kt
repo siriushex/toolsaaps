@@ -22,6 +22,8 @@ class BroadcastIngestRepository(
             return IngestResult(0, 0, 0, "missing_action")
         }
 
+        pruneLegacyInvalidLocalBroadcastGlucose()
+
         val extras = flattenExtras(intent)
         val source = resolveSource(action)
         val glucose = parseGlucose(action, extras)
@@ -174,6 +176,7 @@ class BroadcastIngestRepository(
 
     private fun parseGlucose(action: String, extras: Map<String, String>): GlucoseSampleEntity? {
         if (action.endsWith("NEW_TREATMENT") || action.endsWith("BgEstimateNoData")) return null
+        if (action.startsWith("info.nightscout.androidaps.")) return null
 
         val valueWithKey = findDoubleWithKey(
             extras,
@@ -193,12 +196,11 @@ class BroadcastIngestRepository(
             listOf("com.eveningoutpost.dexdrip.Extras.Display.Units", "display.units", "display_units", "units", "unit")
         )?.lowercase()
             ?: if (valueKey.lowercase(Locale.US).contains("mgdl")) "mgdl" else null
-        val mmol = when {
-            units?.contains("mmol") == true -> valueRaw
-            units?.contains("mg") == true -> UnitConverter.mgdlToMmol(valueRaw)
-            valueRaw > 35.0 -> UnitConverter.mgdlToMmol(valueRaw)
-            else -> valueRaw
-        }.coerceIn(1.0, 33.0)
+        val mmol = normalizeGlucoseMmol(
+            valueRaw = valueRaw,
+            valueKey = valueKey,
+            units = units
+        ).coerceIn(1.0, 33.0)
 
         val ts = normalizeTimestamp(
             findLong(
@@ -351,9 +353,48 @@ class BroadcastIngestRepository(
     )
 
     private fun resolveSource(action: String): String = when {
+        action.startsWith("info.nightscout.androidaps.") -> "aaps_broadcast"
         action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
         action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
         else -> "local_broadcast"
+    }
+
+    private fun normalizeGlucoseMmol(
+        valueRaw: Double,
+        valueKey: String,
+        units: String?
+    ): Double {
+        val normalizedKey = normalizeKey(valueKey)
+        val keyIndicatesMgdl = normalizedKey.contains("mgdl")
+        val keyIndicatesMmol = normalizedKey.contains("mmol")
+        val keySuggestsBgEstimate = normalizedKey.contains("bgestimate")
+        val explicitMmol = units?.contains("mmol") == true
+        val explicitMg = units?.contains("mg") == true
+
+        return when {
+            keyIndicatesMgdl -> UnitConverter.mgdlToMmol(valueRaw)
+            keyIndicatesMmol -> valueRaw
+            explicitMg -> UnitConverter.mgdlToMmol(valueRaw)
+            // Some AAPS/xDrip payloads publish mg/dL values with display units=mmol.
+            explicitMmol && (valueRaw > 35.0 || (keySuggestsBgEstimate && valueRaw >= 18.0)) ->
+                UnitConverter.mgdlToMmol(valueRaw)
+            explicitMmol -> valueRaw
+            valueRaw > 35.0 -> UnitConverter.mgdlToMmol(valueRaw)
+            else -> valueRaw
+        }
+    }
+
+    private suspend fun pruneLegacyInvalidLocalBroadcastGlucose() {
+        val removed = db.glucoseDao().deleteBySourceAndThreshold(
+            source = "local_broadcast",
+            thresholdMmol = 30.0
+        )
+        if (removed > 0) {
+            auditLogger.info(
+                "broadcast_glucose_cleanup",
+                mapOf("removed" to removed, "source" to "local_broadcast", "thresholdMmol" to 30.0)
+            )
+        }
     }
 
     private fun normalizeTimestamp(ts: Long): Long {

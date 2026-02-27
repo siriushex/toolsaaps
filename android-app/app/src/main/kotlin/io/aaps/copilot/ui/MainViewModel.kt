@@ -31,6 +31,7 @@ import io.aaps.copilot.data.repository.CloudAnalysisHistoryUiModel
 import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
+import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
@@ -103,7 +104,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         insightsFilterState
     ) { values ->
         @Suppress("UNCHECKED_CAST")
-        val glucose = values[0] as List<GlucoseSampleEntity>
+        val glucose = GlucoseSanitizer.filterEntities(values[0] as List<GlucoseSampleEntity>)
         @Suppress("UNCHECKED_CAST")
         val forecasts = values[1] as List<ForecastEntity>
         @Suppress("UNCHECKED_CAST")

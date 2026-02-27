@@ -146,7 +146,7 @@ class SyncRepository(
         }
 
         val since = db.syncStateDao().bySource(SOURCE_CLOUD_PUSH)?.lastSyncedTimestamp ?: 0L
-        val glucoseRows = db.glucoseDao().since(since).map { sample ->
+        val glucoseRows = GlucoseSanitizer.filterEntities(db.glucoseDao().since(since)).map { sample ->
             CloudGlucosePoint(
                 ts = sample.timestamp,
                 valueMmol = sample.mmol,
@@ -205,7 +205,8 @@ class SyncRepository(
         }
     }
 
-    suspend fun recentGlucose(limit: Int): List<GlucosePoint> = db.glucoseDao().latest(limit).map { it.toDomain() }
+    suspend fun recentGlucose(limit: Int): List<GlucosePoint> =
+        GlucoseSanitizer.filterEntities(db.glucoseDao().latest(limit)).map { it.toDomain() }
 
     suspend fun recentTherapyEvents(hoursBack: Int): List<TherapyEvent> {
         val since = System.currentTimeMillis() - hoursBack * 60 * 60 * 1000L

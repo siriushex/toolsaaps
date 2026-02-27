@@ -24,4 +24,7 @@ interface GlucoseDao {
 
     @Query("SELECT MAX(timestamp) FROM glucose_samples")
     suspend fun maxTimestamp(): Long?
+
+    @Query("DELETE FROM glucose_samples WHERE source = :source AND mmol >= :thresholdMmol")
+    suspend fun deleteBySourceAndThreshold(source: String, thresholdMmol: Double): Int
 }

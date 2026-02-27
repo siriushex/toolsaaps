@@ -24,7 +24,7 @@ class AnalyticsRepository(
     suspend fun recalculate(settings: AppSettings) {
         val lookbackDays = settings.analyticsLookbackDays.coerceIn(30, 730)
         val historyStart = System.currentTimeMillis() - lookbackDays * 24L * 60 * 60 * 1000
-        val glucose = db.glucoseDao().since(historyStart).map { it.toDomain() }
+        val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)).map { it.toDomain() }
         val therapy = db.therapyDao().since(historyStart).map { it.toDomain(gson) }
         val telemetry = db.telemetryDao().since(historyStart).map { sample ->
             TelemetrySignal(
