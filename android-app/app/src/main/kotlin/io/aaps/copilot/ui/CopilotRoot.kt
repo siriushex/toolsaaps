@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.util.Locale
 
 private enum class Screen(val title: String) {
     ONBOARDING("Onboarding & Connect"),
@@ -246,8 +247,15 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
             Text("Current glucose: ${state.latestGlucoseMmol?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             Text("Delta: ${state.glucoseDelta?.let { String.format("%+.2f", it) } ?: "-"}")
             Text("Forecast 5m: ${state.forecast5m?.let { String.format("%.2f", it) } ?: "-"}")
+            Text("Forecast 30m: ${state.forecast30m?.let { String.format("%.2f", it) } ?: "-"}")
             Text("Forecast 1h: ${state.forecast60m?.let { String.format("%.2f", it) } ?: "-"}")
             Text("Last rule: ${state.lastRuleId ?: "-"} / ${state.lastRuleState ?: "-"}")
+            Text(
+                "Adaptive controller: ${state.controllerState ?: "-"}" +
+                    (state.controllerNextTarget?.let {
+                        ", next=${String.format("%.2f", it)} mmol/L"
+                    } ?: "")
+            )
         }
 
         item {
@@ -403,6 +411,7 @@ private fun ForecastScreen(state: MainUiState) {
         item {
             Text("Forecast vs baseline")
             Text("5m: ${state.forecast5m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
+            Text("30m: ${state.forecast30m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             Text("1h: ${state.forecast60m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             HorizontalDivider()
             Text("Quality metrics")
@@ -570,11 +579,19 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var patternLowTrigger by remember(state.patternLowRateTrigger) { mutableStateOf(String.format("%.2f", state.patternLowRateTrigger)) }
     var patternHighTrigger by remember(state.patternHighRateTrigger) { mutableStateOf(String.format("%.2f", state.patternHighRateTrigger)) }
     var lookbackDays by remember(state.analyticsLookbackDays) { mutableStateOf(state.analyticsLookbackDays.toString()) }
+    var adaptiveEnabled by remember(state.adaptiveControllerEnabled) { mutableStateOf(state.adaptiveControllerEnabled) }
+    var adaptivePriority by remember(state.adaptiveControllerPriority) { mutableStateOf(state.adaptiveControllerPriority.toString()) }
+    var adaptiveRetarget by remember(state.adaptiveControllerRetargetMinutes) { mutableStateOf(state.adaptiveControllerRetargetMinutes.toString()) }
+    var adaptiveProfile by remember(state.adaptiveControllerSafetyProfile) { mutableStateOf(state.adaptiveControllerSafetyProfile) }
+    var adaptiveStaleMax by remember(state.adaptiveControllerStaleMaxMinutes) { mutableStateOf(state.adaptiveControllerStaleMaxMinutes.toString()) }
+    var adaptiveMaxActions by remember(state.adaptiveControllerMaxActions6h) { mutableStateOf(state.adaptiveControllerMaxActions6h.toString()) }
+    var adaptiveMaxStep by remember(state.adaptiveControllerMaxStepMmol) { mutableStateOf(String.format("%.2f", state.adaptiveControllerMaxStepMmol)) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Kill switch")
             Switch(checked = state.killSwitch, onCheckedChange = vm::setKillSwitch)
         }
+        Text("Kill switch affects auto actions only (manual temp target/carbs remain available).")
         OutlinedTextField(
             value = targetInput,
             onValueChange = { targetInput = it },
@@ -586,6 +603,7 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         }) {
             Text("Apply base target")
         }
+        Text("Global hard safety limits")
         OutlinedTextField(
             value = maxActions,
             onValueChange = { maxActions = it },
@@ -606,6 +624,75 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         }) {
             Text("Apply safety limits")
         }
+        HorizontalDivider()
+        Text("Adaptive 30–60m Target Controller")
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Enable adaptive controller")
+            Switch(
+                checked = adaptiveEnabled,
+                onCheckedChange = { adaptiveEnabled = it }
+            )
+        }
+        OutlinedTextField(
+            value = adaptiveProfile,
+            onValueChange = { adaptiveProfile = it.uppercase(Locale.US) },
+            label = { Text("Safety profile (STRICT/BALANCED/AGGRESSIVE)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = adaptiveRetarget,
+            onValueChange = { adaptiveRetarget = it },
+            label = { Text("Retarget frequency minutes (5/15/30)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = adaptivePriority,
+            onValueChange = { adaptivePriority = it },
+            label = { Text("Adaptive rule priority (0..200)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = adaptiveStaleMax,
+            onValueChange = { adaptiveStaleMax = it },
+            label = { Text("Adaptive stale max minutes") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = adaptiveMaxActions,
+            onValueChange = { adaptiveMaxActions = it },
+            label = { Text("Adaptive max actions in 6h") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = adaptiveMaxStep,
+            onValueChange = { adaptiveMaxStep = it },
+            label = { Text("Max step per action (mmol/L)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = {
+            vm.setAdaptiveControllerConfig(
+                enabled = adaptiveEnabled,
+                priority = adaptivePriority.toIntOrNull() ?: state.adaptiveControllerPriority,
+                retargetMinutes = adaptiveRetarget.toIntOrNull() ?: state.adaptiveControllerRetargetMinutes,
+                safetyProfile = adaptiveProfile,
+                staleMaxMinutes = adaptiveStaleMax.toIntOrNull() ?: state.adaptiveControllerStaleMaxMinutes,
+                maxActions6h = adaptiveMaxActions.toIntOrNull() ?: state.adaptiveControllerMaxActions6h,
+                maxStepMmol = adaptiveMaxStep.toDoubleOrNull() ?: state.adaptiveControllerMaxStepMmol
+            )
+        }) {
+            Text("Apply adaptive settings")
+        }
+        Text("Preview: state=${state.controllerState ?: "-"}, reason=${state.controllerReason ?: "-"}")
+        Text(
+            "Preview: f30=${state.controllerForecast30?.let { String.format("%.2f", it) } ?: "-"}, " +
+                "f60=${state.controllerForecast60?.let { String.format("%.2f", it) } ?: "-"}, " +
+                "weightedError=${state.controllerWeightedError?.let { String.format("%.2f", it) } ?: "-"}"
+        )
+        Text(
+            "Preview: next=${state.controllerNextTarget?.let { String.format("%.2f mmol/L", it) } ?: "-"}, " +
+                "duration=${state.controllerDurationMinutes?.let { "${it}m" } ?: "-"}, " +
+                "confidence=${state.controllerConfidence?.let { String.format("%.2f", it) } ?: "-"}"
+        )
         HorizontalDivider()
         Text("Post-hypo rebound rule tuning")
         OutlinedTextField(
@@ -867,6 +954,16 @@ private fun ReplayLabScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun AuditScreen(state: MainUiState) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        item { Text("Adaptive controller trace") }
+        if (state.adaptiveAuditLines.isEmpty()) {
+            item { Text("No adaptive controller events yet") }
+        } else {
+            items(state.adaptiveAuditLines) { line ->
+                Text(line)
+            }
+        }
+        item { HorizontalDivider() }
+        item { Text("All audit events") }
         items(state.auditLines) { line ->
             Text(line)
         }

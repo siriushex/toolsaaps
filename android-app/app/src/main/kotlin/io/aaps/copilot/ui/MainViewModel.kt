@@ -39,6 +39,7 @@ import io.aaps.copilot.domain.model.PatternWindow
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
+import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutTls
 import java.net.URI
@@ -47,6 +48,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -277,6 +279,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, now)
         val telemetryLines = buildTelemetryLines(telemetry)
         val actionLines = buildActionLines(actionCommands)
+        val forecast30Latest = forecasts.firstOrNull { it.horizonMinutes == 30 }?.valueMmol
+        val forecast60Latest = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+        val controllerWeightedError = if (forecast30Latest != null && forecast60Latest != null) {
+            val e30 = forecast30Latest - settings.baseTargetMmol
+            val e60 = forecast60Latest - settings.baseTargetMmol
+            0.65 * e30 + 0.35 * e60
+        } else {
+            null
+        }
+        val latestAdaptiveExecution = ruleExec.firstOrNull { it.ruleId == AdaptiveTargetControllerRule.RULE_ID }
+        val controllerAction = latestAdaptiveExecution?.actionJson?.let { parseRuleActionJson(it) }
+        val controllerReasons = latestAdaptiveExecution?.reasonsJson?.let { parseRuleReasonsJson(it) }.orEmpty()
+        val controllerConfidence = parseConfidenceFromReasons(controllerReasons)
+        val controllerReason = controllerReasons.firstOrNull()
+        val adaptiveAuditLines = audits
+            .filter { it.message.startsWith("adaptive_controller_") }
+            .take(10)
+            .map { "${formatTs(it.timestamp)} ${it.level} ${it.message}" }
         val profileSegmentLines = profileSegments
             .sortedWith(compareBy<ProfileSegmentEstimateEntity> { it.dayType }.thenBy { it.timeSlot })
             .map { segment ->
@@ -305,12 +325,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             postHypoTargetMmol = settings.postHypoTargetMmol,
             postHypoDurationMinutes = settings.postHypoDurationMinutes,
             postHypoLookbackMinutes = settings.postHypoLookbackMinutes,
+            adaptiveControllerEnabled = settings.adaptiveControllerEnabled,
+            adaptiveControllerPriority = settings.adaptiveControllerPriority,
+            adaptiveControllerRetargetMinutes = settings.adaptiveControllerRetargetMinutes,
+            adaptiveControllerSafetyProfile = settings.adaptiveControllerSafetyProfile,
+            adaptiveControllerStaleMaxMinutes = settings.adaptiveControllerStaleMaxMinutes,
+            adaptiveControllerMaxActions6h = settings.adaptiveControllerMaxActions6h,
+            adaptiveControllerMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
             latestGlucoseMmol = latest?.mmol,
             glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null,
             forecast5m = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol,
+            forecast30m = forecast30Latest,
             forecast60m = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol,
             lastRuleState = ruleExec.firstOrNull()?.state,
             lastRuleId = ruleExec.firstOrNull()?.ruleId,
+            controllerState = latestAdaptiveExecution?.state,
+            controllerReason = controllerReason,
+            controllerConfidence = controllerConfidence,
+            controllerNextTarget = controllerAction?.targetMmol,
+            controllerDurationMinutes = controllerAction?.durationMinutes,
+            controllerForecast30 = forecast30Latest,
+            controllerForecast60 = forecast60Latest,
+            controllerWeightedError = controllerWeightedError,
             profileIsf = profile?.isfMmolPerUnit,
             profileCr = profile?.crGramPerUnit,
             profileConfidence = profile?.confidence,
@@ -403,6 +439,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ruleCooldownLines = ruleCooldownLines,
             dryRun = dryRun,
             cloudReplay = cloudReplay,
+            adaptiveAuditLines = adaptiveAuditLines,
             auditLines = audits.map { "${it.level}: ${it.message}" },
             message = message
         )
@@ -685,6 +722,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val settings = container.settingsStore.settings.first()
             container.analyticsRepository.recalculate(settings)
             messageState.value = "Pattern tuning updated"
+        }
+    }
+
+    fun setAdaptiveControllerConfig(
+        enabled: Boolean,
+        priority: Int,
+        retargetMinutes: Int,
+        safetyProfile: String,
+        staleMaxMinutes: Int,
+        maxActions6h: Int,
+        maxStepMmol: Double
+    ) {
+        viewModelScope.launch {
+            val normalizedProfile = when (safetyProfile.trim().uppercase(Locale.US)) {
+                "STRICT" -> "STRICT"
+                "AGGRESSIVE" -> "AGGRESSIVE"
+                else -> "BALANCED"
+            }
+            val normalizedRetarget = when (retargetMinutes) {
+                5,
+                15,
+                30 -> retargetMinutes
+                else -> 5
+            }
+            container.settingsStore.update {
+                it.copy(
+                    adaptiveControllerEnabled = enabled,
+                    adaptiveControllerPriority = priority.coerceIn(0, 200),
+                    adaptiveControllerRetargetMinutes = normalizedRetarget,
+                    adaptiveControllerSafetyProfile = normalizedProfile,
+                    adaptiveControllerStaleMaxMinutes = staleMaxMinutes.coerceIn(5, 60),
+                    adaptiveControllerMaxActions6h = maxActions6h.coerceIn(1, 10),
+                    adaptiveControllerMaxStepMmol = maxStepMmol.coerceIn(0.05, 1.00)
+                )
+            }
+            messageState.value = "Adaptive controller settings updated"
         }
     }
 
@@ -1361,6 +1434,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrNull()
     }
 
+    private data class ParsedRuleAction(
+        val targetMmol: Double?,
+        val durationMinutes: Int?
+    )
+
+    private fun parseRuleActionJson(actionJson: String): ParsedRuleAction? {
+        return runCatching {
+            val obj = JSONObject(actionJson)
+            ParsedRuleAction(
+                targetMmol = obj.optDouble("targetMmol").takeIf { !it.isNaN() },
+                durationMinutes = obj.optInt("durationMinutes").takeIf { it > 0 }
+            )
+        }.getOrNull()
+    }
+
+    private fun parseRuleReasonsJson(reasonsJson: String): List<String> {
+        return runCatching {
+            val array = JSONArray(reasonsJson)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val raw = array.optString(i).trim()
+                    if (raw.isNotBlank()) add(raw)
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun parseConfidenceFromReasons(reasons: List<String>): Double? {
+        val marker = reasons.firstOrNull { it.startsWith("confidence=") } ?: return null
+        return marker.substringAfter("=", "").replace(",", ".").toDoubleOrNull()
+    }
+
     private fun auditMetaField(entry: AuditLogEntity, key: String): String? {
         return runCatching {
             val value = JSONObject(entry.metadataJson).opt(key)
@@ -1379,11 +1484,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         nowTs: Long
     ): List<String> {
         val rules = listOf(
+            Triple(AdaptiveTargetControllerRule.RULE_ID, "Adaptive", settings.adaptiveControllerRetargetMinutes),
             Triple("PostHypoReboundGuard.v1", "PostHypo", settings.rulePostHypoCooldownMinutes),
             Triple("PatternAdaptiveTarget.v1", "Pattern", settings.rulePatternCooldownMinutes),
             Triple("SegmentProfileGuard.v1", "Segment", settings.ruleSegmentCooldownMinutes)
         )
         return rules.map { (ruleId, title, cooldownMinutes) ->
+            if (ruleId == AdaptiveTargetControllerRule.RULE_ID && !settings.adaptiveControllerEnabled) {
+                return@map "$title: disabled"
+            }
             if (cooldownMinutes <= 0) {
                 return@map "$title: cooldown off"
             }
@@ -1626,12 +1735,28 @@ data class MainUiState(
     val postHypoTargetMmol: Double = 4.4,
     val postHypoDurationMinutes: Int = 60,
     val postHypoLookbackMinutes: Int = 90,
+    val adaptiveControllerEnabled: Boolean = false,
+    val adaptiveControllerPriority: Int = 120,
+    val adaptiveControllerRetargetMinutes: Int = 5,
+    val adaptiveControllerSafetyProfile: String = "BALANCED",
+    val adaptiveControllerStaleMaxMinutes: Int = 15,
+    val adaptiveControllerMaxActions6h: Int = 4,
+    val adaptiveControllerMaxStepMmol: Double = 0.25,
     val latestGlucoseMmol: Double? = null,
     val glucoseDelta: Double? = null,
     val forecast5m: Double? = null,
+    val forecast30m: Double? = null,
     val forecast60m: Double? = null,
     val lastRuleState: String? = null,
     val lastRuleId: String? = null,
+    val controllerState: String? = null,
+    val controllerReason: String? = null,
+    val controllerConfidence: Double? = null,
+    val controllerNextTarget: Double? = null,
+    val controllerDurationMinutes: Int? = null,
+    val controllerForecast30: Double? = null,
+    val controllerForecast60: Double? = null,
+    val controllerWeightedError: Double? = null,
     val profileIsf: Double? = null,
     val profileCr: Double? = null,
     val profileConfidence: Double? = null,
@@ -1686,6 +1811,7 @@ data class MainUiState(
     val ruleCooldownLines: List<String> = emptyList(),
     val dryRun: DryRunUi? = null,
     val cloudReplay: CloudReplayUiModel? = null,
+    val adaptiveAuditLines: List<String> = emptyList(),
     val auditLines: List<String> = emptyList(),
     val message: String? = null
 )

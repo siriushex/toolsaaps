@@ -28,6 +28,16 @@ class HybridPredictionEngine : PredictionEngine {
             .takeLast(3)
             .sumOf { it.payload["grams"]?.toDoubleOrNull() ?: 0.0 } / 120.0
 
+        val halfHourBase = now.valueMmol + (hourBaseline - now.valueMmol) * 0.55
+        val forecast30m = Forecast(
+            ts = now.ts + THIRTY_MINUTES,
+            horizonMinutes = 30,
+            valueMmol = halfHourBase + cobInfluence * 0.5,
+            ciLow = max(2.2, halfHourBase + cobInfluence * 0.5 - 0.8),
+            ciHigh = halfHourBase + cobInfluence * 0.5 + 0.8,
+            modelVersion = "local-ensemble-30m-v1"
+        )
+
         val forecast60m = Forecast(
             ts = now.ts + ONE_HOUR,
             horizonMinutes = 60,
@@ -37,7 +47,7 @@ class HybridPredictionEngine : PredictionEngine {
             modelVersion = "local-ensemble-v1"
         )
 
-        return listOf(forecast5m, forecast60m)
+        return listOf(forecast5m, forecast30m, forecast60m)
     }
 
     private fun estimateSlopePerFiveMinutes(points: List<GlucosePoint>): Double {
@@ -62,6 +72,7 @@ class HybridPredictionEngine : PredictionEngine {
 
     private companion object {
         const val FIVE_MINUTES = 5 * 60 * 1000L
+        const val THIRTY_MINUTES = 30 * 60 * 1000L
         const val ONE_HOUR = 60 * 60 * 1000L
     }
 }

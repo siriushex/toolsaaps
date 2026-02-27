@@ -43,12 +43,24 @@ class AppSettingsStore(context: Context) {
             rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
             rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
             ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
+            adaptiveControllerEnabled = prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] ?: false,
             rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
             rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
             ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
+            adaptiveControllerPriority = prefs[KEY_ADAPTIVE_CONTROLLER_PRIORITY] ?: DEFAULT_ADAPTIVE_CONTROLLER_PRIORITY,
             rulePostHypoCooldownMinutes = prefs[KEY_RULE_POST_HYPO_COOLDOWN] ?: DEFAULT_POST_HYPO_COOLDOWN_MIN,
             rulePatternCooldownMinutes = prefs[KEY_RULE_PATTERN_COOLDOWN] ?: DEFAULT_PATTERN_COOLDOWN_MIN,
             ruleSegmentCooldownMinutes = prefs[KEY_RULE_SEGMENT_COOLDOWN] ?: DEFAULT_SEGMENT_COOLDOWN_MIN,
+            adaptiveControllerRetargetMinutes = prefs[KEY_ADAPTIVE_CONTROLLER_RETARGET_MINUTES]
+                ?: DEFAULT_ADAPTIVE_CONTROLLER_RETARGET_MINUTES,
+            adaptiveControllerSafetyProfile = prefs[KEY_ADAPTIVE_CONTROLLER_SAFETY_PROFILE]
+                ?: DEFAULT_ADAPTIVE_CONTROLLER_SAFETY_PROFILE,
+            adaptiveControllerStaleMaxMinutes = prefs[KEY_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES]
+                ?: DEFAULT_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES,
+            adaptiveControllerMaxActions6h = prefs[KEY_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H]
+                ?: DEFAULT_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H,
+            adaptiveControllerMaxStepMmol = prefs[KEY_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL]
+                ?: DEFAULT_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL,
             patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
             patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
             patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
@@ -86,12 +98,24 @@ class AppSettingsStore(context: Context) {
                 rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
                 rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
                 ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
+                adaptiveControllerEnabled = prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] ?: false,
                 rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
                 rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
                 ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
+                adaptiveControllerPriority = prefs[KEY_ADAPTIVE_CONTROLLER_PRIORITY] ?: DEFAULT_ADAPTIVE_CONTROLLER_PRIORITY,
                 rulePostHypoCooldownMinutes = prefs[KEY_RULE_POST_HYPO_COOLDOWN] ?: DEFAULT_POST_HYPO_COOLDOWN_MIN,
                 rulePatternCooldownMinutes = prefs[KEY_RULE_PATTERN_COOLDOWN] ?: DEFAULT_PATTERN_COOLDOWN_MIN,
                 ruleSegmentCooldownMinutes = prefs[KEY_RULE_SEGMENT_COOLDOWN] ?: DEFAULT_SEGMENT_COOLDOWN_MIN,
+                adaptiveControllerRetargetMinutes = prefs[KEY_ADAPTIVE_CONTROLLER_RETARGET_MINUTES]
+                    ?: DEFAULT_ADAPTIVE_CONTROLLER_RETARGET_MINUTES,
+                adaptiveControllerSafetyProfile = prefs[KEY_ADAPTIVE_CONTROLLER_SAFETY_PROFILE]
+                    ?: DEFAULT_ADAPTIVE_CONTROLLER_SAFETY_PROFILE,
+                adaptiveControllerStaleMaxMinutes = prefs[KEY_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES]
+                    ?: DEFAULT_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES,
+                adaptiveControllerMaxActions6h = prefs[KEY_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H]
+                    ?: DEFAULT_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H,
+                adaptiveControllerMaxStepMmol = prefs[KEY_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL]
+                    ?: DEFAULT_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL,
                 patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
                 patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
                 patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
@@ -124,12 +148,19 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
             prefs[KEY_RULE_SEGMENT_ENABLED] = next.ruleSegmentEnabled
+            prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = next.adaptiveControllerEnabled
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
             prefs[KEY_RULE_SEGMENT_PRIORITY] = next.ruleSegmentPriority
+            prefs[KEY_ADAPTIVE_CONTROLLER_PRIORITY] = next.adaptiveControllerPriority
             prefs[KEY_RULE_POST_HYPO_COOLDOWN] = next.rulePostHypoCooldownMinutes
             prefs[KEY_RULE_PATTERN_COOLDOWN] = next.rulePatternCooldownMinutes
             prefs[KEY_RULE_SEGMENT_COOLDOWN] = next.ruleSegmentCooldownMinutes
+            prefs[KEY_ADAPTIVE_CONTROLLER_RETARGET_MINUTES] = next.adaptiveControllerRetargetMinutes
+            prefs[KEY_ADAPTIVE_CONTROLLER_SAFETY_PROFILE] = next.adaptiveControllerSafetyProfile
+            prefs[KEY_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES] = next.adaptiveControllerStaleMaxMinutes
+            prefs[KEY_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H] = next.adaptiveControllerMaxActions6h
+            prefs[KEY_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL] = next.adaptiveControllerMaxStepMmol
             prefs[KEY_PATTERN_MIN_SAMPLES] = next.patternMinSamplesPerWindow
             prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] = next.patternMinActiveDaysPerWindow
             prefs[KEY_PATTERN_LOW_RATE_TRIGGER] = next.patternLowRateTrigger
@@ -168,12 +199,19 @@ class AppSettingsStore(context: Context) {
         private val KEY_RULE_POST_HYPO_ENABLED = booleanPreferencesKey("rule_post_hypo_enabled")
         private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
         private val KEY_RULE_SEGMENT_ENABLED = booleanPreferencesKey("rule_segment_enabled")
+        private val KEY_ADAPTIVE_CONTROLLER_ENABLED = booleanPreferencesKey("adaptive_controller_enabled")
         private val KEY_RULE_POST_HYPO_PRIORITY = intPreferencesKey("rule_post_hypo_priority")
         private val KEY_RULE_PATTERN_PRIORITY = intPreferencesKey("rule_pattern_priority")
         private val KEY_RULE_SEGMENT_PRIORITY = intPreferencesKey("rule_segment_priority")
+        private val KEY_ADAPTIVE_CONTROLLER_PRIORITY = intPreferencesKey("adaptive_controller_priority")
         private val KEY_RULE_POST_HYPO_COOLDOWN = intPreferencesKey("rule_post_hypo_cooldown_minutes")
         private val KEY_RULE_PATTERN_COOLDOWN = intPreferencesKey("rule_pattern_cooldown_minutes")
         private val KEY_RULE_SEGMENT_COOLDOWN = intPreferencesKey("rule_segment_cooldown_minutes")
+        private val KEY_ADAPTIVE_CONTROLLER_RETARGET_MINUTES = intPreferencesKey("adaptive_controller_retarget_minutes")
+        private val KEY_ADAPTIVE_CONTROLLER_SAFETY_PROFILE = stringPreferencesKey("adaptive_controller_safety_profile")
+        private val KEY_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES = intPreferencesKey("adaptive_controller_stale_max_minutes")
+        private val KEY_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H = intPreferencesKey("adaptive_controller_max_actions_6h")
+        private val KEY_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL = doublePreferencesKey("adaptive_controller_max_step_mmol")
         private val KEY_PATTERN_MIN_SAMPLES = intPreferencesKey("pattern_min_samples")
         private val KEY_PATTERN_MIN_ACTIVE_DAYS = intPreferencesKey("pattern_min_active_days")
         private val KEY_PATTERN_LOW_RATE_TRIGGER = doublePreferencesKey("pattern_low_rate_trigger")
@@ -191,9 +229,15 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_POST_HYPO_PRIORITY = 100
         private const val DEFAULT_PATTERN_PRIORITY = 50
         private const val DEFAULT_SEGMENT_PRIORITY = 40
+        private const val DEFAULT_ADAPTIVE_CONTROLLER_PRIORITY = 120
         private const val DEFAULT_POST_HYPO_COOLDOWN_MIN = 30
         private const val DEFAULT_PATTERN_COOLDOWN_MIN = 60
         private const val DEFAULT_SEGMENT_COOLDOWN_MIN = 60
+        private const val DEFAULT_ADAPTIVE_CONTROLLER_RETARGET_MINUTES = 5
+        private const val DEFAULT_ADAPTIVE_CONTROLLER_SAFETY_PROFILE = "BALANCED"
+        private const val DEFAULT_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES = 15
+        private const val DEFAULT_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H = 4
+        private const val DEFAULT_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL = 0.25
         private const val DEFAULT_PATTERN_MIN_SAMPLES = 40
         private const val DEFAULT_PATTERN_MIN_ACTIVE_DAYS = 7
         private const val DEFAULT_PATTERN_LOW_RATE_TRIGGER = 0.12
@@ -230,12 +274,19 @@ data class AppSettings(
     val rulePostHypoEnabled: Boolean,
     val rulePatternEnabled: Boolean,
     val ruleSegmentEnabled: Boolean,
+    val adaptiveControllerEnabled: Boolean,
     val rulePostHypoPriority: Int,
     val rulePatternPriority: Int,
     val ruleSegmentPriority: Int,
+    val adaptiveControllerPriority: Int,
     val rulePostHypoCooldownMinutes: Int,
     val rulePatternCooldownMinutes: Int,
     val ruleSegmentCooldownMinutes: Int,
+    val adaptiveControllerRetargetMinutes: Int,
+    val adaptiveControllerSafetyProfile: String,
+    val adaptiveControllerStaleMaxMinutes: Int,
+    val adaptiveControllerMaxActions6h: Int,
+    val adaptiveControllerMaxStepMmol: Double,
     val patternMinSamplesPerWindow: Int,
     val patternMinActiveDaysPerWindow: Int,
     val patternLowRateTrigger: Double,

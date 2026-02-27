@@ -1,6 +1,7 @@
 package io.aaps.copilot.data.repository
 
 import com.google.gson.Gson
+import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
@@ -14,9 +15,11 @@ import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.ProfileEstimate
 import io.aaps.copilot.domain.model.ProfileSegmentEstimate
 import io.aaps.copilot.domain.model.ProfileTimeSlot
+import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.PredictionEngine
+import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.domain.rules.RuleContext
 import io.aaps.copilot.domain.rules.RuleEngine
 import io.aaps.copilot.domain.rules.RuleRuntimeConfig
@@ -24,11 +27,13 @@ import io.aaps.copilot.domain.safety.SafetyPolicyConfig
 import io.aaps.copilot.service.ApiFactory
 import java.time.Instant
 import java.time.ZoneId
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.min
 
 class AutomationRepository(
     private val db: CopilotDatabase,
@@ -90,17 +95,21 @@ class AutomationRepository(
 
         val therapy = syncRepository.recentTherapyEvents(hoursBack = 24)
         val localForecasts = predictionEngine.predict(glucose, therapy)
-        val mergedForecasts = maybeMergeCloudPrediction(glucose, therapy, localForecasts)
+        val mergedForecasts = ensureForecast30(
+            maybeMergeCloudPrediction(glucose, therapy, localForecasts)
+        )
 
         db.forecastDao().insertAll(mergedForecasts.map { it.toEntity() })
         db.forecastDao().deleteOlderThan(System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000)
 
         val now = System.currentTimeMillis()
         val latest = glucose.maxBy { it.ts }
-        val dataFresh = now - latest.ts <= settings.staleDataMaxMinutes * 60 * 1000L
+        val effectiveStaleMaxMinutes = resolveEffectiveStaleMaxMinutes(settings)
+        val dataFresh = now - latest.ts <= effectiveStaleMaxMinutes * 60 * 1000L
         val actionsLast6h = actionRepository.countSentActionsLast6h()
         val activeTempTarget = resolveActiveTempTarget(now)
         val sensorBlocked = isSensorBlocked(therapy, now)
+        val latestTelemetry = resolveLatestTelemetry(now)
 
         val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -139,25 +148,34 @@ class AutomationRepository(
             actionsLast6h = actionsLast6h,
             sensorBlocked = sensorBlocked,
             currentProfileEstimate = currentProfile,
-            currentProfileSegment = currentSegment
+            currentProfileSegment = currentSegment,
+            latestTelemetry = latestTelemetry,
+            retargetCooldownMinutes = settings.adaptiveControllerRetargetMinutes,
+            adaptiveMaxStepMmol = settings.adaptiveControllerMaxStepMmol
         )
 
         val decisions = ruleEngine.evaluate(
             context = context,
             config = SafetyPolicyConfig(
                 killSwitch = settings.killSwitch,
-                maxActionsIn6Hours = settings.maxActionsIn6Hours
+                maxActionsIn6Hours = resolveEffectiveMaxActions6h(settings)
             ),
             runtimeConfig = runtimeConfig(settings)
         )
 
+        val effectiveDecisions = mutableListOf<RuleDecision>()
         for (decision in decisions) {
             val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
                 val cooldownMinutes = ruleCooldownMinutes(decision.ruleId, settings)
                 if (cooldownMinutes > 0 && isRuleInCooldown(decision.ruleId, now, cooldownMinutes)) {
+                    val cooldownReason = if (decision.ruleId == AdaptiveTargetControllerRule.RULE_ID) {
+                        "retarget_cooldown_${cooldownMinutes}m"
+                    } else {
+                        "rule_cooldown_active:${cooldownMinutes}m"
+                    }
                     decision.copy(
                         state = RuleState.BLOCKED,
-                        reasons = decision.reasons + "rule_cooldown_active:${cooldownMinutes}m",
+                        reasons = decision.reasons + cooldownReason,
                         actionProposal = null
                     )
                 } else {
@@ -166,6 +184,7 @@ class AutomationRepository(
             } else {
                 decision
             }
+            effectiveDecisions += effectiveDecision
 
             db.ruleExecutionDao().insert(
                 RuleExecutionEntity(
@@ -178,7 +197,7 @@ class AutomationRepository(
             )
 
             if (effectiveDecision.state == RuleState.TRIGGERED && effectiveDecision.actionProposal != null) {
-                val idempotencyKey = "${effectiveDecision.ruleId}:${now / (30 * 60 * 1000L)}"
+                val idempotencyKey = buildIdempotencyKey(effectiveDecision.ruleId, now, settings)
                 val normalizedAction = alignTempTargetToBaseTarget(
                     action = effectiveDecision.actionProposal,
                     forecasts = mergedForecasts,
@@ -212,13 +231,17 @@ class AutomationRepository(
             }
         }
 
+        auditAdaptiveController(effectiveDecisions, context, settings, mergedForecasts)
+
         auditLogger.info(
             "automation_cycle_completed",
             mapOf(
                 "glucosePoints" to glucose.size,
                 "therapyEvents" to therapy.size,
                 "forecasts" to mergedForecasts.size,
-                "decisions" to decisions.size
+                "decisions" to decisions.size,
+                "staleMaxMin" to effectiveStaleMaxMinutes,
+                "actionsLimit6h" to resolveEffectiveMaxActions6h(settings)
             )
         )
     }
@@ -252,6 +275,152 @@ class AutomationRepository(
         return floor(scaled + 0.5) * step
     }
 
+    private fun ensureForecast30(forecasts: List<Forecast>): List<Forecast> {
+        val has30 = forecasts.any { it.horizonMinutes == 30 }
+        if (has30) return forecasts.sortedBy { it.horizonMinutes }
+
+        val f5 = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol
+        val f60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+        if (f5 == null || f60 == null) return forecasts
+        val baseTs = forecasts.maxOfOrNull { it.ts } ?: System.currentTimeMillis()
+        val f30 = 0.55 * f5 + 0.45 * f60
+        val synthetic = Forecast(
+            ts = baseTs + 30 * 60_000L,
+            horizonMinutes = 30,
+            valueMmol = f30,
+            ciLow = (f30 - 0.8).coerceAtLeast(2.2),
+            ciHigh = f30 + 0.8,
+            modelVersion = "local-interpolated-30m-v1"
+        )
+        return (forecasts + synthetic).sortedBy { it.horizonMinutes }
+    }
+
+    private suspend fun resolveLatestTelemetry(nowTs: Long): Map<String, Double?> {
+        val rows = db.telemetryDao().since(nowTs - TELEMETRY_LOOKBACK_MS)
+        if (rows.isEmpty()) return emptyMap()
+        val latestByKey = rows
+            .filter { it.valueDouble != null }
+            .groupBy { it.key }
+            .mapValues { (_, values) -> values.maxByOrNull { it.timestamp }?.valueDouble }
+            .toMutableMap()
+
+        fun alias(targetKey: String, tokenAliases: List<String>) {
+            if (latestByKey[targetKey] != null) return
+            val fallback = latestByKey.entries.firstOrNull { (key, value) ->
+                value != null && tokenAliases.any { alias -> telemetryKeyContainsAlias(key, alias) }
+            }?.value
+            latestByKey[targetKey] = fallback
+        }
+
+        alias("iob_units", listOf("iob", "insulinonboard"))
+        alias("cob_grams", listOf("cob", "carbsonboard"))
+        alias("activity_ratio", listOf("activity", "activityratio", "sensitivityratio"))
+        alias("uam_value", listOf("uam"))
+        return latestByKey
+    }
+
+    private fun telemetryKeyContainsAlias(key: String, alias: String): Boolean {
+        val normalizedAlias = normalizeTelemetryKey(alias)
+        if (normalizedAlias.isBlank()) return false
+        val normalizedKey = normalizeTelemetryKey(key)
+        if (normalizedKey == normalizedAlias || normalizedKey.endsWith("_$normalizedAlias")) return true
+        return normalizedKey.split('_').any { it == normalizedAlias }
+    }
+
+    private fun normalizeTelemetryKey(value: String): String {
+        return value
+            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
+    }
+
+    private fun resolveEffectiveStaleMaxMinutes(settings: AppSettings): Int {
+        val global = settings.staleDataMaxMinutes
+        if (!settings.adaptiveControllerEnabled) return global
+        val profileLimit = when (settings.adaptiveControllerSafetyProfile.uppercase(Locale.US)) {
+            "STRICT" -> 10
+            "AGGRESSIVE" -> 20
+            else -> 15
+        }
+        val adaptiveLimit = min(settings.adaptiveControllerStaleMaxMinutes, profileLimit)
+        return min(global, adaptiveLimit)
+    }
+
+    private fun resolveEffectiveMaxActions6h(settings: AppSettings): Int {
+        val global = settings.maxActionsIn6Hours
+        if (!settings.adaptiveControllerEnabled) return global
+        val profileLimit = when (settings.adaptiveControllerSafetyProfile.uppercase(Locale.US)) {
+            "STRICT" -> 3
+            "AGGRESSIVE" -> 6
+            else -> 4
+        }
+        val adaptiveLimit = min(settings.adaptiveControllerMaxActions6h, profileLimit)
+        return min(global, adaptiveLimit)
+    }
+
+    private fun buildIdempotencyKey(ruleId: String, nowTs: Long, settings: AppSettings): String {
+        val bucketMinutes = if (ruleId == AdaptiveTargetControllerRule.RULE_ID) {
+            settings.adaptiveControllerRetargetMinutes.coerceIn(5, 30)
+        } else {
+            30
+        }
+        return "$ruleId:${nowTs / (bucketMinutes * 60_000L)}"
+    }
+
+    private suspend fun auditAdaptiveController(
+        decisions: List<RuleDecision>,
+        context: RuleContext,
+        settings: AppSettings,
+        forecasts: List<Forecast>
+    ) {
+        val adaptive = decisions.firstOrNull { it.ruleId == AdaptiveTargetControllerRule.RULE_ID } ?: return
+        val f30 = forecasts.firstOrNull { it.horizonMinutes == 30 }?.valueMmol
+        val f60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+        val weightedError = if (f30 != null && f60 != null) {
+            val e30 = f30 - context.baseTargetMmol
+            val e60 = f60 - context.baseTargetMmol
+            0.65 * e30 + 0.35 * e60
+        } else {
+            null
+        }
+
+        val metadata = linkedMapOf<String, Any?>(
+            "state" to adaptive.state.name,
+            "reasons" to adaptive.reasons,
+            "target" to adaptive.actionProposal?.targetMmol,
+            "duration" to adaptive.actionProposal?.durationMinutes,
+            "f30" to f30,
+            "f60" to f60,
+            "weightedError" to weightedError,
+            "dataFresh" to context.dataFresh,
+            "actionsLast6h" to context.actionsLast6h,
+            "adaptiveEnabled" to settings.adaptiveControllerEnabled,
+            "retargetMinutes" to settings.adaptiveControllerRetargetMinutes
+        )
+        auditLogger.info("adaptive_controller_evaluated", metadata)
+
+        when (adaptive.state) {
+            RuleState.TRIGGERED -> auditLogger.info("adaptive_controller_triggered", metadata)
+            RuleState.BLOCKED -> auditLogger.warn("adaptive_controller_blocked", metadata)
+            RuleState.NO_MATCH -> Unit
+        }
+
+        val fallbackTriggered = decisions.firstOrNull {
+            it.ruleId != AdaptiveTargetControllerRule.RULE_ID && it.state == RuleState.TRIGGERED
+        }
+        if (adaptive.state != RuleState.TRIGGERED && fallbackTriggered != null) {
+            auditLogger.info(
+                "adaptive_controller_fallback_to_rules",
+                mapOf(
+                    "adaptiveState" to adaptive.state.name,
+                    "fallbackRuleId" to fallbackTriggered.ruleId,
+                    "fallbackTarget" to fallbackTriggered.actionProposal?.targetMmol
+                )
+            )
+        }
+    }
+
     suspend fun runDryRunSimulation(days: Int): DryRunReport {
         val settings = settingsStore.settings.first()
         val periodDays = days.coerceIn(1, 60)
@@ -278,7 +447,7 @@ class AutomationRepository(
             val therapyStart = pointTs - 24L * 60 * 60 * 1000
             val gWindow = glucose.filter { it.ts in windowStart..pointTs }
             val tWindow = therapy.filter { it.ts in therapyStart..pointTs }
-            val forecasts = predictionEngine.predict(gWindow, tWindow)
+            val forecasts = ensureForecast30(predictionEngine.predict(gWindow, tWindow))
 
             val zoned = Instant.ofEpochMilli(pointTs).atZone(ZoneId.systemDefault())
             val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -316,14 +485,15 @@ class AutomationRepository(
                 actionsLast6h = 0,
                 sensorBlocked = isSensorBlocked(tWindow, pointTs),
                 currentProfileEstimate = profile,
-                currentProfileSegment = segment
+                currentProfileSegment = segment,
+                adaptiveMaxStepMmol = settings.adaptiveControllerMaxStepMmol
             )
 
             val decisions = ruleEngine.evaluate(
                 context = context,
                 config = SafetyPolicyConfig(
                     killSwitch = false,
-                    maxActionsIn6Hours = settings.maxActionsIn6Hours
+                    maxActionsIn6Hours = resolveEffectiveMaxActions6h(settings)
                 ),
                 runtimeConfig = runtimeConfig
             )
@@ -438,13 +608,15 @@ class AutomationRepository(
         return target?.takeIf { now <= activeUntil }
     }
 
-    private fun runtimeConfig(settings: io.aaps.copilot.config.AppSettings): RuleRuntimeConfig {
+    private fun runtimeConfig(settings: AppSettings): RuleRuntimeConfig {
         val enabled = buildSet {
+            if (settings.adaptiveControllerEnabled) add(AdaptiveTargetControllerRule.RULE_ID)
             if (settings.rulePostHypoEnabled) add("PostHypoReboundGuard.v1")
             if (settings.rulePatternEnabled) add("PatternAdaptiveTarget.v1")
             if (settings.ruleSegmentEnabled) add("SegmentProfileGuard.v1")
         }
         val priorities = mapOf(
+            AdaptiveTargetControllerRule.RULE_ID to settings.adaptiveControllerPriority,
             "PostHypoReboundGuard.v1" to settings.rulePostHypoPriority,
             "PatternAdaptiveTarget.v1" to settings.rulePatternPriority,
             "SegmentProfileGuard.v1" to settings.ruleSegmentPriority
@@ -452,7 +624,8 @@ class AutomationRepository(
         return RuleRuntimeConfig(enabledRuleIds = enabled, priorities = priorities)
     }
 
-    private fun ruleCooldownMinutes(ruleId: String, settings: io.aaps.copilot.config.AppSettings): Int = when (ruleId) {
+    private fun ruleCooldownMinutes(ruleId: String, settings: AppSettings): Int = when (ruleId) {
+        AdaptiveTargetControllerRule.RULE_ID -> settings.adaptiveControllerRetargetMinutes.coerceIn(5, 30)
         "PostHypoReboundGuard.v1" -> settings.rulePostHypoCooldownMinutes
         "PatternAdaptiveTarget.v1" -> settings.rulePatternCooldownMinutes
         "SegmentProfileGuard.v1" -> settings.ruleSegmentCooldownMinutes
@@ -494,6 +667,7 @@ class AutomationRepository(
         private const val MAX_TARGET_MMOL = 10.0
         private const val ALIGN_GAIN = 0.35
         private const val MAX_ALIGN_STEP_MMOL = 1.20
+        private const val TELEMETRY_LOOKBACK_MS = 6 * 60 * 60 * 1000L
     }
 
     private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toDomain(): ProfileEstimate = ProfileEstimate(
