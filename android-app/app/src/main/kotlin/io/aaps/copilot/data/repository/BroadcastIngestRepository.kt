@@ -385,20 +385,40 @@ class BroadcastIngestRepository(
         source: String,
         extras: Map<String, String>
     ): List<TelemetrySampleEntity> {
+        val isStatusAction = isHighFrequencyStatusAction(action)
+        val telemetryTs = if (isStatusAction) {
+            // Status packets may carry glucose/event timestamps that are older than actual receive time.
+            // For coverage/freshness and analysis cadence we persist by ingest wall-clock timestamp.
+            System.currentTimeMillis()
+        } else {
+            extractTimestamp(extras)
+        }
         val mapped = TelemetryMetricMapper.fromKeyValueMap(
-            timestamp = extractTimestamp(extras),
+            timestamp = telemetryTs,
             source = source,
             values = extras
         )
-        if (!isHighFrequencyStatusAction(action)) return mapped
+        if (!isStatusAction) return mapped
 
         // Status broadcasts may arrive every few seconds; keep canonical metrics +
         // a minimal raw diagnostic subset to avoid DB contention and drops.
         val canonical = mapped.filterNot {
             it.key.startsWith("raw_") || it.key in STATUS_EXCLUDED_CANONICAL_KEYS
         }
+        // Keep excluded canonical keys under status_* namespace for observability,
+        // while preventing them from replacing authoritative treatment-derived metrics.
+        val statusProjected = mapped
+            .filter { it.key in STATUS_EXCLUDED_CANONICAL_KEYS }
+            .map { sample ->
+                val statusKey = "status_${sample.key}"
+                val statusId = "tm-${sample.source}-$statusKey-${sample.timestamp}"
+                sample.copy(
+                    id = statusId,
+                    key = statusKey
+                )
+            }
         val diagnostic = mapped.filter { it.key in STATUS_DIAGNOSTIC_RAW_KEYS }
-        return (canonical + diagnostic).distinctBy { it.id }
+        return (canonical + statusProjected + diagnostic).distinctBy { it.id }
     }
 
     private fun extractTimestamp(extras: Map<String, String>): Long = normalizeTimestamp(
@@ -554,8 +574,8 @@ class BroadcastIngestRepository(
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
 
         private val STATUS_EXCLUDED_CANONICAL_KEYS = setOf(
-            // status payloads may carry these as predictive/placeholder values (often zero),
-            // not confirmed therapy entries.
+            // Status payloads may carry these as predictive/placeholder values (often zero),
+            // not confirmed therapy entries. They are stored as status_* keys.
             "carbs_grams",
             "insulin_units"
         )
