@@ -23,12 +23,14 @@ import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.toDomain
+import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.PatternWindow
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
+import java.net.URI
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -651,6 +653,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun runNightscoutSelfTest() {
+        viewModelScope.launch {
+            val settings = container.settingsStore.settings.first()
+            val url = settings.resolvedNightscoutUrl()
+            if (url.isBlank()) {
+                messageState.value = "Nightscout self-test failed: URL is not configured"
+                return@launch
+            }
+            val nsApi = container.apiFactory.nightscoutApi(url, settings.apiSecret)
+            val loopback = isLoopbackUrl(url)
+
+            runCatching {
+                val status = nsApi.getStatus()
+                val statusText = status.status ?: "unknown"
+                if (!loopback) {
+                    nsApi.getTreatments(mapOf("count" to "1"))
+                    return@runCatching "Nightscout reachable ($statusText). Read-only check on external URL."
+                }
+
+                val nowIso = Instant.now().toString()
+                nsApi.postTreatment(
+                    NightscoutTreatmentRequest(
+                        createdAt = nowIso,
+                        eventType = "Temporary Target",
+                        duration = 30,
+                        targetTop = 100.0,
+                        targetBottom = 100.0,
+                        reason = "copilot_self_test_temp",
+                        notes = "copilot:self_test"
+                    )
+                )
+                nsApi.postTreatment(
+                    NightscoutTreatmentRequest(
+                        createdAt = nowIso,
+                        eventType = "Carb Correction",
+                        carbs = 1.0,
+                        reason = "copilot_self_test_carbs",
+                        notes = "copilot:self_test"
+                    )
+                )
+                val latest = nsApi.getTreatments(mapOf("count" to "6"))
+                val echoed = latest.count {
+                    it.reason?.contains("copilot_self_test", ignoreCase = true) == true ||
+                        it.notes?.contains("copilot:self_test", ignoreCase = true) == true
+                }
+                "Local Nightscout self-test OK ($statusText). Echoed treatments: $echoed"
+            }.onSuccess { message ->
+                messageState.value = message
+            }.onFailure { error ->
+                messageState.value = "Nightscout self-test failed: ${error.message}"
+            }
+        }
+    }
+
     fun runDailyAnalysisNow() {
         viewModelScope.launch {
             val result = container.insightsRepository.runDailyAnalysis()
@@ -887,6 +943,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun parseFlexibleDouble(raw: String): Double? {
         val normalized = raw.trim().replace(',', '.')
         return normalized.toDoubleOrNull()
+    }
+
+    private fun isLoopbackUrl(url: String): Boolean {
+        val host = runCatching { URI(url.trim()).host.orEmpty() }.getOrDefault("")
+        return host.equals("127.0.0.1") || host.equals("localhost", ignoreCase = true)
     }
 
     private fun buildActionLines(commands: List<ActionCommandEntity>): List<String> {

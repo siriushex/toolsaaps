@@ -7,6 +7,9 @@ import retrofit2.http.QueryMap
 
 interface NightscoutApi {
 
+    @GET("api/v1/status.json")
+    suspend fun getStatus(): NightscoutStatusResponse
+
     @GET("api/v1/entries/sgv.json")
     suspend fun getSgvEntries(@QueryMap query: Map<String, String>): List<NightscoutSgvEntry>
 

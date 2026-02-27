@@ -248,6 +248,9 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         }
         HorizontalDivider()
         Text("Transport diagnostics")
+        Button(onClick = vm::runNightscoutSelfTest) {
+            Text("Run Nightscout self-test")
+        }
         if (state.transportStatusLines.isEmpty()) {
             Text("No transport diagnostics yet")
         } else {

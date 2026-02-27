@@ -35,6 +35,13 @@ data class NightscoutDeviceStatus(
     @SerializedName("uploader") val uploader: Map<String, Any?>? = null
 )
 
+data class NightscoutStatusResponse(
+    @SerializedName("status") val status: String? = null,
+    @SerializedName("name") val name: String? = null,
+    @SerializedName("version") val version: String? = null,
+    @SerializedName("serverTime") val serverTime: String? = null
+)
+
 data class NightscoutTreatmentRequest(
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("eventType") val eventType: String,
