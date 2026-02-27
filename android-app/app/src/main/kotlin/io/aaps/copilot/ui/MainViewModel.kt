@@ -11,6 +11,7 @@ import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
+import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.repository.CloudAnalysisHistoryUiModel
@@ -61,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         db.auditLogDao().observeLatest(limit = 50),
         container.analyticsRepository.observePatterns(),
         container.analyticsRepository.observeProfileEstimate(),
+        container.analyticsRepository.observeProfileSegments(),
         db.syncStateDao().observeAll(),
         container.settingsStore.settings,
         messageState,
@@ -85,15 +87,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val patterns = values[5] as List<PatternWindowEntity>
         val profile = values[6] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[7] as List<SyncStateEntity>
-        val settings = values[8] as AppSettings
-        val message = values[9] as String?
-        val dryRun = values[10] as DryRunUi?
-        val cloudReplay = values[11] as CloudReplayUiModel?
-        val cloudJobs = values[12] as CloudJobsUiModel?
-        val analysisHistory = values[13] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[14] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[15] as InsightsFilterUi
+        val profileSegments = values[7] as List<ProfileSegmentEstimateEntity>
+        @Suppress("UNCHECKED_CAST")
+        val syncStates = values[8] as List<SyncStateEntity>
+        val settings = values[9] as AppSettings
+        val message = values[10] as String?
+        val dryRun = values[11] as DryRunUi?
+        val cloudReplay = values[12] as CloudReplayUiModel?
+        val cloudJobs = values[13] as CloudJobsUiModel?
+        val analysisHistory = values[14] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[15] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[16] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -154,6 +158,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val analysisTrendLines = analysisTrend?.items?.map { item ->
             "${item.weekStart}: runs=${item.totalRuns}, ok=${item.successRuns}, fail=${item.failedRuns}, an=${item.anomaliesCount}, rec=${item.recommendationsCount}"
         } ?: emptyList()
+        val profileSegmentLines = profileSegments
+            .sortedWith(compareBy<ProfileSegmentEstimateEntity> { it.dayType }.thenBy { it.timeSlot })
+            .map { segment ->
+                val isfText = segment.isfMmolPerUnit?.let { String.format("%.2f", it) } ?: "-"
+                val crText = segment.crGramPerUnit?.let { String.format("%.2f", it) } ?: "-"
+                "${segment.dayType} ${segment.timeSlot}: ISF=$isfText, CR=$crText, conf=${String.format("%.0f", segment.confidence * 100)}%, n(ISF/CR)=${segment.isfSampleCount}/${segment.crSampleCount}"
+            }
         val insightsFilterLabel = buildInsightsFilterLabel(insightsFilter)
 
         MainUiState(
@@ -175,6 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileIsfSamples = profile?.isfSampleCount,
             profileCrSamples = profile?.crSampleCount,
             profileLookbackDays = profile?.lookbackDays,
+            profileSegmentLines = profileSegmentLines,
             rulePostHypoEnabled = settings.rulePostHypoEnabled,
             rulePatternEnabled = settings.rulePatternEnabled,
             rulePostHypoPriority = settings.rulePostHypoPriority,
@@ -572,6 +584,7 @@ data class MainUiState(
     val profileIsfSamples: Int? = null,
     val profileCrSamples: Int? = null,
     val profileLookbackDays: Int? = null,
+    val profileSegmentLines: List<String> = emptyList(),
     val rulePostHypoEnabled: Boolean = true,
     val rulePatternEnabled: Boolean = true,
     val rulePostHypoPriority: Int = 100,

@@ -347,6 +347,13 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         Text("Confidence: ${state.profileConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
         Text("Samples: total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
         Text("Lookback: ${state.profileLookbackDays ?: "-"} days")
+        HorizontalDivider()
+        Text("Segmented ISF/CR")
+        if (state.profileSegmentLines.isEmpty()) {
+            Text("No segment estimates yet")
+        } else {
+            state.profileSegmentLines.forEach { Text(it) }
+        }
     }
 }
 

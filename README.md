@@ -11,6 +11,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Weekday/weekend pattern discovery by hour with reliability gating (`min samples`, `min active days`)
 - Adaptive target rule only on validated risk windows (reduces noisy auto-actions)
 - Long-window ISF/CR estimation from historical events with outlier trimming and sample counters
+- Segmented ISF/CR profile (`weekday/weekend x night/morning/afternoon/evening`)
 - Configurable pattern thresholds + analytics lookback directly in Safety settings
 - Forecast quality metrics (MAE/RMSE/MARD) + delta vs AAPS baseline
 - Backend replay report API for historical E2E validation (global, weekday/weekend, hourly, drift)

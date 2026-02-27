@@ -5,6 +5,13 @@ enum class DayType {
     WEEKEND
 }
 
+enum class ProfileTimeSlot {
+    NIGHT,
+    MORNING,
+    AFTERNOON,
+    EVENING
+}
+
 data class PatternWindow(
     val dayType: DayType,
     val hour: Int,
@@ -21,6 +28,17 @@ data class ProfileEstimate(
     val crGramPerUnit: Double,
     val confidence: Double,
     val sampleCount: Int,
+    val isfSampleCount: Int,
+    val crSampleCount: Int,
+    val lookbackDays: Int
+)
+
+data class ProfileSegmentEstimate(
+    val dayType: DayType,
+    val timeSlot: ProfileTimeSlot,
+    val isfMmolPerUnit: Double?,
+    val crGramPerUnit: Double?,
+    val confidence: Double,
     val isfSampleCount: Int,
     val crSampleCount: Int,
     val lookbackDays: Int

@@ -5,6 +5,7 @@ import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
+import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.predict.PatternAnalyzer
 import io.aaps.copilot.domain.predict.PatternAnalyzerConfig
@@ -53,9 +54,28 @@ class AnalyticsRepository(
             }
         )
 
-        val profileEstimate = ProfileEstimator(
+        val profileEstimator = ProfileEstimator(
             ProfileEstimatorConfig(lookbackDays = lookbackDays)
-        ).estimate(glucose, therapy)
+        )
+        val profileEstimate = profileEstimator.estimate(glucose, therapy)
+        val segmentEstimates = profileEstimator.estimateSegments(glucose, therapy)
+        db.profileSegmentEstimateDao().clear()
+        db.profileSegmentEstimateDao().upsertAll(
+            segmentEstimates.map {
+                ProfileSegmentEstimateEntity(
+                    id = "${it.dayType}:${it.timeSlot}",
+                    dayType = it.dayType.name,
+                    timeSlot = it.timeSlot.name,
+                    isfMmolPerUnit = it.isfMmolPerUnit,
+                    crGramPerUnit = it.crGramPerUnit,
+                    confidence = it.confidence,
+                    isfSampleCount = it.isfSampleCount,
+                    crSampleCount = it.crSampleCount,
+                    lookbackDays = it.lookbackDays,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        )
 
         profileEstimate?.let { estimate ->
             db.profileEstimateDao().upsert(
@@ -100,6 +120,7 @@ class AnalyticsRepository(
                 "highRiskWindows" to highRisk,
                 "weekdayWindows" to windows.count { it.dayType == DayType.WEEKDAY },
                 "weekendWindows" to windows.count { it.dayType == DayType.WEEKEND },
+                "profileSegments" to segmentEstimates.size,
                 "lookbackDays" to lookbackDays
             )
         )
@@ -118,4 +139,6 @@ class AnalyticsRepository(
     fun observePatterns() = db.patternDao().observeAll()
 
     fun observeProfileEstimate() = db.profileEstimateDao().observeActive()
+
+    fun observeProfileSegments() = db.profileSegmentEstimateDao().observeAll()
 }

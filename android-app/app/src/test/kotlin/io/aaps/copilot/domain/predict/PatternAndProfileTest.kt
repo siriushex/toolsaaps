@@ -2,7 +2,9 @@ package io.aaps.copilot.domain.predict
 
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.domain.model.DataQuality
+import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.domain.model.ProfileTimeSlot
 import io.aaps.copilot.domain.model.TherapyEvent
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -97,5 +99,50 @@ class PatternAndProfileTest {
         assertThat(estimate.isfSampleCount).isAtLeast(2)
         assertThat(estimate.crSampleCount).isAtLeast(2)
         assertThat(estimate.lookbackDays).isEqualTo(365)
+    }
+
+    @Test
+    fun profileEstimator_buildsSegments_byDayTypeAndTimeSlot() {
+        val zone = ZoneId.systemDefault()
+        val saturdayMorning = LocalDateTime.of(2026, 2, 21, 8, 0).atZone(zone).toInstant().toEpochMilli()
+        val mondayEvening = LocalDateTime.of(2026, 2, 23, 20, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val glucose = listOf(
+            GlucosePoint(saturdayMorning - 10 * 60_000, 9.0, "test", DataQuality.OK),
+            GlucosePoint(saturdayMorning + 90 * 60_000, 7.2, "test", DataQuality.OK),
+            GlucosePoint((saturdayMorning + 24 * 60 * 60_000L) - 10 * 60_000, 8.8, "test", DataQuality.OK),
+            GlucosePoint((saturdayMorning + 24 * 60 * 60_000L) + 90 * 60_000, 7.0, "test", DataQuality.OK),
+            GlucosePoint(mondayEvening - 10 * 60_000, 10.0, "test", DataQuality.OK),
+            GlucosePoint(mondayEvening + 90 * 60_000, 8.4, "test", DataQuality.OK),
+            GlucosePoint((mondayEvening + 24 * 60 * 60_000L) - 10 * 60_000, 9.6, "test", DataQuality.OK),
+            GlucosePoint((mondayEvening + 24 * 60 * 60_000L) + 90 * 60_000, 8.0, "test", DataQuality.OK)
+        )
+
+        val therapy = listOf(
+            TherapyEvent(saturdayMorning, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(saturdayMorning - 120 * 60_000, "meal_bolus", mapOf("grams" to "24", "bolusUnits" to "2")),
+            TherapyEvent(saturdayMorning + 24 * 60 * 60_000L, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent((saturdayMorning + 24 * 60 * 60_000L) - 120 * 60_000, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3")),
+            TherapyEvent(mondayEvening, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(mondayEvening - 120 * 60_000, "meal_bolus", mapOf("grams" to "36", "bolusUnits" to "3")),
+            TherapyEvent(mondayEvening + 24 * 60 * 60_000L, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent((mondayEvening + 24 * 60 * 60_000L) - 120 * 60_000, "meal_bolus", mapOf("grams" to "28", "bolusUnits" to "2"))
+        )
+
+        val segments = ProfileEstimator(
+            ProfileEstimatorConfig(minSegmentSamples = 2, trimFraction = 0.0)
+        ).estimateSegments(glucose, therapy)
+
+        val weekendMorning = segments.firstOrNull {
+            it.dayType == DayType.WEEKEND && it.timeSlot == ProfileTimeSlot.MORNING
+        }
+        val weekdayEvening = segments.firstOrNull {
+            it.dayType == DayType.WEEKDAY && it.timeSlot == ProfileTimeSlot.EVENING
+        }
+
+        assertThat(weekendMorning).isNotNull()
+        assertThat(weekdayEvening).isNotNull()
+        assertThat(weekendMorning!!.crGramPerUnit).isWithin(0.01).of(11.0)
+        assertThat(weekdayEvening!!.isfMmolPerUnit).isWithin(0.01).of(1.6)
     }
 }

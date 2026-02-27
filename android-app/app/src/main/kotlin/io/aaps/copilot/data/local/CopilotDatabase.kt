@@ -9,6 +9,7 @@ import io.aaps.copilot.data.local.dao.ForecastDao
 import io.aaps.copilot.data.local.dao.GlucoseDao
 import io.aaps.copilot.data.local.dao.PatternDao
 import io.aaps.copilot.data.local.dao.ProfileEstimateDao
+import io.aaps.copilot.data.local.dao.ProfileSegmentEstimateDao
 import io.aaps.copilot.data.local.dao.RuleExecutionDao
 import io.aaps.copilot.data.local.dao.SyncStateDao
 import io.aaps.copilot.data.local.dao.TherapyDao
@@ -19,6 +20,7 @@ import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
+import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
@@ -34,9 +36,10 @@ import io.aaps.copilot.data.local.entity.TherapyEventEntity
         AuditLogEntity::class,
         BaselinePointEntity::class,
         PatternWindowEntity::class,
-        ProfileEstimateEntity::class
+        ProfileEstimateEntity::class,
+        ProfileSegmentEstimateEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
@@ -50,4 +53,5 @@ abstract class CopilotDatabase : RoomDatabase() {
     abstract fun baselineDao(): BaselineDao
     abstract fun patternDao(): PatternDao
     abstract fun profileEstimateDao(): ProfileEstimateDao
+    abstract fun profileSegmentEstimateDao(): ProfileSegmentEstimateDao
 }
