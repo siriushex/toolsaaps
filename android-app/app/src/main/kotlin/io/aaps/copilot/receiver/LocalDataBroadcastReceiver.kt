@@ -90,6 +90,10 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
             if (senderPackage.isNullOrBlank()) return true
             return senderPackage == "com.android.shell" || senderPackage == appPackage
         }
+        // Allow adb diagnostics for local USB validation.
+        if (senderPackage == "com.android.shell") {
+            return true
+        }
         if (senderPackage.isNullOrBlank()) {
             if (!strictValidation) return true
             // Some devices/OS builds do not expose sender package for implicit broadcasts.
