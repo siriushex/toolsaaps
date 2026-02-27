@@ -285,8 +285,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, therapy, profile, now)
         val telemetryLines = buildTelemetryLines(telemetry)
         val actionLines = buildActionLines(actionCommands)
-        val forecast30Latest = forecasts.firstOrNull { it.horizonMinutes == 30 }?.valueMmol
-        val forecast60Latest = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+        val forecast5Latest = latestForecastValue(forecasts, 5)
+        val forecast30Latest = latestForecastValue(forecasts, 30)
+        val forecast60Latest = latestForecastValue(forecasts, 60)
         val controllerWeightedError = if (forecast30Latest != null && forecast60Latest != null) {
             val e30 = forecast30Latest - settings.baseTargetMmol
             val e60 = forecast60Latest - settings.baseTargetMmol
@@ -340,9 +341,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             adaptiveControllerMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
             latestGlucoseMmol = latest?.mmol,
             glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null,
-            forecast5m = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol,
+            forecast5m = forecast5Latest,
             forecast30m = forecast30Latest,
-            forecast60m = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol,
+            forecast60m = forecast60Latest,
             lastRuleState = ruleExec.firstOrNull()?.state,
             lastRuleId = ruleExec.firstOrNull()?.ruleId,
             controllerState = latestAdaptiveExecution?.state,
@@ -1681,6 +1682,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .mapValues { (_, values) -> values.maxByOrNull { it.timestamp } }
             .filterValues { it != null }
             .mapValues { it.value!! }
+    }
+
+    private fun latestForecastValue(forecasts: List<ForecastEntity>, horizonMinutes: Int): Double? {
+        return forecasts
+            .asSequence()
+            .filter { it.horizonMinutes == horizonMinutes }
+            .maxWithOrNull(compareBy<ForecastEntity> { it.timestamp }.thenBy { it.id })
+            ?.valueMmol
     }
 
     private fun isTelemetrySampleUsable(sample: TelemetrySampleEntity): Boolean {
