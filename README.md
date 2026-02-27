@@ -30,6 +30,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Insights export (history + trend) to CSV/PDF
 - Daily AI insights via OpenAI on backend
 - Dedicated `Telemetry` screen with coverage status for key parameters and full latest-by-key input list
+- Dashboard action-delivery timeline (status + channel: Nightscout/fallback)
 
 ## Structure
 

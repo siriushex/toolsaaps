@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ActionCommandDao {
@@ -20,4 +21,7 @@ interface ActionCommandDao {
 
     @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<ActionCommandEntity>
+
+    @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
+    fun observeLatest(limit: Int): Flow<List<ActionCommandEntity>>
 }

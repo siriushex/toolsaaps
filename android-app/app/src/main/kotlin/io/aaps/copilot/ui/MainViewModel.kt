@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.BaselinePointEntity
@@ -28,6 +29,7 @@ import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +65,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         db.forecastDao().observeLatest(limit = 600),
         db.baselineDao().observeLatest(limit = 600),
         db.ruleExecutionDao().observeLatest(limit = 20),
+        db.actionCommandDao().observeLatest(limit = 40),
         db.auditLogDao().observeLatest(limit = 50),
         db.telemetryDao().observeLatest(limit = 1500),
         container.analyticsRepository.observePatterns(),
@@ -88,25 +91,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Suppress("UNCHECKED_CAST")
         val ruleExec = values[3] as List<RuleExecutionEntity>
         @Suppress("UNCHECKED_CAST")
-        val audits = values[4] as List<AuditLogEntity>
+        val actionCommands = values[4] as List<ActionCommandEntity>
         @Suppress("UNCHECKED_CAST")
-        val telemetry = values[5] as List<TelemetrySampleEntity>
+        val audits = values[5] as List<AuditLogEntity>
         @Suppress("UNCHECKED_CAST")
-        val patterns = values[6] as List<PatternWindowEntity>
-        val profile = values[7] as ProfileEstimateEntity?
+        val telemetry = values[6] as List<TelemetrySampleEntity>
         @Suppress("UNCHECKED_CAST")
-        val profileSegments = values[8] as List<ProfileSegmentEstimateEntity>
+        val patterns = values[7] as List<PatternWindowEntity>
+        val profile = values[8] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[9] as List<SyncStateEntity>
-        val settings = values[10] as AppSettings
-        val autoConnect = values[11] as AutoConnectUi?
-        val message = values[12] as String?
-        val dryRun = values[13] as DryRunUi?
-        val cloudReplay = values[14] as CloudReplayUiModel?
-        val cloudJobs = values[15] as CloudJobsUiModel?
-        val analysisHistory = values[16] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[17] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[18] as InsightsFilterUi
+        val profileSegments = values[9] as List<ProfileSegmentEstimateEntity>
+        @Suppress("UNCHECKED_CAST")
+        val syncStates = values[10] as List<SyncStateEntity>
+        val settings = values[11] as AppSettings
+        val autoConnect = values[12] as AutoConnectUi?
+        val message = values[13] as String?
+        val dryRun = values[14] as DryRunUi?
+        val cloudReplay = values[15] as CloudReplayUiModel?
+        val cloudJobs = values[16] as CloudJobsUiModel?
+        val analysisHistory = values[17] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[18] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[19] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -204,6 +209,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ruleCooldownLines = buildRuleCooldownLines(ruleExec, settings, now)
         val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, now)
         val telemetryLines = buildTelemetryLines(telemetry)
+        val actionLines = buildActionLines(actionCommands)
         val profileSegmentLines = profileSegments
             .sortedWith(compareBy<ProfileSegmentEstimateEntity> { it.dayType }.thenBy { it.timeSlot })
             .map { segment ->
@@ -303,6 +309,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             },
             telemetryCoverageLines = telemetryCoverageLines,
             telemetryLines = telemetryLines,
+            actionLines = actionLines,
             autoConnectLines = autoConnect?.lines.orEmpty(),
             transportStatusLines = transportStatusLines,
             syncStatusLines = syncStatusLines,
@@ -739,6 +746,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun buildActionLines(commands: List<ActionCommandEntity>): List<String> {
+        if (commands.isEmpty()) return listOf("No auto-actions yet")
+        return commands.take(12).map { command ->
+            val channel = payloadField(command.payloadJson, "deliveryChannel") ?: "nightscout"
+            val target = payloadField(command.payloadJson, "targetMmol")
+            val duration = payloadField(command.payloadJson, "durationMinutes")
+            val details = when {
+                target != null && duration != null -> "target=$target mmol/L, duration=${duration}m"
+                target != null -> "target=$target mmol/L"
+                else -> command.payloadJson.take(80)
+            }
+            "${command.status} ${command.type}: $details, channel=$channel (${formatTs(command.timestamp)})"
+        }
+    }
+
+    private fun payloadField(payloadJson: String, key: String): String? {
+        return runCatching {
+            JSONObject(payloadJson).optString(key).takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
     private fun buildRuleCooldownLines(
         executions: List<RuleExecutionEntity>,
         settings: AppSettings,
@@ -905,6 +933,7 @@ data class MainUiState(
     val baselineDeltaLines: List<String> = emptyList(),
     val telemetryCoverageLines: List<String> = emptyList(),
     val telemetryLines: List<String> = emptyList(),
+    val actionLines: List<String> = emptyList(),
     val autoConnectLines: List<String> = emptyList(),
     val transportStatusLines: List<String> = emptyList(),
     val syncStatusLines: List<String> = emptyList(),

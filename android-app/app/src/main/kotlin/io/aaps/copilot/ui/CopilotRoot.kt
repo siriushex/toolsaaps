@@ -249,6 +249,12 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
 
         item {
             HorizontalDivider()
+            Text("Action delivery")
+        }
+        items(state.actionLines) { Text(it) }
+
+        item {
+            HorizontalDivider()
             Text("Telemetry coverage")
         }
         items(state.telemetryCoverageLines) { Text(it) }
