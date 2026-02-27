@@ -399,26 +399,7 @@ class BroadcastIngestRepository(
             values = extras
         )
         if (!isStatusAction) return mapped
-
-        // Status broadcasts may arrive every few seconds; keep canonical metrics +
-        // a minimal raw diagnostic subset to avoid DB contention and drops.
-        val canonical = mapped.filterNot {
-            it.key.startsWith("raw_") || it.key in STATUS_EXCLUDED_CANONICAL_KEYS
-        }
-        // Keep excluded canonical keys under status_* namespace for observability,
-        // while preventing them from replacing authoritative treatment-derived metrics.
-        val statusProjected = mapped
-            .filter { it.key in STATUS_EXCLUDED_CANONICAL_KEYS }
-            .map { sample ->
-                val statusKey = "status_${sample.key}"
-                val statusId = "tm-${sample.source}-$statusKey-${sample.timestamp}"
-                sample.copy(
-                    id = statusId,
-                    key = statusKey
-                )
-            }
-        val diagnostic = mapped.filter { it.key in STATUS_DIAGNOSTIC_RAW_KEYS }
-        return (canonical + statusProjected + diagnostic).distinctBy { it.id }
+        return normalizeStatusTelemetry(mapped)
     }
 
     private fun extractTimestamp(extras: Map<String, String>): Long = normalizeTimestamp(
@@ -567,6 +548,29 @@ class BroadcastIngestRepository(
     )
 
     companion object {
+        internal fun normalizeStatusTelemetry(
+            mapped: List<TelemetrySampleEntity>
+        ): List<TelemetrySampleEntity> {
+            if (mapped.isEmpty()) return emptyList()
+            val canonical = mapped.filterNot {
+                it.key.startsWith("raw_") || it.key.startsWith("ns_") || it.key in STATUS_EXCLUDED_CANONICAL_KEYS
+            }
+            // Keep excluded canonical keys under status_* namespace for observability,
+            // while preventing them from replacing authoritative treatment-derived metrics.
+            val statusProjected = mapped
+                .filter { it.key in STATUS_EXCLUDED_CANONICAL_KEYS }
+                .map { sample ->
+                    val statusKey = "status_${sample.key}"
+                    val statusId = "tm-${sample.source}-$statusKey-${sample.timestamp}"
+                    sample.copy(
+                        id = statusId,
+                        key = statusKey
+                    )
+                }
+            val raw = mapped.filter { it.key.startsWith("raw_") || it.key.startsWith("ns_") }
+            return (canonical + statusProjected + raw).distinctBy { it.id }
+        }
+
         private val lastMaintenanceAtMs = AtomicLong(0L)
         private const val MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000L
         private const val GLUCOSE_OUTLIER_WINDOW_MS = 10 * 60_000L
@@ -578,19 +582,6 @@ class BroadcastIngestRepository(
             // not confirmed therapy entries. They are stored as status_* keys.
             "carbs_grams",
             "insulin_units"
-        )
-
-        private val STATUS_DIAGNOSTIC_RAW_KEYS = setOf(
-            "raw_reason",
-            "raw_profile",
-            "raw_algorithm",
-            "raw_bg",
-            "raw_glucosemgdl",
-            "raw_deltamgdl",
-            "raw_avgdeltamgdl",
-            "raw_slopearrow",
-            "raw_insulinreq",
-            "raw_futurecarbs"
         )
     }
 }
