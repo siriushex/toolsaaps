@@ -315,6 +315,25 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Text("Transport diagnostics")
+                    Button(
+                        onClick = vm::runNightscoutSelfTest,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Run Nightscout self-test")
+                    }
+                    Button(
+                        onClick = vm::runAapsTlsDiagnostic,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Run AAPS TLS diagnostic")
+                    }
+                    if (state.transportStatusLines.isEmpty()) {
+                        Text("No transport diagnostics yet")
+                    } else {
+                        state.transportStatusLines.forEach { Text(it) }
+                    }
+                    HorizontalDivider()
                     Text("Manual outbound test")
                     Text("Sends treatment commands through configured outbound chain (Nightscout API, fallback relay if enabled).")
                     OutlinedTextField(
