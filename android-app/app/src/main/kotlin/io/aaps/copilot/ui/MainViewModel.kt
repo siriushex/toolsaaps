@@ -1110,7 +1110,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val loopbackUrl = "https://127.0.0.1:${settings.localNightscoutPort}"
         if (!settings.localNightscoutEnabled) {
             return listOf(
-                "AAPS TLS handshake: OFF",
+                "AAPS transport: OFF (reason=NS_DISABLED)",
                 "Source error: local Nightscout emulator is disabled",
                 "Hint 1: enable local Nightscout and save settings"
             )
@@ -1123,7 +1123,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (recentStartFailure != null) {
             val failureReason = auditMetaField(recentStartFailure, "error") ?: "unknown"
             return listOf(
-                "AAPS TLS handshake: FAIL",
+                "AAPS transport: FAIL (reason=NS_START_FAILED)",
                 "Source error: local Nightscout start failed ($failureReason)",
                 "Hint 1: free/change local port and tap Save local Nightscout",
                 "Hint 2: confirm loopback URL in AAPS is $loopbackUrl"
@@ -1136,18 +1136,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { nowTs - it.timestamp <= TLS_DIAGNOSTIC_WINDOW_MS }
             .toList()
             .sortedByDescending { it.timestamp }
+        val recentExternalAapsLike = recentExternal.filter(::isLikelyAapsClientAudit)
+        val recentSocketSessions = audits
+            .asSequence()
+            .filter { it.message == "local_nightscout_socket_session_created" }
+            .filter { nowTs - it.timestamp <= TLS_DIAGNOSTIC_WINDOW_MS }
+            .toList()
+            .sortedByDescending { it.timestamp }
+        val recentSocketAapsLike = recentSocketSessions.filter(::isLikelyAapsClientAudit)
+        val recentSocketAuth = audits
+            .asSequence()
+            .filter { it.message == "local_nightscout_socket_authorize" }
+            .filter { nowTs - it.timestamp <= TLS_DIAGNOSTIC_WINDOW_MS }
+            .toList()
+            .sortedByDescending { it.timestamp }
+        val recentSocketAuthAapsLike = recentSocketAuth.filter(::isLikelyAapsClientAudit)
 
-        val recentOkHttp = recentExternal.filter {
-            auditMetaField(it, "source").equals("okhttp", ignoreCase = true)
-        }
-        if (recentOkHttp.isNotEmpty()) {
-            val last = recentOkHttp.first()
-            val method = auditMetaField(last, "method") ?: "GET"
-            val path = auditMetaField(last, "path") ?: "/api/v1/*"
+        val latestAuth = recentSocketAuthAapsLike.firstOrNull()
+        if (latestAuth != null) {
+            val source = auditMetaField(latestAuth, "source") ?: "unknown"
             return listOf(
-                "AAPS TLS handshake: OK",
-                "Last AAPS-like request: ${formatTs(last.timestamp)} ($method $path)",
+                "AAPS transport: OK (reason=NS_SOCKET_AUTH_OK)",
+                "Last AUTH: ${formatTs(latestAuth.timestamp)} (source=$source)",
+                "Socket sessions ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m: total=${recentSocketSessions.size}, app-like=${recentSocketAapsLike.size}",
                 "Loopback endpoint: $loopbackUrl"
+            )
+        }
+
+        val latestSocket = recentSocketAapsLike.firstOrNull()
+        if (latestSocket != null) {
+            val source = auditMetaField(latestSocket, "source") ?: "unknown"
+            return listOf(
+                "AAPS transport: FAIL (reason=NS_SOCKET_NO_AUTH)",
+                "Source error: Socket session opened (${formatTs(latestSocket.timestamp)} source=$source), but no authorize event",
+                "Hint 1: verify API Secret in AAPS equals Copilot value",
+                "Hint 2: restart NSClientV1 and trigger sync in AAPS"
+            )
+        }
+
+        val latestExternalAaps = recentExternalAapsLike.firstOrNull()
+        if (latestExternalAaps != null) {
+            val method = auditMetaField(latestExternalAaps, "method") ?: "GET"
+            val path = auditMetaField(latestExternalAaps, "path") ?: "/api/v1/*"
+            return listOf(
+                "AAPS transport: FAIL (reason=NS_HTTP_NO_SOCKET)",
+                "Source error: HTTPS request seen (${formatTs(latestExternalAaps.timestamp)} $method $path), but no socket session",
+                "Hint 1: in AAPS use NSClientV1 and URL exactly $loopbackUrl",
+                "Hint 2: install/trust loopback certificate and restart NSClient"
             )
         }
 
@@ -1155,23 +1190,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             auditMetaField(it, "source").equals("browser", ignoreCase = true)
         }
         val sourceError = if (recentBrowser.isNotEmpty()) {
-            "browser HTTPS traffic exists, but no AAPS/okhttp requests in last ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m"
+            "browser HTTPS traffic exists, but no AAPS-like client traffic in last ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m"
         } else {
             "no successful external HTTPS requests to local NS in last ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m"
         }
+        val reasonCode = if (recentBrowser.isNotEmpty()) "NS_BROWSER_ONLY" else "NS_NO_TRAFFIC"
         val secretHint = if (settings.apiSecret.isBlank()) {
             "Hint 4: set non-empty API Secret in Copilot and AAPS"
         } else {
             "Hint 4: verify API Secret in AAPS equals Copilot value"
         }
         return listOf(
-            "AAPS TLS handshake: FAIL",
+            "AAPS transport: FAIL (reason=$reasonCode)",
             "Source error: $sourceError",
             "Hint 1: in AAPS NSClient set URL exactly $loopbackUrl",
             "Hint 2: install loopback certificate and trust it in Android",
             "Hint 3: restart AAPS NSClient and trigger sync",
             secretHint
         )
+    }
+
+    private fun isLikelyAapsClientAudit(entry: AuditLogEntity): Boolean {
+        val source = auditMetaField(entry, "source")?.lowercase(Locale.US).orEmpty()
+        if (source == "browser") return false
+        val userAgent = auditMetaField(entry, "userAgent")?.lowercase(Locale.US).orEmpty()
+        if (
+            userAgent.contains("mozilla") ||
+            userAgent.contains("chrome") ||
+            userAgent.contains("safari") ||
+            userAgent.contains("curl") ||
+            userAgent.contains("postman") ||
+            userAgent.contains("insomnia")
+        ) {
+            return false
+        }
+        return source == "okhttp" || source == "dalvik" || source == "unknown"
     }
 
     private fun buildActionLines(commands: List<ActionCommandEntity>): List<String> {
