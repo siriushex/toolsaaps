@@ -82,6 +82,10 @@ Transport note:
 - Built-in local Nightscout emulator is available in app:
   `Onboarding & Connect -> Local Nightscout emulator (127.0.0.1)`.
   For `https://127.0.0.1:<port>` in AAPS, install Copilot certificate in Android as **CA certificate** (`.cer` preferred).
+  Copilot exports:
+  - `copilot-local-nightscout-root-ca.cer` (install this as CA on Android)
+  - `copilot-local-nightscout-root-ca.crt` (same root CA in PEM)
+  - `copilot-local-nightscout-server.crt` (server cert, for diagnostics only)
   It exposes:
   - `GET /api/v1/status.json`
   - `GET/POST /api/v1/entries(.json)` and `GET/POST /api/v1/entries/sgv.json`

@@ -21,12 +21,22 @@ object LocalNightscoutTls {
         return NanoHTTPD.makeSSLSocketFactory(keyStore, keyManagerFactory)
     }
 
-    fun loadCertificate(context: Context): X509Certificate {
+    fun loadServerCertificate(context: Context): X509Certificate {
         val keyStore = loadKeyStore(context)
         val certificate = keyStore.getCertificate(KEY_ALIAS)
             ?: error("Local TLS certificate alias not found: $KEY_ALIAS")
         return certificate as? X509Certificate
             ?: error("Local TLS certificate is not X509")
+    }
+
+    fun loadCaCertificate(context: Context): X509Certificate {
+        val keyStore = loadKeyStore(context)
+        val chain = keyStore.getCertificateChain(KEY_ALIAS)
+            ?: error("Local TLS certificate chain alias not found: $KEY_ALIAS")
+        val ca = chain.lastOrNull()
+            ?: error("Local TLS certificate chain is empty: $KEY_ALIAS")
+        return ca as? X509Certificate
+            ?: error("Local TLS CA certificate is not X509")
     }
 
     fun toPem(certificate: X509Certificate): String {

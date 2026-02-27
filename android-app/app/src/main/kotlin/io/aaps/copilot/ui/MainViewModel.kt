@@ -3,6 +3,8 @@ package io.aaps.copilot.ui
 import android.app.Application
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -503,9 +505,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 val context = getApplication<Application>().applicationContext
-                val certificate = LocalNightscoutTls.loadCertificate(context)
-                val derBytes = certificate.encoded
-                val pemBytes = LocalNightscoutTls.toPem(certificate).toByteArray()
+                val caCertificate = LocalNightscoutTls.loadCaCertificate(context)
+                val serverCertificate = LocalNightscoutTls.loadServerCertificate(context)
+                val caDerBytes = caCertificate.encoded
+                val caPemBytes = LocalNightscoutTls.toPem(caCertificate).toByteArray()
+                val serverPemBytes = LocalNightscoutTls.toPem(serverCertificate).toByteArray()
                 val resolver = context.contentResolver
 
                 fun exportDownload(fileName: String, mimeType: String, payload: ByteArray) {
@@ -531,18 +535,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 exportDownload(
-                    fileName = "copilot-local-nightscout-127.0.0.1.cer",
+                    fileName = "copilot-local-nightscout-root-ca.cer",
                     mimeType = "application/pkix-cert",
-                    payload = derBytes
+                    payload = caDerBytes
                 )
                 exportDownload(
-                    fileName = "copilot-local-nightscout-127.0.0.1.crt",
+                    fileName = "copilot-local-nightscout-root-ca.crt",
                     mimeType = "application/x-x509-ca-cert",
-                    payload = pemBytes
+                    payload = caPemBytes
+                )
+                exportDownload(
+                    fileName = "copilot-local-nightscout-server.crt",
+                    mimeType = "application/x-x509-ca-cert",
+                    payload = serverPemBytes
                 )
             }.onSuccess {
                 messageState.value =
-                    "TLS cert exported to Downloads (.cer + .crt). Install as CA certificate in Android, then reconnect AAPS NSClient."
+                    "TLS certificates exported (root CA + server). Install root CA in Android, then reconnect AAPS NSClient."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
             }
@@ -553,16 +562,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 val context = getApplication<Application>().applicationContext
-                val certificate = LocalNightscoutTls.loadCertificate(context)
+                val certificate = LocalNightscoutTls.loadCaCertificate(context)
                 val installIntent = KeyChain.createInstallIntent().apply {
                     putExtra(KeyChain.EXTRA_CERTIFICATE, certificate.encoded)
-                    putExtra(KeyChain.EXTRA_NAME, "AAPS Copilot Loopback 127.0.0.1")
+                    putExtra(KeyChain.EXTRA_NAME, "AAPS Copilot Loopback Root CA")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(installIntent)
             }.onSuccess {
                 messageState.value =
-                    "System certificate installer opened. If CA install is not offered, export cert and install it manually from Android settings."
+                    "System certificate installer opened for Root CA. If CA install is not offered, export certs and install root CA manually from Android settings."
             }.onFailure {
                 messageState.value = "Certificate install launch failed: ${it.message}"
             }
@@ -1135,12 +1144,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         audits: List<AuditLogEntity>,
         nowTs: Long
     ): List<String> {
+        val aapsTlsCompatibility = inspectAapsTlsCompatibility()
+        fun withCompatibilityHints(lines: List<String>): List<String> {
+            val extras = mutableListOf<String>()
+            if (!aapsTlsCompatibility.installed) {
+                extras.add("AAPS package not detected on this phone")
+            } else {
+                aapsTlsCompatibility.targetSdk?.let { sdk ->
+                    extras.add("AAPS targetSdk: $sdk")
+                }
+                if (aapsTlsCompatibility.likelyRejectsUserCa) {
+                    extras.add("Compatibility warning: this AAPS build likely rejects user-installed CA certs")
+                    extras.add("Hint: use public Nightscout HTTPS (public CA) or patched AAPS build with user-CA trust")
+                }
+            }
+            return lines + extras
+        }
+
         val loopbackUrl = "https://127.0.0.1:${settings.localNightscoutPort}"
         if (!settings.localNightscoutEnabled) {
-            return listOf(
+            return withCompatibilityHints(
+                listOf(
                 "AAPS transport: OFF (reason=NS_DISABLED)",
                 "Source error: local Nightscout emulator is disabled",
                 "Hint 1: enable local Nightscout and save settings"
+                )
             )
         }
 
@@ -1150,11 +1178,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (recentStartFailure != null) {
             val failureReason = auditMetaField(recentStartFailure, "error") ?: "unknown"
-            return listOf(
+            return withCompatibilityHints(
+                listOf(
                 "AAPS transport: FAIL (reason=NS_START_FAILED)",
                 "Source error: local Nightscout start failed ($failureReason)",
                 "Hint 1: free/change local port and tap Save local Nightscout",
                 "Hint 2: confirm loopback URL in AAPS is $loopbackUrl"
+                )
             )
         }
 
@@ -1183,22 +1213,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val latestAuth = recentSocketAuthAapsLike.firstOrNull()
         if (latestAuth != null) {
             val source = auditMetaField(latestAuth, "source") ?: "unknown"
-            return listOf(
+            return withCompatibilityHints(
+                listOf(
                 "AAPS transport: OK (reason=NS_SOCKET_AUTH_OK)",
                 "Last AUTH: ${formatTs(latestAuth.timestamp)} (source=$source)",
                 "Socket sessions ${TLS_DIAGNOSTIC_WINDOW_MINUTES}m: total=${recentSocketSessions.size}, app-like=${recentSocketAapsLike.size}",
                 "Loopback endpoint: $loopbackUrl"
+                )
             )
         }
 
         val latestSocket = recentSocketAapsLike.firstOrNull()
         if (latestSocket != null) {
             val source = auditMetaField(latestSocket, "source") ?: "unknown"
-            return listOf(
+            return withCompatibilityHints(
+                listOf(
                 "AAPS transport: FAIL (reason=NS_SOCKET_NO_AUTH)",
                 "Source error: Socket session opened (${formatTs(latestSocket.timestamp)} source=$source), but no authorize event",
                 "Hint 1: verify API Secret in AAPS equals Copilot value",
                 "Hint 2: restart NSClientV1 and trigger sync in AAPS"
+                )
             )
         }
 
@@ -1206,11 +1240,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (latestExternalAaps != null) {
             val method = auditMetaField(latestExternalAaps, "method") ?: "GET"
             val path = auditMetaField(latestExternalAaps, "path") ?: "/api/v1/*"
-            return listOf(
+            return withCompatibilityHints(
+                listOf(
                 "AAPS transport: FAIL (reason=NS_HTTP_NO_SOCKET)",
                 "Source error: HTTPS request seen (${formatTs(latestExternalAaps.timestamp)} $method $path), but no socket session",
                 "Hint 1: in AAPS use NSClientV1 and URL exactly $loopbackUrl",
                 "Hint 2: install loopback certificate as CA and restart NSClient"
+                )
             )
         }
 
@@ -1228,13 +1264,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             "Hint 4: verify API Secret in AAPS equals Copilot value"
         }
-        return listOf(
+        return withCompatibilityHints(
+            listOf(
             "AAPS transport: FAIL (reason=$reasonCode)",
             "Source error: $sourceError",
             "Hint 1: in AAPS NSClient set URL exactly $loopbackUrl",
             "Hint 2: install loopback certificate as CA in Android",
             "Hint 3: restart AAPS NSClient and trigger sync",
             secretHint
+            )
+        )
+    }
+
+    private fun inspectAapsTlsCompatibility(): AapsTlsCompatibility {
+        val context = getApplication<Application>().applicationContext
+        val pm = context.packageManager
+        val packageName = "info.nightscout.androidaps"
+        val appInfo = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getApplicationInfo(packageName, 0)
+            }
+        }.getOrNull() ?: return AapsTlsCompatibility(
+            installed = false,
+            targetSdk = null,
+            networkSecurityConfigRes = null,
+            likelyRejectsUserCa = false
+        )
+
+        val networkSecurityConfigRes = runCatching {
+            val field = ApplicationInfo::class.java.getDeclaredField("networkSecurityConfigRes")
+            field.isAccessible = true
+            field.getInt(appInfo)
+        }.getOrNull()
+        val hasExplicitNetworkSecurityConfig = (networkSecurityConfigRes ?: 0) != 0
+        val likelyRejectsUserCa = appInfo.targetSdkVersion >= Build.VERSION_CODES.N &&
+            !hasExplicitNetworkSecurityConfig
+        return AapsTlsCompatibility(
+            installed = true,
+            targetSdk = appInfo.targetSdkVersion,
+            networkSecurityConfigRes = networkSecurityConfigRes,
+            likelyRejectsUserCa = likelyRejectsUserCa
         )
     }
 
@@ -1485,6 +1557,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 }
+
+private data class AapsTlsCompatibility(
+    val installed: Boolean,
+    val targetSdk: Int?,
+    val networkSecurityConfigRes: Int?,
+    val likelyRejectsUserCa: Boolean
+)
 
 data class MainUiState(
     val nightscoutUrl: String = "",
