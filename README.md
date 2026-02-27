@@ -4,6 +4,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 
 - Full-history Nightscout sync + AAPS export baseline import
 - Auto-bootstrap on first launch: AAPS export path discovery + optional root bootstrap for local DB
+- Auto-connect discovery report in UI (found export path, detected root DB, installed AAPS/xDrip packages, Nightscout source)
 - Local real-time intake via broadcast (`com.eveningoutpost.dexdrip.*`, `info.nightscout.client.*`)
 - Telemetry layer for full context snapshot (IOB/COB/carbs/insulin/DIA/steps/activity/temp-target + raw incoming metrics)
 - Incremental cloud sync pull/push (`/v1/sync/pull`, `/v1/sync/push`)

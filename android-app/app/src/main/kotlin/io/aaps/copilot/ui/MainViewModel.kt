@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.BaselinePointEntity
 import io.aaps.copilot.data.local.entity.ForecastEntity
@@ -47,6 +48,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val analysisHistoryState = MutableStateFlow<CloudAnalysisHistoryUiModel?>(null)
     private val analysisTrendState = MutableStateFlow<CloudAnalysisTrendUiModel?>(null)
     private val insightsFilterState = MutableStateFlow(InsightsFilterUi())
+    private val autoConnectState = MutableStateFlow<AutoConnectUi?>(null)
     private val qualityEvaluator = ForecastQualityEvaluator()
     private val baselineComparator = BaselineComparator()
 
@@ -68,6 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         container.analyticsRepository.observeProfileSegments(),
         db.syncStateDao().observeAll(),
         container.settingsStore.settings,
+        autoConnectState,
         messageState,
         dryRunState,
         cloudReplayState,
@@ -96,13 +99,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Suppress("UNCHECKED_CAST")
         val syncStates = values[9] as List<SyncStateEntity>
         val settings = values[10] as AppSettings
-        val message = values[11] as String?
-        val dryRun = values[12] as DryRunUi?
-        val cloudReplay = values[13] as CloudReplayUiModel?
-        val cloudJobs = values[14] as CloudJobsUiModel?
-        val analysisHistory = values[15] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[16] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[17] as InsightsFilterUi
+        val autoConnect = values[11] as AutoConnectUi?
+        val message = values[12] as String?
+        val dryRun = values[13] as DryRunUi?
+        val cloudReplay = values[14] as CloudReplayUiModel?
+        val cloudJobs = values[15] as CloudJobsUiModel?
+        val analysisHistory = values[16] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[17] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[18] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -299,6 +303,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             },
             telemetryCoverageLines = telemetryCoverageLines,
             telemetryLines = telemetryLines,
+            autoConnectLines = autoConnect?.lines.orEmpty(),
             transportStatusLines = transportStatusLines,
             syncStatusLines = syncStatusLines,
             jobStatusLines = jobStatusLines,
@@ -516,8 +521,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 container.exportRepository.importBaselineFromExports()
                 result
             }.onSuccess { result ->
+                autoConnectState.value = AutoConnectUi(lines = buildAutoConnectLines(result))
                 if (!silent) {
-                    messageState.value = "Auto-connect: export=${result.exportConnected}, ns=${result.nightscoutConfigured}, root=${result.rootEnabled}, filesAccess=${result.hasAllFilesAccess}"
+                    messageState.value = "Auto-connect scan complete"
                 }
             }.onFailure {
                 if (!silent) {
@@ -718,6 +724,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildInsightsFilterLabel(filter: InsightsFilterUi): String =
         "Filters: source=${filter.source ?: "all"}, status=${filter.status ?: "all"}, days=${filter.days}, weeks=${filter.weeks}"
 
+    private fun buildAutoConnectLines(result: AapsAutoConnectRepository.BootstrapResult): List<String> {
+        return buildList {
+            add("Export path: ${result.exportPath ?: "-"}")
+            add("Export connected: ${if (result.exportConnected) "yes" else "no"}")
+            add("Nightscout configured: ${if (result.nightscoutConfigured) "yes" else "no"}")
+            add("Nightscout source: ${result.nightscoutSource ?: "not detected"}")
+            add("Root available: ${if (result.rootAvailable) "yes" else "no"}")
+            add("Root DB detected: ${result.rootDbPath ?: "not detected"}")
+            add("Root import enabled: ${if (result.rootEnabled) "yes" else "no"}")
+            add("AAPS package: ${result.aapsPackage ?: "not installed"}")
+            add("xDrip package: ${result.xdripPackage ?: "not installed"}")
+            add("All-files access: ${if (result.hasAllFilesAccess) "granted" else "missing"}")
+        }
+    }
+
     private fun buildRuleCooldownLines(
         executions: List<RuleExecutionEntity>,
         settings: AppSettings,
@@ -884,6 +905,7 @@ data class MainUiState(
     val baselineDeltaLines: List<String> = emptyList(),
     val telemetryCoverageLines: List<String> = emptyList(),
     val telemetryLines: List<String> = emptyList(),
+    val autoConnectLines: List<String> = emptyList(),
     val transportStatusLines: List<String> = emptyList(),
     val syncStatusLines: List<String> = emptyList(),
     val jobStatusLines: List<String> = emptyList(),
@@ -916,4 +938,8 @@ data class InsightsFilterUi(
     val status: String? = null,
     val days: Int = 60,
     val weeks: Int = 8
+)
+
+data class AutoConnectUi(
+    val lines: List<String>
 )

@@ -196,6 +196,13 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = { vm.runAutoConnectNow() }) {
             Text("Auto-connect AAPS now")
         }
+        HorizontalDivider()
+        Text("Auto-connect discovery")
+        if (state.autoConnectLines.isEmpty()) {
+            Text("No scan results yet")
+        } else {
+            state.autoConnectLines.forEach { Text(it) }
+        }
         OutlinedTextField(value = nsUrl, onValueChange = { nsUrl = it }, label = { Text("Nightscout URL") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = nsSecret, onValueChange = { nsSecret = it }, label = { Text("API Secret") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = cloudUrl, onValueChange = { cloudUrl = it }, label = { Text("Cloud API URL") }, modifier = Modifier.fillMaxWidth())

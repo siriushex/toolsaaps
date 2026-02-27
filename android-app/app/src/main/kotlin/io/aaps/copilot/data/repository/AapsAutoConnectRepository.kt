@@ -18,23 +18,34 @@ class AapsAutoConnectRepository(
 
     suspend fun bootstrap(): BootstrapResult = withContext(Dispatchers.IO) {
         val settings = settingsStore.settings.first()
-        var exportConnected = false
+        var exportConnected = !settings.exportFolderUri.isNullOrBlank()
+        var exportPath = settings.exportFolderUri
         var rootEnabled = settings.rootExperimentalEnabled
         var updatedUrl = settings.nightscoutUrl
         var updatedSecret = settings.apiSecret
-
-        if (settings.exportFolderUri.isNullOrBlank()) {
-            val exportPath = discoverExportPath()
-            if (!exportPath.isNullOrBlank()) {
-                settingsStore.update { it.copy(exportFolderUri = exportPath) }
-                exportConnected = true
-                auditLogger.info("aaps_auto_connect_export_path", mapOf("path" to exportPath))
-            }
+        var nightscoutSource = if (settings.nightscoutUrl.isNotBlank() && settings.apiSecret.isNotBlank()) {
+            "settings"
         } else {
-            exportConnected = true
+            null
+        }
+        var rootDbPath: String? = null
+
+        if (!exportConnected) {
+            val discoveredExportPath = discoverExportPath()
+            if (!discoveredExportPath.isNullOrBlank()) {
+                settingsStore.update { it.copy(exportFolderUri = discoveredExportPath) }
+                exportConnected = true
+                exportPath = discoveredExportPath
+                auditLogger.info("aaps_auto_connect_export_path", mapOf("path" to discoveredExportPath))
+            }
         }
 
-        if (isRootAvailable()) {
+        val rootAvailable = isRootAvailable()
+        if (rootAvailable) {
+            rootDbPath = discoverRootDbPath()
+            rootDbPath?.let { path ->
+                auditLogger.info("aaps_auto_connect_root_db_detected", mapOf("path" to path))
+            }
             if (!settings.rootExperimentalEnabled) {
                 settingsStore.update { it.copy(rootExperimentalEnabled = true) }
                 rootEnabled = true
@@ -43,8 +54,8 @@ class AapsAutoConnectRepository(
             if (settings.nightscoutUrl.isBlank() || settings.apiSecret.isBlank()) {
                 val discovered = discoverNightscoutFromRootPrefs()
                 if (discovered != null) {
-                    updatedUrl = settings.nightscoutUrl.ifBlank { discovered.first }
-                    updatedSecret = settings.apiSecret.ifBlank { discovered.second }
+                    updatedUrl = settings.nightscoutUrl.ifBlank { discovered.url }
+                    updatedSecret = settings.apiSecret.ifBlank { discovered.secret }
                     settingsStore.update {
                         it.copy(
                             nightscoutUrl = updatedUrl,
@@ -52,9 +63,13 @@ class AapsAutoConnectRepository(
                         )
                     }
                     auditLogger.info("aaps_auto_connect_nightscout_from_root", mapOf("url" to updatedUrl.take(80)))
+                    nightscoutSource = "root_prefs:${File(discovered.sourceFile).name}"
                 }
             }
         }
+
+        val aapsPackage = detectInstalledPackage(AAPS_PACKAGES)
+        val xdripPackage = detectInstalledPackage(XDRIP_PACKAGES)
 
         if (!exportConnected) {
             auditLogger.warn(
@@ -68,8 +83,14 @@ class AapsAutoConnectRepository(
 
         BootstrapResult(
             exportConnected = exportConnected,
+            exportPath = exportPath,
             rootEnabled = rootEnabled,
+            rootAvailable = rootAvailable,
+            rootDbPath = rootDbPath,
             nightscoutConfigured = updatedUrl.isNotBlank() && updatedSecret.isNotBlank(),
+            nightscoutSource = nightscoutSource,
+            aapsPackage = aapsPackage,
+            xdripPackage = xdripPackage,
             hasAllFilesAccess = hasAllFilesAccess()
         )
     }
@@ -124,12 +145,8 @@ class AapsAutoConnectRepository(
         return interesting > 0 || files.count { it.isFile && it.name.endsWith(".json", ignoreCase = true) } >= 3
     }
 
-    private fun discoverNightscoutFromRootPrefs(): Pair<String, String>? {
-        val packageCandidates = listOf(
-            "info.nightscout.androidaps",
-            "info.nightscout.aaps"
-        )
-        for (pkg in packageCandidates) {
+    private fun discoverNightscoutFromRootPrefs(): RootNightscoutDiscovery? {
+        for (pkg in AAPS_PACKAGES) {
             val listCmd = "ls /data/data/$pkg/shared_prefs/*.xml 2>/dev/null"
             val files = runRootCommandOutput(listCmd).lineSequence().map { it.trim() }.filter { it.endsWith(".xml") }.toList()
             for (file in files) {
@@ -152,12 +169,36 @@ class AapsAutoConnectRepository(
                 }?.value
 
                 if (!url.isNullOrBlank() && !secret.isNullOrBlank()) {
-                    return url to secret
+                    return RootNightscoutDiscovery(
+                        url = url,
+                        secret = secret,
+                        sourceFile = file
+                    )
                 }
             }
         }
         return null
     }
+
+    private fun discoverRootDbPath(): String? {
+        for (candidate in ROOT_DB_CANDIDATES) {
+            if (runRootCommand("test -f $candidate")) return candidate
+        }
+        return null
+    }
+
+    private fun detectInstalledPackage(candidates: List<String>): String? {
+        return candidates.firstOrNull { pkg -> isPackageInstalled(pkg) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isPackageInstalled(packageName: String): Boolean = runCatching {
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        } else {
+            context.packageManager.getPackageInfo(packageName, 0)
+        }
+    }.isSuccess
 
     private fun parseStringXml(xml: String): Map<String, String> {
         val regex = Regex("<string\\s+name=\"([^\"]+)\">(.*?)</string>")
@@ -190,8 +231,37 @@ class AapsAutoConnectRepository(
 
     data class BootstrapResult(
         val exportConnected: Boolean,
+        val exportPath: String?,
         val rootEnabled: Boolean,
+        val rootAvailable: Boolean,
+        val rootDbPath: String?,
         val nightscoutConfigured: Boolean,
+        val nightscoutSource: String?,
+        val aapsPackage: String?,
+        val xdripPackage: String?,
         val hasAllFilesAccess: Boolean
     )
+
+    data class RootNightscoutDiscovery(
+        val url: String,
+        val secret: String,
+        val sourceFile: String
+    )
+
+    private companion object {
+        val AAPS_PACKAGES = listOf(
+            "info.nightscout.androidaps",
+            "info.nightscout.aaps"
+        )
+        val XDRIP_PACKAGES = listOf(
+            "com.eveningoutpost.dexdrip",
+            "com.eveningoutpost.dexdrip.debug"
+        )
+        val ROOT_DB_CANDIDATES = listOf(
+            "/data/data/info.nightscout.androidaps/databases/androidaps.db",
+            "/data/user/0/info.nightscout.androidaps/databases/androidaps.db",
+            "/data/data/info.nightscout.aaps/databases/androidaps.db",
+            "/data/user/0/info.nightscout.aaps/databases/androidaps.db"
+        )
+    }
 }
