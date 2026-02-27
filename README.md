@@ -49,6 +49,10 @@ cd android-app
 - `info.nightscout.client.NEW_SGV`
 - `info.nightscout.client.NEW_TREATMENT`
 
+Each accepted local broadcast also enqueues an immediate reactive automation cycle
+(`copilot.sync.reactive`) so rule evaluation/auto-temp-target can run without waiting for the
+15-minute periodic worker.
+
 For stable delivery on modern Android, send to explicit package
 `io.aaps.predictivecopilot` (same setting should be used in xDrip broadcast config).
 

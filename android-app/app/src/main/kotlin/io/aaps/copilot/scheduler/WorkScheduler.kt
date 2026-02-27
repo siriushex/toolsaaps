@@ -2,8 +2,11 @@ package io.aaps.copilot.scheduler
 
 import android.content.Context
 import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
@@ -30,6 +33,16 @@ object WorkScheduler {
             .enqueueUniquePeriodicWork(ANALYSIS_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, analysisWork)
     }
 
+    fun triggerReactiveAutomation(context: Context) {
+        val oneShot = OneTimeWorkRequestBuilder<SyncAndAutomateWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(REACTIVE_WORK_NAME, ExistingWorkPolicy.KEEP, oneShot)
+    }
+
     const val SYNC_WORK_NAME = "copilot.sync.automate"
     const val ANALYSIS_WORK_NAME = "copilot.analysis.daily"
+    const val REACTIVE_WORK_NAME = "copilot.sync.reactive"
 }

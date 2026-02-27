@@ -24,6 +24,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
 
 class AutomationRepository(
     private val db: CopilotDatabase,
@@ -41,6 +42,8 @@ class AutomationRepository(
     private val auditLogger: AuditLogger
 ) {
 
+    private val cycleMutex = Mutex()
+
     data class DryRunRuleSummary(
         val ruleId: String,
         val triggered: Int,
@@ -55,6 +58,18 @@ class AutomationRepository(
     )
 
     suspend fun runAutomationCycle() {
+        if (!cycleMutex.tryLock()) {
+            auditLogger.warn("automation_cycle_skipped", mapOf("reason" to "already_running"))
+            return
+        }
+        try {
+            runAutomationCycleLocked()
+        } finally {
+            cycleMutex.unlock()
+        }
+    }
+
+    private suspend fun runAutomationCycleLocked() {
         autoConnectRepository.bootstrap()
         val settings = settingsStore.settings.first()
         rootDbRepository.syncIfEnabled()
