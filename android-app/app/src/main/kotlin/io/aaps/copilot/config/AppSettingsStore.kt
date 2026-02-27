@@ -27,6 +27,7 @@ class AppSettingsStore(context: Context) {
             killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
+            strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
             postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
             postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -63,6 +64,7 @@ class AppSettingsStore(context: Context) {
                 killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
                 localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
+                strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
                 postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
                 postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -95,6 +97,7 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_KILL_SWITCH] = next.killSwitch
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
+            prefs[KEY_STRICT_BROADCAST_VALIDATION] = next.strictBroadcastSenderValidation
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
             prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = next.postHypoThresholdMmol
             prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
@@ -133,6 +136,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
         private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
+        private val KEY_STRICT_BROADCAST_VALIDATION = booleanPreferencesKey("strict_broadcast_sender_validation")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
         private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
@@ -186,6 +190,7 @@ data class AppSettings(
     val killSwitch: Boolean,
     val rootExperimentalEnabled: Boolean,
     val localBroadcastIngestEnabled: Boolean,
+    val strictBroadcastSenderValidation: Boolean,
     val baseTargetMmol: Double,
     val postHypoThresholdMmol: Double,
     val postHypoDeltaThresholdMmol5m: Double,

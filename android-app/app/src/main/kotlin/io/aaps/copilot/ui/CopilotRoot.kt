@@ -122,11 +122,25 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
                 onCheckedChange = vm::setLocalBroadcastIngestEnabled
             )
         }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Strict sender validation (Android 14+)")
+            Switch(
+                checked = state.strictBroadcastSenderValidation,
+                onCheckedChange = vm::setStrictBroadcastValidation
+            )
+        }
         Text(
             if (state.localBroadcastIngestEnabled) {
                 "Enabled: SGV/treatments can be accepted from local broadcast."
             } else {
                 "Disabled: local broadcast data is ignored."
+            }
+        )
+        Text(
+            if (state.strictBroadcastSenderValidation) {
+                "Strict mode: skip non-test broadcasts when sender package is unavailable/untrusted."
+            } else {
+                "Permissive mode: accept broadcasts when sender package cannot be resolved."
             }
         )
         if (!hasAllFilesAccess) {

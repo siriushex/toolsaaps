@@ -175,6 +175,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             exportUri = settings.exportFolderUri,
             killSwitch = settings.killSwitch,
             localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
+            strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation,
             baseTargetMmol = settings.baseTargetMmol,
             postHypoThresholdMmol = settings.postHypoThresholdMmol,
             postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
@@ -307,6 +308,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Local broadcast ingest enabled"
             } else {
                 "Local broadcast ingest disabled"
+            }
+        }
+    }
+
+    fun setStrictBroadcastValidation(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(strictBroadcastSenderValidation = enabled) }
+            messageState.value = if (enabled) {
+                "Strict sender validation enabled"
+            } else {
+                "Strict sender validation disabled"
             }
         }
     }
@@ -678,6 +690,7 @@ data class MainUiState(
     val exportUri: String? = null,
     val killSwitch: Boolean = false,
     val localBroadcastIngestEnabled: Boolean = true,
+    val strictBroadcastSenderValidation: Boolean = false,
     val baseTargetMmol: Double = 5.5,
     val postHypoThresholdMmol: Double = 3.0,
     val postHypoDeltaThresholdMmol5m: Double = 0.20,

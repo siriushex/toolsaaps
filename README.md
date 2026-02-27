@@ -56,6 +56,8 @@ Each accepted local broadcast also enqueues an immediate reactive automation cyc
 
 This channel can be toggled in app UI:
 `Onboarding & Connect -> Local xDrip/AAPS broadcast ingest`.
+Optional strict mode is available in the same screen:
+`Strict sender validation (Android 14+)`.
 
 On Android 14+ the receiver also validates sender package where available:
 - xDrip actions: packages starting with `com.eveningoutpost.dexdrip`

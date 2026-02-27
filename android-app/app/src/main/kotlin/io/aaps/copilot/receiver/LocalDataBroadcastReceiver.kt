@@ -22,24 +22,32 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
         receiverScope.launch {
             runCatching {
                 val action = payload.action.orEmpty()
-                val senderPackage = senderPackageOrNull()
-                if (!isTrustedSender(action = action, senderPackage = senderPackage, appPackage = context.packageName)) {
-                    app.container.auditLogger.warn(
-                        "broadcast_ingest_skipped",
-                        mapOf(
-                            "reason" to "untrusted_sender",
-                            "action" to action,
-                            "senderPackage" to senderPackage.orEmpty()
-                        )
-                    )
-                    return@runCatching
-                }
-
                 val settings = app.container.settingsStore.settings.first()
                 if (!settings.localBroadcastIngestEnabled) {
                     app.container.auditLogger.warn(
                         "broadcast_ingest_skipped",
                         mapOf("reason" to "disabled_in_settings", "action" to action)
+                    )
+                    return@runCatching
+                }
+
+                val senderPackage = senderPackageOrNull()
+                if (
+                    !isTrustedSender(
+                        action = action,
+                        senderPackage = senderPackage,
+                        appPackage = context.packageName,
+                        strictValidation = settings.strictBroadcastSenderValidation
+                    )
+                ) {
+                    app.container.auditLogger.warn(
+                        "broadcast_ingest_skipped",
+                        mapOf(
+                            "reason" to "untrusted_sender",
+                            "action" to action,
+                            "senderPackage" to senderPackage.orEmpty(),
+                            "strictValidation" to settings.strictBroadcastSenderValidation
+                        )
                     )
                     return@runCatching
                 }
@@ -71,10 +79,18 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
     private fun senderPackageOrNull(): String? =
         if (Build.VERSION.SDK_INT >= 34) getSentFromPackage() else null
 
-    private fun isTrustedSender(action: String, senderPackage: String?, appPackage: String): Boolean {
-        if (senderPackage.isNullOrBlank()) return true
+    private fun isTrustedSender(
+        action: String,
+        senderPackage: String?,
+        appPackage: String,
+        strictValidation: Boolean
+    ): Boolean {
         if (action == TEST_ACTION) {
+            if (senderPackage.isNullOrBlank()) return true
             return senderPackage == "com.android.shell" || senderPackage == appPackage
+        }
+        if (senderPackage.isNullOrBlank()) {
+            return !strictValidation
         }
         return when {
             action.startsWith("com.eveningoutpost.dexdrip.") -> senderPackage.startsWith("com.eveningoutpost.dexdrip")
