@@ -5,6 +5,7 @@ import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.remote.cloud.CloudGlucosePoint
 import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
 import io.aaps.copilot.data.remote.cloud.PredictRequest
@@ -18,6 +19,7 @@ import io.aaps.copilot.domain.model.ProfileTimeSlot
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.model.SafetySnapshot
+import io.aaps.copilot.domain.predict.UamCalculator
 import io.aaps.copilot.domain.predict.PredictionEngine
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.domain.rules.RuleContext
@@ -66,6 +68,15 @@ class AutomationRepository(
         val rules: List<DryRunRuleSummary>
     )
 
+    private data class CalculatedUamSnapshot(
+        val flag: Double,
+        val confidence: Double,
+        val estimatedCarbsGrams: Double?,
+        val rise15Mmol: Double?,
+        val rise30Mmol: Double?,
+        val delta5Mmol: Double?
+    )
+
     suspend fun runAutomationCycle() {
         if (!cycleMutex.tryLock()) {
             auditLogger.warn("automation_cycle_skipped", mapOf("reason" to "already_running"))
@@ -109,7 +120,6 @@ class AutomationRepository(
         val actionsLast6h = actionRepository.countSentActionsLast6h()
         val activeTempTarget = resolveActiveTempTarget(now)
         val sensorBlocked = isSensorBlocked(therapy, now)
-        val latestTelemetry = resolveLatestTelemetry(now)
 
         val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -130,6 +140,18 @@ class AutomationRepository(
         val currentSegment = db.profileSegmentEstimateDao()
             .byDayTypeAndTimeSlot(dayType.name, currentSlot.name)
             ?.toDomain()
+        val latestTelemetry = resolveLatestTelemetry(now).toMutableMap()
+        val calculatedUam = calculateCalculatedUamSnapshot(
+            glucose = glucose,
+            therapy = therapy,
+            profile = currentProfile,
+            nowTs = now
+        )
+        latestTelemetry["uam_value"] = calculatedUam.flag
+        latestTelemetry["uam_calculated_flag"] = calculatedUam.flag
+        latestTelemetry["uam_calculated_confidence"] = calculatedUam.confidence
+        calculatedUam.estimatedCarbsGrams?.let { latestTelemetry["uam_calculated_carbs_grams"] = it }
+        persistCalculatedUamTelemetry(nowTs = now, snapshot = calculatedUam)
 
         val context = RuleContext(
             nowTs = now,
@@ -315,7 +337,7 @@ class AutomationRepository(
         alias("iob_units", listOf("iob", "insulinonboard"))
         alias("cob_grams", listOf("cob", "carbsonboard"))
         alias("activity_ratio", listOf("activity", "activityratio", "sensitivityratio"))
-        alias("uam_value", listOf("enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam"))
+        alias("uam_value", listOf("uam_calculated_flag", "enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam"))
         return latestByKey
     }
 
@@ -427,6 +449,62 @@ class AutomationRepository(
                     "fallbackTarget" to fallbackTriggered.actionProposal?.targetMmol
                 )
             )
+        }
+    }
+
+    private fun calculateCalculatedUamSnapshot(
+        glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        profile: ProfileEstimate?,
+        nowTs: Long
+    ): CalculatedUamSnapshot {
+        val signal = UamCalculator.latestSignal(
+            glucose = glucose,
+            therapyEvents = therapy,
+            nowTs = nowTs,
+            lookbackMinutes = CALCULATED_UAM_LOOKBACK_MINUTES
+        )
+        val carbs = UamCalculator.estimateCarbsGrams(
+            signal = signal,
+            isfMmolPerUnit = profile?.isfMmolPerUnit,
+            crGramPerUnit = profile?.crGramPerUnit
+        ).takeIf { it > 0.0 }
+        return CalculatedUamSnapshot(
+            flag = if (signal != null) 1.0 else 0.0,
+            confidence = signal?.confidence ?: 0.0,
+            estimatedCarbsGrams = carbs,
+            rise15Mmol = signal?.rise15Mmol,
+            rise30Mmol = signal?.rise30Mmol,
+            delta5Mmol = signal?.delta5Mmol
+        )
+    }
+
+    private suspend fun persistCalculatedUamTelemetry(nowTs: Long, snapshot: CalculatedUamSnapshot) {
+        val source = "copilot_calculated"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+
+        fun addNumeric(key: String, value: Double?, unit: String? = null) {
+            val numeric = value ?: return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = numeric,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+        }
+
+        addNumeric("uam_calculated_flag", snapshot.flag)
+        addNumeric("uam_calculated_confidence", snapshot.confidence)
+        addNumeric("uam_calculated_carbs_grams", snapshot.estimatedCarbsGrams, "g")
+        addNumeric("uam_calculated_rise15_mmol", snapshot.rise15Mmol, "mmol/L")
+        addNumeric("uam_calculated_rise30_mmol", snapshot.rise30Mmol, "mmol/L")
+        addNumeric("uam_calculated_delta5_mmol", snapshot.delta5Mmol, "mmol/5m")
+        if (rows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(rows)
         }
     }
 
@@ -677,6 +755,7 @@ class AutomationRepository(
         private const val ALIGN_GAIN = 0.35
         private const val MAX_ALIGN_STEP_MMOL = 1.20
         private const val TELEMETRY_LOOKBACK_MS = 6 * 60 * 60 * 1000L
+        private const val CALCULATED_UAM_LOOKBACK_MINUTES = 120
     }
 
     private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toDomain(): ProfileEstimate = ProfileEstimate(

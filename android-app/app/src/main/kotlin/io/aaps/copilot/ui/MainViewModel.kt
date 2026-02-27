@@ -1606,10 +1606,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tokenAliases = listOf("heart", "heartrate")
         ),
         TelemetryCoverageSpec(
-            primaryKey = "uam_value",
+            primaryKey = "uam_calculated_flag",
             label = "UAM",
             staleThresholdMin = 180L,
-            exactAliases = listOf("uam_detected", "unannounced_meal", "has_uam", "is_uam")
+            exactAliases = listOf("uam_value", "uam_detected", "unannounced_meal", "has_uam", "is_uam")
         ),
         TelemetryCoverageSpec(
             primaryKey = "isf_value",
@@ -1666,6 +1666,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "activity_ratio",
             "activity_label",
             "heart_rate_bpm",
+            "uam_calculated_flag",
+            "uam_calculated_confidence",
+            "uam_calculated_carbs_grams",
             "uam_value",
             "isf_value",
             "cr_value",
@@ -1712,7 +1715,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun isTelemetrySampleUsable(sample: TelemetrySampleEntity): Boolean {
-        if (sample.key != "uam_value") return true
+        if (sample.key != "uam_value" && sample.key != "uam_calculated_flag") return true
         val numeric = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
         return numeric == null || numeric in 0.0..1.5
     }
@@ -1813,7 +1816,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "cr_value" -> profile?.crGramPerUnit?.let {
                 "CR: ${String.format(Locale.US, "%.2f", it)} g/U (profile estimate)"
             }
-            "uam_value" -> profile?.uamObservedCount?.let {
+            "uam_value", "uam_calculated_flag" -> profile?.uamObservedCount?.let {
                 val carbs = profile.uamEstimatedRecentCarbsGrams
                 "UAM: observed=$it, recent=${String.format(Locale.US, "%.1f", carbs)} g (profile analyzer)"
             }

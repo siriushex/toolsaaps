@@ -55,7 +55,7 @@ class ProfileEstimator(
         val sortedEvents = therapyEvents.sortedBy { it.ts }
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
 
-        val uamPoints = buildUamPoints(sortedTelemetry)
+        val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
         val isfBuild = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints)
         val crTherapySamples = buildCrSamples(sortedEvents)
         val telemetryIsfSamples = buildTelemetryIsfSamples(sortedTelemetry)
@@ -111,7 +111,7 @@ class ProfileEstimator(
         val sortedEvents = therapyEvents.sortedBy { it.ts }
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
 
-        val uamPoints = buildUamPoints(sortedTelemetry)
+        val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
         val isfSamples = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples + buildTelemetryIsfSamples(sortedTelemetry)
         val crSamples = buildCrSamples(sortedEvents) + buildTelemetryCrSamples(sortedTelemetry)
         if (isfSamples.isEmpty() && crSamples.isEmpty()) return emptyList()
@@ -254,17 +254,14 @@ class ProfileEstimator(
         }
     }
 
-    private fun buildUamPoints(signals: List<TelemetrySignal>): Set<Long> {
-        return signals
-            .asSequence()
-            .filter { isUamKey(it.key) }
-            .mapNotNull { signal ->
-                when (signal.uamActivation()) {
-                    true -> signal.ts
-                    else -> null
-                }
-            }
-            .toSet()
+    private fun buildUamPoints(
+        glucose: List<GlucosePoint>,
+        events: List<TherapyEvent>
+    ): Set<Long> {
+        return UamCalculator.detectSignals(
+            glucose = glucose,
+            therapyEvents = events
+        ).map { it.ts }.toSet()
     }
 
     private fun extractBolusUnits(event: TherapyEvent): Double? {
@@ -467,38 +464,6 @@ class ProfileEstimator(
             normalized.contains("ic_ratio") ||
             normalized.endsWith("_cr") ||
             normalized.contains("_cr_")
-    }
-
-    private fun isUamKey(key: String): Boolean {
-        val normalized = normalizeKey(key)
-        if (normalized.contains("predbg") || Regex("_uam_\\d+$").containsMatchIn(normalized)) return false
-        return normalized == "uam_value" ||
-            normalized == "uam" ||
-            normalized.endsWith("_uam") ||
-            normalized.endsWith("_enable_uam") ||
-            normalized.endsWith("_uam_detected") ||
-            normalized.endsWith("_unannounced_meal") ||
-            normalized.endsWith("_has_uam") ||
-            normalized.endsWith("_is_uam")
-    }
-
-    private fun TelemetrySignal.uamActivation(): Boolean? {
-        val text = valueText?.trim()?.lowercase()
-        if (text != null) {
-            when (text) {
-                "true", "yes", "on", "enabled", "active" -> return true
-                "false", "no", "off", "disabled", "inactive" -> return false
-            }
-        }
-
-        val numeric = numericValue() ?: return null
-        return when {
-            numeric < 0.0 -> null
-            numeric <= 0.0 -> false
-            numeric in 0.0..1.0 -> numeric >= 0.5
-            numeric in 1.0..1.5 -> true
-            else -> null
-        }
     }
 
     private fun normalizeKey(raw: String): String {

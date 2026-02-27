@@ -114,7 +114,7 @@ class AdaptiveTargetControllerRule : TargetRule {
         val iob = firstTelemetry(telemetry, listOf("iob_units", "iob", "insulinonboard"))
         val cob = firstTelemetry(telemetry, listOf("cob_grams", "cob", "carbsonboard"))
         val activityRatio = firstTelemetry(telemetry, listOf("activity_ratio", "activity", "sensitivityratio"))
-        val uam = firstTelemetry(telemetry, listOf("uam_value", "uam"))
+        val uam = firstTelemetry(telemetry, listOf("uam_value", "uam_calculated_flag", "uam"))
 
         if (iob != null && iob >= 2.0 && trend5 < 0.0) bias += 0.20
         if (activityRatio != null && activityRatio >= 1.2) bias += 0.15
