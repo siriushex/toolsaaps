@@ -31,6 +31,11 @@ class AppSettingsStore(context: Context) {
             rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
             rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
             rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
+            patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
+            patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
+            patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
+            patternHighRateTrigger = prefs[KEY_PATTERN_HIGH_RATE_TRIGGER] ?: DEFAULT_PATTERN_HIGH_RATE_TRIGGER,
+            analyticsLookbackDays = prefs[KEY_ANALYTICS_LOOKBACK_DAYS] ?: DEFAULT_ANALYTICS_LOOKBACK_DAYS,
             maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
             staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
             exportFolderUri = prefs[KEY_EXPORT_URI]
@@ -51,6 +56,11 @@ class AppSettingsStore(context: Context) {
                 rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
                 rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
                 rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
+                patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
+                patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
+                patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
+                patternHighRateTrigger = prefs[KEY_PATTERN_HIGH_RATE_TRIGGER] ?: DEFAULT_PATTERN_HIGH_RATE_TRIGGER,
+                analyticsLookbackDays = prefs[KEY_ANALYTICS_LOOKBACK_DAYS] ?: DEFAULT_ANALYTICS_LOOKBACK_DAYS,
                 maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
                 staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
                 exportFolderUri = prefs[KEY_EXPORT_URI]
@@ -67,6 +77,11 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
+            prefs[KEY_PATTERN_MIN_SAMPLES] = next.patternMinSamplesPerWindow
+            prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] = next.patternMinActiveDaysPerWindow
+            prefs[KEY_PATTERN_LOW_RATE_TRIGGER] = next.patternLowRateTrigger
+            prefs[KEY_PATTERN_HIGH_RATE_TRIGGER] = next.patternHighRateTrigger
+            prefs[KEY_ANALYTICS_LOOKBACK_DAYS] = next.analyticsLookbackDays
             prefs[KEY_MAX_ACTIONS_6H] = next.maxActionsIn6Hours
             prefs[KEY_STALE_DATA_MAX_MINUTES] = next.staleDataMaxMinutes
             if (next.exportFolderUri.isNullOrBlank()) {
@@ -89,12 +104,22 @@ class AppSettingsStore(context: Context) {
         private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
         private val KEY_RULE_POST_HYPO_PRIORITY = intPreferencesKey("rule_post_hypo_priority")
         private val KEY_RULE_PATTERN_PRIORITY = intPreferencesKey("rule_pattern_priority")
+        private val KEY_PATTERN_MIN_SAMPLES = intPreferencesKey("pattern_min_samples")
+        private val KEY_PATTERN_MIN_ACTIVE_DAYS = intPreferencesKey("pattern_min_active_days")
+        private val KEY_PATTERN_LOW_RATE_TRIGGER = doublePreferencesKey("pattern_low_rate_trigger")
+        private val KEY_PATTERN_HIGH_RATE_TRIGGER = doublePreferencesKey("pattern_high_rate_trigger")
+        private val KEY_ANALYTICS_LOOKBACK_DAYS = intPreferencesKey("analytics_lookback_days")
         private val KEY_MAX_ACTIONS_6H = intPreferencesKey("max_actions_in_6h")
         private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
         private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
         private const val DEFAULT_BASE_TARGET_MMOL = 5.5
         private const val DEFAULT_POST_HYPO_PRIORITY = 100
         private const val DEFAULT_PATTERN_PRIORITY = 50
+        private const val DEFAULT_PATTERN_MIN_SAMPLES = 40
+        private const val DEFAULT_PATTERN_MIN_ACTIVE_DAYS = 7
+        private const val DEFAULT_PATTERN_LOW_RATE_TRIGGER = 0.12
+        private const val DEFAULT_PATTERN_HIGH_RATE_TRIGGER = 0.18
+        private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
         private const val DEFAULT_MAX_ACTIONS_6H = 3
         private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
     }
@@ -112,6 +137,11 @@ data class AppSettings(
     val rulePatternEnabled: Boolean,
     val rulePostHypoPriority: Int,
     val rulePatternPriority: Int,
+    val patternMinSamplesPerWindow: Int,
+    val patternMinActiveDaysPerWindow: Int,
+    val patternLowRateTrigger: Double,
+    val patternHighRateTrigger: Double,
+    val analyticsLookbackDays: Int,
     val maxActionsIn6Hours: Int,
     val staleDataMaxMinutes: Int,
     val exportFolderUri: String?

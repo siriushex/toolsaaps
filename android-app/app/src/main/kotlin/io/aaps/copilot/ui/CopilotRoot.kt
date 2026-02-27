@@ -175,6 +175,7 @@ private fun ForecastScreen(state: MainUiState) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
                     Text("Hour ${it.hour}: low=${"%.0f".format(it.lowRate * 100)}%, high=${"%.0f".format(it.highRate * 100)}%")
+                    Text("Evidence: samples=${it.sampleCount}, days=${it.activeDays}")
                     Text("Adaptive target: ${"%.1f".format(it.recommendedTargetMmol)} mmol/L")
                 }
             }
@@ -184,6 +185,7 @@ private fun ForecastScreen(state: MainUiState) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
                     Text("Hour ${it.hour}: low=${"%.0f".format(it.lowRate * 100)}%, high=${"%.0f".format(it.highRate * 100)}%")
+                    Text("Evidence: samples=${it.sampleCount}, days=${it.activeDays}")
                     Text("Adaptive target: ${"%.1f".format(it.recommendedTargetMmol)} mmol/L")
                 }
             }
@@ -255,6 +257,11 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var targetInput by remember(state.baseTargetMmol) { mutableStateOf(String.format("%.1f", state.baseTargetMmol)) }
     var maxActions by remember(state.maxActionsIn6Hours) { mutableStateOf(state.maxActionsIn6Hours.toString()) }
     var staleMax by remember(state.staleDataMaxMinutes) { mutableStateOf(state.staleDataMaxMinutes.toString()) }
+    var patternMinSamples by remember(state.patternMinSamplesPerWindow) { mutableStateOf(state.patternMinSamplesPerWindow.toString()) }
+    var patternMinDays by remember(state.patternMinActiveDaysPerWindow) { mutableStateOf(state.patternMinActiveDaysPerWindow.toString()) }
+    var patternLowTrigger by remember(state.patternLowRateTrigger) { mutableStateOf(String.format("%.2f", state.patternLowRateTrigger)) }
+    var patternHighTrigger by remember(state.patternHighRateTrigger) { mutableStateOf(String.format("%.2f", state.patternHighRateTrigger)) }
+    var lookbackDays by remember(state.analyticsLookbackDays) { mutableStateOf(state.analyticsLookbackDays.toString()) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Kill switch")
@@ -291,9 +298,55 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         }) {
             Text("Apply safety limits")
         }
+        HorizontalDivider()
+        Text("Pattern reliability tuning")
+        OutlinedTextField(
+            value = patternMinSamples,
+            onValueChange = { patternMinSamples = it },
+            label = { Text("Min samples per hour window") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = patternMinDays,
+            onValueChange = { patternMinDays = it },
+            label = { Text("Min active days per window") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = patternLowTrigger,
+            onValueChange = { patternLowTrigger = it },
+            label = { Text("Low-rate trigger (0..1)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = patternHighTrigger,
+            onValueChange = { patternHighTrigger = it },
+            label = { Text("High-rate trigger (0..1)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = lookbackDays,
+            onValueChange = { lookbackDays = it },
+            label = { Text("Analytics lookback days") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = {
+            vm.setPatternTuning(
+                minSamplesPerWindow = patternMinSamples.toIntOrNull() ?: state.patternMinSamplesPerWindow,
+                minActiveDaysPerWindow = patternMinDays.toIntOrNull() ?: state.patternMinActiveDaysPerWindow,
+                lowRateTrigger = patternLowTrigger.toDoubleOrNull() ?: state.patternLowRateTrigger,
+                highRateTrigger = patternHighTrigger.toDoubleOrNull() ?: state.patternHighRateTrigger,
+                lookbackDays = lookbackDays.toIntOrNull() ?: state.analyticsLookbackDays
+            )
+        }) {
+            Text("Apply pattern tuning")
+        }
+        HorizontalDivider()
         Text("ISF estimate: ${state.profileIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
         Text("CR estimate: ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
         Text("Confidence: ${state.profileConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
+        Text("Samples: total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
+        Text("Lookback: ${state.profileLookbackDays ?: "-"} days")
     }
 }
 

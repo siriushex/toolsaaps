@@ -10,5 +10,8 @@ data class ProfileEstimateEntity(
     val isfMmolPerUnit: Double,
     val crGramPerUnit: Double,
     val confidence: Double,
-    val sampleCount: Int
+    val sampleCount: Int,
+    val isfSampleCount: Int,
+    val crSampleCount: Int,
+    val lookbackDays: Int
 )

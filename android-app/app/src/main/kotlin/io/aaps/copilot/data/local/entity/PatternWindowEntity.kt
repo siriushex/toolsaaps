@@ -12,8 +12,11 @@ data class PatternWindowEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val dayType: String,
     val hour: Int,
+    val sampleCount: Int,
+    val activeDays: Int,
     val lowRate: Double,
     val highRate: Double,
     val recommendedTargetMmol: Double,
+    val isRiskWindow: Boolean,
     val updatedAt: Long
 )

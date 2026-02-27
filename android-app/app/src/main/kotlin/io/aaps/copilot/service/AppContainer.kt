@@ -15,7 +15,6 @@ import io.aaps.copilot.data.repository.SyncRepository
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.PatternAnalyzer
 import io.aaps.copilot.domain.predict.PredictionEngine
-import io.aaps.copilot.domain.predict.ProfileEstimator
 import io.aaps.copilot.domain.rules.PatternAdaptiveTargetRule
 import io.aaps.copilot.domain.rules.PostHypoReboundGuardRule
 import io.aaps.copilot.domain.rules.RuleEngine
@@ -55,7 +54,6 @@ class AppContainer(context: Context) {
     val analyticsRepository = AnalyticsRepository(
         db = db,
         patternAnalyzer = PatternAnalyzer(),
-        profileEstimator = ProfileEstimator(),
         gson = gson,
         auditLogger = auditLogger
     )

@@ -4,8 +4,18 @@ import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.ProfileEstimate
 import io.aaps.copilot.domain.model.TherapyEvent
 import kotlin.math.abs
+import kotlin.math.floor
 
-class ProfileEstimator {
+data class ProfileEstimatorConfig(
+    val minIsfSamples: Int = 4,
+    val minCrSamples: Int = 4,
+    val trimFraction: Double = 0.10,
+    val lookbackDays: Int = 365
+)
+
+class ProfileEstimator(
+    private val config: ProfileEstimatorConfig = ProfileEstimatorConfig()
+) {
 
     fun estimate(
         glucoseHistory: List<GlucosePoint>,
@@ -13,22 +23,29 @@ class ProfileEstimator {
     ): ProfileEstimate? {
         if (glucoseHistory.isEmpty() || therapyEvents.isEmpty()) return null
         val sortedGlucose = glucoseHistory.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.sortedBy { it.ts }
 
-        val isfSamples = buildIsfSamples(sortedGlucose, therapyEvents)
-        val crSamples = buildCrSamples(therapyEvents)
+        val isfSamples = trimOutliers(buildIsfSamples(sortedGlucose, sortedEvents))
+        val crSamples = trimOutliers(buildCrSamples(sortedEvents))
 
-        if (isfSamples.isEmpty() || crSamples.isEmpty()) return null
+        if (isfSamples.size < config.minIsfSamples || crSamples.size < config.minCrSamples) return null
 
         val isf = median(isfSamples)
         val cr = median(crSamples)
         val sampleCount = isfSamples.size + crSamples.size
-        val confidence = (sampleCount / 120.0).coerceIn(0.15, 0.99)
+        val confidence = (
+            (isfSamples.size / (config.minIsfSamples * 4.0)) * 0.5 +
+                (crSamples.size / (config.minCrSamples * 4.0)) * 0.5
+            ).coerceIn(0.20, 0.99)
 
         return ProfileEstimate(
             isfMmolPerUnit = isf,
             crGramPerUnit = cr,
             confidence = confidence,
-            sampleCount = sampleCount
+            sampleCount = sampleCount,
+            isfSampleCount = isfSamples.size,
+            crSampleCount = crSamples.size,
+            lookbackDays = config.lookbackDays
         )
     }
 
@@ -45,12 +62,20 @@ class ProfileEstimator {
             val units = bolus.payload["units"]?.toDoubleOrNull() ?: return@mapNotNull null
             if (units <= 0.0) return@mapNotNull null
 
-            val before = glucose.closestTo(bolus.ts, maxDistanceMs = 15 * 60 * 1000L) ?: return@mapNotNull null
-            val after = glucose.closestTo(bolus.ts + 90 * 60 * 1000L, maxDistanceMs = 30 * 60 * 1000L) ?: return@mapNotNull null
+            if (hasMealNearCorrection(events, bolus.ts)) return@mapNotNull null
+
+            val before = glucose.closestTo(
+                targetTs = bolus.ts - 10 * 60 * 1000L,
+                maxDistanceMs = 20 * 60 * 1000L
+            ) ?: return@mapNotNull null
+            val after = glucose.closestTo(
+                targetTs = bolus.ts + 90 * 60 * 1000L,
+                maxDistanceMs = 35 * 60 * 1000L
+            ) ?: return@mapNotNull null
 
             val drop = before.valueMmol - after.valueMmol
-            if (drop <= 0.0) return@mapNotNull null
-            (drop / units).takeIf { it in 0.1..15.0 }
+            if (drop <= 0.15) return@mapNotNull null
+            (drop / units).takeIf { it in 0.2..18.0 }
         }
     }
 
@@ -66,6 +91,26 @@ class ProfileEstimator {
             if (grams <= 0.0 || units <= 0.0) return@mapNotNull null
             (grams / units).takeIf { it in 2.0..60.0 }
         }
+    }
+
+    private fun hasMealNearCorrection(events: List<TherapyEvent>, correctionTs: Long): Boolean {
+        val from = correctionTs - 20 * 60 * 1000L
+        val to = correctionTs + 110 * 60 * 1000L
+        return events.any { event ->
+            event.ts in from..to &&
+                (
+                    event.type.equals("meal_bolus", ignoreCase = true) ||
+                        event.type.equals("carbs", ignoreCase = true)
+                    )
+        }
+    }
+
+    private fun trimOutliers(values: List<Double>): List<Double> {
+        if (values.size < 5) return values.sorted()
+        val sorted = values.sorted()
+        val trim = floor(sorted.size * config.trimFraction).toInt().coerceAtMost(sorted.size / 4)
+        if (trim == 0 || trim * 2 >= sorted.size) return sorted
+        return sorted.subList(trim, sorted.size - trim)
     }
 
     private fun median(values: List<Double>): Double {

@@ -36,7 +36,7 @@ import io.aaps.copilot.data.local.entity.TherapyEventEntity
         PatternWindowEntity::class,
         ProfileEstimateEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {

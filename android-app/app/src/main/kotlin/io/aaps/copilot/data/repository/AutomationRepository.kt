@@ -54,7 +54,7 @@ class AutomationRepository(
         syncRepository.syncNightscoutIncremental()
         syncRepository.pushCloudIncremental()
         exportRepository.importBaselineFromExports()
-        analyticsRepository.recalculate(settings.baseTargetMmol)
+        analyticsRepository.recalculate(settings)
 
         val glucose = syncRepository.recentGlucose(limit = 72)
         if (glucose.isEmpty()) {
@@ -81,9 +81,12 @@ class AutomationRepository(
             io.aaps.copilot.domain.model.PatternWindow(
                 dayType = io.aaps.copilot.domain.model.DayType.valueOf(it.dayType),
                 hour = it.hour,
+                sampleCount = it.sampleCount,
+                activeDays = it.activeDays,
                 lowRate = it.lowRate,
                 highRate = it.highRate,
-                recommendedTargetMmol = it.recommendedTargetMmol
+                recommendedTargetMmol = it.recommendedTargetMmol,
+                isRiskWindow = it.isRiskWindow
             )
         }
 
@@ -187,9 +190,12 @@ class AutomationRepository(
                 io.aaps.copilot.domain.model.PatternWindow(
                     dayType = dayType,
                     hour = it.hour,
+                    sampleCount = it.sampleCount,
+                    activeDays = it.activeDays,
                     lowRate = it.lowRate,
                     highRate = it.highRate,
-                    recommendedTargetMmol = it.recommendedTargetMmol
+                    recommendedTargetMmol = it.recommendedTargetMmol,
+                    isRiskWindow = it.isRiskWindow
                 )
             }
 

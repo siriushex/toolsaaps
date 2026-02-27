@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -170,32 +171,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileIsf = profile?.isfMmolPerUnit,
             profileCr = profile?.crGramPerUnit,
             profileConfidence = profile?.confidence,
+            profileSamples = profile?.sampleCount,
+            profileIsfSamples = profile?.isfSampleCount,
+            profileCrSamples = profile?.crSampleCount,
+            profileLookbackDays = profile?.lookbackDays,
             rulePostHypoEnabled = settings.rulePostHypoEnabled,
             rulePatternEnabled = settings.rulePatternEnabled,
             rulePostHypoPriority = settings.rulePostHypoPriority,
             rulePatternPriority = settings.rulePatternPriority,
+            patternMinSamplesPerWindow = settings.patternMinSamplesPerWindow,
+            patternMinActiveDaysPerWindow = settings.patternMinActiveDaysPerWindow,
+            patternLowRateTrigger = settings.patternLowRateTrigger,
+            patternHighRateTrigger = settings.patternHighRateTrigger,
+            analyticsLookbackDays = settings.analyticsLookbackDays,
             maxActionsIn6Hours = settings.maxActionsIn6Hours,
             staleDataMaxMinutes = settings.staleDataMaxMinutes,
             weekdayHotHours = patterns
-                .filter { it.dayType == DayType.WEEKDAY.name && (it.lowRate >= 0.12 || it.highRate >= 0.18) }
+                .filter { it.dayType == DayType.WEEKDAY.name && it.isRiskWindow }
+                .sortedBy { it.hour }
                 .map {
                     PatternWindow(
                         dayType = DayType.WEEKDAY,
                         hour = it.hour,
+                        sampleCount = it.sampleCount,
+                        activeDays = it.activeDays,
                         lowRate = it.lowRate,
                         highRate = it.highRate,
-                        recommendedTargetMmol = it.recommendedTargetMmol
+                        recommendedTargetMmol = it.recommendedTargetMmol,
+                        isRiskWindow = it.isRiskWindow
                     )
                 },
             weekendHotHours = patterns
-                .filter { it.dayType == DayType.WEEKEND.name && (it.lowRate >= 0.12 || it.highRate >= 0.18) }
+                .filter { it.dayType == DayType.WEEKEND.name && it.isRiskWindow }
+                .sortedBy { it.hour }
                 .map {
                     PatternWindow(
                         dayType = DayType.WEEKEND,
                         hour = it.hour,
+                        sampleCount = it.sampleCount,
+                        activeDays = it.activeDays,
                         lowRate = it.lowRate,
                         highRate = it.highRate,
-                        recommendedTargetMmol = it.recommendedTargetMmol
+                        recommendedTargetMmol = it.recommendedTargetMmol,
+                        isRiskWindow = it.isRiskWindow
                     )
                 },
             qualityMetrics = quality.map {
@@ -243,7 +261,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setBaseTarget(mmol: Double) {
         viewModelScope.launch {
             container.settingsStore.update { it.copy(baseTargetMmol = mmol.coerceIn(4.4, 8.0)) }
-            container.analyticsRepository.recalculate(mmol.coerceIn(4.4, 8.0))
+            val settings = container.settingsStore.settings.first()
+            container.analyticsRepository.recalculate(settings)
             messageState.value = "Base target updated"
         }
     }
@@ -283,6 +302,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             messageState.value = "Safety limits updated"
+        }
+    }
+
+    fun setPatternTuning(
+        minSamplesPerWindow: Int,
+        minActiveDaysPerWindow: Int,
+        lowRateTrigger: Double,
+        highRateTrigger: Double,
+        lookbackDays: Int
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    patternMinSamplesPerWindow = minSamplesPerWindow.coerceIn(10, 300),
+                    patternMinActiveDaysPerWindow = minActiveDaysPerWindow.coerceIn(3, 60),
+                    patternLowRateTrigger = lowRateTrigger.coerceIn(0.03, 0.60),
+                    patternHighRateTrigger = highRateTrigger.coerceIn(0.05, 0.80),
+                    analyticsLookbackDays = lookbackDays.coerceIn(30, 730)
+                )
+            }
+            val settings = container.settingsStore.settings.first()
+            container.analyticsRepository.recalculate(settings)
+            messageState.value = "Pattern tuning updated"
         }
     }
 
@@ -526,10 +568,19 @@ data class MainUiState(
     val profileIsf: Double? = null,
     val profileCr: Double? = null,
     val profileConfidence: Double? = null,
+    val profileSamples: Int? = null,
+    val profileIsfSamples: Int? = null,
+    val profileCrSamples: Int? = null,
+    val profileLookbackDays: Int? = null,
     val rulePostHypoEnabled: Boolean = true,
     val rulePatternEnabled: Boolean = true,
     val rulePostHypoPriority: Int = 100,
     val rulePatternPriority: Int = 50,
+    val patternMinSamplesPerWindow: Int = 40,
+    val patternMinActiveDaysPerWindow: Int = 7,
+    val patternLowRateTrigger: Double = 0.12,
+    val patternHighRateTrigger: Double = 0.18,
+    val analyticsLookbackDays: Int = 365,
     val maxActionsIn6Hours: Int = 3,
     val staleDataMaxMinutes: Int = 10,
     val weekdayHotHours: List<PatternWindow> = emptyList(),

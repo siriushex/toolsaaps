@@ -15,6 +15,9 @@ class PatternAdaptiveTargetRule : TargetRule {
         }
 
         val pattern = context.currentDayPattern ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("no_pattern_window"), null)
+        if (!pattern.isRiskWindow) {
+            return RuleDecision(id, RuleState.NO_MATCH, listOf("no_risk_window"), null)
+        }
         if (abs(pattern.recommendedTargetMmol - context.baseTargetMmol) < 0.15) {
             return RuleDecision(id, RuleState.NO_MATCH, listOf("close_to_base_target"), null)
         }
@@ -32,7 +35,13 @@ class PatternAdaptiveTargetRule : TargetRule {
         return RuleDecision(
             ruleId = id,
             state = RuleState.TRIGGERED,
-            reasons = listOf(reason, "day=${pattern.dayType}", "hour=${pattern.hour}"),
+            reasons = listOf(
+                reason,
+                "day=${pattern.dayType}",
+                "hour=${pattern.hour}",
+                "samples=${pattern.sampleCount}",
+                "activeDays=${pattern.activeDays}"
+            ),
             actionProposal = ActionProposal(
                 type = "temp_target",
                 targetMmol = pattern.recommendedTargetMmol,

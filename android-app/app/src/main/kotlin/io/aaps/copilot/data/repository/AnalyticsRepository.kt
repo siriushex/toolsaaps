@@ -1,30 +1,39 @@
 package io.aaps.copilot.data.repository
 
 import com.google.gson.Gson
+import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.predict.PatternAnalyzer
+import io.aaps.copilot.domain.predict.PatternAnalyzerConfig
 import io.aaps.copilot.domain.predict.ProfileEstimator
+import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
 import kotlinx.coroutines.flow.Flow
 
 class AnalyticsRepository(
     private val db: CopilotDatabase,
     private val patternAnalyzer: PatternAnalyzer,
-    private val profileEstimator: ProfileEstimator,
     private val gson: Gson,
     private val auditLogger: AuditLogger
 ) {
 
-    suspend fun recalculate(baseTargetMmol: Double) {
-        val historyStart = System.currentTimeMillis() - 180L * 24 * 60 * 60 * 1000
+    suspend fun recalculate(settings: AppSettings) {
+        val lookbackDays = settings.analyticsLookbackDays.coerceIn(30, 730)
+        val historyStart = System.currentTimeMillis() - lookbackDays * 24L * 60 * 60 * 1000
         val glucose = db.glucoseDao().since(historyStart).map { it.toDomain() }
         val therapy = db.therapyDao().since(historyStart).map { it.toDomain(gson) }
 
         val windows = patternAnalyzer.analyze(
             glucoseHistory = glucose,
-            baseTargetMmol = baseTargetMmol
+            config = PatternAnalyzerConfig(
+                baseTargetMmol = settings.baseTargetMmol,
+                minSamplesPerWindow = settings.patternMinSamplesPerWindow,
+                minActiveDaysPerWindow = settings.patternMinActiveDaysPerWindow,
+                lowRateTrigger = settings.patternLowRateTrigger,
+                highRateTrigger = settings.patternHighRateTrigger
+            )
         )
 
         db.patternDao().clear()
@@ -33,22 +42,32 @@ class AnalyticsRepository(
                 PatternWindowEntity(
                     dayType = it.dayType.name,
                     hour = it.hour,
+                    sampleCount = it.sampleCount,
+                    activeDays = it.activeDays,
                     lowRate = it.lowRate,
                     highRate = it.highRate,
                     recommendedTargetMmol = it.recommendedTargetMmol,
+                    isRiskWindow = it.isRiskWindow,
                     updatedAt = System.currentTimeMillis()
                 )
             }
         )
 
-        profileEstimator.estimate(glucose, therapy)?.let { estimate ->
+        val profileEstimate = ProfileEstimator(
+            ProfileEstimatorConfig(lookbackDays = lookbackDays)
+        ).estimate(glucose, therapy)
+
+        profileEstimate?.let { estimate ->
             db.profileEstimateDao().upsert(
                 ProfileEstimateEntity(
                     timestamp = System.currentTimeMillis(),
                     isfMmolPerUnit = estimate.isfMmolPerUnit,
                     crGramPerUnit = estimate.crGramPerUnit,
                     confidence = estimate.confidence,
-                    sampleCount = estimate.sampleCount
+                    sampleCount = estimate.sampleCount,
+                    isfSampleCount = estimate.isfSampleCount,
+                    crSampleCount = estimate.crSampleCount,
+                    lookbackDays = estimate.lookbackDays
                 )
             )
             auditLogger.info(
@@ -57,19 +76,43 @@ class AnalyticsRepository(
                     "isf" to estimate.isfMmolPerUnit,
                     "cr" to estimate.crGramPerUnit,
                     "confidence" to estimate.confidence,
-                    "samples" to estimate.sampleCount
+                    "samples" to estimate.sampleCount,
+                    "isfSamples" to estimate.isfSampleCount,
+                    "crSamples" to estimate.crSampleCount,
+                    "lookbackDays" to estimate.lookbackDays
                 )
             )
-        }
+        } ?: auditLogger.warn(
+            "profile_estimate_skipped",
+            mapOf("reason" to "insufficient_samples", "lookbackDays" to lookbackDays)
+        )
+
+        val riskWindows = windows.count { it.isRiskWindow }
+        val lowRisk = windows.count { it.isRiskWindow && it.lowRate >= settings.patternLowRateTrigger }
+        val highRisk = windows.count { it.isRiskWindow && it.highRate >= settings.patternHighRateTrigger }
 
         auditLogger.info(
             "pattern_recalculated",
             mapOf(
                 "windows" to windows.size,
+                "riskWindows" to riskWindows,
+                "lowRiskWindows" to lowRisk,
+                "highRiskWindows" to highRisk,
                 "weekdayWindows" to windows.count { it.dayType == DayType.WEEKDAY },
-                "weekendWindows" to windows.count { it.dayType == DayType.WEEKEND }
+                "weekendWindows" to windows.count { it.dayType == DayType.WEEKEND },
+                "lookbackDays" to lookbackDays
             )
         )
+
+        if (riskWindows == 0) {
+            auditLogger.warn(
+                "pattern_recalculated_no_risk_windows",
+                mapOf(
+                    "minSamples" to settings.patternMinSamplesPerWindow,
+                    "minDays" to settings.patternMinActiveDaysPerWindow
+                )
+            )
+        }
     }
 
     fun observePatterns() = db.patternDao().observeAll()

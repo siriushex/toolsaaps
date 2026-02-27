@@ -8,8 +8,10 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Rule engine with hard safety guardrails and kill switch
 - Rule control: enable/disable per rule, priority ordering, and dry-run simulation
 - Automatic temp target actions via Nightscout API (idempotent)
-- Weekday/weekend pattern discovery by hour with adaptive targets
-- Long-window ISF/CR estimation from historical events
+- Weekday/weekend pattern discovery by hour with reliability gating (`min samples`, `min active days`)
+- Adaptive target rule only on validated risk windows (reduces noisy auto-actions)
+- Long-window ISF/CR estimation from historical events with outlier trimming and sample counters
+- Configurable pattern thresholds + analytics lookback directly in Safety settings
 - Forecast quality metrics (MAE/RMSE/MARD) + delta vs AAPS baseline
 - Backend replay report API for historical E2E validation (global, weekday/weekend, hourly, drift)
 - Replay Lab screen with filters (days/step/horizon) and CSV/PDF export
