@@ -158,6 +158,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val analysisTrendLines = analysisTrend?.items?.map { item ->
             "${item.weekStart}: runs=${item.totalRuns}, ok=${item.successRuns}, fail=${item.failedRuns}, an=${item.anomaliesCount}, rec=${item.recommendationsCount}"
         } ?: emptyList()
+        val ruleCooldownLines = buildRuleCooldownLines(ruleExec, settings, now)
         val profileSegmentLines = profileSegments
             .sortedWith(compareBy<ProfileSegmentEstimateEntity> { it.dayType }.thenBy { it.timeSlot })
             .map { segment ->
@@ -250,6 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             insightsFilterLabel = insightsFilterLabel,
             analysisHistoryLines = analysisHistoryLines,
             analysisTrendLines = analysisTrendLines,
+            ruleCooldownLines = ruleCooldownLines,
             dryRun = dryRun,
             cloudReplay = cloudReplay,
             auditLines = audits.map { "${it.level}: ${it.message}" },
@@ -578,6 +580,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildInsightsFilterLabel(filter: InsightsFilterUi): String =
         "Filters: source=${filter.source ?: "all"}, status=${filter.status ?: "all"}, days=${filter.days}, weeks=${filter.weeks}"
+
+    private fun buildRuleCooldownLines(
+        executions: List<RuleExecutionEntity>,
+        settings: AppSettings,
+        nowTs: Long
+    ): List<String> {
+        val rules = listOf(
+            Triple("PostHypoReboundGuard.v1", "PostHypo", settings.rulePostHypoCooldownMinutes),
+            Triple("PatternAdaptiveTarget.v1", "Pattern", settings.rulePatternCooldownMinutes),
+            Triple("SegmentProfileGuard.v1", "Segment", settings.ruleSegmentCooldownMinutes)
+        )
+        return rules.map { (ruleId, title, cooldownMinutes) ->
+            if (cooldownMinutes <= 0) {
+                return@map "$title: cooldown off"
+            }
+            val lastTriggeredTs = executions.firstOrNull {
+                it.ruleId == ruleId && it.state == "TRIGGERED"
+            }?.timestamp
+            if (lastTriggeredTs == null) {
+                return@map "$title: ready"
+            }
+            val remainingMs = cooldownMinutes * 60_000L - (nowTs - lastTriggeredTs)
+            if (remainingMs <= 0) {
+                "$title: ready"
+            } else {
+                val remainingMin = ((remainingMs + 59_999L) / 60_000L).coerceAtLeast(1L)
+                "$title: ${remainingMin}m left (last ${formatTs(lastTriggeredTs)})"
+            }
+        }
+    }
 }
 
 data class MainUiState(
@@ -625,6 +657,7 @@ data class MainUiState(
     val insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8",
     val analysisHistoryLines: List<String> = emptyList(),
     val analysisTrendLines: List<String> = emptyList(),
+    val ruleCooldownLines: List<String> = emptyList(),
     val dryRun: DryRunUi? = null,
     val cloudReplay: CloudReplayUiModel? = null,
     val auditLines: List<String> = emptyList(),

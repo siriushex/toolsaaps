@@ -8,6 +8,7 @@ Standalone Android + backend prototype for advanced AAPS/OpenAPS analytics:
 - Rule engine with hard safety guardrails and kill switch
 - Rule control: enable/disable per rule, priority ordering, and dry-run simulation
 - Single-action arbitration per automation cycle + configurable per-rule cooldown windows
+- Live cooldown status per rule in `Rules & Automation`
 - Automatic temp target actions via Nightscout API (idempotent)
 - Weekday/weekend pattern discovery by hour with reliability gating (`min samples`, `min active days`)
 - Adaptive target rule only on validated risk windows (reduces noisy auto-actions)

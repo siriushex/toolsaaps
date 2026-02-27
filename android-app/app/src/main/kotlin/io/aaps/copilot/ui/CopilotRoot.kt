@@ -271,6 +271,12 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
         }) {
             Text("Save rule config")
         }
+        Text("Cooldown status")
+        if (state.ruleCooldownLines.isEmpty()) {
+            Text("No cooldown state yet")
+        } else {
+            state.ruleCooldownLines.forEach { Text(it) }
+        }
         HorizontalDivider()
         Text("Dry-run simulation")
         OutlinedTextField(
