@@ -124,7 +124,7 @@ class AutomationRepository(
 
         for (decision in decisions) {
             val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
-                val cooldownMinutes = ruleCooldownMinutes(decision.ruleId)
+                val cooldownMinutes = ruleCooldownMinutes(decision.ruleId, settings)
                 if (cooldownMinutes > 0 && isRuleInCooldown(decision.ruleId, now, cooldownMinutes)) {
                     decision.copy(
                         state = RuleState.BLOCKED,
@@ -255,7 +255,7 @@ class AutomationRepository(
 
             decisions.forEach { decision ->
                 val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
-                    val cooldown = ruleCooldownMinutes(decision.ruleId)
+                    val cooldown = ruleCooldownMinutes(decision.ruleId, settings)
                     val lastTs = lastTriggeredTsByRule[decision.ruleId]
                     if (cooldown > 0 && lastTs != null && (pointTs - lastTs) < cooldown * 60_000L) {
                         decision.copy(
@@ -377,10 +377,10 @@ class AutomationRepository(
         return RuleRuntimeConfig(enabledRuleIds = enabled, priorities = priorities)
     }
 
-    private fun ruleCooldownMinutes(ruleId: String): Int = when (ruleId) {
-        "PostHypoReboundGuard.v1" -> 30
-        "PatternAdaptiveTarget.v1" -> 60
-        "SegmentProfileGuard.v1" -> 60
+    private fun ruleCooldownMinutes(ruleId: String, settings: io.aaps.copilot.config.AppSettings): Int = when (ruleId) {
+        "PostHypoReboundGuard.v1" -> settings.rulePostHypoCooldownMinutes
+        "PatternAdaptiveTarget.v1" -> settings.rulePatternCooldownMinutes
+        "SegmentProfileGuard.v1" -> settings.ruleSegmentCooldownMinutes
         else -> 0
     }
 

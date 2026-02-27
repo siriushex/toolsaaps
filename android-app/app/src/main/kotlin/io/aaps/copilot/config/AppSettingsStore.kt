@@ -33,6 +33,9 @@ class AppSettingsStore(context: Context) {
             rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
             rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
             ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
+            rulePostHypoCooldownMinutes = prefs[KEY_RULE_POST_HYPO_COOLDOWN] ?: DEFAULT_POST_HYPO_COOLDOWN_MIN,
+            rulePatternCooldownMinutes = prefs[KEY_RULE_PATTERN_COOLDOWN] ?: DEFAULT_PATTERN_COOLDOWN_MIN,
+            ruleSegmentCooldownMinutes = prefs[KEY_RULE_SEGMENT_COOLDOWN] ?: DEFAULT_SEGMENT_COOLDOWN_MIN,
             patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
             patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
             patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
@@ -60,6 +63,9 @@ class AppSettingsStore(context: Context) {
                 rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
                 rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
                 ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
+                rulePostHypoCooldownMinutes = prefs[KEY_RULE_POST_HYPO_COOLDOWN] ?: DEFAULT_POST_HYPO_COOLDOWN_MIN,
+                rulePatternCooldownMinutes = prefs[KEY_RULE_PATTERN_COOLDOWN] ?: DEFAULT_PATTERN_COOLDOWN_MIN,
+                ruleSegmentCooldownMinutes = prefs[KEY_RULE_SEGMENT_COOLDOWN] ?: DEFAULT_SEGMENT_COOLDOWN_MIN,
                 patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
                 patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
                 patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
@@ -83,6 +89,9 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
             prefs[KEY_RULE_SEGMENT_PRIORITY] = next.ruleSegmentPriority
+            prefs[KEY_RULE_POST_HYPO_COOLDOWN] = next.rulePostHypoCooldownMinutes
+            prefs[KEY_RULE_PATTERN_COOLDOWN] = next.rulePatternCooldownMinutes
+            prefs[KEY_RULE_SEGMENT_COOLDOWN] = next.ruleSegmentCooldownMinutes
             prefs[KEY_PATTERN_MIN_SAMPLES] = next.patternMinSamplesPerWindow
             prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] = next.patternMinActiveDaysPerWindow
             prefs[KEY_PATTERN_LOW_RATE_TRIGGER] = next.patternLowRateTrigger
@@ -112,6 +121,9 @@ class AppSettingsStore(context: Context) {
         private val KEY_RULE_POST_HYPO_PRIORITY = intPreferencesKey("rule_post_hypo_priority")
         private val KEY_RULE_PATTERN_PRIORITY = intPreferencesKey("rule_pattern_priority")
         private val KEY_RULE_SEGMENT_PRIORITY = intPreferencesKey("rule_segment_priority")
+        private val KEY_RULE_POST_HYPO_COOLDOWN = intPreferencesKey("rule_post_hypo_cooldown_minutes")
+        private val KEY_RULE_PATTERN_COOLDOWN = intPreferencesKey("rule_pattern_cooldown_minutes")
+        private val KEY_RULE_SEGMENT_COOLDOWN = intPreferencesKey("rule_segment_cooldown_minutes")
         private val KEY_PATTERN_MIN_SAMPLES = intPreferencesKey("pattern_min_samples")
         private val KEY_PATTERN_MIN_ACTIVE_DAYS = intPreferencesKey("pattern_min_active_days")
         private val KEY_PATTERN_LOW_RATE_TRIGGER = doublePreferencesKey("pattern_low_rate_trigger")
@@ -124,6 +136,9 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_POST_HYPO_PRIORITY = 100
         private const val DEFAULT_PATTERN_PRIORITY = 50
         private const val DEFAULT_SEGMENT_PRIORITY = 40
+        private const val DEFAULT_POST_HYPO_COOLDOWN_MIN = 30
+        private const val DEFAULT_PATTERN_COOLDOWN_MIN = 60
+        private const val DEFAULT_SEGMENT_COOLDOWN_MIN = 60
         private const val DEFAULT_PATTERN_MIN_SAMPLES = 40
         private const val DEFAULT_PATTERN_MIN_ACTIVE_DAYS = 7
         private const val DEFAULT_PATTERN_LOW_RATE_TRIGGER = 0.12
@@ -148,6 +163,9 @@ data class AppSettings(
     val rulePostHypoPriority: Int,
     val rulePatternPriority: Int,
     val ruleSegmentPriority: Int,
+    val rulePostHypoCooldownMinutes: Int,
+    val rulePatternCooldownMinutes: Int,
+    val ruleSegmentCooldownMinutes: Int,
     val patternMinSamplesPerWindow: Int,
     val patternMinActiveDaysPerWindow: Int,
     val patternLowRateTrigger: Double,

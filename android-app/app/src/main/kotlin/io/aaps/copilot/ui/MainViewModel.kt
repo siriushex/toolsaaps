@@ -193,6 +193,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             rulePostHypoPriority = settings.rulePostHypoPriority,
             rulePatternPriority = settings.rulePatternPriority,
             ruleSegmentPriority = settings.ruleSegmentPriority,
+            rulePostHypoCooldownMinutes = settings.rulePostHypoCooldownMinutes,
+            rulePatternCooldownMinutes = settings.rulePatternCooldownMinutes,
+            ruleSegmentCooldownMinutes = settings.ruleSegmentCooldownMinutes,
             patternMinSamplesPerWindow = settings.patternMinSamplesPerWindow,
             patternMinActiveDaysPerWindow = settings.patternMinActiveDaysPerWindow,
             patternLowRateTrigger = settings.patternLowRateTrigger,
@@ -294,7 +297,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         segmentEnabled: Boolean,
         postHypoPriority: Int,
         patternPriority: Int,
-        segmentPriority: Int
+        segmentPriority: Int,
+        postHypoCooldownMinutes: Int,
+        patternCooldownMinutes: Int,
+        segmentCooldownMinutes: Int
     ) {
         viewModelScope.launch {
             container.settingsStore.update {
@@ -304,7 +310,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ruleSegmentEnabled = segmentEnabled,
                     rulePostHypoPriority = postHypoPriority.coerceIn(0, 200),
                     rulePatternPriority = patternPriority.coerceIn(0, 200),
-                    ruleSegmentPriority = segmentPriority.coerceIn(0, 200)
+                    ruleSegmentPriority = segmentPriority.coerceIn(0, 200),
+                    rulePostHypoCooldownMinutes = postHypoCooldownMinutes.coerceIn(0, 240),
+                    rulePatternCooldownMinutes = patternCooldownMinutes.coerceIn(0, 240),
+                    ruleSegmentCooldownMinutes = segmentCooldownMinutes.coerceIn(0, 240)
                 )
             }
             messageState.value = "Rule config updated"
@@ -597,6 +606,9 @@ data class MainUiState(
     val rulePostHypoPriority: Int = 100,
     val rulePatternPriority: Int = 50,
     val ruleSegmentPriority: Int = 40,
+    val rulePostHypoCooldownMinutes: Int = 30,
+    val rulePatternCooldownMinutes: Int = 60,
+    val ruleSegmentCooldownMinutes: Int = 60,
     val patternMinSamplesPerWindow: Int = 40,
     val patternMinActiveDaysPerWindow: Int = 7,
     val patternLowRateTrigger: Double = 0.12,

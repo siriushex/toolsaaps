@@ -201,6 +201,9 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
     var postPriority by remember(state.rulePostHypoPriority) { mutableStateOf(state.rulePostHypoPriority.toString()) }
     var patternPriority by remember(state.rulePatternPriority) { mutableStateOf(state.rulePatternPriority.toString()) }
     var segmentPriority by remember(state.ruleSegmentPriority) { mutableStateOf(state.ruleSegmentPriority.toString()) }
+    var postCooldown by remember(state.rulePostHypoCooldownMinutes) { mutableStateOf(state.rulePostHypoCooldownMinutes.toString()) }
+    var patternCooldown by remember(state.rulePatternCooldownMinutes) { mutableStateOf(state.rulePatternCooldownMinutes.toString()) }
+    var segmentCooldown by remember(state.ruleSegmentCooldownMinutes) { mutableStateOf(state.ruleSegmentCooldownMinutes.toString()) }
     var dryRunDays by remember { mutableStateOf("14") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -215,6 +218,12 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
             label = { Text("PostHypo priority (0..200)") },
             modifier = Modifier.fillMaxWidth()
         )
+        OutlinedTextField(
+            value = postCooldown,
+            onValueChange = { postCooldown = it },
+            label = { Text("PostHypo cooldown minutes (0..240)") },
+            modifier = Modifier.fillMaxWidth()
+        )
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("PatternAdaptiveTarget")
             Switch(checked = patternEnabled, onCheckedChange = { patternEnabled = it })
@@ -223,6 +232,12 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
             value = patternPriority,
             onValueChange = { patternPriority = it },
             label = { Text("Pattern priority (0..200)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = patternCooldown,
+            onValueChange = { patternCooldown = it },
+            label = { Text("Pattern cooldown minutes (0..240)") },
             modifier = Modifier.fillMaxWidth()
         )
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
@@ -235,6 +250,12 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
             label = { Text("Segment priority (0..200)") },
             modifier = Modifier.fillMaxWidth()
         )
+        OutlinedTextField(
+            value = segmentCooldown,
+            onValueChange = { segmentCooldown = it },
+            label = { Text("Segment cooldown minutes (0..240)") },
+            modifier = Modifier.fillMaxWidth()
+        )
         Button(onClick = {
             vm.setRuleConfig(
                 postHypoEnabled = postEnabled,
@@ -242,7 +263,10 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
                 segmentEnabled = segmentEnabled,
                 postHypoPriority = postPriority.toIntOrNull() ?: state.rulePostHypoPriority,
                 patternPriority = patternPriority.toIntOrNull() ?: state.rulePatternPriority,
-                segmentPriority = segmentPriority.toIntOrNull() ?: state.ruleSegmentPriority
+                segmentPriority = segmentPriority.toIntOrNull() ?: state.ruleSegmentPriority,
+                postHypoCooldownMinutes = postCooldown.toIntOrNull() ?: state.rulePostHypoCooldownMinutes,
+                patternCooldownMinutes = patternCooldown.toIntOrNull() ?: state.rulePatternCooldownMinutes,
+                segmentCooldownMinutes = segmentCooldown.toIntOrNull() ?: state.ruleSegmentCooldownMinutes
             )
         }) {
             Text("Save rule config")
