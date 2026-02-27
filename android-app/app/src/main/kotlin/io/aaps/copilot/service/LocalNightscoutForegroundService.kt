@@ -43,23 +43,29 @@ class LocalNightscoutForegroundService : Service() {
         val settings = runBlocking {
             app.container.settingsStore.settings.first()
         }
-        if (!settings.localNightscoutEnabled) {
+        if (!isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)) {
             stopSelfSafely()
             return START_NOT_STICKY
         }
-        ensureForeground(settings.localNightscoutPort)
+        ensureForeground(
+            port = settings.localNightscoutPort,
+            localNightscoutEnabled = settings.localNightscoutEnabled
+        )
         if (settingsMonitorJob == null) {
             settingsMonitorJob = serviceScope.launch {
                 app.container.settingsStore.settings.collectLatest { latest ->
-                    if (!latest.localNightscoutEnabled) {
+                    if (!isRuntimeNeeded(latest.localNightscoutEnabled, latest.localBroadcastIngestEnabled)) {
                         stopSelfSafely()
                         return@collectLatest
                     }
-                    ensureForeground(latest.localNightscoutPort)
+                    ensureForeground(
+                        port = latest.localNightscoutPort,
+                        localNightscoutEnabled = latest.localNightscoutEnabled
+                    )
                 }
             }
         }
-        // Service stays sticky so local Nightscout loopback remains reachable for AAPS.
+        // Keep process alive for local loopback and high-frequency local broadcast ingest.
         return START_STICKY
     }
 
@@ -73,9 +79,12 @@ class LocalNightscoutForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun ensureForeground(port: Int) {
+    private fun ensureForeground(port: Int, localNightscoutEnabled: Boolean) {
         val safePort = port.coerceIn(1_024, 65_535)
-        val notification = buildNotification(safePort)
+        val notification = buildNotification(
+            port = safePort,
+            localNightscoutEnabled = localNightscoutEnabled
+        )
         val manager = getSystemService(NotificationManager::class.java)
         if (!foregroundStarted) {
             startForeground(NOTIFICATION_ID, notification)
@@ -102,7 +111,7 @@ class LocalNightscoutForegroundService : Service() {
         }
     }
 
-    private fun buildNotification(port: Int): Notification {
+    private fun buildNotification(port: Int, localNightscoutEnabled: Boolean): Notification {
         val launchIntent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pendingIntent = PendingIntent.getActivity(
@@ -114,8 +123,20 @@ class LocalNightscoutForegroundService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle(getString(R.string.local_nightscout_notification_title))
-            .setContentText(getString(R.string.local_nightscout_notification_text, port))
+            .setContentTitle(
+                if (localNightscoutEnabled) {
+                    getString(R.string.local_nightscout_notification_title)
+                } else {
+                    getString(R.string.local_ingest_notification_title)
+                }
+            )
+            .setContentText(
+                if (localNightscoutEnabled) {
+                    getString(R.string.local_nightscout_notification_text, port)
+                } else {
+                    getString(R.string.local_ingest_notification_text)
+                }
+            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
@@ -136,6 +157,10 @@ class LocalNightscoutForegroundService : Service() {
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
+    }
+
+    private fun isRuntimeNeeded(localNightscoutEnabled: Boolean, localBroadcastIngestEnabled: Boolean): Boolean {
+        return localNightscoutEnabled || localBroadcastIngestEnabled
     }
 
     companion object {

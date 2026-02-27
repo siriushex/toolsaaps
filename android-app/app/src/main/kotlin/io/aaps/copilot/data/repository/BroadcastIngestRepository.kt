@@ -4,9 +4,12 @@ import android.content.Intent
 import android.os.Bundle
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.util.UnitConverter
+import kotlin.math.abs
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -22,8 +25,7 @@ class BroadcastIngestRepository(
             return IngestResult(0, 0, 0, "missing_action")
         }
 
-        pruneLegacyInvalidLocalBroadcastGlucose()
-        pruneLegacyBroadcastArtifacts()
+        runPeriodicMaintenanceIfNeeded()
 
         val extras = flattenExtras(intent)
         val source = resolveSource(action)
@@ -36,10 +38,30 @@ class BroadcastIngestRepository(
         var importedTelemetry = 0
 
         glucose?.let { sample ->
-            val maxTs = db.glucoseDao().maxTimestamp() ?: 0L
-            if (sample.timestamp > maxTs) {
-                db.glucoseDao().upsertAll(listOf(sample))
-                importedGlucose = 1
+            val outlier = isGlucoseOutlier(sample)
+            if (outlier) {
+                auditLogger.warn(
+                    "broadcast_glucose_outlier_skipped",
+                    mapOf(
+                        "action" to action,
+                        "source" to sample.source,
+                        "timestamp" to sample.timestamp,
+                        "mmol" to sample.mmol
+                    )
+                )
+            } else {
+                val existing = db.glucoseDao().bySourceAndTimestamp(sample.source, sample.timestamp)
+                if (existing != null) {
+                    val differs = abs(existing.mmol - sample.mmol) > GLUCOSE_REPLACE_EPSILON
+                    if (differs || existing.quality != sample.quality) {
+                        db.glucoseDao().deleteBySourceAndTimestamp(sample.source, sample.timestamp)
+                        db.glucoseDao().upsertAll(listOf(sample))
+                        importedGlucose = 1
+                    }
+                } else {
+                    db.glucoseDao().upsertAll(listOf(sample))
+                    importedGlucose = 1
+                }
             }
         }
         if (therapy.isNotEmpty()) {
@@ -176,7 +198,8 @@ class BroadcastIngestRepository(
     }
 
     private fun parseGlucose(action: String, extras: Map<String, String>): GlucoseSampleEntity? {
-        if (action.endsWith("NEW_TREATMENT") || action.endsWith("BgEstimateNoData")) return null
+        if (!isSupportedGlucoseAction(action)) return null
+        if (action.endsWith("BgEstimateNoData")) return null
         if (action.startsWith("info.nightscout.androidaps.")) return null
 
         val glucose = GlucoseValueResolver.resolve(extras) ?: return null
@@ -325,11 +348,20 @@ class BroadcastIngestRepository(
         action: String,
         source: String,
         extras: Map<String, String>
-    ) = TelemetryMetricMapper.fromKeyValueMap(
-        timestamp = extractTimestamp(extras),
-        source = source,
-        values = extras
-    )
+    ): List<TelemetrySampleEntity> {
+        val mapped = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = extractTimestamp(extras),
+            source = source,
+            values = extras
+        )
+        if (!isHighFrequencyStatusAction(action)) return mapped
+
+        // Status broadcasts may arrive every few seconds; keep canonical metrics +
+        // a minimal raw diagnostic subset to avoid DB contention and drops.
+        val canonical = mapped.filterNot { it.key.startsWith("raw_") }
+        val diagnostic = mapped.filter { it.key in STATUS_DIAGNOSTIC_RAW_KEYS }
+        return (canonical + diagnostic).distinctBy { it.id }
+    }
 
     private fun extractTimestamp(extras: Map<String, String>): Long = normalizeTimestamp(
         findLong(
@@ -369,7 +401,7 @@ class BroadcastIngestRepository(
             keyIndicatesMmol -> valueRaw
             explicitMg -> UnitConverter.mgdlToMmol(valueRaw)
             // Some AAPS/xDrip payloads publish mg/dL values with display units=mmol.
-            explicitMmol && (valueRaw > 35.0 || (keySuggestsBgEstimate && valueRaw >= 18.0)) ->
+            explicitMmol && (valueRaw > 30.0 || (keySuggestsBgEstimate && valueRaw >= 18.0)) ->
                 UnitConverter.mgdlToMmol(valueRaw)
             explicitMmol -> valueRaw
             valueRaw > 35.0 -> UnitConverter.mgdlToMmol(valueRaw)
@@ -396,20 +428,59 @@ class BroadcastIngestRepository(
             key = "uam_value",
             threshold = 1.5
         )
-        if (removedTherapy > 0 || removedUam > 0) {
+        val dedupNightscout = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "nightscout")
+        val dedupAaps = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "aaps_broadcast")
+        val dedupLocal = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "local_broadcast")
+        if (removedTherapy > 0 || removedUam > 0 || dedupNightscout > 0 || dedupAaps > 0 || dedupLocal > 0) {
             auditLogger.info(
                 "broadcast_legacy_cleanup",
                 mapOf(
                     "therapyRemoved" to removedTherapy,
-                    "telemetryRemoved" to removedUam
+                    "telemetryRemoved" to removedUam,
+                    "glucoseDedupNightscout" to dedupNightscout,
+                    "glucoseDedupAaps" to dedupAaps,
+                    "glucoseDedupLocal" to dedupLocal
                 )
             )
         }
     }
 
+    private suspend fun runPeriodicMaintenanceIfNeeded() {
+        val now = System.currentTimeMillis()
+        val last = lastMaintenanceAtMs.get()
+        if (now - last < MAINTENANCE_INTERVAL_MS) return
+        if (!lastMaintenanceAtMs.compareAndSet(last, now)) return
+        runCatching {
+            pruneLegacyInvalidLocalBroadcastGlucose()
+            pruneLegacyBroadcastArtifacts()
+        }.onFailure {
+            auditLogger.warn(
+                "broadcast_maintenance_failed",
+                mapOf("error" to (it.message ?: "unknown"))
+            )
+        }
+    }
+
+    private fun isHighFrequencyStatusAction(action: String): Boolean {
+        return action == "info.nightscout.androidaps.status" || action == "app.aaps.status"
+    }
+
     private fun normalizeTimestamp(ts: Long): Long {
         if (ts < 10_000_000_000L) return ts * 1000L
         return ts
+    }
+
+    private fun isSupportedGlucoseAction(action: String): Boolean {
+        return action == "info.nightscout.client.NEW_SGV" ||
+            action == "com.eveningoutpost.dexdrip.BgEstimate"
+    }
+
+    private suspend fun isGlucoseOutlier(sample: GlucoseSampleEntity): Boolean {
+        val latest = db.glucoseDao().latestOne() ?: return false
+        val deltaTs = abs(sample.timestamp - latest.timestamp)
+        if (deltaTs > GLUCOSE_OUTLIER_WINDOW_MS) return false
+        val deltaMmol = abs(sample.mmol - latest.mmol)
+        return deltaMmol >= GLUCOSE_OUTLIER_DELTA_MMOL
     }
 
     private fun findStringByToken(extras: Map<String, String>, keys: List<String>): String? {
@@ -441,4 +512,25 @@ class BroadcastIngestRepository(
         val telemetryImported: Int,
         val warning: String?
     )
+
+    companion object {
+        private val lastMaintenanceAtMs = AtomicLong(0L)
+        private const val MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000L
+        private const val GLUCOSE_OUTLIER_WINDOW_MS = 10 * 60_000L
+        private const val GLUCOSE_OUTLIER_DELTA_MMOL = 8.0
+        private const val GLUCOSE_REPLACE_EPSILON = 0.01
+
+        private val STATUS_DIAGNOSTIC_RAW_KEYS = setOf(
+            "raw_reason",
+            "raw_profile",
+            "raw_algorithm",
+            "raw_bg",
+            "raw_glucosemgdl",
+            "raw_deltamgdl",
+            "raw_avgdeltamgdl",
+            "raw_slopearrow",
+            "raw_insulinreq",
+            "raw_futurecarbs"
+        )
+    }
 }

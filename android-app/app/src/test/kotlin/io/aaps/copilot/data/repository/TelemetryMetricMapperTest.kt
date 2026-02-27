@@ -73,7 +73,7 @@ class TelemetryMetricMapperTest {
     }
 
     @Test
-    fun doesNotMapPredictedUamBgSeries_asUamFlag() {
+    fun doesNotTreatEnableUamConfig_asUamEvent() {
         val ts = 1_700_000_900_000L
         val samples = TelemetryMetricMapper.fromKeyValueMap(
             timestamp = ts,
@@ -85,7 +85,7 @@ class TelemetryMetricMapperTest {
             )
         )
         val byKey = samples.associateBy { it.key }
-        assertThat(byKey["uam_value"]?.valueDouble).isEqualTo(0.0)
+        assertThat(byKey).doesNotContainKey("uam_value")
     }
 
     @Test
@@ -130,5 +130,51 @@ class TelemetryMetricMapperTest {
         assertThat(byKey).doesNotContainKey("isf_value")
         assertThat(byKey).doesNotContainKey("cr_value")
         assertThat(byKey).containsKey("raw_custom_metric")
+    }
+
+    @Test
+    fun derivesUamFlag_fromPredictedUamDeltaWhenReasonAbsent() {
+        val ts = 1_700_001_200_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "predBGs.UAM[0]" to "180",
+                "openaps.suggested.bg" to "150"
+            )
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey["uam_value"]?.valueDouble).isEqualTo(1.0)
+    }
+
+    @Test
+    fun doesNotDeriveUamFlag_fromReasonDevOnly() {
+        val ts = 1_700_001_300_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "reason" to "COB: 24,8, Dev: 3,4, BGI: -0,4, ISF: 2,3, CR: 8,33"
+            )
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey).doesNotContainKey("uam_value")
+    }
+
+    @Test
+    fun derivesUamFlag_fromPredictionsAgainstIobCobBaseline() {
+        val ts = 1_700_001_400_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "aaps_broadcast",
+            values = mapOf(
+                "predBGs.UAM[0]" to "158",
+                "predBGs.IOB[0]" to "154",
+                "predBGs.COB[0]" to "153",
+                "glucoseMgdl" to "150"
+            )
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey["uam_value"]?.valueDouble).isEqualTo(0.0)
     }
 }

@@ -497,6 +497,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLocalBroadcastIngestEnabled(enabled: Boolean) {
         viewModelScope.launch {
             container.settingsStore.update { it.copy(localBroadcastIngestEnabled = enabled) }
+            LocalNightscoutServiceController.start(getApplication())
             messageState.value = if (enabled) {
                 "Local broadcast ingest enabled"
             } else {
@@ -1588,7 +1589,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             primaryKey = "uam_value",
             label = "UAM",
             staleThresholdMin = 180L,
-            exactAliases = listOf("enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam")
+            exactAliases = listOf("uam_detected", "unannounced_meal", "has_uam", "is_uam")
         ),
         TelemetryCoverageSpec(
             primaryKey = "isf_value",

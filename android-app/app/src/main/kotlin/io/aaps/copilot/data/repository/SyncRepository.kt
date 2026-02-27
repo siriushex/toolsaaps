@@ -17,6 +17,7 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.service.ApiFactory
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
+import kotlin.math.abs
 import kotlinx.coroutines.flow.first
 
 class SyncRepository(
@@ -36,10 +37,18 @@ class SyncRepository(
         }
 
         val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
-        val since = db.syncStateDao().bySource(SOURCE_NIGHTSCOUT)?.lastSyncedTimestamp ?: 0L
+        val legacySince = db.syncStateDao().bySource(SOURCE_NIGHTSCOUT)?.lastSyncedTimestamp ?: 0L
+        val sgvSince = loadCursor(SOURCE_NIGHTSCOUT_SGV, legacySince)
+        val treatmentSince = loadCursor(SOURCE_NIGHTSCOUT_TREATMENT_CURSOR, legacySince)
+        val deviceStatusSince = loadCursor(SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR, legacySince)
+
+        val sgvQuerySince = (sgvSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
+        val treatmentQuerySince = (treatmentSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
+        val deviceStatusQuerySince = (deviceStatusSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
+
         val query = mapOf(
             "count" to "2000",
-            "find[date][\$gte]" to since.toString()
+            "find[date][\$gte]" to sgvQuerySince.toString()
         )
 
         val sgv = nsApi.getSgvEntries(query)
@@ -51,11 +60,34 @@ class SyncRepository(
                 quality = DataQuality.OK
             ).toEntity()
         }
+        val existingNightscoutGlucose = db.glucoseDao()
+            .bySourceSince(source = "nightscout", since = sgvQuerySince)
+            .associateBy { it.timestamp }
+            .toMutableMap()
+        val glucoseRowsByTs = glucoseRows
+            .associateBy { it.timestamp }
+            .toSortedMap()
+        val glucoseRowsToInsert = mutableListOf<io.aaps.copilot.data.local.entity.GlucoseSampleEntity>()
+        var glucoseSkippedDuplicate = 0
+        var glucoseReplaced = 0
+        glucoseRowsByTs.forEach { (timestamp, row) ->
+            val existing = existingNightscoutGlucose[timestamp]
+            if (existing != null && abs(existing.mmol - row.mmol) <= GLUCOSE_REPLACE_EPSILON) {
+                glucoseSkippedDuplicate += 1
+                return@forEach
+            }
+            if (existing != null) {
+                db.glucoseDao().deleteBySourceAndTimestamp(source = "nightscout", timestamp = timestamp)
+                glucoseReplaced += 1
+            }
+            glucoseRowsToInsert += row
+            existingNightscoutGlucose[timestamp] = row
+        }
 
         val treatments = nsApi.getTreatments(
             mapOf(
                 "count" to "2000",
-                "find[created_at][\$gte]" to Instant.ofEpochMilli(since).toString()
+                "find[created_at][\$gte]" to Instant.ofEpochMilli(treatmentQuerySince).toString()
             )
         )
 
@@ -96,7 +128,7 @@ class SyncRepository(
             nsApi.getDeviceStatus(
                 mapOf(
                     "count" to "2000",
-                    "find[created_at][\$gte]" to Instant.ofEpochMilli(since).toString()
+                    "find[created_at][\$gte]" to Instant.ofEpochMilli(deviceStatusQuerySince).toString()
                 )
             )
         }.onFailure {
@@ -108,8 +140,8 @@ class SyncRepository(
             telemetryRows += telemetryFromDeviceStatus(status, ts)
         }
 
-        if (glucoseRows.isNotEmpty()) {
-            db.glucoseDao().upsertAll(glucoseRows)
+        if (glucoseRowsToInsert.isNotEmpty()) {
+            db.glucoseDao().upsertAll(glucoseRowsToInsert)
         }
         if (treatmentRows.isNotEmpty()) {
             db.therapyDao().upsertAll(treatmentRows)
@@ -118,19 +150,41 @@ class SyncRepository(
             db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
         }
 
-        val nextSince = maxOf(
-            glucoseRows.maxOfOrNull { it.timestamp } ?: since,
-            treatmentRows.maxOfOrNull { it.timestamp } ?: since,
-            deviceStatuses.maxOfOrNull { parseNightscoutTimestamp(it.createdAt) ?: it.date ?: 0L } ?: since
+        val nextSgvSince = maxOf(sgvSince, glucoseRows.maxOfOrNull { it.timestamp } ?: sgvSince)
+        val nextTreatmentSince = maxOf(treatmentSince, treatmentRows.maxOfOrNull { it.timestamp } ?: treatmentSince)
+        val nextDeviceStatusSince = maxOf(
+            deviceStatusSince,
+            deviceStatuses.maxOfOrNull { parseNightscoutTimestamp(it.createdAt) ?: it.date ?: 0L } ?: deviceStatusSince
         )
+        val nextSince = maxOf(nextSgvSince, nextTreatmentSince, nextDeviceStatusSince)
 
-        db.syncStateDao().upsert(SyncStateEntity(source = SOURCE_NIGHTSCOUT, lastSyncedTimestamp = nextSince))
+        db.syncStateDao().upsert(
+            SyncStateEntity(source = SOURCE_NIGHTSCOUT_SGV, lastSyncedTimestamp = nextSgvSince)
+        )
+        db.syncStateDao().upsert(
+            SyncStateEntity(source = SOURCE_NIGHTSCOUT_TREATMENT_CURSOR, lastSyncedTimestamp = nextTreatmentSince)
+        )
+        db.syncStateDao().upsert(
+            SyncStateEntity(source = SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR, lastSyncedTimestamp = nextDeviceStatusSince)
+        )
+        db.syncStateDao().upsert(
+            SyncStateEntity(source = SOURCE_NIGHTSCOUT, lastSyncedTimestamp = nextSince)
+        )
         auditLogger.info(
             "nightscout_sync_completed",
             mapOf(
-                "since" to since,
+                "since" to legacySince,
                 "nextSince" to nextSince,
-                "glucose" to glucoseRows.size,
+                "sgvSince" to sgvSince,
+                "treatmentSince" to treatmentSince,
+                "deviceStatusSince" to deviceStatusSince,
+                "sgvQuerySince" to sgvQuerySince,
+                "treatmentQuerySince" to treatmentQuerySince,
+                "deviceStatusQuerySince" to deviceStatusQuerySince,
+                "glucoseFetched" to glucoseRows.size,
+                "glucoseInserted" to glucoseRowsToInsert.size,
+                "glucoseSkippedDuplicate" to glucoseSkippedDuplicate,
+                "glucoseReplaced" to glucoseReplaced,
                 "treatments" to treatmentRows.size,
                 "telemetry" to telemetryRows.size,
                 "deviceStatus" to deviceStatuses.size
@@ -237,6 +291,10 @@ class SyncRepository(
             ?: trimmed.toLongOrNull()?.let { ts -> if (ts < 10_000_000_000L) ts * 1000L else ts }
     }
 
+    private suspend fun loadCursor(source: String, fallback: Long): Long {
+        return db.syncStateDao().bySource(source)?.lastSyncedTimestamp ?: fallback
+    }
+
     private fun telemetryFromDeviceStatus(
         status: NightscoutDeviceStatus,
         timestamp: Long
@@ -257,5 +315,10 @@ class SyncRepository(
         private const val SOURCE_CLOUD_PUSH = "cloud_push"
         private const val SOURCE_NIGHTSCOUT_TREATMENT = "nightscout_treatment"
         private const val SOURCE_NIGHTSCOUT_DEVICESTATUS = "nightscout_devicestatus"
+        private const val SOURCE_NIGHTSCOUT_SGV = "nightscout_sgv_cursor"
+        private const val SOURCE_NIGHTSCOUT_TREATMENT_CURSOR = "nightscout_treatment_cursor"
+        private const val SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR = "nightscout_devicestatus_cursor"
+        private const val NS_CURSOR_OVERLAP_MS = 5 * 60_000L
+        private const val GLUCOSE_REPLACE_EPSILON = 0.01
     }
 }

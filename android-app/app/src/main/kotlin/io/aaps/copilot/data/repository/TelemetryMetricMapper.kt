@@ -109,6 +109,28 @@ object TelemetryMetricMapper {
             )
         }
 
+        fun addUamFromPredictions() {
+            if (output.any { it.key == "uam_value" }) return
+            val uamPred = findPredictionValue(values, listOf("predBGs.UAM[0]", "predBGs.UAM.0", "predbg_uam_0", "uamPred0"))
+                ?: return
+            val currentMgdl = findCurrentGlucoseMgdl(values)
+                ?: return
+            val iobPred = findPredictionValue(values, listOf("predBGs.IOB[0]", "predBGs.IOB.0", "predbg_iob_0", "iobPred0"))
+            val cobPred = findPredictionValue(values, listOf("predBGs.COB[0]", "predBGs.COB.0", "predbg_cob_0", "cobPred0"))
+            val baseline = listOfNotNull(currentMgdl, iobPred, cobPred).maxOrNull() ?: currentMgdl
+            val uplift = uamPred - baseline
+            val threshold = if (iobPred != null || cobPred != null) 12.0 else 18.0
+            val uam = if (uplift >= threshold) 1.0 else 0.0
+            output += sample(
+                timestamp = timestamp,
+                source = source,
+                key = "uam_value",
+                valueDouble = uam,
+                valueText = null,
+                unit = null
+            )
+        }
+
         fun addDiaHours(canonicalKey: String, aliases: List<String>) {
             val raw = findValue(values, aliases) ?: return
             val parsed = raw.toDoubleOrNullLocale() ?: return
@@ -202,19 +224,22 @@ object TelemetryMetricMapper {
             }
         }
 
-        addNumeric("iob_units", "U", listOf("iob", "iobtotal", "insulinonboard"))
-        addNumeric("cob_grams", "g", listOf("cob", "carbsonboard"))
+        addNumeric("iob_units", "U", listOf("iob", "iobtotal", "insulinonboard", "openaps.iob.iob", "iob.iob"))
+        addNumeric("cob_grams", "g", listOf("cob", "carbsonboard", "openaps.suggested.cob"))
         addNumericExact("carbs_grams", "g", listOf("carbs", "grams", "enteredCarbs", "mealCarbs"))
         addNumericExact("insulin_units", "U", listOf("insulin", "insulinUnits", "bolus", "enteredInsulin"))
-        addDiaHours("dia_hours", listOf("dia", "insulinActionTime", "insulinactiontime", "insulinEndTime"))
-        addNumeric("steps_count", "steps", listOf("steps", "stepCount", "step_count"))
-        addNumeric("activity_ratio", null, listOf("activity", "activityRatio", "sensitivityRatio"))
+        addDiaHours(
+            "dia_hours",
+            listOf("dia", "insulinActionTime", "insulinactiontime", "insulinEndTime", "insulinendtime", "iat")
+        )
+        addNumeric("steps_count", "steps", listOf("steps", "stepCount", "step_count", "stepcounter", "totalSteps", "dailySteps"))
+        addNumeric("activity_ratio", null, listOf("activity", "activityRatio", "sensitivityRatio", "autosensRatio", "sensitivity_ratio"))
         addNumeric("heart_rate_bpm", "bpm", listOf("heartRate", "heart_rate", "bpm"))
         addTempTargetNumeric("temp_target_low_mmol", listOf("targetBottom", "target_bottom", "targetLow"))
         addTempTargetNumeric("temp_target_high_mmol", listOf("targetTop", "target_top", "targetHigh"))
         addNumeric("temp_target_duration_min", "min", listOf("duration", "durationInMinutes"))
         addProfilePercent("profile_percent", listOf("percentage", "profilePercentage"))
-        addUam("uam_value", listOf("enableUAM", "unannouncedMeal", "uamDetected", "hasUam", "isUam", "uam"))
+        addUam("uam_value", listOf("unannouncedMeal", "uamDetected", "hasUam", "isUam"))
         addNumeric("isf_value", null, listOf("isf", "sens", "sensitivity"))
         addNumeric("cr_value", null, listOf("cr", "carbRatio", "carb_ratio", "icRatio"))
         addNumericExact("basal_rate_u_h", "U/h", listOf("rate", "absolute", "basalRate", "basal_rate"))
@@ -228,6 +253,7 @@ object TelemetryMetricMapper {
                 "openaps.suggested.reason"
             )
         )
+        addUamFromPredictions()
 
         addText("activity_label", listOf("exercise", "activityType", "sport", "workout"))
         addText("dia_source", listOf("diaSource", "insulinCurve"))
@@ -292,7 +318,7 @@ object TelemetryMetricMapper {
         addPattern("carbs_grams", "g", listOf("carbs"))
         addPattern("heart_rate_bpm", "bpm", listOf("heart", "heartrate"))
         addPattern("profile_percent", "%", listOf("profilepercentage", "percent"))
-        findUamValue(normalized, listOf("enableUAM", "unannouncedMeal", "uamDetected", "hasUam", "isUam", "uam"))
+        findUamValue(normalized, listOf("unannouncedMeal", "uamDetected", "hasUam", "isUam"))
             ?.let(::parseUamFlag)
             ?.let { parsed ->
                 output += sample(
@@ -383,6 +409,43 @@ object TelemetryMetricMapper {
                 normalizedKey == alias || normalizedKey.endsWith("_$alias")
             }
         }?.value
+    }
+
+    private fun findPredictionValue(values: Map<String, String>, aliases: List<String>): Double? {
+        val direct = findValue(values, aliases)?.toDoubleOrNullLocale()
+        if (direct != null) return direct
+
+        val normalizedAliases = aliases
+            .map(::normalizeAliasKey)
+            .filter { it.isNotBlank() }
+        if (normalizedAliases.isEmpty()) return null
+        return values.entries.firstNotNullOfOrNull { (key, value) ->
+            val normalizedKey = normalizeAliasKey(key)
+            val match = normalizedAliases.any { alias ->
+                normalizedKey == alias || normalizedKey.endsWith("_$alias")
+            }
+            if (!match) return@firstNotNullOfOrNull null
+            value.toDoubleOrNullLocale()
+        }
+    }
+
+    private fun findCurrentGlucoseMgdl(values: Map<String, String>): Double? {
+        val exact = findValueExact(values, listOf("glucoseMgdl", "bg", "mgdl", "sgv", "glucose"))
+            ?.toDoubleOrNullLocale()
+        if (exact != null) return exact
+        return values.entries.firstNotNullOfOrNull { (key, value) ->
+            val normalized = normalizeAliasKey(key)
+            val directBgKey = (normalized == "bg" || normalized.endsWith("_bg")) && !normalized.contains("predbg")
+            val isMatch = normalized == "glucosemgdl" ||
+                normalized == "mgdl" ||
+                normalized == "sgv" ||
+                normalized == "glucose" ||
+                normalized.endsWith("_glucosemgdl") ||
+                normalized.endsWith("_sgv") ||
+                directBgKey
+            if (!isMatch) return@firstNotNullOfOrNull null
+            value.toDoubleOrNullLocale()
+        }
     }
 
     private fun parseUamFlag(raw: String): Double? {
@@ -477,11 +540,12 @@ object TelemetryMetricMapper {
     }
 
     private fun sanitizeSamples(samples: List<TelemetrySampleEntity>): List<TelemetrySampleEntity> {
-        return samples
-            .asSequence()
-            .mapNotNull(::sanitizeSample)
-            .distinctBy { it.id }
-            .toList()
+        val deduped = linkedMapOf<String, TelemetrySampleEntity>()
+        samples.forEach { raw ->
+            val sanitized = sanitizeSample(raw) ?: return@forEach
+            deduped[sanitized.id] = sanitized
+        }
+        return deduped.values.toList()
     }
 
     private fun sanitizeSample(sample: TelemetrySampleEntity): TelemetrySampleEntity? {
@@ -517,8 +581,16 @@ object TelemetryMetricMapper {
         unit: String?
     ): TelemetrySampleEntity {
         val fingerprint = valueText ?: valueDouble?.let { String.format(Locale.US, "%.4f", it) } ?: "null"
+        val isRaw = key.startsWith("raw_") || key.startsWith("ns_")
+        val id = if (isRaw) {
+            "tm-$source-$key-$timestamp-${fingerprint.hashCode()}"
+        } else {
+            // Canonical telemetry must be deterministic per source/key/timestamp to avoid
+            // conflicting values at identical timestamps.
+            "tm-$source-$key-$timestamp"
+        }
         return TelemetrySampleEntity(
-            id = "tm-$source-$key-$timestamp-${fingerprint.hashCode()}",
+            id = id,
             timestamp = timestamp,
             source = source,
             key = key,

@@ -4,4 +4,6 @@
     <string name="local_nightscout_channel_description">Keeps local Nightscout loopback endpoint active for AAPS integration</string>
     <string name="local_nightscout_notification_title">Local Nightscout is active</string>
     <string name="local_nightscout_notification_text">Loopback endpoint: https://127.0.0.1:%1$d</string>
+    <string name="local_ingest_notification_title">Local data ingest is active</string>
+    <string name="local_ingest_notification_text">Copilot keeps local AAPS/xDrip data channels alive</string>
 </resources>

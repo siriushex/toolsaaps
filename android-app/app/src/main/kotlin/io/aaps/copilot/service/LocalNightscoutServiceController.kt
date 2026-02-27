@@ -9,9 +9,11 @@ object LocalNightscoutServiceController {
     fun reconcile(context: Context, enabled: Boolean) {
         if (enabled) {
             start(context)
-        } else {
-            stop(context)
+            return
         }
+        // Runtime service is also used to keep local broadcast ingest reliable.
+        // Let service decide whether it should stay alive based on current settings.
+        start(context)
     }
 
     fun start(context: Context) {
