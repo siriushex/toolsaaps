@@ -1,6 +1,10 @@
 package io.aaps.copilot.ui
 
 import android.app.Application
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
@@ -31,6 +35,7 @@ import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import io.aaps.copilot.service.LocalNightscoutServiceController
+import io.aaps.copilot.service.LocalNightscoutTls
 import java.net.URI
 import java.time.Instant
 import java.time.ZoneId
@@ -481,6 +486,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Local Nightscout enabled at https://127.0.0.1:$safePort"
             } else {
                 "Local Nightscout disabled"
+            }
+        }
+    }
+
+    fun exportLocalNightscoutCertificate() {
+        viewModelScope.launch {
+            runCatching {
+                val context = getApplication<Application>().applicationContext
+                val certificate = LocalNightscoutTls.loadCertificate(context)
+                val pem = LocalNightscoutTls.toPem(certificate).toByteArray()
+                val fileName = "copilot-local-nightscout-127.0.0.1.crt"
+
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/x-x509-ca-cert")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: error("failed_to_create_download_entry")
+                resolver.openOutputStream(uri)?.use { output ->
+                    output.write(pem)
+                } ?: error("failed_to_open_output_stream")
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val finalizeValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }
+                    resolver.update(uri, finalizeValues, null, null)
+                }
+                uri
+            }.onSuccess {
+                messageState.value =
+                    "TLS certificate exported to Downloads. Install it in Android as CA/User certificate, then reconnect AAPS NSClient."
+            }.onFailure {
+                messageState.value = "Certificate export failed: ${it.message}"
             }
         }
     }

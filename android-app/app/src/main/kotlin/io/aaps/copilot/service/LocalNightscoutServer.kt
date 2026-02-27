@@ -16,11 +16,8 @@ import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.TelemetryMetricMapper
 import io.aaps.copilot.util.UnitConverter
-import java.security.KeyStore
 import java.time.Instant
 import java.util.UUID
-import javax.net.ssl.KeyManagerFactory
-import javax.net.ssl.SSLServerSocketFactory
 import kotlinx.coroutines.runBlocking
 
 class LocalNightscoutServer(
@@ -48,7 +45,9 @@ class LocalNightscoutServer(
         val alreadyRunningPort = currentPort
         stopLocked()
         val candidatePorts = buildCandidatePorts(safePort)
-        val sslSocketFactory = runCatching { buildLocalTlsSocketFactory() }.getOrElse { error ->
+        val sslSocketFactory = runCatching {
+            LocalNightscoutTls.createServerSocketFactory(context)
+        }.getOrElse { error ->
             runBlocking {
                 auditLogger.error(
                     "local_nightscout_tls_init_failed",
@@ -130,16 +129,6 @@ class LocalNightscoutServer(
         }
         server = null
         currentPort = null
-    }
-
-    private fun buildLocalTlsSocketFactory(): SSLServerSocketFactory {
-        val keyStore = KeyStore.getInstance(LOCAL_TLS_KEYSTORE_TYPE)
-        context.assets.open(LOCAL_TLS_KEYSTORE_ASSET).use { input ->
-            keyStore.load(input, LOCAL_TLS_KEYSTORE_PASSWORD.toCharArray())
-        }
-        val keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        keyManagerFactory.init(keyStore, LOCAL_TLS_KEYSTORE_PASSWORD.toCharArray())
-        return NanoHTTPD.makeSSLSocketFactory(keyStore, keyManagerFactory)
     }
 
     private fun buildCandidatePorts(requestedPort: Int): List<Int> {
@@ -601,16 +590,13 @@ class LocalNightscoutServer(
         }
     }
 
-    private companion object {
-        private const val HOST = "127.0.0.1"
-        private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
-        private const val SOCKET_TIMEOUT_MS = 15_000
-        private const val LOCAL_TLS_KEYSTORE_ASSET = "local_ns_keystore.p12"
-        private const val LOCAL_TLS_KEYSTORE_TYPE = "PKCS12"
-        private const val LOCAL_TLS_KEYSTORE_PASSWORD = "copilotlocal"
-        private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
-        private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
-        private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
-        private const val PORT_SCAN_WINDOW = 30
-    }
+        private companion object {
+            private const val HOST = "127.0.0.1"
+            private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
+            private const val SOCKET_TIMEOUT_MS = 15_000
+            private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
+            private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
+            private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
+            private const val PORT_SCAN_WINDOW = 30
+        }
 }
