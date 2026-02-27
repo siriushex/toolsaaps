@@ -141,10 +141,30 @@ class AppContainer(context: Context) {
     init {
         appScope.launch {
             settingsStore.settings.collectLatest { settings ->
-                localNightscoutServer.update(
+                val actualPort = localNightscoutServer.update(
                     enabled = settings.localNightscoutEnabled,
                     port = settings.localNightscoutPort
                 )
+                if (
+                    settings.localNightscoutEnabled &&
+                    actualPort != null &&
+                    actualPort != settings.localNightscoutPort
+                ) {
+                    settingsStore.update { current ->
+                        if (!current.localNightscoutEnabled || current.localNightscoutPort == actualPort) {
+                            current
+                        } else {
+                            current.copy(localNightscoutPort = actualPort)
+                        }
+                    }
+                    auditLogger.warn(
+                        "local_nightscout_port_auto_adjusted",
+                        mapOf(
+                            "requestedPort" to settings.localNightscoutPort,
+                            "actualPort" to actualPort
+                        )
+                    )
+                }
             }
         }
     }

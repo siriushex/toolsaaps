@@ -33,40 +33,69 @@ class LocalNightscoutServer(
     private var currentPort: Int? = null
 
     @Synchronized
-    fun update(enabled: Boolean, port: Int) {
+    fun update(enabled: Boolean, port: Int): Int? {
         if (!enabled) {
             stopLocked()
-            return
+            return null
         }
         val safePort = port.coerceIn(1_024, 65_535)
-        if (server != null && currentPort == safePort) return
+        if (server != null && currentPort == safePort) return safePort
+        val alreadyRunningPort = currentPort
         stopLocked()
-        val next = EmbeddedServer(
-            port = safePort,
-            db = db,
-            gson = gson,
-            auditLogger = auditLogger,
-            onReactiveDataIngested = onReactiveDataIngested
-        )
-        runCatching {
-            next.start(SOCKET_TIMEOUT_MS, false)
+        val candidatePorts = buildCandidatePorts(safePort)
+        var lastError: Throwable? = null
+
+        for (candidatePort in candidatePorts) {
+            val next = EmbeddedServer(
+                port = candidatePort,
+                db = db,
+                gson = gson,
+                auditLogger = auditLogger,
+                onReactiveDataIngested = onReactiveDataIngested
+            )
+            val started = runCatching {
+                next.start(SOCKET_TIMEOUT_MS, false)
+                true
+            }.getOrElse { error ->
+                lastError = error
+                runCatching { next.stop() }
+                false
+            }
+            if (!started) continue
+
             server = next
-            currentPort = safePort
+            currentPort = candidatePort
             runBlocking {
                 auditLogger.info(
                     "local_nightscout_started",
-                    mapOf("url" to "http://127.0.0.1:$safePort")
+                    mapOf(
+                        "url" to "http://127.0.0.1:$candidatePort",
+                        "requestedPort" to safePort,
+                        "actualPort" to candidatePort,
+                        "reusedPortAfterRestart" to (alreadyRunningPort == candidatePort)
+                    )
                 )
+                if (candidatePort != safePort) {
+                    auditLogger.warn(
+                        "local_nightscout_port_reassigned",
+                        mapOf(
+                            "requestedPort" to safePort,
+                            "actualPort" to candidatePort
+                        )
+                    )
+                }
             }
-        }.onFailure { error ->
-            stopLocked()
-            runBlocking {
-                auditLogger.error(
-                    "local_nightscout_start_failed",
-                    mapOf("port" to safePort, "error" to (error.message ?: "unknown"))
-                )
-            }
+            return candidatePort
         }
+
+        stopLocked()
+        runBlocking {
+            auditLogger.error(
+                "local_nightscout_start_failed",
+                mapOf("port" to safePort, "error" to (lastError?.message ?: "unknown"))
+            )
+        }
+        return null
     }
 
     @Synchronized
@@ -86,6 +115,14 @@ class LocalNightscoutServer(
         }
         server = null
         currentPort = null
+    }
+
+    private fun buildCandidatePorts(requestedPort: Int): List<Int> {
+        val alternatives = (requestedPort + 1..(requestedPort + PORT_SCAN_WINDOW))
+            .map { it.coerceAtMost(65_535) }
+            .distinct()
+            .filter { it != requestedPort }
+        return listOf(requestedPort) + alternatives
     }
 
     private class EmbeddedServer(
@@ -546,5 +583,6 @@ class LocalNightscoutServer(
         private const val SOURCE_LOCAL_NS_ENTRY = "local_nightscout_entry"
         private const val SOURCE_LOCAL_NS_TREATMENT = "local_nightscout_treatment"
         private const val SOURCE_LOCAL_NS_DEVICESTATUS = "local_nightscout_devicestatus"
+        private const val PORT_SCAN_WINDOW = 30
     }
 }

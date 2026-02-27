@@ -87,6 +87,8 @@ Transport note:
   - `GET/POST /api/v1/treatments(.json)`
   - `GET/POST /api/v1/devicestatus(.json)`
 - Runtime is pinned by a foreground service and auto-restored on boot/package update when enabled.
+- If requested local port is busy, Copilot auto-selects the next free loopback port and updates app settings.
+- Cleartext `http://127.0.0.1:<port>` transport is enabled for local loopback integration.
 - Use `Run Nightscout self-test` button in Onboarding to validate read/write transport immediately from phone.
 - Each accepted local Nightscout POST (`entries`, `treatments`, `devicestatus`) enqueues reactive automation worker (`copilot.sync.reactive`) for faster rule evaluation.
 - Nightscout sync also ingests `devicestatus` and maps known telemetry keys into local snapshot storage.
