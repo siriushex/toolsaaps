@@ -53,6 +53,9 @@ Each accepted local broadcast also enqueues an immediate reactive automation cyc
 (`copilot.sync.reactive`) so rule evaluation/auto-temp-target can run without waiting for the
 15-minute periodic worker.
 
+This channel can be toggled in app UI:
+`Onboarding & Connect -> Local xDrip/AAPS broadcast ingest`.
+
 For stable delivery on modern Android, send to explicit package
 `io.aaps.predictivecopilot` (same setting should be used in xDrip broadcast config).
 

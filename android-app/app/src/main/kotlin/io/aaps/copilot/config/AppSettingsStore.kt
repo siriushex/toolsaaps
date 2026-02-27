@@ -26,6 +26,7 @@ class AppSettingsStore(context: Context) {
             openAiApiKey = prefs[KEY_OPENAI_KEY].orEmpty(),
             killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
+            localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
             rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
             rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
@@ -56,6 +57,7 @@ class AppSettingsStore(context: Context) {
                 openAiApiKey = prefs[KEY_OPENAI_KEY].orEmpty(),
                 killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
+                localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
                 rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
                 rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
@@ -82,6 +84,7 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_OPENAI_KEY] = next.openAiApiKey
             prefs[KEY_KILL_SWITCH] = next.killSwitch
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
+            prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
             prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
@@ -114,6 +117,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_OPENAI_KEY = stringPreferencesKey("openai_api_key")
         private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
+        private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_RULE_POST_HYPO_ENABLED = booleanPreferencesKey("rule_post_hypo_enabled")
         private val KEY_RULE_PATTERN_ENABLED = booleanPreferencesKey("rule_pattern_enabled")
@@ -156,6 +160,7 @@ data class AppSettings(
     val openAiApiKey: String,
     val killSwitch: Boolean,
     val rootExperimentalEnabled: Boolean,
+    val localBroadcastIngestEnabled: Boolean,
     val baseTargetMmol: Double,
     val rulePostHypoEnabled: Boolean,
     val rulePatternEnabled: Boolean,

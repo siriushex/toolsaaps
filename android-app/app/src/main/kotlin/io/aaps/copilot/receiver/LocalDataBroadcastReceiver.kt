@@ -8,6 +8,7 @@ import io.aaps.copilot.scheduler.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class LocalDataBroadcastReceiver : BroadcastReceiver() {
@@ -19,6 +20,14 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         receiverScope.launch {
             runCatching {
+                val settings = app.container.settingsStore.settings.first()
+                if (!settings.localBroadcastIngestEnabled) {
+                    app.container.auditLogger.warn(
+                        "broadcast_ingest_skipped",
+                        mapOf("reason" to "disabled_in_settings", "action" to payload.action.orEmpty())
+                    )
+                    return@runCatching
+                }
                 val result = app.container.broadcastIngestRepository.ingest(payload)
                 if (result.glucoseImported > 0 || result.therapyImported > 0) {
                     WorkScheduler.triggerReactiveAutomation(context.applicationContext)

@@ -115,6 +115,20 @@ private fun OnboardingScreen(state: MainUiState, vm: MainViewModel) {
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("All-files access: ${if (hasAllFilesAccess) "granted" else "required for auto-discovery"}")
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Local xDrip/AAPS broadcast ingest")
+            Switch(
+                checked = state.localBroadcastIngestEnabled,
+                onCheckedChange = vm::setLocalBroadcastIngestEnabled
+            )
+        }
+        Text(
+            if (state.localBroadcastIngestEnabled) {
+                "Enabled: SGV/treatments can be accepted from local broadcast."
+            } else {
+                "Disabled: local broadcast data is ignored."
+            }
+        )
         if (!hasAllFilesAccess) {
             Button(onClick = {
                 val intent = Intent(

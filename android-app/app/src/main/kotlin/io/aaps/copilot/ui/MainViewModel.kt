@@ -174,6 +174,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             cloudUrl = settings.cloudBaseUrl,
             exportUri = settings.exportFolderUri,
             killSwitch = settings.killSwitch,
+            localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
             baseTargetMmol = settings.baseTargetMmol,
             latestGlucoseMmol = latest?.mmol,
             glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null,
@@ -291,6 +292,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             container.settingsStore.update { it.copy(killSwitch = enabled) }
             messageState.value = if (enabled) "Kill switch enabled" else "Kill switch disabled"
+        }
+    }
+
+    fun setLocalBroadcastIngestEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(localBroadcastIngestEnabled = enabled) }
+            messageState.value = if (enabled) {
+                "Local broadcast ingest enabled"
+            } else {
+                "Local broadcast ingest disabled"
+            }
         }
     }
 
@@ -639,6 +651,7 @@ data class MainUiState(
     val cloudUrl: String = "",
     val exportUri: String? = null,
     val killSwitch: Boolean = false,
+    val localBroadcastIngestEnabled: Boolean = true,
     val baseTargetMmol: Double = 5.5,
     val latestGlucoseMmol: Double? = null,
     val glucoseDelta: Double? = null,
