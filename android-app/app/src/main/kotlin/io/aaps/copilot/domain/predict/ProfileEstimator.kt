@@ -45,6 +45,11 @@ class ProfileEstimator(
     private val zoneId: ZoneId = ZoneId.systemDefault()
 ) {
 
+    companion object {
+        private val CAMEL_CASE_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
+        private val NON_ALNUM_REGEX = Regex("[^a-z0-9]+")
+    }
+
     fun estimate(
         glucoseHistory: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,
@@ -468,9 +473,9 @@ class ProfileEstimator(
 
     private fun normalizeKey(raw: String): String {
         return raw
-            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .replace(CAMEL_CASE_BOUNDARY_REGEX, "$1_$2")
             .lowercase()
-            .replace(Regex("[^a-z0-9]+"), "_")
+            .replace(NON_ALNUM_REGEX, "_")
             .trim('_')
     }
 

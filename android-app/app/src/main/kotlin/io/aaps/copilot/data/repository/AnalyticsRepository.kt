@@ -12,7 +12,9 @@ import io.aaps.copilot.domain.predict.PatternAnalyzerConfig
 import io.aaps.copilot.domain.predict.ProfileEstimator
 import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
 import io.aaps.copilot.domain.predict.TelemetrySignal
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 class AnalyticsRepository(
     private val db: CopilotDatabase,
@@ -21,7 +23,7 @@ class AnalyticsRepository(
     private val auditLogger: AuditLogger
 ) {
 
-    suspend fun recalculate(settings: AppSettings) {
+    suspend fun recalculate(settings: AppSettings) = withContext(Dispatchers.Default) {
         val lookbackDays = settings.analyticsLookbackDays.coerceIn(30, 730)
         val historyStart = System.currentTimeMillis() - lookbackDays * 24L * 60 * 60 * 1000
         val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)).map { it.toDomain() }
