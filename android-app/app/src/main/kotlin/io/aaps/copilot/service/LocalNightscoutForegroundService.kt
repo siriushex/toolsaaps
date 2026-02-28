@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.MainActivity
 import io.aaps.copilot.R
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -19,12 +20,16 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
 
 class LocalNightscoutForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var settingsMonitorJob: Job? = null
+    private var minuteCycleJob: Job? = null
+    private val lastMinuteBucket = AtomicLong(-1L)
 
     @Volatile
     private var foregroundStarted = false
@@ -65,6 +70,7 @@ class LocalNightscoutForegroundService : Service() {
                 }
             }
         }
+        ensureMinuteCycle(app)
         // Keep process alive for local loopback and high-frequency local broadcast ingest.
         return START_STICKY
     }
@@ -74,6 +80,8 @@ class LocalNightscoutForegroundService : Service() {
     override fun onDestroy() {
         settingsMonitorJob?.cancel()
         settingsMonitorJob = null
+        minuteCycleJob?.cancel()
+        minuteCycleJob = null
         stopForegroundIfNeeded()
         serviceScope.cancel()
         super.onDestroy()
@@ -163,11 +171,58 @@ class LocalNightscoutForegroundService : Service() {
         return localNightscoutEnabled || localBroadcastIngestEnabled
     }
 
+    private fun ensureMinuteCycle(app: CopilotApp) {
+        if (minuteCycleJob != null) return
+        minuteCycleJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                val settings = runCatching {
+                    app.container.settingsStore.settings.first()
+                }.getOrNull()
+
+                if (
+                    settings == null ||
+                    !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
+                ) {
+                    delay(10_000L)
+                    continue
+                }
+
+                val now = System.currentTimeMillis()
+                val minuteBucket = now / MINUTE_MS
+                if (lastMinuteBucket.get() != minuteBucket && lastMinuteBucket.compareAndSet(minuteBucket - 1, minuteBucket)) {
+                    runCatching {
+                        app.container.automationRepository.runAutomationCycle()
+                    }.onFailure {
+                        app.container.auditLogger.warn(
+                            "minute_cycle_failed",
+                            mapOf("error" to (it.message ?: "unknown"))
+                        )
+                    }
+                } else if (lastMinuteBucket.get() < minuteBucket) {
+                    // Recover CAS state if process resumed after long sleep.
+                    lastMinuteBucket.set(minuteBucket)
+                    runCatching {
+                        app.container.automationRepository.runAutomationCycle()
+                    }.onFailure {
+                        app.container.auditLogger.warn(
+                            "minute_cycle_failed",
+                            mapOf("error" to (it.message ?: "unknown"))
+                        )
+                    }
+                }
+
+                val waitMs = (MINUTE_MS - (System.currentTimeMillis() % MINUTE_MS)).coerceIn(1_000L, MINUTE_MS)
+                delay(waitMs)
+            }
+        }
+    }
+
     companion object {
         const val ACTION_START = "io.aaps.copilot.local_nightscout.START"
         const val ACTION_STOP = "io.aaps.copilot.local_nightscout.STOP"
 
         private const val CHANNEL_ID = "local_nightscout_runtime"
         private const val NOTIFICATION_ID = 17580
+        private const val MINUTE_MS = 60_000L
     }
 }
