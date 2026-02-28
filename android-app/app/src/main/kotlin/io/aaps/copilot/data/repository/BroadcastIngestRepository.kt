@@ -203,15 +203,21 @@ class BroadcastIngestRepository(
         if (action.endsWith("BgEstimateNoData")) return null
         if (action == ACTION_NS_EMULATOR && !isNsEmulatorGlucoseCollection(extras)) return null
 
-        val glucose = GlucoseValueResolver.resolve(extras)
-            ?: parseNsEmulatorGlucoseFallback(action, extras)
-            ?: return null
+        val nsEmulatorCandidate = parseNsEmulatorGlucoseFallback(action, extras)
+        val glucose = when (action) {
+            ACTION_NS_EMULATOR -> nsEmulatorCandidate ?: GlucoseValueResolver.resolve(extras)
+            else -> GlucoseValueResolver.resolve(extras) ?: nsEmulatorCandidate
+        } ?: return null
 
         val units = findStringExact(
             extras,
             listOf("com.eveningoutpost.dexdrip.Extras.Display.Units", "display.units", "display_units", "units", "unit")
         )?.lowercase(Locale.US)
-            ?: if (glucose.key.lowercase(Locale.US).contains("mgdl")) "mgdl" else null
+            ?: when {
+                glucose.key.lowercase(Locale.US).contains("mgdl") -> "mgdl"
+                action == ACTION_NS_EMULATOR -> "mgdl"
+                else -> null
+            }
         val mmol = GlucoseUnitNormalizer.normalizeToMmol(
             valueRaw = glucose.valueRaw,
             valueKey = glucose.key,
@@ -220,17 +226,31 @@ class BroadcastIngestRepository(
         if (mmol !in 1.0..33.0) return null
 
         val ts = normalizeTimestamp(
-            findTimestamp(
-                extras,
-                listOf(
-                    "com.eveningoutpost.dexdrip.Extras.Time",
-                    "timestamp",
-                    "time",
-                    "date",
-                    "mills",
-                    "created_at"
-                )
-            ) ?: parseNsEmulatorTimestampFallback(action, extras) ?: System.currentTimeMillis()
+            when (action) {
+                ACTION_NS_EMULATOR -> parseNsEmulatorTimestampFallback(action, extras)
+                    ?: findTimestamp(
+                        extras,
+                        listOf(
+                            "com.eveningoutpost.dexdrip.Extras.Time",
+                            "timestamp",
+                            "time",
+                            "date",
+                            "mills",
+                            "created_at"
+                        )
+                    )
+                else -> findTimestamp(
+                    extras,
+                    listOf(
+                        "com.eveningoutpost.dexdrip.Extras.Time",
+                        "timestamp",
+                        "time",
+                        "date",
+                        "mills",
+                        "created_at"
+                    )
+                ) ?: parseNsEmulatorTimestampFallback(action, extras)
+            } ?: System.currentTimeMillis()
         )
 
         val source = resolveSource(action)
@@ -421,6 +441,8 @@ class BroadcastIngestRepository(
     private fun resolveSource(action: String): String = when {
         action.startsWith("info.nightscout.androidaps.") -> "aaps_broadcast"
         action.startsWith("info.nightscout.client.") -> "aaps_broadcast"
+        action.startsWith("com.microtechmd.cgms.aidex.") -> "xdrip_broadcast"
+        action.startsWith("com.fanqies.tomatofn.") -> "xdrip_broadcast"
         action.startsWith("com.eveningoutpost.dexdrip.") -> "xdrip_broadcast"
         else -> "local_broadcast"
     }
@@ -546,6 +568,8 @@ class BroadcastIngestRepository(
         return action == "info.nightscout.client.NEW_SGV" ||
             action == "info.nightscout.client.NEW_DEVICESTATUS" ||
             action == "com.eveningoutpost.dexdrip.BgEstimate" ||
+            action == "com.microtechmd.cgms.aidex.action.BgEstimate" ||
+            action == "com.fanqies.tomatofn.BgEstimate" ||
             action == ACTION_NS_EMULATOR ||
             action == "info.nightscout.androidaps.status" ||
             action == "app.aaps.status"
@@ -555,12 +579,7 @@ class BroadcastIngestRepository(
         val collection = findStringExact(extras, listOf("collection"))
             ?: findStringByToken(extras, listOf("collection"))
             ?: return true
-        val normalized = collection.trim().lowercase(Locale.US)
-        if (normalized.isBlank()) return true
-        return normalized.contains("entry") ||
-            normalized.contains("sgv") ||
-            normalized.contains("glucose") ||
-            normalized.contains("bg")
+        return isNsEmulatorCollectionValue(collection)
     }
 
     private fun parseNsEmulatorGlucoseFallback(
@@ -568,39 +587,34 @@ class BroadcastIngestRepository(
         extras: Map<String, String>
     ): GlucoseValueResolver.Candidate? {
         if (action != ACTION_NS_EMULATOR) return null
-        val rawData = findStringExact(extras, listOf("data"))
-            ?: findStringByToken(extras, listOf("data"))
+        val numeric = nsEmulatorRawDataCandidates(extras)
+            .firstNotNullOfOrNull { parseNsEmulatorGlucoseRaw(it) }
             ?: return null
-        if (rawData.isBlank()) return null
-
-        val numeric = Regex("""\bsgv\b\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE)
-            .find(rawData)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.replace(",", ".")
-            ?.toDoubleOrNull()
-            ?: return null
-
-        return GlucoseValueResolver.Candidate(
-            valueRaw = numeric,
-            key = "data.sgv"
-        )
+        return GlucoseValueResolver.Candidate(valueRaw = numeric, key = "data.sgv")
     }
 
     private fun parseNsEmulatorTimestampFallback(action: String, extras: Map<String, String>): Long? {
         if (action != ACTION_NS_EMULATOR) return null
-        val rawData = findStringExact(extras, listOf("data"))
-            ?: findStringByToken(extras, listOf("data"))
-            ?: return null
-        if (rawData.isBlank()) return null
-
-        val numeric = Regex("""\b(?:date|mills|timestamp|time)\b\s*[:=]\s*([0-9]{10,13})""", RegexOption.IGNORE_CASE)
-            .find(rawData)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
+        val numeric = nsEmulatorRawDataCandidates(extras)
+            .firstNotNullOfOrNull { parseNsEmulatorTimestampRaw(it) }
             ?: return null
         return normalizeTimestamp(numeric)
+    }
+
+    private fun nsEmulatorRawDataCandidates(extras: Map<String, String>): List<String> {
+        val values = mutableListOf<String>()
+        findStringExact(extras, listOf("data"))?.let(values::add)
+
+        val tokenKeys = listOf("data", "entries", "sgv")
+        extras.entries.forEach { entry ->
+            val key = normalizeKey(entry.key)
+            val keyParts = key.split('_').filter { it.isNotBlank() }
+            val matches = tokenKeys.any { token ->
+                key == token || key.endsWith("_$token") || keyParts.contains(token)
+            }
+            if (matches && entry.value.isNotBlank()) values += entry.value
+        }
+        return values.distinct()
     }
 
     private suspend fun isGlucoseOutlier(sample: GlucoseSampleEntity): Boolean {
@@ -643,6 +657,18 @@ class BroadcastIngestRepository(
 
     companion object {
         private const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
+        private val NS_EMULATOR_JSON_GLUCOSE_KEYS = listOf("sgv", "glucose", "mgdl", "bgestimate", "bg")
+        private val NS_EMULATOR_JSON_TS_KEYS = listOf("date", "mills", "timestamp", "time")
+        private val NS_EMULATOR_REGEX_GLUCOSE = listOf(
+            Regex(""""sgv"\s*:\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""\bsgv\b\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE),
+            Regex(""""(?:glucose|mgdl|bgestimate|bg)"\s*:\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE),
+            Regex("""\b(?:glucose|mgdl|bgestimate|bg)\b\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE)
+        )
+        private val NS_EMULATOR_REGEX_TS = listOf(
+            Regex(""""(?:date|mills|timestamp|time)"\s*:\s*([0-9]{10,13})""", RegexOption.IGNORE_CASE),
+            Regex("""\b(?:date|mills|timestamp|time)\b\s*[:=]\s*([0-9]{10,13})""", RegexOption.IGNORE_CASE)
+        )
 
         internal fun normalizeStatusTelemetry(
             mapped: List<TelemetrySampleEntity>
@@ -665,6 +691,94 @@ class BroadcastIngestRepository(
                 }
             val raw = mapped.filter { it.key.startsWith("raw_") || it.key.startsWith("ns_") }
             return (canonical + statusProjected + raw).distinctBy { it.id }
+        }
+
+        internal fun parseNsEmulatorGlucoseRaw(rawData: String): Double? {
+            val trimmed = rawData.trim()
+            if (trimmed.isBlank()) return null
+
+            parseNsJsonNumeric(trimmed, NS_EMULATOR_JSON_GLUCOSE_KEYS)?.let { return it }
+
+            NS_EMULATOR_REGEX_GLUCOSE.forEach { regex ->
+                val value = regex.find(trimmed)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.replace(",", ".")
+                    ?.toDoubleOrNull()
+                if (value != null) return value
+            }
+            return null
+        }
+
+        internal fun parseNsEmulatorTimestampRaw(rawData: String): Long? {
+            val trimmed = rawData.trim()
+            if (trimmed.isBlank()) return null
+
+            parseNsJsonNumeric(trimmed, NS_EMULATOR_JSON_TS_KEYS)?.toLong()?.let { return it }
+
+            NS_EMULATOR_REGEX_TS.forEach { regex ->
+                val value = regex.find(trimmed)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toLongOrNull()
+                if (value != null) return value
+            }
+            return null
+        }
+
+        private fun parseNsJsonNumeric(rawData: String, keys: List<String>): Double? {
+            return runCatching {
+                if (rawData.startsWith("[")) {
+                    findNumericInJsonArray(JSONArray(rawData), keys)
+                } else if (rawData.startsWith("{")) {
+                    findNumericInJsonObject(JSONObject(rawData), keys)
+                } else {
+                    null
+                }
+            }.getOrNull()
+        }
+
+        private fun findNumericInJsonArray(array: JSONArray, keys: List<String>): Double? {
+            for (index in 0 until array.length()) {
+                when (val value = array.opt(index)) {
+                    is JSONObject -> findNumericInJsonObject(value, keys)?.let { return it }
+                    is JSONArray -> findNumericInJsonArray(value, keys)?.let { return it }
+                    else -> Unit
+                }
+            }
+            return null
+        }
+
+        private fun findNumericInJsonObject(obj: JSONObject, keys: List<String>): Double? {
+            keys.forEach { key ->
+                when (val raw = obj.opt(key)) {
+                    is Number -> return raw.toDouble()
+                    is String -> raw.replace(",", ".").toDoubleOrNull()?.let { return it }
+                    else -> Unit
+                }
+            }
+
+            val iterator = obj.keys()
+            while (iterator.hasNext()) {
+                val nested = obj.opt(iterator.next())
+                when (nested) {
+                    is JSONObject -> findNumericInJsonObject(nested, keys)?.let { return it }
+                    is JSONArray -> findNumericInJsonArray(nested, keys)?.let { return it }
+                    else -> Unit
+                }
+            }
+            return null
+        }
+
+        internal fun isNsEmulatorCollectionValue(rawCollection: String?): Boolean {
+            val normalized = rawCollection?.trim()?.lowercase(Locale.US).orEmpty()
+            if (normalized.isBlank()) return true
+            return normalized.contains("entry") ||
+                normalized.contains("entries") ||
+                normalized.contains("entri") ||
+                normalized.contains("sgv") ||
+                normalized.contains("glucose") ||
+                normalized.contains("bg")
         }
 
         private val lastMaintenanceAtMs = AtomicLong(0L)

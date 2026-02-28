@@ -99,10 +99,14 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
             // Some devices/OS builds do not expose sender package for implicit broadcasts.
             // In strict mode, still allow known glucose channels to prevent stale CGM stream.
             return action.startsWith("com.eveningoutpost.dexdrip.") ||
+                action.startsWith("com.microtechmd.cgms.aidex.") ||
+                action.startsWith("com.fanqies.tomatofn.") ||
                 isAapsBroadcastAction(action)
         }
         return when {
             action.startsWith("com.eveningoutpost.dexdrip.") -> senderPackage.startsWith("com.eveningoutpost.dexdrip")
+            action.startsWith("com.microtechmd.cgms.aidex.") -> senderPackage.startsWith("com.microtechmd.cgms.aidex")
+            action.startsWith("com.fanqies.tomatofn.") -> senderPackage.startsWith("com.fanqies.tomatofn")
             isAapsBroadcastAction(action) -> senderPackage in TRUSTED_AAPS_PACKAGES
             else -> senderPackage == appPackage
         }
