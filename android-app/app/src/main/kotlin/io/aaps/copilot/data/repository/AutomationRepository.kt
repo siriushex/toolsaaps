@@ -1,6 +1,7 @@
 package io.aaps.copilot.data.repository
 
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
@@ -110,7 +111,7 @@ class AutomationRepository(
             maybeMergeCloudPrediction(glucose, therapy, localForecasts)
         )
 
-        db.forecastDao().insertAll(mergedForecasts.map { it.toEntity() })
+        db.forecastDao().insertAll(mergedForecasts.map { it.toForecastEntity() })
         db.forecastDao().deleteOlderThan(System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000)
 
         val now = System.currentTimeMillis()
@@ -135,11 +136,11 @@ class AutomationRepository(
                 isRiskWindow = it.isRiskWindow
             )
         }
-        val currentProfile = db.profileEstimateDao().active()?.toDomain()
+        val currentProfile = db.profileEstimateDao().active()?.toProfileEstimate()
         val currentSlot = resolveTimeSlot(zoned.hour)
         val currentSegment = db.profileSegmentEstimateDao()
             .byDayTypeAndTimeSlot(dayType.name, currentSlot.name)
-            ?.toDomain()
+            ?.toProfileSegmentEstimate()
         val latestTelemetry = resolveLatestTelemetry(now).toMutableMap()
         val calculatedUam = calculateCalculatedUamSnapshot(
             glucose = glucose,
@@ -186,6 +187,7 @@ class AutomationRepository(
         )
 
         val effectiveDecisions = mutableListOf<RuleDecision>()
+        var adaptiveTriggeredThisCycle = false
         for (decision in decisions) {
             val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
                 val cooldownMinutes = ruleCooldownMinutes(decision.ruleId, settings)
@@ -219,6 +221,11 @@ class AutomationRepository(
             )
 
             if (effectiveDecision.state == RuleState.TRIGGERED && effectiveDecision.actionProposal != null) {
+                if (effectiveDecision.ruleId == AdaptiveTargetControllerRule.RULE_ID &&
+                    effectiveDecision.actionProposal.type.equals("temp_target", ignoreCase = true)
+                ) {
+                    adaptiveTriggeredThisCycle = true
+                }
                 val idempotencyKey = buildIdempotencyKey(effectiveDecision.ruleId, now, settings)
                 val normalizedAction = alignTempTargetToBaseTarget(
                     action = effectiveDecision.actionProposal,
@@ -251,6 +258,18 @@ class AutomationRepository(
                     )
                 }
             }
+        }
+
+        if (!adaptiveTriggeredThisCycle) {
+            maybeSendAdaptiveKeepaliveTempTarget(
+                settings = settings,
+                nowTs = now,
+                dataFresh = dataFresh,
+                sensorBlocked = sensorBlocked,
+                activeTempTarget = activeTempTarget,
+                actionsLast6h = actionsLast6h,
+                forecasts = mergedForecasts
+            )
         }
 
         auditAdaptiveController(effectiveDecisions, context, settings, mergedForecasts)
@@ -513,10 +532,10 @@ class AutomationRepository(
         val periodDays = days.coerceIn(1, 60)
         val startTs = System.currentTimeMillis() - periodDays * 24L * 60 * 60 * 1000
 
-        val glucose = db.glucoseDao().since(startTs).map { it.toDomain() }.sortedBy { it.ts }
-        val therapy = db.therapyDao().since(startTs).map { it.toDomain(gson) }.sortedBy { it.ts }
+        val glucose = db.glucoseDao().since(startTs).map { it.toGlucosePoint() }.sortedBy { it.ts }
+        val therapy = db.therapyDao().since(startTs).map { it.toTherapyEvent(gson) }.sortedBy { it.ts }
         val patterns = db.patternDao().all()
-        val profile = db.profileEstimateDao().active()?.toDomain()
+        val profile = db.profileEstimateDao().active()?.toProfileEstimate()
         val segments = db.profileSegmentEstimateDao().all().associateBy { it.dayType to it.timeSlot }
 
         if (glucose.size < 8) {
@@ -553,7 +572,7 @@ class AutomationRepository(
                 )
             }
             val segmentSlot = resolveTimeSlot(zoned.hour)
-            val segment = segments[dayType.name to segmentSlot.name]?.toDomain()
+            val segment = segments[dayType.name to segmentSlot.name]?.toProfileSegmentEstimate()
 
             val context = RuleContext(
                 nowTs = pointTs,
@@ -697,7 +716,7 @@ class AutomationRepository(
 
     private fun runtimeConfig(settings: AppSettings): RuleRuntimeConfig {
         val enabled = buildSet {
-            if (settings.adaptiveControllerEnabled) add(AdaptiveTargetControllerRule.RULE_ID)
+            add(AdaptiveTargetControllerRule.RULE_ID)
             if (settings.rulePostHypoEnabled) add("PostHypoReboundGuard.v1")
             if (settings.rulePatternEnabled) add("PatternAdaptiveTarget.v1")
             if (settings.ruleSegmentEnabled) add("SegmentProfileGuard.v1")
@@ -709,6 +728,94 @@ class AutomationRepository(
             "SegmentProfileGuard.v1" to settings.ruleSegmentPriority
         )
         return RuleRuntimeConfig(enabledRuleIds = enabled, priorities = priorities)
+    }
+
+    private suspend fun maybeSendAdaptiveKeepaliveTempTarget(
+        settings: AppSettings,
+        nowTs: Long,
+        dataFresh: Boolean,
+        sensorBlocked: Boolean,
+        activeTempTarget: Double?,
+        actionsLast6h: Int,
+        forecasts: List<Forecast>
+    ) {
+        if (settings.killSwitch) {
+            auditLogger.info("adaptive_keepalive_skipped", mapOf("reason" to "kill_switch"))
+            return
+        }
+        if (!dataFresh) {
+            auditLogger.info("adaptive_keepalive_skipped", mapOf("reason" to "stale_data"))
+            return
+        }
+        if (sensorBlocked) {
+            auditLogger.info("adaptive_keepalive_skipped", mapOf("reason" to "sensor_blocked"))
+            return
+        }
+
+        val lastAutoSentTs = db.actionCommandDao().latestTimestampByTypeAndStatusExcludingPrefix(
+            type = "temp_target",
+            status = NightscoutActionRepository.STATUS_SENT,
+            excludedPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%"
+        )
+        if (lastAutoSentTs != null && nowTs - lastAutoSentTs < ADAPTIVE_KEEPALIVE_INTERVAL_MS) {
+            return
+        }
+
+        val baseTarget = settings.baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+        val proposal = alignTempTargetToBaseTarget(
+            action = ActionProposal(
+                type = "temp_target",
+                targetMmol = baseTarget,
+                durationMinutes = ADAPTIVE_KEEPALIVE_DURATION_MINUTES,
+                reason = "adaptive_keepalive_30m"
+            ),
+            forecasts = forecasts,
+            baseTargetMmol = baseTarget
+        )
+        if (activeTempTarget != null && abs(activeTempTarget - proposal.targetMmol) < 0.05) {
+            auditLogger.info(
+                "adaptive_keepalive_skipped",
+                mapOf("reason" to "already_active", "activeTarget" to activeTempTarget)
+            )
+            return
+        }
+
+        val idempotencyKey = "${NightscoutActionRepository.KEEPALIVE_IDEMPOTENCY_PREFIX}${nowTs / ADAPTIVE_KEEPALIVE_INTERVAL_MS}"
+        val command = ActionCommand(
+            id = UUID.randomUUID().toString(),
+            type = "temp_target",
+            params = mapOf(
+                "targetMmol" to proposal.targetMmol.toString(),
+                "durationMinutes" to proposal.durationMinutes.toString(),
+                "reason" to proposal.reason
+            ),
+            safetySnapshot = SafetySnapshot(
+                killSwitch = settings.killSwitch,
+                dataFresh = dataFresh,
+                activeTempTargetMmol = activeTempTarget,
+                actionsLast6h = actionsLast6h
+            ),
+            idempotencyKey = idempotencyKey
+        )
+        val sent = actionRepository.submitTempTarget(command)
+        if (sent) {
+            auditLogger.info(
+                "adaptive_keepalive_sent",
+                mapOf(
+                    "targetMmol" to proposal.targetMmol,
+                    "durationMinutes" to proposal.durationMinutes,
+                    "reason" to proposal.reason
+                )
+            )
+        } else {
+            auditLogger.warn(
+                "adaptive_keepalive_failed",
+                mapOf(
+                    "targetMmol" to proposal.targetMmol,
+                    "durationMinutes" to proposal.durationMinutes
+                )
+            )
+        }
     }
 
     private fun ruleCooldownMinutes(ruleId: String, settings: AppSettings): Int = when (ruleId) {
@@ -754,11 +861,13 @@ class AutomationRepository(
         private const val MAX_TARGET_MMOL = 10.0
         private const val ALIGN_GAIN = 0.35
         private const val MAX_ALIGN_STEP_MMOL = 1.20
+        private const val ADAPTIVE_KEEPALIVE_INTERVAL_MS = 30 * 60 * 1000L
+        private const val ADAPTIVE_KEEPALIVE_DURATION_MINUTES = 30
         private const val TELEMETRY_LOOKBACK_MS = 6 * 60 * 60 * 1000L
         private const val CALCULATED_UAM_LOOKBACK_MINUTES = 120
     }
 
-    private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toDomain(): ProfileEstimate = ProfileEstimate(
+    private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toProfileEstimate(): ProfileEstimate = ProfileEstimate(
         isfMmolPerUnit = isfMmolPerUnit,
         crGramPerUnit = crGramPerUnit,
         confidence = confidence,
@@ -775,7 +884,7 @@ class AutomationRepository(
         uamEstimatedRecentCarbsGrams = uamEstimatedRecentCarbsGrams
     )
 
-    private fun io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity.toDomain(): ProfileSegmentEstimate =
+    private fun io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity.toProfileSegmentEstimate(): ProfileSegmentEstimate =
         ProfileSegmentEstimate(
             dayType = DayType.valueOf(dayType),
             timeSlot = ProfileTimeSlot.valueOf(timeSlot),
@@ -786,4 +895,37 @@ class AutomationRepository(
             crSampleCount = crSampleCount,
             lookbackDays = lookbackDays
         )
+
+    private fun io.aaps.copilot.data.local.entity.GlucoseSampleEntity.toGlucosePoint():
+        io.aaps.copilot.domain.model.GlucosePoint {
+        val quality = runCatching {
+            io.aaps.copilot.domain.model.DataQuality.valueOf(this.quality)
+        }.getOrDefault(io.aaps.copilot.domain.model.DataQuality.OK)
+        return io.aaps.copilot.domain.model.GlucosePoint(
+            ts = timestamp,
+            valueMmol = mmol,
+            source = source,
+            quality = quality
+        )
+    }
+
+    private fun io.aaps.copilot.data.local.entity.TherapyEventEntity.toTherapyEvent(gson: Gson):
+        io.aaps.copilot.domain.model.TherapyEvent {
+        val mapType = object : TypeToken<Map<String, String>>() {}.type
+        val payload = gson.fromJson<Map<String, String>>(payloadJson, mapType) ?: emptyMap()
+        return io.aaps.copilot.domain.model.TherapyEvent(
+            ts = timestamp,
+            type = type,
+            payload = payload
+        )
+    }
+
+    private fun Forecast.toForecastEntity() = io.aaps.copilot.data.local.entity.ForecastEntity(
+        timestamp = ts,
+        horizonMinutes = horizonMinutes,
+        valueMmol = valueMmol,
+        ciLow = ciLow,
+        ciHigh = ciHigh,
+        modelVersion = modelVersion
+    )
 }

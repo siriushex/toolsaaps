@@ -150,7 +150,8 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
             prefs[KEY_RULE_SEGMENT_ENABLED] = next.ruleSegmentEnabled
-            prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = next.adaptiveControllerEnabled
+            // Product policy: adaptive controller is always enabled in runtime.
+            prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = true
             prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] = true
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
@@ -190,15 +191,9 @@ class AppSettingsStore(context: Context) {
         return enabledNow
     }
 
-    private fun resolveAdaptiveControllerEnabled(prefs: Preferences): Boolean {
-        val stored = prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED]
-        val migrationDone = prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] ?: false
-        return when {
-            stored == null -> true
-            stored -> true
-            migrationDone -> false
-            else -> true
-        }
+    private fun resolveAdaptiveControllerEnabled(@Suppress("UNUSED_PARAMETER") prefs: Preferences): Boolean {
+        // Keep controller permanently active even if old settings were saved with disabled flag.
+        return true
     }
 
     companion object {

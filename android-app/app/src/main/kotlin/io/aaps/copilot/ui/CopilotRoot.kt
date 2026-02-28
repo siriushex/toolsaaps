@@ -470,7 +470,6 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var patternLowTrigger by remember(state.patternLowRateTrigger) { mutableStateOf(String.format("%.2f", state.patternLowRateTrigger)) }
     var patternHighTrigger by remember(state.patternHighRateTrigger) { mutableStateOf(String.format("%.2f", state.patternHighRateTrigger)) }
     var lookbackDays by remember(state.analyticsLookbackDays) { mutableStateOf(state.analyticsLookbackDays.toString()) }
-    var adaptiveEnabled by remember(state.adaptiveControllerEnabled) { mutableStateOf(state.adaptiveControllerEnabled) }
     var adaptivePriority by remember(state.adaptiveControllerPriority) { mutableStateOf(state.adaptiveControllerPriority.toString()) }
     var adaptiveRetarget by remember(state.adaptiveControllerRetargetMinutes) { mutableStateOf(state.adaptiveControllerRetargetMinutes.toString()) }
     var adaptiveProfile by remember(state.adaptiveControllerSafetyProfile) { mutableStateOf(state.adaptiveControllerSafetyProfile) }
@@ -518,13 +517,10 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         HorizontalDivider()
         Text("Adaptive 30–60m Target Controller")
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Text("Enable adaptive controller")
+            Text("Adaptive controller (always ON)")
             Switch(
-                checked = adaptiveEnabled,
-                onCheckedChange = {
-                    adaptiveEnabled = it
-                    vm.setAdaptiveControllerEnabled(it)
-                }
+                checked = true,
+                onCheckedChange = null
             )
         }
         OutlinedTextField(
@@ -565,7 +561,7 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         )
         Button(onClick = {
             vm.setAdaptiveControllerConfig(
-                enabled = adaptiveEnabled,
+                enabled = true,
                 priority = adaptivePriority.toIntOrNull() ?: state.adaptiveControllerPriority,
                 retargetMinutes = adaptiveRetarget.toIntOrNull() ?: state.adaptiveControllerRetargetMinutes,
                 safetyProfile = adaptiveProfile,

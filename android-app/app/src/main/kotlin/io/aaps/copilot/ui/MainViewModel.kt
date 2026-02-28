@@ -34,7 +34,6 @@ import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.TherapySanitizer
-import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.DayType
@@ -148,7 +147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val prev = sortedGlucose.dropLast(1).lastOrNull()
         val quality = qualityEvaluator.evaluate(forecasts, glucose)
         val baselineDeltas = baselineComparator.compare(
-            forecasts = forecasts.map { it.toDomain() },
+            forecasts = forecasts.map { it.toDomainForecast() },
             baseline = baseline
         )
         val now = System.currentTimeMillis()
@@ -763,7 +762,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             container.settingsStore.update {
                 it.copy(
-                    adaptiveControllerEnabled = enabled,
+                    adaptiveControllerEnabled = true,
                     adaptiveControllerPriority = priority.coerceIn(0, 200),
                     adaptiveControllerRetargetMinutes = normalizedRetarget,
                     adaptiveControllerSafetyProfile = normalizedProfile,
@@ -772,20 +771,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     adaptiveControllerMaxStepMmol = maxStepMmol.coerceIn(0.05, 1.00)
                 )
             }
+            if (!enabled) {
+                messageState.value = "Adaptive controller is always ON"
+                return@launch
+            }
             messageState.value = "Adaptive controller settings updated"
         }
     }
 
     fun setAdaptiveControllerEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            container.settingsStore.update { it.copy(adaptiveControllerEnabled = enabled) }
-            if (enabled) {
-                WorkScheduler.triggerReactiveAutomation(getApplication())
-            }
+            container.settingsStore.update { it.copy(adaptiveControllerEnabled = true) }
+            WorkScheduler.triggerReactiveAutomation(getApplication())
             messageState.value = if (enabled) {
                 "Adaptive controller enabled"
             } else {
-                "Adaptive controller disabled"
+                "Adaptive controller is always ON"
             }
         }
     }
@@ -1863,6 +1864,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 }
+
+private fun ForecastEntity.toDomainForecast(): io.aaps.copilot.domain.model.Forecast =
+    io.aaps.copilot.domain.model.Forecast(
+        ts = timestamp,
+        horizonMinutes = horizonMinutes,
+        valueMmol = valueMmol,
+        ciLow = ciLow,
+        ciHigh = ciHigh,
+        modelVersion = modelVersion
+    )
 
 private data class AapsTlsCompatibility(
     val installed: Boolean,

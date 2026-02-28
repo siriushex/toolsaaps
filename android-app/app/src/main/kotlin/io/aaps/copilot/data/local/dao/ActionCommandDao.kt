@@ -29,6 +29,30 @@ interface ActionCommandDao {
         excludedPrefix: String
     ): Int
 
+    @Query(
+        "SELECT COUNT(*) FROM action_commands " +
+            "WHERE status = :status AND timestamp >= :since " +
+            "AND idempotencyKey NOT LIKE :excludedPrefix1 " +
+            "AND idempotencyKey NOT LIKE :excludedPrefix2"
+    )
+    suspend fun countByStatusSinceExcludingTwoPrefixes(
+        status: String,
+        since: Long,
+        excludedPrefix1: String,
+        excludedPrefix2: String
+    ): Int
+
+    @Query(
+        "SELECT MAX(timestamp) FROM action_commands " +
+            "WHERE status = :status AND type = :type " +
+            "AND idempotencyKey NOT LIKE :excludedPrefix"
+    )
+    suspend fun latestTimestampByTypeAndStatusExcludingPrefix(
+        type: String,
+        status: String,
+        excludedPrefix: String
+    ): Long?
+
     @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<ActionCommandEntity>
 

@@ -236,10 +236,11 @@ class NightscoutActionRepository(
 
     suspend fun countSentActionsLast6h(): Int {
         val since = System.currentTimeMillis() - 6 * 60 * 60 * 1000L
-        return db.actionCommandDao().countByStatusSinceExcludingPrefix(
+        return db.actionCommandDao().countByStatusSinceExcludingTwoPrefixes(
             status = STATUS_SENT,
             since = since,
-            excludedPrefix = "$MANUAL_IDEMPOTENCY_PREFIX%"
+            excludedPrefix1 = "$MANUAL_IDEMPOTENCY_PREFIX%",
+            excludedPrefix2 = "$KEEPALIVE_IDEMPOTENCY_PREFIX%"
         )
     }
 
@@ -458,8 +459,9 @@ class NightscoutActionRepository(
         return "copilot-$prefix-$suffix"
     }
 
-    private companion object {
+    companion object {
         const val MANUAL_IDEMPOTENCY_PREFIX = "manual:"
+        const val KEEPALIVE_IDEMPOTENCY_PREFIX = "adaptive_keepalive:"
         const val STATUS_PENDING = "PENDING"
         const val STATUS_SENT = "SENT"
         const val STATUS_FAILED = "FAILED"

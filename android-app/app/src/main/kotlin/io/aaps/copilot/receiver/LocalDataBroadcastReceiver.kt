@@ -6,11 +6,13 @@ import android.content.Intent
 import android.os.Build
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.scheduler.WorkScheduler
+import io.aaps.copilot.service.LocalNightscoutServiceController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 class LocalDataBroadcastReceiver : BroadcastReceiver() {
 
@@ -51,8 +53,9 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
                     )
                     return@runCatching
                 }
+                ensureRuntimeService(context.applicationContext)
                 val result = app.container.broadcastIngestRepository.ingest(payload)
-                if (result.glucoseImported > 0 || result.therapyImported > 0) {
+                if (result.glucoseImported > 0 || result.therapyImported > 0 || result.telemetryImported > 0) {
                     WorkScheduler.triggerReactiveAutomation(context.applicationContext)
                     app.container.auditLogger.info(
                         "broadcast_reactive_automation_enqueued",
@@ -123,11 +126,23 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TEST_ACTION = "io.aaps.copilot.BROADCAST_TEST_INGEST"
+        val lastServiceEnsureAtMs = AtomicLong(0L)
+        const val SERVICE_ENSURE_INTERVAL_MS = 10 * 60 * 1000L
         val TRUSTED_AAPS_PACKAGES = setOf(
             "info.nightscout.androidaps",
             "info.nightscout.aaps",
             "app.aaps"
         )
         val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+
+    private fun ensureRuntimeService(context: Context) {
+        val now = System.currentTimeMillis()
+        val last = lastServiceEnsureAtMs.get()
+        if (now - last < SERVICE_ENSURE_INTERVAL_MS) return
+        if (!lastServiceEnsureAtMs.compareAndSet(last, now)) return
+        runCatching {
+            LocalNightscoutServiceController.start(context, allowBackground = true)
+        }
     }
 }
