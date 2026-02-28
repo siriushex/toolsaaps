@@ -104,9 +104,12 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
                 isAapsBroadcastAction(action)
         }
         return when {
-            action.startsWith("com.eveningoutpost.dexdrip.") -> senderPackage.startsWith("com.eveningoutpost.dexdrip")
-            action.startsWith("com.microtechmd.cgms.aidex.") -> senderPackage.startsWith("com.microtechmd.cgms.aidex")
-            action.startsWith("com.fanqies.tomatofn.") -> senderPackage.startsWith("com.fanqies.tomatofn")
+            action.startsWith("com.eveningoutpost.dexdrip.") ->
+                senderPackage.startsWith("com.eveningoutpost.dexdrip") || senderPackage in TRUSTED_AAPS_PACKAGES
+            action.startsWith("com.microtechmd.cgms.aidex.") ->
+                senderPackage.startsWith("com.microtechmd.cgms.aidex") || senderPackage in TRUSTED_AAPS_PACKAGES
+            action.startsWith("com.fanqies.tomatofn.") ->
+                senderPackage.startsWith("com.fanqies.tomatofn") || senderPackage in TRUSTED_AAPS_PACKAGES
             isAapsBroadcastAction(action) -> senderPackage in TRUSTED_AAPS_PACKAGES
             else -> senderPackage == appPackage
         }
