@@ -18,7 +18,9 @@ import io.aaps.copilot.data.remote.nightscout.NightscoutSgvEntry
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatment
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.data.repository.AuditLogger
+import io.aaps.copilot.data.repository.GlucoseValueResolver
 import io.aaps.copilot.data.repository.TelemetryMetricMapper
+import io.aaps.copilot.util.GlucoseUnitNormalizer
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
 import java.util.UUID
@@ -1131,11 +1133,12 @@ class LocalNightscoutServer(
             }
 
             val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
+            val glucoseRows = mutableListOf<GlucoseSampleEntity>()
             parsed.objects.forEach { payload ->
                 val payloadMap = payload.toMap(gson)
                 val ts = parseFlexibleTimestamp(payload.findText("created_at"))
-                    ?: payload.findNumeric("date")?.toLong()
-                    ?: payload.findNumeric("mills")?.toLong()
+                    ?: normalizeEpochMillis(payload.findNumeric("date")?.toLong())
+                    ?: normalizeEpochMillis(payload.findNumeric("mills")?.toLong())
                     ?: System.currentTimeMillis()
                 val flattened = linkedMapOf<String, String>()
                 TelemetryMetricMapper.flattenAny("openaps", payloadMap["openaps"], flattened)
@@ -1148,31 +1151,77 @@ class LocalNightscoutServer(
                         flattened = flattened
                     )
                 }
+                val glucose = GlucoseValueResolver.resolve(flattened)?.let { candidate ->
+                    val units = if (candidate.key.lowercase().contains("mgdl")) "mgdl" else null
+                    val mmol = GlucoseUnitNormalizer.normalizeToMmol(
+                        valueRaw = candidate.valueRaw,
+                        valueKey = candidate.key,
+                        units = units
+                    )
+                    if (mmol in 1.0..33.0) {
+                        GlucoseSampleEntity(
+                            timestamp = ts,
+                            mmol = mmol,
+                            source = SOURCE_LOCAL_NS_DEVICESTATUS,
+                            quality = "OK"
+                        )
+                    } else {
+                        null
+                    }
+                }
+                if (glucose != null) {
+                    glucoseRows += glucose
+                }
             }
-            if (telemetryRows.isNotEmpty()) {
+            if (telemetryRows.isNotEmpty() || glucoseRows.isNotEmpty()) {
                 runBlocking {
-                    db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
+                    if (telemetryRows.isNotEmpty()) {
+                        db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
+                    }
+                    if (glucoseRows.isNotEmpty()) {
+                        glucoseRows.forEach { row ->
+                            val existing = db.glucoseDao().bySourceAndTimestamp(row.source, row.timestamp)
+                            if (existing != null) {
+                                val differs = kotlin.math.abs(existing.mmol - row.mmol) > 0.01
+                                if (differs || existing.quality != row.quality) {
+                                    db.glucoseDao().deleteBySourceAndTimestamp(row.source, row.timestamp)
+                                    db.glucoseDao().upsertAll(listOf(row))
+                                }
+                            } else {
+                                db.glucoseDao().upsertAll(listOf(row))
+                            }
+                        }
+                    }
                     auditLogger.info(
                         "local_nightscout_devicestatus_post",
-                        mapOf("received" to parsed.objects.size, "telemetry" to telemetryRows.size)
+                        mapOf(
+                            "received" to parsed.objects.size,
+                            "telemetry" to telemetryRows.size,
+                            "glucose" to glucoseRows.size
+                        )
                     )
                 }
             } else {
                 runBlocking {
                     auditLogger.warn(
                         "local_nightscout_devicestatus_post",
-                        mapOf("received" to parsed.objects.size, "telemetry" to 0)
+                        mapOf("received" to parsed.objects.size, "telemetry" to 0, "glucose" to 0)
                     )
                 }
             }
-            if (telemetryRows.isNotEmpty()) {
-                triggerReactiveAutomation("devicestatus", parsed.objects.size, telemetryRows.size)
+            if (telemetryRows.isNotEmpty() || glucoseRows.isNotEmpty()) {
+                triggerReactiveAutomation(
+                    "devicestatus",
+                    glucoseRows.size.coerceAtLeast(parsed.objects.size),
+                    telemetryRows.size
+                )
             }
             return jsonOk(
                 mapOf(
                     "status" to "ok",
                     "received" to parsed.objects.size,
-                    "telemetry" to telemetryRows.size
+                    "telemetry" to telemetryRows.size,
+                    "glucose" to glucoseRows.size
                 )
             )
         }

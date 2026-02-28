@@ -201,9 +201,11 @@ class BroadcastIngestRepository(
     private fun parseGlucose(action: String, extras: Map<String, String>): GlucoseSampleEntity? {
         if (!isSupportedGlucoseAction(action)) return null
         if (action.endsWith("BgEstimateNoData")) return null
-        if (action.startsWith("info.nightscout.androidaps.")) return null
+        if (action == ACTION_NS_EMULATOR && !isNsEmulatorGlucoseCollection(extras)) return null
 
-        val glucose = GlucoseValueResolver.resolve(extras) ?: return null
+        val glucose = GlucoseValueResolver.resolve(extras)
+            ?: parseNsEmulatorGlucoseFallback(action, extras)
+            ?: return null
 
         val units = findStringExact(
             extras,
@@ -228,7 +230,7 @@ class BroadcastIngestRepository(
                     "mills",
                     "created_at"
                 )
-            ) ?: System.currentTimeMillis()
+            ) ?: parseNsEmulatorTimestampFallback(action, extras) ?: System.currentTimeMillis()
         )
 
         val source = resolveSource(action)
@@ -542,7 +544,63 @@ class BroadcastIngestRepository(
 
     private fun isSupportedGlucoseAction(action: String): Boolean {
         return action == "info.nightscout.client.NEW_SGV" ||
-            action == "com.eveningoutpost.dexdrip.BgEstimate"
+            action == "info.nightscout.client.NEW_DEVICESTATUS" ||
+            action == "com.eveningoutpost.dexdrip.BgEstimate" ||
+            action == ACTION_NS_EMULATOR ||
+            action == "info.nightscout.androidaps.status" ||
+            action == "app.aaps.status"
+    }
+
+    private fun isNsEmulatorGlucoseCollection(extras: Map<String, String>): Boolean {
+        val collection = findStringExact(extras, listOf("collection"))
+            ?: findStringByToken(extras, listOf("collection"))
+            ?: return true
+        val normalized = collection.trim().lowercase(Locale.US)
+        if (normalized.isBlank()) return true
+        return normalized.contains("entry") ||
+            normalized.contains("sgv") ||
+            normalized.contains("glucose") ||
+            normalized.contains("bg")
+    }
+
+    private fun parseNsEmulatorGlucoseFallback(
+        action: String,
+        extras: Map<String, String>
+    ): GlucoseValueResolver.Candidate? {
+        if (action != ACTION_NS_EMULATOR) return null
+        val rawData = findStringExact(extras, listOf("data"))
+            ?: findStringByToken(extras, listOf("data"))
+            ?: return null
+        if (rawData.isBlank()) return null
+
+        val numeric = Regex("""\bsgv\b\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)""", RegexOption.IGNORE_CASE)
+            .find(rawData)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.replace(",", ".")
+            ?.toDoubleOrNull()
+            ?: return null
+
+        return GlucoseValueResolver.Candidate(
+            valueRaw = numeric,
+            key = "data.sgv"
+        )
+    }
+
+    private fun parseNsEmulatorTimestampFallback(action: String, extras: Map<String, String>): Long? {
+        if (action != ACTION_NS_EMULATOR) return null
+        val rawData = findStringExact(extras, listOf("data"))
+            ?: findStringByToken(extras, listOf("data"))
+            ?: return null
+        if (rawData.isBlank()) return null
+
+        val numeric = Regex("""\b(?:date|mills|timestamp|time)\b\s*[:=]\s*([0-9]{10,13})""", RegexOption.IGNORE_CASE)
+            .find(rawData)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+            ?: return null
+        return normalizeTimestamp(numeric)
     }
 
     private suspend fun isGlucoseOutlier(sample: GlucoseSampleEntity): Boolean {
@@ -584,6 +642,8 @@ class BroadcastIngestRepository(
     )
 
     companion object {
+        private const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
+
         internal fun normalizeStatusTelemetry(
             mapped: List<TelemetrySampleEntity>
         ): List<TelemetrySampleEntity> {

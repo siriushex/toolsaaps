@@ -11,12 +11,13 @@ object LocalNightscoutServiceController {
             start(context)
             return
         }
-        // Runtime service is also used to keep local broadcast ingest reliable.
-        // Let service decide whether it should stay alive based on current settings.
-        start(context)
+        stop(context)
     }
 
-    fun start(context: Context) {
+    fun start(context: Context, allowBackground: Boolean = false) {
+        if (!allowBackground && !AppVisibilityTracker.isForeground()) {
+            return
+        }
         val intent = Intent(context, LocalNightscoutForegroundService::class.java)
             .setAction(LocalNightscoutForegroundService.ACTION_START)
         runCatching {

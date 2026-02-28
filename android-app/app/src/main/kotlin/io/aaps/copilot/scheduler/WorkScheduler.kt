@@ -31,6 +31,9 @@ object WorkScheduler {
 
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(ANALYSIS_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, analysisWork)
+
+        // Remove legacy keepalive worker that relied on background FGS restarts.
+        WorkManager.getInstance(context).cancelUniqueWork(LEGACY_RUNTIME_KEEPALIVE_WORK_NAME)
     }
 
     fun triggerReactiveAutomation(context: Context) {
@@ -45,4 +48,5 @@ object WorkScheduler {
     const val SYNC_WORK_NAME = "copilot.sync.automate"
     const val ANALYSIS_WORK_NAME = "copilot.analysis.daily"
     const val REACTIVE_WORK_NAME = "copilot.sync.reactive"
+    private const val LEGACY_RUNTIME_KEEPALIVE_WORK_NAME = "copilot.runtime.keepalive"
 }

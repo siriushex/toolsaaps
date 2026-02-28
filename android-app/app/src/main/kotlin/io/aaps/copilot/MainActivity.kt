@@ -6,6 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import io.aaps.copilot.service.AppVisibilityTracker
+import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.ui.CopilotRoot
 
 class MainActivity : ComponentActivity() {
@@ -18,5 +20,16 @@ class MainActivity : ComponentActivity() {
                 CopilotRoot()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppVisibilityTracker.markForeground(true)
+        LocalNightscoutServiceController.start(this)
+    }
+
+    override fun onStop() {
+        AppVisibilityTracker.markForeground(false)
+        super.onStop()
     }
 }

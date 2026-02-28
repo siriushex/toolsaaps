@@ -3,8 +3,8 @@ package io.aaps.copilot
 import android.app.Application
 import androidx.work.Configuration
 import io.aaps.copilot.scheduler.WorkScheduler
+import io.aaps.copilot.service.AppVisibilityTracker
 import io.aaps.copilot.service.AppContainer
-import io.aaps.copilot.service.LocalNightscoutServiceController
 
 class CopilotApp : Application(), Configuration.Provider {
 
@@ -13,9 +13,9 @@ class CopilotApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        AppVisibilityTracker.markForeground(false)
         container = AppContainer(this)
         WorkScheduler.schedule(this)
-        LocalNightscoutServiceController.start(this)
     }
 
     override val workManagerConfiguration: Configuration

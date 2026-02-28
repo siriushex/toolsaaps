@@ -6,6 +6,10 @@ internal object GlucoseValueResolver {
 
     private val exactKeys = listOf(
         "com.eveningoutpost.dexdrip.Extras.BgEstimate",
+        "raw_glucosemgdl",
+        "raw_sgvs_0_mgdl",
+        "raw_sgv",
+        "raw_bg",
         "sgv",
         "mgdl",
         "glucose",
@@ -29,7 +33,12 @@ internal object GlucoseValueResolver {
         "iob",
         "carb",
         "insulin",
-        "battery"
+        "battery",
+        "pred",
+        "predbg",
+        "predbgs",
+        "prediction",
+        "forecast"
     )
 
     data class Candidate(
@@ -54,6 +63,7 @@ internal object GlucoseValueResolver {
                 if (normalizedKey.isBlank()) return@mapNotNull null
                 val parts = normalizedKey.split('_').filter { it.isNotBlank() }
                 if (parts.any { it in blockedTokens }) return@mapNotNull null
+                if (isPredictionKey(normalizedKey)) return@mapNotNull null
                 val baseScore = score(normalizedKey)
                 if (baseScore <= 0) return@mapNotNull null
                 val depthPenalty = parts.size.coerceAtLeast(1) - 1
@@ -73,11 +83,20 @@ internal object GlucoseValueResolver {
 
     private fun score(normalizedKey: String): Int {
         if (normalizedKey == "sgv" || normalizedKey.endsWith("_sgv")) return 100
+        if (normalizedKey == "raw_sgvs_0_mgdl" || normalizedKey == "raw_sgv") return 98
+        if (normalizedKey == "raw_glucosemgdl") return 97
         if (normalizedKey.contains("mgdl")) return 95
+        if (normalizedKey == "raw_bg") return 96
         if (normalizedKey.contains("bgestimate")) return 92
         if (normalizedKey == "glucose" || normalizedKey.endsWith("_glucose")) return 88
         if (normalizedKey.contains("_glucose_")) return 72
         return 0
+    }
+
+    private fun isPredictionKey(normalizedKey: String): Boolean {
+        return normalizedKey.contains("predbg") ||
+            normalizedKey.contains("prediction") ||
+            normalizedKey.contains("forecast")
     }
 
     private fun String.toDoubleOrNullLocale(): Double? = replace(",", ".").toDoubleOrNull()

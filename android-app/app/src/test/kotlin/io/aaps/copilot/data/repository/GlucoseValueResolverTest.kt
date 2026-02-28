@@ -46,4 +46,30 @@ class GlucoseValueResolverTest {
 
         assertThat(candidate).isNull()
     }
+
+    @Test
+    fun ignoresPredictedBgKeys_whenResolvingCurrentGlucose() {
+        val candidate = GlucoseValueResolver.resolve(
+            mapOf(
+                "raw_predBGs_IOB_0_mgdl" to "605",
+                "raw_predBGs_UAM_0_mgdl" to "590"
+            )
+        )
+
+        assertThat(candidate).isNull()
+    }
+
+    @Test
+    fun prefersRealGlucose_overPredictedBg() {
+        val candidate = GlucoseValueResolver.resolve(
+            mapOf(
+                "raw_predBGs_IOB_0_mgdl" to "605",
+                "raw_glucosemgdl" to "158"
+            )
+        )
+
+        assertThat(candidate).isNotNull()
+        assertThat(candidate!!.valueRaw).isEqualTo(158.0)
+        assertThat(candidate.key).isEqualTo("raw_glucosemgdl")
+    }
 }
