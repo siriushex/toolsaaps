@@ -511,3 +511,32 @@
    - `local_nightscout_reactive_automation_enqueued/skipped`.
 4. Проверить свежесть ключей:
    - `iob_units`, `cob_grams`, `activity_ratio`, `steps_count`, `uam_calculated_flag` должны иметь age ~0-1m.
+
+# Изменения — Этап 16: Forecast snapshot consistency in UI (5/30/60 from same cycle)
+
+## Что сделано
+- Добавлен резолвер `ForecastSnapshotResolver`:
+  - вычисляет origin-cycle для каждого прогноза как `origin = timestamp - horizon*60s`;
+  - выбирает последний origin-cycle;
+  - возвращает согласованный набор `5/30/60` именно из одного последнего цикла.
+- `MainViewModel` переведен на этот резолвер:
+  - удалено прямое наблюдение `observeLatestByHorizon(5/30/60)` из `combine`;
+  - `forecast5m/30m/60m` и controller preview теперь берутся из согласованного snapshot.
+- Добавлены unit-тесты:
+  - `ForecastSnapshotResolverTest.resolvesHorizonsFromLatestOriginCycle`;
+  - `ForecastSnapshotResolverTest.keepsAvailableHorizonFromLatestCycleAndDoesNotBackfillOlderCycle`.
+- Обновлён APK на устройстве по USB.
+
+## Почему так
+- До фикса горизонты могли визуально собираться из разных циклов (из-за future timestamps `now+horizon`), что давало рассинхрон и "странные одинаковые/неверные" показания в UI.
+- Snapshot по origin-cycle делает отображение физически согласованным: 5/30/60 относятся к одному и тому же расчету.
+
+## Риски / ограничения
+- Если в последнем цикле отсутствует часть горизонтов, UI покажет только реально доступные значения этого цикла (без подмешивания старого 30/60).
+- Это осознанное поведение для честного отображения актуального цикла.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.ForecastSnapshotResolverTest" :app:compileDebugKotlin :app:installDebug`
+2. В БД проверить последний cycle:
+   - запросом с `origin = timestamp - horizon*60000` убедиться, что `5/30/60` имеют один `cycle_ts`.
+3. В UI `Live Dashboard` проверить, что `5m/30m/60m` меняются согласованно после нового цикла.

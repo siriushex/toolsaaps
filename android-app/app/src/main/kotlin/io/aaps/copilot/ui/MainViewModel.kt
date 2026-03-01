@@ -98,9 +98,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         db.glucoseDao().observeLatest(limit = 3_000),
         db.therapyDao().observeLatest(limit = 1_800),
         db.forecastDao().observeLatest(limit = 7000),
-        db.forecastDao().observeLatestByHorizon(5),
-        db.forecastDao().observeLatestByHorizon(30),
-        db.forecastDao().observeLatestByHorizon(60),
         db.baselineDao().observeLatest(limit = 600),
         db.ruleExecutionDao().observeLatest(limit = 20),
         db.actionCommandDao().observeLatest(limit = 40),
@@ -126,35 +123,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val therapy = TherapySanitizer.filterEntities(values[1] as List<TherapyEventEntity>)
         @Suppress("UNCHECKED_CAST")
         val forecasts = values[2] as List<ForecastEntity>
-        val latestForecast5Row = values[3] as ForecastEntity?
-        val latestForecast30Row = values[4] as ForecastEntity?
-        val latestForecast60Row = values[5] as ForecastEntity?
+        val latestForecastByHorizon = ForecastSnapshotResolver.resolveLatestByHorizon(forecasts)
+        val latestForecast5Row = latestForecastByHorizon[5]
+        val latestForecast30Row = latestForecastByHorizon[30]
+        val latestForecast60Row = latestForecastByHorizon[60]
         @Suppress("UNCHECKED_CAST")
-        val baseline = values[6] as List<BaselinePointEntity>
+        val baseline = values[3] as List<BaselinePointEntity>
         @Suppress("UNCHECKED_CAST")
-        val ruleExec = values[7] as List<RuleExecutionEntity>
+        val ruleExec = values[4] as List<RuleExecutionEntity>
         @Suppress("UNCHECKED_CAST")
-        val actionCommands = values[8] as List<ActionCommandEntity>
+        val actionCommands = values[5] as List<ActionCommandEntity>
         @Suppress("UNCHECKED_CAST")
-        val audits = values[9] as List<AuditLogEntity>
+        val audits = values[6] as List<AuditLogEntity>
         @Suppress("UNCHECKED_CAST")
-        val telemetry = values[10] as List<TelemetrySampleEntity>
+        val telemetry = values[7] as List<TelemetrySampleEntity>
         @Suppress("UNCHECKED_CAST")
-        val patterns = values[11] as List<PatternWindowEntity>
-        val profile = values[12] as ProfileEstimateEntity?
+        val patterns = values[8] as List<PatternWindowEntity>
+        val profile = values[9] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val profileSegments = values[13] as List<ProfileSegmentEstimateEntity>
+        val profileSegments = values[10] as List<ProfileSegmentEstimateEntity>
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[14] as List<SyncStateEntity>
-        val settings = values[15] as AppSettings
-        val autoConnect = values[16] as AutoConnectUi?
-        val message = values[17] as String?
-        val dryRun = values[18] as DryRunUi?
-        val cloudReplay = values[19] as CloudReplayUiModel?
-        val cloudJobs = values[20] as CloudJobsUiModel?
-        val analysisHistory = values[21] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[22] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[23] as InsightsFilterUi
+        val syncStates = values[11] as List<SyncStateEntity>
+        val settings = values[12] as AppSettings
+        val autoConnect = values[13] as AutoConnectUi?
+        val message = values[14] as String?
+        val dryRun = values[15] as DryRunUi?
+        val cloudReplay = values[16] as CloudReplayUiModel?
+        val cloudJobs = values[17] as CloudJobsUiModel?
+        val analysisHistory = values[18] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[19] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[20] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -2266,13 +2264,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "${formatTs(latestLocalSensorTs)} (age ${minutesLabel(localSensorAgeMin)})"
                 }
             )
-            add(
-                "Health Connect stream: " + if (latestHealthConnectTs == null) {
-                    formatHealthConnectStatus(healthConnectState, healthConnectMissingPermissions)
-                } else {
-                    "${formatTs(latestHealthConnectTs)} (age ${minutesLabel(healthConnectAgeMin)})"
-                }
-            )
+            if (HEALTH_CONNECT_ENABLED) {
+                add(
+                    "Health Connect stream: " + if (latestHealthConnectTs == null) {
+                        formatHealthConnectStatus(healthConnectState, healthConnectMissingPermissions)
+                    } else {
+                        "${formatTs(latestHealthConnectTs)} (age ${minutesLabel(healthConnectAgeMin)})"
+                    }
+                )
+            } else {
+                add("Health Connect stream: paused")
+            }
             if (!hasAnyMetric) {
                 add("No steps/activity telemetry yet")
                 return@buildList
@@ -2374,6 +2376,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TLS_DIAGNOSTIC_WINDOW_MINUTES = 15
         private const val TLS_DIAGNOSTIC_WINDOW_MS = TLS_DIAGNOSTIC_WINDOW_MINUTES * 60_000L
         private const val LOCAL_NS_START_FAILURE_WINDOW_MS = 60 * 60_000L
+        private const val HEALTH_CONNECT_ENABLED = false
         private val CUMULATIVE_ACTIVITY_KEYS = setOf(
             "steps_count",
             "distance_km",
