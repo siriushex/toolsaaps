@@ -342,3 +342,28 @@
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
 3. Установить app на устройство (`:app:installDebug`) и открыть `Dashboard -> Physical activity`.
 4. Проверить, что строка `Health Connect stream` показывает явный статус (включая недостающие permissions при отсутствии доступа).
+
+# Изменения — Этап 11: Adaptive controller anti-false-hypo gating
+
+## Что сделано
+- В `AdaptiveTempTargetController` усилена логика safety-канала, чтобы избежать ложного повышения temp target при очевидно высокой прогнозной траектории:
+  - добавлен weighted low-bound показатель `PctrlLow` (confidence-weighted по CI 5/30/60),
+  - добавлен флаг `safetySuppressedByHighTrajectory`, когда все `pred5/pred30/pred60` заметно выше цели (`Tb + 1.0`),
+  - `force-high` теперь отключается при `safetySuppressedByHighTrajectory=true`,
+  - `hypo-guard` использует `PctrlLow` вместо простого `Pmin` (уменьшение ложных срабатываний от одиночного широкого CI).
+- В debug-поля добавлены:
+  - `PctrlLow`,
+  - `safetySuppressedByHighTrajectory`.
+
+## Почему так
+- Ранее safety-ветка могла поднимать target на основании только минимальной границы CI, даже при устойчиво высоком центральном прогнозе.
+- Это давало контринтуитивные temp targets выше base при сценариях близких к гипер-направлению.
+
+## Риски / ограничения
+- При экстремально шумных CI возможны пограничные переключения между safety/control режимами.
+- Порог suppression (`+1.0 mmol/L`) выбран консервативно и может потребовать доп. калибровки по реальным логам.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest"`
+2. Проверить новый тест `testSafetySuppressedWhenTrajectoryClearlyHigh_evenIfLowerBoundDips`.
+3. В audit/rule reasons контроллера смотреть `PctrlLow` и `safetySuppressedByHighTrajectory`.
