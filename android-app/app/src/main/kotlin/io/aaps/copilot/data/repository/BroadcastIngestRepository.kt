@@ -388,7 +388,8 @@ class BroadcastIngestRepository(
         val numeric = trimmed.toLongOrNull()
             ?: trimmed.toDoubleOrNull()?.toLong()
         if (numeric != null) {
-            return if (numeric < 10_000_000_000L) numeric * 1000L else numeric
+            val millis = if (numeric < 10_000_000_000L) numeric * 1000L else numeric
+            return millis.takeIf { it > 0L }
         }
 
         val iso = runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
@@ -470,6 +471,7 @@ class BroadcastIngestRepository(
 
     private suspend fun pruneLegacyBroadcastArtifacts() {
         val removedTherapy = db.therapyDao().deleteLegacyBroadcastArtifacts()
+        val removedInvalidTimestamp = db.telemetryDao().deleteByTimestampAtOrBelow(0L)
         val removedUam = db.telemetryDao().deleteByKeyAboveThreshold(
             key = "uam_value",
             threshold = 1.5
@@ -486,7 +488,7 @@ class BroadcastIngestRepository(
         )
         val removedIobOutsideRange = db.telemetryDao().deleteByKeyOutsideRange(
             key = "iob_units",
-            minValue = 0.0,
+            minValue = -30.0,
             maxValue = 30.0
         )
         val removedCobOutsideRange = db.telemetryDao().deleteByKeyOutsideRange(
@@ -509,6 +511,7 @@ class BroadcastIngestRepository(
         val dedupLocal = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "local_broadcast")
         if (
             removedTherapy > 0 ||
+            removedInvalidTimestamp > 0 ||
             removedUam > 0 ||
             removedStatusCarbsNoise > 0 ||
             removedStatusInsulinNoise > 0 ||
@@ -524,6 +527,7 @@ class BroadcastIngestRepository(
                 "broadcast_legacy_cleanup",
                 mapOf(
                     "therapyRemoved" to removedTherapy,
+                    "invalidTimestampRemoved" to removedInvalidTimestamp,
                     "telemetryRemoved" to removedUam,
                     "statusCarbsNoiseRemoved" to removedStatusCarbsNoise,
                     "statusInsulinNoiseRemoved" to removedStatusInsulinNoise,
@@ -560,8 +564,13 @@ class BroadcastIngestRepository(
     }
 
     private fun normalizeTimestamp(ts: Long): Long {
-        if (ts < 10_000_000_000L) return ts * 1000L
-        return ts
+        val now = System.currentTimeMillis()
+        val millis = when {
+            ts <= 0L -> now
+            ts < 10_000_000_000L -> ts * 1000L
+            else -> ts
+        }
+        return if (millis > now + MAX_FUTURE_TIMESTAMP_SKEW_MS) now else millis
     }
 
     private fun isSupportedGlucoseAction(action: String): Boolean {
@@ -669,6 +678,7 @@ class BroadcastIngestRepository(
             Regex(""""(?:date|mills|timestamp|time)"\s*:\s*([0-9]{10,13})""", RegexOption.IGNORE_CASE),
             Regex("""\b(?:date|mills|timestamp|time)\b\s*[:=]\s*([0-9]{10,13})""", RegexOption.IGNORE_CASE)
         )
+        private const val MAX_FUTURE_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000L
 
         internal fun normalizeStatusTelemetry(
             mapped: List<TelemetrySampleEntity>

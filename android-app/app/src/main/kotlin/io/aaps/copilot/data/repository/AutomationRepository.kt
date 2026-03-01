@@ -588,10 +588,10 @@ class AutomationRepository(
 
         addNumeric("uam_calculated_flag", snapshot.flag)
         addNumeric("uam_calculated_confidence", snapshot.confidence)
-        addNumeric("uam_calculated_carbs_grams", snapshot.estimatedCarbsGrams, "g")
-        addNumeric("uam_calculated_rise15_mmol", snapshot.rise15Mmol, "mmol/L")
-        addNumeric("uam_calculated_rise30_mmol", snapshot.rise30Mmol, "mmol/L")
-        addNumeric("uam_calculated_delta5_mmol", snapshot.delta5Mmol, "mmol/5m")
+        addNumeric("uam_calculated_carbs_grams", snapshot.estimatedCarbsGrams ?: 0.0, "g")
+        addNumeric("uam_calculated_rise15_mmol", snapshot.rise15Mmol ?: 0.0, "mmol/L")
+        addNumeric("uam_calculated_rise30_mmol", snapshot.rise30Mmol ?: 0.0, "mmol/L")
+        addNumeric("uam_calculated_delta5_mmol", snapshot.delta5Mmol ?: 0.0, "mmol/5m")
         if (rows.isNotEmpty()) {
             db.telemetryDao().upsertAll(rows)
         }

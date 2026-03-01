@@ -235,6 +235,21 @@ object TelemetryMetricMapper {
         )
         addNumeric("steps_count", "steps", listOf("steps", "stepCount", "step_count", "stepcounter", "totalSteps", "dailySteps"))
         addNumeric("activity_ratio", null, listOf("activity", "activityRatio", "sensitivityRatio", "autosensRatio", "sensitivity_ratio"))
+        addNumeric(
+            "distance_km",
+            "km",
+            listOf("distanceKm", "distance_km", "walkingDistanceKm", "totalDistanceKm", "distance")
+        )
+        addNumeric(
+            "active_minutes",
+            "min",
+            listOf("activeMinutes", "active_minutes", "exerciseMinutes", "workoutMinutes", "activityMinutes")
+        )
+        addNumeric(
+            "calories_active_kcal",
+            "kcal",
+            listOf("activeCalories", "activeCaloriesKcal", "caloriesActive", "calories_active", "kcalActive")
+        )
         addNumeric("heart_rate_bpm", "bpm", listOf("heartRate", "heart_rate", "bpm"))
         addTempTargetNumeric("temp_target_low_mmol", listOf("targetBottom", "target_bottom", "targetLow"))
         addTempTargetNumeric("temp_target_high_mmol", listOf("targetTop", "target_top", "targetHigh"))
@@ -259,13 +274,15 @@ object TelemetryMetricMapper {
         addText("activity_label", listOf("exercise", "activityType", "sport", "workout"))
         addText("dia_source", listOf("diaSource", "insulinCurve"))
 
-        appendRawSamples(
-            output = output,
-            timestamp = timestamp,
-            source = source,
-            keyPrefix = "raw",
-            values = values
-        )
+        if (!shouldSkipRawForSource(source)) {
+            appendRawSamples(
+                output = output,
+                timestamp = timestamp,
+                source = source,
+                keyPrefix = "raw",
+                values = values
+            )
+        }
 
         return sanitizeSamples(output)
     }
@@ -313,6 +330,9 @@ object TelemetryMetricMapper {
         addPattern("iob_units", "U", listOf("iob.iob", ".iob"))
         addPattern("cob_grams", "g", listOf(".cob", "cob"))
         addPattern("activity_ratio", null, listOf("activity"))
+        addPattern("distance_km", "km", listOf("distance", "distancekm"))
+        addPattern("active_minutes", "min", listOf("active_minutes", "activeminutes", "exerciseminutes"))
+        addPattern("calories_active_kcal", "kcal", listOf("activecalories", "caloriesactive", "kcals"))
         addPattern("dia_hours", "h", listOf("dia"))
         addPattern("steps_count", "steps", listOf("steps", "step"))
         addPattern("insulin_units", "U", listOf("insulin"))
@@ -348,6 +368,11 @@ object TelemetryMetricMapper {
 
     private fun normalizeTempTargetMmol(raw: Double): Double {
         return if (raw > TEMP_TARGET_MGDL_THRESHOLD) UnitConverter.mgdlToMmol(raw) else raw
+    }
+
+    private fun shouldSkipRawForSource(source: String): Boolean {
+        val normalized = source.lowercase(Locale.US)
+        return normalized == "local_sensor"
     }
 
     fun flattenAny(
@@ -552,7 +577,7 @@ object TelemetryMetricMapper {
     private fun sanitizeSample(sample: TelemetrySampleEntity): TelemetrySampleEntity? {
         val value = sample.valueDouble ?: return sample
         val inRange = when (sample.key) {
-            "iob_units" -> value in 0.0..30.0
+            "iob_units" -> value in -30.0..30.0
             "cob_grams" -> value in 0.0..400.0
             "carbs_grams" -> value in 0.1..400.0
             "insulin_units" -> value in 0.01..40.0
@@ -560,6 +585,9 @@ object TelemetryMetricMapper {
             "dia_hours" -> value in 0.5..24.0
             "steps_count" -> value in 0.0..150_000.0
             "activity_ratio" -> value in 0.2..3.0
+            "distance_km" -> value in 0.0..250.0
+            "active_minutes" -> value in 0.0..1_440.0
+            "calories_active_kcal" -> value in 0.0..12_000.0
             "heart_rate_bpm" -> value in 25.0..240.0
             "temp_target_low_mmol", "temp_target_high_mmol" -> value in 3.0..15.0
             "temp_target_duration_min" -> value in 5.0..720.0
@@ -582,18 +610,19 @@ object TelemetryMetricMapper {
         valueText: String?,
         unit: String?
     ): TelemetrySampleEntity {
+        val safeTimestamp = sanitizeTimestamp(timestamp)
         val fingerprint = valueText ?: valueDouble?.let { String.format(Locale.US, "%.4f", it) } ?: "null"
         val isRaw = key.startsWith("raw_") || key.startsWith("ns_")
         val id = if (isRaw) {
-            "tm-$source-$key-$timestamp-${fingerprint.hashCode()}"
+            "tm-$source-$key-$safeTimestamp-${fingerprint.hashCode()}"
         } else {
             // Canonical telemetry must be deterministic per source/key/timestamp to avoid
             // conflicting values at identical timestamps.
-            "tm-$source-$key-$timestamp"
+            "tm-$source-$key-$safeTimestamp"
         }
         return TelemetrySampleEntity(
             id = id,
-            timestamp = timestamp,
+            timestamp = safeTimestamp,
             source = source,
             key = key,
             valueDouble = valueDouble,
@@ -601,6 +630,11 @@ object TelemetryMetricMapper {
             unit = unit,
             quality = "OK"
         )
+    }
+
+    private fun sanitizeTimestamp(timestamp: Long): Long {
+        if (timestamp <= 0L) return System.currentTimeMillis()
+        return timestamp
     }
 
     private fun String.toDoubleOrNullLocale(): Double? = replace(",", ".").toDoubleOrNull()

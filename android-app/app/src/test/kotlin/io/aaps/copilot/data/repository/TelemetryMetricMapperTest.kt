@@ -19,6 +19,9 @@ class TelemetryMetricMapperTest {
                 "dia" to "5",
                 "steps" to "6512",
                 "activityRatio" to "0.84",
+                "distanceKm" to "4.3",
+                "activeMinutes" to "37",
+                "activeCalories" to "286",
                 "heartRate" to "98",
                 "custom.metric" to "42.4",
                 "api_secret" to "should_not_be_saved"
@@ -33,6 +36,9 @@ class TelemetryMetricMapperTest {
         assertThat(byKey["dia_hours"]?.first()?.valueDouble).isEqualTo(5.0)
         assertThat(byKey["steps_count"]?.first()?.valueDouble).isEqualTo(6512.0)
         assertThat(byKey["activity_ratio"]?.first()?.valueDouble).isEqualTo(0.84)
+        assertThat(byKey["distance_km"]?.first()?.valueDouble).isEqualTo(4.3)
+        assertThat(byKey["active_minutes"]?.first()?.valueDouble).isEqualTo(37.0)
+        assertThat(byKey["calories_active_kcal"]?.first()?.valueDouble).isEqualTo(286.0)
         assertThat(byKey["heart_rate_bpm"]?.first()?.valueDouble).isEqualTo(98.0)
         assertThat(byKey).doesNotContainKey("basal_rate_u_h")
 
@@ -62,12 +68,14 @@ class TelemetryMetricMapperTest {
             flattened = mapOf(
                 "openaps.iob.iob" to "1.42",
                 "openaps.suggested.COB" to "14",
+                "fitness.distanceKm" to "2.1",
                 "uploader.battery" to "88"
             )
         )
         val nsByKey = nsSamples.associateBy { it.key }
         assertThat(nsByKey["iob_units"]?.valueDouble).isEqualTo(1.42)
         assertThat(nsByKey["cob_grams"]?.valueDouble).isEqualTo(14.0)
+        assertThat(nsByKey["distance_km"]?.valueDouble).isEqualTo(2.1)
         assertThat(nsByKey).containsKey("ns_openaps_iob_iob")
         assertThat(nsByKey).containsKey("ns_uploader_battery")
     }
@@ -149,6 +157,30 @@ class TelemetryMetricMapperTest {
     }
 
     @Test
+    fun keepsNegativeIobWithinAllowedRange() {
+        val ts = 1_700_001_150_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "xdrip_broadcast",
+            values = mapOf("iob" to "-0.72")
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey["iob_units"]?.valueDouble).isWithin(1e-9).of(-0.72)
+    }
+
+    @Test
+    fun dropsIobOutsideExtendedNegativeRange() {
+        val ts = 1_700_001_160_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "xdrip_broadcast",
+            values = mapOf("iob" to "-45")
+        )
+        val byKey = samples.associateBy { it.key }
+        assertThat(byKey).doesNotContainKey("iob_units")
+    }
+
+    @Test
     fun derivesUamFlag_fromPredictedUamDeltaWhenReasonAbsent() {
         val ts = 1_700_001_200_000L
         val samples = TelemetryMetricMapper.fromKeyValueMap(
@@ -192,5 +224,39 @@ class TelemetryMetricMapperTest {
         )
         val byKey = samples.associateBy { it.key }
         assertThat(byKey["uam_value"]?.valueDouble).isEqualTo(0.0)
+    }
+
+    @Test
+    fun rewritesNonPositiveTimestampToWallClockTime() {
+        val before = System.currentTimeMillis()
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = 0L,
+            source = "aaps_broadcast",
+            values = mapOf("iob" to "1.2")
+        )
+        val after = System.currentTimeMillis()
+        val sample = samples.first { it.key == "iob_units" }
+
+        assertThat(sample.timestamp).isAtLeast(before)
+        assertThat(sample.timestamp).isAtMost(after)
+    }
+
+    @Test
+    fun skipsRawSamplesForLocalSensorSource() {
+        val ts = 1_700_001_450_000L
+        val samples = TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = ts,
+            source = "local_sensor",
+            values = mapOf(
+                "steps" to "1234",
+                "activeMinutes" to "22",
+                "distanceKm" to "1.1"
+            )
+        )
+        val keys = samples.map { it.key }.toSet()
+        assertThat(keys).contains("steps_count")
+        assertThat(keys).contains("active_minutes")
+        assertThat(keys).contains("distance_km")
+        assertThat(keys.any { it.startsWith("raw_") }).isFalse()
     }
 }

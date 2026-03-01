@@ -440,3 +440,40 @@
    - блок `Yesterday real ISF/CR`,
    - блок `Full ISF/CR analysis`.
 4. Убедиться, что при старте приложения не появляется запрос Health Connect permissions (HC отложен).
+
+# Изменения — Этап 14: IOB freshness fix (negative IOB support)
+
+## Что сделано
+- Исправлена фильтрация `iob_units` в телеметрии:
+  - `TelemetryMetricMapper` теперь принимает `iob_units` в диапазоне `-30..+30` U (раньше было `0..30`).
+- Исправлена legacy-cleanup логика в `BroadcastIngestRepository`:
+  - удаление out-of-range для `iob_units` переведено на диапазон `-30..+30`.
+- Исправлена свежесть расчетного UAM в `AutomationRepository`:
+  - `uam_calculated_carbs_grams/rise15/rise30/delta5` теперь пишутся на каждом цикле,
+  - при отсутствии UAM-сигнала пишется `0`, чтобы UI не показывал устаревшие значения.
+- Добавлены unit-тесты в `TelemetryMetricMapperTest`:
+  - `keepsNegativeIobWithinAllowedRange`,
+  - `dropsIobOutsideExtendedNegativeRange`.
+- Обновлен debug APK на устройстве по USB и проверено в live DB:
+  - `iob_units` снова пишется каждую минуту вместе с `raw_iob`,
+  - stale-проблема по IOB устранена.
+
+## Почему так
+- В реальных AAPS данных `IOB` может быть отрицательным (например, при отрицательном basal IOB).
+- Из-за старого диапазона отрицательные значения отбрасывались и UI/алгоритмы использовали устаревший `iob_units`.
+- Это искажало контур прогноза/контроллера и давало неактуальные значения в Telemetry Coverage.
+- Аналогично для UAM, поля `delta/rise/carbs` могли “зависать” на старом сигнале, если новый сигнал отсутствовал.
+
+## Риски / ограничения
+- Сильно отрицательные выбросы по-прежнему фильтруются (< -30 U).
+- В audit всё ещё есть `automation_cycle_skipped` из-за конкурирующих триггеров (reactive + minute-cycle), но цикл регулярно завершается и данные обновляются.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.TelemetryMetricMapperTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+3. На телефоне проверить БД:
+   - `SELECT key,valueDouble,datetime(timestamp/1000,'unixepoch','localtime') FROM telemetry_samples WHERE key IN ('iob_units','raw_iob') ORDER BY timestamp DESC LIMIT 10;`
+   - ожидание: свежие `iob_units` с отрицательными значениями, timestamp близко к текущему.
+4. Проверить UAM freshness:
+   - `SELECT key,valueDouble,datetime(timestamp/1000,'unixepoch','localtime') FROM telemetry_samples WHERE key LIKE 'uam_calculated_%' ORDER BY timestamp DESC LIMIT 12;`
+   - ожидание: на каждом цикле есть свежие `uam_calculated_*`; при отсутствии активного UAM значения `delta/rise/carbs = 0`.
