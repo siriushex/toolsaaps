@@ -642,3 +642,32 @@
 4. Проверить `action_commands`:
    - новые adaptive-команды без `|base_align_60m`;
    - target соответствует прямому output контроллера.
+
+# Изменения — Этап 20: Online forecast calibration bias (recent error correction)
+
+## Что сделано
+- Добавлена online-коррекция систематической ошибки прогноза в `AutomationRepository`:
+  - сбор истории ошибок `actual - forecast` за последние 12 часов;
+  - матчинг forecast->glucose по ближайшей точке с tolerance `±2 мин`;
+  - weighted bias по горизонтам 5/30/60 с экспоненциальным затуханием по давности (half-life 90m);
+  - ограничение bias и min-samples по каждому горизонту;
+  - безопасный clamp значений/CI и маркировка версии `|calib_v1`.
+- Пайплайн теперь: `merge(local/cloud) -> recent calibration -> COB/IOB bias -> запись в DB`.
+- Добавлен audit-event `forecast_calibration_bias_applied` с фактическими смещениями по горизонтам.
+- Расширены DAO и тесты:
+  - `ForecastDao.latest(limit)`;
+  - `AutomationRepositoryForecastBiasTest` доп. кейсы на calibration raise/lower/insufficient samples.
+
+## Почему так
+- По live-метрике за 12h выявлен систематический bias: модель занижала 30/60m (средняя ошибка `actual-pred` положительная), что увеличивало число safety `force_high`.
+- Лёгкая online-коррекция уменьшает этот сдвиг без агрессивного вмешательства в сам prediction engine.
+
+## Риски / ограничения
+- Коррекция зависит от качества последних данных; при аномальном участке истории bias может временно смещаться.
+- Встроены ограничители (min-samples, clamp, deadband), но для финальной калибровки всё ещё нужен replay-анализ по 14–30 дням.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest :app:compileDebugKotlin :app:installDebug`
+3. На телефоне в `audit_logs` проверить `forecast_calibration_bias_applied` и величины `h5/h30/h60`.
+4. Сравнить динамику `adaptive_controller_*` и долю `safety_force_high` до/после на интервале нескольких часов.

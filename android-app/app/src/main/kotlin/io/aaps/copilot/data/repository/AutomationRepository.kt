@@ -5,6 +5,7 @@ import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.remote.cloud.CloudGlucosePoint
@@ -37,6 +38,7 @@ import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.min
 
@@ -78,6 +80,12 @@ class AutomationRepository(
         val rise15Mmol: Double?,
         val rise30Mmol: Double?,
         val delta5Mmol: Double?
+    )
+
+    data class ForecastCalibrationPoint(
+        val horizonMinutes: Int,
+        val errorMmol: Double,
+        val ageMs: Long
     )
 
     suspend fun runAutomationCycle() {
@@ -123,12 +131,26 @@ class AutomationRepository(
         val mergedForecastsRaw = ensureForecast30(
             maybeMergeCloudPrediction(glucose, therapy, localForecasts)
         )
-        val mergedForecasts = applyCobIobForecastBias(
+        val calibrationErrors = collectForecastCalibrationErrors(nowTs = now)
+        val mergedForecastsCalibrated = applyRecentForecastCalibrationBias(
             forecasts = mergedForecastsRaw,
+            history = calibrationErrors
+        )
+        if (mergedForecastsCalibrated != mergedForecastsRaw) {
+            auditLogger.info(
+                "forecast_calibration_bias_applied",
+                buildCalibrationAuditMeta(
+                    source = mergedForecastsRaw,
+                    adjusted = mergedForecastsCalibrated
+                )
+            )
+        }
+        val mergedForecasts = applyCobIobForecastBias(
+            forecasts = mergedForecastsCalibrated,
             cobGrams = latestTelemetry["cob_grams"],
             iobUnits = latestTelemetry["iob_units"]
         )
-        if (mergedForecasts != mergedForecastsRaw) {
+        if (mergedForecasts != mergedForecastsCalibrated) {
             auditLogger.info(
                 "forecast_bias_applied",
                 mapOf(
@@ -365,6 +387,81 @@ class AutomationRepository(
             modelVersion = "local-interpolated-30m-v1"
         )
         return (forecasts + synthetic).sortedBy { it.horizonMinutes }
+    }
+
+    private suspend fun collectForecastCalibrationErrors(nowTs: Long): List<ForecastCalibrationPoint> {
+        val forecastHistory = db.forecastDao().latest(CALIBRATION_FORECAST_LIMIT)
+        if (forecastHistory.isEmpty()) return emptyList()
+        val glucoseHistory = db.glucoseDao().latest(CALIBRATION_GLUCOSE_LIMIT).sortedBy { it.timestamp }
+        if (glucoseHistory.isEmpty()) return emptyList()
+
+        return forecastHistory.asSequence()
+            .filter { row ->
+                val age = nowTs - row.timestamp
+                age in CALIBRATION_MIN_AGE_MS..CALIBRATION_LOOKBACK_MS
+            }
+            .mapNotNull { row ->
+                val nearest = nearestGlucoseAt(
+                    targetTs = row.timestamp,
+                    sorted = glucoseHistory,
+                    toleranceMs = CALIBRATION_MATCH_TOLERANCE_MS
+                ) ?: return@mapNotNull null
+                ForecastCalibrationPoint(
+                    horizonMinutes = row.horizonMinutes,
+                    errorMmol = nearest.mmol - row.valueMmol,
+                    ageMs = nowTs - row.timestamp
+                )
+            }
+            .toList()
+    }
+
+    private fun nearestGlucoseAt(
+        targetTs: Long,
+        sorted: List<GlucoseSampleEntity>,
+        toleranceMs: Long
+    ): GlucoseSampleEntity? {
+        if (sorted.isEmpty()) return null
+        var lo = 0
+        var hi = sorted.lastIndex
+        while (lo <= hi) {
+            val mid = (lo + hi).ushr(1)
+            val midTs = sorted[mid].timestamp
+            when {
+                midTs < targetTs -> lo = mid + 1
+                midTs > targetTs -> hi = mid - 1
+                else -> return sorted[mid]
+            }
+        }
+
+        val right = sorted.getOrNull(lo)
+        val left = sorted.getOrNull(lo - 1)
+        val rightDiff = right?.let { abs(it.timestamp - targetTs) } ?: Long.MAX_VALUE
+        val leftDiff = left?.let { abs(it.timestamp - targetTs) } ?: Long.MAX_VALUE
+        val best = if (rightDiff < leftDiff) right else left
+        return best?.takeIf { abs(it.timestamp - targetTs) <= toleranceMs }
+    }
+
+    private fun applyRecentForecastCalibrationBias(
+        forecasts: List<Forecast>,
+        history: List<ForecastCalibrationPoint>
+    ): List<Forecast> {
+        return applyRecentForecastCalibrationBiasStatic(
+            forecasts = forecasts,
+            history = history
+        )
+    }
+
+    private fun buildCalibrationAuditMeta(
+        source: List<Forecast>,
+        adjusted: List<Forecast>
+    ): Map<String, Any> {
+        val byH = source.associateBy { it.horizonMinutes }
+        val shifts = adjusted.associate { forecast ->
+            val src = byH[forecast.horizonMinutes]
+            val delta = if (src == null) 0.0 else forecast.valueMmol - src.valueMmol
+            "h${forecast.horizonMinutes}" to roundToStep(delta, 0.001)
+        }
+        return shifts + mapOf("model" to "recent_calibration_v1")
     }
 
     private fun applyCobIobForecastBias(
@@ -968,6 +1065,72 @@ class AutomationRepository(
         private const val FORECAST_BIAS_MAX = 3.0
         private const val MIN_GLUCOSE_MMOL = 2.2
         private const val MAX_GLUCOSE_MMOL = 22.0
+        private const val CALIBRATION_FORECAST_LIMIT = 4_000
+        private const val CALIBRATION_GLUCOSE_LIMIT = 8_000
+        private const val CALIBRATION_LOOKBACK_MS = 12L * 60 * 60 * 1000
+        private const val CALIBRATION_MIN_AGE_MS = 2L * 60 * 1000
+        private const val CALIBRATION_MATCH_TOLERANCE_MS = 2L * 60 * 1000
+        private const val CALIBRATION_HALF_LIFE_MS = 90.0 * 60 * 1000
+
+        private data class CalibrationConfig(
+            val minSamples: Int,
+            val gain: Double,
+            val maxUp: Double,
+            val maxDown: Double
+        )
+
+        private fun calibrationConfig(horizonMinutes: Int): CalibrationConfig? = when (horizonMinutes) {
+            5 -> CalibrationConfig(minSamples = 24, gain = 0.35, maxUp = 0.35, maxDown = 0.25)
+            30 -> CalibrationConfig(minSamples = 18, gain = 0.45, maxUp = 0.70, maxDown = 0.45)
+            60 -> CalibrationConfig(minSamples = 12, gain = 0.55, maxUp = 1.10, maxDown = 0.65)
+            else -> null
+        }
+
+        internal fun applyRecentForecastCalibrationBiasStatic(
+            forecasts: List<Forecast>,
+            history: List<ForecastCalibrationPoint>
+        ): List<Forecast> {
+            if (forecasts.isEmpty() || history.isEmpty()) return forecasts
+            val historyByHorizon = history.groupBy { it.horizonMinutes }
+            return forecasts.map { forecast ->
+                val cfg = calibrationConfig(forecast.horizonMinutes) ?: return@map forecast
+                val points = historyByHorizon[forecast.horizonMinutes]
+                    .orEmpty()
+                    .filter { it.ageMs in CALIBRATION_MIN_AGE_MS..CALIBRATION_LOOKBACK_MS }
+                if (points.size < cfg.minSamples) return@map forecast
+
+                var sumW = 0.0
+                var sumErr = 0.0
+                points.forEach { point ->
+                    val age = point.ageMs.coerceAtLeast(0L).toDouble()
+                    val weight = exp(-age / CALIBRATION_HALF_LIFE_MS)
+                    sumW += weight
+                    sumErr += weight * point.errorMmol
+                }
+                if (sumW <= 1e-9) return@map forecast
+
+                val meanErr = sumErr / sumW
+                val bias = (meanErr * cfg.gain).coerceIn(-cfg.maxDown, cfg.maxUp)
+                if (abs(bias) < 0.02) return@map forecast
+
+                val shiftedValue = (forecast.valueMmol + bias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+                var shiftedLow = (forecast.ciLow + bias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+                var shiftedHigh = (forecast.ciHigh + bias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+                if (shiftedLow > shiftedValue) shiftedLow = shiftedValue
+                if (shiftedHigh < shiftedValue) shiftedHigh = shiftedValue
+                val version = if (forecast.modelVersion.contains("|calib_v1")) {
+                    forecast.modelVersion
+                } else {
+                    "${forecast.modelVersion}|calib_v1"
+                }
+                forecast.copy(
+                    valueMmol = shiftedValue,
+                    ciLow = shiftedLow,
+                    ciHigh = shiftedHigh,
+                    modelVersion = version
+                )
+            }
+        }
 
         internal fun applyCobIobForecastBiasStatic(
             forecasts: List<Forecast>,

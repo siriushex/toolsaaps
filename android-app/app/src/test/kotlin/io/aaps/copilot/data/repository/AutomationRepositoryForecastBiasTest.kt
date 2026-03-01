@@ -81,6 +81,77 @@ class AutomationRepositoryForecastBiasTest {
         assertThat(skipped).isFalse()
     }
 
+    @Test
+    fun calibrationBias_raisesWhenHistoryUnderpredicts() {
+        val source = sampleForecasts()
+        val history = buildList {
+            repeat(40) { idx ->
+                add(
+                    AutomationRepository.ForecastCalibrationPoint(
+                        horizonMinutes = 60,
+                        errorMmol = 1.0, // actual > pred
+                        ageMs = (idx + 1) * 5 * 60_000L
+                    )
+                )
+            }
+        }
+
+        val adjusted = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history
+        )
+
+        val src60 = source.first { it.horizonMinutes == 60 }
+        val adj60 = adjusted.first { it.horizonMinutes == 60 }
+        assertThat(adj60.valueMmol).isGreaterThan(src60.valueMmol)
+        assertThat(adj60.modelVersion).contains("calib_v1")
+    }
+
+    @Test
+    fun calibrationBias_lowersWhenHistoryOverpredicts_withClamp() {
+        val source = sampleForecasts()
+        val history = buildList {
+            repeat(40) { idx ->
+                add(
+                    AutomationRepository.ForecastCalibrationPoint(
+                        horizonMinutes = 30,
+                        errorMmol = -2.0, // actual < pred
+                        ageMs = (idx + 1) * 5 * 60_000L
+                    )
+                )
+            }
+        }
+
+        val adjusted = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history
+        )
+
+        val src30 = source.first { it.horizonMinutes == 30 }
+        val adj30 = adjusted.first { it.horizonMinutes == 30 }
+        assertThat(adj30.valueMmol).isLessThan(src30.valueMmol)
+        assertThat(src30.valueMmol - adj30.valueMmol).isAtMost(0.46)
+    }
+
+    @Test
+    fun calibrationBias_notAppliedWhenSamplesInsufficient() {
+        val source = sampleForecasts()
+        val history = listOf(
+            AutomationRepository.ForecastCalibrationPoint(
+                horizonMinutes = 60,
+                errorMmol = 1.5,
+                ageMs = 10 * 60_000L
+            )
+        )
+
+        val adjusted = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history
+        )
+
+        assertThat(adjusted).isEqualTo(source)
+    }
+
     private fun sampleForecasts(): List<Forecast> {
         val now = System.currentTimeMillis()
         return listOf(
