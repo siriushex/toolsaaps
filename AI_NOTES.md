@@ -610,3 +610,35 @@
 3. На телефоне проверить `action_commands.payloadJson.reason` и `targetMmol`:
    - adaptive-события должны идти без `|base_align_60m`;
    - target должен совпадать с выходом контроллера (например, `9.0`, а не `9.65+`).
+
+# Изменения — Этап 19: Current-glucose-aware adaptive safety suppression
+
+## Что сделано
+- В `AdaptiveTempTargetController.Input` добавлено поле `currentGlucoseMmol`.
+- В `AdaptiveTargetControllerRule` передача текущей глюкозы в контроллер:
+  - `currentGlucoseMmol = context.glucose.maxByOrNull { it.ts }?.valueMmol`.
+- В `AdaptiveTempTargetController` добавлен новый safety-suppression канал:
+  - если текущая глюкоза явно выше базы и `pred5` также выше базы, safety-force-high/hypo-guard подавляются;
+  - исключение: при `nearTermLow < 3.6` suppression не применяется (жесткая защита от гипо).
+- Debug-поля расширены:
+  - `currentGlucose`, `severeNearTermLow`, `safetySuppressedByCurrentHigh`.
+- Добавлены unit-тесты:
+  - `testHighCurrentGlucoseSuppressesForceHighOnNoisyCi`
+  - `testSevereNearTermLowOverridesHighCurrentSuppression`
+
+## Почему так
+- При шумных CI возможно ложное занижение `ciLow`, что может искусственно переводить контроллер в `safety_force_high`.
+- Использование фактической текущей глюкозы как дополнительного контекста снижает ложные high-target решения в сценариях реальной гипергликемии.
+
+## Риски / ограничения
+- Если текущая глюкоза высокая, но быстро падает, suppression может отложить мягкий safety-подъём (компенсируется тем, что severe low `ciLow5<3.6` всё равно имеет приоритет).
+- Для окончательной калибровки порогов (`+1.5`, `+0.8`) нужен replay на истории пользователя.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest" --tests "io.aaps.copilot.domain.rules.AdaptiveTargetControllerRuleTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+3. На телефоне проверить `rule_executions.reasonsJson`:
+   - присутствуют ключи `currentGlucose`, `safetySuppressedByCurrentHigh`.
+4. Проверить `action_commands`:
+   - новые adaptive-команды без `|base_align_60m`;
+   - target соответствует прямому output контроллера.

@@ -42,6 +42,7 @@ class AdaptiveTargetControllerRule : TargetRule {
             AdaptiveTempTargetController.Input(
                 nowTs = context.nowTs,
                 baseTarget = context.baseTargetMmol,
+                currentGlucoseMmol = context.glucose.maxByOrNull { it.ts }?.valueMmol,
                 pred5 = forecast5,
                 pred30 = forecast30,
                 pred60 = forecast60,

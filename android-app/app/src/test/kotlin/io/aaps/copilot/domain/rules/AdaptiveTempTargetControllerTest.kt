@@ -338,6 +338,7 @@ class AdaptiveTempTargetControllerTest {
         val out = controller.evaluate(
             input(
                 base = 5.5,
+                currentGlucose = 6.0,
                 pred5 = 6.2,
                 pred30 = 5.0,
                 pred60 = 4.8,
@@ -356,6 +357,54 @@ class AdaptiveTempTargetControllerTest {
         assertThat(out.newTempTarget).isLessThan(9.0)
     }
 
+    @Test
+    fun testHighCurrentGlucoseSuppressesForceHighOnNoisyCi() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 8.7,
+                pred5 = 6.6,
+                pred30 = 6.4,
+                pred60 = 6.1,
+                ciLow5 = 4.15,
+                ciHigh5 = 8.0,
+                ciLow30 = 2.3,
+                ciHigh30 = 8.4,
+                ciLow60 = 2.2,
+                ciHigh60 = 8.6,
+                prevTarget = null,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isNotEqualTo("safety_force_high")
+        assertThat(out.debugFields["safetySuppressedByCurrentHigh"]).isEqualTo(1.0)
+        assertThat(out.newTempTarget).isAtMost(5.5)
+    }
+
+    @Test
+    fun testSevereNearTermLowOverridesHighCurrentSuppression() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 8.7,
+                pred5 = 6.6,
+                pred30 = 6.4,
+                pred60 = 6.1,
+                ciLow5 = 3.4,
+                ciHigh5 = 8.0,
+                ciLow30 = 2.3,
+                ciHigh30 = 8.4,
+                ciLow60 = 2.2,
+                ciHigh60 = 8.6,
+                prevTarget = null,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("safety_force_high")
+    }
+
     private fun input(
         base: Double,
         pred5: Double,
@@ -369,12 +418,14 @@ class AdaptiveTempTargetControllerTest {
         ciHigh60: Double,
         prevTarget: Double?,
         prevI: Double,
+        currentGlucose: Double? = null,
         uamActive: Boolean = false,
         cobGrams: Double? = null,
         iobUnits: Double? = null
     ) = AdaptiveTempTargetController.Input(
         nowTs = System.currentTimeMillis(),
         baseTarget = base,
+        currentGlucoseMmol = currentGlucose,
         pred5 = pred5,
         pred30 = pred30,
         pred60 = pred60,

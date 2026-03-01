@@ -7,6 +7,7 @@ class AdaptiveTempTargetController {
     data class Input(
         val nowTs: Long,
         val baseTarget: Double,
+        val currentGlucoseMmol: Double? = null,
         val pred5: Double,
         val pred30: Double,
         val pred60: Double,
@@ -33,6 +34,7 @@ class AdaptiveTempTargetController {
 
     fun evaluate(input: Input): Output {
         val userBaseTarget = input.baseTarget.coerceIn(TMIN, TMAX)
+        val currentGlucose = input.currentGlucoseMmol?.coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
         val cob = (input.cobGrams ?: 0.0).coerceIn(0.0, 400.0)
         val iob = (input.iobUnits ?: 0.0).coerceIn(0.0, 30.0)
         val cobForcedBase = if (cob >= COB_SIGNIFICANT_GRAMS) COB_FORCED_BASE_TARGET_MMOL else userBaseTarget
@@ -62,14 +64,20 @@ class AdaptiveTempTargetController {
         val pMin = minOf(input.ciLow5, input.ciLow30, input.ciLow60)
         val pCtrlLow = w5N * input.ciLow5 + w30N * input.ciLow30 + w60N * input.ciLow60
         val nearTermLow = input.ciLow5
+        val severeNearTermLow = nearTermLow < FORCE_HIGH_SEVERE_BELOW
         val safetySuppressedByHighTrajectory = input.pred5 >= tb + SAFETY_SUPPRESS_MARGIN_MMOL &&
             input.pred30 >= tb + SAFETY_SUPPRESS_MARGIN_MMOL &&
             input.pred60 >= tb + SAFETY_SUPPRESS_MARGIN_MMOL
+        val safetySuppressedByCurrentHigh = !severeNearTermLow &&
+            currentGlucose != null &&
+            currentGlucose >= tb + HIGH_CURRENT_GLUCOSE_MARGIN_MMOL &&
+            input.pred5 >= tb + HIGH_CURRENT_PRED5_MARGIN_MMOL
+        val safetySuppressed = safetySuppressedByHighTrajectory || safetySuppressedByCurrentHigh
 
         val immediateForceHighRisk = nearTermLow < FORCE_HIGH_IF_BELOW
         val weightedForceHighRisk = pCtrlLow < FORCE_HIGH_CTRLLOW_BELOW &&
             input.pred5 < tb + FORCE_HIGH_NEAR_TERM_MARGIN_MMOL
-        val shouldForceHigh = !safetySuppressedByHighTrajectory &&
+        val shouldForceHigh = !safetySuppressed &&
             (immediateForceHighRisk || weightedForceHighRisk)
         if (shouldForceHigh) {
             val target = applyRateLimit(TMAX, input.previousTempTarget).coerceIn(TMIN, TMAX)
@@ -81,13 +89,16 @@ class AdaptiveTempTargetController {
                 debugFields = mapOf(
                     "Tb" to tb,
                     "TbUser" to userBaseTarget,
+                    "currentGlucose" to (currentGlucose ?: Double.NaN),
                     "cobGrams" to cob,
                     "iobUnits" to iob,
                     "nearTermLow" to nearTermLow,
+                    "severeNearTermLow" to if (severeNearTermLow) 1.0 else 0.0,
                     "Pmin" to pMin,
                     "PctrlLow" to pCtrlLow,
                     "immediateForceHighRisk" to if (immediateForceHighRisk) 1.0 else 0.0,
                     "weightedForceHighRisk" to if (weightedForceHighRisk) 1.0 else 0.0,
+                    "safetySuppressedByCurrentHigh" to if (safetySuppressedByCurrentHigh) 1.0 else 0.0,
                     "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
                     "w5CI" to w5CI,
                     "w30CI" to w30CI,
@@ -99,7 +110,7 @@ class AdaptiveTempTargetController {
         val immediateHypoGuardRisk = nearTermLow < tb - M_HYPO
         val weightedHypoGuardRisk = pCtrlLow < tb - M_HYPO &&
             input.pred5 < tb + HYPO_GUARD_NEAR_TERM_MARGIN_MMOL
-        if (!safetySuppressedByHighTrajectory && (immediateHypoGuardRisk || weightedHypoGuardRisk)) {
+        if (!safetySuppressed && (immediateHypoGuardRisk || weightedHypoGuardRisk)) {
             val raw = (tb + K_HYPO * (tb - pCtrlLow)).coerceIn(tb, TMAX)
             val target = applyRateLimit(raw, input.previousTempTarget).coerceIn(TMIN, TMAX)
             return Output(
@@ -110,14 +121,17 @@ class AdaptiveTempTargetController {
                 debugFields = mapOf(
                     "Tb" to tb,
                     "TbUser" to userBaseTarget,
+                    "currentGlucose" to (currentGlucose ?: Double.NaN),
                     "cobGrams" to cob,
                     "iobUnits" to iob,
                     "nearTermLow" to nearTermLow,
+                    "severeNearTermLow" to if (severeNearTermLow) 1.0 else 0.0,
                     "Pmin" to pMin,
                     "PctrlLow" to pCtrlLow,
                     "immediateHypoGuardRisk" to if (immediateHypoGuardRisk) 1.0 else 0.0,
                     "weightedHypoGuardRisk" to if (weightedHypoGuardRisk) 1.0 else 0.0,
                     "rawTarget" to raw,
+                    "safetySuppressedByCurrentHigh" to if (safetySuppressedByCurrentHigh) 1.0 else 0.0,
                     "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
                     "w5CI" to w5CI,
                     "w30CI" to w30CI,
@@ -168,9 +182,11 @@ class AdaptiveTempTargetController {
         val debugFields = mutableMapOf(
             "Tb" to tb,
             "TbUser" to userBaseTarget,
+            "currentGlucose" to (currentGlucose ?: Double.NaN),
             "cobGrams" to cob,
             "iobUnits" to iob,
             "nearTermLow" to nearTermLow,
+            "severeNearTermLow" to if (severeNearTermLow) 1.0 else 0.0,
             "Pctrl" to pCtrl,
             "PctrlRaw" to pCtrlRaw,
             "cobBias" to cobBias,
@@ -178,6 +194,7 @@ class AdaptiveTempTargetController {
             "error" to e,
             "Pmin" to pMin,
             "PctrlLow" to pCtrlLow,
+            "safetySuppressedByCurrentHigh" to if (safetySuppressedByCurrentHigh) 1.0 else 0.0,
             "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
             "w5N" to w5N,
             "w30N" to w30N,
@@ -268,7 +285,10 @@ class AdaptiveTempTargetController {
         private const val MAX_GLUCOSE_MMOL = 22.0
         private const val SAFETY_SUPPRESS_MARGIN_MMOL = 1.0
         private const val FORCE_HIGH_NEAR_TERM_MARGIN_MMOL = 0.35
+        private const val FORCE_HIGH_SEVERE_BELOW = 3.6
         private const val HYPO_GUARD_NEAR_TERM_MARGIN_MMOL = 0.60
+        private const val HIGH_CURRENT_GLUCOSE_MARGIN_MMOL = 1.5
+        private const val HIGH_CURRENT_PRED5_MARGIN_MMOL = 0.8
         private const val HIGH_GUARD_HYPO_RISK_MARGIN_MMOL = 0.30
         private const val HIGH_GLUCOSE_MARGIN_MMOL = 0.80
         private const val VERY_HIGH_GLUCOSE_MARGIN_MMOL = 2.20
