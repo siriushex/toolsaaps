@@ -367,3 +367,40 @@
 1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest"`
 2. Проверить новый тест `testSafetySuppressedWhenTrajectoryClearlyHigh_evenIfLowerBoundDips`.
 3. В audit/rule reasons контроллера смотреть `PctrlLow` и `safetySuppressedByHighTrajectory`.
+
+# Изменения — Этап 12: Hourly real ISF/CR calculation (yesterday view)
+
+## Что сделано
+- Расширен `ProfileEstimator`:
+  - добавлен `estimateHourly(...)`,
+  - добавлен тип `HourlyProfileEstimate(hour, isf, cr, confidence, isfSamples, crSamples)`.
+- Алгоритм hourly использует ту же базовую логику выборки/фильтрации, что и основной профиль:
+  - ISF из correction-сценариев с фильтрацией UAM/meal overlap,
+  - CR из meal/carb bolus-связок,
+  - trim-outliers + median per hour.
+- В `Safety Center -> Yesterday real ISF/CR` добавлены почасовые строки:
+  - `Hourly history-only (real)` по 24 часам (только часы с данными),
+  - `Hourly merged (OpenAPS+history)` для сравнения.
+- Добавлен unit-тест:
+  - `profileEstimator_buildsHourlyRealIsfCr` в `PatternAndProfileTest`.
+
+## Почему так
+- Пользовательский запрос требовал видеть реальный ISF/CR не только агрегированно, но и по часам.
+- Почасовой разрез упрощает выявление временных зон чувствительности и ошибок профиля.
+
+## Риски / ограничения
+- При малом количестве событий в конкретном часу оценки могут быть шумными; confidence и sample-count выводятся рядом.
+- Пока это отображение рассчитывается on-the-fly в UI для вчерашнего окна и не сохраняется отдельной таблицей.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+3. На телефоне открыть `Safety Center` и проверить блок `Yesterday real ISF/CR`:
+   - агрегированные строки `History-only`/`Merged`,
+   - почасовые строки `Hourly ...`.
+
+## Проверка Health Connect (текущее состояние)
+- По USB-аудиту статус остаётся:
+  - `health_connect_activity_status = permission_missing`
+  - missing: `READ_STEPS`, `READ_DISTANCE`, `READ_ACTIVE_CALORIES_BURNED`
+- `telemetry_samples` с `source=health_connect` пока пуст.

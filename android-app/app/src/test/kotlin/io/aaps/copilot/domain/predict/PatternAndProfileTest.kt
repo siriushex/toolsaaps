@@ -147,6 +147,42 @@ class PatternAndProfileTest {
     }
 
     @Test
+    fun profileEstimator_buildsHourlyRealIsfCr() {
+        val zone = ZoneId.systemDefault()
+        val day = LocalDateTime.of(2026, 2, 24, 0, 0).atZone(zone).toInstant().toEpochMilli()
+        val h8 = day + 8 * 60 * 60_000L
+        val h14 = day + 14 * 60 * 60_000L
+        val h20 = day + 20 * 60 * 60_000L
+
+        val glucose = listOf(
+            GlucosePoint(h8 - 10 * 60_000, 9.0, "test", DataQuality.OK),
+            GlucosePoint(h8 + 90 * 60_000, 7.0, "test", DataQuality.OK),
+            GlucosePoint(h20 - 10 * 60_000, 10.0, "test", DataQuality.OK),
+            GlucosePoint(h20 + 90 * 60_000, 8.5, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(h8, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(h20, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(h14, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3"))
+        )
+
+        val hourly = ProfileEstimator(
+            ProfileEstimatorConfig(minSegmentSamples = 1, trimFraction = 0.0)
+        ).estimateHourly(glucose, therapy)
+
+        val hour8 = hourly.firstOrNull { it.hour == 8 }
+        val hour14 = hourly.firstOrNull { it.hour == 14 }
+        val hour20 = hourly.firstOrNull { it.hour == 20 }
+
+        assertThat(hour8).isNotNull()
+        assertThat(hour14).isNotNull()
+        assertThat(hour20).isNotNull()
+        assertThat(hour8!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+        assertThat(hour20!!.isfMmolPerUnit).isWithin(0.01).of(1.5)
+        assertThat(hour14!!.crGramPerUnit).isWithin(0.01).of(10.0)
+    }
+
+    @Test
     fun profileEstimator_usesTelemetryForIsfAndCr_whenTherapySparse() {
         val now = System.currentTimeMillis()
         val glucose = listOf(

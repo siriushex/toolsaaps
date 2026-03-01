@@ -1987,7 +1987,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             therapyEvents = therapyDomain,
             telemetrySignals = emptyList()
         )
+        val hourlyCalculated = estimator.estimateHourly(
+            glucoseHistory = glucoseDomain,
+            therapyEvents = therapyDomain,
+            telemetrySignals = emptyList()
+        )
         val merged = estimator.estimate(
+            glucoseHistory = glucoseDomain,
+            therapyEvents = therapyDomain,
+            telemetrySignals = telemetrySignals
+        )
+        val hourlyMerged = estimator.estimateHourly(
             glucoseHistory = glucoseDomain,
             therapyEvents = therapyDomain,
             telemetrySignals = telemetrySignals
@@ -2008,9 +2018,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (merged != null) {
                 add(
                     "Merged with telemetry: ISF=${String.format(Locale.US, "%.2f", merged.isfMmolPerUnit)} mmol/L/U, " +
-                        "CR=${String.format(Locale.US, "%.2f", merged.crGramPerUnit)} g/U, " +
-                        "conf=${String.format(Locale.US, "%.0f%%", merged.confidence * 100)}"
+                    "CR=${String.format(Locale.US, "%.2f", merged.crGramPerUnit)} g/U, " +
+                    "conf=${String.format(Locale.US, "%.0f%%", merged.confidence * 100)}"
                 )
+            }
+            if (hourlyCalculated.isEmpty()) {
+                add("Hourly history-only (real): insufficient hourly samples")
+            } else {
+                add("Hourly history-only (real): ${hourlyCalculated.size}/24 hours")
+                hourlyCalculated.forEach { hour ->
+                    val isfText = hour.isfMmolPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                    val crText = hour.crGramPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                    add(
+                        "${String.format(Locale.US, "%02d:00", hour.hour)} " +
+                            "ISF=$isfText, CR=$crText, " +
+                            "conf=${String.format(Locale.US, "%.0f%%", hour.confidence * 100)}, " +
+                            "n(ISF/CR)=${hour.isfSampleCount}/${hour.crSampleCount}"
+                    )
+                }
+            }
+            if (hourlyMerged.isNotEmpty()) {
+                add("Hourly merged (OpenAPS+history): ${hourlyMerged.size}/24 hours")
+                hourlyMerged.forEach { hour ->
+                    val isfText = hour.isfMmolPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                    val crText = hour.crGramPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                    add(
+                        "${String.format(Locale.US, "%02d:00", hour.hour)} " +
+                            "ISF=$isfText, CR=$crText, " +
+                            "conf=${String.format(Locale.US, "%.0f%%", hour.confidence * 100)}, " +
+                            "n(ISF/CR)=${hour.isfSampleCount}/${hour.crSampleCount}"
+                    )
+                }
             }
         }
     }

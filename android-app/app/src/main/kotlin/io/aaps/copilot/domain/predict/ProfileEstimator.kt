@@ -155,6 +155,56 @@ class ProfileEstimator(
         )
     }
 
+    data class HourlyProfileEstimate(
+        val hour: Int,
+        val isfMmolPerUnit: Double?,
+        val crGramPerUnit: Double?,
+        val confidence: Double,
+        val isfSampleCount: Int,
+        val crSampleCount: Int
+    )
+
+    fun estimateHourly(
+        glucoseHistory: List<GlucosePoint>,
+        therapyEvents: List<TherapyEvent>,
+        telemetrySignals: List<TelemetrySignal> = emptyList()
+    ): List<HourlyProfileEstimate> {
+        if (glucoseHistory.isEmpty()) return emptyList()
+        val sortedGlucose = glucoseHistory.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.sortedBy { it.ts }
+        val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
+
+        val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
+        val isfSamples = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples + buildTelemetryIsfSamples(sortedTelemetry)
+        val crSamples = buildCrSamples(sortedEvents) + buildTelemetryCrSamples(sortedTelemetry)
+        if (isfSamples.isEmpty() && crSamples.isEmpty()) return emptyList()
+
+        val isfByHour = isfSamples.groupBy { hourOf(it.ts) }
+        val crByHour = crSamples.groupBy { hourOf(it.ts) }
+
+        return (0..23).mapNotNull { hour ->
+            val isfValues = trimOutliers(isfByHour[hour].orEmpty().map { it.value })
+            val crValues = trimOutliers(crByHour[hour].orEmpty().map { it.value })
+            val isfCount = isfValues.size
+            val crCount = crValues.size
+            if (isfCount == 0 && crCount == 0) return@mapNotNull null
+
+            val confidence = (
+                (isfCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5 +
+                    (crCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5
+                ).coerceIn(0.10, 0.99)
+
+            HourlyProfileEstimate(
+                hour = hour,
+                isfMmolPerUnit = isfValues.takeIf { it.isNotEmpty() }?.let(::median),
+                crGramPerUnit = crValues.takeIf { it.isNotEmpty() }?.let(::median),
+                confidence = confidence,
+                isfSampleCount = isfCount,
+                crSampleCount = crCount
+            )
+        }
+    }
+
     private fun buildIsfSamples(
         glucose: List<GlucosePoint>,
         events: List<TherapyEvent>,
@@ -431,6 +481,8 @@ class ProfileEstimator(
         }
         return dayType to slot
     }
+
+    private fun hourOf(ts: Long): Int = Instant.ofEpochMilli(ts).atZone(zoneId).hour
 
     private fun median(values: List<Double>): Double {
         if (values.isEmpty()) return 0.0
