@@ -477,3 +477,37 @@
 4. Проверить UAM freshness:
    - `SELECT key,valueDouble,datetime(timestamp/1000,'unixepoch','localtime') FROM telemetry_samples WHERE key LIKE 'uam_calculated_%' ORDER BY timestamp DESC LIMIT 12;`
    - ожидание: на каждом цикле есть свежие `uam_calculated_*`; при отсутствии активного UAM значения `delta/rise/carbs = 0`.
+
+# Изменения — Этап 15: Reactive automation debounce and cycle stability
+
+## Что сделано
+- Добавлен debounce для `WorkScheduler.triggerReactiveAutomation(...)`:
+  - повторный reactive enqueue подавляется в окне `45s`;
+  - метод теперь возвращает `Boolean` (scheduled/debounced).
+- Обновлен `LocalDataBroadcastReceiver`:
+  - логирует `broadcast_reactive_automation_enqueued` только при реальном enqueue;
+  - при подавлении логирует `broadcast_reactive_automation_skipped` с `reason=debounced`.
+- Обновлен `LocalNightscoutServer`:
+  - добавлен локальный debounce reactive-trigger `45s`;
+  - разделены audit-события:
+    - `local_nightscout_reactive_automation_enqueued`,
+    - `local_nightscout_reactive_automation_skipped` (`reason=debounced`).
+- `automation_cycle_skipped` переведен на уровень `INFO` (это ожидаемая конкуренция, не ошибка).
+
+## Почему так
+- До фикса reactive enqueue запускался слишком часто из нескольких источников и создавал лишние конкурентные старты цикла.
+- Это давало много `automation_cycle_skipped` и повышало шум/нагрузку без выигрыша по данным.
+- Debounce оставляет реактивность, но убирает дубли.
+
+## Риски / ограничения
+- В burst-сценариях часть reactive-триггеров намеренно пропускается в окне debounce; актуальность сохраняется за счет минутного цикла и периодического worker.
+- При экстремально высокой частоте входящих событий возможны редкие `automation_cycle_skipped`, но они не критичны и не влияют на целостность данных.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest :app:compileDebugKotlin :app:installDebug`
+2. На телефоне подождать 2-3 минуты активного потока данных.
+3. В БД проверить аудит:
+   - `broadcast_reactive_automation_enqueued` и `broadcast_reactive_automation_skipped(reason=debounced)`;
+   - `local_nightscout_reactive_automation_enqueued/skipped`.
+4. Проверить свежесть ключей:
+   - `iob_units`, `cob_grams`, `activity_ratio`, `steps_count`, `uam_calculated_flag` должны иметь age ~0-1m.

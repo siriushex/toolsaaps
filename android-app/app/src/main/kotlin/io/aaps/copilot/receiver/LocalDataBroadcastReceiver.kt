@@ -56,10 +56,11 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
                 ensureRuntimeService(context.applicationContext)
                 val result = app.container.broadcastIngestRepository.ingest(payload)
                 if (result.glucoseImported > 0 || result.therapyImported > 0 || result.telemetryImported > 0) {
-                    WorkScheduler.triggerReactiveAutomation(context.applicationContext)
+                    val enqueued = WorkScheduler.triggerReactiveAutomation(context.applicationContext)
                     app.container.auditLogger.info(
-                        "broadcast_reactive_automation_enqueued",
+                        if (enqueued) "broadcast_reactive_automation_enqueued" else "broadcast_reactive_automation_skipped",
                         mapOf(
+                            "reason" to if (enqueued) "scheduled" else "debounced",
                             "action" to payload.action.orEmpty(),
                             "glucose" to result.glucoseImported,
                             "therapy" to result.therapyImported,

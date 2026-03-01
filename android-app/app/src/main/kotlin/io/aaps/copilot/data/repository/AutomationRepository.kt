@@ -82,7 +82,7 @@ class AutomationRepository(
 
     suspend fun runAutomationCycle() {
         if (!cycleMutex.tryLock()) {
-            auditLogger.warn("automation_cycle_skipped", mapOf("reason" to "already_running"))
+            auditLogger.info("automation_cycle_skipped", mapOf("reason" to "already_running"))
             return
         }
         try {

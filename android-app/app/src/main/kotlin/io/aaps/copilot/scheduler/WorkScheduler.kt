@@ -10,6 +10,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 object WorkScheduler {
 
@@ -36,17 +37,29 @@ object WorkScheduler {
         WorkManager.getInstance(context).cancelUniqueWork(LEGACY_RUNTIME_KEEPALIVE_WORK_NAME)
     }
 
-    fun triggerReactiveAutomation(context: Context) {
+    fun triggerReactiveAutomation(context: Context): Boolean {
+        val now = System.currentTimeMillis()
+        val last = lastReactiveEnqueueTsMs.get()
+        if (now - last < REACTIVE_ENQUEUE_DEBOUNCE_MS) {
+            return false
+        }
+        if (!lastReactiveEnqueueTsMs.compareAndSet(last, now)) {
+            return false
+        }
+
         val oneShot = OneTimeWorkRequestBuilder<SyncAndAutomateWorker>()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
         WorkManager.getInstance(context)
             .enqueueUniqueWork(REACTIVE_WORK_NAME, ExistingWorkPolicy.KEEP, oneShot)
+        return true
     }
 
     const val SYNC_WORK_NAME = "copilot.sync.automate"
     const val ANALYSIS_WORK_NAME = "copilot.analysis.daily"
     const val REACTIVE_WORK_NAME = "copilot.sync.reactive"
     private const val LEGACY_RUNTIME_KEEPALIVE_WORK_NAME = "copilot.runtime.keepalive"
+    private const val REACTIVE_ENQUEUE_DEBOUNCE_MS = 45_000L
+    private val lastReactiveEnqueueTsMs = AtomicLong(0L)
 }

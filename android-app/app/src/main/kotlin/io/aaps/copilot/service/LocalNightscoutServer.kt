@@ -165,6 +165,7 @@ class LocalNightscoutServer(
 
         private val socketSessions = ConcurrentHashMap<String, SocketSession>()
         private val socketSessionCounter = AtomicLong(1L)
+        private val lastReactiveAutomationEnqueueTs = AtomicLong(0L)
 
         override fun serve(session: IHTTPSession): Response {
             val path = session.uri.trim()
@@ -1434,11 +1435,21 @@ class LocalNightscoutServer(
             inserted: Int,
             telemetry: Int
         ) {
-            onReactiveDataIngested?.invoke()
+            val now = System.currentTimeMillis()
+            val last = lastReactiveAutomationEnqueueTs.get()
+            val scheduled = if (now - last >= REACTIVE_AUTOMATION_DEBOUNCE_MS) {
+                lastReactiveAutomationEnqueueTs.compareAndSet(last, now)
+            } else {
+                false
+            }
+            if (scheduled) {
+                onReactiveDataIngested?.invoke()
+            }
             runBlocking {
                 auditLogger.info(
-                    "local_nightscout_reactive_automation_enqueued",
+                    if (scheduled) "local_nightscout_reactive_automation_enqueued" else "local_nightscout_reactive_automation_skipped",
                     mapOf(
+                        "reason" to if (scheduled) "scheduled" else "debounced",
                         "channel" to channel,
                         "inserted" to inserted,
                         "telemetry" to telemetry
@@ -1470,6 +1481,7 @@ class LocalNightscoutServer(
         private const val SOCKET_MAX_PAYLOAD_BYTES = 1_000_000
         private const val SOCKET_SESSION_TTL_MS = 3 * 60_000L
         private const val SOCKET_DATAUPDATE_MAX_ROWS = 1_200
+        private const val REACTIVE_AUTOMATION_DEBOUNCE_MS = 45_000L
         private const val SOCKET_PACKET_CONNECT = 0
         private const val SOCKET_PACKET_DISCONNECT = 1
         private const val SOCKET_PACKET_EVENT = 2
