@@ -263,6 +263,99 @@ class AdaptiveTempTargetControllerTest {
         assertThat(out.debugFields["safetySuppressedByHighTrajectory"]).isEqualTo(1.0)
     }
 
+    @Test
+    fun testHighGlucoseGuard_preventsTargetAboveBaseWhenTrajectoryHigh() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                pred5 = 9.8,
+                pred30 = 10.0,
+                pred60 = 10.2,
+                ciLow5 = 5.8,
+                ciHigh5 = 11.2,
+                ciLow30 = 6.0,
+                ciHigh30 = 11.5,
+                ciLow60 = 6.1,
+                ciHigh60 = 11.8,
+                prevTarget = 8.0,
+                prevI = 24.0,
+                iobUnits = 6.0
+            )
+        )
+
+        assertThat(out.newTempTarget).isAtMost(5.5)
+        assertThat(out.debugFields["highGuardActive"]).isEqualTo(1.0)
+    }
+
+    @Test
+    fun testVeryHighGlucoseGuard_forcesAdditionalPulldown() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                pred5 = 12.0,
+                pred30 = 12.2,
+                pred60 = 12.4,
+                ciLow5 = 6.0,
+                ciHigh5 = 13.0,
+                ciLow30 = 6.2,
+                ciHigh30 = 13.2,
+                ciLow60 = 6.4,
+                ciHigh60 = 13.4,
+                prevTarget = 7.6,
+                prevI = 8.0
+            )
+        )
+
+        assertThat(out.debugFields["highGuardActive"]).isEqualTo(1.0)
+        assertThat(out.newTempTarget).isAtMost(4.4)
+    }
+
+    @Test
+    fun testForceHighRequiresNearTermLowOrVeryLowCtrlLow() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                pred5 = 5.2,
+                pred30 = 5.1,
+                pred60 = 4.9,
+                ciLow5 = 4.7,
+                ciHigh5 = 5.8,
+                ciLow30 = 2.2,
+                ciHigh30 = 8.3,
+                ciLow60 = 2.3,
+                ciHigh60 = 8.5,
+                prevTarget = null,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isNotEqualTo("safety_force_high")
+        assertThat(out.newTempTarget).isLessThan(9.0)
+    }
+
+    @Test
+    fun testLowFarHorizonWithoutNearTermRisk_doesNotForceHigh() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                pred5 = 6.2,
+                pred30 = 5.0,
+                pred60 = 4.8,
+                ciLow5 = 5.0,
+                ciHigh5 = 6.8,
+                ciLow30 = 2.0,
+                ciHigh30 = 8.0,
+                ciLow60 = 2.1,
+                ciHigh60 = 8.2,
+                prevTarget = null,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isNotEqualTo("safety_force_high")
+        assertThat(out.newTempTarget).isLessThan(9.0)
+    }
+
     private fun input(
         base: Double,
         pred5: Double,

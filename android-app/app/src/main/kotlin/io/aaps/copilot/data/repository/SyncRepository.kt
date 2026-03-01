@@ -52,9 +52,10 @@ class SyncRepository(
         )
 
         val sgv = nsApi.getSgvEntries(query)
-        val glucoseRows = sgv.map { entry ->
+        val glucoseRows = sgv.mapNotNull { entry ->
+            val ts = normalizeTimestamp(entry.date) ?: return@mapNotNull null
             GlucosePoint(
-                ts = entry.date,
+                ts = ts,
                 valueMmol = UnitConverter.mgdlToMmol(entry.sgv),
                 source = "nightscout",
                 quality = DataQuality.OK
@@ -136,7 +137,9 @@ class SyncRepository(
         }.getOrDefault(emptyList())
 
         deviceStatuses.forEach { status ->
-            val ts = parseNightscoutTimestamp(status.createdAt) ?: status.date ?: return@forEach
+            val ts = parseNightscoutTimestamp(status.createdAt)
+                ?: normalizeTimestamp(status.date ?: 0L)
+                ?: return@forEach
             telemetryRows += telemetryFromDeviceStatus(status, ts)
         }
 
@@ -154,7 +157,11 @@ class SyncRepository(
         val nextTreatmentSince = maxOf(treatmentSince, treatmentRows.maxOfOrNull { it.timestamp } ?: treatmentSince)
         val nextDeviceStatusSince = maxOf(
             deviceStatusSince,
-            deviceStatuses.maxOfOrNull { parseNightscoutTimestamp(it.createdAt) ?: it.date ?: 0L } ?: deviceStatusSince
+            deviceStatuses.maxOfOrNull {
+                parseNightscoutTimestamp(it.createdAt)
+                    ?: normalizeTimestamp(it.date ?: 0L)
+                    ?: 0L
+            } ?: deviceStatusSince
         )
         val nextSince = maxOf(nextSgvSince, nextTreatmentSince, nextDeviceStatusSince)
 
@@ -287,8 +294,16 @@ class SyncRepository(
     private fun parseNightscoutTimestamp(raw: String?): Long? {
         if (raw.isNullOrBlank()) return null
         val trimmed = raw.trim()
-        return runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
+        val parsed = runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
             ?: trimmed.toLongOrNull()?.let { ts -> if (ts < 10_000_000_000L) ts * 1000L else ts }
+        return normalizeTimestamp(parsed ?: return null)
+    }
+
+    private fun normalizeTimestamp(raw: Long): Long? {
+        if (raw <= 0L) return null
+        val now = System.currentTimeMillis()
+        val millis = if (raw < 10_000_000_000L) raw * 1000L else raw
+        return if (millis > now + MAX_FUTURE_TIMESTAMP_SKEW_MS) now else millis
     }
 
     private suspend fun loadCursor(source: String, fallback: Long): Long {
@@ -320,5 +335,6 @@ class SyncRepository(
         private const val SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR = "nightscout_devicestatus_cursor"
         private const val NS_CURSOR_OVERLAP_MS = 5 * 60_000L
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
+        private const val MAX_FUTURE_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000L
     }
 }

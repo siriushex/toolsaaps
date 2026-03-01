@@ -540,3 +540,43 @@
 2. В БД проверить последний cycle:
    - запросом с `origin = timestamp - horizon*60000` убедиться, что `5/30/60` имеют один `cycle_ts`.
 3. В UI `Live Dashboard` проверить, что `5m/30m/60m` меняются согласованно после нового цикла.
+
+# Изменения — Этап 17: Enhanced Prediction v3 + adaptive safety hardening
+
+## Что сделано
+- Внедрён локальный прогнозатор `Enhanced Hybrid Prediction v3`:
+  - `KalmanGlucoseFilterV3` (адаптивные `R/Q`, NIS, robust gating).
+  - `ResidualArModel` (AR(1) residual trend с `mu/phi/sigmaE`).
+  - `UamEstimator` (Level A uci-forecast + optional virtual meal fit).
+  - path simulation шагами 5 минут для горизонтов `5/30/60`.
+- Добавлены профили действия инсулина и абсорбции углеводов:
+  - `InsulinActionProfiles` (по умолчанию `NovoRapid`).
+  - `CarbAbsorptionProfiles` (быстрые/средние/медленные контуры).
+- Усилена проверяемость и стабильность adaptive controller:
+  - расширены unit-тесты для `AdaptiveTargetControllerRule`, `AdaptiveTempTargetController`, `SafetyPolicy`.
+  - в `AdaptiveTempTargetController` добавлены дополнительные debug-поля и hardening safety-веток для снижения ложных high-target сценариев.
+- Добавлены тесты качества прогнозного контура:
+  - `HybridPredictionEngineV3Test`, `CarbAbsorptionProfilesTest`, `InsulinActionProfilesTest`, `AutomationRepositoryForecastBiasTest`.
+- Добавлен проектный operating-system слой для Codex:
+  - `AGENTS.md` в корне,
+  - базовый набор документов `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `docs/PLAN.md`, `docs/DEVOPS.md`, `docs/SECURITY_REVIEW.md`.
+- Обновлён `.gitignore` для исключения runtime-артефактов (`*.db-shm`, `*.db-wal`, `android-app/.kotlin/`, временные `tmp-aaps-*`).
+
+## Почему так
+- v3 устраняет ключевую проблему legacy-формулы (`trend + therapy` одним шагом): меньше двойного учёта и более физичный горизонт 30/60 минут.
+- Адаптивный фильтр + AR residual дают более устойчивое поведение на шумных 1-минутных сериях.
+- UAM как отдельный контур сохраняет рост в 30/60m без искусственного раздувания трендом.
+- Единые правила в `AGENTS.md` и docs фиксируют процесс, чтобы проект не деградировал между этапами.
+
+## Риски / ограничения
+- При реально низком прогнозном коридоре (`ciLow5 < 4.2`) safety-путь по-прежнему приоритетно поднимает temp target до верхней границы; это ожидаемое защитное поведение.
+- Для точной калибровки контроллера на конкретном пациенте нужны live-реплеи по истории (14–30 дней) и метрики попадания в base-window.
+- v3 требует накопления короткой истории для прогрева фильтра/AR; в первые минуты работает fallback.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+3. На устройстве проверить БД:
+   - `rule_executions` для `AdaptiveTargetController.v1` (reasonsJson, actionJson, cooldown).
+   - `telemetry_samples` для `iob_units`, `cob_grams`, `uam_calculated_*` (свежесть и адекватные значения).
+   - `forecasts` по origin-cycle: `5/30/60` из одного цикла расчёта.

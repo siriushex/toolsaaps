@@ -5,6 +5,7 @@
 **/build/
 .gradle/
 android-app/.gradle/
+android-app/.kotlin/
 android-app/local.properties
 *.apk
 *.aab
@@ -27,5 +28,9 @@ backend/.venv312/
 
 # Runtime artifacts
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
+tmp-aaps-*.smali
+tmp-aaps-*.xml
 backend/copilot.db

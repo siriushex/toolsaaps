@@ -33,4 +33,10 @@ interface TelemetryDao {
             "WHERE source = :source AND key = :key AND (valueDouble IS NULL OR valueDouble <= :threshold)"
     )
     suspend fun deleteBySourceAndKeyAtOrBelow(source: String, key: String, threshold: Double): Int
+
+    @Query("DELETE FROM telemetry_samples WHERE timestamp <= :maxInvalidTimestamp")
+    suspend fun deleteByTimestampAtOrBelow(maxInvalidTimestamp: Long): Int
+
+    @Query("DELETE FROM telemetry_samples WHERE source = :source AND key LIKE :likePattern")
+    suspend fun deleteBySourceAndKeyLike(source: String, likePattern: String): Int
 }

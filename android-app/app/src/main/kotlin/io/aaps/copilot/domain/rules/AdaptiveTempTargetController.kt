@@ -61,11 +61,17 @@ class AdaptiveTempTargetController {
 
         val pMin = minOf(input.ciLow5, input.ciLow30, input.ciLow60)
         val pCtrlLow = w5N * input.ciLow5 + w30N * input.ciLow30 + w60N * input.ciLow60
+        val nearTermLow = input.ciLow5
         val safetySuppressedByHighTrajectory = input.pred5 >= tb + SAFETY_SUPPRESS_MARGIN_MMOL &&
             input.pred30 >= tb + SAFETY_SUPPRESS_MARGIN_MMOL &&
             input.pred60 >= tb + SAFETY_SUPPRESS_MARGIN_MMOL
 
-        if (!safetySuppressedByHighTrajectory && pMin < FORCE_HIGH_IF_BELOW) {
+        val immediateForceHighRisk = nearTermLow < FORCE_HIGH_IF_BELOW
+        val weightedForceHighRisk = pCtrlLow < FORCE_HIGH_CTRLLOW_BELOW &&
+            input.pred5 < tb + FORCE_HIGH_NEAR_TERM_MARGIN_MMOL
+        val shouldForceHigh = !safetySuppressedByHighTrajectory &&
+            (immediateForceHighRisk || weightedForceHighRisk)
+        if (shouldForceHigh) {
             val target = applyRateLimit(TMAX, input.previousTempTarget).coerceIn(TMIN, TMAX)
             return Output(
                 newTempTarget = target,
@@ -77,8 +83,11 @@ class AdaptiveTempTargetController {
                     "TbUser" to userBaseTarget,
                     "cobGrams" to cob,
                     "iobUnits" to iob,
+                    "nearTermLow" to nearTermLow,
                     "Pmin" to pMin,
                     "PctrlLow" to pCtrlLow,
+                    "immediateForceHighRisk" to if (immediateForceHighRisk) 1.0 else 0.0,
+                    "weightedForceHighRisk" to if (weightedForceHighRisk) 1.0 else 0.0,
                     "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
                     "w5CI" to w5CI,
                     "w30CI" to w30CI,
@@ -87,7 +96,10 @@ class AdaptiveTempTargetController {
             )
         }
 
-        if (!safetySuppressedByHighTrajectory && pCtrlLow < tb - M_HYPO) {
+        val immediateHypoGuardRisk = nearTermLow < tb - M_HYPO
+        val weightedHypoGuardRisk = pCtrlLow < tb - M_HYPO &&
+            input.pred5 < tb + HYPO_GUARD_NEAR_TERM_MARGIN_MMOL
+        if (!safetySuppressedByHighTrajectory && (immediateHypoGuardRisk || weightedHypoGuardRisk)) {
             val raw = (tb + K_HYPO * (tb - pCtrlLow)).coerceIn(tb, TMAX)
             val target = applyRateLimit(raw, input.previousTempTarget).coerceIn(TMIN, TMAX)
             return Output(
@@ -100,8 +112,11 @@ class AdaptiveTempTargetController {
                     "TbUser" to userBaseTarget,
                     "cobGrams" to cob,
                     "iobUnits" to iob,
+                    "nearTermLow" to nearTermLow,
                     "Pmin" to pMin,
                     "PctrlLow" to pCtrlLow,
+                    "immediateHypoGuardRisk" to if (immediateHypoGuardRisk) 1.0 else 0.0,
+                    "weightedHypoGuardRisk" to if (weightedHypoGuardRisk) 1.0 else 0.0,
                     "rawTarget" to raw,
                     "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
                     "w5CI" to w5CI,
@@ -139,34 +154,78 @@ class AdaptiveTempTargetController {
             tRaw = clampedTarget
         }
 
-        val target = applyRateLimit(tRaw, input.previousTempTarget).coerceIn(TMIN, TMAX)
+        val guard = computeHighGlucoseGuard(
+            userBaseTarget = userBaseTarget,
+            pCtrlRaw = pCtrlRaw,
+            pMin = pMin
+        )
+        val guardedRawTarget = if (guard.active) {
+            tRaw.coerceAtMost(guard.maxTarget)
+        } else {
+            tRaw
+        }
+        val target = applyRateLimit(guardedRawTarget, input.previousTempTarget).coerceIn(TMIN, TMAX)
+        val debugFields = mutableMapOf(
+            "Tb" to tb,
+            "TbUser" to userBaseTarget,
+            "cobGrams" to cob,
+            "iobUnits" to iob,
+            "nearTermLow" to nearTermLow,
+            "Pctrl" to pCtrl,
+            "PctrlRaw" to pCtrlRaw,
+            "cobBias" to cobBias,
+            "iobBias" to iobBias,
+            "error" to e,
+            "Pmin" to pMin,
+            "PctrlLow" to pCtrlLow,
+            "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
+            "w5N" to w5N,
+            "w30N" to w30N,
+            "w60N" to w60N,
+            "updatedI" to iNew,
+            "targetRaw" to tRaw,
+            "targetGuarded" to guardedRawTarget,
+            "targetFinal" to target,
+            "highGuardActive" to if (guard.active) 1.0 else 0.0
+        )
+        if (guard.active) {
+            debugFields["highGuardMaxTarget"] = guard.maxTarget
+        }
         return Output(
             newTempTarget = target,
             durationMin = DURATION_MIN,
             updatedI = iNew,
             reason = if (abs(e) < M_DEAD) "control_deadband" else "control_pi",
-            debugFields = mapOf(
-                "Tb" to tb,
-                "TbUser" to userBaseTarget,
-                "cobGrams" to cob,
-                "iobUnits" to iob,
-                "Pctrl" to pCtrl,
-                "PctrlRaw" to pCtrlRaw,
-                "cobBias" to cobBias,
-                "iobBias" to iobBias,
-                "error" to e,
-                "Pmin" to pMin,
-                "PctrlLow" to pCtrlLow,
-                "safetySuppressedByHighTrajectory" to if (safetySuppressedByHighTrajectory) 1.0 else 0.0,
-                "w5N" to w5N,
-                "w30N" to w30N,
-                "w60N" to w60N,
-                "updatedI" to iNew,
-                "targetRaw" to tRaw,
-                "targetFinal" to target
-            )
+            debugFields = debugFields
         )
     }
+
+    private fun computeHighGlucoseGuard(
+        userBaseTarget: Double,
+        pCtrlRaw: Double,
+        pMin: Double
+    ): HighGlucoseGuard {
+        val noHypoRisk = pMin >= userBaseTarget - HIGH_GUARD_HYPO_RISK_MARGIN_MMOL
+        if (!noHypoRisk) return HighGlucoseGuard(active = false, maxTarget = TMAX)
+
+        return when {
+            pCtrlRaw >= userBaseTarget + VERY_HIGH_GLUCOSE_MARGIN_MMOL -> {
+                val forced = (userBaseTarget - VERY_HIGH_GLUCOSE_PULLDOWN_MMOL).coerceIn(TMIN, TMAX)
+                HighGlucoseGuard(active = true, maxTarget = forced)
+            }
+
+            pCtrlRaw >= userBaseTarget + HIGH_GLUCOSE_MARGIN_MMOL -> {
+                HighGlucoseGuard(active = true, maxTarget = userBaseTarget.coerceIn(TMIN, TMAX))
+            }
+
+            else -> HighGlucoseGuard(active = false, maxTarget = TMAX)
+        }
+    }
+
+    private data class HighGlucoseGuard(
+        val active: Boolean,
+        val maxTarget: Double
+    )
 
     private fun applyRateLimit(target: Double, _previousTempTarget: Double?): Double {
         // Rate limiting is disabled: controller must be able to set the computed target immediately.
@@ -184,6 +243,7 @@ class AdaptiveTempTargetController {
         const val M_HYPO = 0.4
         const val K_HYPO = 1.0
         const val FORCE_HIGH_IF_BELOW = 4.2
+        const val FORCE_HIGH_CTRLLOW_BELOW = 3.7
 
         const val EPS_W = 1e-6
 
@@ -207,6 +267,12 @@ class AdaptiveTempTargetController {
         private const val MIN_GLUCOSE_MMOL = 2.2
         private const val MAX_GLUCOSE_MMOL = 22.0
         private const val SAFETY_SUPPRESS_MARGIN_MMOL = 1.0
+        private const val FORCE_HIGH_NEAR_TERM_MARGIN_MMOL = 0.35
+        private const val HYPO_GUARD_NEAR_TERM_MARGIN_MMOL = 0.60
+        private const val HIGH_GUARD_HYPO_RISK_MARGIN_MMOL = 0.30
+        private const val HIGH_GLUCOSE_MARGIN_MMOL = 0.80
+        private const val VERY_HIGH_GLUCOSE_MARGIN_MMOL = 2.20
+        private const val VERY_HIGH_GLUCOSE_PULLDOWN_MMOL = 1.10
 
     }
 }

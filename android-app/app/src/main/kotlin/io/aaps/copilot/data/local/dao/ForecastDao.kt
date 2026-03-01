@@ -19,6 +19,9 @@ interface ForecastDao {
     @Query("SELECT * FROM forecasts ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<ForecastEntity>>
 
+    @Query("SELECT * FROM forecasts WHERE horizonMinutes = :horizon ORDER BY timestamp DESC, id DESC LIMIT 1")
+    fun observeLatestByHorizon(horizon: Int): Flow<ForecastEntity?>
+
     @Query("SELECT * FROM forecasts WHERE horizonMinutes = :horizon ORDER BY timestamp DESC LIMIT 1")
     suspend fun latestByHorizon(horizon: Int): ForecastEntity?
 }

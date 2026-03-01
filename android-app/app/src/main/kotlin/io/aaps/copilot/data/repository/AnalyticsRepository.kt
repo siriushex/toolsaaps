@@ -25,7 +25,8 @@ class AnalyticsRepository(
 
     suspend fun recalculate(settings: AppSettings) = withContext(Dispatchers.Default) {
         val lookbackDays = settings.analyticsLookbackDays.coerceIn(30, 730)
-        val historyStart = System.currentTimeMillis() - lookbackDays * 24L * 60 * 60 * 1000
+        val nowTs = System.currentTimeMillis()
+        val historyStart = nowTs - lookbackDays * 24L * 60 * 60 * 1000
         val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)).map { it.toDomain() }
         val therapy = TherapySanitizer.filterEntities(db.therapyDao().since(historyStart)).map { it.toDomain(gson) }
         val telemetry = db.telemetryDao().since(historyStart).map { sample ->
@@ -48,7 +49,7 @@ class AnalyticsRepository(
             )
         )
 
-        db.patternDao().clear()
+        db.patternDao().deleteOlderThan(historyStart)
         db.patternDao().upsertAll(
             windows.map {
                 PatternWindowEntity(
@@ -60,7 +61,7 @@ class AnalyticsRepository(
                     highRate = it.highRate,
                     recommendedTargetMmol = it.recommendedTargetMmol,
                     isRiskWindow = it.isRiskWindow,
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = nowTs
                 )
             }
         )
@@ -71,11 +72,11 @@ class AnalyticsRepository(
         val profileEstimate = profileEstimator.estimate(glucose, therapy, telemetry)
         val calculatedEstimate = profileEstimator.estimate(glucose, therapy, emptyList())
         val segmentEstimates = profileEstimator.estimateSegments(glucose, therapy, telemetry)
-        db.profileSegmentEstimateDao().clear()
+        db.profileSegmentEstimateDao().deleteOlderThan(historyStart)
         db.profileSegmentEstimateDao().upsertAll(
             segmentEstimates.map {
                 ProfileSegmentEstimateEntity(
-                    id = "${it.dayType}:${it.timeSlot}",
+                    id = "${it.dayType}:${it.timeSlot}:$nowTs",
                     dayType = it.dayType.name,
                     timeSlot = it.timeSlot.name,
                     isfMmolPerUnit = it.isfMmolPerUnit,
@@ -84,15 +85,40 @@ class AnalyticsRepository(
                     isfSampleCount = it.isfSampleCount,
                     crSampleCount = it.crSampleCount,
                     lookbackDays = it.lookbackDays,
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = nowTs
                 )
             }
         )
 
         profileEstimate?.let { estimate ->
+            val snapshot = ProfileEstimateEntity(
+                id = "snapshot-$nowTs",
+                timestamp = nowTs,
+                isfMmolPerUnit = estimate.isfMmolPerUnit,
+                crGramPerUnit = estimate.crGramPerUnit,
+                confidence = estimate.confidence,
+                sampleCount = estimate.sampleCount,
+                isfSampleCount = estimate.isfSampleCount,
+                crSampleCount = estimate.crSampleCount,
+                lookbackDays = estimate.lookbackDays,
+                telemetryIsfSampleCount = estimate.telemetryIsfSampleCount,
+                telemetryCrSampleCount = estimate.telemetryCrSampleCount,
+                uamObservedCount = estimate.uamObservedCount,
+                uamFilteredIsfSamples = estimate.uamFilteredIsfSamples,
+                uamEpisodeCount = estimate.uamEpisodeCount,
+                uamEstimatedCarbsGrams = estimate.uamEstimatedCarbsGrams,
+                uamEstimatedRecentCarbsGrams = estimate.uamEstimatedRecentCarbsGrams,
+                calculatedIsfMmolPerUnit = calculatedEstimate?.isfMmolPerUnit,
+                calculatedCrGramPerUnit = calculatedEstimate?.crGramPerUnit,
+                calculatedConfidence = calculatedEstimate?.confidence,
+                calculatedSampleCount = calculatedEstimate?.sampleCount ?: 0,
+                calculatedIsfSampleCount = calculatedEstimate?.isfSampleCount ?: 0,
+                calculatedCrSampleCount = calculatedEstimate?.crSampleCount ?: 0
+            )
+            db.profileEstimateDao().upsert(snapshot)
             db.profileEstimateDao().upsert(
                 ProfileEstimateEntity(
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = nowTs,
                     isfMmolPerUnit = estimate.isfMmolPerUnit,
                     crGramPerUnit = estimate.crGramPerUnit,
                     confidence = estimate.confidence,
@@ -115,6 +141,7 @@ class AnalyticsRepository(
                     calculatedCrSampleCount = calculatedEstimate?.crSampleCount ?: 0
                 )
             )
+            db.profileEstimateDao().deleteHistoryOlderThan(historyStart)
             auditLogger.info(
                 "profile_estimate_updated",
                 mapOf(
@@ -135,7 +162,8 @@ class AnalyticsRepository(
                     "calculatedIsf" to calculatedEstimate?.isfMmolPerUnit,
                     "calculatedCr" to calculatedEstimate?.crGramPerUnit,
                     "calculatedConfidence" to calculatedEstimate?.confidence,
-                    "calculatedSamples" to (calculatedEstimate?.sampleCount ?: 0)
+                    "calculatedSamples" to (calculatedEstimate?.sampleCount ?: 0),
+                    "snapshotId" to snapshot.id
                 )
             )
         } ?: auditLogger.warn(

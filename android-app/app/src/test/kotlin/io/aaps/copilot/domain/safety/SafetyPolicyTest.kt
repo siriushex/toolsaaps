@@ -24,7 +24,7 @@ class SafetyPolicyTest {
     @Test
     fun blocks_whenStaleOrRateLimited() {
         val decision = policy.evaluate(
-            proposal = proposal(target = 5.5, duration = 30),
+            proposal = proposal(target = 5.5, duration = 30, type = "temp_target"),
             config = SafetyPolicyConfig(killSwitch = false, maxActionsIn6Hours = 3),
             dataFresh = false,
             actionsLast6h = 3
@@ -32,6 +32,19 @@ class SafetyPolicyTest {
 
         assertThat(decision.allowed).isFalse()
         assertThat(decision.reasons).contains("stale_data")
+        assertThat(decision.reasons).doesNotContain("rate_limit_6h")
+    }
+
+    @Test
+    fun keepsRateLimit_forNonTempTargetActions() {
+        val decision = policy.evaluate(
+            proposal = proposal(target = 5.5, duration = 30, type = "carbs"),
+            config = SafetyPolicyConfig(killSwitch = false, maxActionsIn6Hours = 3),
+            dataFresh = true,
+            actionsLast6h = 3
+        )
+
+        assertThat(decision.allowed).isFalse()
         assertThat(decision.reasons).contains("rate_limit_6h")
     }
 
@@ -62,9 +75,9 @@ class SafetyPolicyTest {
         assertThat(decision.reasons).isEmpty()
     }
 
-    private fun proposal(target: Double, duration: Int): ActionProposal {
+    private fun proposal(target: Double, duration: Int, type: String = "temp_target"): ActionProposal {
         return ActionProposal(
-            type = "temp_target",
+            type = type,
             targetMmol = target,
             durationMinutes = duration,
             reason = "test"

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
+import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -35,6 +36,7 @@ class AppSettingsStore(context: Context) {
             localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
             localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
             localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
+            insulinProfileId = normalizeInsulinProfileId(prefs[KEY_INSULIN_PROFILE]),
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
             postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
             postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -91,6 +93,7 @@ class AppSettingsStore(context: Context) {
                 localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
                 localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
                 localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
+                insulinProfileId = normalizeInsulinProfileId(prefs[KEY_INSULIN_PROFILE]),
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
                 postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
                 postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -141,6 +144,7 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] = next.localCommandFallbackEnabled
             prefs[KEY_LOCAL_COMMAND_PACKAGE] = next.localCommandPackage
             prefs[KEY_LOCAL_COMMAND_ACTION] = next.localCommandAction
+            prefs[KEY_INSULIN_PROFILE] = normalizeInsulinProfileId(next.insulinProfileId)
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
             prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = next.postHypoThresholdMmol
             prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
@@ -196,6 +200,10 @@ class AppSettingsStore(context: Context) {
         return true
     }
 
+    private fun normalizeInsulinProfileId(raw: String?): String {
+        return InsulinActionProfileId.fromRaw(raw).name
+    }
+
     companion object {
         private val KEY_NS_URL = stringPreferencesKey("nightscout_url")
         private val KEY_NS_SECRET = stringPreferencesKey("nightscout_secret")
@@ -210,6 +218,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_LOCAL_COMMAND_FALLBACK_ENABLED = booleanPreferencesKey("local_command_fallback_enabled")
         private val KEY_LOCAL_COMMAND_PACKAGE = stringPreferencesKey("local_command_package")
         private val KEY_LOCAL_COMMAND_ACTION = stringPreferencesKey("local_command_action")
+        private val KEY_INSULIN_PROFILE = stringPreferencesKey("insulin_profile_id")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
         private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
@@ -286,6 +295,7 @@ data class AppSettings(
     val localCommandFallbackEnabled: Boolean,
     val localCommandPackage: String,
     val localCommandAction: String,
+    val insulinProfileId: String,
     val baseTargetMmol: Double,
     val postHypoThresholdMmol: Double,
     val postHypoDeltaThresholdMmol5m: Double,
