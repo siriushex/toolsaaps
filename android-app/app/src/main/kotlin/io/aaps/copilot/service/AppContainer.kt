@@ -56,6 +56,16 @@ class AppContainer(context: Context) {
             WorkScheduler.triggerReactiveAutomation(context.applicationContext)
         }
     )
+    private val localActivitySensorCollector = LocalActivitySensorCollector(
+        context = context.applicationContext,
+        db = db,
+        auditLogger = auditLogger
+    )
+    private val healthConnectActivityCollector = HealthConnectActivityCollector(
+        context = context.applicationContext,
+        db = db,
+        auditLogger = auditLogger
+    )
 
     val syncRepository = SyncRepository(
         db = db,
@@ -106,7 +116,11 @@ class AppContainer(context: Context) {
         auditLogger = auditLogger
     )
 
-    private val predictionEngine: PredictionEngine = HybridPredictionEngine()
+    private val predictionEngine: PredictionEngine = HybridPredictionEngine(
+        enableEnhancedPredictionV3 = true,
+        enableUam = true,
+        enableUamVirtualMealFit = true
+    )
 
     private val ruleEngine = RuleEngine(
         rules = listOf(
@@ -142,6 +156,8 @@ class AppContainer(context: Context) {
     )
 
     init {
+        startLocalActivitySensors()
+        startHealthConnectCollection()
         appScope.launch {
             val migrationEnabled = settingsStore.ensureAdaptiveControllerDefaultEnabled()
             if (migrationEnabled) {
@@ -177,5 +193,21 @@ class AppContainer(context: Context) {
                 }
             }
         }
+    }
+
+    fun startLocalActivitySensors() {
+        localActivitySensorCollector.start()
+    }
+
+    fun stopLocalActivitySensors() {
+        localActivitySensorCollector.stop()
+    }
+
+    fun startHealthConnectCollection() {
+        healthConnectActivityCollector.start()
+    }
+
+    fun stopHealthConnectCollection() {
+        healthConnectActivityCollector.stop()
     }
 }

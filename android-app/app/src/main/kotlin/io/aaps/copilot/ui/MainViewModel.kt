@@ -1,5 +1,6 @@
 package io.aaps.copilot.ui
 
+import android.Manifest
 import android.app.Application
 import android.content.ContentValues
 import android.content.Intent
@@ -10,6 +11,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import android.security.KeyChain
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
@@ -34,6 +36,7 @@ import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.TherapySanitizer
+import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.DayType
@@ -41,12 +44,17 @@ import io.aaps.copilot.domain.model.PatternWindow
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
+import io.aaps.copilot.domain.predict.InsulinActionProfileId
+import io.aaps.copilot.domain.predict.ProfileEstimator
+import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
+import io.aaps.copilot.domain.predict.TelemetrySignal
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutTls
 import java.net.URI
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -87,14 +95,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val uiState: StateFlow<MainUiState> = combine(
-        db.glucoseDao().observeLatest(limit = 720),
-        db.therapyDao().observeLatest(limit = 600),
-        db.forecastDao().observeLatest(limit = 600),
+        db.glucoseDao().observeLatest(limit = 3_000),
+        db.therapyDao().observeLatest(limit = 1_800),
+        db.forecastDao().observeLatest(limit = 7000),
+        db.forecastDao().observeLatestByHorizon(5),
+        db.forecastDao().observeLatestByHorizon(30),
+        db.forecastDao().observeLatestByHorizon(60),
         db.baselineDao().observeLatest(limit = 600),
         db.ruleExecutionDao().observeLatest(limit = 20),
         db.actionCommandDao().observeLatest(limit = 40),
         db.auditLogDao().observeLatest(limit = 50),
-        db.telemetryDao().observeLatest(limit = 1500),
+        db.telemetryDao().observeLatest(limit = 12_000),
         container.analyticsRepository.observePatterns(),
         container.analyticsRepository.observeProfileEstimate(),
         container.analyticsRepository.observeProfileSegments(),
@@ -115,32 +126,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val therapy = TherapySanitizer.filterEntities(values[1] as List<TherapyEventEntity>)
         @Suppress("UNCHECKED_CAST")
         val forecasts = values[2] as List<ForecastEntity>
+        val latestForecast5Row = values[3] as ForecastEntity?
+        val latestForecast30Row = values[4] as ForecastEntity?
+        val latestForecast60Row = values[5] as ForecastEntity?
         @Suppress("UNCHECKED_CAST")
-        val baseline = values[3] as List<BaselinePointEntity>
+        val baseline = values[6] as List<BaselinePointEntity>
         @Suppress("UNCHECKED_CAST")
-        val ruleExec = values[4] as List<RuleExecutionEntity>
+        val ruleExec = values[7] as List<RuleExecutionEntity>
         @Suppress("UNCHECKED_CAST")
-        val actionCommands = values[5] as List<ActionCommandEntity>
+        val actionCommands = values[8] as List<ActionCommandEntity>
         @Suppress("UNCHECKED_CAST")
-        val audits = values[6] as List<AuditLogEntity>
+        val audits = values[9] as List<AuditLogEntity>
         @Suppress("UNCHECKED_CAST")
-        val telemetry = values[7] as List<TelemetrySampleEntity>
+        val telemetry = values[10] as List<TelemetrySampleEntity>
         @Suppress("UNCHECKED_CAST")
-        val patterns = values[8] as List<PatternWindowEntity>
-        val profile = values[9] as ProfileEstimateEntity?
+        val patterns = values[11] as List<PatternWindowEntity>
+        val profile = values[12] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val profileSegments = values[10] as List<ProfileSegmentEstimateEntity>
+        val profileSegments = values[13] as List<ProfileSegmentEstimateEntity>
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[11] as List<SyncStateEntity>
-        val settings = values[12] as AppSettings
-        val autoConnect = values[13] as AutoConnectUi?
-        val message = values[14] as String?
-        val dryRun = values[15] as DryRunUi?
-        val cloudReplay = values[16] as CloudReplayUiModel?
-        val cloudJobs = values[17] as CloudJobsUiModel?
-        val analysisHistory = values[18] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[19] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[20] as InsightsFilterUi
+        val syncStates = values[14] as List<SyncStateEntity>
+        val settings = values[15] as AppSettings
+        val autoConnect = values[16] as AutoConnectUi?
+        val message = values[17] as String?
+        val dryRun = values[18] as DryRunUi?
+        val cloudReplay = values[19] as CloudReplayUiModel?
+        val cloudJobs = values[20] as CloudJobsUiModel?
+        val analysisHistory = values[21] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[22] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[23] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -285,12 +299,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "${item.weekStart}: runs=${item.totalRuns}, ok=${item.successRuns}, fail=${item.failedRuns}, an=${item.anomaliesCount}, rec=${item.recommendationsCount}"
         } ?: emptyList()
         val ruleCooldownLines = buildRuleCooldownLines(ruleExec, settings, now)
+        val yesterdayProfileLines = buildYesterdayProfileLines(
+            glucose = sortedGlucose,
+            therapy = therapy,
+            telemetry = telemetry,
+            nowTs = now
+        )
+        val activityLines = buildActivitySummaryLines(
+            telemetry = telemetry,
+            nowTs = now,
+            activityPermissionGranted = isActivityRecognitionGranted(),
+            audits = audits
+        )
         val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, therapy, profile, now)
         val telemetryLines = buildTelemetryLines(telemetry)
+        val telemetryByKey = latestTelemetryByKey(telemetry)
         val actionLines = buildActionLines(actionCommands)
-        val forecast5Latest = latestForecastValue(forecasts, 5)
-        val forecast30Latest = latestForecastValue(forecasts, 30)
-        val forecast60Latest = latestForecastValue(forecasts, 60)
+        val forecast5Latest = latestForecast5Row?.valueMmol ?: latestForecastValue(forecasts, 5)
+        val forecast30Latest = latestForecast30Row?.valueMmol ?: latestForecastValue(forecasts, 30)
+        val forecast60Latest = latestForecast60Row?.valueMmol ?: latestForecastValue(forecasts, 60)
+        val calculatedUamFlag = telemetryByKey["uam_calculated_flag"].toNumericValue()
+        val calculatedUamConfidence = telemetryByKey["uam_calculated_confidence"].toNumericValue()
+        val calculatedUamCarbs = telemetryByKey["uam_calculated_carbs_grams"].toNumericValue()
+        val calculatedUamDelta5 = telemetryByKey["uam_calculated_delta5_mmol"].toNumericValue()
+        val calculatedUamRise15 = telemetryByKey["uam_calculated_rise15_mmol"].toNumericValue()
+        val calculatedUamRise30 = telemetryByKey["uam_calculated_rise30_mmol"].toNumericValue()
         val controllerWeightedError = if (forecast30Latest != null && forecast60Latest != null) {
             val e30 = forecast30Latest - settings.baseTargetMmol
             val e60 = forecast60Latest - settings.baseTargetMmol
@@ -329,6 +362,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             localCommandFallbackEnabled = settings.localCommandFallbackEnabled,
             localCommandPackage = settings.localCommandPackage,
             localCommandAction = settings.localCommandAction,
+            insulinProfileId = settings.insulinProfileId,
             baseTargetMmol = settings.baseTargetMmol,
             postHypoThresholdMmol = settings.postHypoThresholdMmol,
             postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
@@ -347,6 +381,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             forecast5m = forecast5Latest,
             forecast30m = forecast30Latest,
             forecast60m = forecast60Latest,
+            calculatedUamActive = calculatedUamFlag?.let { it >= 0.5 },
+            calculatedUamConfidence = calculatedUamConfidence,
+            calculatedUamCarbsGrams = calculatedUamCarbs,
+            calculatedUamDelta5Mmol = calculatedUamDelta5,
+            calculatedUamRise15Mmol = calculatedUamRise15,
+            calculatedUamRise30Mmol = calculatedUamRise30,
             lastRuleState = ruleExec.firstOrNull()?.state,
             lastRuleId = ruleExec.firstOrNull()?.ruleId,
             controllerState = latestAdaptiveExecution?.state,
@@ -378,6 +418,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileCalculatedCrSamples = profile?.calculatedCrSampleCount,
             profileLookbackDays = profile?.lookbackDays,
             profileSegmentLines = profileSegmentLines,
+            yesterdayProfileLines = yesterdayProfileLines,
+            activityLines = activityLines,
             rulePostHypoEnabled = settings.rulePostHypoEnabled,
             rulePatternEnabled = settings.rulePatternEnabled,
             ruleSegmentEnabled = settings.ruleSegmentEnabled,
@@ -491,6 +533,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val settings = container.settingsStore.settings.first()
             container.analyticsRepository.recalculate(settings)
             messageState.value = "Base target updated"
+        }
+    }
+
+    fun setInsulinProfile(profileRaw: String) {
+        viewModelScope.launch {
+            val normalized = InsulinActionProfileId.fromRaw(profileRaw).name
+            container.settingsStore.update { it.copy(insulinProfileId = normalized) }
+            WorkScheduler.triggerReactiveAutomation(getApplication())
+            messageState.value = "Insulin profile set to $normalized"
         }
     }
 
@@ -1406,14 +1457,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             likelyRejectsUserCa = false
         )
 
-        val networkSecurityConfigRes = runCatching {
-            val field = ApplicationInfo::class.java.getDeclaredField("networkSecurityConfigRes")
-            field.isAccessible = true
-            field.getInt(appInfo)
-        }.getOrNull()
-        val hasExplicitNetworkSecurityConfig = (networkSecurityConfigRes ?: 0) != 0
-        val likelyRejectsUserCa = appInfo.targetSdkVersion >= Build.VERSION_CODES.N &&
-            !hasExplicitNetworkSecurityConfig
+        // Android 14+ blocks reflective access to hidden ApplicationInfo fields,
+        // so we avoid probing networkSecurityConfigRes via reflection.
+        val networkSecurityConfigRes: Int? = null
+        val likelyRejectsUserCa = appInfo.targetSdkVersion >= Build.VERSION_CODES.N
         return AapsTlsCompatibility(
             installed = true,
             targetSdk = appInfo.targetSdkVersion,
@@ -1607,6 +1654,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tokenAliases = listOf("activity", "activityratio", "sensitivityratio")
         ),
         TelemetryCoverageSpec(
+            primaryKey = "distance_km",
+            label = "Distance",
+            staleThresholdMin = 24 * 60L,
+            tokenAliases = listOf("distance", "distancekm")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "active_minutes",
+            label = "Active minutes",
+            staleThresholdMin = 24 * 60L,
+            tokenAliases = listOf("activeminutes", "exerciseminutes")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "calories_active_kcal",
+            label = "Active calories",
+            staleThresholdMin = 24 * 60L,
+            tokenAliases = listOf("activecalories", "caloriesactive")
+        ),
+        TelemetryCoverageSpec(
             primaryKey = "heart_rate_bpm",
             label = "Heart rate",
             staleThresholdMin = 180L,
@@ -1672,10 +1737,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "steps_count",
             "activity_ratio",
             "activity_label",
+            "distance_km",
+            "active_minutes",
+            "calories_active_kcal",
             "heart_rate_bpm",
             "uam_calculated_flag",
             "uam_calculated_confidence",
             "uam_calculated_carbs_grams",
+            "uam_calculated_delta5_mmol",
+            "uam_calculated_rise15_mmol",
+            "uam_calculated_rise30_mmol",
             "uam_value",
             "isf_value",
             "cr_value",
@@ -1704,11 +1775,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return primaryLines + otherLines
     }
 
-    private fun latestTelemetryByKey(samples: List<TelemetrySampleEntity>): Map<String, TelemetrySampleEntity> {
+    private fun latestTelemetryByKey(
+        samples: List<TelemetrySampleEntity>,
+        nowTs: Long = System.currentTimeMillis()
+    ): Map<String, TelemetrySampleEntity> {
+        val todayStart = Instant.ofEpochMilli(nowTs)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
         return samples
             .filter { isTelemetrySampleUsable(it) }
             .groupBy { it.key }
-            .mapValues { (_, values) -> values.maxByOrNull { it.timestamp } }
+            .mapValues { (key, values) ->
+                if (key in CUMULATIVE_ACTIVITY_KEYS) {
+                    val dayValues = values.filter { it.timestamp >= todayStart }
+                    val sourceValues = if (dayValues.isNotEmpty()) dayValues else values
+                    sourceValues.maxWithOrNull(
+                        compareBy<TelemetrySampleEntity> { it.valueDouble ?: Double.NEGATIVE_INFINITY }
+                            .thenBy { it.timestamp }
+                    )
+                } else {
+                    values.maxByOrNull { it.timestamp }
+                }
+            }
             .filterValues { it != null }
             .mapValues { it.value!! }
     }
@@ -1722,9 +1813,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun isTelemetrySampleUsable(sample: TelemetrySampleEntity): Boolean {
-        if (sample.key != "uam_value" && sample.key != "uam_calculated_flag") return true
+        if (sample.key != "uam_calculated_flag") return true
         val numeric = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
         return numeric == null || numeric in 0.0..1.5
+    }
+
+    private fun TelemetrySampleEntity?.toNumericValue(): Double? {
+        if (this == null) return null
+        return valueDouble ?: valueText?.replace(",", ".")?.toDoubleOrNull()
     }
 
     private fun resolveTelemetrySample(
@@ -1857,10 +1953,248 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return "$title: $value$unit (${sample.source}, ${formatTs(sample.timestamp)})"
     }
 
+    private fun buildYesterdayProfileLines(
+        glucose: List<GlucoseSampleEntity>,
+        therapy: List<TherapyEventEntity>,
+        telemetry: List<TelemetrySampleEntity>,
+        nowTs: Long
+    ): List<String> {
+        val dayWindow = resolveDayWindow(nowTs)
+        val glucoseYesterday = glucose.filter { it.timestamp in dayWindow.startYesterdayTs until dayWindow.startTodayTs }
+        val therapyYesterday = therapy.filter { it.timestamp in dayWindow.startYesterdayTs until dayWindow.startTodayTs }
+        val telemetryYesterday = telemetry.filter { it.timestamp in dayWindow.startYesterdayTs until dayWindow.startTodayTs }
+        val dateLabel = dayWindow.yesterdayDate.toString()
+
+        if (glucoseYesterday.size < 18) {
+            return listOf("Yesterday ($dateLabel): insufficient glucose points (${glucoseYesterday.size})")
+        }
+
+        val estimator = ProfileEstimator(ProfileEstimatorConfig(lookbackDays = 1))
+        val glucoseDomain = glucoseYesterday.map { it.toDomain() }
+        val therapyDomain = therapyYesterday.mapNotNull { event ->
+            runCatching { event.toDomain(container.gson) }.getOrNull()
+        }
+        val telemetrySignals = telemetryYesterday.map { sample ->
+            TelemetrySignal(
+                ts = sample.timestamp,
+                key = sample.key,
+                valueDouble = sample.valueDouble,
+                valueText = sample.valueText
+            )
+        }
+        val calculated = estimator.estimate(
+            glucoseHistory = glucoseDomain,
+            therapyEvents = therapyDomain,
+            telemetrySignals = emptyList()
+        )
+        val merged = estimator.estimate(
+            glucoseHistory = glucoseDomain,
+            therapyEvents = therapyDomain,
+            telemetrySignals = telemetrySignals
+        )
+
+        return buildList {
+            add("Yesterday ($dateLabel): CGM=${glucoseYesterday.size}, therapy=${therapyYesterday.size}, telemetry=${telemetryYesterday.size}")
+            if (calculated == null) {
+                add("History-only: insufficient correction/meal samples")
+            } else {
+                add(
+                    "History-only (real): ISF=${String.format(Locale.US, "%.2f", calculated.isfMmolPerUnit)} mmol/L/U, " +
+                        "CR=${String.format(Locale.US, "%.2f", calculated.crGramPerUnit)} g/U, " +
+                        "conf=${String.format(Locale.US, "%.0f%%", calculated.confidence * 100)}, " +
+                        "n=${calculated.sampleCount} (ISF=${calculated.isfSampleCount}, CR=${calculated.crSampleCount})"
+                )
+            }
+            if (merged != null) {
+                add(
+                    "Merged with telemetry: ISF=${String.format(Locale.US, "%.2f", merged.isfMmolPerUnit)} mmol/L/U, " +
+                        "CR=${String.format(Locale.US, "%.2f", merged.crGramPerUnit)} g/U, " +
+                        "conf=${String.format(Locale.US, "%.0f%%", merged.confidence * 100)}"
+                )
+            }
+        }
+    }
+
+    private fun buildActivitySummaryLines(
+        telemetry: List<TelemetrySampleEntity>,
+        nowTs: Long,
+        activityPermissionGranted: Boolean,
+        audits: List<AuditLogEntity>
+    ): List<String> {
+        val dayWindow = resolveDayWindow(nowTs)
+        val todayStart = dayWindow.startTodayTs
+        val yesterdayStart = dayWindow.startYesterdayTs
+        val byKey = latestTelemetryByKey(telemetry, nowTs = nowTs)
+
+        val stepsToday = maxMetricInRange(telemetry, "steps_count", todayStart, nowTs + 1)
+        val stepsYesterday = maxMetricInRange(telemetry, "steps_count", yesterdayStart, todayStart)
+        val distanceTodayKm = maxMetricInRange(telemetry, "distance_km", todayStart, nowTs + 1)
+        val activeMinutesToday = maxMetricInRange(telemetry, "active_minutes", todayStart, nowTs + 1)
+        val activeCaloriesToday = maxMetricInRange(telemetry, "calories_active_kcal", todayStart, nowTs + 1)
+        val activityRatioCurrent = byKey["activity_ratio"].toNumericValue()
+        val activityRatioAvg6h = averageMetricInRange(
+            telemetry = telemetry,
+            key = "activity_ratio",
+            startTs = (nowTs - 6 * 60 * 60_000L).coerceAtLeast(0L),
+            endTs = nowTs + 1
+        )
+        val latestLocalSensorTs = telemetry
+            .asSequence()
+            .filter { it.source == "local_sensor" }
+            .maxOfOrNull { it.timestamp }
+        val localSensorAgeMin = minutesSince(nowTs, latestLocalSensorTs)
+        val latestHealthConnectTs = telemetry
+            .asSequence()
+            .filter { it.source == "health_connect" }
+            .maxOfOrNull { it.timestamp }
+        val healthConnectAgeMin = minutesSince(nowTs, latestHealthConnectTs)
+        val latestHealthConnectAudit = audits
+            .asSequence()
+            .filter { it.message == "health_connect_activity_status" }
+            .maxByOrNull { it.timestamp }
+        val healthConnectState = latestHealthConnectAudit?.let { auditMetaField(it, "state") }
+        val healthConnectMissingPermissions = latestHealthConnectAudit?.let { auditMetaField(it, "missingPermissions") }
+        val activityLabel = byKey["activity_label"]?.valueText?.trim().takeIf { !it.isNullOrBlank() }
+
+        val hasAnyMetric = listOfNotNull(
+            stepsToday,
+            stepsYesterday,
+            distanceTodayKm,
+            activeMinutesToday,
+            activeCaloriesToday,
+            activityRatioCurrent,
+            activityRatioAvg6h
+        ).isNotEmpty() || activityLabel != null || latestLocalSensorTs != null
+
+        return buildList {
+            add(
+                "Activity permission: " + if (activityPermissionGranted) {
+                    "granted"
+                } else {
+                    "missing (grant ACTIVITY_RECOGNITION)"
+                }
+            )
+            add(
+                "Local sensor stream: " + if (latestLocalSensorTs == null) {
+                    "no data yet"
+                } else {
+                    "${formatTs(latestLocalSensorTs)} (age ${minutesLabel(localSensorAgeMin)})"
+                }
+            )
+            add(
+                "Health Connect stream: " + if (latestHealthConnectTs == null) {
+                    formatHealthConnectStatus(healthConnectState, healthConnectMissingPermissions)
+                } else {
+                    "${formatTs(latestHealthConnectTs)} (age ${minutesLabel(healthConnectAgeMin)})"
+                }
+            )
+            if (!hasAnyMetric) {
+                add("No steps/activity telemetry yet")
+                return@buildList
+            }
+            add(
+                "Steps today: ${stepsToday?.let { String.format(Locale.US, "%.0f", it) } ?: "-"} | " +
+                    "yesterday: ${stepsYesterday?.let { String.format(Locale.US, "%.0f", it) } ?: "-"}"
+            )
+            add(
+                "Activity ratio: current=${activityRatioCurrent?.let { String.format(Locale.US, "%.2f", it) } ?: "-"}, " +
+                    "6h avg=${activityRatioAvg6h?.let { String.format(Locale.US, "%.2f", it) } ?: "-"}"
+            )
+            add(
+                "Active minutes today: ${activeMinutesToday?.let { String.format(Locale.US, "%.0f min", it) } ?: "-"}"
+            )
+            add(
+                "Distance today: ${distanceTodayKm?.let { String.format(Locale.US, "%.2f km", it) } ?: "-"}"
+            )
+            add(
+                "Active calories today: ${activeCaloriesToday?.let { String.format(Locale.US, "%.0f kcal", it) } ?: "-"}"
+            )
+            activityLabel?.let { add("Activity label: $it") }
+        }
+    }
+
+    private fun formatHealthConnectStatus(state: String?, missingPermissions: String?): String {
+        return when {
+            state == null -> "no data yet (grant Health Connect read permissions)"
+            state == "ok" -> "available"
+            state == "permission_missing" -> {
+                if (missingPermissions.isNullOrBlank()) {
+                    "permission missing"
+                } else {
+                    "permission missing: $missingPermissions"
+                }
+            }
+            state.startsWith("sdk_unavailable") -> "sdk unavailable"
+            state == "client_unavailable" -> "client unavailable"
+            state == "permission_check_failed" -> "permission check failed"
+            state == "sync_failed" -> "sync failed"
+            else -> state
+        }
+    }
+
+    private fun isActivityRecognitionGranted(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        return ContextCompat.checkSelfPermission(
+            getApplication(),
+            Manifest.permission.ACTIVITY_RECOGNITION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun maxMetricInRange(
+        telemetry: List<TelemetrySampleEntity>,
+        key: String,
+        startTs: Long,
+        endTs: Long
+    ): Double? {
+        return telemetry
+            .asSequence()
+            .filter { it.key == key && it.timestamp in startTs until endTs }
+            .mapNotNull { it.toNumericValue() }
+            .maxOrNull()
+    }
+
+    private fun averageMetricInRange(
+        telemetry: List<TelemetrySampleEntity>,
+        key: String,
+        startTs: Long,
+        endTs: Long
+    ): Double? {
+        val values = telemetry
+            .asSequence()
+            .filter { it.key == key && it.timestamp in startTs until endTs }
+            .mapNotNull { it.toNumericValue() }
+            .toList()
+        if (values.isEmpty()) return null
+        return values.average()
+    }
+
+    private data class DayWindow(
+        val yesterdayDate: LocalDate,
+        val startYesterdayTs: Long,
+        val startTodayTs: Long
+    )
+
+    private fun resolveDayWindow(nowTs: Long): DayWindow {
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(nowTs).atZone(zone).toLocalDate()
+        val yesterday = today.minusDays(1)
+        return DayWindow(
+            yesterdayDate = yesterday,
+            startYesterdayTs = yesterday.atStartOfDay(zone).toInstant().toEpochMilli(),
+            startTodayTs = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        )
+    }
+
     private companion object {
         private const val TLS_DIAGNOSTIC_WINDOW_MINUTES = 15
         private const val TLS_DIAGNOSTIC_WINDOW_MS = TLS_DIAGNOSTIC_WINDOW_MINUTES * 60_000L
         private const val LOCAL_NS_START_FAILURE_WINDOW_MS = 60 * 60_000L
+        private val CUMULATIVE_ACTIVITY_KEYS = setOf(
+            "steps_count",
+            "distance_km",
+            "active_minutes",
+            "calories_active_kcal"
+        )
     }
 
 }
@@ -1895,6 +2229,7 @@ data class MainUiState(
     val localCommandFallbackEnabled: Boolean = false,
     val localCommandPackage: String = "info.nightscout.androidaps",
     val localCommandAction: String = "info.nightscout.client.NEW_TREATMENT",
+    val insulinProfileId: String = "NOVORAPID",
     val baseTargetMmol: Double = 5.5,
     val postHypoThresholdMmol: Double = 3.0,
     val postHypoDeltaThresholdMmol5m: Double = 0.20,
@@ -1913,6 +2248,12 @@ data class MainUiState(
     val forecast5m: Double? = null,
     val forecast30m: Double? = null,
     val forecast60m: Double? = null,
+    val calculatedUamActive: Boolean? = null,
+    val calculatedUamConfidence: Double? = null,
+    val calculatedUamCarbsGrams: Double? = null,
+    val calculatedUamDelta5Mmol: Double? = null,
+    val calculatedUamRise15Mmol: Double? = null,
+    val calculatedUamRise30Mmol: Double? = null,
     val lastRuleState: String? = null,
     val lastRuleId: String? = null,
     val controllerState: String? = null,
@@ -1944,6 +2285,8 @@ data class MainUiState(
     val profileCalculatedCrSamples: Int? = null,
     val profileLookbackDays: Int? = null,
     val profileSegmentLines: List<String> = emptyList(),
+    val yesterdayProfileLines: List<String> = emptyList(),
+    val activityLines: List<String> = emptyList(),
     val rulePostHypoEnabled: Boolean = true,
     val rulePatternEnabled: Boolean = true,
     val ruleSegmentEnabled: Boolean = true,

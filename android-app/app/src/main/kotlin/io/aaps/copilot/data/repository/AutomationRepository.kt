@@ -20,6 +20,8 @@ import io.aaps.copilot.domain.model.ProfileTimeSlot
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.model.SafetySnapshot
+import io.aaps.copilot.domain.predict.HybridPredictionEngine
+import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.UamCalculator
 import io.aaps.copilot.domain.predict.PredictionEngine
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
@@ -93,11 +95,19 @@ class AutomationRepository(
     private suspend fun runAutomationCycleLocked() {
         autoConnectRepository.bootstrap()
         val settings = settingsStore.settings.first()
+        configurePredictionEngine(settings)
         rootDbRepository.syncIfEnabled()
         syncRepository.syncNightscoutIncremental()
         syncRepository.pushCloudIncremental()
         exportRepository.importBaselineFromExports()
         analyticsRepository.recalculate(settings)
+        val removedInvalidTelemetryTs = db.telemetryDao().deleteByTimestampAtOrBelow(0L)
+        if (removedInvalidTelemetryTs > 0) {
+            auditLogger.info(
+                "telemetry_invalid_timestamp_cleanup",
+                mapOf("removedRows" to removedInvalidTelemetryTs)
+            )
+        }
 
         val glucose = syncRepository.recentGlucose(limit = 72)
         if (glucose.isEmpty()) {
@@ -106,15 +116,31 @@ class AutomationRepository(
         }
 
         val therapy = syncRepository.recentTherapyEvents(hoursBack = 24)
+        val now = System.currentTimeMillis()
+        val latestTelemetry = resolveLatestTelemetry(now).toMutableMap()
+        val effectiveBaseTarget = resolveEffectiveBaseTarget(settings.baseTargetMmol, latestTelemetry)
         val localForecasts = predictionEngine.predict(glucose, therapy)
-        val mergedForecasts = ensureForecast30(
+        val mergedForecastsRaw = ensureForecast30(
             maybeMergeCloudPrediction(glucose, therapy, localForecasts)
         )
+        val mergedForecasts = applyCobIobForecastBias(
+            forecasts = mergedForecastsRaw,
+            cobGrams = latestTelemetry["cob_grams"],
+            iobUnits = latestTelemetry["iob_units"]
+        )
+        if (mergedForecasts != mergedForecastsRaw) {
+            auditLogger.info(
+                "forecast_bias_applied",
+                mapOf(
+                    "cobGrams" to latestTelemetry["cob_grams"],
+                    "iobUnits" to latestTelemetry["iob_units"]
+                )
+            )
+        }
 
         db.forecastDao().insertAll(mergedForecasts.map { it.toForecastEntity() })
-        db.forecastDao().deleteOlderThan(System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000)
+        db.forecastDao().deleteOlderThan(System.currentTimeMillis() - FORECAST_RETENTION_MS)
 
-        val now = System.currentTimeMillis()
         val latest = glucose.maxBy { it.ts }
         val effectiveStaleMaxMinutes = resolveEffectiveStaleMaxMinutes(settings)
         val dataFresh = now - latest.ts <= effectiveStaleMaxMinutes * 60 * 1000L
@@ -141,7 +167,6 @@ class AutomationRepository(
         val currentSegment = db.profileSegmentEstimateDao()
             .byDayTypeAndTimeSlot(dayType.name, currentSlot.name)
             ?.toProfileSegmentEstimate()
-        val latestTelemetry = resolveLatestTelemetry(now).toMutableMap()
         val calculatedUam = calculateCalculatedUamSnapshot(
             glucose = glucose,
             therapy = therapy,
@@ -160,7 +185,7 @@ class AutomationRepository(
             therapyEvents = therapy,
             forecasts = mergedForecasts,
             currentDayPattern = currentPattern,
-            baseTargetMmol = settings.baseTargetMmol,
+            baseTargetMmol = effectiveBaseTarget,
             postHypoThresholdMmol = settings.postHypoThresholdMmol,
             postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
             postHypoTargetMmol = settings.postHypoTargetMmol,
@@ -230,7 +255,7 @@ class AutomationRepository(
                 val normalizedAction = alignTempTargetToBaseTarget(
                     action = effectiveDecision.actionProposal,
                     forecasts = mergedForecasts,
-                    baseTargetMmol = settings.baseTargetMmol
+                    baseTargetMmol = effectiveBaseTarget
                 )
                 val command = ActionCommand(
                     id = UUID.randomUUID().toString(),
@@ -268,7 +293,8 @@ class AutomationRepository(
                 sensorBlocked = sensorBlocked,
                 activeTempTarget = activeTempTarget,
                 actionsLast6h = actionsLast6h,
-                forecasts = mergedForecasts
+                forecasts = mergedForecasts,
+                baseTargetMmol = effectiveBaseTarget
             )
         }
 
@@ -336,13 +362,52 @@ class AutomationRepository(
         return (forecasts + synthetic).sortedBy { it.horizonMinutes }
     }
 
+    private fun applyCobIobForecastBias(
+        forecasts: List<Forecast>,
+        cobGrams: Double?,
+        iobUnits: Double?
+    ): List<Forecast> {
+        return applyCobIobForecastBiasStatic(
+            forecasts = forecasts,
+            cobGrams = cobGrams,
+            iobUnits = iobUnits
+        )
+    }
+
+    private fun resolveEffectiveBaseTarget(
+        configuredBaseTargetMmol: Double,
+        telemetry: Map<String, Double?>
+    ): Double {
+        val base = configuredBaseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+        val cob = telemetry["cob_grams"]?.coerceIn(0.0, 400.0) ?: return base
+        if (cob < COB_FORCE_BASE_THRESHOLD_G) return base
+        return COB_FORCE_BASE_TARGET_MMOL.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+    }
+
     private suspend fun resolveLatestTelemetry(nowTs: Long): Map<String, Double?> {
         val rows = db.telemetryDao().since(nowTs - TELEMETRY_LOOKBACK_MS)
         if (rows.isEmpty()) return emptyMap()
+        val todayStart = Instant.ofEpochMilli(nowTs)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
         val latestByKey = rows
             .filter { it.valueDouble != null && telemetryValueUsable(it.key, it.valueDouble) }
             .groupBy { it.key }
-            .mapValues { (_, values) -> values.maxByOrNull { it.timestamp }?.valueDouble }
+            .mapValues { (key, values) ->
+                if (key in CUMULATIVE_ACTIVITY_KEYS) {
+                    val dayValues = values.filter { it.timestamp >= todayStart }
+                    val sourceValues = if (dayValues.isNotEmpty()) dayValues else values
+                    sourceValues.maxWithOrNull(
+                        compareBy<TelemetrySampleEntity> { it.valueDouble ?: Double.NEGATIVE_INFINITY }
+                            .thenBy { it.timestamp }
+                    )?.valueDouble
+                } else {
+                    values.maxByOrNull { it.timestamp }?.valueDouble
+                }
+            }
             .toMutableMap()
 
         fun alias(targetKey: String, tokenAliases: List<String>) {
@@ -383,6 +448,11 @@ class AutomationRepository(
             .lowercase(Locale.US)
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
+    }
+
+    private fun configurePredictionEngine(settings: AppSettings) {
+        val profileId = InsulinActionProfileId.fromRaw(settings.insulinProfileId)
+        (predictionEngine as? HybridPredictionEngine)?.setInsulinProfile(profileId)
     }
 
     private fun resolveEffectiveStaleMaxMinutes(settings: AppSettings): Int {
@@ -529,6 +599,7 @@ class AutomationRepository(
 
     suspend fun runDryRunSimulation(days: Int): DryRunReport {
         val settings = settingsStore.settings.first()
+        configurePredictionEngine(settings)
         val periodDays = days.coerceIn(1, 60)
         val startTs = System.currentTimeMillis() - periodDays * 24L * 60 * 60 * 1000
 
@@ -737,7 +808,8 @@ class AutomationRepository(
         sensorBlocked: Boolean,
         activeTempTarget: Double?,
         actionsLast6h: Int,
-        forecasts: List<Forecast>
+        forecasts: List<Forecast>,
+        baseTargetMmol: Double
     ) {
         if (settings.killSwitch) {
             auditLogger.info("adaptive_keepalive_skipped", mapOf("reason" to "kill_switch"))
@@ -761,7 +833,7 @@ class AutomationRepository(
             return
         }
 
-        val baseTarget = settings.baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+        val baseTarget = baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
         val proposal = alignTempTargetToBaseTarget(
             action = ActionProposal(
                 type = "temp_target",
@@ -855,7 +927,7 @@ class AutomationRepository(
         else -> ProfileTimeSlot.EVENING
     }
 
-    private companion object {
+    companion object {
         private const val SENSOR_BLOCK_TTL_MS = 30 * 60 * 1000L
         private const val MIN_TARGET_MMOL = 4.0
         private const val MAX_TARGET_MMOL = 10.0
@@ -865,6 +937,79 @@ class AutomationRepository(
         private const val ADAPTIVE_KEEPALIVE_DURATION_MINUTES = 30
         private const val TELEMETRY_LOOKBACK_MS = 6 * 60 * 60 * 1000L
         private const val CALCULATED_UAM_LOOKBACK_MINUTES = 120
+        private const val FORECAST_RETENTION_MS = 400L * 24 * 60 * 60 * 1000
+
+        private const val COB_FORCE_BASE_THRESHOLD_G = 20.0
+        private const val COB_FORCE_BASE_TARGET_MMOL = 4.2
+        private val CUMULATIVE_ACTIVITY_KEYS = setOf(
+            "steps_count",
+            "distance_km",
+            "active_minutes",
+            "calories_active_kcal"
+        )
+
+        private const val COB_FORECAST_GAIN_5 = 0.006
+        private const val COB_FORECAST_GAIN_30 = 0.012
+        private const val COB_FORECAST_GAIN_60 = 0.018
+        private const val COB_FORECAST_BIAS_MAX = 2.5
+
+        private const val IOB_FORECAST_GAIN_5 = 0.14
+        private const val IOB_FORECAST_GAIN_30 = 0.28
+        private const val IOB_FORECAST_GAIN_60 = 0.42
+        private const val IOB_FORECAST_BIAS_MAX = 4.0
+
+        private const val FORECAST_BIAS_MIN = -4.0
+        private const val FORECAST_BIAS_MAX = 3.0
+        private const val MIN_GLUCOSE_MMOL = 2.2
+        private const val MAX_GLUCOSE_MMOL = 22.0
+
+        internal fun applyCobIobForecastBiasStatic(
+            forecasts: List<Forecast>,
+            cobGrams: Double?,
+            iobUnits: Double?
+        ): List<Forecast> {
+            if (forecasts.isEmpty()) return forecasts
+            val cob = (cobGrams ?: 0.0).coerceIn(0.0, 400.0)
+            val iob = (iobUnits ?: 0.0).coerceIn(0.0, 30.0)
+            if (cob <= 0.0 && iob <= 0.0) return forecasts
+
+            return forecasts.map { forecast ->
+                val cobGain = when (forecast.horizonMinutes) {
+                    5 -> COB_FORECAST_GAIN_5
+                    30 -> COB_FORECAST_GAIN_30
+                    60 -> COB_FORECAST_GAIN_60
+                    else -> COB_FORECAST_GAIN_60 * (forecast.horizonMinutes / 60.0)
+                }
+                val iobGain = when (forecast.horizonMinutes) {
+                    5 -> IOB_FORECAST_GAIN_5
+                    30 -> IOB_FORECAST_GAIN_30
+                    60 -> IOB_FORECAST_GAIN_60
+                    else -> IOB_FORECAST_GAIN_60 * (forecast.horizonMinutes / 60.0)
+                }
+
+                val cobBias = (cob * cobGain).coerceIn(0.0, COB_FORECAST_BIAS_MAX)
+                val iobBias = (iob * iobGain).coerceIn(0.0, IOB_FORECAST_BIAS_MAX)
+                val totalBias = (cobBias - iobBias).coerceIn(FORECAST_BIAS_MIN, FORECAST_BIAS_MAX)
+                if (abs(totalBias) < 1e-6) return@map forecast
+
+                val shiftedValue = (forecast.valueMmol + totalBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+                var shiftedLow = (forecast.ciLow + totalBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+                var shiftedHigh = (forecast.ciHigh + totalBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+                if (shiftedLow > shiftedValue) shiftedLow = shiftedValue
+                if (shiftedHigh < shiftedValue) shiftedHigh = shiftedValue
+                val version = if (forecast.modelVersion.contains("|cob_iob_bias_v1")) {
+                    forecast.modelVersion
+                } else {
+                    "${forecast.modelVersion}|cob_iob_bias_v1"
+                }
+                forecast.copy(
+                    valueMmol = shiftedValue,
+                    ciLow = shiftedLow,
+                    ciHigh = shiftedHigh,
+                    modelVersion = version
+                )
+            }
+        }
     }
 
     private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toProfileEstimate(): ProfileEstimate = ProfileEstimate(

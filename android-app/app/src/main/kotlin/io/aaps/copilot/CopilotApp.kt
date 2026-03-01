@@ -17,6 +17,8 @@ class CopilotApp : Application(), Configuration.Provider {
         AppVisibilityTracker.markForeground(false)
         container = AppContainer(this)
         WorkScheduler.schedule(this)
+        container.startLocalActivitySensors()
+        container.startHealthConnectCollection()
         LocalNightscoutServiceController.start(
             context = this,
             allowBackground = true

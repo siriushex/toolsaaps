@@ -81,6 +81,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.2.0")
     implementation("androidx.work:work-runtime-ktx:2.11.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha12")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
