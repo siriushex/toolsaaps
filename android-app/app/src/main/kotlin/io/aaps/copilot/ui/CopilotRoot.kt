@@ -226,6 +226,23 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
             Text("Forecast 5m: ${state.forecast5m?.let { String.format("%.2f", it) } ?: "-"}")
             Text("Forecast 30m: ${state.forecast30m?.let { String.format("%.2f", it) } ?: "-"}")
             Text("Forecast 1h: ${state.forecast60m?.let { String.format("%.2f", it) } ?: "-"}")
+            Text(
+                "Calculated UAM: " + when (state.calculatedUamActive) {
+                    null -> "-"
+                    true -> "ACTIVE"
+                    false -> "off"
+                } +
+                    (state.calculatedUamConfidence?.let { ", conf=${String.format("%.0f%%", it * 100)}" } ?: "") +
+                    (state.calculatedUamCarbsGrams?.let { ", carbs=${String.format("%.1f g", it)}" } ?: "")
+            )
+            Text(
+                "Calculated UAM delta: " +
+                    listOfNotNull(
+                        state.calculatedUamDelta5Mmol?.let { "5m=${String.format("%+.2f", it)} mmol/5m" },
+                        state.calculatedUamRise15Mmol?.let { "15m=${String.format("%+.2f", it)} mmol/L" },
+                        state.calculatedUamRise30Mmol?.let { "30m=${String.format("%+.2f", it)} mmol/L" }
+                    ).ifEmpty { listOf("-") }.joinToString(", ")
+            )
             Text("Last rule: ${state.lastRuleId ?: "-"} / ${state.lastRuleState ?: "-"}")
             Text(
                 "Adaptive controller: ${state.controllerState ?: "-"}" +
@@ -253,6 +270,16 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
             Text("Action delivery")
         }
         items(state.actionLines) { Text(it) }
+
+        item {
+            HorizontalDivider()
+            Text("Physical activity")
+        }
+        if (state.activityLines.isEmpty()) {
+            item { Text("No activity data yet") }
+        } else {
+            items(state.activityLines) { Text(it) }
+        }
 
         item {
             HorizontalDivider()
@@ -304,6 +331,15 @@ private fun ForecastScreen(state: MainUiState) {
             Text("5m: ${state.forecast5m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             Text("30m: ${state.forecast30m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             Text("1h: ${state.forecast60m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
+            Text(
+                "Calculated UAM: " +
+                    listOfNotNull(
+                        state.calculatedUamActive?.let { if (it) "ACTIVE" else "off" },
+                        state.calculatedUamConfidence?.let { "conf=${String.format("%.0f%%", it * 100)}" },
+                        state.calculatedUamCarbsGrams?.let { "carbs=${String.format("%.1f g", it)}" },
+                        state.calculatedUamDelta5Mmol?.let { "delta5=${String.format("%+.2f", it)} mmol/5m" }
+                    ).ifEmpty { listOf("-") }.joinToString(", ")
+            )
             HorizontalDivider()
             Text("Quality metrics")
         }
@@ -458,6 +494,7 @@ private fun RulesScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var targetInput by remember(state.baseTargetMmol) { mutableStateOf(String.format("%.1f", state.baseTargetMmol)) }
+    var insulinProfile by remember(state.insulinProfileId) { mutableStateOf(state.insulinProfileId) }
     var postHypoThreshold by remember(state.postHypoThresholdMmol) { mutableStateOf(String.format("%.2f", state.postHypoThresholdMmol)) }
     var postHypoDelta by remember(state.postHypoDeltaThresholdMmol5m) { mutableStateOf(String.format("%.2f", state.postHypoDeltaThresholdMmol5m)) }
     var postHypoTarget by remember(state.postHypoTargetMmol) { mutableStateOf(String.format("%.1f", state.postHypoTargetMmol)) }
@@ -493,6 +530,16 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         }) {
             Text("Apply base target")
         }
+        OutlinedTextField(
+            value = insulinProfile,
+            onValueChange = { insulinProfile = it.uppercase(Locale.US) },
+            label = { Text("Insulin profile (NOVORAPID/HUMALOG/APIDRA/FIASP/LYUMJEV)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = { vm.setInsulinProfile(insulinProfile) }) {
+            Text("Apply insulin profile")
+        }
+        Text("Default profile: NOVORAPID.")
         Text("Global hard safety limits")
         OutlinedTextField(
             value = maxActions,
@@ -670,6 +717,13 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Text("Apply pattern tuning")
         }
         HorizontalDivider()
+        Text("Yesterday real ISF/CR")
+        if (state.yesterdayProfileLines.isEmpty()) {
+            Text("No yesterday profile yet")
+        } else {
+            state.yesterdayProfileLines.forEach { Text(it) }
+        }
+        HorizontalDivider()
         Text("ISF estimate (merged/OpenAPS+history): ${state.profileIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
         Text("CR estimate (merged/OpenAPS+history): ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
         Text("Confidence: ${state.profileConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
@@ -695,6 +749,13 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Text("No segment estimates yet")
         } else {
             state.profileSegmentLines.forEach { Text(it) }
+        }
+        HorizontalDivider()
+        Text("Full ISF/CR analysis")
+        if (state.isfCrDeepLines.isEmpty()) {
+            Text("No deep ISF/CR analysis yet")
+        } else {
+            state.isfCrDeepLines.forEach { Text(it) }
         }
     }
 }

@@ -66,6 +66,7 @@ class AppContainer(context: Context) {
         db = db,
         auditLogger = auditLogger
     )
+    private val healthConnectEnabled = false
 
     val syncRepository = SyncRepository(
         db = db,
@@ -157,7 +158,9 @@ class AppContainer(context: Context) {
 
     init {
         startLocalActivitySensors()
-        startHealthConnectCollection()
+        if (healthConnectEnabled) {
+            startHealthConnectCollection()
+        }
         appScope.launch {
             val migrationEnabled = settingsStore.ensureAdaptiveControllerDefaultEnabled()
             if (migrationEnabled) {
@@ -204,10 +207,12 @@ class AppContainer(context: Context) {
     }
 
     fun startHealthConnectCollection() {
+        if (!healthConnectEnabled) return
         healthConnectActivityCollector.start()
     }
 
     fun stopHealthConnectCollection() {
+        if (!healthConnectEnabled) return
         healthConnectActivityCollector.stop()
     }
 }

@@ -404,3 +404,39 @@
   - `health_connect_activity_status = permission_missing`
   - missing: `READ_STEPS`, `READ_DISTANCE`, `READ_ACTIVE_CALORIES_BURNED`
 - `telemetry_samples` с `source=health_connect` пока пуст.
+
+# Изменения — Этап 13: Full ISF/CR deep analysis UI + HC postponed
+
+## Что сделано
+- Расширен `ProfileEstimator`:
+  - добавлен `estimateHourlyByDayType(...)` для расчёта ISF/CR в разрезе `WEEKDAY/WEEKEND` по каждому часу.
+- В `MainViewModel` добавлен новый расширенный блок расчёта:
+  - `buildIsfCrDeepLines(...)`.
+  - Считает окна: `1d / 3d / 7d / 14d / 30d` (history-only и merged).
+  - Для 7 дней дополнительно считает:
+    - hourly history-only,
+    - hourly merged,
+    - hourly history-only by day type (`WEEKDAY/WEEKEND`).
+- В `Safety Center` добавлен новый UI-блок:
+  - `Full ISF/CR analysis`.
+- Добавлены тесты:
+  - `profileEstimator_buildsHourlyByDayType` в `PatternAndProfileTest`.
+- По запросу пользователя временно отложен Health Connect:
+  - отключён автозапуск HC-коллектора в `AppContainer` (feature gate `healthConnectEnabled=false`);
+  - отключён запрос HC-permissions в `MainActivity`.
+
+## Почему так
+- Нужен не только базовый ISF/CR, а полноценный аналитический разрез по времени и типу дня.
+- Приоритет текущего этапа — качество расчёта ISF/CR; Health Connect не должен мешать и показывать лишние permission-потоки.
+
+## Риски / ограничения
+- Почасовые оценки чувствительны к плотности событий; confidence и sample-count выводятся рядом.
+- Deep-analysis считается в UI при обновлении состояния; это дороже по CPU, чем чтение готовых агрегатов из отдельной таблицы.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+3. На телефоне открыть `Safety Center`:
+   - блок `Yesterday real ISF/CR`,
+   - блок `Full ISF/CR analysis`.
+4. Убедиться, что при старте приложения не появляется запрос Health Connect permissions (HC отложен).

@@ -183,6 +183,47 @@ class PatternAndProfileTest {
     }
 
     @Test
+    fun profileEstimator_buildsHourlyByDayType() {
+        val zone = ZoneId.systemDefault()
+        val weekday = LocalDateTime.of(2026, 2, 24, 9, 0).atZone(zone).toInstant().toEpochMilli() // Tuesday
+        val weekend = LocalDateTime.of(2026, 2, 28, 9, 0).atZone(zone).toInstant().toEpochMilli() // Saturday
+        val weekdayMeal = LocalDateTime.of(2026, 2, 24, 12, 0).atZone(zone).toInstant().toEpochMilli()
+        val weekendMeal = LocalDateTime.of(2026, 2, 28, 12, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val glucose = listOf(
+            GlucosePoint(weekday - 10 * 60_000, 9.5, "test", DataQuality.OK),
+            GlucosePoint(weekday + 90 * 60_000, 7.5, "test", DataQuality.OK),
+            GlucosePoint(weekend - 10 * 60_000, 10.0, "test", DataQuality.OK),
+            GlucosePoint(weekend + 90 * 60_000, 8.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(weekday, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(weekend, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(weekdayMeal, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3")),
+            TherapyEvent(weekendMeal, "meal_bolus", mapOf("grams" to "24", "bolusUnits" to "2"))
+        )
+
+        val rows = ProfileEstimator(
+            ProfileEstimatorConfig(minSegmentSamples = 1, trimFraction = 0.0)
+        ).estimateHourlyByDayType(glucose, therapy)
+
+        val weekdayIsfRow = rows.firstOrNull { it.dayType == DayType.WEEKDAY && it.hour == 9 }
+        val weekendIsfRow = rows.firstOrNull { it.dayType == DayType.WEEKEND && it.hour == 9 }
+        val weekdayCrRow = rows.firstOrNull { it.dayType == DayType.WEEKDAY && it.hour == 12 }
+        val weekendCrRow = rows.firstOrNull { it.dayType == DayType.WEEKEND && it.hour == 12 }
+
+        assertThat(weekdayIsfRow).isNotNull()
+        assertThat(weekendIsfRow).isNotNull()
+        assertThat(weekdayCrRow).isNotNull()
+        assertThat(weekendCrRow).isNotNull()
+
+        assertThat(weekdayIsfRow!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+        assertThat(weekendIsfRow!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+        assertThat(weekdayCrRow!!.crGramPerUnit).isWithin(0.01).of(10.0)
+        assertThat(weekendCrRow!!.crGramPerUnit).isWithin(0.01).of(12.0)
+    }
+
+    @Test
     fun profileEstimator_usesTelemetryForIsfAndCr_whenTherapySparse() {
         val now = System.currentTimeMillis()
         val glucose = listOf(

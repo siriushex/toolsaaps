@@ -164,6 +164,16 @@ class ProfileEstimator(
         val crSampleCount: Int
     )
 
+    data class HourlyDayTypeProfileEstimate(
+        val dayType: DayType,
+        val hour: Int,
+        val isfMmolPerUnit: Double?,
+        val crGramPerUnit: Double?,
+        val confidence: Double,
+        val isfSampleCount: Int,
+        val crSampleCount: Int
+    )
+
     fun estimateHourly(
         glucoseHistory: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,
@@ -202,6 +212,51 @@ class ProfileEstimator(
                 isfSampleCount = isfCount,
                 crSampleCount = crCount
             )
+        }
+    }
+
+    fun estimateHourlyByDayType(
+        glucoseHistory: List<GlucosePoint>,
+        therapyEvents: List<TherapyEvent>,
+        telemetrySignals: List<TelemetrySignal> = emptyList()
+    ): List<HourlyDayTypeProfileEstimate> {
+        if (glucoseHistory.isEmpty()) return emptyList()
+        val sortedGlucose = glucoseHistory.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.sortedBy { it.ts }
+        val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
+
+        val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
+        val isfSamples = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples + buildTelemetryIsfSamples(sortedTelemetry)
+        val crSamples = buildCrSamples(sortedEvents) + buildTelemetryCrSamples(sortedTelemetry)
+        if (isfSamples.isEmpty() && crSamples.isEmpty()) return emptyList()
+
+        val isfByHourDay = isfSamples.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+        val crByHourDay = crSamples.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+
+        return DayType.entries.flatMap { dayType ->
+            (0..23).mapNotNull { hour ->
+                val key = dayType to hour
+                val isfValues = trimOutliers(isfByHourDay[key].orEmpty().map { it.value })
+                val crValues = trimOutliers(crByHourDay[key].orEmpty().map { it.value })
+                val isfCount = isfValues.size
+                val crCount = crValues.size
+                if (isfCount == 0 && crCount == 0) return@mapNotNull null
+
+                val confidence = (
+                    (isfCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5 +
+                        (crCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5
+                    ).coerceIn(0.10, 0.99)
+
+                HourlyDayTypeProfileEstimate(
+                    dayType = dayType,
+                    hour = hour,
+                    isfMmolPerUnit = isfValues.takeIf { it.isNotEmpty() }?.let(::median),
+                    crGramPerUnit = crValues.takeIf { it.isNotEmpty() }?.let(::median),
+                    confidence = confidence,
+                    isfSampleCount = isfCount,
+                    crSampleCount = crCount
+                )
+            }
         }
     }
 
@@ -483,6 +538,13 @@ class ProfileEstimator(
     }
 
     private fun hourOf(ts: Long): Int = Instant.ofEpochMilli(ts).atZone(zoneId).hour
+
+    private fun dayTypeOf(ts: Long): DayType {
+        return when (Instant.ofEpochMilli(ts).atZone(zoneId).dayOfWeek.value) {
+            6, 7 -> DayType.WEEKEND
+            else -> DayType.WEEKDAY
+        }
+    }
 
     private fun median(values: List<Double>): Double {
         if (values.isEmpty()) return 0.0

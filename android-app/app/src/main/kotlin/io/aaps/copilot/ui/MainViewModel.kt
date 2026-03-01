@@ -305,6 +305,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             telemetry = telemetry,
             nowTs = now
         )
+        val isfCrDeepLines = buildIsfCrDeepLines(
+            glucose = sortedGlucose,
+            therapy = therapy,
+            telemetry = telemetry,
+            nowTs = now
+        )
         val activityLines = buildActivitySummaryLines(
             telemetry = telemetry,
             nowTs = now,
@@ -419,6 +425,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileLookbackDays = profile?.lookbackDays,
             profileSegmentLines = profileSegmentLines,
             yesterdayProfileLines = yesterdayProfileLines,
+            isfCrDeepLines = isfCrDeepLines,
             activityLines = activityLines,
             rulePostHypoEnabled = settings.rulePostHypoEnabled,
             rulePatternEnabled = settings.rulePatternEnabled,
@@ -2053,6 +2060,146 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun buildIsfCrDeepLines(
+        glucose: List<GlucoseSampleEntity>,
+        therapy: List<TherapyEventEntity>,
+        telemetry: List<TelemetrySampleEntity>,
+        nowTs: Long
+    ): List<String> {
+        if (glucose.isEmpty()) return listOf("ISF/CR deep analysis: no glucose data")
+
+        val windowsDays = listOf(1, 3, 7, 14, 30)
+        val historyWindowMs = 24L * 60L * 60L * 1000L
+
+        return buildList {
+            add("ISF/CR deep analysis (real + merged)")
+            windowsDays.forEach { days ->
+                val startTs = nowTs - days * historyWindowMs
+                val glucoseWindow = glucose.filter { it.timestamp in startTs..nowTs }
+                val therapyWindow = therapy.filter { it.timestamp in startTs..nowTs }
+                val telemetryWindow = telemetry.filter { it.timestamp in startTs..nowTs }
+
+                if (glucoseWindow.size < 18) {
+                    add("Last ${days}d: insufficient glucose points (${glucoseWindow.size})")
+                    return@forEach
+                }
+
+                val estimator = ProfileEstimator(ProfileEstimatorConfig(lookbackDays = days))
+                val glucoseDomain = glucoseWindow.map { it.toDomain() }
+                val therapyDomain = therapyWindow.mapNotNull { event ->
+                    runCatching { event.toDomain(container.gson) }.getOrNull()
+                }
+                val telemetrySignals = telemetryWindow.map { sample ->
+                    TelemetrySignal(
+                        ts = sample.timestamp,
+                        key = sample.key,
+                        valueDouble = sample.valueDouble,
+                        valueText = sample.valueText
+                    )
+                }
+
+                val historyOnly = estimator.estimate(
+                    glucoseHistory = glucoseDomain,
+                    therapyEvents = therapyDomain,
+                    telemetrySignals = emptyList()
+                )
+                val merged = estimator.estimate(
+                    glucoseHistory = glucoseDomain,
+                    therapyEvents = therapyDomain,
+                    telemetrySignals = telemetrySignals
+                )
+
+                add(
+                    "Last ${days}d history-only: " + if (historyOnly == null) {
+                        "insufficient correction/meal samples"
+                    } else {
+                        "ISF=${String.format(Locale.US, "%.2f", historyOnly.isfMmolPerUnit)} mmol/L/U, " +
+                            "CR=${String.format(Locale.US, "%.2f", historyOnly.crGramPerUnit)} g/U, " +
+                            "conf=${String.format(Locale.US, "%.0f%%", historyOnly.confidence * 100)}, " +
+                            "n=${historyOnly.sampleCount}"
+                    }
+                )
+                add(
+                    "Last ${days}d merged: " + if (merged == null) {
+                        "insufficient samples"
+                    } else {
+                        "ISF=${String.format(Locale.US, "%.2f", merged.isfMmolPerUnit)} mmol/L/U, " +
+                            "CR=${String.format(Locale.US, "%.2f", merged.crGramPerUnit)} g/U, " +
+                            "conf=${String.format(Locale.US, "%.0f%%", merged.confidence * 100)}, " +
+                            "n=${merged.sampleCount}"
+                    }
+                )
+
+                if (days != 7) return@forEach
+
+                val hourlyHistory = estimator.estimateHourly(
+                    glucoseHistory = glucoseDomain,
+                    therapyEvents = therapyDomain,
+                    telemetrySignals = emptyList()
+                )
+                val hourlyMerged = estimator.estimateHourly(
+                    glucoseHistory = glucoseDomain,
+                    therapyEvents = therapyDomain,
+                    telemetrySignals = telemetrySignals
+                )
+                val hourlyByDayTypeHistory = estimator.estimateHourlyByDayType(
+                    glucoseHistory = glucoseDomain,
+                    therapyEvents = therapyDomain,
+                    telemetrySignals = emptyList()
+                )
+
+                add("Last 7d hourly history-only (${hourlyHistory.size}/24 hours):")
+                if (hourlyHistory.isEmpty()) {
+                    add("hourly history-only: insufficient hourly samples")
+                } else {
+                    hourlyHistory.forEach { hour ->
+                        val isfText = hour.isfMmolPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                        val crText = hour.crGramPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                        add(
+                            "${String.format(Locale.US, "%02d:00", hour.hour)} ISF=$isfText, CR=$crText, " +
+                                "conf=${String.format(Locale.US, "%.0f%%", hour.confidence * 100)}, " +
+                                "n(ISF/CR)=${hour.isfSampleCount}/${hour.crSampleCount}"
+                        )
+                    }
+                }
+
+                add("Last 7d hourly merged (${hourlyMerged.size}/24 hours):")
+                if (hourlyMerged.isEmpty()) {
+                    add("hourly merged: insufficient hourly samples")
+                } else {
+                    hourlyMerged.forEach { hour ->
+                        val isfText = hour.isfMmolPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                        val crText = hour.crGramPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                        add(
+                            "${String.format(Locale.US, "%02d:00", hour.hour)} ISF=$isfText, CR=$crText, " +
+                                "conf=${String.format(Locale.US, "%.0f%%", hour.confidence * 100)}, " +
+                                "n(ISF/CR)=${hour.isfSampleCount}/${hour.crSampleCount}"
+                        )
+                    }
+                }
+
+                add("Last 7d hourly history-only by day type:")
+                DayType.entries.forEach { dayType ->
+                    val dayRows = hourlyByDayTypeHistory.filter { it.dayType == dayType }
+                    if (dayRows.isEmpty()) {
+                        add("${dayType.name}: no samples")
+                    } else {
+                        add("${dayType.name}:")
+                        dayRows.forEach { row ->
+                            val isfText = row.isfMmolPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                            val crText = row.crGramPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
+                            add(
+                                "  ${String.format(Locale.US, "%02d:00", row.hour)} " +
+                                    "ISF=$isfText, CR=$crText, conf=${String.format(Locale.US, "%.0f%%", row.confidence * 100)}, " +
+                                    "n(ISF/CR)=${row.isfSampleCount}/${row.crSampleCount}"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun buildActivitySummaryLines(
         telemetry: List<TelemetrySampleEntity>,
         nowTs: Long,
@@ -2324,6 +2471,7 @@ data class MainUiState(
     val profileLookbackDays: Int? = null,
     val profileSegmentLines: List<String> = emptyList(),
     val yesterdayProfileLines: List<String> = emptyList(),
+    val isfCrDeepLines: List<String> = emptyList(),
     val activityLines: List<String> = emptyList(),
     val rulePostHypoEnabled: Boolean = true,
     val rulePatternEnabled: Boolean = true,

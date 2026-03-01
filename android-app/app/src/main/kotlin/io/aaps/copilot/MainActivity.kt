@@ -21,6 +21,7 @@ import io.aaps.copilot.ui.CopilotRoot
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val healthConnectEnabled = false
 
     private val healthConnectPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -53,9 +54,11 @@ class MainActivity : ComponentActivity() {
         AppVisibilityTracker.markForeground(true)
         LocalNightscoutServiceController.start(this)
         ensureActivityRecognitionPermission()
-        ensureHealthConnectPermissions()
         (application as? CopilotApp)?.container?.startLocalActivitySensors()
-        (application as? CopilotApp)?.container?.startHealthConnectCollection()
+        if (healthConnectEnabled) {
+            ensureHealthConnectPermissions()
+            (application as? CopilotApp)?.container?.startHealthConnectCollection()
+        }
     }
 
     override fun onStop() {
