@@ -61,6 +61,26 @@ class AutomationRepositoryForecastBiasTest {
         assertThat(adjusted.single().ciHigh).isAtLeast(adjusted.single().valueMmol)
     }
 
+    @Test
+    fun baseAlignment_isSkippedForAdaptiveRule() {
+        val skipped = AutomationRepository.shouldSkipBaseAlignmentStatic(
+            sourceRuleId = "AdaptiveTargetController.v1",
+            actionReason = "adaptive_pi_ci_v2|mode=control_pi"
+        )
+
+        assertThat(skipped).isTrue()
+    }
+
+    @Test
+    fun baseAlignment_isAllowedForNonAdaptiveRules() {
+        val skipped = AutomationRepository.shouldSkipBaseAlignmentStatic(
+            sourceRuleId = "PatternAdaptiveTargetRule.v1",
+            actionReason = "pattern_weekday_high"
+        )
+
+        assertThat(skipped).isFalse()
+    }
+
     private fun sampleForecasts(): List<Forecast> {
         val now = System.currentTimeMillis()
         return listOf(

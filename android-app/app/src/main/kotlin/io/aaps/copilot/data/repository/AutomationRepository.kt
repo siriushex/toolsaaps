@@ -255,7 +255,8 @@ class AutomationRepository(
                 val normalizedAction = alignTempTargetToBaseTarget(
                     action = effectiveDecision.actionProposal,
                     forecasts = mergedForecasts,
-                    baseTargetMmol = effectiveBaseTarget
+                    baseTargetMmol = effectiveBaseTarget,
+                    sourceRuleId = effectiveDecision.ruleId
                 )
                 val command = ActionCommand(
                     id = UUID.randomUUID().toString(),
@@ -316,11 +317,15 @@ class AutomationRepository(
     private fun alignTempTargetToBaseTarget(
         action: ActionProposal,
         forecasts: List<Forecast>,
-        baseTargetMmol: Double
+        baseTargetMmol: Double,
+        sourceRuleId: String? = null
     ): ActionProposal {
         if (!action.type.equals("temp_target", ignoreCase = true)) return action
         val boundedBase = baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
         val boundedProposed = action.targetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+        if (shouldSkipBaseAlignmentStatic(sourceRuleId = sourceRuleId, actionReason = action.reason)) {
+            return action.copy(targetMmol = boundedProposed)
+        }
         val forecast60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
             ?: return action.copy(targetMmol = boundedProposed)
 
@@ -842,7 +847,8 @@ class AutomationRepository(
                 reason = "adaptive_keepalive_30m"
             ),
             forecasts = forecasts,
-            baseTargetMmol = baseTarget
+            baseTargetMmol = baseTarget,
+            sourceRuleId = AdaptiveTargetControllerRule.RULE_ID
         )
         if (activeTempTarget != null && abs(activeTempTarget - proposal.targetMmol) < 0.05) {
             auditLogger.info(
@@ -1009,6 +1015,15 @@ class AutomationRepository(
                     modelVersion = version
                 )
             }
+        }
+
+        internal fun shouldSkipBaseAlignmentStatic(
+            sourceRuleId: String?,
+            actionReason: String
+        ): Boolean {
+            return sourceRuleId == AdaptiveTargetControllerRule.RULE_ID ||
+                actionReason.contains("adaptive_pi_ci", ignoreCase = true) ||
+                actionReason.contains("adaptive_keepalive", ignoreCase = true)
         }
     }
 

@@ -580,3 +580,33 @@
    - `rule_executions` для `AdaptiveTargetController.v1` (reasonsJson, actionJson, cooldown).
    - `telemetry_samples` для `iob_units`, `cob_grams`, `uam_calculated_*` (свежесть и адекватные значения).
    - `forecasts` по origin-cycle: `5/30/60` из одного цикла расчёта.
+
+# Изменения — Этап 18: Remove adaptive post-alignment overshoot
+
+## Что сделано
+- Убрано post-выравнивание `base_align_60m` для adaptive-команд:
+  - в `AutomationRepository.alignTempTargetToBaseTarget(...)` добавлен bypass для:
+    - `sourceRuleId == AdaptiveTargetControllerRule.RULE_ID`,
+    - reason, содержащих `adaptive_pi_ci` или `adaptive_keepalive`.
+- Передача `sourceRuleId` добавлена в вызовы выравнивания для rule-loop и keepalive.
+- Добавлены unit-тесты:
+  - `AutomationRepositoryForecastBiasTest.baseAlignment_isSkippedForAdaptiveRule`
+  - `AutomationRepositoryForecastBiasTest.baseAlignment_isAllowedForNonAdaptiveRules`
+- USB-валидация на устройстве:
+  - до фикса отправлялись цели `9.65/9.85/10.0` с reason `...|base_align_60m`;
+  - после фикса новая отправка: `target=9.0`, reason без `base_align_60m`.
+
+## Почему так
+- Контроллер уже рассчитывает целевую temp target; дополнительное выравнивание поверх него искажало решение и поднимало цель выше расчётной.
+- Это создаёт противоречие в управлении и может выглядеть как «неадекватно высокий temp target».
+
+## Риски / ограничения
+- Для non-adaptive правил `base_align_60m` остаётся активным (осознанно), чтобы сохранить legacy-поведение там, где это нужно.
+- При устойчиво низких прогнозах safety-ветка adaptive контроллера всё равно поднимает target к верхней границе (клиническая защита от гипо).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest" --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+3. На телефоне проверить `action_commands.payloadJson.reason` и `targetMmol`:
+   - adaptive-события должны идти без `|base_align_60m`;
+   - target должен совпадать с выходом контроллера (например, `9.0`, а не `9.65+`).
