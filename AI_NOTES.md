@@ -777,3 +777,38 @@
 1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest.profileEstimator_treatsPlainBolusWithoutCarbs_asCorrectionForRealIsf"`
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
 3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest`
+
+# Изменения — Этап 24: Telemetry как fallback для real ISF/CR (без подмешивания при достаточной истории)
+
+## Что сделано
+- Расширен `ProfileEstimatorConfig`:
+  - добавлен `telemetryMergeMode` (`COMBINE`, `FALLBACK_IF_NEEDED`, `HISTORY_ONLY`);
+  - default выставлен в `FALLBACK_IF_NEEDED`.
+- В `ProfileEstimator` реализован селектор sample-ов:
+  - если history sample-ов достаточно — используются только history sample-ы;
+  - если history недостаточно — подключаются telemetry sample-ы как fallback.
+- Логика fallback применена не только к общему профилю (`estimate`), но и к:
+  - `estimateSegments`,
+  - `estimateHourly`,
+  - `estimateHourlyByDayType`.
+- Уточнен учет telemetry sample count:
+  - `telemetryIsfSampleCount` / `telemetryCrSampleCount` теперь показывают реально использованные telemetry sample-ы в финальном расчете, а не просто количество входных telemetry-сигналов.
+- Добавлен unit-тест:
+  - `profileEstimator_prefersHistorySamples_overTelemetry_whenHistorySufficient`
+  - подтверждает, что при достаточной истории outlier telemetry не влияет на real ISF/CR.
+- Обновлены подписи в `MainViewModel` диагностических строк:
+  - вместо “merged” теперь “telemetry fallback”, чтобы UI/логика соответствовали реальному режиму.
+
+## Почему так
+- Пользовательский приоритет — рассчитывать реальный ISF/CR из истории, а не из OpenAPS telemetry.
+- Полное отключение telemetry нежелательно: при разреженной истории нужен безопасный fallback.
+- Режим fallback решает обе задачи: real-first при нормальных данных и устойчивость при sparse-истории.
+
+## Риски / ограничения
+- При очень маленьком количестве history sample-ов fallback может включаться чаще, чем хотелось бы (это ожидаемое поведение для устойчивости).
+- В режиме default (`FALLBACK_IF_NEEDED`) “merged” и “real” часто совпадают; это теперь корректно и ожидаемо.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:assembleDebug`

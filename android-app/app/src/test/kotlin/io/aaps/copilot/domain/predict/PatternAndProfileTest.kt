@@ -469,4 +469,44 @@ class PatternAndProfileTest {
         assertThat(estimate.uamEpisodeCount).isEqualTo(0)
         assertThat(estimate.uamEstimatedCarbsGrams).isWithin(0.001).of(0.0)
     }
+
+    @Test
+    fun profileEstimator_prefersHistorySamples_overTelemetry_whenHistorySufficient() {
+        val now = System.currentTimeMillis()
+        val correctionTs1 = now - 10 * 60 * 60_000L
+        val correctionTs2 = now - 6 * 60 * 60_000L
+        val mealTs1 = now - 12 * 60 * 60_000L
+        val mealTs2 = now - 8 * 60 * 60_000L
+
+        val glucose = listOf(
+            GlucosePoint(correctionTs1, 9.0, "test", DataQuality.OK),
+            GlucosePoint(correctionTs1 + 90 * 60_000L, 7.0, "test", DataQuality.OK),
+            GlucosePoint(correctionTs2, 10.0, "test", DataQuality.OK),
+            GlucosePoint(correctionTs2 + 90 * 60_000L, 8.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(correctionTs1, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(correctionTs2, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(mealTs1, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3.0")),
+            TherapyEvent(mealTs2, "meal_bolus", mapOf("grams" to "24", "bolusUnits" to "2.4"))
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now - 120_000, key = "isf_value", valueDouble = 90.0),
+            TelemetrySignal(ts = now - 120_000, key = "cr_value", valueDouble = 28.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 2,
+                minCrSamples = 2,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy, telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+        assertThat(estimate.crGramPerUnit).isWithin(0.01).of(10.0)
+        assertThat(estimate.telemetryIsfSampleCount).isEqualTo(0)
+        assertThat(estimate.telemetryCrSampleCount).isEqualTo(0)
+    }
 }

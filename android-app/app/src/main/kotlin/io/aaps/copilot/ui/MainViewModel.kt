@@ -2042,7 +2042,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (merged != null) {
                 add(
-                    "Merged with telemetry: ISF=${String.format(Locale.US, "%.2f", merged.isfMmolPerUnit)} mmol/L/U, " +
+                    "History + telemetry fallback: ISF=${String.format(Locale.US, "%.2f", merged.isfMmolPerUnit)} mmol/L/U, " +
                     "CR=${String.format(Locale.US, "%.2f", merged.crGramPerUnit)} g/U, " +
                     "conf=${String.format(Locale.US, "%.0f%%", merged.confidence * 100)}"
                 )
@@ -2063,7 +2063,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (hourlyMerged.isNotEmpty()) {
-                add("Hourly merged (OpenAPS+history): ${hourlyMerged.size}/24 hours")
+                add("Hourly history + telemetry fallback: ${hourlyMerged.size}/24 hours")
                 hourlyMerged.forEach { hour ->
                     val isfText = hour.isfMmolPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
                     val crText = hour.crGramPerUnit?.let { String.format(Locale.US, "%.2f", it) } ?: "-"
@@ -2090,7 +2090,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val historyWindowMs = 24L * 60L * 60L * 1000L
 
         return buildList {
-            add("ISF/CR deep analysis (real + merged)")
+            add("ISF/CR deep analysis (real + telemetry fallback)")
             windowsDays.forEach { days ->
                 val startTs = nowTs - days * historyWindowMs
                 val glucoseWindow = glucose.filter { it.timestamp in startTs..nowTs }
@@ -2138,7 +2138,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 )
                 add(
-                    "Last ${days}d merged: " + if (merged == null) {
+                    "Last ${days}d telemetry fallback: " + if (merged == null) {
                         "insufficient samples"
                     } else {
                         "ISF=${String.format(Locale.US, "%.2f", merged.isfMmolPerUnit)} mmol/L/U, " +
@@ -2181,7 +2181,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                add("Last 7d hourly merged (${hourlyMerged.size}/24 hours):")
+                add("Last 7d hourly telemetry fallback (${hourlyMerged.size}/24 hours):")
                 if (hourlyMerged.isEmpty()) {
                     add("hourly merged: insufficient hourly samples")
                 } else {

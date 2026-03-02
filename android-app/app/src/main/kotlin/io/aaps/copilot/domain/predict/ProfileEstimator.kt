@@ -39,8 +39,15 @@ data class ProfileEstimatorConfig(
     val uamMinRiseMmol: Double = 0.35,
     val uamEpisodeMaxGrams: Double = 90.0,
     val uamTotalMaxGrams: Double = 240.0,
-    val uamRecentMaxGrams: Double = 120.0
+    val uamRecentMaxGrams: Double = 120.0,
+    val telemetryMergeMode: TelemetryMergeMode = TelemetryMergeMode.FALLBACK_IF_NEEDED
 )
+
+enum class TelemetryMergeMode {
+    COMBINE,
+    FALLBACK_IF_NEEDED,
+    HISTORY_ONLY
+}
 
 data class TelemetrySignal(
     val ts: Long,
@@ -75,8 +82,18 @@ class ProfileEstimator(
         val telemetryIsfSamples = buildTelemetryIsfSamples(sortedTelemetry)
         val telemetryCrSamples = buildTelemetryCrSamples(sortedTelemetry)
 
-        val isfSamples = trimOutliers((isfBuild.samples + telemetryIsfSamples).map { it.value })
-        val crSamples = trimOutliers((crTherapySamples + telemetryCrSamples).map { it.value })
+        val selectedIsfSamples = selectSamples(
+            history = isfBuild.samples,
+            telemetry = telemetryIsfSamples,
+            minSamples = config.minIsfSamples
+        )
+        val selectedCrSamples = selectSamples(
+            history = crTherapySamples,
+            telemetry = telemetryCrSamples,
+            minSamples = config.minCrSamples
+        )
+        val isfSamples = selectedIsfSamples.map { it.value }
+        val crSamples = selectedCrSamples.map { it.value }
 
         if (isfSamples.size < config.minIsfSamples || crSamples.size < config.minCrSamples) return null
 
@@ -105,8 +122,8 @@ class ProfileEstimator(
             isfSampleCount = isfSamples.size,
             crSampleCount = crSamples.size,
             lookbackDays = config.lookbackDays,
-            telemetryIsfSampleCount = telemetryIsfSamples.size,
-            telemetryCrSampleCount = telemetryCrSamples.size,
+            telemetryIsfSampleCount = selectedIsfSamples.count { it.source == SampleSource.TELEMETRY },
+            telemetryCrSampleCount = selectedCrSamples.count { it.source == SampleSource.TELEMETRY },
             uamObservedCount = uamPoints.size,
             uamFilteredIsfSamples = isfBuild.filteredByUam,
             uamEpisodeCount = uamCarbEstimate.episodeCount,
@@ -126,17 +143,34 @@ class ProfileEstimator(
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfSamples = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples + buildTelemetryIsfSamples(sortedTelemetry)
-        val crSamples = buildCrSamples(sortedEvents) + buildTelemetryCrSamples(sortedTelemetry)
-        if (isfSamples.isEmpty() && crSamples.isEmpty()) return emptyList()
+        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples
+        val crHistory = buildCrSamples(sortedEvents)
+        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry)
+        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry)
+        if (isfHistory.isEmpty() && crHistory.isEmpty() && isfTelemetry.isEmpty() && crTelemetry.isEmpty()) return emptyList()
 
-        val isfBySegment = isfSamples.groupBy { segmentKey(it.ts) }
-        val crBySegment = crSamples.groupBy { segmentKey(it.ts) }
-        val keys = (isfBySegment.keys + crBySegment.keys).distinct()
+        val isfHistoryBySegment = isfHistory.groupBy { segmentKey(it.ts) }
+        val crHistoryBySegment = crHistory.groupBy { segmentKey(it.ts) }
+        val isfTelemetryBySegment = isfTelemetry.groupBy { segmentKey(it.ts) }
+        val crTelemetryBySegment = crTelemetry.groupBy { segmentKey(it.ts) }
+        val keys = (
+            isfHistoryBySegment.keys +
+                crHistoryBySegment.keys +
+                isfTelemetryBySegment.keys +
+                crTelemetryBySegment.keys
+            ).distinct()
 
         return keys.mapNotNull { key ->
-            val isfValues = trimOutliers(isfBySegment[key].orEmpty().map { it.value })
-            val crValues = trimOutliers(crBySegment[key].orEmpty().map { it.value })
+            val isfValues = selectSamples(
+                history = isfHistoryBySegment[key].orEmpty(),
+                telemetry = isfTelemetryBySegment[key].orEmpty(),
+                minSamples = 1
+            ).map { it.value }
+            val crValues = selectSamples(
+                history = crHistoryBySegment[key].orEmpty(),
+                telemetry = crTelemetryBySegment[key].orEmpty(),
+                minSamples = 1
+            ).map { it.value }
             val isfCount = isfValues.size
             val crCount = crValues.size
             if (isfCount < config.minSegmentSamples && crCount < config.minSegmentSamples) {
@@ -194,16 +228,28 @@ class ProfileEstimator(
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfSamples = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples + buildTelemetryIsfSamples(sortedTelemetry)
-        val crSamples = buildCrSamples(sortedEvents) + buildTelemetryCrSamples(sortedTelemetry)
-        if (isfSamples.isEmpty() && crSamples.isEmpty()) return emptyList()
+        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples
+        val crHistory = buildCrSamples(sortedEvents)
+        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry)
+        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry)
+        if (isfHistory.isEmpty() && crHistory.isEmpty() && isfTelemetry.isEmpty() && crTelemetry.isEmpty()) return emptyList()
 
-        val isfByHour = isfSamples.groupBy { hourOf(it.ts) }
-        val crByHour = crSamples.groupBy { hourOf(it.ts) }
+        val isfHistoryByHour = isfHistory.groupBy { hourOf(it.ts) }
+        val crHistoryByHour = crHistory.groupBy { hourOf(it.ts) }
+        val isfTelemetryByHour = isfTelemetry.groupBy { hourOf(it.ts) }
+        val crTelemetryByHour = crTelemetry.groupBy { hourOf(it.ts) }
 
         return (0..23).mapNotNull { hour ->
-            val isfValues = trimOutliers(isfByHour[hour].orEmpty().map { it.value })
-            val crValues = trimOutliers(crByHour[hour].orEmpty().map { it.value })
+            val isfValues = selectSamples(
+                history = isfHistoryByHour[hour].orEmpty(),
+                telemetry = isfTelemetryByHour[hour].orEmpty(),
+                minSamples = 1
+            ).map { it.value }
+            val crValues = selectSamples(
+                history = crHistoryByHour[hour].orEmpty(),
+                telemetry = crTelemetryByHour[hour].orEmpty(),
+                minSamples = 1
+            ).map { it.value }
             val isfCount = isfValues.size
             val crCount = crValues.size
             if (isfCount == 0 && crCount == 0) return@mapNotNull null
@@ -235,18 +281,30 @@ class ProfileEstimator(
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfSamples = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples + buildTelemetryIsfSamples(sortedTelemetry)
-        val crSamples = buildCrSamples(sortedEvents) + buildTelemetryCrSamples(sortedTelemetry)
-        if (isfSamples.isEmpty() && crSamples.isEmpty()) return emptyList()
+        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples
+        val crHistory = buildCrSamples(sortedEvents)
+        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry)
+        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry)
+        if (isfHistory.isEmpty() && crHistory.isEmpty() && isfTelemetry.isEmpty() && crTelemetry.isEmpty()) return emptyList()
 
-        val isfByHourDay = isfSamples.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
-        val crByHourDay = crSamples.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+        val isfHistoryByHourDay = isfHistory.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+        val crHistoryByHourDay = crHistory.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+        val isfTelemetryByHourDay = isfTelemetry.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+        val crTelemetryByHourDay = crTelemetry.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
 
         return DayType.entries.flatMap { dayType ->
             (0..23).mapNotNull { hour ->
                 val key = dayType to hour
-                val isfValues = trimOutliers(isfByHourDay[key].orEmpty().map { it.value })
-                val crValues = trimOutliers(crByHourDay[key].orEmpty().map { it.value })
+                val isfValues = selectSamples(
+                    history = isfHistoryByHourDay[key].orEmpty(),
+                    telemetry = isfTelemetryByHourDay[key].orEmpty(),
+                    minSamples = 1
+                ).map { it.value }
+                val crValues = selectSamples(
+                    history = crHistoryByHourDay[key].orEmpty(),
+                    telemetry = crTelemetryByHourDay[key].orEmpty(),
+                    minSamples = 1
+                ).map { it.value }
                 val isfCount = isfValues.size
                 val crCount = crValues.size
                 if (isfCount == 0 && crCount == 0) return@mapNotNull null
@@ -366,7 +424,9 @@ class ProfileEstimator(
             if (!isTelemetryIsfKey(signal.key)) return@mapNotNull null
             val raw = signal.numericValue() ?: return@mapNotNull null
             val mmolPerUnit = if (raw > 12.0) UnitConverter.mgdlToMmol(raw) else raw
-            mmolPerUnit.takeIf { it in 0.2..18.0 }?.let { TimedSample(signal.ts, it) }
+            mmolPerUnit.takeIf { it in 0.2..18.0 }?.let {
+                TimedSample(signal.ts, it, SampleSource.TELEMETRY)
+            }
         }
     }
 
@@ -374,7 +434,9 @@ class ProfileEstimator(
         return signals.mapNotNull { signal ->
             if (!isTelemetryCrKey(signal.key)) return@mapNotNull null
             val gramsPerUnit = signal.numericValue() ?: return@mapNotNull null
-            gramsPerUnit.takeIf { it in 2.0..60.0 }?.let { TimedSample(signal.ts, it) }
+            gramsPerUnit.takeIf { it in 2.0..60.0 }?.let {
+                TimedSample(signal.ts, it, SampleSource.TELEMETRY)
+            }
         }
     }
 
@@ -555,9 +617,24 @@ class ProfileEstimator(
         return episodes
     }
 
-    private fun trimOutliers(values: List<Double>): List<Double> {
-        if (values.size < 5) return values.sorted()
-        val sorted = values.sorted()
+    private fun selectSamples(
+        history: List<TimedSample>,
+        telemetry: List<TimedSample>,
+        minSamples: Int
+    ): List<TimedSample> {
+        val historyTrimmed = trimOutliers(history)
+        return when (config.telemetryMergeMode) {
+            TelemetryMergeMode.COMBINE -> trimOutliers(history + telemetry)
+            TelemetryMergeMode.FALLBACK_IF_NEEDED -> {
+                if (historyTrimmed.size >= minSamples) historyTrimmed else trimOutliers(history + telemetry)
+            }
+            TelemetryMergeMode.HISTORY_ONLY -> historyTrimmed
+        }
+    }
+
+    private fun trimOutliers(samples: List<TimedSample>): List<TimedSample> {
+        if (samples.size < 5) return samples.sortedBy { it.value }
+        val sorted = samples.sortedBy { it.value }
         val trim = floor(sorted.size * config.trimFraction).toInt().coerceAtMost(sorted.size / 4)
         if (trim == 0 || trim * 2 >= sorted.size) return sorted
         return sorted.subList(trim, sorted.size - trim)
@@ -636,8 +713,14 @@ class ProfileEstimator(
 
     private data class TimedSample(
         val ts: Long,
-        val value: Double
+        val value: Double,
+        val source: SampleSource = SampleSource.HISTORY
     )
+
+    private enum class SampleSource {
+        HISTORY,
+        TELEMETRY
+    }
 
     private data class IsfBuildResult(
         val samples: List<TimedSample>,
