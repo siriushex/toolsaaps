@@ -177,12 +177,12 @@ class AutomationRepository(
                 )
             )
         }
-        val mergedForecasts = applyCobIobForecastBias(
+        val mergedForecastsBiased = applyCobIobForecastBias(
             forecasts = mergedForecastsCalibrated,
             cobGrams = latestTelemetry["cob_grams"],
             iobUnits = latestTelemetry["iob_units"]
         )
-        if (mergedForecasts != mergedForecastsCalibrated) {
+        if (mergedForecastsBiased != mergedForecastsCalibrated) {
             auditLogger.info(
                 "forecast_bias_applied",
                 mapOf(
@@ -191,8 +191,36 @@ class AutomationRepository(
                 )
             )
         }
+        val mergedForecasts = normalizeForecastSet(mergedForecastsBiased)
+        if (mergedForecasts.size != mergedForecastsBiased.size) {
+            auditLogger.warn(
+                "forecast_duplicate_horizon_deduped",
+                mapOf(
+                    "before" to mergedForecastsBiased.size,
+                    "after" to mergedForecasts.size
+                )
+            )
+        }
 
-        db.forecastDao().insertAll(mergedForecasts.map { it.toForecastEntity() })
+        val forecastEntities = mergedForecasts.map { it.toForecastEntity() }
+        forecastEntities.forEach { row ->
+            db.forecastDao().deleteByTimestampAndHorizon(
+                timestamp = row.timestamp,
+                horizonMinutes = row.horizonMinutes
+            )
+        }
+        db.forecastDao().insertAll(forecastEntities)
+        val removedDuplicates = db.forecastDao().deleteDuplicateByTimestampAndHorizon()
+        auditLogger.info(
+            "forecast_storage_normalized",
+            mapOf(
+                "insertedRows" to forecastEntities.size,
+                "removedDuplicateRows" to removedDuplicates
+            )
+        )
+        if (removedDuplicates > 0) {
+            auditLogger.warn("forecast_storage_duplicates_cleaned", mapOf("removedRows" to removedDuplicates))
+        }
         db.forecastDao().deleteOlderThan(System.currentTimeMillis() - FORECAST_RETENTION_MS)
 
         val latest = glucose.maxBy { it.ts }
@@ -485,7 +513,7 @@ class AutomationRepository(
 
     private fun ensureForecast30(forecasts: List<Forecast>): List<Forecast> {
         val has30 = forecasts.any { it.horizonMinutes == 30 }
-        if (has30) return forecasts.sortedBy { it.horizonMinutes }
+        if (has30) return normalizeForecastSet(forecasts)
 
         val f5 = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol
         val f60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
@@ -498,9 +526,13 @@ class AutomationRepository(
             valueMmol = f30,
             ciLow = (f30 - 0.8).coerceAtLeast(2.2),
             ciHigh = f30 + 0.8,
-            modelVersion = "local-interpolated-30m-v1"
+                modelVersion = "local-interpolated-30m-v1"
         )
-        return (forecasts + synthetic).sortedBy { it.horizonMinutes }
+        return normalizeForecastSet(forecasts + synthetic)
+    }
+
+    private fun normalizeForecastSet(forecasts: List<Forecast>): List<Forecast> {
+        return normalizeForecastSetStatic(forecasts)
     }
 
     private suspend fun collectForecastCalibrationErrors(nowTs: Long): List<ForecastCalibrationPoint> {
@@ -1586,6 +1618,18 @@ class AutomationRepository(
             if (delta < SENSOR_QUALITY_ROLLBACK_MIN_DELTA_MMOL) return false
             if (assessment.suspectFalseLow && active <= base) return false
             return true
+        }
+
+        internal fun normalizeForecastSetStatic(forecasts: List<Forecast>): List<Forecast> {
+            if (forecasts.isEmpty()) return emptyList()
+            val grouped = forecasts.groupBy { it.horizonMinutes }
+            return grouped.mapNotNull { (_, rows) ->
+                rows.sortedWith(
+                    compareByDescending<Forecast> { it.ts }
+                        .thenByDescending { forecast -> forecast.modelVersion.contains("cloud", ignoreCase = true) }
+                        .thenBy { forecast -> abs(forecast.ciHigh - forecast.ciLow) }
+                ).firstOrNull()
+            }.sortedBy { it.horizonMinutes }
         }
 
         private fun calibrationConfig(horizonMinutes: Int): CalibrationConfig? = when (horizonMinutes) {

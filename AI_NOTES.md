@@ -980,3 +980,32 @@
    - Dashboard: строки `Sensor quality` и `SMB context`;
    - Safety Center: те же индикаторы;
    - Telemetry: ключи `sensor_quality_*`.
+
+# Изменения — Этап 10: Forecast storage dedup + stable UI horizons
+
+## Что сделано
+- Устранены дубли прогнозов в БД (`forecasts`) по ключу `(timestamp, horizonMinutes)`:
+  - в `ForecastDao` добавлены методы `deleteByTimestampAndHorizon(...)` и `deleteDuplicateByTimestampAndHorizon()`;
+  - в `AutomationRepository` добавлена нормализация forecast-набора до одного значения на горизонт (`5/30/60`) перед сохранением;
+  - перед `insertAll` выполняется удаление существующих записей для текущих `(ts,horizon)`, затем глобальная очистка исторических дублей.
+- Добавлен аудит хранения прогнозов:
+  - `forecast_storage_normalized` с `insertedRows` и `removedDuplicateRows`;
+  - `forecast_storage_duplicates_cleaned` при фактическом удалении дублей.
+- Добавлен unit-тест `normalizeForecastSet_keepsSingleRowPerHorizon` в `AutomationRepositoryForecastBiasTest`.
+
+## Почему так
+- На устройстве фиксировались множественные записи одного горизонта в рамках одного target timestamp, из-за чего UI мог брать неоднозначные точки и показывать «неверные/скачущие» прогнозы.
+- Нормализация на write-path и очистка исторических дублей убирают этот источник нестабильности.
+
+## Риски / ограничения
+- При нормализации дубликатов для одного горизонта выбирается «лучшая» запись (приоритет newer ts, затем cloud model, затем более узкий CI), остальные удаляются.
+- Если в будущем потребуется хранить параллельные модели на один горизонт, это нужно будет вынести в отдельную таблицу baseline/ensemble, а не в `forecasts`.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest`
+2. По USB (после запуска и одного automation-цикла):
+   - в `audit_logs` есть `forecast_storage_normalized`;
+   - при первом прогоне после фикса есть `forecast_storage_duplicates_cleaned` с числом удалённых строк.
+3. SQL-проверка:
+   - `select count(*) from (select timestamp,horizonMinutes,count(*) c from forecasts group by timestamp,horizonMinutes having c>1);`
+   - ожидается `0`.

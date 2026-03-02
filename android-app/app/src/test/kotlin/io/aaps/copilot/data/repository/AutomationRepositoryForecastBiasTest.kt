@@ -237,6 +237,24 @@ class AutomationRepositoryForecastBiasTest {
         assertThat(shouldRollback).isFalse()
     }
 
+    @Test
+    fun normalizeForecastSet_keepsSingleRowPerHorizon() {
+        val now = System.currentTimeMillis()
+        val source = listOf(
+            Forecast(now + 5 * 60_000L, 5, 6.0, 5.0, 7.0, "local-hybrid-v3"),
+            Forecast(now + 5 * 60_000L, 5, 6.2, 5.6, 6.8, "local-hybrid-v3"),
+            Forecast(now + 30 * 60_000L, 30, 6.6, 5.5, 7.7, "local-hybrid-v3"),
+            Forecast(now + 30 * 60_000L, 30, 6.5, 5.9, 7.1, "cloud-v1"),
+            Forecast(now + 60 * 60_000L, 60, 7.0, 5.8, 8.2, "local-hybrid-v3")
+        )
+
+        val normalized = AutomationRepository.normalizeForecastSetStatic(source)
+
+        assertThat(normalized.map { it.horizonMinutes }).containsExactly(5, 30, 60)
+        assertThat(normalized.first { it.horizonMinutes == 5 }.valueMmol).isEqualTo(6.2)
+        assertThat(normalized.first { it.horizonMinutes == 30 }.modelVersion).contains("cloud")
+    }
+
     private fun sampleForecasts(): List<Forecast> {
         val now = System.currentTimeMillis()
         return listOf(

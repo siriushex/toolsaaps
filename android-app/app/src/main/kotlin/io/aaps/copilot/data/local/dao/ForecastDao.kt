@@ -13,6 +13,16 @@ interface ForecastDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<ForecastEntity>)
 
+    @Query("DELETE FROM forecasts WHERE timestamp = :timestamp AND horizonMinutes = :horizonMinutes")
+    suspend fun deleteByTimestampAndHorizon(timestamp: Long, horizonMinutes: Int): Int
+
+    @Query(
+        "DELETE FROM forecasts WHERE id NOT IN (" +
+            "SELECT MAX(id) FROM forecasts GROUP BY timestamp, horizonMinutes" +
+            ")"
+    )
+    suspend fun deleteDuplicateByTimestampAndHorizon(): Int
+
     @Query("DELETE FROM forecasts WHERE timestamp < :olderThan")
     suspend fun deleteOlderThan(olderThan: Long)
 
