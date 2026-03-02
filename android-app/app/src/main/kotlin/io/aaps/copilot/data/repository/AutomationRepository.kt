@@ -1190,22 +1190,40 @@ class AutomationRepository(
         }
     }
 
-    private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toProfileEstimate(): ProfileEstimate = ProfileEstimate(
-        isfMmolPerUnit = isfMmolPerUnit,
-        crGramPerUnit = crGramPerUnit,
-        confidence = confidence,
-        sampleCount = sampleCount,
-        isfSampleCount = isfSampleCount,
-        crSampleCount = crSampleCount,
-        lookbackDays = lookbackDays,
-        telemetryIsfSampleCount = telemetryIsfSampleCount,
-        telemetryCrSampleCount = telemetryCrSampleCount,
-        uamObservedCount = uamObservedCount,
-        uamFilteredIsfSamples = uamFilteredIsfSamples,
-        uamEpisodeCount = uamEpisodeCount,
-        uamEstimatedCarbsGrams = uamEstimatedCarbsGrams,
-        uamEstimatedRecentCarbsGrams = uamEstimatedRecentCarbsGrams
-    )
+    private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toProfileEstimate(): ProfileEstimate {
+        val useCalculatedIsf = calculatedIsfMmolPerUnit != null && calculatedIsfSampleCount > 0
+        val useCalculatedCr = calculatedCrGramPerUnit != null && calculatedCrSampleCount > 0
+        val realFirstIsf = if (useCalculatedIsf) calculatedIsfMmolPerUnit!! else isfMmolPerUnit
+        val realFirstCr = if (useCalculatedCr) calculatedCrGramPerUnit!! else crGramPerUnit
+        val realFirstIsfSamples = if (useCalculatedIsf) calculatedIsfSampleCount else isfSampleCount
+        val realFirstCrSamples = if (useCalculatedCr) calculatedCrSampleCount else crSampleCount
+        val realFirstSampleCount = if (useCalculatedIsf || useCalculatedCr) {
+            maxOf(1, calculatedSampleCount)
+        } else {
+            sampleCount
+        }
+        val realFirstConfidence = if (useCalculatedIsf || useCalculatedCr) {
+            calculatedConfidence ?: confidence
+        } else {
+            confidence
+        }
+        return ProfileEstimate(
+            isfMmolPerUnit = realFirstIsf,
+            crGramPerUnit = realFirstCr,
+            confidence = realFirstConfidence,
+            sampleCount = realFirstSampleCount,
+            isfSampleCount = realFirstIsfSamples,
+            crSampleCount = realFirstCrSamples,
+            lookbackDays = lookbackDays,
+            telemetryIsfSampleCount = telemetryIsfSampleCount,
+            telemetryCrSampleCount = telemetryCrSampleCount,
+            uamObservedCount = uamObservedCount,
+            uamFilteredIsfSamples = uamFilteredIsfSamples,
+            uamEpisodeCount = uamEpisodeCount,
+            uamEstimatedCarbsGrams = uamEstimatedCarbsGrams,
+            uamEstimatedRecentCarbsGrams = uamEstimatedRecentCarbsGrams
+        )
+    }
 
     private fun io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity.toProfileSegmentEstimate(): ProfileSegmentEstimate =
         ProfileSegmentEstimate(

@@ -417,12 +417,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             controllerForecast30 = forecast30Latest,
             controllerForecast60 = forecast60Latest,
             controllerWeightedError = controllerWeightedError,
-            profileIsf = profile?.isfMmolPerUnit,
-            profileCr = profile?.crGramPerUnit,
-            profileConfidence = profile?.confidence,
-            profileSamples = profile?.sampleCount,
-            profileIsfSamples = profile?.isfSampleCount,
-            profileCrSamples = profile?.crSampleCount,
+            profileIsf = profile?.calculatedIsfMmolPerUnit ?: profile?.isfMmolPerUnit,
+            profileCr = profile?.calculatedCrGramPerUnit ?: profile?.crGramPerUnit,
+            profileConfidence = profile?.calculatedConfidence ?: profile?.confidence,
+            profileSamples = if ((profile?.calculatedSampleCount ?: 0) > 0) profile?.calculatedSampleCount else profile?.sampleCount,
+            profileIsfSamples = if ((profile?.calculatedIsfSampleCount ?: 0) > 0) profile?.calculatedIsfSampleCount else profile?.isfSampleCount,
+            profileCrSamples = if ((profile?.calculatedCrSampleCount ?: 0) > 0) profile?.calculatedCrSampleCount else profile?.crSampleCount,
             profileTelemetryIsfSamples = profile?.telemetryIsfSampleCount,
             profileTelemetryCrSamples = profile?.telemetryCrSampleCount,
             profileUamObservedCount = profile?.uamObservedCount,
@@ -1937,10 +1937,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Insulin: ${String.format(Locale.US, "%.2f", it)} U (therapy fallback, ${formatTs(therapyFallback.insulinTs)}) [$freshness]"
             }
             "isf_value" -> profile?.isfMmolPerUnit?.let {
-                "ISF: ${String.format(Locale.US, "%.2f", it)} mmol/L/U (profile estimate)"
+                val realFirst = profile.calculatedIsfMmolPerUnit ?: it
+                "ISF: ${String.format(Locale.US, "%.2f", realFirst)} mmol/L/U (real profile estimate)"
             }
             "cr_value" -> profile?.crGramPerUnit?.let {
-                "CR: ${String.format(Locale.US, "%.2f", it)} g/U (profile estimate)"
+                val realFirst = profile.calculatedCrGramPerUnit ?: it
+                "CR: ${String.format(Locale.US, "%.2f", realFirst)} g/U (real profile estimate)"
             }
             "uam_value", "uam_calculated_flag" -> profile?.uamObservedCount?.let {
                 val carbs = profile.uamEstimatedRecentCarbsGrams

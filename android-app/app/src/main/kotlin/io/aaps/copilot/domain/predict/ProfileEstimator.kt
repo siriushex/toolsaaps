@@ -18,6 +18,15 @@ data class ProfileEstimatorConfig(
     val minSegmentSamples: Int = 2,
     val trimFraction: Double = 0.10,
     val lookbackDays: Int = 365,
+    val correctionBolusMinUnits: Double = 0.10,
+    val correctionCarbsAroundMinutes: Int = 60,
+    val correctionMaxCarbsAroundGrams: Double = 5.0,
+    val correctionBaselineSearchMinutes: Int = 20,
+    val correctionDropWindowStartMinutes: Int = 60,
+    val correctionDropWindowEndMinutes: Int = 240,
+    val correctionMinFutureSamples: Int = 1,
+    val correctionMaxGapMinutes: Int = 120,
+    val correctionMinDropMmol: Double = 0.20,
     val uamWindowBeforeMinutes: Int = 20,
     val uamWindowAfterMinutes: Int = 110,
     val uamEpisodeGapMinutes: Int = 20,
@@ -279,25 +288,32 @@ class ProfileEstimator(
         var filteredByUam = 0
         val samples = correctionEvents.mapNotNull { bolus ->
             val units = extractBolusUnits(bolus) ?: return@mapNotNull null
-            if (units <= 0.0) return@mapNotNull null
+            if (units < config.correctionBolusMinUnits) return@mapNotNull null
 
-            if (hasMealNearCorrection(events, bolus.ts)) return@mapNotNull null
+            val carbsAround = announcedCarbsAroundCorrection(events, bolus.ts)
+            if (carbsAround > config.correctionMaxCarbsAroundGrams) return@mapNotNull null
             if (hasUamNearCorrection(uamPoints, bolus.ts)) {
                 filteredByUam += 1
                 return@mapNotNull null
             }
 
             val before = glucose.closestTo(
-                targetTs = bolus.ts - 10 * 60 * 1000L,
-                maxDistanceMs = 20 * 60 * 1000L
+                targetTs = bolus.ts,
+                maxDistanceMs = config.correctionBaselineSearchMinutes * 60 * 1000L
             ) ?: return@mapNotNull null
-            val after = glucose.closestTo(
-                targetTs = bolus.ts + 90 * 60 * 1000L,
-                maxDistanceMs = 35 * 60 * 1000L
-            ) ?: return@mapNotNull null
+            val windowStart = bolus.ts + config.correctionDropWindowStartMinutes * 60_000L
+            val windowEnd = bolus.ts + config.correctionDropWindowEndMinutes * 60_000L
+            val futureWindow = glucose
+                .asSequence()
+                .filter { point -> point.ts in windowStart..windowEnd }
+                .sortedBy { it.ts }
+                .toList()
+            if (futureWindow.size < config.correctionMinFutureSamples) return@mapNotNull null
+            if (!isGlucoseWindowDense(futureWindow)) return@mapNotNull null
 
-            val drop = before.valueMmol - after.valueMmol
-            if (drop <= 0.15) return@mapNotNull null
+            val minAfter = futureWindow.minByOrNull { it.valueMmol } ?: return@mapNotNull null
+            val drop = before.valueMmol - minAfter.valueMmol
+            if (drop < config.correctionMinDropMmol) return@mapNotNull null
             (drop / units).takeIf { it in 0.2..18.0 }?.let { TimedSample(bolus.ts, it) }
         }
         return IsfBuildResult(samples = samples, filteredByUam = filteredByUam)
@@ -384,22 +400,43 @@ class ProfileEstimator(
         return keys.firstNotNullOfOrNull { key -> event.payload[key]?.toDoubleOrNull() }
     }
 
-    private fun hasMealNearCorrection(events: List<TherapyEvent>, correctionTs: Long): Boolean {
-        val from = correctionTs - 20 * 60 * 1000L
-        val to = correctionTs + 110 * 60 * 1000L
-        return events.any { event ->
-            event.ts in from..to &&
-                (
-                    event.type.equals("meal_bolus", ignoreCase = true) ||
-                        event.type.equals("carbs", ignoreCase = true)
-                    )
-        }
-    }
-
     private fun hasUamNearCorrection(uamPoints: Set<Long>, correctionTs: Long): Boolean {
         val from = correctionTs - config.uamWindowBeforeMinutes * 60_000L
         val to = correctionTs + config.uamWindowAfterMinutes * 60_000L
         return uamPoints.any { it in from..to }
+    }
+
+    private fun announcedCarbsAroundCorrection(events: List<TherapyEvent>, correctionTs: Long): Double {
+        val windowMs = config.correctionCarbsAroundMinutes * 60_000L
+        val from = correctionTs - windowMs
+        val to = correctionTs + windowMs
+        return events
+            .asSequence()
+            .filter { event ->
+                event.ts in from..to &&
+                    (
+                        event.type.equals("meal_bolus", ignoreCase = true) ||
+                            event.type.equals("carbs", ignoreCase = true)
+                        )
+            }
+            .sumOf { event ->
+                val grams = extractCarbGrams(event)
+                when {
+                    grams != null && grams > 0.0 -> grams
+                    event.type.equals("meal_bolus", ignoreCase = true) -> config.correctionMaxCarbsAroundGrams + 1.0
+                    else -> 0.0
+                }
+            }
+    }
+
+    private fun isGlucoseWindowDense(points: List<GlucosePoint>): Boolean {
+        if (points.size <= 2) return true
+        val maxGapMs = config.correctionMaxGapMinutes * 60_000L
+        val sorted = points.sortedBy { it.ts }
+        for (index in 1 until sorted.size) {
+            if (sorted[index].ts - sorted[index - 1].ts > maxGapMs) return false
+        }
+        return true
     }
 
     private fun estimateUamCarbs(

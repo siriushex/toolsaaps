@@ -713,3 +713,43 @@
    - проверить текущие значения real/merged,
    - переключить периоды (`1h/24h/7d/30d/365d/all`),
    - убедиться, что графики ISF/CR обновляются и масштабируются.
+
+# Изменения — Этап 22: Реальный ISF (HBA1-inspired) вместо AAPS-telemetry как primary
+
+## Что сделано
+- Изучен алгоритм из `HBA1` (`apps/worker/python/circadian_insights_v2.py`, блок `analyze_insulin_action`):
+  - effective ISF = `(BG_start - minBG[60..240m]) / bolusU`,
+  - исключение meal-коррекций по carbs рядом,
+  - фильтрация некачественных окон.
+- В `ProfileEstimator` перенесена и адаптирована логика расчета real ISF по истории:
+  - baseline ищется возле времени коррекции,
+  - drop считается по минимуму глюкозы в окне `60..240` минут,
+  - добавлен фильтр `carbs around correction` (по умолчанию ±60 мин, порог 5g),
+  - добавлены guard-параметры (min bolus, min drop, max gap, min points).
+- Runtime переведен на `real-first` профиль:
+  - в `AutomationRepository.toProfileEstimate()` ISF/CR берутся из `calculated*` полей при наличии (history-only),
+  - fallback на merged значения только если расчетных нет.
+- UI также переведен на real-first отображение:
+  - `MainViewModel` для `profileIsf/profileCr` приоритетно использует `calculated*`,
+  - fallback строки telemetry coverage для ISF/CR показывают `real profile estimate`.
+- Обновлены подписи в `Safety Center`:
+  - `active real-first` вместо `merged/OpenAPS+history`.
+- Добавлены тесты:
+  - `profileEstimator_usesMinDropIn60to240Window_forRealIsf`,
+  - `profileEstimator_skipsCorrectionAsMeal_whenCarbsNearby`.
+
+## Почему так
+- Прежний primary-путь мог использовать AAPS telemetry ISF как часть итогового профиля.
+- Для пользователя требовался именно «реальный» ISF из исторических эффектов коррекций.
+- Формула из HBA1 (drop в окне 60..240) физиологичнее и устойчивее, чем оценка по одной точке на 90-й минуте.
+
+## Риски / ограничения
+- При редкой или шумной CGM-истории quality-фильтры могут уменьшать число валидных ISF sample.
+- Если history-only оценка недоступна, сохранен fallback на merged, чтобы не оставлять контур без профиля.
+- `lintDebug` в проекте по-прежнему содержит отдельную старую проблему манифеста (`RemoveWorkManagerInitializer`).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:compileDebugKotlin`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:assembleDebug`
+4. В приложении проверить `Safety Center` и `Telemetry coverage`: ISF/CR должны идти как `real-first`, а не из telemetry AAPS при наличии history-only расчетов.

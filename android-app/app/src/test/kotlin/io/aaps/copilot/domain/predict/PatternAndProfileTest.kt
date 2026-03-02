@@ -102,6 +102,59 @@ class PatternAndProfileTest {
     }
 
     @Test
+    fun profileEstimator_usesMinDropIn60to240Window_forRealIsf() {
+        val now = System.currentTimeMillis()
+        val correctionTs = now - 6 * 60 * 60_000L
+        val glucose = listOf(
+            GlucosePoint(correctionTs, 10.0, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 90 * 60_000L, 8.6, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 180 * 60_000L, 7.0, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 210 * 60_000L, 7.2, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(correctionTs - 4 * 60 * 60_000L, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3"))
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy)
+
+        assertThat(estimate).isNotNull()
+        // drop = 10.0 - 7.0 over 60..240m window
+        assertThat(estimate!!.isfMmolPerUnit).isWithin(0.01).of(3.0)
+    }
+
+    @Test
+    fun profileEstimator_skipsCorrectionAsMeal_whenCarbsNearby() {
+        val now = System.currentTimeMillis()
+        val correctionTs = now - 8 * 60 * 60_000L
+        val glucose = listOf(
+            GlucosePoint(correctionTs, 9.8, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 90 * 60_000L, 7.6, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 180 * 60_000L, 7.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(correctionTs + 10 * 60_000L, "carbs", mapOf("grams" to "20"))
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy, telemetrySignals = emptyList())
+
+        assertThat(estimate).isNull()
+    }
+
+    @Test
     fun profileEstimator_buildsSegments_byDayTypeAndTimeSlot() {
         val zone = ZoneId.systemDefault()
         val saturdayMorning = LocalDateTime.of(2026, 2, 21, 8, 0).atZone(zone).toInstant().toEpochMilli()

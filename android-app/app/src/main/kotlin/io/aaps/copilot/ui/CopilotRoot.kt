@@ -892,10 +892,10 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             state.yesterdayProfileLines.forEach { Text(it) }
         }
         HorizontalDivider()
-        Text("ISF estimate (merged/OpenAPS+history): ${state.profileIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
-        Text("CR estimate (merged/OpenAPS+history): ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
+        Text("ISF estimate (active real-first): ${state.profileIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
+        Text("CR estimate (active real-first): ${state.profileCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
         Text("Confidence: ${state.profileConfidence?.let { String.format("%.0f%%", it * 100) } ?: "-"}")
-        Text("Samples (merged): total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
+        Text("Samples (active): total=${state.profileSamples ?: "-"}, ISF=${state.profileIsfSamples ?: "-"}, CR=${state.profileCrSamples ?: "-"}")
         Text("Telemetry samples: ISF=${state.profileTelemetryIsfSamples ?: "-"}, CR=${state.profileTelemetryCrSamples ?: "-"}")
         Text("ISF calculated (history-only): ${state.profileCalculatedIsf?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
         Text("CR calculated (history-only): ${state.profileCalculatedCr?.let { String.format("%.2f g/U", it) } ?: "-"}")
