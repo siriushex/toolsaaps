@@ -182,10 +182,16 @@ class AppContainer(context: Context) {
             startHealthConnectCollection()
         }
         appScope.launch {
-            val migrationEnabled = settingsStore.ensureAdaptiveControllerDefaultEnabled()
-            if (migrationEnabled) {
+            val adaptiveMigrationEnabled = settingsStore.ensureAdaptiveControllerDefaultEnabled()
+            val uamMigrationEnabled = settingsStore.ensureUamExportDefaultsEnabled()
+            if (adaptiveMigrationEnabled || uamMigrationEnabled) {
                 WorkScheduler.triggerReactiveAutomation(context.applicationContext)
+            }
+            if (adaptiveMigrationEnabled) {
                 auditLogger.info("adaptive_controller_default_enabled", emptyMap<String, Any>())
+            }
+            if (uamMigrationEnabled) {
+                auditLogger.info("uam_export_defaults_enabled", emptyMap<String, Any>())
             }
         }
         appScope.launch {

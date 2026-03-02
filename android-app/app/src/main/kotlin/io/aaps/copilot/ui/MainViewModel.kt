@@ -197,6 +197,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val lastLocalNsTreatments = audits.firstOrNull { it.message == "local_nightscout_treatments_post" }
         val lastLocalNsDeviceStatus = audits.firstOrNull { it.message == "local_nightscout_devicestatus_post" }
         val lastLocalNsReactive = audits.firstOrNull { it.message == "local_nightscout_reactive_automation_enqueued" }
+        val lastInfusionSetChangeTs = therapy
+            .filter { it.type == "infusion_set_change" || it.type == "site_change" || it.type == "cannula_change" }
+            .maxOfOrNull { it.timestamp }
+        val lastSensorChangeTs = therapy
+            .filter { it.type == "sensor_change" }
+            .maxOfOrNull { it.timestamp }
+        val lastInsulinRefillTs = therapy
+            .filter { it.type == "insulin_refill" || it.type == "insulin_change" || it.type == "reservoir_change" }
+            .maxOfOrNull { it.timestamp }
+        val lastPumpBatteryChangeTs = therapy
+            .filter { it.type == "pump_battery_change" || it.type == "battery_change" || it.type == "battery_replacement" }
+            .maxOfOrNull { it.timestamp }
         val tlsDiagnosticLines = buildAapsTlsDiagnosticLines(
             settings = settings,
             audits = audits,
@@ -271,8 +283,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "(channel=${auditMetaField(it, "channel") ?: "?"}, inserted=${auditMetaField(it, "inserted") ?: "?"}, telemetry=${auditMetaField(it, "telemetry") ?: "?"})"
                 )
             }
+            add("Infusion set change: ${formatTs(lastInfusionSetChangeTs)}")
+            add("Sensor change: ${formatTs(lastSensorChangeTs)}")
+            add("Insulin refill: ${formatTs(lastInsulinRefillTs)}")
+            add("Pump battery change: ${formatTs(lastPumpBatteryChangeTs)}")
             addAll(tlsDiagnosticLines)
         }
+        val replacementHistoryLines = buildReplacementHistoryLines(
+            therapy = therapy,
+            nowTs = now
+        )
 
         val jobStatusLines = if (cloudJobs == null) {
             emptyList()
@@ -339,6 +359,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val inferredUamBoostMode = telemetryByKey["uam_inferred_boost_mode"].toNumericValue()
         val inferredUamManualCob = telemetryByKey["uam_manual_cob_grams"].toNumericValue()
         val inferredUamLastGAbs = telemetryByKey["uam_inferred_gabs_last5_g"].toNumericValue()
+        val sensorQualityScore = telemetryByKey["sensor_quality_score"].toNumericValue()
+        val sensorQualityBlocked = telemetryByKey["sensor_quality_blocked"].toNumericValue()?.let { it >= 0.5 }
+        val sensorQualityReason = telemetryByKey["sensor_quality_reason"]?.valueText
+        val sensorQualitySuspectFalseLow = telemetryByKey["sensor_quality_suspect_false_low"].toNumericValue()
+            ?.let { it >= 0.5 }
+        val smbContextSummary = buildSmbContextSummary(
+            telemetryByKey = telemetryByKey,
+            baseTargetMmol = settings.baseTargetMmol
+        )
         val controllerWeightedError = if (forecast30Latest != null && forecast60Latest != null) {
             val e30 = forecast30Latest - settings.baseTargetMmol
             val e60 = forecast60Latest - settings.baseTargetMmol
@@ -434,6 +463,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             inferredUamBoostMode = inferredUamBoostMode?.let { it >= 0.5 },
             inferredUamManualCobGrams = inferredUamManualCob,
             inferredUamLastGAbsGrams = inferredUamLastGAbs,
+            sensorQualityScore = sensorQualityScore,
+            sensorQualityBlocked = sensorQualityBlocked,
+            sensorQualityReason = sensorQualityReason,
+            sensorQualitySuspectFalseLow = sensorQualitySuspectFalseLow,
+            smbContextSummary = smbContextSummary,
             lastRuleState = ruleExec.firstOrNull()?.state,
             lastRuleId = ruleExec.firstOrNull()?.ruleId,
             controllerState = latestAdaptiveExecution?.state,
@@ -533,6 +567,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             actionLines = actionLines,
             autoConnectLines = autoConnect?.lines.orEmpty(),
             transportStatusLines = transportStatusLines,
+            replacementHistoryLines = replacementHistoryLines,
             syncStatusLines = syncStatusLines,
             jobStatusLines = jobStatusLines,
             insightsFilterLabel = insightsFilterLabel,
@@ -1864,6 +1899,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "uam_calculated_rise15_mmol",
             "uam_calculated_rise30_mmol",
             "uam_value",
+            "sensor_quality_score",
+            "sensor_quality_blocked",
+            "sensor_quality_reason",
+            "sensor_quality_suspect_false_low",
+            "sensor_quality_delta5_mmol",
+            "sensor_quality_noise_std5",
+            "sensor_quality_gap_min",
             "isf_value",
             "cr_value",
             "basal_rate_u_h",
@@ -1939,6 +1981,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return valueDouble ?: valueText?.replace(",", ".")?.toDoubleOrNull()
     }
 
+    private fun buildSmbContextSummary(
+        telemetryByKey: Map<String, TelemetrySampleEntity>,
+        baseTargetMmol: Double
+    ): String {
+        val highTempTarget = telemetryByKey["temp_target_high_mmol"].toNumericValue()
+        val highTempActive = highTempTarget != null && highTempTarget >= baseTargetMmol + 0.10
+
+        val smbSignals = telemetryByKey.values
+            .asSequence()
+            .filter { sample ->
+                val key = sample.key.lowercase(Locale.US)
+                key.contains("smb") || key.contains("microbolus")
+            }
+            .sortedByDescending { it.timestamp }
+            .take(3)
+            .map { sample ->
+                val value = sample.valueDouble?.let { String.format("%.2f", it) }
+                    ?: sample.valueText
+                    ?: "-"
+                "${sample.key}=$value"
+            }
+            .toList()
+
+        val chunks = mutableListOf<String>()
+        if (highTempActive) {
+            chunks += "High temp target active (${String.format("%.2f", highTempTarget)} mmol/L): SMB may be reduced by AAPS high-temp-target settings."
+        }
+        if (smbSignals.isNotEmpty()) {
+            chunks += "SMB telemetry: ${smbSignals.joinToString("; ")}"
+        }
+        if (chunks.isEmpty()) {
+            return "No explicit SMB telemetry flags detected."
+        }
+        return chunks.joinToString(" | ")
+    }
+
     private fun resolveTelemetrySample(
         spec: TelemetryCoverageSpec,
         latestByKey: Map<String, TelemetrySampleEntity>
@@ -1971,6 +2049,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .lowercase(Locale.US)
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
+    }
+
+    private data class ReplacementSpec(
+        val label: String,
+        val types: Set<String>
+    )
+
+    private fun buildReplacementHistoryLines(
+        therapy: List<TherapyEventEntity>,
+        nowTs: Long
+    ): List<String> {
+        val specs = listOf(
+            ReplacementSpec(
+                label = "Infusion set",
+                types = setOf("infusion_set_change", "site_change", "cannula_change", "set_change")
+            ),
+            ReplacementSpec(
+                label = "Sensor",
+                types = setOf("sensor_change", "sensor_start")
+            ),
+            ReplacementSpec(
+                label = "Insulin refill",
+                types = setOf("insulin_refill", "insulin_change", "reservoir_change", "cartridge_change", "pump_refill")
+            ),
+            ReplacementSpec(
+                label = "Pump battery",
+                types = setOf("pump_battery_change", "battery_change", "battery_replacement")
+            )
+        )
+        return specs.map { spec ->
+            val events = therapy
+                .filter { spec.types.contains(it.type.lowercase(Locale.US)) }
+                .sortedByDescending { it.timestamp }
+            val lastTs = events.firstOrNull()?.timestamp
+            val count7d = events.count { it.timestamp >= nowTs - 7L * 24 * 60 * 60 * 1000 }
+            val count30d = events.count { it.timestamp >= nowTs - 30L * 24 * 60 * 60 * 1000 }
+            val avgInterval30d = averageIntervalDays(
+                events = events.filter { it.timestamp >= nowTs - 30L * 24 * 60 * 60 * 1000 }
+            )
+            val avgText = avgInterval30d?.let { String.format(Locale.US, "%.1f d", it) } ?: "-"
+            "${spec.label}: last=${formatTs(lastTs)}, 7d=$count7d, 30d=$count30d, avg interval(30d)=$avgText"
+        }
+    }
+
+    private fun averageIntervalDays(events: List<TherapyEventEntity>): Double? {
+        if (events.size < 2) return null
+        val sorted = events.sortedBy { it.timestamp }
+        val deltas = sorted.zipWithNext().map { (a, b) ->
+            (b.timestamp - a.timestamp).coerceAtLeast(0L).toDouble()
+        }
+        if (deltas.isEmpty()) return null
+        return deltas.average() / (24.0 * 60 * 60 * 1000)
     }
 
     private data class TherapyCoverageFallback(
@@ -2532,10 +2662,10 @@ data class MainUiState(
     val localCommandAction: String = "info.nightscout.client.NEW_TREATMENT",
     val insulinProfileId: String = "NOVORAPID",
     val enableUamInference: Boolean = true,
-    val enableUamBoost: Boolean = false,
-    val enableUamExportToAaps: Boolean = false,
-    val uamExportMode: String = "OFF",
-    val dryRunExport: Boolean = true,
+    val enableUamBoost: Boolean = true,
+    val enableUamExportToAaps: Boolean = true,
+    val uamExportMode: String = "CONFIRMED_ONLY",
+    val dryRunExport: Boolean = false,
     val uamLearnedMultiplier: Double = 1.0,
     val uamMinSnackG: Int = 15,
     val uamMaxSnackG: Int = 60,
@@ -2574,6 +2704,11 @@ data class MainUiState(
     val inferredUamBoostMode: Boolean? = null,
     val inferredUamManualCobGrams: Double? = null,
     val inferredUamLastGAbsGrams: Double? = null,
+    val sensorQualityScore: Double? = null,
+    val sensorQualityBlocked: Boolean? = null,
+    val sensorQualityReason: String? = null,
+    val sensorQualitySuspectFalseLow: Boolean? = null,
+    val smbContextSummary: String = "No explicit SMB telemetry flags detected.",
     val lastRuleState: String? = null,
     val lastRuleId: String? = null,
     val controllerState: String? = null,
@@ -2635,6 +2770,7 @@ data class MainUiState(
     val actionLines: List<String> = emptyList(),
     val autoConnectLines: List<String> = emptyList(),
     val transportStatusLines: List<String> = emptyList(),
+    val replacementHistoryLines: List<String> = emptyList(),
     val syncStatusLines: List<String> = emptyList(),
     val jobStatusLines: List<String> = emptyList(),
     val insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8",

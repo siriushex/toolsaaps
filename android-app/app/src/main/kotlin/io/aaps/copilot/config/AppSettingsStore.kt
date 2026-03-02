@@ -292,6 +292,30 @@ class AppSettingsStore(context: Context) {
         return enabledNow
     }
 
+    suspend fun ensureUamExportDefaultsEnabled(): Boolean {
+        var enabledNow = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_UAM_EXPORT_DEFAULT_MIGRATION_DONE] == true) return@edit
+            var changed = false
+            if (prefs[KEY_ENABLE_UAM_EXPORT] != true) {
+                prefs[KEY_ENABLE_UAM_EXPORT] = true
+                changed = true
+            }
+            val mode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE])
+            if (mode == UamExportMode.OFF) {
+                prefs[KEY_UAM_EXPORT_MODE] = UamExportMode.CONFIRMED_ONLY.name
+                changed = true
+            }
+            if (prefs[KEY_DRY_RUN_EXPORT] != false) {
+                prefs[KEY_DRY_RUN_EXPORT] = false
+                changed = true
+            }
+            prefs[KEY_UAM_EXPORT_DEFAULT_MIGRATION_DONE] = true
+            enabledNow = changed
+        }
+        return enabledNow
+    }
+
     private fun resolveAdaptiveControllerEnabled(@Suppress("UNUSED_PARAMETER") prefs: Preferences): Boolean {
         // Keep controller permanently active even if old settings were saved with disabled flag.
         return true
@@ -304,7 +328,7 @@ class AppSettingsStore(context: Context) {
     private fun resolveUamExportMode(raw: String?): UamExportMode {
         return runCatching {
             UamExportMode.valueOf(raw?.trim().orEmpty().uppercase())
-        }.getOrDefault(UamExportMode.OFF)
+        }.getOrDefault(UamExportMode.CONFIRMED_ONLY)
     }
 
     companion object {
@@ -327,6 +351,8 @@ class AppSettingsStore(context: Context) {
         private val KEY_ENABLE_UAM_EXPORT = booleanPreferencesKey("enable_uam_export_to_aaps")
         private val KEY_UAM_EXPORT_MODE = stringPreferencesKey("uam_export_mode")
         private val KEY_DRY_RUN_EXPORT = booleanPreferencesKey("uam_dry_run_export")
+        private val KEY_UAM_EXPORT_DEFAULT_MIGRATION_DONE =
+            booleanPreferencesKey("uam_export_default_migration_done")
         private val KEY_UAM_LEARNED_MULTIPLIER = doublePreferencesKey("uam_learned_multiplier")
         private val KEY_UAM_MIN_SNACK_G = intPreferencesKey("uam_min_snack_g")
         private val KEY_UAM_MAX_SNACK_G = intPreferencesKey("uam_max_snack_g")
@@ -413,9 +439,9 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_LOCAL_COMMAND_PACKAGE = "info.nightscout.androidaps"
         private const val DEFAULT_LOCAL_COMMAND_ACTION = "info.nightscout.client.NEW_TREATMENT"
         private const val DEFAULT_ENABLE_UAM_INFERENCE = true
-        private const val DEFAULT_ENABLE_UAM_BOOST = false
-        private const val DEFAULT_ENABLE_UAM_EXPORT = false
-        private const val DEFAULT_DRY_RUN_EXPORT = true
+        private const val DEFAULT_ENABLE_UAM_BOOST = true
+        private const val DEFAULT_ENABLE_UAM_EXPORT = true
+        private const val DEFAULT_DRY_RUN_EXPORT = false
         private const val DEFAULT_UAM_LEARNED_MULTIPLIER = 1.0
         private const val DEFAULT_UAM_MIN_SNACK_G = 15
         private const val DEFAULT_UAM_MAX_SNACK_G = 60
@@ -461,10 +487,10 @@ data class AppSettings(
     val localCommandAction: String,
     val insulinProfileId: String,
     val enableUamInference: Boolean = true,
-    val enableUamBoost: Boolean = false,
-    val enableUamExportToAaps: Boolean = false,
-    val uamExportMode: UamExportMode = UamExportMode.OFF,
-    val dryRunExport: Boolean = true,
+    val enableUamBoost: Boolean = true,
+    val enableUamExportToAaps: Boolean = true,
+    val uamExportMode: UamExportMode = UamExportMode.CONFIRMED_ONLY,
+    val dryRunExport: Boolean = false,
     val uamLearnedMultiplier: Double = 1.0,
     val uamMinSnackG: Int = 15,
     val uamMaxSnackG: Int = 60,

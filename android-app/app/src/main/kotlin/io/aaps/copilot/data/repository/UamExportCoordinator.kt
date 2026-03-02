@@ -17,9 +17,12 @@ class UamExportCoordinator(
         val exportMode: UamExportMode,
         val dryRunExport: Boolean,
         val minSnackG: Int,
+        val maxSnackG: Int,
         val snackStepG: Int,
         val exportMinIntervalMin: Int,
-        val exportMaxBackdateMin: Int
+        val exportMaxBackdateMin: Int,
+        val calculatedCarbsGrams: Double?,
+        val calculatedToOriginalMultiplier: Double
     )
 
     data class Outcome(
@@ -101,7 +104,7 @@ class UamExportCoordinator(
             return event.copy(exportedGrams = max(event.exportedGrams, synced), exportSeq = max(event.exportSeq, seq))
         }
 
-        val grams = event.carbsDisplayG.coerceAtLeast(config.minSnackG.toDouble())
+        val grams = resolveDesiredCarbs(event = event, config = config)
         val safeTs = clampBackdate(nowTs = nowTs, ingestionTs = event.ingestionTs, maxBackdateMin = config.exportMaxBackdateMin)
         val note = UamTagCodec.buildTag(event.id, seq, event.mode)
         if (config.dryRunExport) {
@@ -126,7 +129,7 @@ class UamExportCoordinator(
         remoteById: Map<String, List<TaggedRemote>>
     ): UamInferenceEvent {
         val minSnack = config.minSnackG.toDouble().coerceAtLeast(1.0)
-        val desired = event.carbsDisplayG.coerceAtLeast(minSnack)
+        val desired = resolveDesiredCarbs(event = event, config = config).coerceAtLeast(minSnack)
         val lastExportTs = event.lastExportTs ?: 0L
         val elapsedMin = ((nowTs - lastExportTs).coerceAtLeast(0L)) / 60_000L
         val eventRemote = remoteById[event.id].orEmpty()
@@ -190,6 +193,22 @@ class UamExportCoordinator(
     private fun clampBackdate(nowTs: Long, ingestionTs: Long, maxBackdateMin: Int): Long {
         val minTs = nowTs - maxBackdateMin.coerceAtLeast(10) * 60_000L
         return ingestionTs.coerceIn(minTs, nowTs)
+    }
+
+    private fun resolveDesiredCarbs(event: UamInferenceEvent, config: Config): Double {
+        val minSnack = config.minSnackG.toDouble().coerceAtLeast(1.0)
+        val maxSnack = config.maxSnackG.coerceAtLeast(config.minSnackG).toDouble()
+        val step = config.snackStepG.coerceAtLeast(1).toDouble()
+        val multiplier = config.calculatedToOriginalMultiplier.coerceIn(2.4, 3.5)
+        val calculated = config.calculatedCarbsGrams?.takeIf { it > 0.0 }
+        val base = if (calculated != null) {
+            calculated * multiplier
+        } else {
+            event.carbsDisplayG
+        }
+        val clamped = base.coerceIn(minSnack, maxSnack)
+        val scaled = clamped / step
+        return (kotlin.math.floor(scaled + 0.5) * step).coerceIn(minSnack, maxSnack)
     }
 
     private data class TaggedRemote(

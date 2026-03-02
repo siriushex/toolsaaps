@@ -280,6 +280,17 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
                         ", next=${String.format("%.2f", it)} mmol/L"
                     } ?: "")
             )
+            Text(
+                "Sensor quality: " + when (state.sensorQualityBlocked) {
+                    null -> "-"
+                    true -> "BLOCKED"
+                    false -> "OK"
+                } +
+                    (state.sensorQualityScore?.let { ", score=${String.format("%.0f%%", it * 100)}" } ?: "") +
+                    (state.sensorQualityReason?.let { ", reason=$it" } ?: "") +
+                    (state.sensorQualitySuspectFalseLow?.let { if (it) ", suspectFalseLow=yes" else "" } ?: "")
+            )
+            Text("SMB context: ${state.smbContextSummary}")
         }
 
         item {
@@ -294,6 +305,16 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
             Text("Sync health")
         }
         items(state.syncStatusLines) { Text(it) }
+
+        item {
+            HorizontalDivider()
+            Text("Replacement history")
+        }
+        if (state.replacementHistoryLines.isEmpty()) {
+            item { Text("No replacement events yet") }
+        } else {
+            items(state.replacementHistoryLines) { Text(it) }
+        }
 
         item {
             HorizontalDivider()
@@ -726,6 +747,16 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Switch(checked = state.killSwitch, onCheckedChange = vm::setKillSwitch)
         }
         Text("Kill switch affects auto actions only (manual temp target/carbs remain available).")
+        Text(
+            "Sensor quality gate: " + when (state.sensorQualityBlocked) {
+                null -> "-"
+                true -> "BLOCKED"
+                false -> "OK"
+            } +
+                (state.sensorQualityScore?.let { ", score=${String.format("%.0f%%", it * 100)}" } ?: "") +
+                (state.sensorQualityReason?.let { ", reason=$it" } ?: "")
+        )
+        Text("SMB context: ${state.smbContextSummary}")
         OutlinedTextField(
             value = targetInput,
             onValueChange = { targetInput = it },

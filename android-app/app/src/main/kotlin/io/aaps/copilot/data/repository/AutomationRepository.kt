@@ -14,8 +14,10 @@ import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
 import io.aaps.copilot.data.remote.cloud.PredictRequest
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.ActionProposal
+import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.Forecast
+import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.ProfileEstimate
 import io.aaps.copilot.domain.model.ProfileSegmentEstimate
 import io.aaps.copilot.domain.model.ProfileTimeSlot
@@ -42,6 +44,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.sqrt
 import kotlin.math.min
 
 class AutomationRepository(
@@ -99,6 +102,16 @@ class AutomationRepository(
         val gAbsRecent: List<Double>,
         val events: List<io.aaps.copilot.domain.predict.UamInferenceEvent>,
         val createdNewEvent: Boolean
+    )
+
+    data class SensorQualityAssessment(
+        val score: Double,
+        val blocked: Boolean,
+        val reason: String,
+        val suspectFalseLow: Boolean,
+        val delta5Mmol: Double?,
+        val noiseStd5Mmol: Double?,
+        val gapMinutes: Double
     )
 
     data class ForecastCalibrationPoint(
@@ -187,7 +200,49 @@ class AutomationRepository(
         val dataFresh = now - latest.ts <= effectiveStaleMaxMinutes * 60 * 1000L
         val actionsLast6h = actionRepository.countSentActionsLast6h()
         val activeTempTarget = resolveActiveTempTarget(now)
-        val sensorBlocked = isSensorBlocked(therapy, now)
+        val therapySensorBlocked = isSensorBlocked(therapy, now)
+        val sensorQuality = evaluateSensorQuality(
+            glucose = glucose,
+            nowTs = now,
+            staleMaxMinutes = effectiveStaleMaxMinutes
+        )
+        val sensorBlocked = therapySensorBlocked || sensorQuality.blocked
+        persistSensorQualityTelemetry(nowTs = now, assessment = sensorQuality)
+        latestTelemetry["sensor_quality_score"] = sensorQuality.score
+        latestTelemetry["sensor_quality_blocked"] = if (sensorQuality.blocked) 1.0 else 0.0
+        latestTelemetry["sensor_quality_suspect_false_low"] = if (sensorQuality.suspectFalseLow) 1.0 else 0.0
+        sensorQuality.delta5Mmol?.let { latestTelemetry["sensor_quality_delta5_mmol"] = it }
+        sensorQuality.noiseStd5Mmol?.let { latestTelemetry["sensor_quality_noise_std5"] = it }
+        latestTelemetry["sensor_quality_gap_min"] = sensorQuality.gapMinutes
+
+        if (sensorQuality.blocked) {
+            auditLogger.warn(
+                "sensor_quality_gate_blocked",
+                mapOf(
+                    "reason" to sensorQuality.reason,
+                    "score" to sensorQuality.score,
+                    "delta5Mmol" to sensorQuality.delta5Mmol,
+                    "noiseStd5Mmol" to sensorQuality.noiseStd5Mmol,
+                    "gapMinutes" to sensorQuality.gapMinutes
+                )
+            )
+        }
+        if (therapySensorBlocked && sensorQuality.blocked) {
+            auditLogger.warn(
+                "sensor_quality_gate_and_sensor_state_blocked",
+                mapOf("reason" to sensorQuality.reason)
+            )
+        }
+
+        maybeSendSensorQualityRollbackTempTarget(
+            settings = settings,
+            nowTs = now,
+            dataFresh = dataFresh,
+            assessment = sensorQuality,
+            activeTempTarget = activeTempTarget,
+            actionsLast6h = actionsLast6h,
+            baseTargetMmol = effectiveBaseTarget
+        )
 
         val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -224,7 +279,8 @@ class AutomationRepository(
             nowTs = now,
             glucose = glucose,
             therapy = therapy,
-            profile = currentProfile
+            profile = currentProfile,
+            calculatedSnapshot = calculatedUam
         )
         if (inferredUam != null) {
             latestTelemetry["uam_inferred_flag"] = inferredUam.activeFlag
@@ -648,6 +704,117 @@ class AutomationRepository(
         return "$ruleId:${nowTs / (bucketMinutes * 60_000L)}"
     }
 
+    private fun evaluateSensorQuality(
+        glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
+        nowTs: Long,
+        staleMaxMinutes: Int
+    ): SensorQualityAssessment {
+        return evaluateSensorQualityStatic(
+            glucose = glucose,
+            nowTs = nowTs,
+            staleMaxMinutes = staleMaxMinutes
+        )
+    }
+
+    private suspend fun persistSensorQualityTelemetry(nowTs: Long, assessment: SensorQualityAssessment) {
+        val source = "copilot_sensor_quality"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+
+        fun addNumeric(key: String, value: Double?, unit: String? = null) {
+            val numeric = value ?: return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = numeric,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+        }
+
+        fun addText(key: String, value: String?) {
+            val text = value?.trim().orEmpty()
+            if (text.isBlank()) return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = text.take(64),
+                unit = null,
+                quality = "OK"
+            )
+        }
+
+        addNumeric("sensor_quality_score", assessment.score)
+        addNumeric("sensor_quality_blocked", if (assessment.blocked) 1.0 else 0.0)
+        addNumeric("sensor_quality_suspect_false_low", if (assessment.suspectFalseLow) 1.0 else 0.0)
+        addNumeric("sensor_quality_delta5_mmol", assessment.delta5Mmol, "mmol/5m")
+        addNumeric("sensor_quality_noise_std5", assessment.noiseStd5Mmol, "mmol/5m")
+        addNumeric("sensor_quality_gap_min", assessment.gapMinutes, "min")
+        addText("sensor_quality_reason", assessment.reason)
+
+        if (rows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(rows)
+        }
+    }
+
+    private suspend fun maybeSendSensorQualityRollbackTempTarget(
+        settings: AppSettings,
+        nowTs: Long,
+        dataFresh: Boolean,
+        assessment: SensorQualityAssessment,
+        activeTempTarget: Double?,
+        actionsLast6h: Int,
+        baseTargetMmol: Double
+    ) {
+        if (settings.killSwitch) return
+        if (!dataFresh) return
+        if (!shouldSendSensorQualityRollbackStatic(activeTempTarget, baseTargetMmol, assessment)) return
+
+        val rollbackTarget = roundToStep(baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL), 0.05)
+        val idempotencyKey = "$SENSOR_QUALITY_ROLLBACK_IDEMPOTENCY_PREFIX${nowTs / SENSOR_QUALITY_ROLLBACK_INTERVAL_MS}"
+        val command = ActionCommand(
+            id = UUID.randomUUID().toString(),
+            type = "temp_target",
+            params = mapOf(
+                "targetMmol" to rollbackTarget.toString(),
+                "durationMinutes" to SENSOR_QUALITY_ROLLBACK_DURATION_MINUTES.toString(),
+                "reason" to "sensor_quality_rollback:${assessment.reason}"
+            ),
+            safetySnapshot = SafetySnapshot(
+                killSwitch = settings.killSwitch,
+                dataFresh = dataFresh,
+                activeTempTargetMmol = activeTempTarget,
+                actionsLast6h = actionsLast6h
+            ),
+            idempotencyKey = idempotencyKey
+        )
+        val sent = actionRepository.submitTempTarget(command)
+        if (sent) {
+            auditLogger.warn(
+                "sensor_quality_rollback_sent",
+                mapOf(
+                    "targetMmol" to rollbackTarget,
+                    "reason" to assessment.reason,
+                    "activeTempTarget" to activeTempTarget
+                )
+            )
+        } else {
+            auditLogger.warn(
+                "sensor_quality_rollback_failed",
+                mapOf(
+                    "targetMmol" to rollbackTarget,
+                    "reason" to assessment.reason,
+                    "activeTempTarget" to activeTempTarget
+                )
+            )
+        }
+    }
+
     private suspend fun auditAdaptiveController(
         decisions: List<RuleDecision>,
         context: RuleContext,
@@ -762,7 +929,8 @@ class AutomationRepository(
         nowTs: Long,
         glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
         therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
-        profile: ProfileEstimate?
+        profile: ProfileEstimate?,
+        calculatedSnapshot: CalculatedUamSnapshot
     ): UamInferenceCycleResult? {
         val cycleBucket = (nowTs / UAM_PROCESSING_BUCKET_MS) * UAM_PROCESSING_BUCKET_MS
         val existingEvents = uamEventStore.loadAll()
@@ -812,9 +980,12 @@ class AutomationRepository(
                 exportMode = settings.uamExportMode,
                 dryRunExport = settings.dryRunExport,
                 minSnackG = settings.uamMinSnackG,
+                maxSnackG = settings.uamMaxSnackG,
                 snackStepG = settings.uamSnackStepG,
                 exportMinIntervalMin = settings.uamExportMinIntervalMin,
-                exportMaxBackdateMin = settings.uamExportMaxBackdateMin
+                exportMaxBackdateMin = settings.uamExportMaxBackdateMin,
+                calculatedCarbsGrams = calculatedSnapshot.estimatedCarbsGrams,
+                calculatedToOriginalMultiplier = CALCULATED_TO_ORIGINAL_MULTIPLIER
             )
         )
         val finalizedEvents = exportOutcome.events
@@ -1241,8 +1412,12 @@ class AutomationRepository(
         private const val MAX_ALIGN_STEP_MMOL = 1.20
         private const val ADAPTIVE_KEEPALIVE_INTERVAL_MS = 30 * 60 * 1000L
         private const val ADAPTIVE_KEEPALIVE_DURATION_MINUTES = 30
+        private const val SENSOR_QUALITY_ROLLBACK_INTERVAL_MS = 20 * 60 * 1000L
+        private const val SENSOR_QUALITY_ROLLBACK_DURATION_MINUTES = 30
+        private const val SENSOR_QUALITY_ROLLBACK_IDEMPOTENCY_PREFIX = "sensor_quality_rollback:"
         private const val TELEMETRY_LOOKBACK_MS = 6 * 60 * 60 * 1000L
         private const val CALCULATED_UAM_LOOKBACK_MINUTES = 120
+        private const val CALCULATED_TO_ORIGINAL_MULTIPLIER = 2.4
         private const val UAM_PROCESSING_BUCKET_MS = 5 * 60 * 1000L
         private const val UAM_EVENT_RETENTION_MS = 14L * 24 * 60 * 60 * 1000
         private const val FORECAST_RETENTION_MS = 400L * 24 * 60 * 60 * 1000
@@ -1276,6 +1451,11 @@ class AutomationRepository(
         private const val CALIBRATION_MIN_AGE_MS = 2L * 60 * 1000
         private const val CALIBRATION_MATCH_TOLERANCE_MS = 2L * 60 * 1000
         private const val CALIBRATION_HALF_LIFE_MS = 90.0 * 60 * 1000
+        private const val SENSOR_QUALITY_FALSE_LOW_LEVEL_MMOL = 4.2
+        private const val SENSOR_QUALITY_FALSE_LOW_DROP_MMOL = 1.4
+        private const val SENSOR_QUALITY_DELTA_BLOCK_MMOL5 = 1.6
+        private const val SENSOR_QUALITY_NOISE_BLOCK_STD = 0.95
+        private const val SENSOR_QUALITY_ROLLBACK_MIN_DELTA_MMOL = 0.20
 
         private data class CalibrationConfig(
             val minSamples: Int,
@@ -1283,6 +1463,130 @@ class AutomationRepository(
             val maxUp: Double,
             val maxDown: Double
         )
+
+        internal fun evaluateSensorQualityStatic(
+            glucose: List<GlucosePoint>,
+            nowTs: Long,
+            staleMaxMinutes: Int
+        ): SensorQualityAssessment {
+            if (glucose.isEmpty()) {
+                return SensorQualityAssessment(
+                    score = 0.0,
+                    blocked = true,
+                    reason = "no_glucose",
+                    suspectFalseLow = false,
+                    delta5Mmol = null,
+                    noiseStd5Mmol = null,
+                    gapMinutes = staleMaxMinutes.toDouble()
+                )
+            }
+
+            val sorted = glucose.sortedBy { it.ts }
+            val latest = sorted.last()
+            val gapMinutes = ((nowTs - latest.ts).coerceAtLeast(0L) / 60_000.0)
+            val staleLimit = staleMaxMinutes.coerceAtLeast(8).toDouble()
+
+            var latestDelta5: Double? = null
+            val recentDeltas = mutableListOf<Double>()
+            val recent = sorted.takeLast(12)
+            for (idx in 1 until recent.size) {
+                val prev = recent[idx - 1]
+                val current = recent[idx]
+                val dtMin = (current.ts - prev.ts) / 60_000.0
+                if (dtMin !in 2.0..15.0) continue
+                val delta5 = (current.valueMmol - prev.valueMmol) / (dtMin / 5.0)
+                recentDeltas += delta5
+                if (current.ts == latest.ts) {
+                    latestDelta5 = delta5
+                }
+            }
+            if (latestDelta5 == null) {
+                val prev = sorted.dropLast(1).lastOrNull { candidate ->
+                    val dtMin = (latest.ts - candidate.ts) / 60_000.0
+                    dtMin in 2.0..15.0
+                }
+                if (prev != null) {
+                    val dtMin = (latest.ts - prev.ts) / 60_000.0
+                    latestDelta5 = (latest.valueMmol - prev.valueMmol) / (dtMin / 5.0)
+                }
+            }
+
+            val noiseStd = if (recentDeltas.size >= 3) {
+                val mean = recentDeltas.average()
+                val variance = recentDeltas
+                    .map { delta -> (delta - mean) * (delta - mean) }
+                    .average()
+                sqrt(variance).coerceAtLeast(0.0)
+            } else {
+                0.0
+            }
+
+            val sensorErrorQuality = latest.quality == DataQuality.SENSOR_ERROR
+            val previousWindowAvg = sorted.dropLast(1).takeLast(3).map { it.valueMmol }
+                .takeIf { it.isNotEmpty() }
+                ?.average()
+            val suspectFalseLow = latest.valueMmol <= SENSOR_QUALITY_FALSE_LOW_LEVEL_MMOL &&
+                previousWindowAvg != null &&
+                (previousWindowAvg - latest.valueMmol) >= SENSOR_QUALITY_FALSE_LOW_DROP_MMOL &&
+                (latestDelta5 ?: 0.0) <= -0.75
+
+            val staleBlocked = gapMinutes > staleLimit
+            val rapidDeltaBlocked = abs(latestDelta5 ?: 0.0) >= SENSOR_QUALITY_DELTA_BLOCK_MMOL5
+            val noisyBlocked = noiseStd >= SENSOR_QUALITY_NOISE_BLOCK_STD &&
+                abs(latestDelta5 ?: 0.0) >= 0.70
+
+            var score = 1.0
+            if (gapMinutes > staleLimit / 2.0) {
+                val ratio = ((gapMinutes - staleLimit / 2.0) / staleLimit).coerceIn(0.0, 1.0)
+                score -= 0.45 * ratio
+            }
+            val deltaAbs = abs(latestDelta5 ?: 0.0)
+            if (deltaAbs > 0.60) {
+                val ratio = ((deltaAbs - 0.60) / 1.10).coerceIn(0.0, 1.0)
+                score -= 0.30 * ratio
+            }
+            if (noiseStd > 0.45) {
+                val ratio = ((noiseStd - 0.45) / 0.80).coerceIn(0.0, 1.0)
+                score -= 0.25 * ratio
+            }
+            if (suspectFalseLow) score -= 0.30
+            if (sensorErrorQuality) score -= 0.35
+            score = score.coerceIn(0.0, 1.0)
+
+            val blocked = sensorErrorQuality || staleBlocked || suspectFalseLow || rapidDeltaBlocked || noisyBlocked
+            val reason = when {
+                sensorErrorQuality -> "sensor_error"
+                staleBlocked -> "stale_gap"
+                suspectFalseLow -> "suspect_false_low"
+                rapidDeltaBlocked -> "rapid_delta"
+                noisyBlocked -> "high_noise"
+                else -> "ok"
+            }
+
+            return SensorQualityAssessment(
+                score = score,
+                blocked = blocked,
+                reason = reason,
+                suspectFalseLow = suspectFalseLow,
+                delta5Mmol = latestDelta5,
+                noiseStd5Mmol = noiseStd,
+                gapMinutes = gapMinutes
+            )
+        }
+
+        internal fun shouldSendSensorQualityRollbackStatic(
+            activeTempTarget: Double?,
+            baseTargetMmol: Double,
+            assessment: SensorQualityAssessment
+        ): Boolean {
+            if (!assessment.blocked) return false
+            val active = activeTempTarget ?: return false
+            val base = baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+            val delta = abs(active - base)
+            if (delta < SENSOR_QUALITY_ROLLBACK_MIN_DELTA_MMOL) return false
+            if (assessment.suspectFalseLow && active <= base) return false
+            return true
+        }
 
         private fun calibrationConfig(horizonMinutes: Int): CalibrationConfig? = when (horizonMinutes) {
             5 -> CalibrationConfig(minSamples = 24, gain = 0.35, maxUp = 0.35, maxDown = 0.25)

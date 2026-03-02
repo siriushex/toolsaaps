@@ -299,7 +299,8 @@ class BroadcastIngestRepository(
         val duration = findLongExact(extras, listOf("duration", "durationInMinutes"))?.toInt()
         val targetBottom = findDoubleExact(extras, listOf("targetBottom", "target_bottom", "targetLow"))
         val targetTop = findDoubleExact(extras, listOf("targetTop", "target_top", "targetHigh"))
-        val eventType = findStringExact(extras, listOf("eventType", "event_type", "type"))?.lowercase()
+        val eventTypeRaw = findStringExact(extras, listOf("eventType", "event_type", "type"))
+        val eventType = normalizeTherapyEventType(eventTypeRaw)
 
         val typeAndPayload = when {
             eventType?.contains("temp") == true && duration != null && (targetBottom != null || targetTop != null) -> {
@@ -318,6 +319,13 @@ class BroadcastIngestRepository(
             carbs != null && carbs > 0.0 -> {
                 "carbs" to mapOf("grams" to carbs.toString())
             }
+            eventType in setOf("infusion_set_change", "sensor_change", "insulin_refill", "pump_battery_change") -> {
+                eventType!! to buildMap {
+                    put("source", source)
+                    eventTypeRaw?.trim()?.takeIf { it.isNotEmpty() }?.let { put("eventTypeRaw", it) }
+                    findStringExact(extras, listOf("notes", "note", "reason"))?.let { put("notes", it) }
+                }
+            }
             else -> null
         } ?: return emptyList()
 
@@ -330,6 +338,31 @@ class BroadcastIngestRepository(
                 payloadJson = JSONObject(typeAndPayload.second).toString()
             )
         )
+    }
+
+    private fun normalizeTherapyEventType(raw: String?): String? {
+        val normalized = raw
+            ?.trim()
+            ?.lowercase(Locale.US)
+            ?.replace('-', ' ')
+            ?.replace('_', ' ')
+            ?.replace(Regex("\\s+"), " ")
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+        return when (normalized) {
+            "temporary target" -> "temp_target"
+            "carb correction" -> "carbs"
+            "meal bolus" -> "meal_bolus"
+            "correction bolus" -> "correction_bolus"
+            "site change", "cannula change", "infusion set change", "set change", "pump site change" ->
+                "infusion_set_change"
+            "sensor change", "cgm sensor change", "sensor start" -> "sensor_change"
+            "insulin change", "reservoir change", "cartridge change", "pump refill", "insulin refill" ->
+                "insulin_refill"
+            "pump battery change", "battery change", "battery replacement", "pump battery replacement" ->
+                "pump_battery_change"
+            else -> normalized.replace(" ", "_")
+        }
     }
 
     private fun findString(extras: Map<String, String>, keys: List<String>): String? {

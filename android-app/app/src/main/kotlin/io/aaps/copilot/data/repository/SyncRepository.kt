@@ -275,12 +275,25 @@ class SyncRepository(
     }
 
     private fun normalizeEventType(eventType: String): String {
-        return when (eventType.lowercase()) {
+        val normalized = eventType
+            .trim()
+            .lowercase()
+            .replace('-', ' ')
+            .replace('_', ' ')
+            .replace(Regex("\\s+"), " ")
+        return when (normalized) {
             "temporary target" -> "temp_target"
             "carb correction" -> "carbs"
             "meal bolus" -> "meal_bolus"
             "correction bolus" -> "correction_bolus"
-            else -> eventType.lowercase().replace(" ", "_")
+            "site change", "cannula change", "infusion set change", "set change", "pump site change" ->
+                "infusion_set_change"
+            "sensor change", "cgm sensor change", "sensor start" -> "sensor_change"
+            "insulin change", "reservoir change", "cartridge change", "pump refill", "insulin refill" ->
+                "insulin_refill"
+            "pump battery change", "battery change", "battery replacement", "pump battery replacement" ->
+                "pump_battery_change"
+            else -> normalized.replace(" ", "_")
         }
     }
 

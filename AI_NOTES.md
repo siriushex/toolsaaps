@@ -895,3 +895,88 @@
    - для реальной отправки отключить `Dry-run export` и включить `Export inferred carbs to AAPS`,
    - выбрать `CONFIRMED_ONLY` или `INCREMENTAL`,
    - проверить в Dashboard/Telemetry ключи `uam_inferred_*` и в AAPS/Nightscout carbs с note `UAM_ENGINE|...`.
+
+# Изменения — Этап 7: Full runtime manual (`manual.md`)
+
+## Что сделано
+- Добавлен новый файл `/Users/mac/Andoidaps/AAPSPredictiveCopilot/manual.md`.
+- В manual зафиксированы:
+  - полный поток данных (ingest -> predict -> rules -> safety -> action),
+  - формулы прогнозирования (legacy v2 и enhanced v3),
+  - UAM estimator/inference/export,
+  - логика Adaptive Temp Target Controller,
+  - safety-ограничения, keepalive, COB/IOB bias,
+  - ISF/CR расчеты, ключи telemetry, структура БД и SQL-примеры проверки.
+
+## Почему так
+- Нужен единый подробный гайд, чтобы однозначно понимать, как считаются значения и какие функции за что отвечают в текущей реализации.
+- Это снижает риск ошибок настройки и ускоряет диагностику на устройстве.
+
+## Риски / ограничения
+- Manual описывает текущую реализацию на дату обновления; при будущих изменениях алгоритмов документ нужно синхронно обновлять.
+- В этапе не менялась логика приложения, только документация.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot && ls -la manual.md`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot && sed -n '1,260p' manual.md`
+3. Сверить разделы manual с кодом в `android-app/app/src/main/kotlin/io/aaps/copilot/*`.
+
+# Изменения — Этап 8: Technical review integration for `manual.md`
+
+## Что сделано
+- Обновлён `/Users/mac/Andoidaps/AAPSPredictiveCopilot/manual.md` по результатам технического обзора:
+  - добавлены разделы про source-of-truth и разрешение конфликтов источников;
+  - формализован decision cycle (periodic vs reactive, debounce, bucket cadence, idempotency);
+  - добавлены уточнения по UAM/OpenAPS терминологии и рискам CSF/COB;
+  - добавлен anti-loop блок для inferred carbs export;
+  - добавлен раздел про нюанс SMB/High Temp Target в AAPS;
+  - усилены safety-инварианты в Safety Center разделе;
+  - расширен operational checklist по sensor quality и rollback-проверкам;
+  - добавлены таблица «риски/меры» и QA-валидация перед эксплуатацией.
+
+## Почему так
+- Нужно синхронизировать manual с практическими рисками эксплуатации и сделать поведение контура более предсказуемым для пользователя.
+- Это повышает диагностируемость и снижает риск неверной интерпретации прогнозов/автодействий.
+
+## Риски / ограничения
+- Изменения этого этапа документарные; runtime-логика не изменялась.
+- Для части рекомендаций (например, отдельный SMB-derived индикатор в UI) требуются отдельные кодовые этапы.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot && rg -n "Source of truth|QA-валидация|SMB/High Temp Target|Риски и меры" manual.md`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot && sed -n '70,220p' manual.md`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot && sed -n '500,680p' manual.md`
+
+# Изменения — Этап 9: Sensor quality gate + SMB context indicator
+
+## Что сделано
+- В `AutomationRepository` добавлен runtime `sensor quality gate`:
+  - оценка качества CGM на каждом automation-цикле (`score`, `reason`, `blocked`, `suspectFalseLow`, `delta5`, `noiseStd`, `gapMin`);
+  - блокировка авто-контуров через `sensorBlocked = therapySensorBlocked || sensorQuality.blocked`;
+  - запись telemetry-метрик `sensor_quality_*` в БД для UI/аудита;
+  - аудит-события `sensor_quality_gate_blocked`.
+- Добавлены `rollback rules`:
+  - при quality-block и активном temp target, существенно отличающемся от base, отправляется rollback temp target к base;
+  - idempotency по 20-мин бакету (`sensor_quality_rollback:*`), reason=`sensor_quality_rollback:<reason>`.
+- В UI (`MainViewModel`, `CopilotRoot`) добавлены:
+  - отображение статуса `Sensor quality` и причины блокировки;
+  - отображение `SMB context` (high temp target warning + найденные SMB telemetry keys).
+- В unit tests:
+  - расширен `AutomationRepositoryForecastBiasTest` тестами для quality-evaluator и rollback-decision;
+  - поправлен `UamExportCoordinatorTest` под актуальную сигнатуру `Config`.
+
+## Почему так
+- Нужно защитить автоматику от ошибочных/шумных сенсорных участков и исключить ложные авто-реакции.
+- Нужен прозрачный UI-контекст по SMB/High Temp Target, чтобы видеть возможные ограничения AAPS-поведения.
+
+## Риски / ограничения
+- `SMB context` сейчас индикаторный (derived из telemetry/target), не прямое чтение внутреннего флага AAPS.
+- Quality-gate основан на эвристиках; пороги при необходимости калибруются по реальным логам.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --tests io.aaps.copilot.data.repository.UamExportCoordinatorTest`
+3. В приложении:
+   - Dashboard: строки `Sensor quality` и `SMB context`;
+   - Safety Center: те же индикаторы;
+   - Telemetry: ключи `sensor_quality_*`.

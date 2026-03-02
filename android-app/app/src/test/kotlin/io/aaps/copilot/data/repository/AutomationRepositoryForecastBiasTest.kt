@@ -1,7 +1,9 @@
 package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
+import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.Forecast
+import io.aaps.copilot.domain.model.GlucosePoint
 import org.junit.Test
 
 class AutomationRepositoryForecastBiasTest {
@@ -150,6 +152,89 @@ class AutomationRepositoryForecastBiasTest {
         )
 
         assertThat(adjusted).isEqualTo(source)
+    }
+
+    @Test
+    fun sensorQuality_detectsSuspectFalseLow() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(now - 10 * 60_000L, 8.8, "test", DataQuality.OK),
+            GlucosePoint(now - 5 * 60_000L, 8.6, "test", DataQuality.OK),
+            GlucosePoint(now, 3.3, "test", DataQuality.OK)
+        )
+
+        val assessment = AutomationRepository.evaluateSensorQualityStatic(
+            glucose = glucose,
+            nowTs = now,
+            staleMaxMinutes = 15
+        )
+
+        assertThat(assessment.blocked).isTrue()
+        assertThat(assessment.suspectFalseLow).isTrue()
+        assertThat(assessment.reason).isEqualTo("suspect_false_low")
+    }
+
+    @Test
+    fun sensorQuality_stableSeriesRemainsOk() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(now - 20 * 60_000L, 6.1, "test"),
+            GlucosePoint(now - 15 * 60_000L, 6.0, "test"),
+            GlucosePoint(now - 10 * 60_000L, 6.1, "test"),
+            GlucosePoint(now - 5 * 60_000L, 6.0, "test"),
+            GlucosePoint(now, 6.1, "test")
+        )
+
+        val assessment = AutomationRepository.evaluateSensorQualityStatic(
+            glucose = glucose,
+            nowTs = now,
+            staleMaxMinutes = 15
+        )
+
+        assertThat(assessment.blocked).isFalse()
+        assertThat(assessment.score).isGreaterThan(0.70)
+    }
+
+    @Test
+    fun sensorQualityRollback_sentWhenBlockedAndTargetDrifted() {
+        val assessment = AutomationRepository.SensorQualityAssessment(
+            score = 0.2,
+            blocked = true,
+            reason = "suspect_false_low",
+            suspectFalseLow = true,
+            delta5Mmol = -1.8,
+            noiseStd5Mmol = 0.9,
+            gapMinutes = 1.0
+        )
+
+        val shouldRollback = AutomationRepository.shouldSendSensorQualityRollbackStatic(
+            activeTempTarget = 8.0,
+            baseTargetMmol = 5.5,
+            assessment = assessment
+        )
+
+        assertThat(shouldRollback).isTrue()
+    }
+
+    @Test
+    fun sensorQualityRollback_notSentWhenNearBase() {
+        val assessment = AutomationRepository.SensorQualityAssessment(
+            score = 0.4,
+            blocked = true,
+            reason = "rapid_delta",
+            suspectFalseLow = false,
+            delta5Mmol = 1.7,
+            noiseStd5Mmol = 0.2,
+            gapMinutes = 1.0
+        )
+
+        val shouldRollback = AutomationRepository.shouldSendSensorQualityRollbackStatic(
+            activeTempTarget = 5.6,
+            baseTargetMmol = 5.5,
+            assessment = assessment
+        )
+
+        assertThat(shouldRollback).isFalse()
     }
 
     private fun sampleForecasts(): List<Forecast> {

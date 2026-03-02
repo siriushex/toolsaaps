@@ -112,9 +112,12 @@ class UamExportCoordinatorTest {
         exportMode = exportMode,
         dryRunExport = false,
         minSnackG = 15,
+        maxSnackG = 60,
         snackStepG = 5,
         exportMinIntervalMin = 10,
-        exportMaxBackdateMin = exportMaxBackdateMin
+        exportMaxBackdateMin = exportMaxBackdateMin,
+        calculatedCarbsGrams = null,
+        calculatedToOriginalMultiplier = 2.4
     )
 
     private fun confirmedEvent(
