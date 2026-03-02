@@ -155,6 +155,33 @@ class PatternAndProfileTest {
     }
 
     @Test
+    fun profileEstimator_treatsPlainBolusWithoutCarbs_asCorrectionForRealIsf() {
+        val now = System.currentTimeMillis()
+        val bolusTs = now - 7 * 60 * 60_000L
+        val glucose = listOf(
+            GlucosePoint(bolusTs, 9.2, "test", DataQuality.OK),
+            GlucosePoint(bolusTs + 70 * 60_000L, 8.1, "test", DataQuality.OK),
+            GlucosePoint(bolusTs + 120 * 60_000L, 7.4, "test", DataQuality.OK),
+            GlucosePoint(bolusTs + 200 * 60_000L, 7.1, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(bolusTs, "bolus", mapOf("units" to "1.0")),
+            TherapyEvent(bolusTs - 3 * 60 * 60_000L, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3"))
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.isfMmolPerUnit).isWithin(0.01).of(2.1)
+    }
+
+    @Test
     fun profileEstimator_buildsSegments_byDayTypeAndTimeSlot() {
         val zone = ZoneId.systemDefault()
         val saturdayMorning = LocalDateTime.of(2026, 2, 21, 8, 0).atZone(zone).toInstant().toEpochMilli()

@@ -753,3 +753,27 @@
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:compileDebugKotlin`
 3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:assembleDebug`
 4. В приложении проверить `Safety Center` и `Telemetry coverage`: ISF/CR должны идти как `real-first`, а не из telemetry AAPS при наличии history-only расчетов.
+
+# Изменения — Этап 23: Расширение real ISF на обычные bolus-коррекции
+
+## Что сделано
+- В `ProfileEstimator` расширен отбор ISF-кандидатов:
+  - теперь учитываются не только `correction_bolus`, но и обычные `bolus` события как потенциальные коррекции;
+  - приоритет explicit correction-флагов сохранен (`isCorrection`, `reason=correction`), но plain `bolus` тоже допускается;
+  - meal-like случаи по-прежнему отсекаются фильтром carbs-around.
+- Добавлен unit-тест:
+  - `profileEstimator_treatsPlainBolusWithoutCarbs_asCorrectionForRealIsf`
+  - проверяет, что plain bolus без nearby carbs корректно участвует в расчете real ISF.
+
+## Почему так
+- В реальной истории AAPS часть корректирующих болюсов записывается как обычный `bolus` без явного маркера `correction_bolus`.
+- Без этого реальные корректирующие эпизоды пропускались, и расчет real ISF имел меньше валидных sample.
+
+## Риски / ограничения
+- Возможна частичная контаминация выборки болюсами, если meal carbs не были задекларированы; этот риск ограничивается текущими UAM/carbs-around фильтрами и quality-guard.
+- `meal_bolus` по-прежнему не используется как прямой correction-кандидат.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest.profileEstimator_treatsPlainBolusWithoutCarbs_asCorrectionForRealIsf"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest`

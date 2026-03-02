@@ -274,15 +274,13 @@ class ProfileEstimator(
         events: List<TherapyEvent>,
         uamPoints: Set<Long>
     ): IsfBuildResult {
-        val correctionEvents = events.filter {
-            it.type.equals("correction_bolus", ignoreCase = true) ||
-                (
-                    it.type.equals("bolus", ignoreCase = true) &&
-                        (
-                            it.payload["isCorrection"]?.equals("true", ignoreCase = true) == true ||
-                                it.payload["reason"]?.contains("correction", ignoreCase = true) == true
-                            )
-                    )
+        val correctionEvents = events.filter { event ->
+            if (!isBolusLikeEvent(event)) return@filter false
+            val explicitCorrection =
+                event.type.equals("correction_bolus", ignoreCase = true) ||
+                    event.payload["isCorrection"]?.equals("true", ignoreCase = true) == true ||
+                    event.payload["reason"]?.contains("correction", ignoreCase = true) == true
+            explicitCorrection || event.type.equals("bolus", ignoreCase = true)
         }
 
         var filteredByUam = 0
@@ -398,6 +396,12 @@ class ProfileEstimator(
     private fun extractCarbGrams(event: TherapyEvent): Double? {
         val keys = listOf("grams", "carbs", "enteredCarbs", "mealCarbs")
         return keys.firstNotNullOfOrNull { key -> event.payload[key]?.toDoubleOrNull() }
+    }
+
+    private fun isBolusLikeEvent(event: TherapyEvent): Boolean {
+        return event.type.equals("correction_bolus", ignoreCase = true) ||
+            event.type.equals("bolus", ignoreCase = true) ||
+            event.type.equals("meal_bolus", ignoreCase = true)
     }
 
     private fun hasUamNearCorrection(uamPoints: Set<Long>, correctionTs: Long): Boolean {
