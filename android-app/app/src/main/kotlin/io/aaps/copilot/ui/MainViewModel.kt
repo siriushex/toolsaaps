@@ -105,6 +105,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         db.telemetryDao().observeLatest(limit = 12_000),
         container.analyticsRepository.observePatterns(),
         container.analyticsRepository.observeProfileEstimate(),
+        db.profileEstimateDao().observeHistory(limit = 20_000),
         container.analyticsRepository.observeProfileSegments(),
         db.syncStateDao().observeAll(),
         container.settingsStore.settings,
@@ -141,18 +142,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val patterns = values[8] as List<PatternWindowEntity>
         val profile = values[9] as ProfileEstimateEntity?
         @Suppress("UNCHECKED_CAST")
-        val profileSegments = values[10] as List<ProfileSegmentEstimateEntity>
+        val profileHistory = values[10] as List<ProfileEstimateEntity>
         @Suppress("UNCHECKED_CAST")
-        val syncStates = values[11] as List<SyncStateEntity>
-        val settings = values[12] as AppSettings
-        val autoConnect = values[13] as AutoConnectUi?
-        val message = values[14] as String?
-        val dryRun = values[15] as DryRunUi?
-        val cloudReplay = values[16] as CloudReplayUiModel?
-        val cloudJobs = values[17] as CloudJobsUiModel?
-        val analysisHistory = values[18] as CloudAnalysisHistoryUiModel?
-        val analysisTrend = values[19] as CloudAnalysisTrendUiModel?
-        val insightsFilter = values[20] as InsightsFilterUi
+        val profileSegments = values[11] as List<ProfileSegmentEstimateEntity>
+        @Suppress("UNCHECKED_CAST")
+        val syncStates = values[12] as List<SyncStateEntity>
+        val settings = values[13] as AppSettings
+        val autoConnect = values[14] as AutoConnectUi?
+        val message = values[15] as String?
+        val dryRun = values[16] as DryRunUi?
+        val cloudReplay = values[17] as CloudReplayUiModel?
+        val cloudJobs = values[18] as CloudJobsUiModel?
+        val analysisHistory = values[19] as CloudAnalysisHistoryUiModel?
+        val analysisTrend = values[20] as CloudAnalysisTrendUiModel?
+        val insightsFilter = values[21] as InsightsFilterUi
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -351,6 +354,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val crText = segment.crGramPerUnit?.let { String.format("%.2f", it) } ?: "-"
                 "${segment.dayType} ${segment.timeSlot}: ISF=$isfText, CR=$crText, conf=${String.format("%.0f", segment.confidence * 100)}%, n(ISF/CR)=${segment.isfSampleCount}/${segment.crSampleCount}"
             }
+        val profileHistoryPoints = profileHistory
+            .asSequence()
+            .map { row ->
+                IsfCrHistoryPointUi(
+                    timestamp = row.timestamp,
+                    isfMerged = row.isfMmolPerUnit,
+                    crMerged = row.crGramPerUnit,
+                    isfCalculated = row.calculatedIsfMmolPerUnit,
+                    crCalculated = row.calculatedCrGramPerUnit
+                )
+            }
+            .sortedBy { it.timestamp }
+            .toList()
         val insightsFilterLabel = buildInsightsFilterLabel(insightsFilter)
 
         MainUiState(
@@ -421,6 +437,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             profileCalculatedIsfSamples = profile?.calculatedIsfSampleCount,
             profileCalculatedCrSamples = profile?.calculatedCrSampleCount,
             profileLookbackDays = profile?.lookbackDays,
+            isfCrHistoryPoints = profileHistoryPoints,
+            isfCrHistoryLastUpdatedTs = profileHistoryPoints.lastOrNull()?.timestamp,
             profileSegmentLines = profileSegmentLines,
             yesterdayProfileLines = yesterdayProfileLines,
             isfCrDeepLines = isfCrDeepLines,
@@ -2472,6 +2490,8 @@ data class MainUiState(
     val profileCalculatedIsfSamples: Int? = null,
     val profileCalculatedCrSamples: Int? = null,
     val profileLookbackDays: Int? = null,
+    val isfCrHistoryPoints: List<IsfCrHistoryPointUi> = emptyList(),
+    val isfCrHistoryLastUpdatedTs: Long? = null,
     val profileSegmentLines: List<String> = emptyList(),
     val yesterdayProfileLines: List<String> = emptyList(),
     val isfCrDeepLines: List<String> = emptyList(),

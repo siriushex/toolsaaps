@@ -22,6 +22,9 @@ interface ProfileEstimateDao {
     @Query("SELECT * FROM profile_estimates WHERE id != 'active' AND timestamp >= :since ORDER BY timestamp DESC")
     suspend fun historySince(since: Long): List<ProfileEstimateEntity>
 
+    @Query("SELECT * FROM profile_estimates WHERE id != 'active' ORDER BY timestamp DESC LIMIT :limit")
+    fun observeHistory(limit: Int): Flow<List<ProfileEstimateEntity>>
+
     @Query("DELETE FROM profile_estimates WHERE id != 'active' AND timestamp < :olderThan")
     suspend fun deleteHistoryOlderThan(olderThan: Long)
 }

@@ -5,13 +5,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,16 +35,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class Screen(val title: String) {
     ONBOARDING("Onboarding & Connect"),
     DASHBOARD("Live Dashboard"),
     TELEMETRY("Telemetry"),
+    ISF_CR("ISF/CR History"),
     FORECAST("Forecast Studio"),
     REPLAY("Replay Lab"),
     RULES("Rules & Automation"),
@@ -83,6 +94,7 @@ fun CopilotRoot(vm: MainViewModel = viewModel()) {
                 Screen.ONBOARDING -> OnboardingScreen(state, vm)
                 Screen.DASHBOARD -> DashboardScreen(state, vm)
                 Screen.TELEMETRY -> TelemetryScreen(state)
+                Screen.ISF_CR -> IsfCrHistoryScreen(state)
                 Screen.FORECAST -> ForecastScreen(state)
                 Screen.REPLAY -> ReplayLabScreen(state, vm)
                 Screen.RULES -> RulesScreen(state, vm)
@@ -318,6 +330,162 @@ private fun TelemetryScreen(state: MainUiState) {
         } else {
             items(state.telemetryLines) { line ->
                 Text(line)
+            }
+        }
+    }
+}
+
+@Composable
+private fun IsfCrHistoryScreen(state: MainUiState) {
+    var window by remember { mutableStateOf(IsfCrHistoryWindow.DAY) }
+    val anchorTs = state.isfCrHistoryLastUpdatedTs ?: System.currentTimeMillis()
+    val points = remember(state.isfCrHistoryPoints, state.isfCrHistoryLastUpdatedTs, window) {
+        IsfCrHistoryResolver.resolve(
+            points = state.isfCrHistoryPoints,
+            nowTs = anchorTs,
+            window = window,
+            maxPoints = 360
+        )
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Current real ISF: ${(state.profileCalculatedIsf ?: state.profileIsf)?.let { String.format("%.2f mmol/L/U", it) } ?: "-"}")
+            Text("Current real CR: ${(state.profileCalculatedCr ?: state.profileCr)?.let { String.format("%.2f g/U", it) } ?: "-"}")
+            Text("Current merged ISF/CR: ${state.profileIsf?.let { String.format("%.2f", it) } ?: "-"} / ${state.profileCr?.let { String.format("%.2f", it) } ?: "-"}")
+            Text(
+                "History: ${points.size} shown / ${state.isfCrHistoryPoints.size} total" +
+                    (state.isfCrHistoryLastUpdatedTs?.let { ", updated ${formatHistoryTs(it)}" } ?: "")
+            )
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(IsfCrHistoryWindow.entries.toList()) { candidate ->
+                    Button(
+                        onClick = { window = candidate },
+                        enabled = candidate != window
+                    ) {
+                        Text(candidate.label)
+                    }
+                }
+            }
+        }
+        item {
+            if (points.isEmpty()) {
+                Text("No ISF/CR history yet")
+            } else {
+                IsfCrSeriesCard(
+                    title = "Real ISF history",
+                    unit = "mmol/L/U",
+                    color = Color(0xFFE65100),
+                    points = points,
+                    valueSelector = { it.isfReal }
+                )
+            }
+        }
+        item {
+            if (points.isNotEmpty()) {
+                IsfCrSeriesCard(
+                    title = "Real CR history",
+                    unit = "g/U",
+                    color = Color(0xFF1565C0),
+                    points = points,
+                    valueSelector = { it.crReal }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IsfCrSeriesCard(
+    title: String,
+    unit: String,
+    color: Color,
+    points: List<IsfCrHistoryPointUi>,
+    valueSelector: (IsfCrHistoryPointUi) -> Double
+) {
+    val series = remember(points) {
+        points
+            .map { it.timestamp to valueSelector(it) }
+            .sortedBy { it.first }
+    }
+    val min = series.minOfOrNull { it.second }
+    val max = series.maxOfOrNull { it.second }
+    val last = series.lastOrNull()?.second
+    val startTs = series.firstOrNull()?.first
+    val endTs = series.lastOrNull()?.first
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(title)
+            if (series.size < 2) {
+                Text("Not enough points for chart")
+            } else {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                ) {
+                    val left = 32.dp.toPx()
+                    val right = 8.dp.toPx()
+                    val top = 8.dp.toPx()
+                    val bottom = 18.dp.toPx()
+                    val chartWidth = (size.width - left - right).coerceAtLeast(1f)
+                    val chartHeight = (size.height - top - bottom).coerceAtLeast(1f)
+                    val minTs = series.first().first
+                    val maxTs = maxOf(minTs + 1L, series.last().first)
+                    val minY = series.minOf { it.second }
+                    val maxY = series.maxOf { it.second }
+                    val spanY = (maxY - minY).takeIf { it > 1e-6 } ?: 1.0
+
+                    repeat(5) { index ->
+                        val y = top + chartHeight * index / 4f
+                        drawLine(
+                            color = Color(0x22000000),
+                            start = Offset(left, y),
+                            end = Offset(left + chartWidth, y),
+                            strokeWidth = 1f
+                        )
+                    }
+                    drawLine(
+                        color = Color(0x66000000),
+                        start = Offset(left, top),
+                        end = Offset(left, top + chartHeight),
+                        strokeWidth = 1.2f
+                    )
+                    drawLine(
+                        color = Color(0x66000000),
+                        start = Offset(left, top + chartHeight),
+                        end = Offset(left + chartWidth, top + chartHeight),
+                        strokeWidth = 1.2f
+                    )
+
+                    val path = Path()
+                    series.forEachIndexed { idx, point ->
+                        val x = left + ((point.first - minTs).toFloat() / (maxTs - minTs).toFloat()) * chartWidth
+                        val y = top + ((maxY - point.second) / spanY).toFloat() * chartHeight
+                        if (idx == 0) {
+                            path.moveTo(x, y)
+                        } else {
+                            path.lineTo(x, y)
+                        }
+                    }
+                    drawPath(path = path, color = color, style = Stroke(width = 3f))
+                }
+            }
+            Text(
+                "min=${min?.let { String.format("%.2f", it) } ?: "-"} $unit, " +
+                    "max=${max?.let { String.format("%.2f", it) } ?: "-"} $unit, " +
+                    "last=${last?.let { String.format("%.2f", it) } ?: "-"} $unit"
+            )
+            if (startTs != null && endTs != null) {
+                Text("${formatHistoryTs(startTs)} → ${formatHistoryTs(endTs)}")
             }
         }
     }
@@ -900,6 +1068,14 @@ private fun ReplayLabScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
     }
+}
+
+private val historyTsFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+
+private fun formatHistoryTs(timestamp: Long): String {
+    return Instant.ofEpochMilli(timestamp)
+        .atZone(ZoneId.systemDefault())
+        .format(historyTsFormatter)
 }
 
 @Composable

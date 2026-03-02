@@ -671,3 +671,45 @@
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest :app:compileDebugKotlin :app:installDebug`
 3. На телефоне в `audit_logs` проверить `forecast_calibration_bias_applied` и величины `h5/h30/h60`.
 4. Сравнить динамику `adaptive_controller_*` и долю `safety_force_high` до/после на интервале нескольких часов.
+
+# Изменения — Этап 21: UI вкладка истории реальных ISF/CR
+
+## Что сделано
+- Добавлена новая вкладка в UI: `ISF/CR History`.
+- Расширен источник данных Room:
+  - в `ProfileEstimateDao` добавлен live-flow `observeHistory(limit)` для snapshot-истории `profile_estimates`.
+- Расширен `MainViewModel`:
+  - в `combine` добавлен поток истории профиля,
+  - в `MainUiState` добавлены поля:
+    - `isfCrHistoryPoints`,
+    - `isfCrHistoryLastUpdatedTs`.
+- Добавлен новый UI-резолвер истории:
+  - `IsfCrHistoryResolver` + `IsfCrHistoryWindow` + `IsfCrHistoryPointUi`,
+  - фильтрация по окну (`1h/24h/7d/30d/365d/all`),
+  - сортировка, дедупликация по timestamp,
+  - downsampling для стабильного рендера графика.
+- Добавлен новый экран в `CopilotRoot`:
+  - текущие real/merged ISF/CR,
+  - переключатели периодов,
+  - два графика по истории: `Real ISF` и `Real CR`.
+- Добавлены unit-тесты:
+  - `IsfCrHistoryResolverTest` (фильтрация окна, downsampling, дедупликация).
+
+## Почему так
+- Исторические snapshot-данные ISF/CR уже сохранялись в БД, но не были выведены в отдельный визуальный экран.
+- Новый экран даёт быстрый контроль «текущих + исторических» реальных значений без изменения прогнозного/автоматического контура.
+- Downsampling и дедупликация предотвращают перегрузку UI на длинной истории.
+
+## Риски / ограничения
+- График строится по snapshot-частоте пересчёта аналитики; если recalc запускается редко, линия будет разреженной.
+- `real` значения отображаются как `calculated` (history-only) с fallback на merged, если calculated отсутствует.
+- `lintDebug` в проекте остаётся красным из-за отдельной существующей проблемы манифеста (`RemoveWorkManagerInitializer`), не связанной с этим этапом.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrHistoryResolverTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+4. Открыть приложение -> вкладка `ISF/CR History`:
+   - проверить текущие значения real/merged,
+   - переключить периоды (`1h/24h/7d/30d/365d/all`),
+   - убедиться, что графики ISF/CR обновляются и масштабируются.
