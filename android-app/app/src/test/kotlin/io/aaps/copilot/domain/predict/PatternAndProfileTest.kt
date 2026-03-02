@@ -509,4 +509,77 @@ class PatternAndProfileTest {
         assertThat(estimate.telemetryIsfSampleCount).isEqualTo(0)
         assertThat(estimate.telemetryCrSampleCount).isEqualTo(0)
     }
+
+    @Test
+    fun profileEstimator_hourly_prefersHistoryOverTelemetry_whenHourHasEnoughSamples() {
+        val zone = ZoneId.systemDefault()
+        val day = LocalDateTime.of(2026, 3, 1, 0, 0).atZone(zone).toInstant().toEpochMilli()
+        val h9a = day + 9 * 60 * 60_000L
+        val h9b = day + 9 * 60 * 60_000L + 50 * 60_000L
+
+        val glucose = listOf(
+            GlucosePoint(h9a, 9.0, "test", DataQuality.OK),
+            GlucosePoint(h9a + 90 * 60_000L, 7.0, "test", DataQuality.OK),
+            GlucosePoint(h9b, 10.0, "test", DataQuality.OK),
+            GlucosePoint(h9b + 95 * 60_000L, 8.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(h9a, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(h9b, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(day + 2 * 60 * 60_000L, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3.0")),
+            TherapyEvent(day + 4 * 60 * 60_000L, "meal_bolus", mapOf("grams" to "24", "bolusUnits" to "2.4"))
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = h9b + 2 * 60_000L, key = "isf_value", valueDouble = 120.0),
+            TelemetrySignal(ts = h9b + 2 * 60_000L, key = "cr_value", valueDouble = 28.0)
+        )
+
+        val hourly = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minSegmentSamples = 2,
+                trimFraction = 0.0
+            )
+        ).estimateHourly(glucose, therapy, telemetry)
+
+        val hour9 = hourly.firstOrNull { it.hour == 9 }
+        assertThat(hour9).isNotNull()
+        assertThat(hour9!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+    }
+
+    @Test
+    fun profileEstimator_segment_prefersHistoryOverTelemetry_whenSegmentHasEnoughSamples() {
+        val zone = ZoneId.systemDefault()
+        val saturdayMorning = LocalDateTime.of(2026, 3, 7, 8, 0).atZone(zone).toInstant().toEpochMilli()
+        val sundayMorning = LocalDateTime.of(2026, 3, 8, 8, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val glucose = listOf(
+            GlucosePoint(saturdayMorning, 9.2, "test", DataQuality.OK),
+            GlucosePoint(saturdayMorning + 90 * 60_000L, 7.2, "test", DataQuality.OK),
+            GlucosePoint(sundayMorning, 9.0, "test", DataQuality.OK),
+            GlucosePoint(sundayMorning + 90 * 60_000L, 7.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(saturdayMorning, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(sundayMorning, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(saturdayMorning - 4 * 60 * 60_000L, "meal_bolus", mapOf("grams" to "24", "bolusUnits" to "2.0")),
+            TherapyEvent(sundayMorning - 4 * 60 * 60_000L, "meal_bolus", mapOf("grams" to "30", "bolusUnits" to "3.0"))
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = sundayMorning + 2 * 60_000L, key = "isf_value", valueDouble = 140.0),
+            TelemetrySignal(ts = sundayMorning + 2 * 60_000L, key = "cr_value", valueDouble = 35.0)
+        )
+
+        val segments = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minSegmentSamples = 2,
+                trimFraction = 0.0
+            )
+        ).estimateSegments(glucose, therapy, telemetry)
+
+        val weekendMorning = segments.firstOrNull {
+            it.dayType == DayType.WEEKEND && it.timeSlot == ProfileTimeSlot.MORNING
+        }
+        assertThat(weekendMorning).isNotNull()
+        assertThat(weekendMorning!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+    }
 }

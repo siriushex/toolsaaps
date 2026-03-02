@@ -812,3 +812,30 @@
 1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest`
 3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:assembleDebug`
+
+# Изменения — Этап 25: Усиление fallback-порогов для hourly/segment real ISF/CR
+
+## Что сделано
+- Усилен критерий подключения telemetry fallback в `ProfileEstimator`:
+  - для `estimateSegments`, `estimateHourly`, `estimateHourlyByDayType`
+  - вместо `minSamples=1` теперь используется `minSegmentSamples` (по умолчанию `2`).
+- Это означает:
+  - если в конкретном часе/сегменте есть минимум 2 history sample, telemetry туда не подмешивается;
+  - telemetry включается только когда история по этому бакету действительно разреженная.
+- Добавлены unit-тесты:
+  - `profileEstimator_hourly_prefersHistoryOverTelemetry_whenHourHasEnoughSamples`
+  - `profileEstimator_segment_prefersHistoryOverTelemetry_whenSegmentHasEnoughSamples`
+- Подправлены синтетические тестовые сценарии так, чтобы correction sample не отфильтровывались `carbs-around` guard-логикой.
+
+## Почему так
+- На hourly/segment уровнях наиболее заметны “скачки” при случайном fallback на telemetry.
+- Порог `2` делает локальный профиль устойчивее и ближе к “real history-first” в практическом UI.
+
+## Риски / ограничения
+- Для редких бакетов (мало событий) больше часов/сегментов могут оставаться пустыми до накопления истории.
+- Это ожидаемый компромисс между устойчивостью и покрытием.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest.profileEstimator_hourly_prefersHistoryOverTelemetry_whenHourHasEnoughSamples" --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest.profileEstimator_segment_prefersHistoryOverTelemetry_whenSegmentHasEnoughSamples"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug`

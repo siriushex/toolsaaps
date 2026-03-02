@@ -164,12 +164,12 @@ class ProfileEstimator(
             val isfValues = selectSamples(
                 history = isfHistoryBySegment[key].orEmpty(),
                 telemetry = isfTelemetryBySegment[key].orEmpty(),
-                minSamples = 1
+                minSamples = config.minSegmentSamples
             ).map { it.value }
             val crValues = selectSamples(
                 history = crHistoryBySegment[key].orEmpty(),
                 telemetry = crTelemetryBySegment[key].orEmpty(),
-                minSamples = 1
+                minSamples = config.minSegmentSamples
             ).map { it.value }
             val isfCount = isfValues.size
             val crCount = crValues.size
@@ -243,12 +243,12 @@ class ProfileEstimator(
             val isfValues = selectSamples(
                 history = isfHistoryByHour[hour].orEmpty(),
                 telemetry = isfTelemetryByHour[hour].orEmpty(),
-                minSamples = 1
+                minSamples = config.minSegmentSamples
             ).map { it.value }
             val crValues = selectSamples(
                 history = crHistoryByHour[hour].orEmpty(),
                 telemetry = crTelemetryByHour[hour].orEmpty(),
-                minSamples = 1
+                minSamples = config.minSegmentSamples
             ).map { it.value }
             val isfCount = isfValues.size
             val crCount = crValues.size
@@ -298,12 +298,12 @@ class ProfileEstimator(
                 val isfValues = selectSamples(
                     history = isfHistoryByHourDay[key].orEmpty(),
                     telemetry = isfTelemetryByHourDay[key].orEmpty(),
-                    minSamples = 1
+                    minSamples = config.minSegmentSamples
                 ).map { it.value }
                 val crValues = selectSamples(
                     history = crHistoryByHourDay[key].orEmpty(),
                     telemetry = crTelemetryByHourDay[key].orEmpty(),
-                    minSamples = 1
+                    minSamples = config.minSegmentSamples
                 ).map { it.value }
                 val isfCount = isfValues.size
                 val crCount = crValues.size
