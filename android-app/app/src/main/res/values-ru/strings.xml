@@ -1,0 +1,97 @@
+<resources>
+    <string name="app_name">AAPS Predictive Copilot</string>
+
+    <string name="local_nightscout_channel_name">Локальный Nightscout Runtime</string>
+    <string name="local_nightscout_channel_description">Поддерживает loopback endpoint Nightscout для интеграции с AAPS</string>
+    <string name="local_nightscout_notification_title">Локальный Nightscout активен</string>
+    <string name="local_nightscout_notification_text">Loopback endpoint: https://127.0.0.1:%1$d</string>
+    <string name="local_ingest_notification_title">Локальный прием данных активен</string>
+    <string name="local_ingest_notification_text">Copilot поддерживает каналы локальных данных AAPS/xDrip</string>
+
+    <string name="menu_more">Еще</string>
+    <string name="menu_audit_log">Журнал аудита</string>
+    <string name="menu_analytics">Аналитика</string>
+    <string name="menu_settings">Настройки</string>
+
+    <string name="nav_overview">Обзор</string>
+    <string name="nav_forecast">Прогноз</string>
+    <string name="nav_uam">UAM</string>
+    <string name="nav_safety">Безопасность</string>
+
+    <string name="app_health_title">Состояние приложения</string>
+    <string name="app_health_last_sync">Последняя синхронизация: %1$s</string>
+
+    <string name="status_info">Инфо</string>
+    <string name="status_ok">ОК</string>
+    <string name="status_warn">Внимание</string>
+    <string name="status_alert">Тревога</string>
+    <string name="status_stale_short">Устар.</string>
+    <string name="status_ok_short">ОК</string>
+    <string name="status_on_short">ВКЛ</string>
+    <string name="status_off_short">ВЫКЛ</string>
+
+    <string name="state_loading">Загрузка…</string>
+    <string name="state_error_generic">Нет соединения или ошибка парсинга</string>
+    <string name="state_stale">Данные устарели</string>
+
+    <string name="placeholder_missing">--</string>
+
+    <string name="unit_mmol_l">mmol/L</string>
+    <string name="unit_mmol_l_5m">mmol/L за 5м</string>
+    <string name="unit_g">г</string>
+    <string name="unit_u">Ед</string>
+    <string name="unit_percent">%</string>
+    <string name="unit_minutes">мин</string>
+    <string name="unit_actions_6h">действий / 6ч</string>
+
+    <string name="metric_current_glucose">Текущий сахар</string>
+    <string name="metric_delta">Изменение сахара</string>
+    <string name="metric_iob">IOB</string>
+    <string name="metric_cob">COB</string>
+    <string name="metric_base_target">Базовая цель</string>
+    <string name="metric_stale_limit">Лимит устаревания</string>
+    <string name="metric_max_actions">Лимит авто-действий</string>
+
+    <string name="section_overview_metrics">Ключевые метрики</string>
+    <string name="section_overview_predictions">Прогнозы</string>
+    <string name="section_forecast_horizons">Горизонты прогноза</string>
+    <string name="section_forecast_quality">Качество прогноза</string>
+    <string name="section_uam_inferred">Инференс UAM</string>
+    <string name="section_uam_calculated">Расчет UAM</string>
+    <string name="section_safety_limits">Глобальные лимиты безопасности</string>
+    <string name="section_safety_debug">Текущее состояние safety</string>
+    <string name="section_audit_recent">Последние действия и правила</string>
+    <string name="section_analytics_quality">Метрики качества</string>
+    <string name="section_analytics_baseline">Отклонения от baseline</string>
+    <string name="section_settings_connection">Подключение и runtime</string>
+
+    <string name="overview_empty">Данных сахара пока нет</string>
+    <string name="forecast_empty">Данных прогноза пока нет</string>
+    <string name="uam_empty">Данных UAM пока нет</string>
+    <string name="safety_empty">Данных безопасности пока нет</string>
+    <string name="audit_empty">Записей аудита пока нет</string>
+    <string name="analytics_empty">Данных аналитики пока нет</string>
+    <string name="settings_empty">Данных настроек пока нет</string>
+
+    <string name="overview_hint">Для доступности используются и иконка, и текст статуса.</string>
+    <string name="uam_hint">Карточки UAM показывают и inferred, и calculated значения.</string>
+    <string name="safety_hint">Kill switch блокирует только автоматические действия. Ручные команды доступны.</string>
+
+    <string name="label_uam_inferred">UAM inferred carbs</string>
+    <string name="label_uam_calculated">UAM calculated carbs</string>
+    <string name="label_confidence">Уверенность</string>
+    <string name="label_active_state">Активно</string>
+    <string name="label_kill_switch">Kill switch</string>
+    <string name="label_sensor_quality">Качество сенсора</string>
+
+    <string name="settings_base_target">Базовая цель</string>
+    <string name="settings_nightscout_url">Nightscout URL</string>
+    <string name="settings_resolved_url">Resolved URL</string>
+    <string name="settings_insulin_profile">Профиль инсулина</string>
+    <string name="settings_local_nightscout">Локальный Nightscout</string>
+
+    <string name="safety_kill_switch_on">Kill switch включен: автоматические действия заблокированы.</string>
+    <string name="safety_kill_switch_off">Kill switch выключен: автоматические действия разрешены.</string>
+
+    <string name="prediction_chip_template">%1$d мин: %2$s [%3$s–%4$s]</string>
+</resources>

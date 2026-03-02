@@ -1,9 +1,97 @@
 <resources>
     <string name="app_name">AAPS Predictive Copilot</string>
+
     <string name="local_nightscout_channel_name">Local Nightscout Runtime</string>
     <string name="local_nightscout_channel_description">Keeps local Nightscout loopback endpoint active for AAPS integration</string>
     <string name="local_nightscout_notification_title">Local Nightscout is active</string>
     <string name="local_nightscout_notification_text">Loopback endpoint: https://127.0.0.1:%1$d</string>
     <string name="local_ingest_notification_title">Local data ingest is active</string>
     <string name="local_ingest_notification_text">Copilot keeps local AAPS/xDrip data channels alive</string>
+
+    <string name="menu_more">More</string>
+    <string name="menu_audit_log">Audit Log</string>
+    <string name="menu_analytics">Analytics</string>
+    <string name="menu_settings">Settings</string>
+
+    <string name="nav_overview">Overview</string>
+    <string name="nav_forecast">Forecast</string>
+    <string name="nav_uam">UAM</string>
+    <string name="nav_safety">Safety</string>
+
+    <string name="app_health_title">App Health</string>
+    <string name="app_health_last_sync">Last sync: %1$s</string>
+
+    <string name="status_info">Info</string>
+    <string name="status_ok">OK</string>
+    <string name="status_warn">Warning</string>
+    <string name="status_alert">Alert</string>
+    <string name="status_stale_short">Stale</string>
+    <string name="status_ok_short">OK</string>
+    <string name="status_on_short">ON</string>
+    <string name="status_off_short">OFF</string>
+
+    <string name="state_loading">Loading…</string>
+    <string name="state_error_generic">No connection or parsing error</string>
+    <string name="state_stale">Data is stale</string>
+
+    <string name="placeholder_missing">--</string>
+
+    <string name="unit_mmol_l">mmol/L</string>
+    <string name="unit_mmol_l_5m">mmol/L per 5m</string>
+    <string name="unit_g">g</string>
+    <string name="unit_u">U</string>
+    <string name="unit_percent">%</string>
+    <string name="unit_minutes">min</string>
+    <string name="unit_actions_6h">actions / 6h</string>
+
+    <string name="metric_current_glucose">Current glucose</string>
+    <string name="metric_delta">Glucose delta</string>
+    <string name="metric_iob">IOB</string>
+    <string name="metric_cob">COB</string>
+    <string name="metric_base_target">Base target</string>
+    <string name="metric_stale_limit">Stale limit</string>
+    <string name="metric_max_actions">Max auto-actions</string>
+
+    <string name="section_overview_metrics">Core Metrics</string>
+    <string name="section_overview_predictions">Predictions</string>
+    <string name="section_forecast_horizons">Prediction Horizons</string>
+    <string name="section_forecast_quality">Forecast Quality</string>
+    <string name="section_uam_inferred">Inferred UAM</string>
+    <string name="section_uam_calculated">Calculated UAM</string>
+    <string name="section_safety_limits">Global Hard Safety Limits</string>
+    <string name="section_safety_debug">Safety Runtime State</string>
+    <string name="section_audit_recent">Recent Actions and Rules</string>
+    <string name="section_analytics_quality">Quality Metrics</string>
+    <string name="section_analytics_baseline">Baseline Deltas</string>
+    <string name="section_settings_connection">Connection and Runtime</string>
+
+    <string name="overview_empty">No glucose data yet</string>
+    <string name="forecast_empty">No forecast data yet</string>
+    <string name="uam_empty">No UAM data yet</string>
+    <string name="safety_empty">No safety data yet</string>
+    <string name="audit_empty">No audit records yet</string>
+    <string name="analytics_empty">No analytics data yet</string>
+    <string name="settings_empty">No settings data yet</string>
+
+    <string name="overview_hint">Status includes icon and text for accessibility.</string>
+    <string name="uam_hint">UAM cards display both inferred and calculated values.</string>
+    <string name="safety_hint">Kill switch affects automatic actions only. Manual commands remain available.</string>
+
+    <string name="label_uam_inferred">UAM inferred carbs</string>
+    <string name="label_uam_calculated">UAM calculated carbs</string>
+    <string name="label_confidence">Confidence</string>
+    <string name="label_active_state">Active</string>
+    <string name="label_kill_switch">Kill switch</string>
+    <string name="label_sensor_quality">Sensor quality</string>
+
+    <string name="settings_base_target">Base target</string>
+    <string name="settings_nightscout_url">Nightscout URL</string>
+    <string name="settings_resolved_url">Resolved URL</string>
+    <string name="settings_insulin_profile">Insulin profile</string>
+    <string name="settings_local_nightscout">Local Nightscout</string>
+
+    <string name="safety_kill_switch_on">Kill switch is enabled: automatic actions are blocked.</string>
+    <string name="safety_kill_switch_off">Kill switch is disabled: automatic actions are allowed.</string>
+
+    <string name="prediction_chip_template">%1$d min: %2$s [%3$s–%4$s]</string>
 </resources>

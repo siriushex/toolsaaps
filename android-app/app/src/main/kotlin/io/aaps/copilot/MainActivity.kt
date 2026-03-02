@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.HealthConnectClient
@@ -17,7 +16,8 @@ import androidx.lifecycle.lifecycleScope
 import io.aaps.copilot.service.AppVisibilityTracker
 import io.aaps.copilot.service.HealthConnectActivityCollector
 import io.aaps.copilot.service.LocalNightscoutServiceController
-import io.aaps.copilot.ui.CopilotRoot
+import io.aaps.copilot.ui.foundation.CopilotFoundationRoot
+import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -43,8 +43,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            Surface(color = MaterialTheme.colorScheme.background) {
-                CopilotRoot()
+            AapsCopilotTheme {
+                Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
+                    CopilotFoundationRoot()
+                }
             }
         }
     }

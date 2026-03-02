@@ -53,6 +53,22 @@ import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutTls
+import io.aaps.copilot.ui.foundation.screens.AnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.AppHealthUiState
+import io.aaps.copilot.ui.foundation.screens.AuditUiState
+import io.aaps.copilot.ui.foundation.screens.ForecastUiState
+import io.aaps.copilot.ui.foundation.screens.OverviewUiState
+import io.aaps.copilot.ui.foundation.screens.SafetyUiState
+import io.aaps.copilot.ui.foundation.screens.SettingsUiState
+import io.aaps.copilot.ui.foundation.screens.UamUiState
+import io.aaps.copilot.ui.foundation.screens.toAnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.toAppHealthUiState
+import io.aaps.copilot.ui.foundation.screens.toAuditUiState
+import io.aaps.copilot.ui.foundation.screens.toForecastUiState
+import io.aaps.copilot.ui.foundation.screens.toOverviewUiState
+import io.aaps.copilot.ui.foundation.screens.toSafetyUiState
+import io.aaps.copilot.ui.foundation.screens.toSettingsUiState
+import io.aaps.copilot.ui.foundation.screens.toUamUiState
 import java.net.URI
 import java.time.Instant
 import java.time.LocalDate
@@ -66,10 +82,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -346,6 +364,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val forecast5Latest = latestForecast5Row?.valueMmol ?: latestForecastValue(forecasts, 5)
         val forecast30Latest = latestForecast30Row?.valueMmol ?: latestForecastValue(forecasts, 30)
         val forecast60Latest = latestForecast60Row?.valueMmol ?: latestForecastValue(forecasts, 60)
+        val forecast5CiLow = latestForecast5Row?.ciLow
+        val forecast5CiHigh = latestForecast5Row?.ciHigh
+        val forecast30CiLow = latestForecast30Row?.ciLow
+        val forecast30CiHigh = latestForecast30Row?.ciHigh
+        val forecast60CiLow = latestForecast60Row?.ciLow
+        val forecast60CiHigh = latestForecast60Row?.ciHigh
+        val latestIobUnits = telemetryByKey["iob_units"].toNumericValue()
+        val latestCobGrams = telemetryByKey["cob_grams"].toNumericValue()
         val calculatedUamFlag = telemetryByKey["uam_calculated_flag"].toNumericValue()
         val calculatedUamConfidence = telemetryByKey["uam_calculated_confidence"].toNumericValue()
         val calculatedUamCarbs = telemetryByKey["uam_calculated_carbs_grams"].toNumericValue()
@@ -445,11 +471,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             adaptiveControllerStaleMaxMinutes = settings.adaptiveControllerStaleMaxMinutes,
             adaptiveControllerMaxActions6h = settings.adaptiveControllerMaxActions6h,
             adaptiveControllerMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
+            latestDataAgeMinutes = latestDataAgeMinutes,
+            nightscoutSyncAgeMinutes = nightscoutAgeMinutes,
+            cloudPushBacklogMinutes = cloudPushBacklogMinutes,
             latestGlucoseMmol = latest?.mmol,
             glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null,
+            latestIobUnits = latestIobUnits,
+            latestCobGrams = latestCobGrams,
             forecast5m = forecast5Latest,
+            forecast5mCiLow = forecast5CiLow,
+            forecast5mCiHigh = forecast5CiHigh,
             forecast30m = forecast30Latest,
+            forecast30mCiLow = forecast30CiLow,
+            forecast30mCiHigh = forecast30CiHigh,
             forecast60m = forecast60Latest,
+            forecast60mCiLow = forecast60CiLow,
+            forecast60mCiHigh = forecast60CiHigh,
             calculatedUamActive = calculatedUamFlag?.let { it >= 0.5 },
             calculatedUamConfidence = calculatedUamConfidence,
             calculatedUamCarbsGrams = calculatedUamCarbs,
@@ -588,6 +625,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = MainUiState()
     )
+
+    val messageUiState: StateFlow<String?> = messageState.asStateFlow()
+
+    val appHealthUiState: StateFlow<AppHealthUiState> = uiState
+        .map { it.toAppHealthUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = MainUiState().toAppHealthUiState()
+        )
+
+    val overviewUiState: StateFlow<OverviewUiState> = uiState
+        .map { it.toOverviewUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = OverviewUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
+        )
+
+    val forecastUiState: StateFlow<ForecastUiState> = uiState
+        .map { it.toForecastUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = ForecastUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
+        )
+
+    val uamUiState: StateFlow<UamUiState> = uiState
+        .map { it.toUamUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = UamUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
+        )
+
+    val safetyUiState: StateFlow<SafetyUiState> = uiState
+        .map { it.toSafetyUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = SafetyUiState(
+                loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
+                isStale = true,
+                killSwitchEnabled = false,
+                baseTarget = 5.5,
+                staleMinutesLimit = 10,
+                maxActionsIn6h = 3,
+                sensorQualitySummary = "--"
+            )
+        )
+
+    val auditUiState: StateFlow<AuditUiState> = uiState
+        .map { it.toAuditUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AuditUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
+        )
+
+    val analyticsUiState: StateFlow<AnalyticsUiState> = uiState
+        .map { it.toAnalyticsUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AnalyticsUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
+        )
+
+    val settingsUiState: StateFlow<SettingsUiState> = uiState
+        .map { it.toSettingsUiState() }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = SettingsUiState(
+                loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
+                isStale = true,
+                baseTarget = 5.5,
+                nightscoutUrl = "",
+                insulinProfileId = "NOVORAPID",
+                localNightscoutEnabled = false,
+                resolvedNightscoutUrl = ""
+            )
+        )
+
+    fun clearMessage() {
+        messageState.value = null
+    }
 
     fun saveConnections(nightscoutUrl: String, apiSecret: String, cloudUrl: String, exportUri: String?) {
         viewModelScope.launch {
@@ -2686,11 +2809,22 @@ data class MainUiState(
     val adaptiveControllerStaleMaxMinutes: Int = 15,
     val adaptiveControllerMaxActions6h: Int = 4,
     val adaptiveControllerMaxStepMmol: Double = 0.25,
+    val latestDataAgeMinutes: Long? = null,
+    val nightscoutSyncAgeMinutes: Long? = null,
+    val cloudPushBacklogMinutes: Long? = null,
     val latestGlucoseMmol: Double? = null,
     val glucoseDelta: Double? = null,
+    val latestIobUnits: Double? = null,
+    val latestCobGrams: Double? = null,
     val forecast5m: Double? = null,
+    val forecast5mCiLow: Double? = null,
+    val forecast5mCiHigh: Double? = null,
     val forecast30m: Double? = null,
+    val forecast30mCiLow: Double? = null,
+    val forecast30mCiHigh: Double? = null,
     val forecast60m: Double? = null,
+    val forecast60mCiLow: Double? = null,
+    val forecast60mCiHigh: Double? = null,
     val calculatedUamActive: Boolean? = null,
     val calculatedUamConfidence: Double? = null,
     val calculatedUamCarbsGrams: Double? = null,
