@@ -16,6 +16,8 @@
 6. Food catalog baseline sizes are fixed for current version: fast=100, medium=100, protein=50.
 7. Carb class resolution order is deterministic: explicit payload -> catalog text -> glucose pattern -> medium fallback.
 8. Runtime forecast bias from telemetry uses only normalized `cob_grams`/`iob_units`, is horizon-aware, and must keep output in physiologic clamps.
+9. UAM inference may run on minute-level CGM input, but UAM action/export cycle is bucketed to 5-minute cadence.
+10. Exported inferred carbs must be tagged (`UAM_ENGINE|id|seq|ver|mode`) and deduplicated against remote entries before sending.
 
 ## Data invariants
 1. Glucose and derived values in app domain use mmol/L.

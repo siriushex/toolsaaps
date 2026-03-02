@@ -239,6 +239,24 @@ private fun DashboardScreen(state: MainUiState, vm: MainViewModel) {
             Text("Forecast 30m: ${state.forecast30m?.let { String.format("%.2f", it) } ?: "-"}")
             Text("Forecast 1h: ${state.forecast60m?.let { String.format("%.2f", it) } ?: "-"}")
             Text(
+                "Inferred UAM: " + when (state.inferredUamActive) {
+                    null -> "-"
+                    true -> "ACTIVE"
+                    false -> "off"
+                } +
+                    (state.inferredUamConfidence?.let { ", conf=${String.format("%.0f%%", it * 100)}" } ?: "") +
+                    (state.inferredUamCarbsGrams?.let { ", carbs=${String.format("%.1f g", it)}" } ?: "") +
+                    (state.inferredUamIngestionTs?.let { ", t*=${formatHistoryTs(it)}" } ?: "") +
+                    (state.inferredUamBoostMode?.let { ", mode=${if (it) "BOOST" else "NORMAL"}" } ?: "")
+            )
+            Text(
+                "Inferred UAM details: " +
+                    listOfNotNull(
+                        state.inferredUamManualCobGrams?.let { "manual COB=${String.format("%.1f g", it)}" },
+                        state.inferredUamLastGAbsGrams?.let { "gAbs(last5)=${String.format("%.1f g", it)}" }
+                    ).ifEmpty { listOf("-") }.joinToString(", ")
+            )
+            Text(
                 "Calculated UAM: " + when (state.calculatedUamActive) {
                     null -> "-"
                     true -> "ACTIVE"
@@ -500,6 +518,16 @@ private fun ForecastScreen(state: MainUiState) {
             Text("30m: ${state.forecast30m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             Text("1h: ${state.forecast60m?.let { String.format("%.2f mmol/L", it) } ?: "-"}")
             Text(
+                "Inferred UAM: " +
+                    listOfNotNull(
+                        state.inferredUamActive?.let { if (it) "ACTIVE" else "off" },
+                        state.inferredUamConfidence?.let { "conf=${String.format("%.0f%%", it * 100)}" },
+                        state.inferredUamCarbsGrams?.let { "carbs=${String.format("%.1f g", it)}" },
+                        state.inferredUamIngestionTs?.let { "t*=${formatHistoryTs(it)}" },
+                        state.inferredUamBoostMode?.let { "mode=${if (it) "BOOST" else "NORMAL"}" }
+                    ).ifEmpty { listOf("-") }.joinToString(", ")
+            )
+            Text(
                 "Calculated UAM: " +
                     listOfNotNull(
                         state.calculatedUamActive?.let { if (it) "ACTIVE" else "off" },
@@ -668,6 +696,17 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var postHypoTarget by remember(state.postHypoTargetMmol) { mutableStateOf(String.format("%.1f", state.postHypoTargetMmol)) }
     var postHypoDuration by remember(state.postHypoDurationMinutes) { mutableStateOf(state.postHypoDurationMinutes.toString()) }
     var postHypoLookback by remember(state.postHypoLookbackMinutes) { mutableStateOf(state.postHypoLookbackMinutes.toString()) }
+    var uamInferenceEnabled by remember(state.enableUamInference) { mutableStateOf(state.enableUamInference) }
+    var uamBoostEnabled by remember(state.enableUamBoost) { mutableStateOf(state.enableUamBoost) }
+    var uamExportEnabled by remember(state.enableUamExportToAaps) { mutableStateOf(state.enableUamExportToAaps) }
+    var uamExportMode by remember(state.uamExportMode) { mutableStateOf(state.uamExportMode) }
+    var uamDryRun by remember(state.dryRunExport) { mutableStateOf(state.dryRunExport) }
+    var uamMinSnack by remember(state.uamMinSnackG) { mutableStateOf(state.uamMinSnackG.toString()) }
+    var uamMaxSnack by remember(state.uamMaxSnackG) { mutableStateOf(state.uamMaxSnackG.toString()) }
+    var uamSnackStep by remember(state.uamSnackStepG) { mutableStateOf(state.uamSnackStepG.toString()) }
+    var uamBackdate by remember(state.uamBackdateMinutesDefault) { mutableStateOf(state.uamBackdateMinutesDefault.toString()) }
+    var uamExportMinInterval by remember(state.uamExportMinIntervalMin) { mutableStateOf(state.uamExportMinIntervalMin.toString()) }
+    var uamExportMaxBackdate by remember(state.uamExportMaxBackdateMin) { mutableStateOf(state.uamExportMaxBackdateMin.toString()) }
     var maxActions by remember(state.maxActionsIn6Hours) { mutableStateOf(state.maxActionsIn6Hours.toString()) }
     var staleMax by remember(state.staleDataMaxMinutes) { mutableStateOf(state.staleDataMaxMinutes.toString()) }
     var patternMinSamples by remember(state.patternMinSamplesPerWindow) { mutableStateOf(state.patternMinSamplesPerWindow.toString()) }
@@ -708,6 +747,103 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Text("Apply insulin profile")
         }
         Text("Default profile: NOVORAPID.")
+        HorizontalDivider()
+        Text("UAM inference + AAPS export")
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Enable UAM inference")
+            Switch(checked = uamInferenceEnabled, onCheckedChange = { uamInferenceEnabled = it })
+        }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("UAM boost")
+            Switch(checked = uamBoostEnabled, onCheckedChange = { uamBoostEnabled = it })
+        }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Export inferred carbs to AAPS")
+            Switch(checked = uamExportEnabled, onCheckedChange = { uamExportEnabled = it })
+        }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Dry-run export (no send)")
+            Switch(checked = uamDryRun, onCheckedChange = { uamDryRun = it })
+        }
+        OutlinedTextField(
+            value = uamExportMode,
+            onValueChange = { uamExportMode = it.uppercase(Locale.US) },
+            label = { Text("Export mode (OFF/CONFIRMED_ONLY/INCREMENTAL)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "Learned multiplier: ${String.format("%.2f", state.uamLearnedMultiplier)} " +
+                "(NORMAL=${String.format("%.2f", state.uamLearnedMultiplier.coerceIn(0.8, 1.6))}, " +
+                "BOOST=${String.format("%.2f", (2.0 * state.uamLearnedMultiplier.coerceIn(0.8, 1.6)).coerceIn(1.5, 3.0))})"
+        )
+        Text(
+            "Inferred UAM now: " +
+                listOfNotNull(
+                    state.inferredUamActive?.let { if (it) "ACTIVE" else "off" },
+                    state.inferredUamCarbsGrams?.let { "carbs=${String.format("%.1f g", it)}" },
+                    state.inferredUamConfidence?.let { "conf=${String.format("%.0f%%", it * 100)}" },
+                    state.inferredUamIngestionTs?.let { "t*=${formatHistoryTs(it)}" }
+                ).ifEmpty { listOf("-") }.joinToString(", ")
+        )
+        OutlinedTextField(
+            value = uamMinSnack,
+            onValueChange = { uamMinSnack = it },
+            label = { Text("Min snack g") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = uamMaxSnack,
+            onValueChange = { uamMaxSnack = it },
+            label = { Text("Max snack g") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = uamSnackStep,
+            onValueChange = { uamSnackStep = it },
+            label = { Text("Snack step g") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = uamBackdate,
+            onValueChange = { uamBackdate = it },
+            label = { Text("Backdate minutes default") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = uamExportMinInterval,
+            onValueChange = { uamExportMinInterval = it },
+            label = { Text("Export min interval min") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = uamExportMaxBackdate,
+            onValueChange = { uamExportMaxBackdate = it },
+            label = { Text("Export max backdate min") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = {
+            vm.setUamRuntimeConfig(
+                enableInference = uamInferenceEnabled,
+                enableBoost = uamBoostEnabled,
+                enableExport = uamExportEnabled,
+                exportModeRaw = uamExportMode,
+                dryRunExport = uamDryRun
+            )
+        }) {
+            Text("Apply UAM runtime config")
+        }
+        Button(onClick = {
+            vm.setUamInferenceTuning(
+                minSnackG = uamMinSnack.toIntOrNull() ?: state.uamMinSnackG,
+                maxSnackG = uamMaxSnack.toIntOrNull() ?: state.uamMaxSnackG,
+                snackStepG = uamSnackStep.toIntOrNull() ?: state.uamSnackStepG,
+                backdateMinutes = uamBackdate.toIntOrNull() ?: state.uamBackdateMinutesDefault,
+                exportMinIntervalMin = uamExportMinInterval.toIntOrNull() ?: state.uamExportMinIntervalMin,
+                exportMaxBackdateMin = uamExportMaxBackdate.toIntOrNull() ?: state.uamExportMaxBackdateMin
+            )
+        }) {
+            Text("Apply UAM tuning")
+        }
         Text("Global hard safety limits")
         OutlinedTextField(
             value = maxActions,

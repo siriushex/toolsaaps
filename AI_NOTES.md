@@ -839,3 +839,59 @@
 1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest.profileEstimator_hourly_prefersHistoryOverTelemetry_whenHourHasEnoughSamples" --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest.profileEstimator_segment_prefersHistoryOverTelemetry_whenSegmentHasEnoughSamples"`
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.PatternAndProfileTest"`
 3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug`
+
+# Изменения — Этап 7: UAM Carb Inference + Boost + Backdated export в AAPS
+
+## Что сделано
+- Добавлен новый контур UAM inference и экспорта carbs:
+  - `UamInferenceEngine` (Kalman 1m smoothing -> 5m grid -> residual/gAbs -> discrete LS-fit по `(t*, C)`),
+  - `UamEventStore` (in-memory + Room persist),
+  - `UamExportCoordinator` (OFF/CONFIRMED_ONLY/INCREMENTAL, dry-run, idempotent dedup по `id+seq`),
+  - `AapsCarbGateway` + `NightscoutAapsCarbGateway` (post/fetch carbs entries).
+- Добавлено хранение UAM inference событий в Room:
+  - `uam_inference_events` + `UamInferenceEventDao` + `UamInferenceEventEntity`,
+  - `CopilotDatabase` обновлён до `version=9`.
+- Добавлены UAM настройки в `AppSettingsStore`/`AppSettings`:
+  - флаги `enableUamInference`, `enableUamBoost`, `enableUamExportToAaps`, `uamExportMode`, `dryRunExport`,
+  - persisted `uamLearnedMultiplier`,
+  - user-tuning (`minSnack/maxSnack/step/backdate`, export intervals/backdate limits и др.),
+  - helper `toUamUserSettings()`.
+- Интеграция в runtime цикл `AutomationRepository`:
+  - UAM inference запускается в 5-мин бакетах,
+  - результат пишется в telemetry (`uam_inferred_*`, `uam_manual_cob_grams`, `uam_inferred_gabs_last5_g`),
+  - экспорт в AAPS проходит через coordinator,
+  - `learnedMultiplier` обновляется малыми шагами при eligible-сценариях,
+  - `uam_value` теперь учитывает inferred UAM при активном событии.
+- В `UamInferenceEngine` исправлен учёт инсулина в residual-therapy через реальный `ISF`, а не константу.
+- Добавлена защита от дублей:
+  - carbs с тегом `UAM_ENGINE|id=...|seq=...|ver=1|mode=...|` распознаются парсером,
+  - при наличии nearby tagged/manual carbs новое событие не создаётся.
+- UI расширен:
+  - Dashboard/Forecast показывают inferred UAM (`carbs`, `t*`, `confidence`, `mode`, `manual COB`, `gAbs`),
+  - Safety Center добавлены переключатели UAM/runtime/export + tuning-поля.
+
+## Почему так
+- Нужен отдельный детерминированный UAM-контур с recoverable состоянием и экспортом в AAPS.
+- Backdated carbs и теги `id/seq` позволяют одновременно:
+  - корректно учесть терапию в AAPS,
+  - избежать дублей и ретраить безопасно.
+- 5-мин бакеты стабилизируют управление/экспорт при 1-мин CGM потоке.
+
+## Риски / ограничения
+- Экспорт зависит от доступности Nightscout endpoint и корректного API secret.
+- При `fallbackToDestructiveMigration` смена Room schema может очищать БД на отдельных обновлениях.
+- `lintDebug` в проекте всё ещё падает на существующей проблеме WorkManager initializer в `AndroidManifest.xml` (не в этом этапе).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+4. Таргетные тесты UAM:
+   - `./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.UamInferenceEngineTest"`
+   - `./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.UamTagCodecTest"`
+   - `./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.UamExportCoordinatorTest"`
+5. Ручной сценарий:
+   - в Safety включить `Enable UAM inference`, при необходимости `UAM boost`,
+   - для реальной отправки отключить `Dry-run export` и включить `Export inferred carbs to AAPS`,
+   - выбрать `CONFIRMED_ONLY` или `INCREMENTAL`,
+   - проверить в Dashboard/Telemetry ключи `uam_inferred_*` и в AAPS/Nightscout carbs с note `UAM_ENGINE|...`.

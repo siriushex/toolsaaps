@@ -48,6 +48,7 @@ import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.ProfileEstimator
 import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
 import io.aaps.copilot.domain.predict.TelemetrySignal
+import io.aaps.copilot.domain.predict.UamExportMode
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.service.LocalNightscoutServiceController
@@ -331,6 +332,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val calculatedUamDelta5 = telemetryByKey["uam_calculated_delta5_mmol"].toNumericValue()
         val calculatedUamRise15 = telemetryByKey["uam_calculated_rise15_mmol"].toNumericValue()
         val calculatedUamRise30 = telemetryByKey["uam_calculated_rise30_mmol"].toNumericValue()
+        val inferredUamFlag = telemetryByKey["uam_inferred_flag"].toNumericValue()
+        val inferredUamConfidence = telemetryByKey["uam_inferred_confidence"].toNumericValue()
+        val inferredUamCarbs = telemetryByKey["uam_inferred_carbs_grams"].toNumericValue()
+        val inferredUamIngestionTs = telemetryByKey["uam_inferred_ingestion_ts"].toNumericValue()?.toLong()
+        val inferredUamBoostMode = telemetryByKey["uam_inferred_boost_mode"].toNumericValue()
+        val inferredUamManualCob = telemetryByKey["uam_manual_cob_grams"].toNumericValue()
+        val inferredUamLastGAbs = telemetryByKey["uam_inferred_gabs_last5_g"].toNumericValue()
         val controllerWeightedError = if (forecast30Latest != null && forecast60Latest != null) {
             val e30 = forecast30Latest - settings.baseTargetMmol
             val e60 = forecast60Latest - settings.baseTargetMmol
@@ -383,6 +391,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             localCommandPackage = settings.localCommandPackage,
             localCommandAction = settings.localCommandAction,
             insulinProfileId = settings.insulinProfileId,
+            enableUamInference = settings.enableUamInference,
+            enableUamBoost = settings.enableUamBoost,
+            enableUamExportToAaps = settings.enableUamExportToAaps,
+            uamExportMode = settings.uamExportMode.name,
+            dryRunExport = settings.dryRunExport,
+            uamLearnedMultiplier = settings.uamLearnedMultiplier,
+            uamMinSnackG = settings.uamMinSnackG,
+            uamMaxSnackG = settings.uamMaxSnackG,
+            uamSnackStepG = settings.uamSnackStepG,
+            uamBackdateMinutesDefault = settings.uamBackdateMinutesDefault,
+            uamExportMinIntervalMin = settings.uamExportMinIntervalMin,
+            uamExportMaxBackdateMin = settings.uamExportMaxBackdateMin,
             baseTargetMmol = settings.baseTargetMmol,
             postHypoThresholdMmol = settings.postHypoThresholdMmol,
             postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
@@ -407,6 +427,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             calculatedUamDelta5Mmol = calculatedUamDelta5,
             calculatedUamRise15Mmol = calculatedUamRise15,
             calculatedUamRise30Mmol = calculatedUamRise30,
+            inferredUamActive = inferredUamFlag?.let { it >= 0.5 },
+            inferredUamConfidence = inferredUamConfidence,
+            inferredUamCarbsGrams = inferredUamCarbs,
+            inferredUamIngestionTs = inferredUamIngestionTs,
+            inferredUamBoostMode = inferredUamBoostMode?.let { it >= 0.5 },
+            inferredUamManualCobGrams = inferredUamManualCob,
+            inferredUamLastGAbsGrams = inferredUamLastGAbs,
             lastRuleState = ruleExec.firstOrNull()?.state,
             lastRuleId = ruleExec.firstOrNull()?.ruleId,
             controllerState = latestAdaptiveExecution?.state,
@@ -565,6 +592,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             container.settingsStore.update { it.copy(insulinProfileId = normalized) }
             WorkScheduler.triggerReactiveAutomation(getApplication())
             messageState.value = "Insulin profile set to $normalized"
+        }
+    }
+
+    fun setUamRuntimeConfig(
+        enableInference: Boolean,
+        enableBoost: Boolean,
+        enableExport: Boolean,
+        exportModeRaw: String,
+        dryRunExport: Boolean
+    ) {
+        viewModelScope.launch {
+            val mode = runCatching { UamExportMode.valueOf(exportModeRaw.trim().uppercase(Locale.US)) }
+                .getOrDefault(UamExportMode.OFF)
+            container.settingsStore.update {
+                it.copy(
+                    enableUamInference = enableInference,
+                    enableUamBoost = enableBoost,
+                    enableUamExportToAaps = enableExport,
+                    uamExportMode = mode,
+                    dryRunExport = dryRunExport
+                )
+            }
+            WorkScheduler.triggerReactiveAutomation(getApplication())
+            messageState.value = "UAM runtime config updated"
+        }
+    }
+
+    fun setUamInferenceTuning(
+        minSnackG: Int,
+        maxSnackG: Int,
+        snackStepG: Int,
+        backdateMinutes: Int,
+        exportMinIntervalMin: Int,
+        exportMaxBackdateMin: Int
+    ) {
+        viewModelScope.launch {
+            val safeMin = minSnackG.coerceIn(5, 80)
+            val safeMax = maxSnackG.coerceIn(safeMin, 120)
+            val safeStep = snackStepG.coerceIn(1, 20)
+            container.settingsStore.update {
+                it.copy(
+                    uamMinSnackG = safeMin,
+                    uamMaxSnackG = safeMax,
+                    uamSnackStepG = safeStep,
+                    uamBackdateMinutesDefault = backdateMinutes.coerceIn(5, 120),
+                    uamExportMinIntervalMin = exportMinIntervalMin.coerceIn(5, 60),
+                    uamExportMaxBackdateMin = exportMaxBackdateMin.coerceIn(30, 360)
+                )
+            }
+            WorkScheduler.triggerReactiveAutomation(getApplication())
+            messageState.value = "UAM tuning updated"
         }
     }
 
@@ -1701,10 +1779,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tokenAliases = listOf("heart", "heartrate")
         ),
         TelemetryCoverageSpec(
-            primaryKey = "uam_calculated_flag",
-            label = "UAM",
+            primaryKey = "uam_inferred_flag",
+            label = "UAM inferred",
             staleThresholdMin = 180L,
-            exactAliases = listOf("uam_value", "uam_detected", "unannounced_meal", "has_uam", "is_uam")
+            exactAliases = listOf(
+                "uam_calculated_flag",
+                "uam_value",
+                "uam_detected",
+                "unannounced_meal",
+                "has_uam",
+                "is_uam"
+            )
         ),
         TelemetryCoverageSpec(
             primaryKey = "isf_value",
@@ -1764,6 +1849,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "active_minutes",
             "calories_active_kcal",
             "heart_rate_bpm",
+            "uam_inferred_flag",
+            "uam_inferred_confidence",
+            "uam_inferred_carbs_grams",
+            "uam_inferred_ingestion_ts",
+            "uam_inferred_mode",
+            "uam_inferred_boost_mode",
+            "uam_manual_cob_grams",
+            "uam_inferred_gabs_last5_g",
             "uam_calculated_flag",
             "uam_calculated_confidence",
             "uam_calculated_carbs_grams",
@@ -1836,7 +1929,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun isTelemetrySampleUsable(sample: TelemetrySampleEntity): Boolean {
-        if (sample.key != "uam_calculated_flag") return true
+        if (sample.key != "uam_calculated_flag" && sample.key != "uam_inferred_flag") return true
         val numeric = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
         return numeric == null || numeric in 0.0..1.5
     }
@@ -2438,6 +2531,18 @@ data class MainUiState(
     val localCommandPackage: String = "info.nightscout.androidaps",
     val localCommandAction: String = "info.nightscout.client.NEW_TREATMENT",
     val insulinProfileId: String = "NOVORAPID",
+    val enableUamInference: Boolean = true,
+    val enableUamBoost: Boolean = false,
+    val enableUamExportToAaps: Boolean = false,
+    val uamExportMode: String = "OFF",
+    val dryRunExport: Boolean = true,
+    val uamLearnedMultiplier: Double = 1.0,
+    val uamMinSnackG: Int = 15,
+    val uamMaxSnackG: Int = 60,
+    val uamSnackStepG: Int = 5,
+    val uamBackdateMinutesDefault: Int = 25,
+    val uamExportMinIntervalMin: Int = 10,
+    val uamExportMaxBackdateMin: Int = 180,
     val baseTargetMmol: Double = 5.5,
     val postHypoThresholdMmol: Double = 3.0,
     val postHypoDeltaThresholdMmol5m: Double = 0.20,
@@ -2462,6 +2567,13 @@ data class MainUiState(
     val calculatedUamDelta5Mmol: Double? = null,
     val calculatedUamRise15Mmol: Double? = null,
     val calculatedUamRise30Mmol: Double? = null,
+    val inferredUamActive: Boolean? = null,
+    val inferredUamConfidence: Double? = null,
+    val inferredUamCarbsGrams: Double? = null,
+    val inferredUamIngestionTs: Long? = null,
+    val inferredUamBoostMode: Boolean? = null,
+    val inferredUamManualCobGrams: Double? = null,
+    val inferredUamLastGAbsGrams: Double? = null,
     val lastRuleState: String? = null,
     val lastRuleId: String? = null,
     val controllerState: String? = null,

@@ -12,12 +12,16 @@ import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.BroadcastIngestRepository
 import io.aaps.copilot.data.repository.InsightsRepository
+import io.aaps.copilot.data.repository.NightscoutAapsCarbGateway
 import io.aaps.copilot.data.repository.NightscoutActionRepository
 import io.aaps.copilot.data.repository.RootDbExperimentalRepository
 import io.aaps.copilot.data.repository.SyncRepository
+import io.aaps.copilot.data.repository.UamEventStore
+import io.aaps.copilot.data.repository.UamExportCoordinator
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.PatternAnalyzer
 import io.aaps.copilot.domain.predict.PredictionEngine
+import io.aaps.copilot.domain.predict.UamInferenceEngine
 import io.aaps.copilot.domain.rules.PatternAdaptiveTargetRule
 import io.aaps.copilot.domain.rules.PostHypoReboundGuardRule
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
@@ -117,6 +121,19 @@ class AppContainer(context: Context) {
         auditLogger = auditLogger
     )
 
+    private val aapsCarbGateway = NightscoutAapsCarbGateway(
+        settingsStore = settingsStore,
+        apiFactory = apiFactory,
+        auditLogger = auditLogger
+    )
+
+    private val uamEventStore = UamEventStore(db.uamInferenceEventDao())
+    private val uamExportCoordinator = UamExportCoordinator(
+        gateway = aapsCarbGateway,
+        auditLogger = auditLogger
+    )
+    private val uamInferenceEngine = UamInferenceEngine()
+
     private val predictionEngine: PredictionEngine = HybridPredictionEngine(
         enableEnhancedPredictionV3 = true,
         enableUam = true,
@@ -143,6 +160,9 @@ class AppContainer(context: Context) {
         analyticsRepository = analyticsRepository,
         actionRepository = actionRepository,
         predictionEngine = predictionEngine,
+        uamInferenceEngine = uamInferenceEngine,
+        uamEventStore = uamEventStore,
+        uamExportCoordinator = uamExportCoordinator,
         ruleEngine = ruleEngine,
         apiFactory = apiFactory,
         gson = gson,

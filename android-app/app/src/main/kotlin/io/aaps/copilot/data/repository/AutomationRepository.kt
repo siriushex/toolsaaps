@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.config.toUamUserSettings
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
@@ -23,6 +24,7 @@ import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
+import io.aaps.copilot.domain.predict.UamInferenceEngine
 import io.aaps.copilot.domain.predict.UamCalculator
 import io.aaps.copilot.domain.predict.PredictionEngine
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
@@ -52,6 +54,9 @@ class AutomationRepository(
     private val analyticsRepository: AnalyticsRepository,
     private val actionRepository: NightscoutActionRepository,
     private val predictionEngine: PredictionEngine,
+    private val uamInferenceEngine: UamInferenceEngine,
+    private val uamEventStore: UamEventStore,
+    private val uamExportCoordinator: UamExportCoordinator,
     private val ruleEngine: RuleEngine,
     private val apiFactory: ApiFactory,
     private val gson: Gson,
@@ -59,6 +64,8 @@ class AutomationRepository(
 ) {
 
     private val cycleMutex = Mutex()
+    @Volatile
+    private var lastUamProcessingBucketTs: Long = Long.MIN_VALUE
 
     data class DryRunRuleSummary(
         val ruleId: String,
@@ -80,6 +87,18 @@ class AutomationRepository(
         val rise15Mmol: Double?,
         val rise30Mmol: Double?,
         val delta5Mmol: Double?
+    )
+
+    private data class UamInferenceCycleResult(
+        val activeFlag: Double,
+        val confidence: Double?,
+        val inferredCarbsGrams: Double?,
+        val ingestionTs: Long?,
+        val modeBoosted: Boolean,
+        val manualCobGrams: Double,
+        val gAbsRecent: List<Double>,
+        val events: List<io.aaps.copilot.domain.predict.UamInferenceEvent>,
+        val createdNewEvent: Boolean
     )
 
     data class ForecastCalibrationPoint(
@@ -195,11 +214,50 @@ class AutomationRepository(
             profile = currentProfile,
             nowTs = now
         )
-        latestTelemetry["uam_value"] = calculatedUam.flag
         latestTelemetry["uam_calculated_flag"] = calculatedUam.flag
         latestTelemetry["uam_calculated_confidence"] = calculatedUam.confidence
         calculatedUam.estimatedCarbsGrams?.let { latestTelemetry["uam_calculated_carbs_grams"] = it }
         persistCalculatedUamTelemetry(nowTs = now, snapshot = calculatedUam)
+
+        val inferredUam = maybeProcessUamInferenceCycle(
+            settings = settings,
+            nowTs = now,
+            glucose = glucose,
+            therapy = therapy,
+            profile = currentProfile
+        )
+        if (inferredUam != null) {
+            latestTelemetry["uam_inferred_flag"] = inferredUam.activeFlag
+            latestTelemetry["uam_inferred_confidence"] = inferredUam.confidence ?: 0.0
+            inferredUam.inferredCarbsGrams?.let { latestTelemetry["uam_inferred_carbs_grams"] = it }
+            inferredUam.ingestionTs?.let { latestTelemetry["uam_inferred_ingestion_ts"] = it.toDouble() }
+            latestTelemetry["uam_inferred_boost_mode"] = if (inferredUam.modeBoosted) 1.0 else 0.0
+            latestTelemetry["uam_manual_cob_grams"] = inferredUam.manualCobGrams
+            inferredUam.gAbsRecent.lastOrNull()?.let { latestTelemetry["uam_inferred_gabs_last5_g"] = it }
+            latestTelemetry["uam_inferred_events_active"] = inferredUam.events
+                .count { event ->
+                    event.state == io.aaps.copilot.domain.predict.UamInferenceState.SUSPECTED ||
+                        event.state == io.aaps.copilot.domain.predict.UamInferenceState.CONFIRMED
+                }
+                .toDouble()
+            if (inferredUam.activeFlag >= 0.5) {
+                latestTelemetry["uam_value"] = 1.0
+            }
+            persistInferredUamTelemetry(nowTs = now, result = inferredUam)
+            if (inferredUam.createdNewEvent) {
+                auditLogger.info(
+                    "uam_inference_event_created",
+                    mapOf(
+                        "mode" to if (inferredUam.modeBoosted) "BOOST" else "NORMAL",
+                        "confidence" to inferredUam.confidence,
+                        "carbsGrams" to inferredUam.inferredCarbsGrams
+                    )
+                )
+            }
+        }
+        if (latestTelemetry["uam_value"] == null) {
+            latestTelemetry["uam_value"] = calculatedUam.flag
+        }
 
         val context = RuleContext(
             nowTs = now,
@@ -699,6 +757,151 @@ class AutomationRepository(
         }
     }
 
+    private suspend fun maybeProcessUamInferenceCycle(
+        settings: AppSettings,
+        nowTs: Long,
+        glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        profile: ProfileEstimate?
+    ): UamInferenceCycleResult? {
+        val cycleBucket = (nowTs / UAM_PROCESSING_BUCKET_MS) * UAM_PROCESSING_BUCKET_MS
+        val existingEvents = uamEventStore.loadAll()
+        val shouldProcessBucket = cycleBucket > lastUamProcessingBucketTs
+        if (!shouldProcessBucket) {
+            val active = existingEvents
+                .filter {
+                    it.state == io.aaps.copilot.domain.predict.UamInferenceState.SUSPECTED ||
+                        it.state == io.aaps.copilot.domain.predict.UamInferenceState.CONFIRMED
+                }
+                .maxByOrNull { it.updatedAt }
+            return UamInferenceCycleResult(
+                activeFlag = if (active != null) 1.0 else 0.0,
+                confidence = active?.confidence,
+                inferredCarbsGrams = active?.carbsDisplayG,
+                ingestionTs = active?.ingestionTs,
+                modeBoosted = settings.enableUamBoost,
+                manualCobGrams = 0.0,
+                gAbsRecent = emptyList(),
+                events = existingEvents,
+                createdNewEvent = false
+            )
+        }
+        lastUamProcessingBucketTs = cycleBucket
+
+        val inferenceOutput = uamInferenceEngine.infer(
+            UamInferenceEngine.Input(
+                nowTs = cycleBucket,
+                glucose = glucose,
+                therapyEvents = therapy,
+                existingEvents = existingEvents,
+                isfMmolPerUnit = profile?.isfMmolPerUnit,
+                crGramPerUnit = profile?.crGramPerUnit,
+                insulinProfileId = settings.insulinProfileId,
+                enableUamInference = settings.enableUamInference,
+                enableUamBoost = settings.enableUamBoost,
+                learnedMultiplier = settings.uamLearnedMultiplier,
+                userSettings = settings.toUamUserSettings()
+            )
+        )
+
+        val exportOutcome = uamExportCoordinator.process(
+            nowTs = cycleBucket,
+            events = inferenceOutput.events,
+            config = UamExportCoordinator.Config(
+                enableUamExportToAaps = settings.enableUamExportToAaps,
+                exportMode = settings.uamExportMode,
+                dryRunExport = settings.dryRunExport,
+                minSnackG = settings.uamMinSnackG,
+                snackStepG = settings.uamSnackStepG,
+                exportMinIntervalMin = settings.uamExportMinIntervalMin,
+                exportMaxBackdateMin = settings.uamExportMaxBackdateMin
+            )
+        )
+        val finalizedEvents = exportOutcome.events
+        uamEventStore.upsert(finalizedEvents)
+        uamEventStore.prune(cycleBucket - UAM_EVENT_RETENTION_MS)
+
+        inferenceOutput.learnedMultiplierUpdate?.let { updated ->
+            settingsStore.update { current ->
+                val currentValue = current.uamLearnedMultiplier.coerceIn(0.8, 1.6)
+                if (kotlin.math.abs(currentValue - updated) < 1e-6) {
+                    current
+                } else {
+                    current.copy(uamLearnedMultiplier = updated.coerceIn(0.8, 1.6))
+                }
+            }
+        }
+
+        val active = finalizedEvents
+            .filter {
+                it.state == io.aaps.copilot.domain.predict.UamInferenceState.SUSPECTED ||
+                    it.state == io.aaps.copilot.domain.predict.UamInferenceState.CONFIRMED
+            }
+            .maxByOrNull { it.updatedAt }
+        return UamInferenceCycleResult(
+            activeFlag = if (active != null) 1.0 else 0.0,
+            confidence = active?.confidence,
+            inferredCarbsGrams = active?.carbsDisplayG,
+            ingestionTs = active?.ingestionTs,
+            modeBoosted = settings.enableUamBoost,
+            manualCobGrams = inferenceOutput.manualCobNow,
+            gAbsRecent = inferenceOutput.gAbsRecent,
+            events = finalizedEvents,
+            createdNewEvent = inferenceOutput.createdNewEvent
+        )
+    }
+
+    private suspend fun persistInferredUamTelemetry(nowTs: Long, result: UamInferenceCycleResult) {
+        val source = "copilot_uam_inference"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+
+        fun addNumeric(key: String, value: Double?, unit: String? = null) {
+            val numeric = value ?: return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = numeric,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+        }
+
+        fun addText(key: String, value: String?) {
+            val text = value?.trim().orEmpty()
+            if (text.isBlank()) return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = text,
+                unit = null,
+                quality = "OK"
+            )
+        }
+
+        addNumeric("uam_inferred_flag", result.activeFlag)
+        addNumeric("uam_inferred_confidence", result.confidence ?: 0.0)
+        addNumeric("uam_inferred_carbs_grams", result.inferredCarbsGrams ?: 0.0, "g")
+        addNumeric("uam_inferred_ingestion_ts", result.ingestionTs?.toDouble())
+        addNumeric("uam_inferred_boost_mode", if (result.modeBoosted) 1.0 else 0.0)
+        addNumeric("uam_manual_cob_grams", result.manualCobGrams, "g")
+        addNumeric("uam_inferred_events_active", result.events.count {
+            it.state == io.aaps.copilot.domain.predict.UamInferenceState.SUSPECTED ||
+                it.state == io.aaps.copilot.domain.predict.UamInferenceState.CONFIRMED
+        }.toDouble())
+        result.gAbsRecent.lastOrNull()?.let { addNumeric("uam_inferred_gabs_last5_g", it, "g") }
+        addText("uam_inferred_mode", if (result.modeBoosted) "BOOST" else "NORMAL")
+
+        if (rows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(rows)
+        }
+    }
+
     suspend fun runDryRunSimulation(days: Int): DryRunReport {
         val settings = settingsStore.settings.first()
         configurePredictionEngine(settings)
@@ -1040,6 +1243,8 @@ class AutomationRepository(
         private const val ADAPTIVE_KEEPALIVE_DURATION_MINUTES = 30
         private const val TELEMETRY_LOOKBACK_MS = 6 * 60 * 60 * 1000L
         private const val CALCULATED_UAM_LOOKBACK_MINUTES = 120
+        private const val UAM_PROCESSING_BUCKET_MS = 5 * 60 * 1000L
+        private const val UAM_EVENT_RETENTION_MS = 14L * 24 * 60 * 60 * 1000
         private const val FORECAST_RETENTION_MS = 400L * 24 * 60 * 60 * 1000
 
         private const val COB_FORCE_BASE_THRESHOLD_G = 20.0

@@ -17,6 +17,7 @@ AAPS Predictive Copilot is a two-part system:
 - `domain/predict`: prediction engines (legacy/v3), UAM estimator, profile estimators.
 - `domain/rules`: adaptive/post-hypo/pattern/segment rules + arbitration.
 - `domain/safety`: global policy guardrails.
+- `domain/uam inference`: inferred carbs + ingestion time, event state machine, optional boost mode.
 - `ui`: Compose screens and state wiring.
 - `service/scheduler`: app container, local NS emulation, workers.
 - `service/local activity collector`: sensor listener, local activity aggregation, telemetry writes.
@@ -30,6 +31,7 @@ AAPS Predictive Copilot is a two-part system:
 - Forecast horizons required in app loop: 5m, 30m, 60m.
 - Telemetry units in app domain: mmol/L for glucose and derived glucose deltas.
 - Action channel priority: Nightscout API primary; local fallback optional.
+- UAM carbs export channel: Nightscout treatments (`Carb Correction`) with backdated timestamp and deterministic note tag (`UAM_ENGINE|id=...|seq=...|...`).
 - Temp target command must stay in hard range and pass policy checks before sending.
 - Timestamps written to local DB must be normalized and non-zero (`>0`) before persist.
 - `cob_grams` and `iob_units` telemetry are allowed to bias local runtime forecasts before rule arbitration.
@@ -45,6 +47,8 @@ AAPS Predictive Copilot is a two-part system:
 - Keep prediction engine strategy switchable via flags (legacy vs enhanced versions).
 - Keep insulin action profile configurable and persisted in settings; default profile is NOVORAPID.
 - Keep controller/rule execution idempotent by time buckets and command keys.
+- Keep UAM inference/export cycle on 5-minute buckets even with 1-minute CGM input.
+- Keep UAM export idempotent via `id+seq` tags and remote fetch dedup before post.
 - Keep carbohydrate absorption event-aware:
   - food catalog classes (`FAST`, `MEDIUM`, `PROTEIN_SLOW`),
   - event classification by payload text/cross-language aliases and glucose pattern fallback,

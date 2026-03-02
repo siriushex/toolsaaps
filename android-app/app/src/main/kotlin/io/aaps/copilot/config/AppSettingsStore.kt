@@ -10,6 +10,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
+import io.aaps.copilot.domain.predict.UamExportMode
+import io.aaps.copilot.domain.predict.UamUserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -37,6 +39,38 @@ class AppSettingsStore(context: Context) {
             localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
             localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
             insulinProfileId = normalizeInsulinProfileId(prefs[KEY_INSULIN_PROFILE]),
+            enableUamInference = prefs[KEY_ENABLE_UAM_INFERENCE] ?: DEFAULT_ENABLE_UAM_INFERENCE,
+            enableUamBoost = prefs[KEY_ENABLE_UAM_BOOST] ?: DEFAULT_ENABLE_UAM_BOOST,
+            enableUamExportToAaps = prefs[KEY_ENABLE_UAM_EXPORT] ?: DEFAULT_ENABLE_UAM_EXPORT,
+            uamExportMode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE]),
+            dryRunExport = prefs[KEY_DRY_RUN_EXPORT] ?: DEFAULT_DRY_RUN_EXPORT,
+            uamLearnedMultiplier = (prefs[KEY_UAM_LEARNED_MULTIPLIER] ?: DEFAULT_UAM_LEARNED_MULTIPLIER)
+                .coerceIn(0.8, 1.6),
+            uamMinSnackG = prefs[KEY_UAM_MIN_SNACK_G] ?: DEFAULT_UAM_MIN_SNACK_G,
+            uamMaxSnackG = prefs[KEY_UAM_MAX_SNACK_G] ?: DEFAULT_UAM_MAX_SNACK_G,
+            uamSnackStepG = prefs[KEY_UAM_SNACK_STEP_G] ?: DEFAULT_UAM_SNACK_STEP_G,
+            uamBackdateMinutesDefault = prefs[KEY_UAM_BACKDATE_MINUTES] ?: DEFAULT_UAM_BACKDATE_MINUTES,
+            uamDisableWhenManualCobActive = prefs[KEY_UAM_DISABLE_MANUAL_COB_ACTIVE] ?: DEFAULT_UAM_DISABLE_MANUAL_COB_ACTIVE,
+            uamManualCobThresholdG = prefs[KEY_UAM_MANUAL_COB_THRESHOLD_G] ?: DEFAULT_UAM_MANUAL_COB_THRESHOLD_G,
+            uamDisableIfManualCarbsNearby = prefs[KEY_UAM_DISABLE_MANUAL_CARBS_NEARBY] ?: DEFAULT_UAM_DISABLE_MANUAL_CARBS_NEARBY,
+            uamManualMergeWindowMinutes = prefs[KEY_UAM_MANUAL_MERGE_WINDOW_MINUTES] ?: DEFAULT_UAM_MANUAL_MERGE_WINDOW_MINUTES,
+            uamMaxAbsorbRateGphNormal = prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_NORMAL] ?: DEFAULT_UAM_MAX_ABSORB_RATE_GPH_NORMAL,
+            uamMaxAbsorbRateGphBoost = prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_BOOST] ?: DEFAULT_UAM_MAX_ABSORB_RATE_GPH_BOOST,
+            uamMaxTotalG = prefs[KEY_UAM_MAX_TOTAL_G] ?: DEFAULT_UAM_MAX_TOTAL_G,
+            uamMaxActiveEvents = prefs[KEY_UAM_MAX_ACTIVE_EVENTS] ?: DEFAULT_UAM_MAX_ACTIVE_EVENTS,
+            uamCarbMultiplierNormal = prefs[KEY_UAM_CARB_MULTIPLIER_NORMAL] ?: DEFAULT_UAM_CARB_MULTIPLIER_NORMAL,
+            uamCarbMultiplierBoost = prefs[KEY_UAM_CARB_MULTIPLIER_BOOST] ?: DEFAULT_UAM_CARB_MULTIPLIER_BOOST,
+            uamGAbsThresholdNormal = prefs[KEY_UAM_GABS_THRESHOLD_NORMAL] ?: DEFAULT_UAM_GABS_THRESHOLD_NORMAL,
+            uamGAbsThresholdBoost = prefs[KEY_UAM_GABS_THRESHOLD_BOOST] ?: DEFAULT_UAM_GABS_THRESHOLD_BOOST,
+            uamMOfNNormalM = prefs[KEY_UAM_M_OF_N_NORMAL_M] ?: DEFAULT_UAM_M_OF_N_NORMAL_M,
+            uamMOfNNormalN = prefs[KEY_UAM_M_OF_N_NORMAL_N] ?: DEFAULT_UAM_M_OF_N_NORMAL_N,
+            uamMOfNBoostM = prefs[KEY_UAM_M_OF_N_BOOST_M] ?: DEFAULT_UAM_M_OF_N_BOOST_M,
+            uamMOfNBoostN = prefs[KEY_UAM_M_OF_N_BOOST_N] ?: DEFAULT_UAM_M_OF_N_BOOST_N,
+            uamConfirmConfNormal = prefs[KEY_UAM_CONFIRM_CONF_NORMAL] ?: DEFAULT_UAM_CONFIRM_CONF_NORMAL,
+            uamConfirmConfBoost = prefs[KEY_UAM_CONFIRM_CONF_BOOST] ?: DEFAULT_UAM_CONFIRM_CONF_BOOST,
+            uamMinConfirmAgeMin = prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] ?: DEFAULT_UAM_MIN_CONFIRM_AGE_MIN,
+            uamExportMinIntervalMin = prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] ?: DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN,
+            uamExportMaxBackdateMin = prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] ?: DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN,
             baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
             postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
             postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -94,6 +128,38 @@ class AppSettingsStore(context: Context) {
                 localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
                 localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
                 insulinProfileId = normalizeInsulinProfileId(prefs[KEY_INSULIN_PROFILE]),
+                enableUamInference = prefs[KEY_ENABLE_UAM_INFERENCE] ?: DEFAULT_ENABLE_UAM_INFERENCE,
+                enableUamBoost = prefs[KEY_ENABLE_UAM_BOOST] ?: DEFAULT_ENABLE_UAM_BOOST,
+                enableUamExportToAaps = prefs[KEY_ENABLE_UAM_EXPORT] ?: DEFAULT_ENABLE_UAM_EXPORT,
+                uamExportMode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE]),
+                dryRunExport = prefs[KEY_DRY_RUN_EXPORT] ?: DEFAULT_DRY_RUN_EXPORT,
+                uamLearnedMultiplier = (prefs[KEY_UAM_LEARNED_MULTIPLIER] ?: DEFAULT_UAM_LEARNED_MULTIPLIER)
+                    .coerceIn(0.8, 1.6),
+                uamMinSnackG = prefs[KEY_UAM_MIN_SNACK_G] ?: DEFAULT_UAM_MIN_SNACK_G,
+                uamMaxSnackG = prefs[KEY_UAM_MAX_SNACK_G] ?: DEFAULT_UAM_MAX_SNACK_G,
+                uamSnackStepG = prefs[KEY_UAM_SNACK_STEP_G] ?: DEFAULT_UAM_SNACK_STEP_G,
+                uamBackdateMinutesDefault = prefs[KEY_UAM_BACKDATE_MINUTES] ?: DEFAULT_UAM_BACKDATE_MINUTES,
+                uamDisableWhenManualCobActive = prefs[KEY_UAM_DISABLE_MANUAL_COB_ACTIVE] ?: DEFAULT_UAM_DISABLE_MANUAL_COB_ACTIVE,
+                uamManualCobThresholdG = prefs[KEY_UAM_MANUAL_COB_THRESHOLD_G] ?: DEFAULT_UAM_MANUAL_COB_THRESHOLD_G,
+                uamDisableIfManualCarbsNearby = prefs[KEY_UAM_DISABLE_MANUAL_CARBS_NEARBY] ?: DEFAULT_UAM_DISABLE_MANUAL_CARBS_NEARBY,
+                uamManualMergeWindowMinutes = prefs[KEY_UAM_MANUAL_MERGE_WINDOW_MINUTES] ?: DEFAULT_UAM_MANUAL_MERGE_WINDOW_MINUTES,
+                uamMaxAbsorbRateGphNormal = prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_NORMAL] ?: DEFAULT_UAM_MAX_ABSORB_RATE_GPH_NORMAL,
+                uamMaxAbsorbRateGphBoost = prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_BOOST] ?: DEFAULT_UAM_MAX_ABSORB_RATE_GPH_BOOST,
+                uamMaxTotalG = prefs[KEY_UAM_MAX_TOTAL_G] ?: DEFAULT_UAM_MAX_TOTAL_G,
+                uamMaxActiveEvents = prefs[KEY_UAM_MAX_ACTIVE_EVENTS] ?: DEFAULT_UAM_MAX_ACTIVE_EVENTS,
+                uamCarbMultiplierNormal = prefs[KEY_UAM_CARB_MULTIPLIER_NORMAL] ?: DEFAULT_UAM_CARB_MULTIPLIER_NORMAL,
+                uamCarbMultiplierBoost = prefs[KEY_UAM_CARB_MULTIPLIER_BOOST] ?: DEFAULT_UAM_CARB_MULTIPLIER_BOOST,
+                uamGAbsThresholdNormal = prefs[KEY_UAM_GABS_THRESHOLD_NORMAL] ?: DEFAULT_UAM_GABS_THRESHOLD_NORMAL,
+                uamGAbsThresholdBoost = prefs[KEY_UAM_GABS_THRESHOLD_BOOST] ?: DEFAULT_UAM_GABS_THRESHOLD_BOOST,
+                uamMOfNNormalM = prefs[KEY_UAM_M_OF_N_NORMAL_M] ?: DEFAULT_UAM_M_OF_N_NORMAL_M,
+                uamMOfNNormalN = prefs[KEY_UAM_M_OF_N_NORMAL_N] ?: DEFAULT_UAM_M_OF_N_NORMAL_N,
+                uamMOfNBoostM = prefs[KEY_UAM_M_OF_N_BOOST_M] ?: DEFAULT_UAM_M_OF_N_BOOST_M,
+                uamMOfNBoostN = prefs[KEY_UAM_M_OF_N_BOOST_N] ?: DEFAULT_UAM_M_OF_N_BOOST_N,
+                uamConfirmConfNormal = prefs[KEY_UAM_CONFIRM_CONF_NORMAL] ?: DEFAULT_UAM_CONFIRM_CONF_NORMAL,
+                uamConfirmConfBoost = prefs[KEY_UAM_CONFIRM_CONF_BOOST] ?: DEFAULT_UAM_CONFIRM_CONF_BOOST,
+                uamMinConfirmAgeMin = prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] ?: DEFAULT_UAM_MIN_CONFIRM_AGE_MIN,
+                uamExportMinIntervalMin = prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] ?: DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN,
+                uamExportMaxBackdateMin = prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] ?: DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN,
                 baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
                 postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
                 postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -145,6 +211,37 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_LOCAL_COMMAND_PACKAGE] = next.localCommandPackage
             prefs[KEY_LOCAL_COMMAND_ACTION] = next.localCommandAction
             prefs[KEY_INSULIN_PROFILE] = normalizeInsulinProfileId(next.insulinProfileId)
+            prefs[KEY_ENABLE_UAM_INFERENCE] = next.enableUamInference
+            prefs[KEY_ENABLE_UAM_BOOST] = next.enableUamBoost
+            prefs[KEY_ENABLE_UAM_EXPORT] = next.enableUamExportToAaps
+            prefs[KEY_UAM_EXPORT_MODE] = next.uamExportMode.name
+            prefs[KEY_DRY_RUN_EXPORT] = next.dryRunExport
+            prefs[KEY_UAM_LEARNED_MULTIPLIER] = next.uamLearnedMultiplier.coerceIn(0.8, 1.6)
+            prefs[KEY_UAM_MIN_SNACK_G] = next.uamMinSnackG
+            prefs[KEY_UAM_MAX_SNACK_G] = next.uamMaxSnackG
+            prefs[KEY_UAM_SNACK_STEP_G] = next.uamSnackStepG
+            prefs[KEY_UAM_BACKDATE_MINUTES] = next.uamBackdateMinutesDefault
+            prefs[KEY_UAM_DISABLE_MANUAL_COB_ACTIVE] = next.uamDisableWhenManualCobActive
+            prefs[KEY_UAM_MANUAL_COB_THRESHOLD_G] = next.uamManualCobThresholdG
+            prefs[KEY_UAM_DISABLE_MANUAL_CARBS_NEARBY] = next.uamDisableIfManualCarbsNearby
+            prefs[KEY_UAM_MANUAL_MERGE_WINDOW_MINUTES] = next.uamManualMergeWindowMinutes
+            prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_NORMAL] = next.uamMaxAbsorbRateGphNormal
+            prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_BOOST] = next.uamMaxAbsorbRateGphBoost
+            prefs[KEY_UAM_MAX_TOTAL_G] = next.uamMaxTotalG
+            prefs[KEY_UAM_MAX_ACTIVE_EVENTS] = next.uamMaxActiveEvents
+            prefs[KEY_UAM_CARB_MULTIPLIER_NORMAL] = next.uamCarbMultiplierNormal
+            prefs[KEY_UAM_CARB_MULTIPLIER_BOOST] = next.uamCarbMultiplierBoost
+            prefs[KEY_UAM_GABS_THRESHOLD_NORMAL] = next.uamGAbsThresholdNormal
+            prefs[KEY_UAM_GABS_THRESHOLD_BOOST] = next.uamGAbsThresholdBoost
+            prefs[KEY_UAM_M_OF_N_NORMAL_M] = next.uamMOfNNormalM
+            prefs[KEY_UAM_M_OF_N_NORMAL_N] = next.uamMOfNNormalN
+            prefs[KEY_UAM_M_OF_N_BOOST_M] = next.uamMOfNBoostM
+            prefs[KEY_UAM_M_OF_N_BOOST_N] = next.uamMOfNBoostN
+            prefs[KEY_UAM_CONFIRM_CONF_NORMAL] = next.uamConfirmConfNormal
+            prefs[KEY_UAM_CONFIRM_CONF_BOOST] = next.uamConfirmConfBoost
+            prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] = next.uamMinConfirmAgeMin
+            prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] = next.uamExportMinIntervalMin
+            prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] = next.uamExportMaxBackdateMin
             prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
             prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = next.postHypoThresholdMmol
             prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
@@ -204,6 +301,12 @@ class AppSettingsStore(context: Context) {
         return InsulinActionProfileId.fromRaw(raw).name
     }
 
+    private fun resolveUamExportMode(raw: String?): UamExportMode {
+        return runCatching {
+            UamExportMode.valueOf(raw?.trim().orEmpty().uppercase())
+        }.getOrDefault(UamExportMode.OFF)
+    }
+
     companion object {
         private val KEY_NS_URL = stringPreferencesKey("nightscout_url")
         private val KEY_NS_SECRET = stringPreferencesKey("nightscout_secret")
@@ -219,6 +322,37 @@ class AppSettingsStore(context: Context) {
         private val KEY_LOCAL_COMMAND_PACKAGE = stringPreferencesKey("local_command_package")
         private val KEY_LOCAL_COMMAND_ACTION = stringPreferencesKey("local_command_action")
         private val KEY_INSULIN_PROFILE = stringPreferencesKey("insulin_profile_id")
+        private val KEY_ENABLE_UAM_INFERENCE = booleanPreferencesKey("enable_uam_inference")
+        private val KEY_ENABLE_UAM_BOOST = booleanPreferencesKey("enable_uam_boost")
+        private val KEY_ENABLE_UAM_EXPORT = booleanPreferencesKey("enable_uam_export_to_aaps")
+        private val KEY_UAM_EXPORT_MODE = stringPreferencesKey("uam_export_mode")
+        private val KEY_DRY_RUN_EXPORT = booleanPreferencesKey("uam_dry_run_export")
+        private val KEY_UAM_LEARNED_MULTIPLIER = doublePreferencesKey("uam_learned_multiplier")
+        private val KEY_UAM_MIN_SNACK_G = intPreferencesKey("uam_min_snack_g")
+        private val KEY_UAM_MAX_SNACK_G = intPreferencesKey("uam_max_snack_g")
+        private val KEY_UAM_SNACK_STEP_G = intPreferencesKey("uam_snack_step_g")
+        private val KEY_UAM_BACKDATE_MINUTES = intPreferencesKey("uam_backdate_minutes_default")
+        private val KEY_UAM_DISABLE_MANUAL_COB_ACTIVE = booleanPreferencesKey("uam_disable_when_manual_cob_active")
+        private val KEY_UAM_MANUAL_COB_THRESHOLD_G = doublePreferencesKey("uam_manual_cob_threshold_g")
+        private val KEY_UAM_DISABLE_MANUAL_CARBS_NEARBY = booleanPreferencesKey("uam_disable_if_manual_carbs_nearby")
+        private val KEY_UAM_MANUAL_MERGE_WINDOW_MINUTES = intPreferencesKey("uam_manual_merge_window_minutes")
+        private val KEY_UAM_MAX_ABSORB_RATE_GPH_NORMAL = doublePreferencesKey("uam_max_absorb_rate_gph_normal")
+        private val KEY_UAM_MAX_ABSORB_RATE_GPH_BOOST = doublePreferencesKey("uam_max_absorb_rate_gph_boost")
+        private val KEY_UAM_MAX_TOTAL_G = doublePreferencesKey("uam_max_total_g")
+        private val KEY_UAM_MAX_ACTIVE_EVENTS = intPreferencesKey("uam_max_active_events")
+        private val KEY_UAM_CARB_MULTIPLIER_NORMAL = doublePreferencesKey("uam_carb_multiplier_normal")
+        private val KEY_UAM_CARB_MULTIPLIER_BOOST = doublePreferencesKey("uam_carb_multiplier_boost")
+        private val KEY_UAM_GABS_THRESHOLD_NORMAL = doublePreferencesKey("uam_gabs_threshold_normal")
+        private val KEY_UAM_GABS_THRESHOLD_BOOST = doublePreferencesKey("uam_gabs_threshold_boost")
+        private val KEY_UAM_M_OF_N_NORMAL_M = intPreferencesKey("uam_m_of_n_normal_m")
+        private val KEY_UAM_M_OF_N_NORMAL_N = intPreferencesKey("uam_m_of_n_normal_n")
+        private val KEY_UAM_M_OF_N_BOOST_M = intPreferencesKey("uam_m_of_n_boost_m")
+        private val KEY_UAM_M_OF_N_BOOST_N = intPreferencesKey("uam_m_of_n_boost_n")
+        private val KEY_UAM_CONFIRM_CONF_NORMAL = doublePreferencesKey("uam_confirm_conf_normal")
+        private val KEY_UAM_CONFIRM_CONF_BOOST = doublePreferencesKey("uam_confirm_conf_boost")
+        private val KEY_UAM_MIN_CONFIRM_AGE_MIN = intPreferencesKey("uam_min_confirm_age_min")
+        private val KEY_UAM_EXPORT_MIN_INTERVAL_MIN = intPreferencesKey("uam_export_min_interval_min")
+        private val KEY_UAM_EXPORT_MAX_BACKDATE_MIN = intPreferencesKey("uam_export_max_backdate_min")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
         private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
@@ -278,6 +412,36 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_LOCAL_NIGHTSCOUT_PORT = 17580
         private const val DEFAULT_LOCAL_COMMAND_PACKAGE = "info.nightscout.androidaps"
         private const val DEFAULT_LOCAL_COMMAND_ACTION = "info.nightscout.client.NEW_TREATMENT"
+        private const val DEFAULT_ENABLE_UAM_INFERENCE = true
+        private const val DEFAULT_ENABLE_UAM_BOOST = false
+        private const val DEFAULT_ENABLE_UAM_EXPORT = false
+        private const val DEFAULT_DRY_RUN_EXPORT = true
+        private const val DEFAULT_UAM_LEARNED_MULTIPLIER = 1.0
+        private const val DEFAULT_UAM_MIN_SNACK_G = 15
+        private const val DEFAULT_UAM_MAX_SNACK_G = 60
+        private const val DEFAULT_UAM_SNACK_STEP_G = 5
+        private const val DEFAULT_UAM_BACKDATE_MINUTES = 25
+        private const val DEFAULT_UAM_DISABLE_MANUAL_COB_ACTIVE = true
+        private const val DEFAULT_UAM_MANUAL_COB_THRESHOLD_G = 5.0
+        private const val DEFAULT_UAM_DISABLE_MANUAL_CARBS_NEARBY = true
+        private const val DEFAULT_UAM_MANUAL_MERGE_WINDOW_MINUTES = 45
+        private const val DEFAULT_UAM_MAX_ABSORB_RATE_GPH_NORMAL = 30.0
+        private const val DEFAULT_UAM_MAX_ABSORB_RATE_GPH_BOOST = 45.0
+        private const val DEFAULT_UAM_MAX_TOTAL_G = 120.0
+        private const val DEFAULT_UAM_MAX_ACTIVE_EVENTS = 2
+        private const val DEFAULT_UAM_CARB_MULTIPLIER_NORMAL = 1.0
+        private const val DEFAULT_UAM_CARB_MULTIPLIER_BOOST = 2.0
+        private const val DEFAULT_UAM_GABS_THRESHOLD_NORMAL = 2.0
+        private const val DEFAULT_UAM_GABS_THRESHOLD_BOOST = 1.2
+        private const val DEFAULT_UAM_M_OF_N_NORMAL_M = 3
+        private const val DEFAULT_UAM_M_OF_N_NORMAL_N = 4
+        private const val DEFAULT_UAM_M_OF_N_BOOST_M = 2
+        private const val DEFAULT_UAM_M_OF_N_BOOST_N = 3
+        private const val DEFAULT_UAM_CONFIRM_CONF_NORMAL = 0.45
+        private const val DEFAULT_UAM_CONFIRM_CONF_BOOST = 0.35
+        private const val DEFAULT_UAM_MIN_CONFIRM_AGE_MIN = 10
+        private const val DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN = 10
+        private const val DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN = 180
     }
 }
 
@@ -296,6 +460,37 @@ data class AppSettings(
     val localCommandPackage: String,
     val localCommandAction: String,
     val insulinProfileId: String,
+    val enableUamInference: Boolean = true,
+    val enableUamBoost: Boolean = false,
+    val enableUamExportToAaps: Boolean = false,
+    val uamExportMode: UamExportMode = UamExportMode.OFF,
+    val dryRunExport: Boolean = true,
+    val uamLearnedMultiplier: Double = 1.0,
+    val uamMinSnackG: Int = 15,
+    val uamMaxSnackG: Int = 60,
+    val uamSnackStepG: Int = 5,
+    val uamBackdateMinutesDefault: Int = 25,
+    val uamDisableWhenManualCobActive: Boolean = true,
+    val uamManualCobThresholdG: Double = 5.0,
+    val uamDisableIfManualCarbsNearby: Boolean = true,
+    val uamManualMergeWindowMinutes: Int = 45,
+    val uamMaxAbsorbRateGphNormal: Double = 30.0,
+    val uamMaxAbsorbRateGphBoost: Double = 45.0,
+    val uamMaxTotalG: Double = 120.0,
+    val uamMaxActiveEvents: Int = 2,
+    val uamCarbMultiplierNormal: Double = 1.0,
+    val uamCarbMultiplierBoost: Double = 2.0,
+    val uamGAbsThresholdNormal: Double = 2.0,
+    val uamGAbsThresholdBoost: Double = 1.2,
+    val uamMOfNNormalM: Int = 3,
+    val uamMOfNNormalN: Int = 4,
+    val uamMOfNBoostM: Int = 2,
+    val uamMOfNBoostN: Int = 3,
+    val uamConfirmConfNormal: Double = 0.45,
+    val uamConfirmConfBoost: Double = 0.35,
+    val uamMinConfirmAgeMin: Int = 10,
+    val uamExportMinIntervalMin: Int = 10,
+    val uamExportMaxBackdateMin: Int = 180,
     val baseTargetMmol: Double,
     val postHypoThresholdMmol: Double,
     val postHypoDeltaThresholdMmol5m: Double,
@@ -326,6 +521,32 @@ data class AppSettings(
     val maxActionsIn6Hours: Int,
     val staleDataMaxMinutes: Int,
     val exportFolderUri: String?
+)
+
+fun AppSettings.toUamUserSettings(): UamUserSettings = UamUserSettings(
+    minSnackG = uamMinSnackG,
+    maxSnackG = uamMaxSnackG,
+    snackStepG = uamSnackStepG,
+    backdateMinutesDefault = uamBackdateMinutesDefault,
+    disableUamWhenManualCobActive = uamDisableWhenManualCobActive,
+    manualCobThresholdG = uamManualCobThresholdG,
+    disableUamIfManualCarbsNearby = uamDisableIfManualCarbsNearby,
+    manualMergeWindowMinutes = uamManualMergeWindowMinutes,
+    maxUamAbsorbRateGph_Normal = uamMaxAbsorbRateGphNormal,
+    maxUamAbsorbRateGph_Boost = uamMaxAbsorbRateGphBoost,
+    maxUamTotalG = uamMaxTotalG,
+    maxActiveUamEvents = uamMaxActiveEvents,
+    uamCarbMultiplier_Normal = uamCarbMultiplierNormal,
+    uamCarbMultiplier_Boost = uamCarbMultiplierBoost,
+    gAbsThreshold_Normal = uamGAbsThresholdNormal,
+    gAbsThreshold_Boost = uamGAbsThresholdBoost,
+    mOfN_Normal = uamMOfNNormalM to uamMOfNNormalN,
+    mOfN_Boost = uamMOfNBoostM to uamMOfNBoostN,
+    confirmConf_Normal = uamConfirmConfNormal,
+    confirmConf_Boost = uamConfirmConfBoost,
+    minConfirmAgeMin = uamMinConfirmAgeMin,
+    exportMinIntervalMin = uamExportMinIntervalMin,
+    exportMaxBackdateMin = uamExportMaxBackdateMin
 )
 
 fun AppSettings.resolvedNightscoutUrl(): String {
