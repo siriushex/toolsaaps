@@ -16,6 +16,13 @@ interface AuditLogDao {
     @Query("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<AuditLogEntity>>
 
+    @Query(
+        "SELECT * FROM audit_logs " +
+            "WHERE message = :message AND timestamp >= :sinceTs " +
+            "ORDER BY timestamp DESC LIMIT :limit"
+    )
+    suspend fun recentByMessage(message: String, sinceTs: Long, limit: Int): List<AuditLogEntity>
+
     @Query("DELETE FROM audit_logs WHERE timestamp < :olderThan")
     suspend fun deleteOlderThan(olderThan: Long)
 }

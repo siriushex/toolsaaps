@@ -9,24 +9,37 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -53,6 +67,9 @@ import io.aaps.copilot.ui.foundation.screens.OverviewScreen
 import io.aaps.copilot.ui.foundation.screens.SafetyScreen
 import io.aaps.copilot.ui.foundation.screens.SettingsScreen
 import io.aaps.copilot.ui.foundation.screens.UamScreen
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.rememberDrawerState
 
 private sealed class RootDestination(val route: String)
 private sealed class BottomDestination(route: String, val titleRes: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector) : RootDestination(route)
@@ -91,6 +108,8 @@ fun CopilotFoundationRoot(
     val message by viewModel.messageUiState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(message) {
         val text = message
@@ -100,64 +119,238 @@ fun CopilotFoundationRoot(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopBar(
-                title = screenTitle(currentRoute),
-                onNavigateMore = { destination ->
-                    navController.navigate(destination.route) {
-                        launchSingleTop = true
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            NavigationBar {
-                Destinations.bottom.forEach { destination ->
-                    NavigationBarItem(
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text(
+                    text = stringResource(id = R.string.menu_more),
+                    modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
+                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium
+                )
+                Destinations.more.forEach { destination ->
+                    NavigationDrawerItem(
+                        label = { Text(text = stringResource(id = destination.titleRes)) },
                         selected = currentRoute == destination.route,
                         onClick = {
+                            scope.launch { drawerState.close() }
                             navController.navigate(destination.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
                                 launchSingleTop = true
-                                restoreState = true
                             }
                         },
-                        icon = { Icon(destination.icon, contentDescription = stringResource(id = destination.titleRes)) },
-                        label = { Text(text = stringResource(id = destination.titleRes)) }
+                        icon = { Icon(destination.icon, contentDescription = null) },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
                 }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                NavigationDrawerItem(
+                    label = { Text(text = stringResource(id = R.string.app_health_title)) },
+                    selected = false,
+                    onClick = { scope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
             }
-        },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = Spacing.md, vertical = Spacing.sm)
-        ) {
-            AppHealthBanner(
-                staleData = appHealth.staleData,
-                killSwitchEnabled = appHealth.killSwitchEnabled,
-                lastSyncText = appHealth.lastSyncText,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(Spacing.sm))
-            NavHost(
-                navController = navController,
-                startDestination = Destinations.Overview.route,
-                modifier = Modifier.fillMaxSize()
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopBar(
+                    title = screenTitle(currentRoute),
+                    staleData = appHealth.staleData,
+                    killSwitchEnabled = appHealth.killSwitchEnabled,
+                    onMenuClick = { scope.launch { drawerState.open() } },
+                    onOpenHealth = {
+                        navController.navigate(Destinations.Audit.route) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onNavigateMore = { destination ->
+                        navController.navigate(destination.route) {
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                NavigationBar {
+                    Destinations.bottom.forEach { destination ->
+                        NavigationBarItem(
+                            selected = currentRoute == destination.route,
+                            onClick = {
+                                navController.navigate(destination.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(destination.icon, contentDescription = stringResource(id = destination.titleRes)) },
+                            label = { Text(text = stringResource(id = destination.titleRes)) }
+                        )
+                    }
+                }
+            },
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm)
             ) {
-                composable(Destinations.Overview.route) { OverviewScreen(state = overview) }
-                composable(Destinations.Forecast.route) { ForecastScreen(state = forecast) }
-                composable(Destinations.Uam.route) { UamScreen(state = uam) }
-                composable(Destinations.Safety.route) { SafetyScreen(state = safety) }
-                composable(Destinations.Audit.route) { AuditScreen(state = audit) }
-                composable(Destinations.Analytics.route) { AnalyticsScreen(state = analytics) }
-                composable(Destinations.Settings.route) { SettingsScreen(state = settings) }
+                AppHealthBanner(
+                    staleData = appHealth.staleData,
+                    killSwitchEnabled = appHealth.killSwitchEnabled,
+                    lastSyncText = appHealth.lastSyncText,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                NavHost(
+                    navController = navController,
+                    startDestination = Destinations.Overview.route,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    composable(Destinations.Overview.route) {
+                        OverviewScreen(
+                            state = overview,
+                            onRunCycleNow = viewModel::runCycleNow,
+                            onSetKillSwitch = viewModel::setKillSwitch
+                        )
+                    }
+                    composable(Destinations.Forecast.route) {
+                        ForecastScreen(
+                            state = forecast,
+                            onSelectRange = viewModel::setForecastRange,
+                            onLayerChange = { layers ->
+                                viewModel.setForecastLayers(
+                                    showTrend = layers.showTrend,
+                                    showTherapy = layers.showTherapy,
+                                    showUam = layers.showUam,
+                                    showCi = layers.showCi
+                                )
+                            }
+                        )
+                    }
+                    composable(Destinations.Uam.route) {
+                        UamScreen(
+                            state = uam,
+                            onMarkCorrect = viewModel::markUamEventCorrect,
+                            onMarkWrong = viewModel::markUamEventWrong,
+                            onMergeWithManual = viewModel::mergeUamEventWithManualCarbs,
+                            onExportToAaps = viewModel::exportUamEventToAaps
+                        )
+                    }
+                    composable(Destinations.Safety.route) {
+                        SafetyScreen(
+                            state = safety,
+                            onKillSwitchToggle = viewModel::setKillSwitch,
+                            onSafetyBoundsChange = viewModel::setSafetyTargetBounds
+                        )
+                    }
+                    composable(Destinations.Audit.route) {
+                        AuditScreen(
+                            state = audit,
+                            onSelectWindow = viewModel::setAuditWindow,
+                            onOnlyErrorsChange = viewModel::setAuditOnlyErrors
+                        )
+                    }
+                    composable(Destinations.Analytics.route) {
+                        AnalyticsScreen(
+                            state = analytics,
+                            onRunDailyAnalysis = viewModel::runDailyAnalysisNow,
+                            onInsulinProfileActivate = viewModel::setInsulinProfile
+                        )
+                    }
+                    composable(Destinations.Settings.route) {
+                        val updateUamRuntime: (
+                            enableInference: Boolean,
+                            enableBoost: Boolean,
+                            enableExport: Boolean,
+                            dryRunExport: Boolean
+                        ) -> Unit = { enableInference, enableBoost, enableExport, dryRunExport ->
+                            viewModel.setUamRuntimeConfig(
+                                enableInference = enableInference,
+                                enableBoost = enableBoost,
+                                enableExport = enableExport,
+                                exportModeRaw = settings.uamExportMode,
+                                dryRunExport = dryRunExport
+                            )
+                        }
+                        SettingsScreen(
+                            state = settings,
+                            onVerboseLogsToggle = viewModel::setVerboseLogsEnabled,
+                            onProModeToggle = viewModel::setProModeEnabled,
+                            onNightscoutUrlSave = viewModel::setNightscoutUrl,
+                            onBaseTargetChange = viewModel::setBaseTarget,
+                            onInsulinProfileSelect = viewModel::setInsulinProfile,
+                            onLocalNightscoutToggle = viewModel::setLocalNightscoutEnabled,
+                            onLocalBroadcastIngestToggle = viewModel::setLocalBroadcastIngestEnabled,
+                            onStrictSenderValidationToggle = viewModel::setStrictBroadcastValidation,
+                            onUamExportModeChange = viewModel::setUamExportMode,
+                            onUamSnackConfigChange = viewModel::setUamSnackConfig,
+                            onUamInferenceToggle = { enabled ->
+                                updateUamRuntime(
+                                    enabled,
+                                    settings.enableUamBoost,
+                                    settings.enableUamExportToAaps,
+                                    settings.dryRunExport
+                                )
+                            },
+                            onUamBoostToggle = { enabled ->
+                                updateUamRuntime(
+                                    settings.enableUamInference,
+                                    enabled,
+                                    settings.enableUamExportToAaps,
+                                    settings.dryRunExport
+                                )
+                            },
+                            onUamExportToggle = { enabled ->
+                                updateUamRuntime(
+                                    settings.enableUamInference,
+                                    settings.enableUamBoost,
+                                    enabled,
+                                    settings.dryRunExport
+                                )
+                            },
+                            onUamDryRunToggle = { enabled ->
+                                updateUamRuntime(
+                                    settings.enableUamInference,
+                                    settings.enableUamBoost,
+                                    settings.enableUamExportToAaps,
+                                    enabled
+                                )
+                            },
+                            onIsfCrShadowModeToggle = viewModel::setIsfCrShadowMode,
+                            onIsfCrConfidenceThresholdChange = viewModel::setIsfCrConfidenceThreshold,
+                            onIsfCrUseActivityToggle = viewModel::setIsfCrUseActivity,
+                            onIsfCrUseManualTagsToggle = viewModel::setIsfCrUseManualTags,
+                            onIsfCrMinEvidencePerHourChange = viewModel::setIsfCrMinEvidencePerHour,
+                            onIsfCrCrIntegrityGateSettingsChange = viewModel::setIsfCrCrIntegrityGateSettings,
+                            onIsfCrRetentionChange = viewModel::setIsfCrRetention,
+                            onIsfCrAutoActivationEnabledToggle = viewModel::setIsfCrAutoActivationEnabled,
+                            onIsfCrAutoActivationLookbackHoursChange = viewModel::setIsfCrAutoActivationLookbackHours,
+                            onIsfCrAutoActivationMinSamplesChange = viewModel::setIsfCrAutoActivationMinSamples,
+                            onIsfCrAutoActivationMinMeanConfidenceChange = viewModel::setIsfCrAutoActivationMinMeanConfidence,
+                            onIsfCrAutoActivationMaxMeanAbsDeltaPctChange = viewModel::setIsfCrAutoActivationMaxMeanAbsDeltaPct,
+                            onIsfCrAutoActivationSensorThresholdsChange = viewModel::setIsfCrAutoActivationSensorThresholds,
+                            onIsfCrAutoActivationDayTypeThresholdsChange = viewModel::setIsfCrAutoActivationDayTypeThresholds,
+                            onIsfCrAutoActivationRequireDailyQualityGateToggle = viewModel::setIsfCrAutoActivationRequireDailyQualityGate,
+                            onIsfCrAutoActivationDailyRiskBlockLevelChange = viewModel::setIsfCrAutoActivationDailyRiskBlockLevel,
+                            onIsfCrAutoActivationDailyQualityThresholdsChange = viewModel::setIsfCrAutoActivationDailyQualityThresholds,
+                            onIsfCrAutoActivationRollingGateSettingsChange = viewModel::setIsfCrAutoActivationRollingGateSettings,
+                            onAddPhysioTag = viewModel::addPhysioTag,
+                            onClosePhysioTag = viewModel::closePhysioTag,
+                            onClearPhysioTags = viewModel::clearActivePhysioTags,
+                            onAdaptiveControllerToggle = viewModel::setAdaptiveControllerEnabled,
+                            onSafetyBoundsChange = viewModel::setSafetyTargetBounds,
+                            onPostHypoThresholdChange = viewModel::setPostHypoThreshold,
+                            onPostHypoTargetChange = viewModel::setPostHypoTarget,
+                            onRetentionDaysChange = viewModel::setRetentionDays
+                        )
+                    }
+                }
             }
         }
     }
@@ -167,13 +360,56 @@ fun CopilotFoundationRoot(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun TopBar(
     title: String,
+    staleData: Boolean,
+    killSwitchEnabled: Boolean,
+    onMenuClick: () -> Unit,
+    onOpenHealth: () -> Unit,
     onNavigateMore: (MoreDestination) -> Unit
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
+    val containerColor = when {
+        killSwitchEnabled -> MaterialTheme.colorScheme.errorContainer
+        staleData -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = when {
+        killSwitchEnabled -> MaterialTheme.colorScheme.onErrorContainer
+        staleData -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val statusCount = listOf(staleData, killSwitchEnabled).count { it }
 
     TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = containerColor,
+            titleContentColor = contentColor,
+            actionIconContentColor = contentColor,
+            navigationIconContentColor = contentColor
+        ),
         title = { Text(text = title) },
+        navigationIcon = {
+            IconButton(onClick = onMenuClick) {
+                Icon(
+                    imageVector = if (staleData || killSwitchEnabled) Icons.Default.Warning else Icons.Default.Menu,
+                    contentDescription = stringResource(id = R.string.menu_more)
+                )
+            }
+        },
         actions = {
+            BadgedBox(
+                badge = {
+                    if (statusCount > 0) {
+                        Badge { Text(text = statusCount.toString()) }
+                    }
+                }
+            ) {
+                IconButton(onClick = onOpenHealth) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = stringResource(id = R.string.app_health_title)
+                    )
+                }
+            }
             IconButton(onClick = { moreExpanded = true }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,

@@ -1,0 +1,30 @@
+package io.aaps.copilot.domain.isfcr
+
+data class IsfCrDiagnostics(
+    val usedEvidenceCount: Int,
+    val isfEvidenceCount: Int,
+    val crEvidenceCount: Int,
+    val droppedEvidenceCount: Int,
+    val droppedReasonCounts: Map<String, Int> = emptyMap(),
+    val currentDayType: String? = null,
+    val isfBaseSource: String? = null,
+    val crBaseSource: String? = null,
+    val isfDayTypeBaseAvailable: Boolean = false,
+    val crDayTypeBaseAvailable: Boolean = false,
+    val hourWindowIsfEvidenceCount: Int = 0,
+    val hourWindowCrEvidenceCount: Int = 0,
+    val hourWindowIsfSameDayTypeCount: Int = 0,
+    val hourWindowCrSameDayTypeCount: Int = 0,
+    val minIsfEvidencePerHour: Int = 0,
+    val minCrEvidencePerHour: Int = 0,
+    val crMaxGapMinutes: Double = 30.0,
+    val crMaxSensorBlockedRate: Double = 0.25,
+    val crMaxUamAmbiguityRate: Double = 0.60,
+    val coverageHoursIsf: Int,
+    val coverageHoursCr: Int,
+    val qualityScore: Double,
+    val confidence: Double,
+    val lowConfidence: Boolean,
+    val mode: IsfCrRuntimeMode,
+    val reasons: List<String>
+)

@@ -1,5 +1,10 @@
 package io.aaps.copilot.ui.foundation.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -67,11 +74,14 @@ fun MetricCard(
     subtitle: String? = null,
     status: MetricStatus = MetricStatus.NORMAL,
     decimals: Int = 2,
+    emphasized: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val (icon, statusText) = metricStatusVisual(status)
+    val visual = metricStatusVisual(status)
+    val valueText = value?.let { formatDecimal(it, decimals) } ?: stringResource(id = R.string.placeholder_missing)
+    val semanticsLabel = "$title $valueText $unit ${visual.label}"
     Card(
-        modifier = modifier,
+        modifier = modifier.semantics { contentDescription = semanticsLabel },
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = AppElevation.level2)
     ) {
         Column(
@@ -84,21 +94,37 @@ fun MetricCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
-                Icon(imageVector = icon, contentDescription = statusText)
-                Text(text = title, style = MaterialTheme.typography.labelLarge)
+                Icon(imageVector = visual.icon, contentDescription = visual.label, tint = visual.tone)
                 Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                AnimatedContent(
+                    targetState = visual.label,
+                    transitionSpec = { fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180)) },
+                    label = "metricStatus"
+                ) { targetStatus ->
+                    Text(
+                        text = targetStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = visual.tone
+                    )
+                }
+            }
+            AnimatedContent(
+                targetState = valueText,
+                transitionSpec = { fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180)) },
+                label = "metricValue"
+            ) { target ->
+                Text(
+                    text = target,
+                    style = if (emphasized) LocalNumericTypography.current.valueLarge else LocalNumericTypography.current.valueMedium
                 )
             }
             Text(
-                text = value?.let { formatDecimal(it, decimals) } ?: stringResource(id = R.string.placeholder_missing),
-                style = LocalNumericTypography.current.valueLarge
-            )
-            Text(
                 text = unit,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (!subtitle.isNullOrBlank()) {
@@ -118,6 +144,7 @@ fun PredictionHorizonChip(
     pred: Double?,
     ciLow: Double?,
     ciHigh: Double?,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val predText = pred?.let { formatDecimal(it, 2) } ?: stringResource(R.string.placeholder_missing)
@@ -131,8 +158,8 @@ fun PredictionHorizonChip(
         highText
     )
     AssistChip(
-        onClick = {},
-        enabled = false,
+        onClick = { onClick?.invoke() },
+        enabled = onClick != null,
         label = {
             Text(text = label, style = LocalNumericTypography.current.valueSmall)
         },
@@ -281,12 +308,34 @@ fun AppHealthBanner(
 }
 
 @Composable
-private fun metricStatusVisual(status: MetricStatus): Pair<androidx.compose.ui.graphics.vector.ImageVector, String> = when (status) {
-    MetricStatus.NORMAL -> Icons.Default.Info to stringResource(R.string.status_info)
-    MetricStatus.GOOD -> Icons.Default.CheckCircle to stringResource(R.string.status_ok)
-    MetricStatus.WARNING -> Icons.Default.Warning to stringResource(R.string.status_warn)
-    MetricStatus.CRITICAL -> Icons.Default.Error to stringResource(R.string.status_alert)
+private fun metricStatusVisual(status: MetricStatus): MetricVisual = when (status) {
+    MetricStatus.NORMAL -> MetricVisual(
+        icon = Icons.Default.Info,
+        label = stringResource(R.string.status_low_risk),
+        tone = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    MetricStatus.GOOD -> MetricVisual(
+        icon = Icons.Default.CheckCircle,
+        label = stringResource(R.string.status_low_risk),
+        tone = MaterialTheme.colorScheme.secondary
+    )
+    MetricStatus.WARNING -> MetricVisual(
+        icon = Icons.Default.Warning,
+        label = stringResource(R.string.status_warning_risk),
+        tone = MaterialTheme.colorScheme.tertiary
+    )
+    MetricStatus.CRITICAL -> MetricVisual(
+        icon = Icons.Default.Error,
+        label = stringResource(R.string.status_hypo_risk),
+        tone = MaterialTheme.colorScheme.error
+    )
 }
+
+private data class MetricVisual(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val label: String,
+    val tone: androidx.compose.ui.graphics.Color
+)
 
 private fun formatDecimal(value: Double, decimals: Int): String {
     return String.format(Locale.US, "%.${decimals}f", value)

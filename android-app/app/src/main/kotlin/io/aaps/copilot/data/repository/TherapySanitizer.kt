@@ -49,7 +49,7 @@ object TherapySanitizer {
     }
 
     private fun isBroadcastArtifact(event: TherapyEventEntity, type: String): Boolean {
-        val isBroadcastId = event.id.startsWith("br-aaps_broadcast-") || event.id.startsWith("br-local_broadcast-")
+        val isBroadcastId = event.id.startsWith("br-local_broadcast-")
         if (!isBroadcastId) return false
         return type == "correction_bolus" || type == "meal_bolus" || type == "carbs" || type == "temp_target"
     }

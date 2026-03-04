@@ -24,7 +24,7 @@ interface TherapyDao {
 
     @Query(
         "DELETE FROM therapy_events " +
-            "WHERE (id LIKE 'br-aaps_broadcast-%' OR id LIKE 'br-local_broadcast-%') " +
+            "WHERE id LIKE 'br-local_broadcast-%' " +
             "AND type IN ('correction_bolus','meal_bolus','carbs','temp_target')"
     )
     suspend fun deleteLegacyBroadcastArtifacts(): Int

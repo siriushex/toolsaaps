@@ -63,6 +63,41 @@ class CarbAbsorptionProfilesTest {
         assertThat(fast).isGreaterThan(protein)
     }
 
+    @Test
+    fun classifyHypoTreatmentAsUltraFastWhenLowGlucose() {
+        val eventTs = NOW_TS
+        val event = TherapyEvent(
+            ts = eventTs,
+            type = "carbs",
+            payload = mapOf("grams" to "12", "note" to "hypo rescue sugar")
+        )
+        val glucose = listOf(
+            point(eventTs - 10 * MINUTE_MS, 3.6),
+            point(eventTs - 5 * MINUTE_MS, 3.8),
+            point(eventTs + 5 * MINUTE_MS, 4.1),
+            point(eventTs + 15 * MINUTE_MS, 4.8)
+        )
+
+        val classified = CarbAbsorptionProfiles.classifyCarbEvent(
+            event = event,
+            glucose = glucose,
+            nowTs = eventTs + 25 * MINUTE_MS
+        )
+
+        assertThat(classified.type).isEqualTo(CarbAbsorptionType.ULTRA_FAST)
+    }
+
+    @Test
+    fun ultraFastAndMediumCurvesReachFullAbsorptionOnTargetWindows() {
+        val ultraAt60 = CarbAbsorptionProfiles.cumulative(CarbAbsorptionType.ULTRA_FAST, 60.0)
+        val mediumAt180 = CarbAbsorptionProfiles.cumulative(CarbAbsorptionType.MEDIUM, 180.0)
+        val mediumAt200 = CarbAbsorptionProfiles.cumulative(CarbAbsorptionType.MEDIUM, 200.0)
+
+        assertThat(ultraAt60).isWithin(1e-9).of(1.0)
+        assertThat(mediumAt180).isWithin(1e-9).of(1.0)
+        assertThat(mediumAt200).isWithin(1e-9).of(1.0)
+    }
+
     private fun baselineGlucose(): List<GlucosePoint> {
         return listOf(
             point(NOW_TS - 15 * MINUTE_MS, 6.2),
@@ -86,4 +121,3 @@ class CarbAbsorptionProfilesTest {
         const val NOW_TS = 1_700_000_000_000L
     }
 }
-

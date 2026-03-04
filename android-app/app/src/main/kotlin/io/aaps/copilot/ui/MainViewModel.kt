@@ -30,6 +30,7 @@ import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
+import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
 import io.aaps.copilot.data.repository.CloudAnalysisHistoryUiModel
 import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
@@ -42,12 +43,17 @@ import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.PatternWindow
 import io.aaps.copilot.domain.model.SafetySnapshot
+import io.aaps.copilot.domain.isfcr.IsfCrRealtimeSnapshot
+import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
+import io.aaps.copilot.domain.isfcr.PhysioContextTag
+import io.aaps.copilot.domain.predict.UamInferenceState
 import io.aaps.copilot.domain.predict.BaselineComparator
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.ProfileEstimator
 import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
 import io.aaps.copilot.domain.predict.TelemetrySignal
+import io.aaps.copilot.domain.predict.UamTagCodec
 import io.aaps.copilot.domain.predict.UamExportMode
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
 import io.aaps.copilot.scheduler.WorkScheduler
@@ -55,9 +61,14 @@ import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutTls
 import io.aaps.copilot.ui.foundation.screens.AnalyticsUiState
 import io.aaps.copilot.ui.foundation.screens.AppHealthUiState
+import io.aaps.copilot.ui.foundation.screens.AuditItemUi
+import io.aaps.copilot.ui.foundation.screens.AuditWindowUi
 import io.aaps.copilot.ui.foundation.screens.AuditUiState
+import io.aaps.copilot.ui.foundation.screens.ForecastLayerState
+import io.aaps.copilot.ui.foundation.screens.ForecastRangeUi
 import io.aaps.copilot.ui.foundation.screens.ForecastUiState
 import io.aaps.copilot.ui.foundation.screens.OverviewUiState
+import io.aaps.copilot.ui.foundation.screens.PhysioTagJournalItemUi
 import io.aaps.copilot.ui.foundation.screens.SafetyUiState
 import io.aaps.copilot.ui.foundation.screens.SettingsUiState
 import io.aaps.copilot.ui.foundation.screens.UamUiState
@@ -76,6 +87,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
@@ -103,6 +115,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val analysisHistoryState = MutableStateFlow<CloudAnalysisHistoryUiModel?>(null)
     private val analysisTrendState = MutableStateFlow<CloudAnalysisTrendUiModel?>(null)
     private val insightsFilterState = MutableStateFlow(InsightsFilterUi())
+    private val forecastRangeState = MutableStateFlow(ForecastRangeUi.H3)
+    private val forecastLayersState = MutableStateFlow(ForecastLayerState())
+    private val auditWindowState = MutableStateFlow(AuditWindowUi.H24)
+    private val auditOnlyErrorsState = MutableStateFlow(false)
+    private val proModeState = MutableStateFlow(false)
+    private val verboseLogsState = MutableStateFlow(false)
     private val autoConnectState = MutableStateFlow<AutoConnectUi?>(null)
     private val qualityEvaluator = ForecastQualityEvaluator()
     private val baselineComparator = BaselineComparator()
@@ -135,7 +153,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         cloudJobsState,
         analysisHistoryState,
         analysisTrendState,
-        insightsFilterState
+        insightsFilterState,
+        db.uamInferenceEventDao().observeLatest(limit = 300),
+        container.analyticsRepository.observeIsfCrSnapshot(),
+        container.analyticsRepository.observeIsfCrHistory(limit = 20_000),
+        container.isfCrRepository.observeRecentTags(sinceTs = 0L)
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val glucose = GlucoseSanitizer.filterEntities(values[0] as List<GlucoseSampleEntity>)
@@ -175,6 +197,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val analysisHistory = values[19] as CloudAnalysisHistoryUiModel?
         val analysisTrend = values[20] as CloudAnalysisTrendUiModel?
         val insightsFilter = values[21] as InsightsFilterUi
+        @Suppress("UNCHECKED_CAST")
+        val uamEvents = values[22] as List<UamInferenceEventEntity>
+        val isfCrSnapshot = values[23] as IsfCrRealtimeSnapshot?
+        @Suppress("UNCHECKED_CAST")
+        val isfCrHistory = values[24] as List<IsfCrRealtimeSnapshot>
+        @Suppress("UNCHECKED_CAST")
+        val physioTags = values[25] as List<PhysioContextTag>
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -361,6 +390,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val telemetryLines = buildTelemetryLines(telemetry)
         val telemetryByKey = latestTelemetryByKey(telemetry)
         val actionLines = buildActionLines(actionCommands)
+        val glucoseHistoryPoints = sortedGlucose
+            .filter { it.timestamp >= now - 24 * 60 * 60_000L }
+            .map { GlucoseHistoryRowUi(timestamp = it.timestamp, valueMmol = it.mmol) }
         val forecast5Latest = latestForecast5Row?.valueMmol ?: latestForecastValue(forecasts, 5)
         val forecast30Latest = latestForecast30Row?.valueMmol ?: latestForecastValue(forecasts, 30)
         val forecast60Latest = latestForecast60Row?.valueMmol ?: latestForecastValue(forecasts, 60)
@@ -370,14 +402,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val forecast30CiHigh = latestForecast30Row?.ciHigh
         val forecast60CiLow = latestForecast60Row?.ciLow
         val forecast60CiHigh = latestForecast60Row?.ciHigh
-        val latestIobUnits = telemetryByKey["iob_units"].toNumericValue()
-        val latestCobGrams = telemetryByKey["cob_grams"].toNumericValue()
+        val latestIobUnits = (
+            telemetryByKey["iob_effective_units"].toNumericValue()
+                ?: telemetryByKey["iob_units"].toNumericValue()
+            )
+        val latestIobRealUnits = telemetryByKey["iob_real_units"].toNumericValue()
+        val latestCobGrams = (
+            telemetryByKey["cob_effective_grams"].toNumericValue()
+                ?: telemetryByKey["cob_grams"].toNumericValue()
+            )
+            ?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
+        val insulinRealOnsetMinutes = telemetryByKey["insulin_real_onset_min"].toNumericValue()
+        val insulinRealProfileCurveCompact = telemetryByKey["insulin_profile_real_curve_compact"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val insulinRealProfileUpdatedTs = telemetryByKey["insulin_profile_real_updated_ts"]
+            .toNumericValue()
+            ?.toLong()
+        val insulinRealProfileConfidence = telemetryByKey["insulin_profile_real_confidence"]
+            .toNumericValue()
+            ?.coerceIn(0.0, 1.0)
+        val insulinRealProfileSamples = telemetryByKey["insulin_profile_real_samples"]
+            .toNumericValue()
+            ?.toInt()
+            ?.coerceAtLeast(0)
+        val insulinRealProfileOnsetMinutes = telemetryByKey["insulin_profile_real_onset_min"]
+            .toNumericValue()
+        val insulinRealProfilePeakMinutes = telemetryByKey["insulin_profile_real_peak_min"]
+            .toNumericValue()
+        val insulinRealProfileScale = telemetryByKey["insulin_profile_real_scale"]
+            .toNumericValue()
+        val insulinRealProfileStatus = telemetryByKey["insulin_profile_real_status"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val latestActivityRatio = telemetryByKey["activity_ratio"].toNumericValue()
+        val latestStepsCount = telemetryByKey["steps_count"].toNumericValue()
         val calculatedUamFlag = telemetryByKey["uam_calculated_flag"].toNumericValue()
         val calculatedUamConfidence = telemetryByKey["uam_calculated_confidence"].toNumericValue()
         val calculatedUamCarbs = telemetryByKey["uam_calculated_carbs_grams"].toNumericValue()
         val calculatedUamDelta5 = telemetryByKey["uam_calculated_delta5_mmol"].toNumericValue()
         val calculatedUamRise15 = telemetryByKey["uam_calculated_rise15_mmol"].toNumericValue()
         val calculatedUamRise30 = telemetryByKey["uam_calculated_rise30_mmol"].toNumericValue()
+        val uci0Mmol5m = telemetryByKey["uam_uci0_mmol5"].toNumericValue() ?: calculatedUamDelta5
         val inferredUamFlag = telemetryByKey["uam_inferred_flag"].toNumericValue()
         val inferredUamConfidence = telemetryByKey["uam_inferred_confidence"].toNumericValue()
         val inferredUamCarbs = telemetryByKey["uam_inferred_carbs_grams"].toNumericValue()
@@ -385,6 +453,292 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val inferredUamBoostMode = telemetryByKey["uam_inferred_boost_mode"].toNumericValue()
         val inferredUamManualCob = telemetryByKey["uam_manual_cob_grams"].toNumericValue()
         val inferredUamLastGAbs = telemetryByKey["uam_inferred_gabs_last5_g"].toNumericValue()
+        val dailyReportGeneratedAtTs = listOf(
+            telemetryByKey["daily_report_matched_samples"],
+            telemetryByKey["daily_report_forecast_rows"],
+            telemetryByKey["daily_report_mae_5m"],
+            telemetryByKey["daily_report_mae_30m"],
+            telemetryByKey["daily_report_mae_60m"]
+        ).firstNotNullOfOrNull { it?.timestamp }
+        val dailyReportMatchedSamples = telemetryByKey["daily_report_matched_samples"].toNumericValue()?.roundToInt()
+        val dailyReportForecastRows = telemetryByKey["daily_report_forecast_rows"].toNumericValue()?.roundToInt()
+        val dailyReportMarkdownPath = telemetryByKey["daily_report_markdown_path"]?.valueText
+        val dailyReportPeriodStartUtc = telemetryByKey["daily_report_period_start"]?.valueText
+        val dailyReportPeriodEndUtc = telemetryByKey["daily_report_period_end"]?.valueText
+        val dailyReportMetrics = listOf(5, 30, 60).mapNotNull { horizon ->
+            val mae = telemetryByKey["daily_report_mae_${horizon}m"].toNumericValue()
+            val rmse = telemetryByKey["daily_report_rmse_${horizon}m"].toNumericValue()
+            val mardPct = telemetryByKey["daily_report_mard_${horizon}m_pct"].toNumericValue()
+            val bias = telemetryByKey["daily_report_bias_${horizon}m"].toNumericValue()
+            val sampleCount = telemetryByKey["daily_report_n_${horizon}m"].toNumericValue()?.roundToInt()
+            val ciCoveragePct = telemetryByKey["daily_report_ci_coverage_${horizon}m_pct"].toNumericValue()
+            val ciMeanWidth = telemetryByKey["daily_report_ci_width_${horizon}m"].toNumericValue()
+            if (
+                mae == null &&
+                rmse == null &&
+                mardPct == null &&
+                bias == null &&
+                sampleCount == null &&
+                ciCoveragePct == null &&
+                ciMeanWidth == null
+            ) {
+                null
+            } else {
+                DailyReportMetricUi(
+                    horizonMinutes = horizon,
+                    sampleCount = sampleCount,
+                    mae = mae,
+                    rmse = rmse,
+                    mardPct = mardPct,
+                    bias = bias,
+                    ciCoveragePct = ciCoveragePct,
+                    ciMeanWidth = ciMeanWidth
+                )
+            }
+        }
+        val dailyReportRecommendations = (1..3).mapNotNull { index ->
+            telemetryByKey["daily_report_recommendation_$index"]
+                ?.valueText
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }
+        val dailyReportIsfCrDroppedEvents = telemetryByKey["daily_report_isfcr_dropped_event_count"]
+            .toNumericValue()
+            ?.roundToInt()
+        val dailyReportIsfCrDroppedTotal = telemetryByKey["daily_report_isfcr_dropped_total"]
+            .toNumericValue()
+            ?.roundToInt()
+        val dailyReportIsfCrDroppedSource = telemetryByKey["daily_report_isfcr_dropped_source"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val dailyReportIsfCrTopReasons = telemetryByKey["daily_report_isfcr_dropped_top_reasons"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val dailyReportIsfCrQualityRisk = telemetryByKey["daily_report_isfcr_quality_risk"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val dailyReportIsfCrGapDropRatePct = telemetryByKey["daily_report_isfcr_cr_gap_drop_rate_pct"]
+            .toNumericValue()
+        val dailyReportIsfCrSensorDropRatePct = telemetryByKey["daily_report_isfcr_cr_sensor_drop_rate_pct"]
+            .toNumericValue()
+        val dailyReportIsfCrUamDropRatePct = telemetryByKey["daily_report_isfcr_cr_uam_drop_rate_pct"]
+            .toNumericValue()
+        val dailyReportIsfCrQualityLines = buildList {
+            if (
+                dailyReportIsfCrDroppedEvents != null ||
+                dailyReportIsfCrDroppedTotal != null ||
+                dailyReportIsfCrDroppedSource != null
+            ) {
+                add(
+                    "source=${dailyReportIsfCrDroppedSource ?: "--"}, " +
+                        "events=${dailyReportIsfCrDroppedEvents ?: 0}, " +
+                        "dropped=${dailyReportIsfCrDroppedTotal ?: 0}"
+                )
+            }
+            dailyReportIsfCrQualityRisk?.let { risk ->
+                add("Quality risk: $risk")
+            }
+            if (
+                dailyReportIsfCrGapDropRatePct != null ||
+                dailyReportIsfCrSensorDropRatePct != null ||
+                dailyReportIsfCrUamDropRatePct != null
+            ) {
+                add(
+                    "CR integrity drop-rate: gap=${String.format(Locale.US, "%.1f", dailyReportIsfCrGapDropRatePct ?: 0.0)}%, " +
+                        "sensorBlocked=${String.format(Locale.US, "%.1f", dailyReportIsfCrSensorDropRatePct ?: 0.0)}%, " +
+                        "uamAmbiguity=${String.format(Locale.US, "%.1f", dailyReportIsfCrUamDropRatePct ?: 0.0)}%"
+                )
+            }
+            dailyReportIsfCrTopReasons?.let { topReasons ->
+                add("Top dropped reasons: $topReasons")
+            }
+        }
+        val rollingReportLines = listOf(14, 30, 90).mapNotNull { days ->
+            val prefix = "rolling_report_${days}d"
+            val matched = telemetryByKey["${prefix}_matched_samples"].toNumericValue()?.roundToInt()
+            val mae30 = telemetryByKey["${prefix}_mae_30m"].toNumericValue()
+            val mae60 = telemetryByKey["${prefix}_mae_60m"].toNumericValue()
+            val mard30 = telemetryByKey["${prefix}_mard_30m_pct"].toNumericValue()
+            val mard60 = telemetryByKey["${prefix}_mard_60m_pct"].toNumericValue()
+            val cov60 = telemetryByKey["${prefix}_ci_coverage_60m_pct"].toNumericValue()
+            val width60 = telemetryByKey["${prefix}_ci_width_60m"].toNumericValue()
+            val hasAny = listOf(
+                matched?.toDouble(),
+                mae30,
+                mae60,
+                mard30,
+                mard60,
+                cov60,
+                width60
+            ).any { it != null }
+            if (!hasAny) {
+                null
+            } else {
+                buildString {
+                    append("${days}d: n=${matched ?: 0}")
+                    mae30?.let { append(", MAE30=${String.format(Locale.US, "%.2f", it)}") }
+                    mae60?.let { append(", MAE60=${String.format(Locale.US, "%.2f", it)}") }
+                    mard30?.let { append(", MARD30=${String.format(Locale.US, "%.1f", it)}%") }
+                    mard60?.let { append(", MARD60=${String.format(Locale.US, "%.1f", it)}%") }
+                    cov60?.let { append(", CI60=${String.format(Locale.US, "%.1f", it)}%") }
+                    width60?.let { append(", W60=${String.format(Locale.US, "%.2f", it)}") }
+                }
+            }
+        }
+        val replayFactor5 = telemetryByKey["daily_report_replay_top_factor_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayFactor30 = telemetryByKey["daily_report_replay_top_factor_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayFactor60 = telemetryByKey["daily_report_replay_top_factor_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayFactorHint5 = telemetryByKey["daily_report_replay_top_factor_hint_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayFactorHint30 = telemetryByKey["daily_report_replay_top_factor_hint_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayFactorHint60 = telemetryByKey["daily_report_replay_top_factor_hint_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayHotspot5 = telemetryByKey["daily_report_replay_hotspot_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayHotspot30 = telemetryByKey["daily_report_replay_hotspot_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayHotspot60 = telemetryByKey["daily_report_replay_hotspot_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopMiss5 = telemetryByKey["daily_report_replay_top_miss_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopMiss30 = telemetryByKey["daily_report_replay_top_miss_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopMiss60 = telemetryByKey["daily_report_replay_top_miss_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopPair5 = telemetryByKey["daily_report_replay_top_pair_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopPair30 = telemetryByKey["daily_report_replay_top_pair_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopPair60 = telemetryByKey["daily_report_replay_top_pair_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopPairHint5 = telemetryByKey["daily_report_replay_top_pair_hint_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopPairHint30 = telemetryByKey["daily_report_replay_top_pair_hint_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayTopPairHint60 = telemetryByKey["daily_report_replay_top_pair_hint_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayErrorCluster5 = telemetryByKey["daily_report_replay_error_cluster_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayErrorCluster30 = telemetryByKey["daily_report_replay_error_cluster_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayErrorCluster60 = telemetryByKey["daily_report_replay_error_cluster_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayErrorClusterHint5 = telemetryByKey["daily_report_replay_error_cluster_hint_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayErrorClusterHint30 = telemetryByKey["daily_report_replay_error_cluster_hint_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayErrorClusterHint60 = telemetryByKey["daily_report_replay_error_cluster_hint_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayDayTypeGap5 = telemetryByKey["daily_report_replay_daytype_gap_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayDayTypeGap30 = telemetryByKey["daily_report_replay_daytype_gap_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayDayTypeGap60 = telemetryByKey["daily_report_replay_daytype_gap_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayDayTypeGapHint5 = telemetryByKey["daily_report_replay_daytype_gap_hint_5m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayDayTypeGapHint30 = telemetryByKey["daily_report_replay_daytype_gap_hint_30m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayDayTypeGapHint60 = telemetryByKey["daily_report_replay_daytype_gap_hint_60m"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayOverallFactors = telemetryByKey["daily_report_replay_top_factors_overall"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val replayHotspots = parseReplayHotspotsJson(
+            telemetryByKey["daily_report_replay_hotspots_json"]?.valueText
+        )
+        val replayFactorContributions = parseReplayFactorsJson(
+            telemetryByKey["daily_report_replay_factors_json"]?.valueText
+        )
+        val replayFactorCoverage = parseReplayCoverageJson(
+            telemetryByKey["daily_report_replay_factor_coverage_json"]?.valueText
+        )
+        val replayFactorRegimes = parseReplayRegimesJson(
+            telemetryByKey["daily_report_replay_factor_regime_json"]?.valueText
+        )
+        val replayFactorPairs = parseReplayPairsJson(
+            telemetryByKey["daily_report_replay_factor_pair_json"]?.valueText
+        )
+        val replayTopMisses = parseReplayTopMissJson(
+            telemetryByKey["daily_report_replay_top_miss_json"]?.valueText
+        )
+        val replayErrorClusters = parseReplayErrorClustersJson(
+            telemetryByKey["daily_report_replay_error_cluster_json"]?.valueText
+        )
+        val replayDayTypeGaps = parseReplayDayTypeGapsJson(
+            telemetryByKey["daily_report_replay_daytype_gap_json"]?.valueText
+        )
+        val replayReportLines = buildList {
+            replayOverallFactors?.let { add("Replay 24h top factors: $it") }
+            replayFactor5?.let { add("Replay 24h 5m factor: $it") }
+            replayFactor30?.let { add("Replay 24h 30m factor: $it") }
+            replayFactor60?.let { add("Replay 24h 60m factor: $it") }
+            replayFactorHint5?.let { add("Replay 24h 5m hint: $it") }
+            replayFactorHint30?.let { add("Replay 24h 30m hint: $it") }
+            replayFactorHint60?.let { add("Replay 24h 60m hint: $it") }
+            replayHotspot5?.let { add("Replay 24h 5m hotspot: $it") }
+            replayHotspot30?.let { add("Replay 24h 30m hotspot: $it") }
+            replayHotspot60?.let { add("Replay 24h 60m hotspot: $it") }
+            replayTopMiss5?.let { add("Replay 24h 5m top miss: $it") }
+            replayTopMiss30?.let { add("Replay 24h 30m top miss: $it") }
+            replayTopMiss60?.let { add("Replay 24h 60m top miss: $it") }
+            replayTopPair5?.let { add("Replay 24h 5m top pair: $it") }
+            replayTopPair30?.let { add("Replay 24h 30m top pair: $it") }
+            replayTopPair60?.let { add("Replay 24h 60m top pair: $it") }
+            replayTopPairHint5?.let { add("Replay 24h 5m pair hint: $it") }
+            replayTopPairHint30?.let { add("Replay 24h 30m pair hint: $it") }
+            replayTopPairHint60?.let { add("Replay 24h 60m pair hint: $it") }
+            replayErrorCluster5?.let { add("Replay 24h 5m error cluster: $it") }
+            replayErrorCluster30?.let { add("Replay 24h 30m error cluster: $it") }
+            replayErrorCluster60?.let { add("Replay 24h 60m error cluster: $it") }
+            replayErrorClusterHint5?.let { add("Replay 24h 5m cluster hint: $it") }
+            replayErrorClusterHint30?.let { add("Replay 24h 30m cluster hint: $it") }
+            replayErrorClusterHint60?.let { add("Replay 24h 60m cluster hint: $it") }
+            replayDayTypeGap5?.let { add("Replay 24h 5m day-type gap: $it") }
+            replayDayTypeGap30?.let { add("Replay 24h 30m day-type gap: $it") }
+            replayDayTypeGap60?.let { add("Replay 24h 60m day-type gap: $it") }
+            replayDayTypeGapHint5?.let { add("Replay 24h 5m day-type hint: $it") }
+            replayDayTypeGapHint30?.let { add("Replay 24h 30m day-type hint: $it") }
+            replayDayTypeGapHint60?.let { add("Replay 24h 60m day-type hint: $it") }
+            replayFactorCoverage
+                .filter { it.factor in setOf("COB", "IOB", "UAM", "CI") }
+                .sortedWith(compareBy<DailyReportReplayCoverageUi> { it.horizonMinutes }.thenBy { it.factor })
+                .forEach { row ->
+                    add(
+                        "Replay 24h ${row.horizonMinutes}m coverage ${row.factor}: " +
+                            "${String.format(Locale.US, "%.1f", row.coveragePct)}% (n=${row.sampleCount})"
+                    )
+                }
+            replayFactorRegimes
+                .filter { it.factor in setOf("COB", "IOB", "UAM", "CI") }
+                .sortedWith(
+                    compareBy<DailyReportReplayRegimeUi> { it.horizonMinutes }
+                        .thenBy { it.factor }
+                        .thenBy {
+                            when (it.bucket) {
+                                "LOW" -> 0
+                                "MID" -> 1
+                                "HIGH" -> 2
+                                else -> 3
+                            }
+                        }
+                )
+                .forEach { row ->
+                    add(
+                        "Replay 24h ${row.horizonMinutes}m ${row.factor} ${row.bucket}: " +
+                            "mean=${String.format(Locale.US, "%.2f", row.meanFactorValue)}, " +
+                            "MAE=${String.format(Locale.US, "%.2f", row.mae)}, " +
+                            "MARD=${String.format(Locale.US, "%.1f", row.mardPct)}%, " +
+                        "bias=${String.format(Locale.US, "%.2f", row.bias)} (n=${row.sampleCount})"
+                    )
+                }
+            replayFactorPairs
+                .filter { it.factorA in setOf("COB", "IOB", "UAM", "CI") && it.factorB in setOf("COB", "IOB", "UAM", "CI") }
+                .sortedWith(
+                    compareBy<DailyReportReplayPairUi> { it.horizonMinutes }
+                        .thenBy { it.factorA }
+                        .thenBy { it.factorB }
+                        .thenBy {
+                            when (it.bucketA) {
+                                "LOW" -> 0
+                                "HIGH" -> 1
+                                else -> 2
+                            }
+                        }
+                        .thenBy {
+                            when (it.bucketB) {
+                                "LOW" -> 0
+                                "HIGH" -> 1
+                                else -> 2
+                            }
+                        }
+                )
+                .forEach { row ->
+                    add(
+                        "Replay 24h ${row.horizonMinutes}m ${row.factorA}x${row.factorB} ${row.bucketA}x${row.bucketB}: " +
+                            "meanA=${String.format(Locale.US, "%.2f", row.meanFactorA)}, " +
+                            "meanB=${String.format(Locale.US, "%.2f", row.meanFactorB)}, " +
+                            "MAE=${String.format(Locale.US, "%.2f", row.mae)}, " +
+                            "MARD=${String.format(Locale.US, "%.1f", row.mardPct)}%, " +
+                            "bias=${String.format(Locale.US, "%.2f", row.bias)} (n=${row.sampleCount})"
+                    )
+                }
+        }
         val sensorQualityScore = telemetryByKey["sensor_quality_score"].toNumericValue()
         val sensorQualityBlocked = telemetryByKey["sensor_quality_blocked"].toNumericValue()?.let { it >= 0.5 }
         val sensorQualityReason = telemetryByKey["sensor_quality_reason"]?.valueText
@@ -410,6 +764,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it.message.startsWith("adaptive_controller_") }
             .take(10)
             .map { "${formatTs(it.timestamp)} ${it.level} ${it.message}" }
+        val lastAction = actionCommands.firstOrNull()?.let { command ->
+            val target = payloadDouble(command.payloadJson, "targetMmol")
+            val duration = payloadDouble(command.payloadJson, "durationMinutes")?.toInt()
+            val carbs = payloadDouble(command.payloadJson, "carbsGrams", "carbs", "grams")
+            val summary = when {
+                target != null && duration != null -> "target=${String.format(Locale.US, "%.2f", target)} mmol/L for ${duration}m"
+                carbs != null -> "carbs=${String.format(Locale.US, "%.1f", carbs)} g"
+                else -> command.payloadJson.take(100)
+            }
+            LastActionRowUi(
+                type = command.type,
+                status = command.status,
+                timestamp = command.timestamp,
+                tempTargetMmol = target,
+                durationMinutes = duration,
+                carbsGrams = carbs,
+                idempotencyKey = command.idempotencyKey,
+                payloadSummary = summary
+            )
+        }
+        val manualCobActive = settings.uamDisableWhenManualCobActive &&
+            ((inferredUamManualCob ?: 0.0) > settings.uamManualCobThresholdG)
+        val uamEventRows = uamEvents
+            .sortedByDescending { it.updatedAt }
+            .map { event ->
+                val manualNearby = hasManualCarbsNearby(
+                    therapy = therapy,
+                    centerTs = event.ingestionTs,
+                    mergeWindowMinutes = settings.uamManualMergeWindowMinutes
+                )
+                val exportBlockedReason = when {
+                    !settings.enableUamExportToAaps -> "export_disabled"
+                    settings.dryRunExport -> "dry_run"
+                    settings.uamExportMode == UamExportMode.OFF -> "mode_off"
+                    settings.uamDisableIfManualCarbsNearby && manualNearby -> "manual_carbs_nearby"
+                    manualCobActive -> "manual_cob_active"
+                    event.state != UamInferenceState.CONFIRMED.name -> "event_not_confirmed"
+                    else -> null
+                }
+                UamEventRowUi(
+                    id = event.id,
+                    state = event.state,
+                    mode = event.mode,
+                    createdAt = event.createdAt,
+                    updatedAt = event.updatedAt,
+                    ingestionTs = event.ingestionTs,
+                    carbsDisplayG = event.carbsDisplayG,
+                    confidence = event.confidence,
+                    exportSeq = event.exportSeq,
+                    exportedGrams = event.exportedGrams,
+                    tag = UamTagCodec.buildTag(
+                        eventId = event.id,
+                        seq = event.exportSeq.coerceAtLeast(1),
+                        mode = runCatching { io.aaps.copilot.domain.predict.UamMode.valueOf(event.mode) }
+                            .getOrDefault(io.aaps.copilot.domain.predict.UamMode.NORMAL)
+                    ),
+                    manualCarbsNearby = manualNearby,
+                    manualCobActive = manualCobActive,
+                    exportBlockedReason = exportBlockedReason
+                )
+            }
+        val auditRecords = buildAuditRecords(
+            audits = audits,
+            ruleExecutions = ruleExec,
+            actions = actionCommands
+        )
         val profileSegmentLines = profileSegments
             .sortedWith(compareBy<ProfileSegmentEstimateEntity> { it.dayType }.thenBy { it.timeSlot })
             .map { segment ->
@@ -417,147 +837,321 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val crText = segment.crGramPerUnit?.let { String.format("%.2f", it) } ?: "-"
                 "${segment.dayType} ${segment.timeSlot}: ISF=$isfText, CR=$crText, conf=${String.format("%.0f", segment.confidence * 100)}%, n(ISF/CR)=${segment.isfSampleCount}/${segment.crSampleCount}"
             }
-        val profileHistoryPoints = profileHistory
-            .asSequence()
-            .map { row ->
-                IsfCrHistoryPointUi(
-                    timestamp = row.timestamp,
-                    isfMerged = row.isfMmolPerUnit,
-                    crMerged = row.crGramPerUnit,
-                    isfCalculated = row.calculatedIsfMmolPerUnit,
-                    crCalculated = row.calculatedCrGramPerUnit
+        val profileHistoryPoints = if (isfCrHistory.isNotEmpty()) {
+            isfCrHistory
+                .asSequence()
+                .map { row ->
+                    IsfCrHistoryPointUi(
+                        timestamp = row.ts,
+                        isfMerged = row.isfBase,
+                        crMerged = row.crBase,
+                        isfCalculated = row.displayIsfEffForAnalytics(),
+                        crCalculated = row.displayCrEffForAnalytics()
+                    )
+                }
+                .sortedBy { it.timestamp }
+                .toList()
+        } else {
+            profileHistory
+                .asSequence()
+                .map { row ->
+                    IsfCrHistoryPointUi(
+                        timestamp = row.timestamp,
+                        isfMerged = row.isfMmolPerUnit,
+                        crMerged = row.crGramPerUnit,
+                        isfCalculated = row.calculatedIsfMmolPerUnit,
+                        crCalculated = row.calculatedCrGramPerUnit
+                    )
+                }
+                .sortedBy { it.timestamp }
+                .toList()
+        }
+        val snapshotFactorLines = isfCrSnapshot?.factors
+            ?.entries
+            ?.sortedBy { it.key }
+            ?.map { entry ->
+                "${entry.key.replace('_', ' ')}=${String.format(Locale.US, "%.3f", entry.value)}"
+            }
+            .orEmpty()
+        val runtimeDiagnosticsSnapshot = buildIsfCrRuntimeDiagnosticsSnapshot(audits)
+        val runtimeDiagnosticsLines = buildIsfCrRuntimeDiagnosticsLines(runtimeDiagnosticsSnapshot)
+        val activationGateLines = buildIsfCrActivationGateLines(audits, telemetryByKey)
+        val isfCrDroppedReasons24h = buildIsfCrDroppedReasonSummaryLines(
+            audits = audits,
+            nowTs = now,
+            windowMs = 24L * 60L * 60L * 1000L
+        )
+        val isfCrDroppedReasons7d = buildIsfCrDroppedReasonSummaryLines(
+            audits = audits,
+            nowTs = now,
+            windowMs = 7L * 24L * 60L * 60L * 1000L
+        )
+        val isfCrWearImpact24h = buildIsfCrWearImpactSummaryLines(
+            audits = audits,
+            nowTs = now,
+            windowMs = 24L * 60L * 60L * 1000L
+        )
+        val isfCrWearImpact7d = buildIsfCrWearImpactSummaryLines(
+            audits = audits,
+            nowTs = now,
+            windowMs = 7L * 24L * 60L * 60L * 1000L
+        )
+        val physioTagLines = physioTags
+            .sortedByDescending { it.tsStart }
+            .take(12)
+            .map { tag ->
+                val severity = String.format(Locale.US, "%.2f", tag.severity.coerceIn(0.0, 1.0))
+                "${tag.tagType} (sev=$severity, ${formatTs(tag.tsStart)}..${formatTs(tag.tsEnd)})"
+            }
+        val insightsFilterLabel = buildInsightsFilterLabel(insightsFilter)
+        val deepIsfCrLinesCombined = buildList {
+            isfCrSnapshot?.let { snapshot ->
+                add(
+                    "Realtime snapshot: mode=${snapshot.mode.name}, " +
+                        "ISF=${String.format(Locale.US, "%.2f", snapshot.isfEff)}, " +
+                        "CR=${String.format(Locale.US, "%.2f", snapshot.crEff)}, " +
+                        "conf=${String.format(Locale.US, "%.0f%%", snapshot.confidence * 100)}, " +
+                        "q=${String.format(Locale.US, "%.0f%%", snapshot.qualityScore * 100)}"
+                )
+                add(
+                    "Realtime CI: ISF[${String.format(Locale.US, "%.2f", snapshot.ciIsfLow)}..${String.format(Locale.US, "%.2f", snapshot.ciIsfHigh)}], " +
+                        "CR[${String.format(Locale.US, "%.2f", snapshot.ciCrLow)}..${String.format(Locale.US, "%.2f", snapshot.ciCrHigh)}]"
                 )
             }
-            .sortedBy { it.timestamp }
-            .toList()
-        val insightsFilterLabel = buildInsightsFilterLabel(insightsFilter)
+            addAll(runtimeDiagnosticsLines)
+            addAll(snapshotFactorLines.take(6))
+            addAll(isfCrDeepLines)
+        }
 
-        MainUiState(
-            nightscoutUrl = settings.nightscoutUrl,
-            cloudUrl = settings.cloudBaseUrl,
-            exportUri = settings.exportFolderUri,
-            killSwitch = settings.killSwitch,
-            localNightscoutEnabled = settings.localNightscoutEnabled,
-            localNightscoutPort = settings.localNightscoutPort,
-            resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
-            localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
-            strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation,
-            localCommandFallbackEnabled = settings.localCommandFallbackEnabled,
-            localCommandPackage = settings.localCommandPackage,
-            localCommandAction = settings.localCommandAction,
-            insulinProfileId = settings.insulinProfileId,
-            enableUamInference = settings.enableUamInference,
-            enableUamBoost = settings.enableUamBoost,
-            enableUamExportToAaps = settings.enableUamExportToAaps,
-            uamExportMode = settings.uamExportMode.name,
-            dryRunExport = settings.dryRunExport,
-            uamLearnedMultiplier = settings.uamLearnedMultiplier,
-            uamMinSnackG = settings.uamMinSnackG,
-            uamMaxSnackG = settings.uamMaxSnackG,
-            uamSnackStepG = settings.uamSnackStepG,
-            uamBackdateMinutesDefault = settings.uamBackdateMinutesDefault,
-            uamExportMinIntervalMin = settings.uamExportMinIntervalMin,
-            uamExportMaxBackdateMin = settings.uamExportMaxBackdateMin,
-            baseTargetMmol = settings.baseTargetMmol,
-            postHypoThresholdMmol = settings.postHypoThresholdMmol,
-            postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
-            postHypoTargetMmol = settings.postHypoTargetMmol,
-            postHypoDurationMinutes = settings.postHypoDurationMinutes,
-            postHypoLookbackMinutes = settings.postHypoLookbackMinutes,
-            adaptiveControllerEnabled = settings.adaptiveControllerEnabled,
-            adaptiveControllerPriority = settings.adaptiveControllerPriority,
-            adaptiveControllerRetargetMinutes = settings.adaptiveControllerRetargetMinutes,
-            adaptiveControllerSafetyProfile = settings.adaptiveControllerSafetyProfile,
-            adaptiveControllerStaleMaxMinutes = settings.adaptiveControllerStaleMaxMinutes,
-            adaptiveControllerMaxActions6h = settings.adaptiveControllerMaxActions6h,
-            adaptiveControllerMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
-            latestDataAgeMinutes = latestDataAgeMinutes,
-            nightscoutSyncAgeMinutes = nightscoutAgeMinutes,
-            cloudPushBacklogMinutes = cloudPushBacklogMinutes,
-            latestGlucoseMmol = latest?.mmol,
-            glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null,
-            latestIobUnits = latestIobUnits,
-            latestCobGrams = latestCobGrams,
-            forecast5m = forecast5Latest,
-            forecast5mCiLow = forecast5CiLow,
-            forecast5mCiHigh = forecast5CiHigh,
-            forecast30m = forecast30Latest,
-            forecast30mCiLow = forecast30CiLow,
-            forecast30mCiHigh = forecast30CiHigh,
-            forecast60m = forecast60Latest,
-            forecast60mCiLow = forecast60CiLow,
-            forecast60mCiHigh = forecast60CiHigh,
-            calculatedUamActive = calculatedUamFlag?.let { it >= 0.5 },
-            calculatedUamConfidence = calculatedUamConfidence,
-            calculatedUamCarbsGrams = calculatedUamCarbs,
-            calculatedUamDelta5Mmol = calculatedUamDelta5,
-            calculatedUamRise15Mmol = calculatedUamRise15,
-            calculatedUamRise30Mmol = calculatedUamRise30,
-            inferredUamActive = inferredUamFlag?.let { it >= 0.5 },
-            inferredUamConfidence = inferredUamConfidence,
-            inferredUamCarbsGrams = inferredUamCarbs,
-            inferredUamIngestionTs = inferredUamIngestionTs,
-            inferredUamBoostMode = inferredUamBoostMode?.let { it >= 0.5 },
-            inferredUamManualCobGrams = inferredUamManualCob,
-            inferredUamLastGAbsGrams = inferredUamLastGAbs,
-            sensorQualityScore = sensorQualityScore,
-            sensorQualityBlocked = sensorQualityBlocked,
-            sensorQualityReason = sensorQualityReason,
-            sensorQualitySuspectFalseLow = sensorQualitySuspectFalseLow,
-            smbContextSummary = smbContextSummary,
-            lastRuleState = ruleExec.firstOrNull()?.state,
-            lastRuleId = ruleExec.firstOrNull()?.ruleId,
-            controllerState = latestAdaptiveExecution?.state,
-            controllerReason = controllerReason,
-            controllerConfidence = controllerConfidence,
-            controllerNextTarget = controllerAction?.targetMmol,
-            controllerDurationMinutes = controllerAction?.durationMinutes,
-            controllerForecast30 = forecast30Latest,
-            controllerForecast60 = forecast60Latest,
-            controllerWeightedError = controllerWeightedError,
-            profileIsf = profile?.calculatedIsfMmolPerUnit ?: profile?.isfMmolPerUnit,
-            profileCr = profile?.calculatedCrGramPerUnit ?: profile?.crGramPerUnit,
-            profileConfidence = profile?.calculatedConfidence ?: profile?.confidence,
-            profileSamples = if ((profile?.calculatedSampleCount ?: 0) > 0) profile?.calculatedSampleCount else profile?.sampleCount,
-            profileIsfSamples = if ((profile?.calculatedIsfSampleCount ?: 0) > 0) profile?.calculatedIsfSampleCount else profile?.isfSampleCount,
-            profileCrSamples = if ((profile?.calculatedCrSampleCount ?: 0) > 0) profile?.calculatedCrSampleCount else profile?.crSampleCount,
-            profileTelemetryIsfSamples = profile?.telemetryIsfSampleCount,
-            profileTelemetryCrSamples = profile?.telemetryCrSampleCount,
-            profileUamObservedCount = profile?.uamObservedCount,
-            profileUamFilteredIsfSamples = profile?.uamFilteredIsfSamples,
-            profileUamEpisodes = profile?.uamEpisodeCount,
-            profileUamCarbsGrams = profile?.uamEstimatedCarbsGrams,
-            profileUamRecentCarbsGrams = profile?.uamEstimatedRecentCarbsGrams,
-            profileCalculatedIsf = profile?.calculatedIsfMmolPerUnit,
-            profileCalculatedCr = profile?.calculatedCrGramPerUnit,
-            profileCalculatedConfidence = profile?.calculatedConfidence,
-            profileCalculatedSamples = profile?.calculatedSampleCount,
-            profileCalculatedIsfSamples = profile?.calculatedIsfSampleCount,
-            profileCalculatedCrSamples = profile?.calculatedCrSampleCount,
-            profileLookbackDays = profile?.lookbackDays,
-            isfCrHistoryPoints = profileHistoryPoints,
-            isfCrHistoryLastUpdatedTs = profileHistoryPoints.lastOrNull()?.timestamp,
-            profileSegmentLines = profileSegmentLines,
-            yesterdayProfileLines = yesterdayProfileLines,
-            isfCrDeepLines = isfCrDeepLines,
-            activityLines = activityLines,
-            rulePostHypoEnabled = settings.rulePostHypoEnabled,
-            rulePatternEnabled = settings.rulePatternEnabled,
-            ruleSegmentEnabled = settings.ruleSegmentEnabled,
-            rulePostHypoPriority = settings.rulePostHypoPriority,
-            rulePatternPriority = settings.rulePatternPriority,
-            ruleSegmentPriority = settings.ruleSegmentPriority,
-            rulePostHypoCooldownMinutes = settings.rulePostHypoCooldownMinutes,
-            rulePatternCooldownMinutes = settings.rulePatternCooldownMinutes,
-            ruleSegmentCooldownMinutes = settings.ruleSegmentCooldownMinutes,
-            patternMinSamplesPerWindow = settings.patternMinSamplesPerWindow,
-            patternMinActiveDaysPerWindow = settings.patternMinActiveDaysPerWindow,
-            patternLowRateTrigger = settings.patternLowRateTrigger,
-            patternHighRateTrigger = settings.patternHighRateTrigger,
-            analyticsLookbackDays = settings.analyticsLookbackDays,
-            maxActionsIn6Hours = settings.maxActionsIn6Hours,
-            staleDataMaxMinutes = settings.staleDataMaxMinutes,
-            weekdayHotHours = patterns
+        MainUiState().apply {
+            this.nightscoutUrl = settings.nightscoutUrl
+            this.cloudUrl = settings.cloudBaseUrl
+            this.exportUri = settings.exportFolderUri
+            this.killSwitch = settings.killSwitch
+            this.localNightscoutEnabled = settings.localNightscoutEnabled
+            this.localNightscoutPort = settings.localNightscoutPort
+            this.resolvedNightscoutUrl = settings.resolvedNightscoutUrl()
+            this.localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled
+            this.strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation
+            this.localCommandFallbackEnabled = settings.localCommandFallbackEnabled
+            this.localCommandPackage = settings.localCommandPackage
+            this.localCommandAction = settings.localCommandAction
+            this.insulinProfileId = settings.insulinProfileId
+            this.enableUamInference = settings.enableUamInference
+            this.enableUamBoost = settings.enableUamBoost
+            this.enableUamExportToAaps = settings.enableUamExportToAaps
+            this.uamExportMode = settings.uamExportMode.name
+            this.dryRunExport = settings.dryRunExport
+            this.uamLearnedMultiplier = settings.uamLearnedMultiplier
+            this.uamMinSnackG = settings.uamMinSnackG
+            this.uamMaxSnackG = settings.uamMaxSnackG
+            this.uamSnackStepG = settings.uamSnackStepG
+            this.uamBackdateMinutesDefault = settings.uamBackdateMinutesDefault
+            this.uamExportMinIntervalMin = settings.uamExportMinIntervalMin
+            this.uamExportMaxBackdateMin = settings.uamExportMaxBackdateMin
+            this.isfCrShadowMode = settings.isfCrShadowMode
+            this.isfCrConfidenceThreshold = settings.isfCrConfidenceThreshold
+            this.isfCrUseActivity = settings.isfCrUseActivity
+            this.isfCrUseManualTags = settings.isfCrUseManualTags
+            this.isfCrMinIsfEvidencePerHour = settings.isfCrMinIsfEvidencePerHour
+            this.isfCrMinCrEvidencePerHour = settings.isfCrMinCrEvidencePerHour
+            this.isfCrCrMaxGapMinutes = settings.isfCrCrMaxGapMinutes
+            this.isfCrCrMaxSensorBlockedRatePct = settings.isfCrCrMaxSensorBlockedRatePct
+            this.isfCrCrMaxUamAmbiguityRatePct = settings.isfCrCrMaxUamAmbiguityRatePct
+            this.isfCrSnapshotRetentionDays = settings.isfCrSnapshotRetentionDays
+            this.isfCrEvidenceRetentionDays = settings.isfCrEvidenceRetentionDays
+            this.isfCrAutoActivationEnabled = settings.isfCrAutoActivationEnabled
+            this.isfCrAutoActivationLookbackHours = settings.isfCrAutoActivationLookbackHours
+            this.isfCrAutoActivationMinSamples = settings.isfCrAutoActivationMinSamples
+            this.isfCrAutoActivationMinMeanConfidence = settings.isfCrAutoActivationMinMeanConfidence
+            this.isfCrAutoActivationMaxMeanAbsIsfDeltaPct = settings.isfCrAutoActivationMaxMeanAbsIsfDeltaPct
+            this.isfCrAutoActivationMaxMeanAbsCrDeltaPct = settings.isfCrAutoActivationMaxMeanAbsCrDeltaPct
+            this.isfCrAutoActivationMinSensorQualityScore = settings.isfCrAutoActivationMinSensorQualityScore
+            this.isfCrAutoActivationMinSensorFactor = settings.isfCrAutoActivationMinSensorFactor
+            this.isfCrAutoActivationMaxWearConfidencePenalty = settings.isfCrAutoActivationMaxWearConfidencePenalty
+            this.isfCrAutoActivationMaxSensorAgeHighRatePct = settings.isfCrAutoActivationMaxSensorAgeHighRatePct
+            this.isfCrAutoActivationMaxSuspectFalseLowRatePct = settings.isfCrAutoActivationMaxSuspectFalseLowRatePct
+            this.isfCrAutoActivationMinDayTypeRatio = settings.isfCrAutoActivationMinDayTypeRatio
+            this.isfCrAutoActivationMaxDayTypeSparseRatePct = settings.isfCrAutoActivationMaxDayTypeSparseRatePct
+            this.isfCrAutoActivationRequireDailyQualityGate = settings.isfCrAutoActivationRequireDailyQualityGate
+            this.isfCrAutoActivationDailyRiskBlockLevel = settings.isfCrAutoActivationDailyRiskBlockLevel
+            this.isfCrAutoActivationMinDailyMatchedSamples = settings.isfCrAutoActivationMinDailyMatchedSamples
+            this.isfCrAutoActivationMaxDailyMae30Mmol = settings.isfCrAutoActivationMaxDailyMae30Mmol
+            this.isfCrAutoActivationMaxDailyMae60Mmol = settings.isfCrAutoActivationMaxDailyMae60Mmol
+            this.isfCrAutoActivationMaxHypoRatePct = settings.isfCrAutoActivationMaxHypoRatePct
+            this.isfCrAutoActivationMinDailyCiCoverage30Pct = settings.isfCrAutoActivationMinDailyCiCoverage30Pct
+            this.isfCrAutoActivationMinDailyCiCoverage60Pct = settings.isfCrAutoActivationMinDailyCiCoverage60Pct
+            this.isfCrAutoActivationMaxDailyCiWidth30Mmol = settings.isfCrAutoActivationMaxDailyCiWidth30Mmol
+            this.isfCrAutoActivationMaxDailyCiWidth60Mmol = settings.isfCrAutoActivationMaxDailyCiWidth60Mmol
+            this.isfCrAutoActivationRollingMinRequiredWindows = settings.isfCrAutoActivationRollingMinRequiredWindows
+            this.isfCrAutoActivationRollingMaeRelaxFactor = settings.isfCrAutoActivationRollingMaeRelaxFactor
+            this.isfCrAutoActivationRollingCiCoverageRelaxFactor = settings.isfCrAutoActivationRollingCiCoverageRelaxFactor
+            this.isfCrAutoActivationRollingCiWidthRelaxFactor = settings.isfCrAutoActivationRollingCiWidthRelaxFactor
+            this.baseTargetMmol = settings.baseTargetMmol
+            this.postHypoThresholdMmol = settings.postHypoThresholdMmol
+            this.postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m
+            this.postHypoTargetMmol = settings.postHypoTargetMmol
+            this.postHypoDurationMinutes = settings.postHypoDurationMinutes
+            this.postHypoLookbackMinutes = settings.postHypoLookbackMinutes
+            this.adaptiveControllerEnabled = settings.adaptiveControllerEnabled
+            this.adaptiveControllerPriority = settings.adaptiveControllerPriority
+            this.adaptiveControllerRetargetMinutes = settings.adaptiveControllerRetargetMinutes
+            this.adaptiveControllerSafetyProfile = settings.adaptiveControllerSafetyProfile
+            this.adaptiveControllerStaleMaxMinutes = settings.adaptiveControllerStaleMaxMinutes
+            this.adaptiveControllerMaxActions6h = settings.adaptiveControllerMaxActions6h
+            this.adaptiveControllerMaxStepMmol = settings.adaptiveControllerMaxStepMmol
+            this.latestDataAgeMinutes = latestDataAgeMinutes
+            this.nightscoutSyncAgeMinutes = nightscoutAgeMinutes
+            this.cloudPushBacklogMinutes = cloudPushBacklogMinutes
+            this.latestGlucoseMmol = latest?.mmol
+            this.glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null
+            this.latestIobUnits = latestIobUnits
+            this.latestIobRealUnits = latestIobRealUnits
+            this.latestCobGrams = latestCobGrams
+            this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
+            this.insulinRealProfileCurveCompact = insulinRealProfileCurveCompact
+            this.insulinRealProfileUpdatedTs = insulinRealProfileUpdatedTs
+            this.insulinRealProfileConfidence = insulinRealProfileConfidence
+            this.insulinRealProfileSamples = insulinRealProfileSamples
+            this.insulinRealProfileOnsetMinutes = insulinRealProfileOnsetMinutes
+            this.insulinRealProfilePeakMinutes = insulinRealProfilePeakMinutes
+            this.insulinRealProfileScale = insulinRealProfileScale
+            this.insulinRealProfileStatus = insulinRealProfileStatus
+            this.latestActivityRatio = latestActivityRatio
+            this.latestStepsCount = latestStepsCount
+            this.forecast5m = forecast5Latest
+            this.forecast5mCiLow = forecast5CiLow
+            this.forecast5mCiHigh = forecast5CiHigh
+            this.forecast30m = forecast30Latest
+            this.forecast30mCiLow = forecast30CiLow
+            this.forecast30mCiHigh = forecast30CiHigh
+            this.forecast60m = forecast60Latest
+            this.forecast60mCiLow = forecast60CiLow
+            this.forecast60mCiHigh = forecast60CiHigh
+            this.calculatedUamActive = calculatedUamFlag?.let { it >= 0.5 }
+            this.calculatedUamConfidence = calculatedUamConfidence
+            this.calculatedUamCarbsGrams = calculatedUamCarbs
+            this.calculatedUci0Mmol5m = uci0Mmol5m
+            this.calculatedUamDelta5Mmol = calculatedUamDelta5
+            this.calculatedUamRise15Mmol = calculatedUamRise15
+            this.calculatedUamRise30Mmol = calculatedUamRise30
+            this.inferredUamActive = inferredUamFlag?.let { it >= 0.5 }
+            this.inferredUamConfidence = inferredUamConfidence
+            this.inferredUamCarbsGrams = inferredUamCarbs
+            this.inferredUamIngestionTs = inferredUamIngestionTs
+            this.inferredUamBoostMode = inferredUamBoostMode?.let { it >= 0.5 }
+            this.inferredUamManualCobGrams = inferredUamManualCob
+            this.inferredUamLastGAbsGrams = inferredUamLastGAbs
+            this.uamEventRows = uamEventRows
+            this.sensorQualityScore = sensorQualityScore
+            this.sensorQualityBlocked = sensorQualityBlocked
+            this.sensorQualityReason = sensorQualityReason
+            this.sensorQualitySuspectFalseLow = sensorQualitySuspectFalseLow
+            this.smbContextSummary = smbContextSummary
+            this.lastRuleState = ruleExec.firstOrNull()?.state
+            this.lastRuleId = ruleExec.firstOrNull()?.ruleId
+            this.controllerState = latestAdaptiveExecution?.state
+            this.controllerReason = controllerReason
+            this.controllerConfidence = controllerConfidence
+            this.controllerNextTarget = controllerAction?.targetMmol
+            this.controllerDurationMinutes = controllerAction?.durationMinutes
+            this.controllerForecast30 = forecast30Latest
+            this.controllerForecast60 = forecast60Latest
+            this.controllerWeightedError = controllerWeightedError
+            this.profileIsf = profile?.calculatedIsfMmolPerUnit ?: profile?.isfMmolPerUnit
+            this.profileCr = profile?.calculatedCrGramPerUnit ?: profile?.crGramPerUnit
+            this.profileConfidence = profile?.calculatedConfidence ?: profile?.confidence
+            this.profileSamples = if ((profile?.calculatedSampleCount ?: 0) > 0) profile?.calculatedSampleCount else profile?.sampleCount
+            this.profileIsfSamples = if ((profile?.calculatedIsfSampleCount ?: 0) > 0) profile?.calculatedIsfSampleCount else profile?.isfSampleCount
+            this.profileCrSamples = if ((profile?.calculatedCrSampleCount ?: 0) > 0) profile?.calculatedCrSampleCount else profile?.crSampleCount
+            this.profileTelemetryIsfSamples = profile?.telemetryIsfSampleCount
+            this.profileTelemetryCrSamples = profile?.telemetryCrSampleCount
+            this.profileUamObservedCount = profile?.uamObservedCount
+            this.profileUamFilteredIsfSamples = profile?.uamFilteredIsfSamples
+            this.profileUamEpisodes = profile?.uamEpisodeCount
+            this.profileUamCarbsGrams = profile?.uamEstimatedCarbsGrams
+            this.profileUamRecentCarbsGrams = profile?.uamEstimatedRecentCarbsGrams
+            this.profileCalculatedIsf = profile?.calculatedIsfMmolPerUnit
+            this.profileCalculatedCr = profile?.calculatedCrGramPerUnit
+            this.profileCalculatedConfidence = profile?.calculatedConfidence
+            this.profileCalculatedSamples = profile?.calculatedSampleCount
+            this.profileCalculatedIsfSamples = profile?.calculatedIsfSampleCount
+            this.profileCalculatedCrSamples = profile?.calculatedCrSampleCount
+            this.profileLookbackDays = profile?.lookbackDays
+            this.isfCrRealtimeMode = isfCrSnapshot?.mode?.name
+            this.isfCrRealtimeConfidence = isfCrSnapshot?.confidence
+            this.isfCrRealtimeQualityScore = isfCrSnapshot?.qualityScore
+            this.isfCrRealtimeIsfEff = isfCrSnapshot?.displayIsfEffForAnalytics()
+            this.isfCrRealtimeCrEff = isfCrSnapshot?.displayCrEffForAnalytics()
+            this.isfCrRealtimeIsfBase = isfCrSnapshot?.isfBase
+            this.isfCrRealtimeCrBase = isfCrSnapshot?.crBase
+            this.isfCrRealtimeCiIsfLow = isfCrSnapshot?.ciIsfLow
+            this.isfCrRealtimeCiIsfHigh = isfCrSnapshot?.ciIsfHigh
+            this.isfCrRealtimeCiCrLow = isfCrSnapshot?.ciCrLow
+            this.isfCrRealtimeCiCrHigh = isfCrSnapshot?.ciCrHigh
+            this.isfCrRealtimeFactors = snapshotFactorLines
+            this.isfCrRuntimeDiagTs = runtimeDiagnosticsSnapshot?.realtimeTs
+            this.isfCrRuntimeDiagMode = runtimeDiagnosticsSnapshot?.mode
+            this.isfCrRuntimeDiagConfidence = runtimeDiagnosticsSnapshot?.confidence
+            this.isfCrRuntimeDiagConfidenceThreshold = runtimeDiagnosticsSnapshot?.confidenceThreshold
+            this.isfCrRuntimeDiagQualityScore = runtimeDiagnosticsSnapshot?.qualityScore
+            this.isfCrRuntimeDiagUsedEvidence = runtimeDiagnosticsSnapshot?.usedEvidence
+            this.isfCrRuntimeDiagDroppedEvidence = runtimeDiagnosticsSnapshot?.droppedEvidence
+            this.isfCrRuntimeDiagDroppedReasons = runtimeDiagnosticsSnapshot?.droppedReasons
+            this.isfCrRuntimeDiagCurrentDayType = runtimeDiagnosticsSnapshot?.currentDayType
+            this.isfCrRuntimeDiagIsfBaseSource = runtimeDiagnosticsSnapshot?.isfBaseSource
+            this.isfCrRuntimeDiagCrBaseSource = runtimeDiagnosticsSnapshot?.crBaseSource
+            this.isfCrRuntimeDiagIsfDayTypeBaseAvailable = runtimeDiagnosticsSnapshot?.isfDayTypeBaseAvailable
+            this.isfCrRuntimeDiagCrDayTypeBaseAvailable = runtimeDiagnosticsSnapshot?.crDayTypeBaseAvailable
+            this.isfCrRuntimeDiagHourWindowIsfEvidence = runtimeDiagnosticsSnapshot?.hourWindowIsfEvidence
+            this.isfCrRuntimeDiagHourWindowCrEvidence = runtimeDiagnosticsSnapshot?.hourWindowCrEvidence
+            this.isfCrRuntimeDiagHourWindowIsfSameDayType = runtimeDiagnosticsSnapshot?.hourWindowIsfSameDayType
+            this.isfCrRuntimeDiagHourWindowCrSameDayType = runtimeDiagnosticsSnapshot?.hourWindowCrSameDayType
+            this.isfCrRuntimeDiagMinIsfEvidencePerHour = runtimeDiagnosticsSnapshot?.minIsfEvidencePerHour
+            this.isfCrRuntimeDiagMinCrEvidencePerHour = runtimeDiagnosticsSnapshot?.minCrEvidencePerHour
+            this.isfCrRuntimeDiagCrMaxGapMinutes = runtimeDiagnosticsSnapshot?.crMaxGapMinutes
+            this.isfCrRuntimeDiagCrMaxSensorBlockedRatePct = runtimeDiagnosticsSnapshot?.crMaxSensorBlockedRatePct
+            this.isfCrRuntimeDiagCrMaxUamAmbiguityRatePct = runtimeDiagnosticsSnapshot?.crMaxUamAmbiguityRatePct
+            this.isfCrRuntimeDiagCoverageHoursIsf = runtimeDiagnosticsSnapshot?.coverageHoursIsf
+            this.isfCrRuntimeDiagCoverageHoursCr = runtimeDiagnosticsSnapshot?.coverageHoursCr
+            this.isfCrRuntimeDiagReasons = runtimeDiagnosticsSnapshot?.realtimeReasons
+            this.isfCrRuntimeDiagLowConfidenceTs = runtimeDiagnosticsSnapshot?.lowConfidenceTs
+            this.isfCrRuntimeDiagLowConfidenceReasons = runtimeDiagnosticsSnapshot?.lowConfidenceReasons
+            this.isfCrRuntimeDiagFallbackTs = runtimeDiagnosticsSnapshot?.fallbackTs
+            this.isfCrRuntimeDiagFallbackReasons = runtimeDiagnosticsSnapshot?.fallbackReasons
+            this.isfCrActivationGateLines = activationGateLines
+            this.isfCrDroppedReasons24hLines = isfCrDroppedReasons24h
+            this.isfCrDroppedReasons7dLines = isfCrDroppedReasons7d
+            this.isfCrWearImpact24hLines = isfCrWearImpact24h
+            this.isfCrWearImpact7dLines = isfCrWearImpact7d
+            this.isfCrActiveTags = physioTagLines
+            this.isfCrHistoryPoints = profileHistoryPoints
+            this.isfCrHistoryLastUpdatedTs = profileHistoryPoints.lastOrNull()?.timestamp
+            this.profileSegmentLines = profileSegmentLines
+            this.yesterdayProfileLines = yesterdayProfileLines
+            this.isfCrDeepLines = deepIsfCrLinesCombined
+            this.activityLines = activityLines
+            this.rulePostHypoEnabled = settings.rulePostHypoEnabled
+            this.rulePatternEnabled = settings.rulePatternEnabled
+            this.ruleSegmentEnabled = settings.ruleSegmentEnabled
+            this.rulePostHypoPriority = settings.rulePostHypoPriority
+            this.rulePatternPriority = settings.rulePatternPriority
+            this.ruleSegmentPriority = settings.ruleSegmentPriority
+            this.rulePostHypoCooldownMinutes = settings.rulePostHypoCooldownMinutes
+            this.rulePatternCooldownMinutes = settings.rulePatternCooldownMinutes
+            this.ruleSegmentCooldownMinutes = settings.ruleSegmentCooldownMinutes
+            this.patternMinSamplesPerWindow = settings.patternMinSamplesPerWindow
+            this.patternMinActiveDaysPerWindow = settings.patternMinActiveDaysPerWindow
+            this.patternLowRateTrigger = settings.patternLowRateTrigger
+            this.patternHighRateTrigger = settings.patternHighRateTrigger
+            this.analyticsLookbackDays = settings.analyticsLookbackDays
+            this.maxActionsIn6Hours = settings.maxActionsIn6Hours
+            this.staleDataMaxMinutes = settings.staleDataMaxMinutes
+            this.safetyMinTargetMmol = settings.safetyMinTargetMmol
+            this.safetyMaxTargetMmol = settings.safetyMaxTargetMmol
+            this.carbAbsorptionMaxAgeMinutes = settings.carbAbsorptionMaxAgeMinutes
+            this.carbComputationMaxGrams = settings.carbComputationMaxGrams
+            this.weekdayHotHours = patterns
                 .filter { it.dayType == DayType.WEEKDAY.name && it.isRiskWindow }
                 .sortedBy { it.hour }
                 .map {
@@ -571,8 +1165,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         recommendedTargetMmol = it.recommendedTargetMmol,
                         isRiskWindow = it.isRiskWindow
                     )
-                },
-            weekendHotHours = patterns
+                }
+            this.weekendHotHours = patterns
                 .filter { it.dayType == DayType.WEEKEND.name && it.isRiskWindow }
                 .sortedBy { it.hour }
                 .map {
@@ -586,8 +1180,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         recommendedTargetMmol = it.recommendedTargetMmol,
                         isRiskWindow = it.isRiskWindow
                     )
-                },
-            qualityMetrics = quality.map {
+                }
+            this.qualityMetrics = quality.map {
                 QualityMetricUi(
                     horizonMinutes = it.horizonMinutes,
                     sampleCount = it.sampleCount,
@@ -595,28 +1189,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     rmse = it.rmse,
                     mardPct = it.mardPct
                 )
-            },
-            baselineDeltaLines = baselineDeltas.map {
+            }
+            this.dailyReportGeneratedAtTs = dailyReportGeneratedAtTs
+            this.dailyReportMatchedSamples = dailyReportMatchedSamples
+            this.dailyReportForecastRows = dailyReportForecastRows
+            this.dailyReportPeriodStartUtc = dailyReportPeriodStartUtc
+            this.dailyReportPeriodEndUtc = dailyReportPeriodEndUtc
+            this.dailyReportMarkdownPath = dailyReportMarkdownPath
+            this.dailyReportMetrics = dailyReportMetrics
+            this.dailyReportRecommendations = dailyReportRecommendations
+            this.dailyReportIsfCrQualityLines = dailyReportIsfCrQualityLines
+            this.dailyReportReplayHotspots = replayHotspots
+            this.dailyReportReplayFactors = replayFactorContributions
+            this.dailyReportReplayCoverage = replayFactorCoverage
+            this.dailyReportReplayRegimes = replayFactorRegimes
+            this.dailyReportReplayPairs = replayFactorPairs
+            this.dailyReportReplayTopMisses = replayTopMisses
+            this.dailyReportReplayErrorClusters = replayErrorClusters
+            this.dailyReportReplayDayTypeGaps = replayDayTypeGaps
+            this.dailyReportReplayTopFactorsOverall = replayOverallFactors
+            this.rollingReportLines = rollingReportLines + replayReportLines
+            this.baselineDeltaLines = baselineDeltas.map {
                 "${it.horizonMinutes}m ${it.algorithm}: ${if (it.deltaMmol >= 0) "+" else ""}${"%.2f".format(it.deltaMmol)} mmol/L"
-            },
-            telemetryCoverageLines = telemetryCoverageLines,
-            telemetryLines = telemetryLines,
-            actionLines = actionLines,
-            autoConnectLines = autoConnect?.lines.orEmpty(),
-            transportStatusLines = transportStatusLines,
-            replacementHistoryLines = replacementHistoryLines,
-            syncStatusLines = syncStatusLines,
-            jobStatusLines = jobStatusLines,
-            insightsFilterLabel = insightsFilterLabel,
-            analysisHistoryLines = analysisHistoryLines,
-            analysisTrendLines = analysisTrendLines,
-            ruleCooldownLines = ruleCooldownLines,
-            dryRun = dryRun,
-            cloudReplay = cloudReplay,
-            adaptiveAuditLines = adaptiveAuditLines,
-            auditLines = audits.map { "${it.level}: ${it.message}" },
-            message = message
-        )
+            }
+            this.telemetryCoverageLines = telemetryCoverageLines
+            this.telemetryLines = telemetryLines
+            this.actionLines = actionLines
+            this.autoConnectLines = autoConnect?.lines.orEmpty()
+            this.transportStatusLines = transportStatusLines
+            this.replacementHistoryLines = replacementHistoryLines
+            this.syncStatusLines = syncStatusLines
+            this.jobStatusLines = jobStatusLines
+            this.insightsFilterLabel = insightsFilterLabel
+            this.analysisHistoryLines = analysisHistoryLines
+            this.analysisTrendLines = analysisTrendLines
+            this.ruleCooldownLines = ruleCooldownLines
+            this.dryRun = dryRun
+            this.cloudReplay = cloudReplay
+            this.adaptiveAuditLines = adaptiveAuditLines
+            this.glucoseHistoryPoints = glucoseHistoryPoints
+            this.lastAction = lastAction
+            this.trend60ComponentMmol = telemetryByKey["forecast_trend_60_mmol"].toNumericValue()
+            this.therapy60ComponentMmol = telemetryByKey["forecast_therapy_60_mmol"].toNumericValue()
+            this.uam60ComponentMmol = telemetryByKey["forecast_uam_60_mmol"].toNumericValue()
+            this.residualRoc0Mmol5m = telemetryByKey["forecast_residual_roc0_mmol5"].toNumericValue()
+            this.sigmaEMmol5m = telemetryByKey["forecast_sigmae_mmol5"].toNumericValue()
+            this.kfSigmaGMmol = telemetryByKey["forecast_kf_sigma_g_mmol"].toNumericValue()
+            this.auditRecords = auditRecords
+            this.auditLines = audits.map { "${it.level}: ${it.message}" }
+            this.message = message
+        }
     }
         .conflate()
         .flowOn(Dispatchers.Default)
@@ -636,16 +1258,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = MainUiState().toAppHealthUiState()
         )
 
-    val overviewUiState: StateFlow<OverviewUiState> = uiState
-        .map { it.toOverviewUiState() }
+    val overviewUiState: StateFlow<OverviewUiState> = combine(
+        uiState,
+        proModeState
+    ) { state, isProMode ->
+        state.toOverviewUiState(isProMode = isProMode)
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = OverviewUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
         )
 
-    val forecastUiState: StateFlow<ForecastUiState> = uiState
-        .map { it.toForecastUiState() }
+    val forecastUiState: StateFlow<ForecastUiState> = combine(
+        uiState,
+        forecastRangeState,
+        forecastLayersState,
+        proModeState
+    ) { state, range, layers, isProMode ->
+        state.toForecastUiState(range = range, layers = layers, isProMode = isProMode)
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -669,15 +1301,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
                 isStale = true,
                 killSwitchEnabled = false,
-                baseTarget = 5.5,
                 staleMinutesLimit = 10,
+                hardBounds = "4.0..10.0",
+                hardMinTargetMmol = 4.0,
+                hardMaxTargetMmol = 10.0,
+                adaptiveBounds = "4.0..9.0",
+                baseTarget = 5.5,
                 maxActionsIn6h = 3,
-                sensorQualitySummary = "--"
+                localNightscoutEnabled = false,
+                localNightscoutPort = 17580
             )
         )
 
-    val auditUiState: StateFlow<AuditUiState> = uiState
-        .map { it.toAuditUiState() }
+    val auditUiState: StateFlow<AuditUiState> = combine(
+        uiState,
+        auditWindowState,
+        auditOnlyErrorsState
+    ) { state, window, onlyErrors ->
+        state.toAuditUiState(
+            window = window,
+            onlyErrors = onlyErrors
+        )
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -692,24 +1337,306 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = AnalyticsUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
         )
 
-    val settingsUiState: StateFlow<SettingsUiState> = uiState
-        .map { it.toSettingsUiState() }
+    val settingsUiState: StateFlow<SettingsUiState> = combine(
+        container.settingsStore.settings,
+        verboseLogsState,
+        proModeState,
+        container.isfCrRepository.observeRecentTags(
+            sinceTs = System.currentTimeMillis() - PHYSIO_TAG_JOURNAL_LOOKBACK_MS
+        )
+    ) { settings, verbose, proMode, tags ->
+        val nowTs = System.currentTimeMillis()
+        val activeTags = tags
+            .asSequence()
+            .filter { it.tsEnd >= nowTs }
+            .sortedBy { it.tsEnd }
+            .map { tag ->
+                val pct = (tag.severity * 100.0).coerceIn(0.0, 100.0)
+                String.format(Locale.US, "%s %.0f%%", tag.tagType, pct)
+            }
+            .toList()
+        val tagJournal = tags
+            .sortedByDescending { it.tsStart }
+            .take(PHYSIO_TAG_JOURNAL_MAX_ROWS)
+            .map { tag ->
+                PhysioTagJournalItemUi(
+                    id = tag.id,
+                    tagType = tag.tagType,
+                    severity = tag.severity.coerceIn(0.0, 1.0),
+                    tsStart = tag.tsStart,
+                    tsEnd = tag.tsEnd,
+                    isActive = tag.tsEnd >= nowTs,
+                    source = tag.source,
+                    note = tag.note
+                )
+            }
+        SettingsUiState(
+            loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.READY,
+            isStale = false,
+            errorText = null,
+            proModeEnabled = proMode,
+            baseTarget = settings.baseTargetMmol,
+            nightscoutUrl = settings.nightscoutUrl,
+            resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
+            insulinProfileId = settings.insulinProfileId,
+            localNightscoutEnabled = settings.localNightscoutEnabled,
+            localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
+            strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation,
+            enableUamInference = settings.enableUamInference,
+            enableUamBoost = settings.enableUamBoost,
+            enableUamExportToAaps = settings.enableUamExportToAaps,
+            uamExportMode = settings.uamExportMode.name,
+            dryRunExport = settings.dryRunExport,
+            uamMinSnackG = settings.uamMinSnackG,
+            uamMaxSnackG = settings.uamMaxSnackG,
+            uamSnackStepG = settings.uamSnackStepG,
+            isfCrShadowMode = settings.isfCrShadowMode,
+            isfCrConfidenceThreshold = settings.isfCrConfidenceThreshold,
+            isfCrUseActivity = settings.isfCrUseActivity,
+            isfCrUseManualTags = settings.isfCrUseManualTags,
+            isfCrMinIsfEvidencePerHour = settings.isfCrMinIsfEvidencePerHour,
+            isfCrMinCrEvidencePerHour = settings.isfCrMinCrEvidencePerHour,
+            isfCrCrMaxGapMinutes = settings.isfCrCrMaxGapMinutes,
+            isfCrCrMaxSensorBlockedRatePct = settings.isfCrCrMaxSensorBlockedRatePct,
+            isfCrCrMaxUamAmbiguityRatePct = settings.isfCrCrMaxUamAmbiguityRatePct,
+            isfCrSnapshotRetentionDays = settings.isfCrSnapshotRetentionDays,
+            isfCrEvidenceRetentionDays = settings.isfCrEvidenceRetentionDays,
+            isfCrAutoActivationEnabled = settings.isfCrAutoActivationEnabled,
+            isfCrAutoActivationLookbackHours = settings.isfCrAutoActivationLookbackHours,
+            isfCrAutoActivationMinSamples = settings.isfCrAutoActivationMinSamples,
+            isfCrAutoActivationMinMeanConfidence = settings.isfCrAutoActivationMinMeanConfidence,
+            isfCrAutoActivationMaxMeanAbsIsfDeltaPct = settings.isfCrAutoActivationMaxMeanAbsIsfDeltaPct,
+            isfCrAutoActivationMaxMeanAbsCrDeltaPct = settings.isfCrAutoActivationMaxMeanAbsCrDeltaPct,
+            isfCrAutoActivationMinSensorQualityScore = settings.isfCrAutoActivationMinSensorQualityScore,
+            isfCrAutoActivationMinSensorFactor = settings.isfCrAutoActivationMinSensorFactor,
+            isfCrAutoActivationMaxWearConfidencePenalty = settings.isfCrAutoActivationMaxWearConfidencePenalty,
+            isfCrAutoActivationMaxSensorAgeHighRatePct = settings.isfCrAutoActivationMaxSensorAgeHighRatePct,
+            isfCrAutoActivationMaxSuspectFalseLowRatePct = settings.isfCrAutoActivationMaxSuspectFalseLowRatePct,
+            isfCrAutoActivationMinDayTypeRatio = settings.isfCrAutoActivationMinDayTypeRatio,
+            isfCrAutoActivationMaxDayTypeSparseRatePct = settings.isfCrAutoActivationMaxDayTypeSparseRatePct,
+            isfCrAutoActivationRequireDailyQualityGate = settings.isfCrAutoActivationRequireDailyQualityGate,
+            isfCrAutoActivationDailyRiskBlockLevel = settings.isfCrAutoActivationDailyRiskBlockLevel,
+            isfCrAutoActivationMinDailyMatchedSamples = settings.isfCrAutoActivationMinDailyMatchedSamples,
+            isfCrAutoActivationMaxDailyMae30Mmol = settings.isfCrAutoActivationMaxDailyMae30Mmol,
+            isfCrAutoActivationMaxDailyMae60Mmol = settings.isfCrAutoActivationMaxDailyMae60Mmol,
+            isfCrAutoActivationMaxHypoRatePct = settings.isfCrAutoActivationMaxHypoRatePct,
+            isfCrAutoActivationMinDailyCiCoverage30Pct = settings.isfCrAutoActivationMinDailyCiCoverage30Pct,
+            isfCrAutoActivationMinDailyCiCoverage60Pct = settings.isfCrAutoActivationMinDailyCiCoverage60Pct,
+            isfCrAutoActivationMaxDailyCiWidth30Mmol = settings.isfCrAutoActivationMaxDailyCiWidth30Mmol,
+            isfCrAutoActivationMaxDailyCiWidth60Mmol = settings.isfCrAutoActivationMaxDailyCiWidth60Mmol,
+            isfCrAutoActivationRollingMinRequiredWindows = settings.isfCrAutoActivationRollingMinRequiredWindows,
+            isfCrAutoActivationRollingMaeRelaxFactor = settings.isfCrAutoActivationRollingMaeRelaxFactor,
+            isfCrAutoActivationRollingCiCoverageRelaxFactor = settings.isfCrAutoActivationRollingCiCoverageRelaxFactor,
+            isfCrAutoActivationRollingCiWidthRelaxFactor = settings.isfCrAutoActivationRollingCiWidthRelaxFactor,
+            isfCrActiveTags = activeTags,
+            isfCrTagJournal = tagJournal,
+            adaptiveControllerEnabled = settings.adaptiveControllerEnabled,
+            safetyMinTargetMmol = settings.safetyMinTargetMmol,
+            safetyMaxTargetMmol = settings.safetyMaxTargetMmol,
+            postHypoThresholdMmol = settings.postHypoThresholdMmol,
+            postHypoTargetMmol = settings.postHypoTargetMmol,
+            verboseLogsEnabled = verbose,
+            retentionDays = settings.analyticsLookbackDays,
+            warningText = "Not a medical device. Verify all therapy decisions manually."
+        )
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = SettingsUiState(
                 loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
                 isStale = true,
+                proModeEnabled = false,
                 baseTarget = 5.5,
                 nightscoutUrl = "",
+                resolvedNightscoutUrl = "",
                 insulinProfileId = "NOVORAPID",
                 localNightscoutEnabled = false,
-                resolvedNightscoutUrl = ""
+                localBroadcastIngestEnabled = true,
+                strictBroadcastSenderValidation = false,
+                enableUamInference = true,
+                enableUamBoost = true,
+                enableUamExportToAaps = false,
+                uamExportMode = UamExportMode.OFF.name,
+                dryRunExport = true,
+                uamMinSnackG = 15,
+                uamMaxSnackG = 60,
+                uamSnackStepG = 5,
+                isfCrShadowMode = true,
+                isfCrConfidenceThreshold = 0.45,
+                isfCrUseActivity = true,
+                isfCrUseManualTags = true,
+                isfCrMinIsfEvidencePerHour = 2,
+                isfCrMinCrEvidencePerHour = 2,
+                isfCrCrMaxGapMinutes = 30,
+                isfCrCrMaxSensorBlockedRatePct = 25.0,
+                isfCrCrMaxUamAmbiguityRatePct = 60.0,
+                isfCrSnapshotRetentionDays = 365,
+                isfCrEvidenceRetentionDays = 730,
+                isfCrAutoActivationEnabled = false,
+                isfCrAutoActivationLookbackHours = 24,
+                isfCrAutoActivationMinSamples = 72,
+                isfCrAutoActivationMinMeanConfidence = 0.65,
+                isfCrAutoActivationMaxMeanAbsIsfDeltaPct = 25.0,
+                isfCrAutoActivationMaxMeanAbsCrDeltaPct = 25.0,
+                isfCrAutoActivationMinSensorQualityScore = 0.46,
+                isfCrAutoActivationMinSensorFactor = 0.90,
+                isfCrAutoActivationMaxWearConfidencePenalty = 0.12,
+                isfCrAutoActivationMaxSensorAgeHighRatePct = 70.0,
+                isfCrAutoActivationMaxSuspectFalseLowRatePct = 35.0,
+                isfCrAutoActivationMinDayTypeRatio = 0.30,
+                isfCrAutoActivationMaxDayTypeSparseRatePct = 75.0,
+                isfCrAutoActivationRequireDailyQualityGate = true,
+                isfCrAutoActivationDailyRiskBlockLevel = 3,
+                isfCrAutoActivationMinDailyMatchedSamples = 120,
+                isfCrAutoActivationMaxDailyMae30Mmol = 0.90,
+                isfCrAutoActivationMaxDailyMae60Mmol = 1.40,
+                isfCrAutoActivationMaxHypoRatePct = 6.0,
+                isfCrAutoActivationMinDailyCiCoverage30Pct = 55.0,
+                isfCrAutoActivationMinDailyCiCoverage60Pct = 55.0,
+                isfCrAutoActivationMaxDailyCiWidth30Mmol = 1.80,
+                isfCrAutoActivationMaxDailyCiWidth60Mmol = 2.60,
+                isfCrAutoActivationRollingMinRequiredWindows = 2,
+                isfCrAutoActivationRollingMaeRelaxFactor = 1.15,
+                isfCrAutoActivationRollingCiCoverageRelaxFactor = 0.90,
+                isfCrAutoActivationRollingCiWidthRelaxFactor = 1.25,
+                isfCrActiveTags = emptyList(),
+                adaptiveControllerEnabled = true,
+                safetyMinTargetMmol = 4.0,
+                safetyMaxTargetMmol = 10.0,
+                postHypoThresholdMmol = 4.0,
+                postHypoTargetMmol = 4.4,
+                verboseLogsEnabled = false,
+                retentionDays = 365,
+                warningText = "Not a medical device. Verify all decisions."
             )
         )
 
     fun clearMessage() {
         messageState.value = null
+    }
+
+    fun runCycleNow() {
+        runAutomationNow()
+    }
+
+    fun setForecastRange(range: ForecastRangeUi) {
+        forecastRangeState.value = range
+    }
+
+    fun setForecastLayers(
+        showTrend: Boolean? = null,
+        showTherapy: Boolean? = null,
+        showUam: Boolean? = null,
+        showCi: Boolean? = null
+    ) {
+        val current = forecastLayersState.value
+        forecastLayersState.value = current.copy(
+            showTrend = showTrend ?: current.showTrend,
+            showTherapy = showTherapy ?: current.showTherapy,
+            showUam = showUam ?: current.showUam,
+            showCi = showCi ?: current.showCi
+        )
+    }
+
+    fun setAuditWindow(window: AuditWindowUi) {
+        auditWindowState.value = window
+    }
+
+    fun setAuditOnlyErrors(enabled: Boolean) {
+        auditOnlyErrorsState.value = enabled
+    }
+
+    fun setVerboseLogsEnabled(enabled: Boolean) {
+        verboseLogsState.value = enabled
+        messageState.value = if (enabled) {
+            "Verbose UI logs enabled"
+        } else {
+            "Verbose UI logs disabled"
+        }
+    }
+
+    fun setProModeEnabled(enabled: Boolean) {
+        proModeState.value = enabled
+        messageState.value = if (enabled) {
+            "Pro mode enabled"
+        } else {
+            "Pro mode disabled"
+        }
+    }
+
+    fun markUamEventCorrect(eventId: String) {
+        updateUamEvent(eventId) { event ->
+            event.copy(
+                state = UamInferenceState.FINAL.name,
+                learnedEligible = true,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
+    fun markUamEventWrong(eventId: String) {
+        updateUamEvent(eventId) { event ->
+            event.copy(
+                state = UamInferenceState.MERGED.name,
+                learnedEligible = false,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
+    fun mergeUamEventWithManualCarbs(eventId: String) {
+        updateUamEvent(eventId) { event ->
+            event.copy(
+                state = UamInferenceState.MERGED.name,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
+    fun exportUamEventToAaps(eventId: String) {
+        viewModelScope.launch {
+            val dao = db.uamInferenceEventDao()
+            val event = dao.byId(eventId)
+            if (event == null) {
+                messageState.value = "UAM event not found"
+                return@launch
+            }
+            if (!uiState.value.enableUamExportToAaps) {
+                messageState.value = "UAM export is disabled in settings"
+                return@launch
+            }
+            if (uiState.value.dryRunExport) {
+                messageState.value = "UAM export is in dry-run mode"
+                return@launch
+            }
+            val updated = if (event.state == UamInferenceState.SUSPECTED.name) {
+                event.copy(
+                    state = UamInferenceState.CONFIRMED.name,
+                    updatedAt = System.currentTimeMillis()
+                )
+            } else {
+                event
+            }
+            dao.upsert(updated)
+            runAutomationNow()
+        }
+    }
+
+    private fun updateUamEvent(
+        eventId: String,
+        updater: (UamInferenceEventEntity) -> UamInferenceEventEntity
+    ) {
+        viewModelScope.launch {
+            val dao = db.uamInferenceEventDao()
+            val current = dao.byId(eventId)
+            if (current == null) {
+                messageState.value = "UAM event not found"
+                return@launch
+            }
+            dao.upsert(updater(current))
+            messageState.value = "UAM event updated"
+        }
     }
 
     fun saveConnections(nightscoutUrl: String, apiSecret: String, cloudUrl: String, exportUri: String?) {
@@ -737,10 +1664,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setBaseTarget(mmol: Double) {
         viewModelScope.launch {
-            container.settingsStore.update { it.copy(baseTargetMmol = mmol.coerceIn(4.0, 10.0)) }
-            val settings = container.settingsStore.settings.first()
-            container.analyticsRepository.recalculate(settings)
+            container.settingsStore.update {
+                it.copy(
+                    baseTargetMmol = mmol.coerceIn(
+                        it.safetyMinTargetMmol,
+                        it.safetyMaxTargetMmol
+                    )
+                )
+            }
+            recalculateAnalyticsAsync()
             messageState.value = "Base target updated"
+        }
+    }
+
+    fun setNightscoutUrl(url: String) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(nightscoutUrl = url.trim()) }
+            messageState.value = "Nightscout URL updated"
+        }
+    }
+
+    fun setLocalNightscoutEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val current = container.settingsStore.settings.first()
+            val safePort = current.localNightscoutPort.coerceIn(1_024, 65_535)
+            container.settingsStore.update {
+                it.copy(
+                    localNightscoutEnabled = enabled,
+                    localNightscoutPort = safePort
+                )
+            }
+            LocalNightscoutServiceController.reconcile(getApplication(), enabled)
+            messageState.value = if (enabled) {
+                "Local Nightscout enabled at https://127.0.0.1:$safePort"
+            } else {
+                "Local Nightscout disabled"
+            }
         }
     }
 
@@ -748,8 +1707,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val normalized = InsulinActionProfileId.fromRaw(profileRaw).name
             container.settingsStore.update { it.copy(insulinProfileId = normalized) }
-            WorkScheduler.triggerReactiveAutomation(getApplication())
+            triggerReactiveAutomationAsync()
             messageState.value = "Insulin profile set to $normalized"
+        }
+    }
+
+    fun setUamExportMode(modeRaw: String) {
+        viewModelScope.launch {
+            val mode = runCatching { UamExportMode.valueOf(modeRaw.trim().uppercase(Locale.US)) }
+                .getOrDefault(UamExportMode.CONFIRMED_ONLY)
+            container.settingsStore.update { it.copy(uamExportMode = mode) }
+            messageState.value = "UAM export mode updated: ${mode.name}"
         }
     }
 
@@ -772,7 +1740,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     dryRunExport = dryRunExport
                 )
             }
-            WorkScheduler.triggerReactiveAutomation(getApplication())
+            triggerReactiveAutomationAsync()
             messageState.value = "UAM runtime config updated"
         }
     }
@@ -799,13 +1767,352 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     uamExportMaxBackdateMin = exportMaxBackdateMin.coerceIn(30, 360)
                 )
             }
-            WorkScheduler.triggerReactiveAutomation(getApplication())
+            triggerReactiveAutomationAsync()
             messageState.value = "UAM tuning updated"
         }
     }
 
-    fun setKillSwitch(enabled: Boolean) {
+    fun setUamSnackConfig(
+        minSnackG: Int,
+        maxSnackG: Int,
+        snackStepG: Int
+    ) {
         viewModelScope.launch {
+            val current = container.settingsStore.settings.first()
+            setUamInferenceTuning(
+                minSnackG = minSnackG,
+                maxSnackG = maxSnackG,
+                snackStepG = snackStepG,
+                backdateMinutes = current.uamBackdateMinutesDefault,
+                exportMinIntervalMin = current.uamExportMinIntervalMin,
+                exportMaxBackdateMin = current.uamExportMaxBackdateMin
+            )
+        }
+    }
+
+    fun setPostHypoThreshold(mmol: Double) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(postHypoThresholdMmol = mmol.coerceIn(4.0, 10.0))
+            }
+            messageState.value = "Post-hypo threshold updated"
+        }
+    }
+
+    fun setPostHypoTarget(mmol: Double) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(postHypoTargetMmol = mmol.coerceIn(4.0, 10.0))
+            }
+            messageState.value = "Post-hypo target updated"
+        }
+    }
+
+    fun setRetentionDays(days: Int) {
+        viewModelScope.launch {
+            val safeDays = days.coerceIn(30, 730)
+            container.settingsStore.update { it.copy(analyticsLookbackDays = safeDays) }
+            recalculateAnalyticsAsync()
+            messageState.value = "Retention days updated"
+        }
+    }
+
+    fun setIsfCrShadowMode(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrShadowMode = enabled) }
+            triggerReactiveAutomationAsync()
+            messageState.value = if (enabled) {
+                "ISF/CR engine set to SHADOW mode"
+            } else {
+                "ISF/CR engine set to ACTIVE mode"
+            }
+        }
+    }
+
+    fun setIsfCrConfidenceThreshold(value: Double) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrConfidenceThreshold = value.coerceIn(0.2, 0.95)) }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR confidence threshold updated"
+        }
+    }
+
+    fun setIsfCrUseActivity(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrUseActivity = enabled) }
+            triggerReactiveAutomationAsync()
+            messageState.value = if (enabled) {
+                "ISF/CR activity factor enabled"
+            } else {
+                "ISF/CR activity factor disabled"
+            }
+        }
+    }
+
+    fun setIsfCrUseManualTags(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrUseManualTags = enabled) }
+            triggerReactiveAutomationAsync()
+            messageState.value = if (enabled) {
+                "ISF/CR manual tags enabled"
+            } else {
+                "ISF/CR manual tags disabled"
+            }
+        }
+    }
+
+    fun setIsfCrMinEvidencePerHour(minIsfEvidence: Int, minCrEvidence: Int) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrMinIsfEvidencePerHour = minIsfEvidence.coerceIn(0, 12),
+                    isfCrMinCrEvidencePerHour = minCrEvidence.coerceIn(0, 12)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR hourly evidence minimums updated"
+        }
+    }
+
+    fun setIsfCrCrIntegrityGateSettings(
+        maxGapMinutes: Int,
+        maxSensorBlockedRatePct: Double,
+        maxUamAmbiguityRatePct: Double
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrCrMaxGapMinutes = maxGapMinutes.coerceIn(10, 60),
+                    isfCrCrMaxSensorBlockedRatePct = maxSensorBlockedRatePct.coerceIn(0.0, 100.0),
+                    isfCrCrMaxUamAmbiguityRatePct = maxUamAmbiguityRatePct.coerceIn(0.0, 100.0)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR CR-window integrity thresholds updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrAutoActivationEnabled = enabled) }
+            triggerReactiveAutomationAsync()
+            messageState.value = if (enabled) {
+                "ISF/CR shadow auto-activation enabled"
+            } else {
+                "ISF/CR shadow auto-activation disabled"
+            }
+        }
+    }
+
+    fun setIsfCrAutoActivationLookbackHours(hours: Int) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrAutoActivationLookbackHours = hours.coerceIn(6, 72)) }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR auto-activation lookback updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationMinSamples(samples: Int) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(isfCrAutoActivationMinSamples = samples.coerceIn(12, 288)) }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR auto-activation min samples updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationMinMeanConfidence(value: Double) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(isfCrAutoActivationMinMeanConfidence = value.coerceIn(0.2, 0.95))
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR auto-activation confidence target updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationMaxMeanAbsDeltaPct(
+        isfPct: Double,
+        crPct: Double
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrAutoActivationMaxMeanAbsIsfDeltaPct = isfPct.coerceIn(5.0, 100.0),
+                    isfCrAutoActivationMaxMeanAbsCrDeltaPct = crPct.coerceIn(5.0, 100.0)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR auto-activation delta bounds updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationSensorThresholds(
+        minSensorQualityScore: Double,
+        minSensorFactor: Double,
+        maxWearConfidencePenalty: Double,
+        maxSensorAgeHighRatePct: Double,
+        maxSuspectFalseLowRatePct: Double
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrAutoActivationMinSensorQualityScore = minSensorQualityScore.coerceIn(0.0, 1.0),
+                    isfCrAutoActivationMinSensorFactor = minSensorFactor.coerceIn(0.0, 1.0),
+                    isfCrAutoActivationMaxWearConfidencePenalty = maxWearConfidencePenalty.coerceIn(0.0, 1.0),
+                    isfCrAutoActivationMaxSensorAgeHighRatePct = maxSensorAgeHighRatePct.coerceIn(0.0, 100.0),
+                    isfCrAutoActivationMaxSuspectFalseLowRatePct = maxSuspectFalseLowRatePct.coerceIn(0.0, 100.0)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR auto-activation sensor gate updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationDayTypeThresholds(
+        minDayTypeRatio: Double,
+        maxDayTypeSparseRatePct: Double
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrAutoActivationMinDayTypeRatio = minDayTypeRatio.coerceIn(0.0, 1.0),
+                    isfCrAutoActivationMaxDayTypeSparseRatePct = maxDayTypeSparseRatePct.coerceIn(0.0, 100.0)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR auto-activation day-type gate updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationRequireDailyQualityGate(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(isfCrAutoActivationRequireDailyQualityGate = enabled)
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = if (enabled) {
+                "ISF/CR daily quality gate enabled"
+            } else {
+                "ISF/CR daily quality gate disabled"
+            }
+        }
+    }
+
+    fun setIsfCrAutoActivationDailyRiskBlockLevel(level: Int) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(isfCrAutoActivationDailyRiskBlockLevel = level.coerceIn(2, 3))
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR daily risk gate threshold updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationDailyQualityThresholds(
+        minDailyMatchedSamples: Int,
+        maxDailyMae30Mmol: Double,
+        maxDailyMae60Mmol: Double,
+        maxHypoRatePct: Double,
+        minDailyCiCoverage30Pct: Double,
+        minDailyCiCoverage60Pct: Double,
+        maxDailyCiWidth30Mmol: Double,
+        maxDailyCiWidth60Mmol: Double
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrAutoActivationMinDailyMatchedSamples = minDailyMatchedSamples.coerceIn(24, 720),
+                    isfCrAutoActivationMaxDailyMae30Mmol = maxDailyMae30Mmol.coerceIn(0.3, 4.0),
+                    isfCrAutoActivationMaxDailyMae60Mmol = maxDailyMae60Mmol.coerceIn(0.5, 6.0),
+                    isfCrAutoActivationMaxHypoRatePct = maxHypoRatePct.coerceIn(0.5, 30.0),
+                    isfCrAutoActivationMinDailyCiCoverage30Pct = minDailyCiCoverage30Pct.coerceIn(20.0, 99.0),
+                    isfCrAutoActivationMinDailyCiCoverage60Pct = minDailyCiCoverage60Pct.coerceIn(20.0, 99.0),
+                    isfCrAutoActivationMaxDailyCiWidth30Mmol = maxDailyCiWidth30Mmol.coerceIn(0.3, 6.0),
+                    isfCrAutoActivationMaxDailyCiWidth60Mmol = maxDailyCiWidth60Mmol.coerceIn(0.5, 8.0)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR daily quality thresholds updated"
+        }
+    }
+
+    fun setIsfCrAutoActivationRollingGateSettings(
+        minRequiredWindows: Int,
+        maeRelaxFactor: Double,
+        ciCoverageRelaxFactor: Double,
+        ciWidthRelaxFactor: Double
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrAutoActivationRollingMinRequiredWindows = minRequiredWindows.coerceIn(1, 3),
+                    isfCrAutoActivationRollingMaeRelaxFactor = maeRelaxFactor.coerceIn(1.0, 1.5),
+                    isfCrAutoActivationRollingCiCoverageRelaxFactor = ciCoverageRelaxFactor.coerceIn(0.70, 1.0),
+                    isfCrAutoActivationRollingCiWidthRelaxFactor = ciWidthRelaxFactor.coerceIn(1.0, 1.5)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR rolling quality gate thresholds updated"
+        }
+    }
+
+    fun setIsfCrRetention(snapshotDays: Int, evidenceDays: Int) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    isfCrSnapshotRetentionDays = snapshotDays.coerceIn(30, 730),
+                    isfCrEvidenceRetentionDays = evidenceDays.coerceIn(30, 1095)
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "ISF/CR retention updated"
+        }
+    }
+
+    fun addPhysioTag(tagType: String, severity: Double = 0.7, durationHours: Int = 6) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val safeType = normalizePhysioTagType(tagType).ifBlank { return@launch }
+            container.isfCrRepository.addOrUpdateTag(
+                tag = PhysioContextTag(
+                    id = "tag-${UUID.randomUUID()}",
+                    tsStart = now,
+                    tsEnd = now + durationHours.coerceIn(1, 48) * 60L * 60L * 1000L,
+                    tagType = safeType,
+                    severity = severity.coerceIn(0.1, 1.0),
+                    source = "user",
+                    note = "quick_tag:$safeType"
+                )
+            )
+            triggerReactiveAutomationAsync()
+            messageState.value = "Tag added: $safeType"
+        }
+    }
+
+    fun closePhysioTag(tagId: String) {
+        val safeId = tagId.trim()
+        if (safeId.isEmpty()) return
+        viewModelScope.launch {
+            val closed = container.isfCrRepository.closeTag(tagId = safeId, nowTs = System.currentTimeMillis())
+            if (closed) {
+                triggerReactiveAutomationAsync()
+                messageState.value = "Tag closed"
+            } else {
+                messageState.value = "Tag not found"
+            }
+        }
+    }
+
+    fun clearActivePhysioTags() {
+        viewModelScope.launch {
+            container.isfCrRepository.closeActiveTags(System.currentTimeMillis())
+            triggerReactiveAutomationAsync()
+            messageState.value = "Active physiology tags cleared"
+        }
+    }
+
+    fun setKillSwitch(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
             container.settingsStore.update { it.copy(killSwitch = enabled) }
             messageState.value = if (enabled) "Kill switch enabled" else "Kill switch disabled"
         }
@@ -993,15 +2300,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setSafetyLimits(maxActionsIn6h: Int, staleDataMaxMinutes: Int) {
+    fun setSafetyLimits(
+        maxActionsIn6h: Int,
+        staleDataMaxMinutes: Int,
+        safetyMinTargetMmol: Double? = null,
+        safetyMaxTargetMmol: Double? = null,
+        carbAbsorptionMaxAgeMinutes: Int? = null,
+        carbComputationMaxGrams: Double? = null
+    ) {
         viewModelScope.launch {
             container.settingsStore.update {
+                val nextSafetyMax = (safetyMaxTargetMmol ?: it.safetyMaxTargetMmol).coerceIn(4.2, 10.0)
+                val nextSafetyMin = (safetyMinTargetMmol ?: it.safetyMinTargetMmol)
+                    .coerceIn(4.0, 9.8)
+                    .coerceAtMost(nextSafetyMax - 0.2)
                 it.copy(
                     maxActionsIn6Hours = maxActionsIn6h.coerceIn(1, 10),
-                    staleDataMaxMinutes = staleDataMaxMinutes.coerceIn(5, 60)
+                    staleDataMaxMinutes = staleDataMaxMinutes.coerceIn(5, 60),
+                    safetyMinTargetMmol = nextSafetyMin,
+                    safetyMaxTargetMmol = nextSafetyMax,
+                    baseTargetMmol = it.baseTargetMmol.coerceIn(nextSafetyMin, nextSafetyMax),
+                    postHypoThresholdMmol = it.postHypoThresholdMmol.coerceIn(nextSafetyMin, nextSafetyMax),
+                    postHypoTargetMmol = it.postHypoTargetMmol.coerceIn(nextSafetyMin, nextSafetyMax),
+                    carbAbsorptionMaxAgeMinutes = (carbAbsorptionMaxAgeMinutes
+                        ?: it.carbAbsorptionMaxAgeMinutes).coerceIn(60, 180),
+                    carbComputationMaxGrams = (carbComputationMaxGrams
+                        ?: it.carbComputationMaxGrams).coerceIn(20.0, 60.0)
                 )
             }
             messageState.value = "Safety limits updated"
+        }
+    }
+
+    fun setSafetyTargetBounds(minTargetMmol: Double, maxTargetMmol: Double) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                val normalizedMax = maxTargetMmol.coerceIn(4.2, 10.0)
+                val normalizedMin = minTargetMmol
+                    .coerceIn(4.0, 9.8)
+                    .coerceAtMost(normalizedMax - 0.2)
+                it.copy(
+                    safetyMinTargetMmol = normalizedMin,
+                    safetyMaxTargetMmol = normalizedMax,
+                    baseTargetMmol = it.baseTargetMmol.coerceIn(normalizedMin, normalizedMax),
+                    postHypoThresholdMmol = it.postHypoThresholdMmol.coerceIn(normalizedMin, normalizedMax),
+                    postHypoTargetMmol = it.postHypoTargetMmol.coerceIn(normalizedMin, normalizedMax)
+                )
+            }
+            messageState.value = "Safety target bounds updated"
         }
     }
 
@@ -1015,7 +2361,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             container.settingsStore.update {
                 it.copy(
-                    postHypoThresholdMmol = thresholdMmol.coerceIn(2.2, 4.8),
+                    postHypoThresholdMmol = thresholdMmol.coerceIn(4.0, 10.0),
                     postHypoDeltaThresholdMmol5m = deltaThresholdMmol5m.coerceIn(0.05, 1.0),
                     postHypoTargetMmol = targetMmol.coerceIn(4.0, 10.0),
                     postHypoDurationMinutes = durationMinutes.coerceIn(15, 180),
@@ -1043,8 +2389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     analyticsLookbackDays = lookbackDays.coerceIn(30, 730)
                 )
             }
-            val settings = container.settingsStore.settings.first()
-            container.analyticsRepository.recalculate(settings)
+            recalculateAnalyticsAsync()
             messageState.value = "Pattern tuning updated"
         }
     }
@@ -1072,7 +2417,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             container.settingsStore.update {
                 it.copy(
-                    adaptiveControllerEnabled = true,
+                    adaptiveControllerEnabled = enabled,
                     adaptiveControllerPriority = priority.coerceIn(0, 200),
                     adaptiveControllerRetargetMinutes = normalizedRetarget,
                     adaptiveControllerSafetyProfile = normalizedProfile,
@@ -1081,23 +2426,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     adaptiveControllerMaxStepMmol = maxStepMmol.coerceIn(0.05, 1.00)
                 )
             }
-            if (!enabled) {
-                messageState.value = "Adaptive controller is always ON"
-                return@launch
-            }
             messageState.value = "Adaptive controller settings updated"
         }
     }
 
     fun setAdaptiveControllerEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            container.settingsStore.update { it.copy(adaptiveControllerEnabled = true) }
-            WorkScheduler.triggerReactiveAutomation(getApplication())
+            container.settingsStore.update { it.copy(adaptiveControllerEnabled = enabled) }
+            triggerReactiveAutomationAsync()
             messageState.value = if (enabled) {
                 "Adaptive controller enabled"
             } else {
-                "Adaptive controller is always ON"
+                "Adaptive controller disabled"
             }
+        }
+    }
+
+    private fun triggerReactiveAutomationAsync() {
+        viewModelScope.launch(Dispatchers.Default) {
+            WorkScheduler.triggerReactiveAutomation(getApplication())
+        }
+    }
+
+    private fun recalculateAnalyticsAsync() {
+        viewModelScope.launch(Dispatchers.Default) {
+            val settings = container.settingsStore.settings.first()
+            container.analyticsRepository.recalculate(settings)
         }
     }
 
@@ -1166,9 +2520,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendManualCarbs(carbsRaw: String, reasonRaw: String) {
         viewModelScope.launch {
-            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it in 1.0..300.0 }
+            val settings = container.settingsStore.settings.first()
+            val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it in 1.0..safetyCapGrams }
             if (carbsGrams == null) {
-                messageState.value = "Manual carbs failed: invalid grams value"
+                messageState.value = "Manual carbs failed: invalid grams value (allowed 1..${String.format(Locale.US, "%.0f", safetyCapGrams)} g)"
                 return@launch
             }
 
@@ -1764,6 +3120,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun hasManualCarbsNearby(
+        therapy: List<TherapyEventEntity>,
+        centerTs: Long,
+        mergeWindowMinutes: Int
+    ): Boolean {
+        val windowMs = mergeWindowMinutes.coerceIn(5, 240) * 60_000L
+        return therapy.any { event ->
+            if (!eventTypeLooksLikeCarbs(event.type)) return@any false
+            val carbs = payloadDouble(event.payloadJson, "grams", "carbs", "enteredCarbs", "mealCarbs")
+                ?: return@any false
+            carbs > 0.0 && kotlin.math.abs(event.timestamp - centerTs) <= windowMs
+        }
+    }
+
+    private fun eventTypeLooksLikeCarbs(type: String): Boolean {
+        val normalized = type.trim().lowercase(Locale.US)
+        return normalized.contains("carb") || normalized.contains("meal")
+    }
+
+    private fun buildAuditRecords(
+        audits: List<AuditLogEntity>,
+        ruleExecutions: List<RuleExecutionEntity>,
+        actions: List<ActionCommandEntity>
+    ): List<AuditRecordRowUi> {
+        val auditRows = audits.map { row ->
+            AuditRecordRowUi(
+                id = "audit:${row.id}",
+                ts = row.timestamp,
+                source = "audit",
+                level = row.level,
+                summary = row.message,
+                context = row.metadataJson.take(220)
+            )
+        }
+        val ruleRows = ruleExecutions.map { row ->
+            val reason = parseRuleReasonsJson(row.reasonsJson).joinToString("; ").ifBlank { "-" }
+            AuditRecordRowUi(
+                id = "rule:${row.id}",
+                ts = row.timestamp,
+                source = "rule",
+                level = if (row.state == "TRIGGERED") "INFO" else if (row.state == "BLOCKED") "WARN" else "INFO",
+                summary = "${row.ruleId} ${row.state}",
+                context = reason,
+                payloadSummary = row.actionJson?.take(220)
+            )
+        }
+        val actionRows = actions.map { row ->
+            val summary = when (row.type.lowercase(Locale.US)) {
+                "temp_target" -> {
+                    val target = payloadDouble(row.payloadJson, "targetMmol")
+                    val duration = payloadDouble(row.payloadJson, "durationMinutes")?.toInt()
+                    "temp_target ${target?.let { String.format(Locale.US, "%.2f", it) } ?: "-"} mmol/L ${duration ?: "-"}m"
+                }
+                "carbs" -> {
+                    val grams = payloadDouble(row.payloadJson, "carbsGrams", "carbs", "grams")
+                    "carbs ${grams?.let { String.format(Locale.US, "%.1f", it) } ?: "-"} g"
+                }
+                else -> row.type
+            }
+            AuditRecordRowUi(
+                id = "action:${row.id}",
+                ts = row.timestamp,
+                source = "action",
+                level = when (row.status.uppercase(Locale.US)) {
+                    "FAILED" -> "ERROR"
+                    "PENDING" -> "WARN"
+                    else -> "INFO"
+                },
+                summary = summary,
+                context = row.payloadJson.take(220),
+                idempotencyKey = row.idempotencyKey,
+                payloadSummary = row.payloadJson.take(220)
+            )
+        }
+        return (auditRows + ruleRows + actionRows).sortedByDescending { it.ts }
+    }
+
     private fun payloadField(payloadJson: String, key: String): String? {
         return runCatching {
             JSONObject(payloadJson).optString(key).takeIf { it.isNotBlank() }
@@ -1804,6 +3237,460 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }.getOrDefault(emptyList())
+    }
+
+    private fun parseReplayHotspotsJson(raw: String?): List<DailyReportReplayHotspotUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val dayType = item.optString("dayType", "").trim().uppercase(Locale.US)
+                    val hour = item.optInt("hour", -1)
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val mae = item.optDouble("mae", Double.NaN)
+                    val mardPct = item.optDouble("mardPct", Double.NaN)
+                    val bias = item.optDouble("bias", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        dayType !in setOf("WEEKDAY", "WEEKEND") ||
+                        hour !in 0..23 ||
+                        sampleCount <= 0 ||
+                        !mae.isFinite() ||
+                        !mardPct.isFinite() ||
+                        !bias.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayHotspotUi(
+                            horizonMinutes = horizonMinutes,
+                            hour = hour,
+                            sampleCount = sampleCount,
+                            mae = mae,
+                            mardPct = mardPct,
+                            bias = bias
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayHotspotUi> { it.horizonMinutes }
+                    .thenByDescending { it.mae }
+            )
+    }
+
+    private fun parseReplayFactorsJson(raw: String?): List<DailyReportReplayFactorUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val factor = item.optString("factor", "").trim()
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val corrAbsError = item.optDouble("corrAbsError", Double.NaN)
+                    val maeHigh = item.optDouble("maeHigh", Double.NaN)
+                    val maeLow = item.optDouble("maeLow", Double.NaN)
+                    val upliftPct = item.optDouble("upliftPct", Double.NaN)
+                    val contributionScore = item.optDouble("contributionScore", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        factor.isBlank() ||
+                        sampleCount <= 0 ||
+                        !corrAbsError.isFinite() ||
+                        !maeHigh.isFinite() ||
+                        !maeLow.isFinite() ||
+                        !upliftPct.isFinite() ||
+                        !contributionScore.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayFactorUi(
+                            horizonMinutes = horizonMinutes,
+                            factor = factor,
+                            sampleCount = sampleCount,
+                            corrAbsError = corrAbsError,
+                            maeHigh = maeHigh,
+                            maeLow = maeLow,
+                            upliftPct = upliftPct,
+                            contributionScore = contributionScore
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayFactorUi> { it.horizonMinutes }
+                    .thenByDescending { it.contributionScore }
+            )
+    }
+
+    private fun parseReplayCoverageJson(raw: String?): List<DailyReportReplayCoverageUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val factor = item.optString("factor", "").trim()
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val coveragePct = item.optDouble("coveragePct", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        factor.isBlank() ||
+                        sampleCount < 0 ||
+                        !coveragePct.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayCoverageUi(
+                            horizonMinutes = horizonMinutes,
+                            factor = factor,
+                            sampleCount = sampleCount,
+                            coveragePct = coveragePct
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayCoverageUi> { it.horizonMinutes }
+                    .thenBy { it.factor }
+            )
+    }
+
+    private fun parseReplayRegimesJson(raw: String?): List<DailyReportReplayRegimeUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val factor = item.optString("factor", "").trim()
+                    val bucket = item.optString("bucket", "").trim().uppercase(Locale.US)
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val meanFactorValue = item.optDouble("meanFactorValue", Double.NaN)
+                    val mae = item.optDouble("mae", Double.NaN)
+                    val mardPct = item.optDouble("mardPct", Double.NaN)
+                    val bias = item.optDouble("bias", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        factor.isBlank() ||
+                        bucket !in setOf("LOW", "MID", "HIGH") ||
+                        sampleCount <= 0 ||
+                        !meanFactorValue.isFinite() ||
+                        !mae.isFinite() ||
+                        !mardPct.isFinite() ||
+                        !bias.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayRegimeUi(
+                            horizonMinutes = horizonMinutes,
+                            factor = factor,
+                            bucket = bucket,
+                            sampleCount = sampleCount,
+                            meanFactorValue = meanFactorValue,
+                            mae = mae,
+                            mardPct = mardPct,
+                            bias = bias
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayRegimeUi> { it.horizonMinutes }
+                    .thenBy { it.factor }
+                    .thenBy {
+                        when (it.bucket) {
+                            "LOW" -> 0
+                            "MID" -> 1
+                            "HIGH" -> 2
+                            else -> 3
+                        }
+                    }
+            )
+    }
+
+    private fun parseReplayPairsJson(raw: String?): List<DailyReportReplayPairUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val factorA = item.optString("factorA", "").trim()
+                    val factorB = item.optString("factorB", "").trim()
+                    val bucketA = item.optString("bucketA", "").trim().uppercase(Locale.US)
+                    val bucketB = item.optString("bucketB", "").trim().uppercase(Locale.US)
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val meanFactorA = item.optDouble("meanFactorA", Double.NaN)
+                    val meanFactorB = item.optDouble("meanFactorB", Double.NaN)
+                    val mae = item.optDouble("mae", Double.NaN)
+                    val mardPct = item.optDouble("mardPct", Double.NaN)
+                    val bias = item.optDouble("bias", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        factorA.isBlank() ||
+                        factorB.isBlank() ||
+                        bucketA !in setOf("LOW", "HIGH") ||
+                        bucketB !in setOf("LOW", "HIGH") ||
+                        sampleCount <= 0 ||
+                        !meanFactorA.isFinite() ||
+                        !meanFactorB.isFinite() ||
+                        !mae.isFinite() ||
+                        !mardPct.isFinite() ||
+                        !bias.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayPairUi(
+                            horizonMinutes = horizonMinutes,
+                            factorA = factorA,
+                            factorB = factorB,
+                            bucketA = bucketA,
+                            bucketB = bucketB,
+                            sampleCount = sampleCount,
+                            meanFactorA = meanFactorA,
+                            meanFactorB = meanFactorB,
+                            mae = mae,
+                            mardPct = mardPct,
+                            bias = bias
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayPairUi> { it.horizonMinutes }
+                    .thenBy { it.factorA }
+                    .thenBy { it.factorB }
+                    .thenBy {
+                        when (it.bucketA) {
+                            "LOW" -> 0
+                            "HIGH" -> 1
+                            else -> 2
+                        }
+                    }
+                    .thenBy {
+                        when (it.bucketB) {
+                            "LOW" -> 0
+                            "HIGH" -> 1
+                            else -> 2
+                        }
+                    }
+            )
+    }
+
+    private fun parseReplayTopMissJson(raw: String?): List<DailyReportReplayTopMissUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val ts = item.optLong("ts", 0L)
+                    val absError = item.optDouble("absError", Double.NaN)
+                    val pred = item.optDouble("pred", Double.NaN)
+                    val actual = item.optDouble("actual", Double.NaN)
+                    val cob = item.optDouble("cob", Double.NaN)
+                    val iob = item.optDouble("iob", Double.NaN)
+                    val uam = item.optDouble("uam", Double.NaN)
+                    val ciWidth = item.optDouble("ciWidth", Double.NaN)
+                    val diaHours = item.optDouble("diaHours", Double.NaN)
+                    val activity = item.optDouble("activity", Double.NaN)
+                    val sensorQuality = item.optDouble("sensorQuality", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        ts <= 0L ||
+                        !absError.isFinite() ||
+                        !pred.isFinite() ||
+                        !actual.isFinite() ||
+                        !cob.isFinite() ||
+                        !iob.isFinite() ||
+                        !uam.isFinite() ||
+                        !ciWidth.isFinite() ||
+                        !diaHours.isFinite() ||
+                        !activity.isFinite() ||
+                        !sensorQuality.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayTopMissUi(
+                            horizonMinutes = horizonMinutes,
+                            ts = ts,
+                            absError = absError,
+                            pred = pred,
+                            actual = actual,
+                            cob = cob,
+                            iob = iob,
+                            uam = uam,
+                            ciWidth = ciWidth,
+                            diaHours = diaHours,
+                            activity = activity,
+                            sensorQuality = sensorQuality
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedBy { it.horizonMinutes }
+    }
+
+    private fun parseReplayErrorClustersJson(raw: String?): List<DailyReportReplayErrorClusterUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val hour = item.optInt("hour", -1)
+                    val dayType = item.optString("dayType", "").trim().uppercase(Locale.US)
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val mae = item.optDouble("mae", Double.NaN)
+                    val mardPct = item.optDouble("mardPct", Double.NaN)
+                    val bias = item.optDouble("bias", Double.NaN)
+                    val meanCob = item.optDouble("meanCob", Double.NaN)
+                    val meanIob = item.optDouble("meanIob", Double.NaN)
+                    val meanUam = item.optDouble("meanUam", Double.NaN)
+                    val meanCiWidth = item.optDouble("meanCiWidth", Double.NaN)
+                    val dominantFactor = item.optString("dominantFactor", "").trim()
+                        .takeIf { it.isNotBlank() }
+                    val dominantScore = item.optDouble("dominantScore", Double.NaN)
+                        .takeIf { it.isFinite() }
+                    if (
+                        horizonMinutes <= 0 ||
+                        hour !in 0..23 ||
+                        dayType !in setOf("WEEKDAY", "WEEKEND") ||
+                        sampleCount <= 0 ||
+                        !mae.isFinite() ||
+                        !mardPct.isFinite() ||
+                        !bias.isFinite() ||
+                        !meanCob.isFinite() ||
+                        !meanIob.isFinite() ||
+                        !meanUam.isFinite() ||
+                        !meanCiWidth.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayErrorClusterUi(
+                            horizonMinutes = horizonMinutes,
+                            hour = hour,
+                            dayType = dayType,
+                            sampleCount = sampleCount,
+                            mae = mae,
+                            mardPct = mardPct,
+                            bias = bias,
+                            meanCob = meanCob,
+                            meanIob = meanIob,
+                            meanUam = meanUam,
+                            meanCiWidth = meanCiWidth,
+                            dominantFactor = dominantFactor,
+                            dominantScore = dominantScore
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayErrorClusterUi> { it.horizonMinutes }
+                    .thenBy { it.dayType }
+                    .thenByDescending { it.mae }
+                    .thenByDescending { it.sampleCount }
+            )
+    }
+
+    private fun parseReplayDayTypeGapsJson(raw: String?): List<DailyReportReplayDayTypeGapUi> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", 0)
+                    val hour = item.optInt("hour", -1)
+                    val worseDayType = item.optString("worseDayType", "").trim().uppercase(Locale.US)
+                    val weekdaySampleCount = item.optInt("weekdaySampleCount", 0)
+                    val weekendSampleCount = item.optInt("weekendSampleCount", 0)
+                    val weekdayMae = item.optDouble("weekdayMae", Double.NaN)
+                    val weekendMae = item.optDouble("weekendMae", Double.NaN)
+                    val weekdayMardPct = item.optDouble("weekdayMardPct", Double.NaN)
+                    val weekendMardPct = item.optDouble("weekendMardPct", Double.NaN)
+                    val maeGapMmol = item.optDouble("maeGapMmol", Double.NaN)
+                    val mardGapPct = item.optDouble("mardGapPct", Double.NaN)
+                    val worseMeanCob = item.optDouble("worseMeanCob", Double.NaN)
+                    val worseMeanIob = item.optDouble("worseMeanIob", Double.NaN)
+                    val worseMeanUam = item.optDouble("worseMeanUam", Double.NaN)
+                    val worseMeanCiWidth = item.optDouble("worseMeanCiWidth", Double.NaN)
+                    val dominantFactor = item.optString("dominantFactor", "").trim()
+                        .takeIf { it.isNotBlank() }
+                    val dominantScore = item.optDouble("dominantScore", Double.NaN)
+                        .takeIf { it.isFinite() }
+                    if (
+                        horizonMinutes <= 0 ||
+                        hour !in 0..23 ||
+                        worseDayType !in setOf("WEEKDAY", "WEEKEND") ||
+                        weekdaySampleCount <= 0 ||
+                        weekendSampleCount <= 0 ||
+                        !weekdayMae.isFinite() ||
+                        !weekendMae.isFinite() ||
+                        !weekdayMardPct.isFinite() ||
+                        !weekendMardPct.isFinite() ||
+                        !maeGapMmol.isFinite() ||
+                        !mardGapPct.isFinite() ||
+                        !worseMeanCob.isFinite() ||
+                        !worseMeanIob.isFinite() ||
+                        !worseMeanUam.isFinite() ||
+                        !worseMeanCiWidth.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        DailyReportReplayDayTypeGapUi(
+                            horizonMinutes = horizonMinutes,
+                            hour = hour,
+                            worseDayType = worseDayType,
+                            weekdaySampleCount = weekdaySampleCount,
+                            weekendSampleCount = weekendSampleCount,
+                            weekdayMae = weekdayMae,
+                            weekendMae = weekendMae,
+                            weekdayMardPct = weekdayMardPct,
+                            weekendMardPct = weekendMardPct,
+                            maeGapMmol = maeGapMmol,
+                            mardGapPct = mardGapPct,
+                            worseMeanCob = worseMeanCob,
+                            worseMeanIob = worseMeanIob,
+                            worseMeanUam = worseMeanUam,
+                            worseMeanCiWidth = worseMeanCiWidth,
+                            dominantFactor = dominantFactor,
+                            dominantScore = dominantScore
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+            .sortedWith(
+                compareBy<DailyReportReplayDayTypeGapUi> { it.horizonMinutes }
+                    .thenByDescending { kotlin.math.abs(it.maeGapMmol) }
+                    .thenBy { it.hour }
+            )
     }
 
     private fun parseConfidenceFromReasons(reasons: List<String>): Double? {
@@ -1857,6 +3744,525 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun buildIsfCrActivationGateLines(
+        audits: List<AuditLogEntity>,
+        telemetryByKey: Map<String, TelemetrySampleEntity>
+    ): List<String> {
+        val latestKpi = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_activation_evaluated" }
+            .maxByOrNull { it.timestamp }
+        val latestQuality = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_quality_gate_evaluated" }
+            .maxByOrNull { it.timestamp }
+        val latestDayType = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_day_type_gate_evaluated" }
+            .maxByOrNull { it.timestamp }
+        val latestSensor = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_sensor_gate_evaluated" }
+            .maxByOrNull { it.timestamp }
+        val latestDataQualityRisk = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_data_quality_risk_gate_evaluated" }
+            .maxByOrNull { it.timestamp }
+        val latestRolling = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_rolling_gate_evaluated" }
+            .maxByOrNull { it.timestamp }
+        val latestPromoted = audits
+            .asSequence()
+            .filter { it.message == "isfcr_shadow_auto_promoted" }
+            .maxByOrNull { it.timestamp }
+
+        fun boolField(entry: AuditLogEntity?, key: String): Boolean? {
+            val safeEntry = entry ?: return null
+            return auditMetaField(safeEntry, key)?.toBooleanStrictOrNull()
+        }
+
+        fun intField(entry: AuditLogEntity?, key: String): Int? {
+            val safeEntry = entry ?: return null
+            return auditMetaField(safeEntry, key)?.toIntOrNull()
+        }
+
+        fun doubleField(entry: AuditLogEntity?, key: String): Double? {
+            val safeEntry = entry ?: return null
+            return auditMetaField(safeEntry, key)
+                ?.replace(",", ".")
+                ?.toDoubleOrNull()
+        }
+
+        fun fmt(value: Double?, decimals: Int = 2): String {
+            return value?.let { String.format(Locale.US, "%.${decimals}f", it) } ?: "--"
+        }
+
+        val lines = mutableListOf<String>()
+        latestKpi?.let { entry ->
+            val eligible = boolField(entry, "eligible")
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val sampleCount = intField(entry, "sampleCount")
+            val meanConfidence = doubleField(entry, "meanConfidence")
+            val meanIsfDelta = doubleField(entry, "meanAbsIsfDeltaPct")
+            val meanCrDelta = doubleField(entry, "meanAbsCrDeltaPct")
+            lines += buildString {
+                append("KPI gate (${formatTs(entry.timestamp)}): eligible=${eligible ?: false}, reason=$reason")
+                append(", n=${sampleCount ?: 0}, conf=${fmt(meanConfidence?.times(100.0), 0)}%")
+                append(", |ΔISF|=${fmt(meanIsfDelta, 1)}%, |ΔCR|=${fmt(meanCrDelta, 1)}%")
+            }
+        }
+
+        latestQuality?.let { entry ->
+            val eligible = boolField(entry, "eligible")
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val matched = intField(entry, "matchedSamples")
+            val mae30 = doubleField(entry, "mae30Mmol")
+            val mae60 = doubleField(entry, "mae60Mmol")
+            val hypo = doubleField(entry, "hypoRatePct24h")
+            val cov30 = doubleField(entry, "ciCoverage30Pct")
+            val cov60 = doubleField(entry, "ciCoverage60Pct")
+            val width30 = doubleField(entry, "ciWidth30Mmol")
+            val width60 = doubleField(entry, "ciWidth60Mmol")
+            lines += buildString {
+                append("Daily gate (${formatTs(entry.timestamp)}): eligible=${eligible ?: false}, reason=$reason")
+                append(", n=${matched ?: 0}, MAE30=${fmt(mae30)}, MAE60=${fmt(mae60)}, hypo=${fmt(hypo, 1)}%")
+            }
+            lines += buildString {
+                append("CI calib: cov30=${fmt(cov30, 1)}%, cov60=${fmt(cov60, 1)}%, width30=${fmt(width30)}, width60=${fmt(width60)}")
+            }
+        }
+
+        latestDayType?.let { entry ->
+            val eligible = boolField(entry, "eligible")
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val sampleCount = intField(entry, "sampleCount")
+            val isfRatio = doubleField(entry, "meanIsfSameDayTypeRatio")
+            val crRatio = doubleField(entry, "meanCrSameDayTypeRatio")
+            val isfSparse = doubleField(entry, "isfSparseRatePct")
+            val crSparse = doubleField(entry, "crSparseRatePct")
+            lines += buildString {
+                append("Day-type gate (${formatTs(entry.timestamp)}): eligible=${eligible ?: false}, reason=$reason")
+                append(", n=${sampleCount ?: 0}, isfRatio=${fmt(isfRatio?.times(100.0), 0)}%, crRatio=${fmt(crRatio?.times(100.0), 0)}%")
+                append(", isfSparse=${fmt(isfSparse, 1)}%, crSparse=${fmt(crSparse, 1)}%")
+            }
+        }
+
+        latestSensor?.let { entry ->
+            val eligible = boolField(entry, "eligible")
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val sampleCount = intField(entry, "sampleCount")
+            val quality = doubleField(entry, "meanQualityScore")
+            val sensorFactor = doubleField(entry, "meanSensorFactor")
+            val wearPenalty = doubleField(entry, "meanWearPenalty")
+            val sensorAgeHighRate = doubleField(entry, "sensorAgeHighRatePct")
+            val suspectFalseLowRate = doubleField(entry, "suspectFalseLowRatePct")
+            lines += buildString {
+                append("Sensor gate (${formatTs(entry.timestamp)}): eligible=${eligible ?: false}, reason=$reason")
+                append(", n=${sampleCount ?: 0}, quality=${fmt(quality?.times(100.0), 0)}%, factor=${fmt(sensorFactor?.times(100.0), 0)}%")
+                append(", wearPenalty=${fmt(wearPenalty?.times(100.0), 1)}%, ageHigh=${fmt(sensorAgeHighRate, 1)}%")
+                append(", falseLow=${fmt(suspectFalseLowRate, 1)}%")
+            }
+        }
+
+        latestDataQualityRisk?.let { entry ->
+            val eligible = boolField(entry, "eligible")
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val riskLevel = intField(entry, "riskLevel")
+            val blockedRiskLevel = intField(entry, "blockedRiskLevel")
+            val source = auditMetaField(entry, "riskLevelSource") ?: "unknown"
+            lines += buildString {
+                append("Data-quality risk gate (${formatTs(entry.timestamp)}): eligible=${eligible ?: false}, reason=$reason")
+                append(", riskLevel=${riskLevel ?: 0}, blockAt=${blockedRiskLevel ?: 3}, source=$source")
+            }
+        }
+
+        latestRolling?.let { entry ->
+            val eligible = boolField(entry, "eligible")
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val requiredConfigured = intField(entry, "requiredWindowCountConfigured")
+            val requiredEvaluated = intField(entry, "requiredWindowCount")
+            val evaluated = intField(entry, "evaluatedWindowCount")
+            val passed = intField(entry, "passedWindowCount")
+            val maeRelax = doubleField(entry, "maeRelaxFactor")
+            val ciCoverageRelax = doubleField(entry, "ciCoverageRelaxFactor")
+            val ciWidthRelax = doubleField(entry, "ciWidthRelaxFactor")
+            lines += buildString {
+                append("Rolling gate (${formatTs(entry.timestamp)}): eligible=${eligible ?: false}, reason=$reason")
+                append(", cfg=${requiredConfigured ?: requiredEvaluated ?: 0}, eval=${evaluated ?: 0}, pass=${passed ?: 0}")
+            }
+            lines += buildString {
+                append("Rolling relax: MAE×${fmt(maeRelax)}, CIcov×${fmt(ciCoverageRelax)}, CIwidth×${fmt(ciWidthRelax)}")
+            }
+            lines += parseRollingGateWindows(auditMetaField(entry, "windows"))
+                .map { window -> formatRollingGateWindowLine(window) { value -> fmt(value) } }
+        }
+
+        latestPromoted?.let { entry ->
+            val reason = auditMetaField(entry, "reason") ?: "n/a"
+            val qualityReason = auditMetaField(entry, "qualityReason") ?: "n/a"
+            lines += "Last promotion (${formatTs(entry.timestamp)}): reason=$reason, qualityReason=$qualityReason"
+        }
+
+        val rollingKpiLines = listOf(14, 30, 90).mapNotNull { days ->
+            val prefix = "rolling_report_${days}d"
+            val matched = telemetryByKey["${prefix}_matched_samples"].toNumericValue()?.roundToInt()
+            val mard30 = telemetryByKey["${prefix}_mard_30m_pct"].toNumericValue()
+            val mard60 = telemetryByKey["${prefix}_mard_60m_pct"].toNumericValue()
+            val hasAny = matched != null || mard30 != null || mard60 != null
+            if (!hasAny) {
+                null
+            } else {
+                buildString {
+                    append("Rolling ${days}d: n=${matched ?: 0}")
+                    mard30?.let { append(", MARD30=${fmt(it, 1)}%") }
+                    mard60?.let { append(", MARD60=${fmt(it, 1)}%") }
+                }
+            }
+        }
+        lines += rollingKpiLines
+        return lines
+    }
+
+    private data class IsfCrRuntimeDiagnosticsSnapshot(
+        val realtimeTs: Long?,
+        val mode: String?,
+        val confidence: Double?,
+        val confidenceThreshold: Double?,
+        val qualityScore: Double?,
+        val usedEvidence: Int?,
+        val droppedEvidence: Int?,
+        val droppedReasons: String?,
+        val currentDayType: String?,
+        val isfBaseSource: String?,
+        val crBaseSource: String?,
+        val isfDayTypeBaseAvailable: Boolean?,
+        val crDayTypeBaseAvailable: Boolean?,
+        val hourWindowIsfEvidence: Int?,
+        val hourWindowCrEvidence: Int?,
+        val hourWindowIsfSameDayType: Int?,
+        val hourWindowCrSameDayType: Int?,
+        val minIsfEvidencePerHour: Int?,
+        val minCrEvidencePerHour: Int?,
+        val crMaxGapMinutes: Double?,
+        val crMaxSensorBlockedRatePct: Double?,
+        val crMaxUamAmbiguityRatePct: Double?,
+        val coverageHoursIsf: Int?,
+        val coverageHoursCr: Int?,
+        val realtimeReasons: String?,
+        val lowConfidenceTs: Long?,
+        val lowConfidenceReasons: String?,
+        val fallbackTs: Long?,
+        val fallbackReasons: String?
+    )
+
+    private fun buildIsfCrRuntimeDiagnosticsSnapshot(
+        audits: List<AuditLogEntity>
+    ): IsfCrRuntimeDiagnosticsSnapshot? {
+        val latestRealtime = audits
+            .asSequence()
+            .filter { it.message == "isfcr_realtime_computed" }
+            .maxByOrNull { it.timestamp }
+        val latestLowConfidence = audits
+            .asSequence()
+            .filter { it.message == "isfcr_low_confidence" }
+            .maxByOrNull { it.timestamp }
+        val latestFallback = audits
+            .asSequence()
+            .filter { it.message == "isfcr_fallback_applied" }
+            .maxByOrNull { it.timestamp }
+
+        if (latestRealtime == null && latestLowConfidence == null && latestFallback == null) return null
+
+        fun doubleField(entry: AuditLogEntity?, key: String): Double? {
+            val safe = entry ?: return null
+            return auditMetaField(safe, key)
+                ?.replace(",", ".")
+                ?.toDoubleOrNull()
+        }
+
+        fun intField(entry: AuditLogEntity?, key: String): Int? {
+            val safe = entry ?: return null
+            return auditMetaField(safe, key)?.toIntOrNull()
+        }
+
+        return IsfCrRuntimeDiagnosticsSnapshot(
+            realtimeTs = latestRealtime?.timestamp,
+            mode = latestRealtime?.let { auditMetaField(it, "mode") },
+            confidence = doubleField(latestRealtime, "confidence"),
+            confidenceThreshold = doubleField(latestRealtime, "confidenceThreshold"),
+            qualityScore = doubleField(latestRealtime, "qualityScore"),
+            usedEvidence = intField(latestRealtime, "usedEvidence"),
+            droppedEvidence = intField(latestRealtime, "droppedEvidence"),
+            droppedReasons = latestRealtime?.let { auditMetaField(it, "droppedReasons") },
+            currentDayType = latestRealtime?.let { auditMetaField(it, "currentDayType") },
+            isfBaseSource = latestRealtime?.let { auditMetaField(it, "isfBaseSource") },
+            crBaseSource = latestRealtime?.let { auditMetaField(it, "crBaseSource") },
+            isfDayTypeBaseAvailable = latestRealtime?.let {
+                doubleField(it, "isfDayTypeBaseAvailable")?.let { value -> value >= 0.5 }
+            },
+            crDayTypeBaseAvailable = latestRealtime?.let {
+                doubleField(it, "crDayTypeBaseAvailable")?.let { value -> value >= 0.5 }
+            },
+            hourWindowIsfEvidence = intField(latestRealtime, "hourWindowIsfEvidence"),
+            hourWindowCrEvidence = intField(latestRealtime, "hourWindowCrEvidence"),
+            hourWindowIsfSameDayType = intField(latestRealtime, "hourWindowIsfSameDayType"),
+            hourWindowCrSameDayType = intField(latestRealtime, "hourWindowCrSameDayType"),
+            minIsfEvidencePerHour = intField(latestRealtime, "minIsfEvidencePerHour"),
+            minCrEvidencePerHour = intField(latestRealtime, "minCrEvidencePerHour"),
+            crMaxGapMinutes = doubleField(latestRealtime, "crMaxGapMinutes"),
+            crMaxSensorBlockedRatePct = doubleField(latestRealtime, "crMaxSensorBlockedRatePct"),
+            crMaxUamAmbiguityRatePct = doubleField(latestRealtime, "crMaxUamAmbiguityRatePct"),
+            coverageHoursIsf = intField(latestRealtime, "coverageHoursIsf"),
+            coverageHoursCr = intField(latestRealtime, "coverageHoursCr"),
+            realtimeReasons = latestRealtime?.let { auditMetaField(it, "reasons") },
+            lowConfidenceTs = latestLowConfidence?.timestamp,
+            lowConfidenceReasons = latestLowConfidence?.let { auditMetaField(it, "reasons") },
+            fallbackTs = latestFallback?.timestamp,
+            fallbackReasons = latestFallback?.let { auditMetaField(it, "reasons") }
+        )
+    }
+
+    private fun buildIsfCrRuntimeDiagnosticsLines(
+        snapshot: IsfCrRuntimeDiagnosticsSnapshot?
+    ): List<String> {
+        snapshot ?: return emptyList()
+
+        fun fmt(value: Double?, decimals: Int = 2): String {
+            return value?.let { String.format(Locale.US, "%.${decimals}f", it) } ?: "--"
+        }
+
+        return buildList {
+            if (snapshot.realtimeTs != null) {
+                val mode = snapshot.mode ?: "n/a"
+                add(
+                    "Runtime (${formatTs(snapshot.realtimeTs)}): mode=$mode, " +
+                        "conf=${fmt(snapshot.confidence?.times(100.0), 0)}% " +
+                        "(thr=${fmt(snapshot.confidenceThreshold?.times(100.0), 0)}%), " +
+                        "quality=${fmt(snapshot.qualityScore?.times(100.0), 0)}%"
+                )
+                add(
+                    "Evidence: used=${snapshot.usedEvidence ?: 0}, dropped=${snapshot.droppedEvidence ?: 0}, " +
+                        "coverage ISF/CR=${snapshot.coverageHoursIsf ?: 0}/${snapshot.coverageHoursCr ?: 0} hours"
+                )
+                if (
+                    snapshot.isfBaseSource != null ||
+                    snapshot.crBaseSource != null ||
+                    snapshot.isfDayTypeBaseAvailable != null ||
+                    snapshot.crDayTypeBaseAvailable != null
+                ) {
+                    add(
+                        "Base source ISF/CR=${snapshot.isfBaseSource ?: "--"}/${snapshot.crBaseSource ?: "--"}, " +
+                            "day-type available=${snapshot.isfDayTypeBaseAvailable ?: false}/${snapshot.crDayTypeBaseAvailable ?: false}"
+                    )
+                }
+                if (
+                    snapshot.hourWindowIsfEvidence != null ||
+                    snapshot.hourWindowCrEvidence != null ||
+                    snapshot.minIsfEvidencePerHour != null ||
+                    snapshot.minCrEvidencePerHour != null
+                ) {
+                    add(
+                        "Hour-window evidence ISF/CR=${snapshot.hourWindowIsfEvidence ?: 0}/${snapshot.hourWindowCrEvidence ?: 0} " +
+                            "(min ${snapshot.minIsfEvidencePerHour ?: 0}/${snapshot.minCrEvidencePerHour ?: 0})"
+                    )
+                }
+                if (
+                    snapshot.crMaxGapMinutes != null ||
+                    snapshot.crMaxSensorBlockedRatePct != null ||
+                    snapshot.crMaxUamAmbiguityRatePct != null
+                ) {
+                    add(
+                        "CR gate: gap<=${fmt(snapshot.crMaxGapMinutes, 0)}m, " +
+                            "sensorBlocked<=${fmt(snapshot.crMaxSensorBlockedRatePct, 0)}%, " +
+                            "uamAmbiguity<=${fmt(snapshot.crMaxUamAmbiguityRatePct, 0)}%"
+                    )
+                }
+                if (
+                    snapshot.currentDayType != null ||
+                    snapshot.hourWindowIsfSameDayType != null ||
+                    snapshot.hourWindowCrSameDayType != null
+                ) {
+                    add(
+                        "Day-type evidence (${snapshot.currentDayType ?: "n/a"}) ISF/CR=" +
+                            "${snapshot.hourWindowIsfSameDayType ?: 0}/${snapshot.hourWindowCrSameDayType ?: 0}"
+                    )
+                }
+                snapshot.droppedReasons
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { add("Dropped reasons: $it") }
+                snapshot.realtimeReasons
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { add("Runtime reasons: $it") }
+            }
+            if (snapshot.lowConfidenceTs != null) {
+                add("Low confidence (${formatTs(snapshot.lowConfidenceTs)}): reasons=${snapshot.lowConfidenceReasons ?: "n/a"}")
+            }
+            if (snapshot.fallbackTs != null) {
+                add("Fallback (${formatTs(snapshot.fallbackTs)}): reasons=${snapshot.fallbackReasons ?: "n/a"}")
+            }
+        }
+    }
+
+    private fun buildIsfCrDroppedReasonSummaryLines(
+        audits: List<AuditLogEntity>,
+        nowTs: Long,
+        windowMs: Long,
+        topLimit: Int = 8
+    ): List<String> {
+        val cutoffTs = nowTs - windowMs
+        val primaryEvents = audits.filter {
+            it.timestamp >= cutoffTs && it.message == "isfcr_evidence_extracted"
+        }
+        val selected = if (primaryEvents.isNotEmpty()) {
+            primaryEvents
+        } else {
+            audits.filter {
+                it.timestamp >= cutoffTs && it.message == "isfcr_realtime_computed"
+            }
+        }
+        if (selected.isEmpty()) return emptyList()
+
+        val reasonCounts = linkedMapOf<String, Int>()
+        var droppedTotal = 0
+        selected.forEach { entry ->
+            droppedTotal += auditMetaField(entry, "droppedEvidence")?.toIntOrNull() ?: 0
+            parseDroppedReasonCounters(auditMetaField(entry, "droppedReasons")).forEach { (reason, count) ->
+                reasonCounts[reason] = (reasonCounts[reason] ?: 0) + count
+            }
+        }
+        return formatIsfCrDroppedReasonSummaryLines(
+            eventCount = selected.size,
+            droppedTotal = droppedTotal,
+            reasonCounts = reasonCounts,
+            topLimit = topLimit
+        )
+    }
+
+    private fun buildIsfCrWearImpactSummaryLines(
+        audits: List<AuditLogEntity>,
+        nowTs: Long,
+        windowMs: Long
+    ): List<String> {
+        val cutoffTs = nowTs - windowMs
+        val events = audits.filter {
+            it.timestamp >= cutoffTs && it.message == "isfcr_realtime_computed"
+        }
+        if (events.isEmpty()) return emptyList()
+
+        val setAgeValues = events.mapNotNull { auditMetaDouble(it, "setAgeHours") }
+        val sensorAgeValues = events.mapNotNull { auditMetaDouble(it, "sensorAgeHours") }
+        val setFactorValues = events.mapNotNull { auditMetaDouble(it, "setFactor") }
+        val sensorFactorValues = events.mapNotNull { auditMetaDouble(it, "sensorFactor") }
+        val ambiguityValues = events.mapNotNull { auditMetaDouble(it, "contextAmbiguity") }
+        val wearPenaltyValues = events.mapNotNull { auditMetaDouble(it, "wearConfidencePenalty") }
+        val confidenceValues = events.mapNotNull { auditMetaDouble(it, "confidence") }
+        val dayTypeValues = events.mapNotNull { auditMetaField(it, "currentDayType")?.uppercase(Locale.US) }
+        val weekdayCount = dayTypeValues.count { it == "WEEKDAY" }
+        val weekendCount = dayTypeValues.count { it == "WEEKEND" }
+        val isfSameDayTypeRatios = events.mapNotNull { entry ->
+            val total = auditMetaDouble(entry, "hourWindowIsfEvidence") ?: return@mapNotNull null
+            val same = auditMetaDouble(entry, "hourWindowIsfSameDayType") ?: return@mapNotNull null
+            if (total <= 0.0) return@mapNotNull null
+            (same / total).coerceIn(0.0, 1.0)
+        }
+        val crSameDayTypeRatios = events.mapNotNull { entry ->
+            val total = auditMetaDouble(entry, "hourWindowCrEvidence") ?: return@mapNotNull null
+            val same = auditMetaDouble(entry, "hourWindowCrSameDayType") ?: return@mapNotNull null
+            if (total <= 0.0) return@mapNotNull null
+            (same / total).coerceIn(0.0, 1.0)
+        }
+        val isfDayTypeSparseCount = events.count { auditReasonSet(it).contains("isf_day_type_evidence_sparse") }
+        val crDayTypeSparseCount = events.count { auditReasonSet(it).contains("cr_day_type_evidence_sparse") }
+
+        val setHigh = setAgeValues.count { it > 72.0 }
+        val sensorHigh = sensorAgeValues.count { it > 120.0 }
+        val setCount = setAgeValues.size.coerceAtLeast(1)
+        val sensorCount = sensorAgeValues.size.coerceAtLeast(1)
+        val meanSetAge = setAgeValues.average().takeIf { !it.isNaN() }
+        val meanSensorAge = sensorAgeValues.average().takeIf { !it.isNaN() }
+        val meanSetFactor = setFactorValues.average().takeIf { !it.isNaN() }
+        val meanSensorFactor = sensorFactorValues.average().takeIf { !it.isNaN() }
+        val meanAmbiguity = ambiguityValues.average().takeIf { !it.isNaN() }
+        val meanWearPenalty = wearPenaltyValues.average().takeIf { !it.isNaN() }
+        val meanConfidence = confidenceValues.average().takeIf { !it.isNaN() }
+        val meanIsfSameDayTypeRatio = isfSameDayTypeRatios.average().takeIf { !it.isNaN() }
+        val meanCrSameDayTypeRatio = crSameDayTypeRatios.average().takeIf { !it.isNaN() }
+
+        fun fmt(value: Double?, digits: Int = 2): String {
+            return value?.let { String.format(Locale.US, "%.${digits}f", it) } ?: "--"
+        }
+
+        return buildList {
+            add(
+                "Events=${events.size}, mean set/sensor age=${fmt(meanSetAge, 1)}h/${fmt(meanSensorAge, 1)}h"
+            )
+            add(
+                "High wear set>72h=${(setHigh * 100.0 / setCount).toInt()}%, sensor>120h=${(sensorHigh * 100.0 / sensorCount).toInt()}%"
+            )
+            if (meanSetFactor != null || meanSensorFactor != null) {
+                add("Mean factors set/sensor=${fmt(meanSetFactor)}/${fmt(meanSensorFactor)}")
+            }
+            if (dayTypeValues.isNotEmpty()) {
+                add(
+                    "Day type distribution: weekday=${(weekdayCount * 100.0 / dayTypeValues.size).toInt()}%, " +
+                        "weekend=${(weekendCount * 100.0 / dayTypeValues.size).toInt()}%"
+                )
+            }
+            if (meanIsfSameDayTypeRatio != null || meanCrSameDayTypeRatio != null) {
+                add(
+                    "Mean same-day-type ratio ISF/CR=" +
+                        "${fmt(meanIsfSameDayTypeRatio?.times(100.0), 0)}%/${fmt(meanCrSameDayTypeRatio?.times(100.0), 0)}%"
+                )
+            }
+            add(
+                "Day-type sparse flags ISF/CR=" +
+                    "${(isfDayTypeSparseCount * 100.0 / events.size).toInt()}%/" +
+                    "${(crDayTypeSparseCount * 100.0 / events.size).toInt()}%"
+            )
+            if (meanAmbiguity != null || meanWearPenalty != null) {
+                add(
+                    "Ambiguity=${fmt(meanAmbiguity?.times(100.0), 0)}%, wear penalty=${fmt(meanWearPenalty?.times(100.0), 0)}%"
+                )
+            }
+            if (meanConfidence != null) {
+                add("Mean confidence=${fmt(meanConfidence * 100.0, 0)}%")
+            }
+        }
+    }
+
+    private fun parseDroppedReasonCounters(raw: String?): Map<String, Int> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        val counters = linkedMapOf<String, Int>()
+        raw.split(';', ',', '\n')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { token ->
+                val parts = token.split("=", limit = 2)
+                val key = parts[0].trim()
+                if (key.isBlank()) return@forEach
+                val count = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 1
+                counters[key] = (counters[key] ?: 0) + count.coerceAtLeast(0)
+            }
+        return counters
+    }
+
+    private fun auditMetaDouble(entry: AuditLogEntity, key: String): Double? {
+        return auditMetaField(entry, key)
+            ?.replace(",", ".")
+            ?.toDoubleOrNull()
+    }
+
+    private fun auditReasonSet(entry: AuditLogEntity): Set<String> {
+        val raw = auditMetaField(entry, "reasons").orEmpty()
+        if (raw.isBlank()) return emptySet()
+        return raw
+            .split(',', ';', '\n')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
     private data class TelemetryCoverageSpec(
         val primaryKey: String,
         val label: String,
@@ -1867,17 +4273,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun telemetryCoverageSpecs(): List<TelemetryCoverageSpec> = listOf(
         TelemetryCoverageSpec(
-            primaryKey = "iob_units",
+            primaryKey = "iob_effective_units",
             label = "IOB",
             staleThresholdMin = 30L,
-            exactAliases = listOf("raw_iob"),
+            exactAliases = listOf("iob_real_units", "iob_units", "raw_iob"),
             tokenAliases = listOf("iob", "insulinonboard")
         ),
         TelemetryCoverageSpec(
-            primaryKey = "cob_grams",
+            primaryKey = "insulin_real_onset_min",
+            label = "Insulin onset real",
+            staleThresholdMin = 6 * 60L,
+            tokenAliases = listOf("insulin_real_onset")
+        ),
+        TelemetryCoverageSpec(
+            primaryKey = "cob_effective_grams",
             label = "COB",
             staleThresholdMin = 30L,
-            exactAliases = listOf("raw_cob"),
+            exactAliases = listOf("cob_grams", "raw_cob"),
             tokenAliases = listOf("cob", "carbsonboard")
         ),
         TelemetryCoverageSpec(
@@ -1995,8 +4407,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (samples.isEmpty()) return emptyList()
         val latestByKey = latestTelemetryByKey(samples)
         val primaryKeys = listOf(
+            "iob_effective_units",
+            "iob_real_units",
+            "cob_effective_grams",
             "iob_units",
             "cob_grams",
+            "insulin_real_onset_min",
+            "insulin_profile_base_onset_min",
+            "insulin_real_onset_samples",
+            "insulin_profile_real_confidence",
+            "insulin_profile_real_samples",
+            "insulin_profile_real_onset_min",
+            "insulin_profile_real_peak_min",
+            "insulin_profile_real_scale",
+            "insulin_profile_real_status",
+            "insulin_profile_real_source_profile",
+            "insulin_profile_real_updated_ts",
+            "insulin_profile_real_published_ts",
+            "iob_external_raw_units",
+            "cob_external_raw_grams",
+            "iob_local_fallback_units",
+            "cob_local_fallback_grams",
             "carbs_grams",
             "insulin_units",
             "dia_hours",
@@ -2666,6 +5097,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun normalizePhysioTagType(raw: String): String {
+        return when (raw.trim().lowercase(Locale.US)) {
+            "hormonal_phase" -> "hormonal"
+            "steroid" -> "steroids"
+            else -> raw.trim().lowercase(Locale.US)
+        }
+    }
+
     private fun formatHealthConnectStatus(state: String?, missingPermissions: String?): String {
         return when {
             state == null -> "no data yet (grant Health Connect read permissions)"
@@ -2743,6 +5182,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TLS_DIAGNOSTIC_WINDOW_MS = TLS_DIAGNOSTIC_WINDOW_MINUTES * 60_000L
         private const val LOCAL_NS_START_FAILURE_WINDOW_MS = 60 * 60_000L
         private const val HEALTH_CONNECT_ENABLED = false
+        private const val PHYSIO_TAG_JOURNAL_MAX_ROWS = 40
+        private const val PHYSIO_TAG_JOURNAL_LOOKBACK_MS = 180L * 24 * 60 * 60 * 1000
         private val CUMULATIVE_ACTIVITY_KEYS = setOf(
             "steps_count",
             "distance_km",
@@ -2763,6 +5204,18 @@ private fun ForecastEntity.toDomainForecast(): io.aaps.copilot.domain.model.Fore
         modelVersion = modelVersion
     )
 
+private fun IsfCrRealtimeSnapshot.displayIsfEffForAnalytics(): Double {
+    if (mode != IsfCrRuntimeMode.FALLBACK) return isfEff
+    val raw = factors["raw_isf_eff"]
+    return if (raw != null && raw.isFinite() && raw > 0.0) raw else isfEff
+}
+
+private fun IsfCrRealtimeSnapshot.displayCrEffForAnalytics(): Double {
+    if (mode != IsfCrRuntimeMode.FALLBACK) return crEff
+    val raw = factors["raw_cr_eff"]
+    return if (raw != null && raw.isFinite() && raw > 0.0) raw else crEff
+}
+
 private data class AapsTlsCompatibility(
     val installed: Boolean,
     val targetSdk: Int?,
@@ -2770,153 +5223,284 @@ private data class AapsTlsCompatibility(
     val likelyRejectsUserCa: Boolean
 )
 
-data class MainUiState(
-    val nightscoutUrl: String = "",
-    val cloudUrl: String = "",
-    val exportUri: String? = null,
-    val killSwitch: Boolean = false,
-    val localNightscoutEnabled: Boolean = false,
-    val localNightscoutPort: Int = 17580,
-    val resolvedNightscoutUrl: String = "",
-    val localBroadcastIngestEnabled: Boolean = true,
-    val strictBroadcastSenderValidation: Boolean = false,
-    val localCommandFallbackEnabled: Boolean = false,
-    val localCommandPackage: String = "info.nightscout.androidaps",
-    val localCommandAction: String = "info.nightscout.client.NEW_TREATMENT",
-    val insulinProfileId: String = "NOVORAPID",
-    val enableUamInference: Boolean = true,
-    val enableUamBoost: Boolean = true,
-    val enableUamExportToAaps: Boolean = true,
-    val uamExportMode: String = "CONFIRMED_ONLY",
-    val dryRunExport: Boolean = false,
-    val uamLearnedMultiplier: Double = 1.0,
-    val uamMinSnackG: Int = 15,
-    val uamMaxSnackG: Int = 60,
-    val uamSnackStepG: Int = 5,
-    val uamBackdateMinutesDefault: Int = 25,
-    val uamExportMinIntervalMin: Int = 10,
-    val uamExportMaxBackdateMin: Int = 180,
-    val baseTargetMmol: Double = 5.5,
-    val postHypoThresholdMmol: Double = 3.0,
-    val postHypoDeltaThresholdMmol5m: Double = 0.20,
-    val postHypoTargetMmol: Double = 4.4,
-    val postHypoDurationMinutes: Int = 60,
-    val postHypoLookbackMinutes: Int = 90,
-    val adaptiveControllerEnabled: Boolean = true,
-    val adaptiveControllerPriority: Int = 120,
-    val adaptiveControllerRetargetMinutes: Int = 5,
-    val adaptiveControllerSafetyProfile: String = "BALANCED",
-    val adaptiveControllerStaleMaxMinutes: Int = 15,
-    val adaptiveControllerMaxActions6h: Int = 4,
-    val adaptiveControllerMaxStepMmol: Double = 0.25,
-    val latestDataAgeMinutes: Long? = null,
-    val nightscoutSyncAgeMinutes: Long? = null,
-    val cloudPushBacklogMinutes: Long? = null,
-    val latestGlucoseMmol: Double? = null,
-    val glucoseDelta: Double? = null,
-    val latestIobUnits: Double? = null,
-    val latestCobGrams: Double? = null,
-    val forecast5m: Double? = null,
-    val forecast5mCiLow: Double? = null,
-    val forecast5mCiHigh: Double? = null,
-    val forecast30m: Double? = null,
-    val forecast30mCiLow: Double? = null,
-    val forecast30mCiHigh: Double? = null,
-    val forecast60m: Double? = null,
-    val forecast60mCiLow: Double? = null,
-    val forecast60mCiHigh: Double? = null,
-    val calculatedUamActive: Boolean? = null,
-    val calculatedUamConfidence: Double? = null,
-    val calculatedUamCarbsGrams: Double? = null,
-    val calculatedUamDelta5Mmol: Double? = null,
-    val calculatedUamRise15Mmol: Double? = null,
-    val calculatedUamRise30Mmol: Double? = null,
-    val inferredUamActive: Boolean? = null,
-    val inferredUamConfidence: Double? = null,
-    val inferredUamCarbsGrams: Double? = null,
-    val inferredUamIngestionTs: Long? = null,
-    val inferredUamBoostMode: Boolean? = null,
-    val inferredUamManualCobGrams: Double? = null,
-    val inferredUamLastGAbsGrams: Double? = null,
-    val sensorQualityScore: Double? = null,
-    val sensorQualityBlocked: Boolean? = null,
-    val sensorQualityReason: String? = null,
-    val sensorQualitySuspectFalseLow: Boolean? = null,
-    val smbContextSummary: String = "No explicit SMB telemetry flags detected.",
-    val lastRuleState: String? = null,
-    val lastRuleId: String? = null,
-    val controllerState: String? = null,
-    val controllerReason: String? = null,
-    val controllerConfidence: Double? = null,
-    val controllerNextTarget: Double? = null,
-    val controllerDurationMinutes: Int? = null,
-    val controllerForecast30: Double? = null,
-    val controllerForecast60: Double? = null,
-    val controllerWeightedError: Double? = null,
-    val profileIsf: Double? = null,
-    val profileCr: Double? = null,
-    val profileConfidence: Double? = null,
-    val profileSamples: Int? = null,
-    val profileIsfSamples: Int? = null,
-    val profileCrSamples: Int? = null,
-    val profileTelemetryIsfSamples: Int? = null,
-    val profileTelemetryCrSamples: Int? = null,
-    val profileUamObservedCount: Int? = null,
-    val profileUamFilteredIsfSamples: Int? = null,
-    val profileUamEpisodes: Int? = null,
-    val profileUamCarbsGrams: Double? = null,
-    val profileUamRecentCarbsGrams: Double? = null,
-    val profileCalculatedIsf: Double? = null,
-    val profileCalculatedCr: Double? = null,
-    val profileCalculatedConfidence: Double? = null,
-    val profileCalculatedSamples: Int? = null,
-    val profileCalculatedIsfSamples: Int? = null,
-    val profileCalculatedCrSamples: Int? = null,
-    val profileLookbackDays: Int? = null,
-    val isfCrHistoryPoints: List<IsfCrHistoryPointUi> = emptyList(),
-    val isfCrHistoryLastUpdatedTs: Long? = null,
-    val profileSegmentLines: List<String> = emptyList(),
-    val yesterdayProfileLines: List<String> = emptyList(),
-    val isfCrDeepLines: List<String> = emptyList(),
-    val activityLines: List<String> = emptyList(),
-    val rulePostHypoEnabled: Boolean = true,
-    val rulePatternEnabled: Boolean = true,
-    val ruleSegmentEnabled: Boolean = true,
-    val rulePostHypoPriority: Int = 100,
-    val rulePatternPriority: Int = 50,
-    val ruleSegmentPriority: Int = 40,
-    val rulePostHypoCooldownMinutes: Int = 30,
-    val rulePatternCooldownMinutes: Int = 60,
-    val ruleSegmentCooldownMinutes: Int = 60,
-    val patternMinSamplesPerWindow: Int = 40,
-    val patternMinActiveDaysPerWindow: Int = 7,
-    val patternLowRateTrigger: Double = 0.12,
-    val patternHighRateTrigger: Double = 0.18,
-    val analyticsLookbackDays: Int = 365,
-    val maxActionsIn6Hours: Int = 3,
-    val staleDataMaxMinutes: Int = 10,
-    val weekdayHotHours: List<PatternWindow> = emptyList(),
-    val weekendHotHours: List<PatternWindow> = emptyList(),
-    val qualityMetrics: List<QualityMetricUi> = emptyList(),
-    val baselineDeltaLines: List<String> = emptyList(),
-    val telemetryCoverageLines: List<String> = emptyList(),
-    val telemetryLines: List<String> = emptyList(),
-    val actionLines: List<String> = emptyList(),
-    val autoConnectLines: List<String> = emptyList(),
-    val transportStatusLines: List<String> = emptyList(),
-    val replacementHistoryLines: List<String> = emptyList(),
-    val syncStatusLines: List<String> = emptyList(),
-    val jobStatusLines: List<String> = emptyList(),
-    val insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8",
-    val analysisHistoryLines: List<String> = emptyList(),
-    val analysisTrendLines: List<String> = emptyList(),
-    val ruleCooldownLines: List<String> = emptyList(),
-    val dryRun: DryRunUi? = null,
-    val cloudReplay: CloudReplayUiModel? = null,
-    val adaptiveAuditLines: List<String> = emptyList(),
-    val auditLines: List<String> = emptyList(),
-    val message: String? = null
-)
+class MainUiState {
+    var nightscoutUrl: String = ""
+    var cloudUrl: String = ""
+    var exportUri: String? = null
+    var killSwitch: Boolean = false
+    var localNightscoutEnabled: Boolean = false
+    var localNightscoutPort: Int = 17580
+    var resolvedNightscoutUrl: String = ""
+    var localBroadcastIngestEnabled: Boolean = true
+    var strictBroadcastSenderValidation: Boolean = false
+    var localCommandFallbackEnabled: Boolean = false
+    var localCommandPackage: String = "info.nightscout.androidaps"
+    var localCommandAction: String = "info.nightscout.client.NEW_TREATMENT"
+    var insulinProfileId: String = "NOVORAPID"
+    var enableUamInference: Boolean = true
+    var enableUamBoost: Boolean = true
+    var enableUamExportToAaps: Boolean = true
+    var uamExportMode: String = "CONFIRMED_ONLY"
+    var dryRunExport: Boolean = false
+    var uamLearnedMultiplier: Double = 1.0
+    var uamMinSnackG: Int = 15
+    var uamMaxSnackG: Int = 60
+    var uamSnackStepG: Int = 5
+    var uamBackdateMinutesDefault: Int = 25
+    var uamExportMinIntervalMin: Int = 10
+    var uamExportMaxBackdateMin: Int = 180
+    var isfCrShadowMode: Boolean = true
+    var isfCrConfidenceThreshold: Double = 0.55
+    var isfCrUseActivity: Boolean = true
+    var isfCrUseManualTags: Boolean = true
+    var isfCrMinIsfEvidencePerHour: Int = 2
+    var isfCrMinCrEvidencePerHour: Int = 2
+    var isfCrCrMaxGapMinutes: Int = 30
+    var isfCrCrMaxSensorBlockedRatePct: Double = 25.0
+    var isfCrCrMaxUamAmbiguityRatePct: Double = 60.0
+    var isfCrSnapshotRetentionDays: Int = 365
+    var isfCrEvidenceRetentionDays: Int = 730
+    var isfCrAutoActivationEnabled: Boolean = false
+    var isfCrAutoActivationLookbackHours: Int = 24
+    var isfCrAutoActivationMinSamples: Int = 72
+    var isfCrAutoActivationMinMeanConfidence: Double = 0.65
+    var isfCrAutoActivationMaxMeanAbsIsfDeltaPct: Double = 25.0
+    var isfCrAutoActivationMaxMeanAbsCrDeltaPct: Double = 25.0
+    var isfCrAutoActivationMinSensorQualityScore: Double = 0.46
+    var isfCrAutoActivationMinSensorFactor: Double = 0.90
+    var isfCrAutoActivationMaxWearConfidencePenalty: Double = 0.12
+    var isfCrAutoActivationMaxSensorAgeHighRatePct: Double = 70.0
+    var isfCrAutoActivationMaxSuspectFalseLowRatePct: Double = 35.0
+    var isfCrAutoActivationMinDayTypeRatio: Double = 0.30
+    var isfCrAutoActivationMaxDayTypeSparseRatePct: Double = 75.0
+    var isfCrAutoActivationRequireDailyQualityGate: Boolean = true
+    var isfCrAutoActivationDailyRiskBlockLevel: Int = 3
+    var isfCrAutoActivationMinDailyMatchedSamples: Int = 120
+    var isfCrAutoActivationMaxDailyMae30Mmol: Double = 0.90
+    var isfCrAutoActivationMaxDailyMae60Mmol: Double = 1.40
+    var isfCrAutoActivationMaxHypoRatePct: Double = 6.0
+    var isfCrAutoActivationMinDailyCiCoverage30Pct: Double = 55.0
+    var isfCrAutoActivationMinDailyCiCoverage60Pct: Double = 55.0
+    var isfCrAutoActivationMaxDailyCiWidth30Mmol: Double = 1.80
+    var isfCrAutoActivationMaxDailyCiWidth60Mmol: Double = 2.60
+    var isfCrAutoActivationRollingMinRequiredWindows: Int = 2
+    var isfCrAutoActivationRollingMaeRelaxFactor: Double = 1.15
+    var isfCrAutoActivationRollingCiCoverageRelaxFactor: Double = 0.90
+    var isfCrAutoActivationRollingCiWidthRelaxFactor: Double = 1.25
+    var baseTargetMmol: Double = 5.5
+    var postHypoThresholdMmol: Double = 4.0
+    var postHypoDeltaThresholdMmol5m: Double = 0.20
+    var postHypoTargetMmol: Double = 4.4
+    var postHypoDurationMinutes: Int = 60
+    var postHypoLookbackMinutes: Int = 90
+    var adaptiveControllerEnabled: Boolean = true
+    var adaptiveControllerPriority: Int = 120
+    var adaptiveControllerRetargetMinutes: Int = 5
+    var adaptiveControllerSafetyProfile: String = "BALANCED"
+    var adaptiveControllerStaleMaxMinutes: Int = 15
+    var adaptiveControllerMaxActions6h: Int = 4
+    var adaptiveControllerMaxStepMmol: Double = 0.25
+    var latestDataAgeMinutes: Long? = null
+    var nightscoutSyncAgeMinutes: Long? = null
+    var cloudPushBacklogMinutes: Long? = null
+    var latestGlucoseMmol: Double? = null
+    var glucoseDelta: Double? = null
+    var latestIobUnits: Double? = null
+    var latestIobRealUnits: Double? = null
+    var latestCobGrams: Double? = null
+    var insulinRealOnsetMinutes: Double? = null
+    var insulinRealProfileCurveCompact: String? = null
+    var insulinRealProfileUpdatedTs: Long? = null
+    var insulinRealProfileConfidence: Double? = null
+    var insulinRealProfileSamples: Int? = null
+    var insulinRealProfileOnsetMinutes: Double? = null
+    var insulinRealProfilePeakMinutes: Double? = null
+    var insulinRealProfileScale: Double? = null
+    var insulinRealProfileStatus: String? = null
+    var latestActivityRatio: Double? = null
+    var latestStepsCount: Double? = null
+    var forecast5m: Double? = null
+    var forecast5mCiLow: Double? = null
+    var forecast5mCiHigh: Double? = null
+    var forecast30m: Double? = null
+    var forecast30mCiLow: Double? = null
+    var forecast30mCiHigh: Double? = null
+    var forecast60m: Double? = null
+    var forecast60mCiLow: Double? = null
+    var forecast60mCiHigh: Double? = null
+    var calculatedUamActive: Boolean? = null
+    var calculatedUamConfidence: Double? = null
+    var calculatedUamCarbsGrams: Double? = null
+    var calculatedUci0Mmol5m: Double? = null
+    var calculatedUamDelta5Mmol: Double? = null
+    var calculatedUamRise15Mmol: Double? = null
+    var calculatedUamRise30Mmol: Double? = null
+    var inferredUamActive: Boolean? = null
+    var inferredUamConfidence: Double? = null
+    var inferredUamCarbsGrams: Double? = null
+    var inferredUamIngestionTs: Long? = null
+    var inferredUamBoostMode: Boolean? = null
+    var inferredUamManualCobGrams: Double? = null
+    var inferredUamLastGAbsGrams: Double? = null
+    var uamEventRows: List<UamEventRowUi> = emptyList()
+    var sensorQualityScore: Double? = null
+    var sensorQualityBlocked: Boolean? = null
+    var sensorQualityReason: String? = null
+    var sensorQualitySuspectFalseLow: Boolean? = null
+    var smbContextSummary: String = "No explicit SMB telemetry flags detected."
+    var lastRuleState: String? = null
+    var lastRuleId: String? = null
+    var controllerState: String? = null
+    var controllerReason: String? = null
+    var controllerConfidence: Double? = null
+    var controllerNextTarget: Double? = null
+    var controllerDurationMinutes: Int? = null
+    var controllerForecast30: Double? = null
+    var controllerForecast60: Double? = null
+    var controllerWeightedError: Double? = null
+    var profileIsf: Double? = null
+    var profileCr: Double? = null
+    var profileConfidence: Double? = null
+    var profileSamples: Int? = null
+    var profileIsfSamples: Int? = null
+    var profileCrSamples: Int? = null
+    var profileTelemetryIsfSamples: Int? = null
+    var profileTelemetryCrSamples: Int? = null
+    var profileUamObservedCount: Int? = null
+    var profileUamFilteredIsfSamples: Int? = null
+    var profileUamEpisodes: Int? = null
+    var profileUamCarbsGrams: Double? = null
+    var profileUamRecentCarbsGrams: Double? = null
+    var profileCalculatedIsf: Double? = null
+    var profileCalculatedCr: Double? = null
+    var profileCalculatedConfidence: Double? = null
+    var profileCalculatedSamples: Int? = null
+    var profileCalculatedIsfSamples: Int? = null
+    var profileCalculatedCrSamples: Int? = null
+    var profileLookbackDays: Int? = null
+    var isfCrRealtimeMode: String? = null
+    var isfCrRealtimeConfidence: Double? = null
+    var isfCrRealtimeQualityScore: Double? = null
+    var isfCrRealtimeIsfEff: Double? = null
+    var isfCrRealtimeCrEff: Double? = null
+    var isfCrRealtimeIsfBase: Double? = null
+    var isfCrRealtimeCrBase: Double? = null
+    var isfCrRealtimeCiIsfLow: Double? = null
+    var isfCrRealtimeCiIsfHigh: Double? = null
+    var isfCrRealtimeCiCrLow: Double? = null
+    var isfCrRealtimeCiCrHigh: Double? = null
+    var isfCrRealtimeFactors: List<String> = emptyList()
+    var isfCrRuntimeDiagTs: Long? = null
+    var isfCrRuntimeDiagMode: String? = null
+    var isfCrRuntimeDiagConfidence: Double? = null
+    var isfCrRuntimeDiagConfidenceThreshold: Double? = null
+    var isfCrRuntimeDiagQualityScore: Double? = null
+    var isfCrRuntimeDiagUsedEvidence: Int? = null
+    var isfCrRuntimeDiagDroppedEvidence: Int? = null
+    var isfCrRuntimeDiagDroppedReasons: String? = null
+    var isfCrRuntimeDiagCurrentDayType: String? = null
+    var isfCrRuntimeDiagIsfBaseSource: String? = null
+    var isfCrRuntimeDiagCrBaseSource: String? = null
+    var isfCrRuntimeDiagIsfDayTypeBaseAvailable: Boolean? = null
+    var isfCrRuntimeDiagCrDayTypeBaseAvailable: Boolean? = null
+    var isfCrRuntimeDiagHourWindowIsfEvidence: Int? = null
+    var isfCrRuntimeDiagHourWindowCrEvidence: Int? = null
+    var isfCrRuntimeDiagHourWindowIsfSameDayType: Int? = null
+    var isfCrRuntimeDiagHourWindowCrSameDayType: Int? = null
+    var isfCrRuntimeDiagMinIsfEvidencePerHour: Int? = null
+    var isfCrRuntimeDiagMinCrEvidencePerHour: Int? = null
+    var isfCrRuntimeDiagCrMaxGapMinutes: Double? = null
+    var isfCrRuntimeDiagCrMaxSensorBlockedRatePct: Double? = null
+    var isfCrRuntimeDiagCrMaxUamAmbiguityRatePct: Double? = null
+    var isfCrRuntimeDiagCoverageHoursIsf: Int? = null
+    var isfCrRuntimeDiagCoverageHoursCr: Int? = null
+    var isfCrRuntimeDiagReasons: String? = null
+    var isfCrRuntimeDiagLowConfidenceTs: Long? = null
+    var isfCrRuntimeDiagLowConfidenceReasons: String? = null
+    var isfCrRuntimeDiagFallbackTs: Long? = null
+    var isfCrRuntimeDiagFallbackReasons: String? = null
+    var isfCrActivationGateLines: List<String> = emptyList()
+    var isfCrDroppedReasons24hLines: List<String> = emptyList()
+    var isfCrDroppedReasons7dLines: List<String> = emptyList()
+    var isfCrWearImpact24hLines: List<String> = emptyList()
+    var isfCrWearImpact7dLines: List<String> = emptyList()
+    var isfCrActiveTags: List<String> = emptyList()
+    var isfCrHistoryPoints: List<IsfCrHistoryPointUi> = emptyList()
+    var isfCrHistoryLastUpdatedTs: Long? = null
+    var profileSegmentLines: List<String> = emptyList()
+    var yesterdayProfileLines: List<String> = emptyList()
+    var isfCrDeepLines: List<String> = emptyList()
+    var activityLines: List<String> = emptyList()
+    var rulePostHypoEnabled: Boolean = true
+    var rulePatternEnabled: Boolean = true
+    var ruleSegmentEnabled: Boolean = true
+    var rulePostHypoPriority: Int = 100
+    var rulePatternPriority: Int = 50
+    var ruleSegmentPriority: Int = 40
+    var rulePostHypoCooldownMinutes: Int = 30
+    var rulePatternCooldownMinutes: Int = 60
+    var ruleSegmentCooldownMinutes: Int = 60
+    var patternMinSamplesPerWindow: Int = 40
+    var patternMinActiveDaysPerWindow: Int = 7
+    var patternLowRateTrigger: Double = 0.12
+    var patternHighRateTrigger: Double = 0.18
+    var analyticsLookbackDays: Int = 365
+    var maxActionsIn6Hours: Int = 3
+    var staleDataMaxMinutes: Int = 10
+    var safetyMinTargetMmol: Double = 4.0
+    var safetyMaxTargetMmol: Double = 10.0
+    var carbAbsorptionMaxAgeMinutes: Int = 180
+    var carbComputationMaxGrams: Double = 60.0
+    var weekdayHotHours: List<PatternWindow> = emptyList()
+    var weekendHotHours: List<PatternWindow> = emptyList()
+    var qualityMetrics: List<QualityMetricUi> = emptyList()
+    var dailyReportGeneratedAtTs: Long? = null
+    var dailyReportMatchedSamples: Int? = null
+    var dailyReportForecastRows: Int? = null
+    var dailyReportPeriodStartUtc: String? = null
+    var dailyReportPeriodEndUtc: String? = null
+    var dailyReportMarkdownPath: String? = null
+    var dailyReportMetrics: List<DailyReportMetricUi> = emptyList()
+    var dailyReportRecommendations: List<String> = emptyList()
+    var dailyReportIsfCrQualityLines: List<String> = emptyList()
+    var dailyReportReplayHotspots: List<DailyReportReplayHotspotUi> = emptyList()
+    var dailyReportReplayFactors: List<DailyReportReplayFactorUi> = emptyList()
+    var dailyReportReplayCoverage: List<DailyReportReplayCoverageUi> = emptyList()
+    var dailyReportReplayRegimes: List<DailyReportReplayRegimeUi> = emptyList()
+    var dailyReportReplayPairs: List<DailyReportReplayPairUi> = emptyList()
+    var dailyReportReplayTopMisses: List<DailyReportReplayTopMissUi> = emptyList()
+    var dailyReportReplayErrorClusters: List<DailyReportReplayErrorClusterUi> = emptyList()
+    var dailyReportReplayDayTypeGaps: List<DailyReportReplayDayTypeGapUi> = emptyList()
+    var dailyReportReplayTopFactorsOverall: String? = null
+    var rollingReportLines: List<String> = emptyList()
+    var baselineDeltaLines: List<String> = emptyList()
+    var telemetryCoverageLines: List<String> = emptyList()
+    var telemetryLines: List<String> = emptyList()
+    var actionLines: List<String> = emptyList()
+    var autoConnectLines: List<String> = emptyList()
+    var transportStatusLines: List<String> = emptyList()
+    var replacementHistoryLines: List<String> = emptyList()
+    var syncStatusLines: List<String> = emptyList()
+    var jobStatusLines: List<String> = emptyList()
+    var insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8"
+    var analysisHistoryLines: List<String> = emptyList()
+    var analysisTrendLines: List<String> = emptyList()
+    var ruleCooldownLines: List<String> = emptyList()
+    var dryRun: DryRunUi? = null
+    var cloudReplay: CloudReplayUiModel? = null
+    var adaptiveAuditLines: List<String> = emptyList()
+    var glucoseHistoryPoints: List<GlucoseHistoryRowUi> = emptyList()
+    var lastAction: LastActionRowUi? = null
+    var trend60ComponentMmol: Double? = null
+    var therapy60ComponentMmol: Double? = null
+    var uam60ComponentMmol: Double? = null
+    var residualRoc0Mmol5m: Double? = null
+    var sigmaEMmol5m: Double? = null
+    var kfSigmaGMmol: Double? = null
+    var auditRecords: List<AuditRecordRowUi> = emptyList()
+    var auditLines: List<String> = emptyList()
+    var message: String? = null
+}
 
 data class QualityMetricUi(
     val horizonMinutes: Int,
@@ -2924,6 +5508,120 @@ data class QualityMetricUi(
     val mae: Double,
     val rmse: Double,
     val mardPct: Double
+)
+
+data class DailyReportMetricUi(
+    val horizonMinutes: Int,
+    val sampleCount: Int?,
+    val mae: Double?,
+    val rmse: Double?,
+    val mardPct: Double?,
+    val bias: Double?,
+    val ciCoveragePct: Double? = null,
+    val ciMeanWidth: Double? = null
+)
+
+data class DailyReportReplayHotspotUi(
+    val horizonMinutes: Int,
+    val hour: Int,
+    val sampleCount: Int,
+    val mae: Double,
+    val mardPct: Double,
+    val bias: Double
+)
+
+data class DailyReportReplayFactorUi(
+    val horizonMinutes: Int,
+    val factor: String,
+    val sampleCount: Int,
+    val corrAbsError: Double,
+    val maeHigh: Double,
+    val maeLow: Double,
+    val upliftPct: Double,
+    val contributionScore: Double
+)
+
+data class DailyReportReplayCoverageUi(
+    val horizonMinutes: Int,
+    val factor: String,
+    val sampleCount: Int,
+    val coveragePct: Double
+)
+
+data class DailyReportReplayRegimeUi(
+    val horizonMinutes: Int,
+    val factor: String,
+    val bucket: String,
+    val sampleCount: Int,
+    val meanFactorValue: Double,
+    val mae: Double,
+    val mardPct: Double,
+    val bias: Double
+)
+
+data class DailyReportReplayPairUi(
+    val horizonMinutes: Int,
+    val factorA: String,
+    val factorB: String,
+    val bucketA: String,
+    val bucketB: String,
+    val sampleCount: Int,
+    val meanFactorA: Double,
+    val meanFactorB: Double,
+    val mae: Double,
+    val mardPct: Double,
+    val bias: Double
+)
+
+data class DailyReportReplayTopMissUi(
+    val horizonMinutes: Int,
+    val ts: Long,
+    val absError: Double,
+    val pred: Double,
+    val actual: Double,
+    val cob: Double,
+    val iob: Double,
+    val uam: Double,
+    val ciWidth: Double,
+    val diaHours: Double,
+    val activity: Double,
+    val sensorQuality: Double
+)
+
+data class DailyReportReplayErrorClusterUi(
+    val horizonMinutes: Int,
+    val hour: Int,
+    val dayType: String,
+    val sampleCount: Int,
+    val mae: Double,
+    val mardPct: Double,
+    val bias: Double,
+    val meanCob: Double,
+    val meanIob: Double,
+    val meanUam: Double,
+    val meanCiWidth: Double,
+    val dominantFactor: String? = null,
+    val dominantScore: Double? = null
+)
+
+data class DailyReportReplayDayTypeGapUi(
+    val horizonMinutes: Int,
+    val hour: Int,
+    val worseDayType: String,
+    val weekdaySampleCount: Int,
+    val weekendSampleCount: Int,
+    val weekdayMae: Double,
+    val weekendMae: Double,
+    val weekdayMardPct: Double,
+    val weekendMardPct: Double,
+    val maeGapMmol: Double,
+    val mardGapPct: Double,
+    val worseMeanCob: Double,
+    val worseMeanIob: Double,
+    val worseMeanUam: Double,
+    val worseMeanCiWidth: Double,
+    val dominantFactor: String? = null,
+    val dominantScore: Double? = null
 )
 
 data class DryRunUi(
@@ -2941,4 +5639,48 @@ data class InsightsFilterUi(
 
 data class AutoConnectUi(
     val lines: List<String>
+)
+
+data class GlucoseHistoryRowUi(
+    val timestamp: Long,
+    val valueMmol: Double
+)
+
+data class LastActionRowUi(
+    val type: String,
+    val status: String,
+    val timestamp: Long,
+    val tempTargetMmol: Double? = null,
+    val durationMinutes: Int? = null,
+    val carbsGrams: Double? = null,
+    val idempotencyKey: String? = null,
+    val payloadSummary: String? = null
+)
+
+data class UamEventRowUi(
+    val id: String,
+    val state: String,
+    val mode: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val ingestionTs: Long,
+    val carbsDisplayG: Double,
+    val confidence: Double,
+    val exportSeq: Int,
+    val exportedGrams: Double,
+    val tag: String,
+    val manualCarbsNearby: Boolean,
+    val manualCobActive: Boolean,
+    val exportBlockedReason: String?
+)
+
+data class AuditRecordRowUi(
+    val id: String,
+    val ts: Long,
+    val source: String,
+    val level: String,
+    val summary: String,
+    val context: String,
+    val idempotencyKey: String? = null,
+    val payloadSummary: String? = null
 )

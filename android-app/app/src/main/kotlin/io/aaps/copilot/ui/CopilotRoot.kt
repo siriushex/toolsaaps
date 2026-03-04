@@ -30,11 +30,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -730,6 +732,12 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var uamExportMaxBackdate by remember(state.uamExportMaxBackdateMin) { mutableStateOf(state.uamExportMaxBackdateMin.toString()) }
     var maxActions by remember(state.maxActionsIn6Hours) { mutableStateOf(state.maxActionsIn6Hours.toString()) }
     var staleMax by remember(state.staleDataMaxMinutes) { mutableStateOf(state.staleDataMaxMinutes.toString()) }
+    var carbAbsorptionMaxAge by remember(state.carbAbsorptionMaxAgeMinutes) {
+        mutableStateOf(state.carbAbsorptionMaxAgeMinutes.toString())
+    }
+    var carbComputationMaxGrams by remember(state.carbComputationMaxGrams) {
+        mutableStateOf(String.format(Locale.US, "%.0f", state.carbComputationMaxGrams))
+    }
     var patternMinSamples by remember(state.patternMinSamplesPerWindow) { mutableStateOf(state.patternMinSamplesPerWindow.toString()) }
     var patternMinDays by remember(state.patternMinActiveDaysPerWindow) { mutableStateOf(state.patternMinActiveDaysPerWindow.toString()) }
     var patternLowTrigger by remember(state.patternLowRateTrigger) { mutableStateOf(String.format("%.2f", state.patternLowRateTrigger)) }
@@ -741,10 +749,20 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var adaptiveStaleMax by remember(state.adaptiveControllerStaleMaxMinutes) { mutableStateOf(state.adaptiveControllerStaleMaxMinutes.toString()) }
     var adaptiveMaxActions by remember(state.adaptiveControllerMaxActions6h) { mutableStateOf(state.adaptiveControllerMaxActions6h.toString()) }
     var adaptiveMaxStep by remember(state.adaptiveControllerMaxStepMmol) { mutableStateOf(String.format("%.2f", state.adaptiveControllerMaxStepMmol)) }
+    var localKillSwitch by rememberSaveable { mutableStateOf(state.killSwitch) }
+    LaunchedEffect(state.killSwitch) {
+        localKillSwitch = state.killSwitch
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Kill switch")
-            Switch(checked = state.killSwitch, onCheckedChange = vm::setKillSwitch)
+            Switch(
+                checked = localKillSwitch,
+                onCheckedChange = { next ->
+                    localKillSwitch = next
+                    vm.setKillSwitch(next)
+                }
+            )
         }
         Text("Kill switch affects auto actions only (manual temp target/carbs remain available).")
         Text(
@@ -888,10 +906,26 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             label = { Text("Stale data max (minutes)") },
             modifier = Modifier.fillMaxWidth()
         )
+        OutlinedTextField(
+            value = carbAbsorptionMaxAge,
+            onValueChange = { carbAbsorptionMaxAge = it },
+            label = { Text("Carb absorption max age (minutes)") },
+            supportingText = { Text("Carbs older than this are ignored in Copilot calculations.") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = carbComputationMaxGrams,
+            onValueChange = { carbComputationMaxGrams = it },
+            label = { Text("Carb computation max grams") },
+            supportingText = { Text("Safety cap for COB/forecast carb impact.") },
+            modifier = Modifier.fillMaxWidth()
+        )
         Button(onClick = {
             vm.setSafetyLimits(
                 maxActionsIn6h = maxActions.toIntOrNull() ?: state.maxActionsIn6Hours,
-                staleDataMaxMinutes = staleMax.toIntOrNull() ?: state.staleDataMaxMinutes
+                staleDataMaxMinutes = staleMax.toIntOrNull() ?: state.staleDataMaxMinutes,
+                carbAbsorptionMaxAgeMinutes = carbAbsorptionMaxAge.toIntOrNull() ?: state.carbAbsorptionMaxAgeMinutes,
+                carbComputationMaxGrams = carbComputationMaxGrams.toDoubleOrNull() ?: state.carbComputationMaxGrams
             )
         }) {
             Text("Apply safety limits")

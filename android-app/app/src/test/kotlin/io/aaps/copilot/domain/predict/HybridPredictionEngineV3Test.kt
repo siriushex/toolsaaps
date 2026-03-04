@@ -245,6 +245,44 @@ class HybridPredictionEngineV3Test {
     }
 
     @Test
+    fun t10b_externalSensitivityBlendWeight_scalesPredictionImpact() = runBlocking {
+        val now = 10_500_000_000L
+        val glucose = listOf(8.6, 8.6, 8.6, 8.6, 8.6, 8.6, 8.6, 8.6).series(now)
+        val events = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts - 10 * 60_000L,
+                type = "correction_bolus",
+                payload = mapOf("units" to "2.0")
+            )
+        )
+        val baseEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        val softBlendEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        val fullBlendEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+
+        softBlendEngine.setSensitivityOverride(
+            isfMmolPerUnit = 5.0,
+            crGramPerUnit = 10.0,
+            confidence = 0.9,
+            blendWeight = 0.45
+        )
+        fullBlendEngine.setSensitivityOverride(
+            isfMmolPerUnit = 5.0,
+            crGramPerUnit = 10.0,
+            confidence = 0.9,
+            blendWeight = 1.0
+        )
+
+        val basePred = baseEngine.predict(glucose, events).associateBy { it.horizonMinutes }
+        val softPred = softBlendEngine.predict(glucose, events).associateBy { it.horizonMinutes }
+        val fullPred = fullBlendEngine.predict(glucose, events).associateBy { it.horizonMinutes }
+
+        assertThat(softPred.getValue(30).valueMmol).isLessThan(basePred.getValue(30).valueMmol)
+        assertThat(fullPred.getValue(30).valueMmol).isLessThan(softPred.getValue(30).valueMmol)
+        assertThat(softPred.getValue(60).valueMmol).isLessThan(basePred.getValue(60).valueMmol)
+        assertThat(fullPred.getValue(60).valueMmol).isLessThan(softPred.getValue(60).valueMmol)
+    }
+
+    @Test
     fun t13_fastCarbsPushEarlierThanProteinSlow() = runBlocking {
         val fastEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
         val slowEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
@@ -298,6 +336,36 @@ class HybridPredictionEngineV3Test {
         assertThat(lyuPred.getValue(5).valueMmol).isLessThan(novPred.getValue(5).valueMmol)
         assertThat(lyuPred.getValue(30).valueMmol).isLessThan(novPred.getValue(30).valueMmol)
         assertThat(lyuPred.getValue(60).valueMmol).isLessThan(novPred.getValue(60).valueMmol)
+    }
+
+    @Test
+    fun t12b_diaOverrideChangesInsulinImpact() = runBlocking {
+        val now = 11_500_000_000L
+        val glucose = listOf(9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0).series(now)
+        val events = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts - 10 * 60_000L,
+                type = "correction_bolus",
+                payload = mapOf("units" to "2.0")
+            )
+        )
+
+        val shortDia = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        shortDia.setInsulinProfile(InsulinActionProfileId.NOVORAPID)
+        shortDia.setInsulinDurationHours(3.0)
+        val shortPred = shortDia.predict(glucose, events).associateBy { it.horizonMinutes }
+
+        val defaultDia = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        defaultDia.setInsulinProfile(InsulinActionProfileId.NOVORAPID)
+        val defaultPred = defaultDia.predict(glucose, events).associateBy { it.horizonMinutes }
+
+        val longDia = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        longDia.setInsulinProfile(InsulinActionProfileId.NOVORAPID)
+        longDia.setInsulinDurationHours(7.0)
+        val longPred = longDia.predict(glucose, events).associateBy { it.horizonMinutes }
+
+        assertThat(shortPred.getValue(60).valueMmol).isLessThan(defaultPred.getValue(60).valueMmol)
+        assertThat(defaultPred.getValue(60).valueMmol).isLessThan(longPred.getValue(60).valueMmol)
     }
 
     private fun List<Double>.series(startTs: Long): List<GlucosePoint> {

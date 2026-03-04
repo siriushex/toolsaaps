@@ -23,6 +23,7 @@ class NightscoutActionRepository(
     private val db: CopilotDatabase,
     private val settingsStore: AppSettingsStore,
     private val apiFactory: ApiFactory,
+    private val carbsSendThrottle: CarbsSendThrottle,
     private val gson: Gson,
     private val auditLogger: AuditLogger
 ) {
@@ -139,6 +140,7 @@ class NightscoutActionRepository(
     suspend fun submitCarbs(command: ActionCommand): Boolean {
         registerPendingCommand(command)?.let { return it }
 
+        val settings = settingsStore.settings.first()
         val carbs = command.params["carbsGrams"]?.toDoubleOrNull()
             ?: command.params["carbs"]?.toDoubleOrNull()
             ?: command.params["grams"]?.toDoubleOrNull()
@@ -146,10 +148,35 @@ class NightscoutActionRepository(
             markFailed(command, "invalid_carbs_payload")
             return false
         }
+        val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        if (carbs > safetyCapGrams) {
+            markFailed(command, "carbs_above_safety_cap")
+            auditLogger.warn(
+                "carbs_send_blocked_safety_cap",
+                mapOf(
+                    "requestedCarbsGrams" to carbs,
+                    "safetyCapGrams" to safetyCapGrams,
+                    "idempotencyKey" to command.idempotencyKey
+                )
+            )
+            return false
+        }
         val reason = command.params["reason"].orEmpty().ifBlank { "copilot_carbs" }
-        val settings = settingsStore.settings.first()
         val nowMs = System.currentTimeMillis()
         val nowIso = Instant.now().toString()
+        val throttle = carbsSendThrottle.evaluate(nowMs)
+        if (!throttle.allowed) {
+            markFailed(command, "carbs_rate_limit_30m")
+            auditLogger.warn(
+                "carbs_send_blocked_rate_limit",
+                mapOf(
+                    "waitMinutes" to throttle.waitMinutes,
+                    "lastSentTs" to (throttle.lastSentTs ?: 0L),
+                    "idempotencyKey" to command.idempotencyKey
+                )
+            )
+            return false
+        }
 
         val request = NightscoutTreatmentRequest(
             createdAt = nowIso,

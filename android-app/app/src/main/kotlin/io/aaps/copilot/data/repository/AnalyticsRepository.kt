@@ -20,7 +20,8 @@ class AnalyticsRepository(
     private val db: CopilotDatabase,
     private val patternAnalyzer: PatternAnalyzer,
     private val gson: Gson,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    val isfCrRepository: IsfCrRepository
 ) {
 
     suspend fun recalculate(settings: AppSettings) = withContext(Dispatchers.Default) {
@@ -198,6 +199,11 @@ class AnalyticsRepository(
                 )
             )
         }
+
+        val activeModel = db.isfCrModelStateDao().active()
+        if (activeModel == null || nowTs - activeModel.updatedAt >= ISFCR_BASE_REFIT_INTERVAL_MS) {
+            isfCrRepository.fitBaseModel(settings = settings, nowTs = nowTs)
+        }
     }
 
     fun observePatterns() = db.patternDao().observeAll()
@@ -205,4 +211,12 @@ class AnalyticsRepository(
     fun observeProfileEstimate() = db.profileEstimateDao().observeActive()
 
     fun observeProfileSegments() = db.profileSegmentEstimateDao().observeAll()
+
+    fun observeIsfCrSnapshot() = isfCrRepository.observeLatestSnapshot()
+
+    fun observeIsfCrHistory(limit: Int = 20_000) = isfCrRepository.observeSnapshotHistory(limit = limit)
+
+    private companion object {
+        private const val ISFCR_BASE_REFIT_INTERVAL_MS = 6L * 60 * 60 * 1000
+    }
 }

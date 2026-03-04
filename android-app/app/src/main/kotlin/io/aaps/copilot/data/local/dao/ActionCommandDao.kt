@@ -53,6 +53,12 @@ interface ActionCommandDao {
         excludedPrefix: String
     ): Long?
 
+    @Query("SELECT MAX(timestamp) FROM action_commands WHERE status = :status AND type = :type")
+    suspend fun latestTimestampByTypeAndStatus(
+        type: String,
+        status: String
+    ): Long?
+
     @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<ActionCommandEntity>
 

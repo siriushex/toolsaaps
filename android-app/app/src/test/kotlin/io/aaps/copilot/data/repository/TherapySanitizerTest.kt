@@ -7,7 +7,7 @@ import org.junit.Test
 class TherapySanitizerTest {
 
     @Test
-    fun removesBroadcastStatusArtifacts() {
+    fun removesOnlyLocalBroadcastArtifacts() {
         val events = listOf(
             TherapyEventEntity(
                 id = "br-aaps_broadcast-correction_bolus-1",
@@ -16,16 +16,25 @@ class TherapySanitizerTest {
                 payloadJson = """{"units":"7.2"}"""
             ),
             TherapyEventEntity(
-                id = "local-ns-1",
+                id = "br-local_broadcast-correction_bolus-2",
                 timestamp = 2L,
+                type = "correction_bolus",
+                payloadJson = """{"units":"2.1"}"""
+            ),
+            TherapyEventEntity(
+                id = "local-ns-1",
+                timestamp = 3L,
                 type = "carbs",
                 payloadJson = """{"carbs":"13"}"""
             )
         )
 
         val filtered = TherapySanitizer.filterEntities(events)
-        assertThat(filtered).hasSize(1)
-        assertThat(filtered.first().id).isEqualTo("local-ns-1")
+        assertThat(filtered).hasSize(2)
+        assertThat(filtered.map { it.id }).containsExactly(
+            "br-aaps_broadcast-correction_bolus-1",
+            "local-ns-1"
+        )
     }
 
     @Test

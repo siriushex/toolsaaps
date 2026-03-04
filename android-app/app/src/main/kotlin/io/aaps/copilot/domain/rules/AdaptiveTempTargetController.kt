@@ -7,6 +7,8 @@ class AdaptiveTempTargetController {
     data class Input(
         val nowTs: Long,
         val baseTarget: Double,
+        val targetMinMmol: Double = TMIN,
+        val targetMaxMmol: Double = TMAX,
         val currentGlucoseMmol: Double? = null,
         val pred5: Double,
         val pred30: Double,
@@ -33,14 +35,16 @@ class AdaptiveTempTargetController {
     )
 
     fun evaluate(input: Input): Output {
-        val userBaseTarget = input.baseTarget.coerceIn(TMIN, TMAX)
+        val tMin = input.targetMinMmol.coerceIn(HARD_TARGET_MIN_MMOL, HARD_TARGET_MAX_MMOL)
+        val tMax = input.targetMaxMmol.coerceIn(tMin, HARD_TARGET_MAX_MMOL)
+        val userBaseTarget = input.baseTarget.coerceIn(tMin, tMax)
         val currentGlucose = input.currentGlucoseMmol?.coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
         val cob = (input.cobGrams ?: 0.0).coerceIn(0.0, 400.0)
         val iob = (input.iobUnits ?: 0.0).coerceIn(0.0, 30.0)
         val cobForcedBase = if (cob >= COB_SIGNIFICANT_GRAMS) COB_FORCED_BASE_TARGET_MMOL else userBaseTarget
         val iobRelief = ((iob - IOB_RELIEF_THRESHOLD_U).coerceAtLeast(0.0) * IOB_RELIEF_GAIN)
             .coerceIn(0.0, IOB_RELIEF_MAX_MMOL)
-        val tb = (cobForcedBase + iobRelief).coerceIn(TMIN, TMAX)
+        val tb = (cobForcedBase + iobRelief).coerceIn(tMin, tMax)
 
         val w5CI = ((input.ciHigh5 - input.ciLow5) / 2.0).coerceAtLeast(1e-6)
         val w30CI = ((input.ciHigh30 - input.ciLow30) / 2.0).coerceAtLeast(1e-6)
@@ -80,7 +84,7 @@ class AdaptiveTempTargetController {
         val shouldForceHigh = !safetySuppressed &&
             (immediateForceHighRisk || weightedForceHighRisk)
         if (shouldForceHigh) {
-            val target = applyRateLimit(TMAX, input.previousTempTarget).coerceIn(TMIN, TMAX)
+            val target = applyRateLimit(tMax, input.previousTempTarget).coerceIn(tMin, tMax)
             return Output(
                 newTempTarget = target,
                 durationMin = DURATION_MIN,
@@ -89,6 +93,8 @@ class AdaptiveTempTargetController {
                 debugFields = mapOf(
                     "Tb" to tb,
                     "TbUser" to userBaseTarget,
+                    "targetMin" to tMin,
+                    "targetMax" to tMax,
                     "currentGlucose" to (currentGlucose ?: Double.NaN),
                     "cobGrams" to cob,
                     "iobUnits" to iob,
@@ -111,8 +117,8 @@ class AdaptiveTempTargetController {
         val weightedHypoGuardRisk = pCtrlLow < tb - M_HYPO &&
             input.pred5 < tb + HYPO_GUARD_NEAR_TERM_MARGIN_MMOL
         if (!safetySuppressed && (immediateHypoGuardRisk || weightedHypoGuardRisk)) {
-            val raw = (tb + K_HYPO * (tb - pCtrlLow)).coerceIn(tb, TMAX)
-            val target = applyRateLimit(raw, input.previousTempTarget).coerceIn(TMIN, TMAX)
+            val raw = (tb + K_HYPO * (tb - pCtrlLow)).coerceIn(tb, tMax)
+            val target = applyRateLimit(raw, input.previousTempTarget).coerceIn(tMin, tMax)
             return Output(
                 newTempTarget = target,
                 durationMin = DURATION_MIN,
@@ -121,6 +127,8 @@ class AdaptiveTempTargetController {
                 debugFields = mapOf(
                     "Tb" to tb,
                     "TbUser" to userBaseTarget,
+                    "targetMin" to tMin,
+                    "targetMax" to tMax,
                     "currentGlucose" to (currentGlucose ?: Double.NaN),
                     "cobGrams" to cob,
                     "iobUnits" to iob,
@@ -160,10 +168,10 @@ class AdaptiveTempTargetController {
             deltaT = deltaT.coerceIn(-DELTA_T_MAX, DELTA_T_MAX)
 
             val unclampedTarget = tb + deltaT
-            val clampedTarget = unclampedTarget.coerceIn(TMIN, TMAX)
+            val clampedTarget = unclampedTarget.coerceIn(tMin, tMax)
 
-            if (clampedTarget == TMIN && deltaT < 0.0) iNew = input.previousI
-            if (clampedTarget == TMAX && deltaT > 0.0) iNew = input.previousI
+            if (clampedTarget == tMin && deltaT < 0.0) iNew = input.previousI
+            if (clampedTarget == tMax && deltaT > 0.0) iNew = input.previousI
 
             tRaw = clampedTarget
         }
@@ -171,17 +179,21 @@ class AdaptiveTempTargetController {
         val guard = computeHighGlucoseGuard(
             userBaseTarget = userBaseTarget,
             pCtrlRaw = pCtrlRaw,
-            pMin = pMin
+            pMin = pMin,
+            tMin = tMin,
+            tMax = tMax
         )
         val guardedRawTarget = if (guard.active) {
             tRaw.coerceAtMost(guard.maxTarget)
         } else {
             tRaw
         }
-        val target = applyRateLimit(guardedRawTarget, input.previousTempTarget).coerceIn(TMIN, TMAX)
+        val target = applyRateLimit(guardedRawTarget, input.previousTempTarget).coerceIn(tMin, tMax)
         val debugFields = mutableMapOf(
             "Tb" to tb,
             "TbUser" to userBaseTarget,
+            "targetMin" to tMin,
+            "targetMax" to tMax,
             "currentGlucose" to (currentGlucose ?: Double.NaN),
             "cobGrams" to cob,
             "iobUnits" to iob,
@@ -220,22 +232,24 @@ class AdaptiveTempTargetController {
     private fun computeHighGlucoseGuard(
         userBaseTarget: Double,
         pCtrlRaw: Double,
-        pMin: Double
+        pMin: Double,
+        tMin: Double,
+        tMax: Double
     ): HighGlucoseGuard {
         val noHypoRisk = pMin >= userBaseTarget - HIGH_GUARD_HYPO_RISK_MARGIN_MMOL
-        if (!noHypoRisk) return HighGlucoseGuard(active = false, maxTarget = TMAX)
+        if (!noHypoRisk) return HighGlucoseGuard(active = false, maxTarget = tMax)
 
         return when {
             pCtrlRaw >= userBaseTarget + VERY_HIGH_GLUCOSE_MARGIN_MMOL -> {
-                val forced = (userBaseTarget - VERY_HIGH_GLUCOSE_PULLDOWN_MMOL).coerceIn(TMIN, TMAX)
+                val forced = (userBaseTarget - VERY_HIGH_GLUCOSE_PULLDOWN_MMOL).coerceIn(tMin, tMax)
                 HighGlucoseGuard(active = true, maxTarget = forced)
             }
 
             pCtrlRaw >= userBaseTarget + HIGH_GLUCOSE_MARGIN_MMOL -> {
-                HighGlucoseGuard(active = true, maxTarget = userBaseTarget.coerceIn(TMIN, TMAX))
+                HighGlucoseGuard(active = true, maxTarget = userBaseTarget.coerceIn(tMin, tMax))
             }
 
-            else -> HighGlucoseGuard(active = false, maxTarget = TMAX)
+            else -> HighGlucoseGuard(active = false, maxTarget = tMax)
         }
     }
 
@@ -252,6 +266,8 @@ class AdaptiveTempTargetController {
     companion object {
         const val TMIN = 4.0
         const val TMAX = 9.0
+        private const val HARD_TARGET_MIN_MMOL = 4.0
+        private const val HARD_TARGET_MAX_MMOL = 10.0
         const val CYCLE_MIN = 5.0
         const val DURATION_MIN = 30
 

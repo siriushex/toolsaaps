@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AAPS Predictive Copilot — Exact UI Capture</title>
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --bg: #0f1218;
+      --panel: #171b22;
+      --text: #f2f5fa;
+      --muted: #aab4c8;
+      --line: #2a3140;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { margin: 0 0 20px; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      gap: 20px;
+      max-width: 2760px;
+    }
+    .screen {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+    }
+    .screen h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      letter-spacing: 0.2px;
+    }
+    .shot {
+      width: 2712px;
+      max-width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 12px;
+      border: 1px solid #000;
+      image-rendering: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>AAPS Predictive Copilot — Exact UI Transfer</h1>
+  <p>Снимки экрана приложения (реальные кадры устройства), подготовлены для максимально точного переноса текущего дизайна в Figma.</p>
+
+  <section class="grid">
+    <article class="screen">
+      <h2>Overview</h2>
+      <img class="shot" src="./screens/overview_exact.png" alt="Overview screen" />
+    </article>
+
+    <article class="screen">
+      <h2>Forecast</h2>
+      <img class="shot" src="./screens/forecast_exact.png" alt="Forecast screen" />
+    </article>
+
+    <article class="screen">
+      <h2>UAM</h2>
+      <img class="shot" src="./screens/uam_exact.png" alt="UAM screen" />
+    </article>
+
+    <article class="screen">
+      <h2>Safety</h2>
+      <img class="shot" src="./screens/safety_exact.png" alt="Safety screen" />
+    </article>
+
+    <article class="screen">
+      <h2>More Menu</h2>
+      <img class="shot" src="./screens/more_exact.png" alt="More menu" />
+    </article>
+
+    <article class="screen">
+      <h2>Audit Log</h2>
+      <img class="shot" src="./screens/audit_exact.png" alt="Audit log screen" />
+    </article>
+
+    <article class="screen">
+      <h2>Analytics</h2>
+      <img class="shot" src="./screens/analytics_exact.png" alt="Analytics screen" />
+    </article>
+
+    <article class="screen">
+      <h2>Settings</h2>
+      <img class="shot" src="./screens/settings_exact.png" alt="Settings screen" />
+    </article>
+  </section>
+</body>
+</html>

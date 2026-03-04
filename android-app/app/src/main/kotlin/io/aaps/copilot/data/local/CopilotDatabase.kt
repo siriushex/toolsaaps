@@ -7,7 +7,11 @@ import io.aaps.copilot.data.local.dao.AuditLogDao
 import io.aaps.copilot.data.local.dao.BaselineDao
 import io.aaps.copilot.data.local.dao.ForecastDao
 import io.aaps.copilot.data.local.dao.GlucoseDao
+import io.aaps.copilot.data.local.dao.IsfCrEvidenceDao
+import io.aaps.copilot.data.local.dao.IsfCrModelStateDao
+import io.aaps.copilot.data.local.dao.IsfCrSnapshotDao
 import io.aaps.copilot.data.local.dao.PatternDao
+import io.aaps.copilot.data.local.dao.PhysioContextTagDao
 import io.aaps.copilot.data.local.dao.ProfileEstimateDao
 import io.aaps.copilot.data.local.dao.ProfileSegmentEstimateDao
 import io.aaps.copilot.data.local.dao.RuleExecutionDao
@@ -20,7 +24,11 @@ import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.BaselinePointEntity
 import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
+import io.aaps.copilot.data.local.entity.IsfCrEvidenceEntity
+import io.aaps.copilot.data.local.entity.IsfCrModelStateEntity
+import io.aaps.copilot.data.local.entity.IsfCrSnapshotEntity
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
+import io.aaps.copilot.data.local.entity.PhysioContextTagEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
 import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
@@ -42,10 +50,14 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         PatternWindowEntity::class,
         ProfileEstimateEntity::class,
         ProfileSegmentEstimateEntity::class,
+        IsfCrSnapshotEntity::class,
+        IsfCrEvidenceEntity::class,
+        IsfCrModelStateEntity::class,
+        PhysioContextTagEntity::class,
         TelemetrySampleEntity::class,
         UamInferenceEventEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
@@ -60,6 +72,10 @@ abstract class CopilotDatabase : RoomDatabase() {
     abstract fun patternDao(): PatternDao
     abstract fun profileEstimateDao(): ProfileEstimateDao
     abstract fun profileSegmentEstimateDao(): ProfileSegmentEstimateDao
+    abstract fun isfCrSnapshotDao(): IsfCrSnapshotDao
+    abstract fun isfCrEvidenceDao(): IsfCrEvidenceDao
+    abstract fun isfCrModelStateDao(): IsfCrModelStateDao
+    abstract fun physioContextTagDao(): PhysioContextTagDao
     abstract fun telemetryDao(): TelemetryDao
     abstract fun uamInferenceEventDao(): UamInferenceEventDao
 }

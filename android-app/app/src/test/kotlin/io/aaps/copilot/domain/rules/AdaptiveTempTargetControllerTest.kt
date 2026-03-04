@@ -54,6 +54,31 @@ class AdaptiveTempTargetControllerTest {
     }
 
     @Test
+    fun testSafetyForcesHigh_usesConfiguredUpperBound10() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                pred5 = 5.0,
+                pred30 = 5.0,
+                pred60 = 5.0,
+                ciLow5 = 3.8,
+                ciHigh5 = 6.0,
+                ciLow30 = 4.7,
+                ciHigh30 = 5.3,
+                ciLow60 = 4.8,
+                ciHigh60 = 5.4,
+                prevTarget = null,
+                prevI = 5.0,
+                targetMax = 10.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("safety_force_high")
+        assertThat(out.newTempTarget).isEqualTo(10.0)
+        assertThat(out.debugFields["targetMax"]).isEqualTo(10.0)
+    }
+
+    @Test
     fun testSafetyRaisesTarget() {
         val out = controller.evaluate(
             input(
@@ -421,10 +446,14 @@ class AdaptiveTempTargetControllerTest {
         currentGlucose: Double? = null,
         uamActive: Boolean = false,
         cobGrams: Double? = null,
-        iobUnits: Double? = null
+        iobUnits: Double? = null,
+        targetMin: Double = AdaptiveTempTargetController.TMIN,
+        targetMax: Double = AdaptiveTempTargetController.TMAX
     ) = AdaptiveTempTargetController.Input(
         nowTs = System.currentTimeMillis(),
         baseTarget = base,
+        targetMinMmol = targetMin,
+        targetMaxMmol = targetMax,
         currentGlucoseMmol = currentGlucose,
         pred5 = pred5,
         pred30 = pred30,

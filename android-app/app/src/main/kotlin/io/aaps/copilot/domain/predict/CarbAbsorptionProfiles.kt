@@ -5,6 +5,7 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import kotlin.math.abs
 
 enum class CarbAbsorptionType {
+    ULTRA_FAST,
     FAST,
     MEDIUM,
     PROTEIN_SLOW
@@ -27,21 +28,31 @@ object CarbAbsorptionProfiles {
 
     private val fastCurve = listOf(
         CurvePoint(0.0, 0.0),
-        CurvePoint(10.0, 0.20),
-        CurvePoint(30.0, 0.50),
-        CurvePoint(60.0, 0.80),
-        CurvePoint(90.0, 0.95),
-        CurvePoint(150.0, 1.0)
+        CurvePoint(10.0, 0.14),
+        CurvePoint(30.0, 0.42),
+        CurvePoint(60.0, 0.72),
+        CurvePoint(90.0, 0.90),
+        CurvePoint(120.0, 1.0)
+    )
+
+    private val ultraFastCurve = listOf(
+        CurvePoint(0.0, 0.0),
+        CurvePoint(5.0, 0.18),
+        CurvePoint(10.0, 0.38),
+        CurvePoint(20.0, 0.67),
+        CurvePoint(30.0, 0.82),
+        CurvePoint(45.0, 0.95),
+        CurvePoint(60.0, 1.0)
     )
 
     private val mediumCurve = listOf(
         CurvePoint(0.0, 0.0),
-        CurvePoint(15.0, 0.08),
-        CurvePoint(45.0, 0.28),
-        CurvePoint(90.0, 0.55),
-        CurvePoint(150.0, 0.80),
-        CurvePoint(240.0, 0.95),
-        CurvePoint(360.0, 1.0)
+        CurvePoint(15.0, 0.07),
+        CurvePoint(45.0, 0.25),
+        CurvePoint(90.0, 0.58),
+        CurvePoint(120.0, 0.78),
+        CurvePoint(150.0, 0.92),
+        CurvePoint(180.0, 1.0)
     )
 
     private val proteinSlowCurve = listOf(
@@ -79,6 +90,7 @@ object CarbAbsorptionProfiles {
 
     fun cumulative(type: CarbAbsorptionType, ageMinutes: Double): Double {
         val curve = when (type) {
+            CarbAbsorptionType.ULTRA_FAST -> ultraFastCurve
             CarbAbsorptionType.FAST -> fastCurve
             CarbAbsorptionType.MEDIUM -> mediumCurve
             CarbAbsorptionType.PROTEIN_SLOW -> proteinSlowCurve
@@ -93,6 +105,9 @@ object CarbAbsorptionProfiles {
     ): CarbClassification {
         parseExplicitType(event)?.let {
             return CarbClassification(it, "explicit_payload")
+        }
+        classifyHypoTreatment(event = event, glucose = glucose)?.let {
+            return it
         }
         classifyByCatalogText(event)?.let {
             return it
@@ -114,6 +129,8 @@ object CarbAbsorptionProfiles {
         ).filterNotNull().map { normalize(it) }.firstOrNull() ?: return null
 
         return when {
+            explicit.contains("ultra") || explicit.contains("hypo") || explicit.contains("rescue") ->
+                CarbAbsorptionType.ULTRA_FAST
             explicit.contains("fast") || explicit.contains("quick") || explicit.contains("rapid") ->
                 CarbAbsorptionType.FAST
             explicit.contains("medium") || explicit.contains("normal") || explicit.contains("mixed") ->
@@ -128,6 +145,9 @@ object CarbAbsorptionProfiles {
         val text = buildTextBlob(event)
         if (text.isBlank()) return null
         val normalizedText = normalize(text)
+        if (ULTRA_FAST_TEXT_TOKENS.any { token -> normalizedText.contains(token) }) {
+            return CarbClassification(CarbAbsorptionType.ULTRA_FAST, "catalog_text_ultra_fast")
+        }
         val matched = allCatalog.firstOrNull { entry ->
             val tokens = listOf(entry.name) + entry.aliases + FOOD_ALIASES[entry.name].orEmpty()
             tokens.any { token ->
@@ -136,6 +156,30 @@ object CarbAbsorptionProfiles {
             }
         } ?: return null
         return CarbClassification(matched.type, "catalog_text:${matched.name}")
+    }
+
+    private fun classifyHypoTreatment(
+        event: TherapyEvent,
+        glucose: List<GlucosePoint>
+    ): CarbClassification? {
+        val carbs = extractCarbsGrams(event) ?: return null
+        if (carbs <= 0.0) return null
+
+        val notes = normalize(buildTextBlob(event))
+        val hasHypoTag = HYPO_HINT_TOKENS.any { notes.contains(it) }
+        val around = glucose.filter {
+            it.ts in (event.ts - HYPO_LOOKBACK_MINUTES * MINUTE_MS)..(event.ts + HYPO_LOOKAHEAD_MINUTES * MINUTE_MS)
+        }
+        val minAround = around.minOfOrNull { it.valueMmol }
+        val lowAround = minAround != null && minAround <= HYPO_GLUCOSE_THRESHOLD_MMOL
+        return if (lowAround || hasHypoTag) {
+            CarbClassification(
+                type = CarbAbsorptionType.ULTRA_FAST,
+                reason = if (lowAround) "hypo_low_bg_ultra_fast" else "hypo_tag_ultra_fast"
+            )
+        } else {
+            null
+        }
     }
 
     private fun classifyByPattern(
@@ -176,6 +220,8 @@ object CarbAbsorptionProfiles {
         }
 
         return when {
+            rise15 >= 1.00 || delta5Max >= 0.45 ->
+                CarbClassification(CarbAbsorptionType.ULTRA_FAST, "pattern_ultra_fast")
             rise15 >= 0.70 || delta5Max >= 0.30 ->
                 CarbClassification(CarbAbsorptionType.FAST, "pattern_fast")
             rise60 >= 1.00 && rise30 >= 0.45 ->
@@ -233,8 +279,25 @@ object CarbAbsorptionProfiles {
             .trim()
     }
 
+    private fun extractCarbsGrams(event: TherapyEvent): Double? {
+        val normalizedPayload = event.payload.entries.associate { normalize(it.key) to it.value }
+        val keys = listOf("grams", "carbs", "enteredcarbs", "mealcarbs")
+        return keys.firstNotNullOfOrNull { key ->
+            normalizedPayload[key]?.replace(",", ".")?.toDoubleOrNull()
+        }?.takeIf { it in 0.5..400.0 }
+    }
+
     private const val MINUTE_MS = 60_000L
     private const val HOUR_MS = 60 * MINUTE_MS
+    private const val HYPO_GLUCOSE_THRESHOLD_MMOL = 4.2
+    private const val HYPO_LOOKBACK_MINUTES = 20L
+    private const val HYPO_LOOKAHEAD_MINUTES = 15L
+    private val HYPO_HINT_TOKENS = listOf(
+        "hypo", "hypoglycemia", "гипо", "sugar low", "low bg", "rescue"
+    )
+    private val ULTRA_FAST_TEXT_TOKENS = listOf(
+        "glucose tablet", "glucose gel", "dextrose", "carb gel", "sugar packet", "sugar water", "hypo rescue"
+    ).map { normalize(it) }
 
     // 100 fast carbohydrate positions.
     private val FAST_FOODS = listOf(

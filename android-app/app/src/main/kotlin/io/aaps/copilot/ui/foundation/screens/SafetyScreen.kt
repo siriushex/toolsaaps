@@ -1,43 +1,58 @@
 package io.aaps.copilot.ui.foundation.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.aaps.copilot.R
-import io.aaps.copilot.ui.foundation.components.DebugRow
-import io.aaps.copilot.ui.foundation.components.MetricCard
-import io.aaps.copilot.ui.foundation.components.MetricStatus
-import io.aaps.copilot.ui.foundation.components.SafetyBanner
-import io.aaps.copilot.ui.foundation.components.SafetyBannerType
-import io.aaps.copilot.ui.foundation.components.SectionHeader
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 
+private val SafetySectionShape = RoundedCornerShape(18.dp)
+private val SafetyInfoShape = RoundedCornerShape(12.dp)
+private val SafetyPillShape = RoundedCornerShape(999.dp)
+
 @Composable
 fun SafetyScreen(
     state: SafetyUiState,
+    onKillSwitchToggle: (Boolean) -> Unit,
+    onSafetyBoundsChange: (Double, Double) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    val debugRows = listOf(
-        stringResource(id = R.string.label_kill_switch) to if (state.killSwitchEnabled) {
-            stringResource(id = R.string.status_on_short)
-        } else {
-            stringResource(id = R.string.status_off_short)
-        },
-        stringResource(id = R.string.label_sensor_quality) to state.sensorQualitySummary
-    )
-
     ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
@@ -49,74 +64,403 @@ fun SafetyScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             item {
-                SafetyBanner(
-                    type = if (state.killSwitchEnabled) SafetyBannerType.WARNING else SafetyBannerType.SUCCESS,
-                    text = if (state.killSwitchEnabled) {
-                        stringResource(id = R.string.safety_kill_switch_on)
-                    } else {
-                        stringResource(id = R.string.safety_kill_switch_off)
-                    }
+                KillSwitchCard(
+                    enabled = state.killSwitchEnabled,
+                    onToggle = onKillSwitchToggle
                 )
             }
             item {
-                SectionHeader(text = stringResource(id = R.string.section_safety_limits))
-            }
-            item {
-                MetricCard(
-                    title = stringResource(id = R.string.metric_base_target),
-                    value = state.baseTarget,
-                    unit = stringResource(id = R.string.unit_mmol_l),
-                    status = MetricStatus.NORMAL,
-                    modifier = Modifier.fillMaxWidth()
+                LimitsCard(
+                    state = state,
+                    onSafetyBoundsChange = onSafetyBoundsChange
                 )
             }
-            item {
-                MetricCard(
-                    title = stringResource(id = R.string.metric_stale_limit),
-                    value = state.staleMinutesLimit.toDouble(),
-                    unit = stringResource(id = R.string.unit_minutes),
-                    status = MetricStatus.NORMAL,
-                    modifier = Modifier.fillMaxWidth(),
-                    decimals = 0
-                )
-            }
-            item {
-                MetricCard(
-                    title = stringResource(id = R.string.metric_max_actions),
-                    value = state.maxActionsIn6h.toDouble(),
-                    unit = stringResource(id = R.string.unit_actions_6h),
-                    status = MetricStatus.NORMAL,
-                    modifier = Modifier.fillMaxWidth(),
-                    decimals = 0
-                )
-            }
-            item {
-                SectionHeader(text = stringResource(id = R.string.section_safety_debug))
-            }
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
-                ) {
-                    LazyColumn(
-                        modifier = Modifier.padding(Spacing.md),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
-                    ) {
-                        items(debugRows) { (k, v) ->
-                            DebugRow(key = k, value = v)
-                        }
-                    }
+            if (state.cooldownStatusLines.isNotEmpty()) {
+                item {
+                    CooldownCard(lines = state.cooldownStatusLines)
                 }
             }
             item {
-                Text(
-                    text = stringResource(id = R.string.safety_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = Spacing.md)
+                ChecklistSection(items = state.checklist)
+            }
+            item {
+                SafetySummaryCard(
+                    killSwitchEnabled = state.killSwitchEnabled,
+                    checksPassed = state.checklist.count { it.ok },
+                    checksTotal = state.checklist.size
                 )
             }
         }
     }
+}
+
+@Composable
+private fun KillSwitchCard(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    var localEnabled by rememberSaveable { mutableStateOf(enabled) }
+    LaunchedEffect(enabled) {
+        localEnabled = enabled
+    }
+    SafetySectionCard {
+        Surface(
+            shape = SafetyInfoShape,
+            color = if (localEnabled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (localEnabled) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = if (localEnabled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Text(
+                    text = if (localEnabled) {
+                        stringResource(id = R.string.safety_kill_switch_on)
+                    } else {
+                        stringResource(id = R.string.safety_kill_switch_off)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (localEnabled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(id = R.string.label_kill_switch),
+                style = MaterialTheme.typography.titleMedium
+            )
+            Switch(
+                checked = localEnabled,
+                onCheckedChange = { next ->
+                    localEnabled = next
+                    onToggle(next)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LimitsCard(
+    state: SafetyUiState,
+    onSafetyBoundsChange: (Double, Double) -> Unit
+) {
+    SafetySectionCard {
+        SafetySectionLabel(text = stringResource(id = R.string.section_safety_limits))
+        val unitMinutes = stringResource(id = R.string.unit_minutes)
+        val unitMmol = stringResource(id = R.string.unit_mmol_l)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            StatCell(
+                modifier = Modifier.weight(1f),
+                title = stringResource(id = R.string.metric_stale_limit),
+                value = "${state.staleMinutesLimit} $unitMinutes"
+            )
+            StatCell(
+                modifier = Modifier.weight(1f),
+                title = stringResource(id = R.string.metric_max_actions),
+                value = "${state.maxActionsIn6h} / 6h"
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            StatCell(
+                modifier = Modifier.weight(1f),
+                title = stringResource(id = R.string.metric_base_target),
+                value = "${"%.1f".format(state.baseTarget)} $unitMmol"
+            )
+            StatCell(
+                modifier = Modifier.weight(1f),
+                title = stringResource(id = R.string.safety_hard_bounds),
+                value = state.hardBounds
+            )
+        }
+
+        Surface(
+            shape = SafetyInfoShape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                Text(
+                    text = "${stringResource(id = R.string.safety_adaptive_bounds)}: ${state.adaptiveBounds}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = "${stringResource(id = R.string.safety_local_ns_status)}: ${
+                        if (state.localNightscoutEnabled) {
+                            "${stringResource(id = R.string.status_on_short)}:${state.localNightscoutPort}"
+                        } else {
+                            stringResource(id = R.string.status_off_short)
+                        }
+                    }",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = "${stringResource(id = R.string.safety_local_ns_tls)}: ${state.localNightscoutTlsStatusText}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        BoundAdjustRow(
+            title = stringResource(id = R.string.settings_adaptive_low_alert),
+            subtitle = stringResource(id = R.string.settings_adaptive_low_alert_subtitle),
+            value = state.hardMinTargetMmol,
+            min = 4.0,
+            max = (state.hardMaxTargetMmol - 0.2).coerceAtLeast(4.0),
+            onChange = { next -> onSafetyBoundsChange(next, state.hardMaxTargetMmol) }
+        )
+        BoundAdjustRow(
+            title = stringResource(id = R.string.settings_adaptive_high_alert),
+            subtitle = stringResource(id = R.string.settings_adaptive_high_alert_subtitle),
+            value = state.hardMaxTargetMmol,
+            min = (state.hardMinTargetMmol + 0.2).coerceAtMost(10.0),
+            max = 10.0,
+            onChange = { next -> onSafetyBoundsChange(state.hardMinTargetMmol, next) }
+        )
+    }
+}
+
+@Composable
+private fun BoundAdjustRow(
+    title: String,
+    subtitle: String,
+    value: Double,
+    min: Double,
+    max: Double,
+    onChange: (Double) -> Unit
+) {
+    Surface(
+        shape = SafetyInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    enabled = value > min + 0.0001,
+                    onClick = { onChange((value - 0.1).coerceAtLeast(min)) }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = null
+                    )
+                }
+                Text(
+                    text = "${"%.1f".format(value)} ${stringResource(id = R.string.unit_mmol_l)}",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                IconButton(
+                    enabled = value < max - 0.0001,
+                    onClick = { onChange((value + 0.1).coerceAtMost(max)) }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatCell(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = SafetyInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun CooldownCard(lines: List<String>) {
+    SafetySectionCard {
+        SafetySectionLabel(text = stringResource(id = R.string.section_safety_cooldown))
+        lines.forEach { line ->
+            Surface(
+                shape = SafetyInfoShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
+    SafetySectionCard {
+        SafetySectionLabel(text = stringResource(id = R.string.section_safety_checklist))
+        items.forEach { item ->
+            Surface(
+                shape = SafetyInfoShape,
+                color = if (item.ok) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
+                border = BorderStroke(1.dp, if (item.ok) MaterialTheme.colorScheme.outlineVariant else MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (item.ok) Icons.Default.CheckCircle else Icons.Default.Error,
+                        contentDescription = null,
+                        tint = if (item.ok) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = item.title,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            text = item.details,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafetySummaryCard(
+    killSwitchEnabled: Boolean,
+    checksPassed: Int,
+    checksTotal: Int
+) {
+    SafetySectionCard {
+        Surface(
+            shape = SafetyInfoShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.safety_system_status),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = if (killSwitchEnabled) {
+                        stringResource(id = R.string.safety_mode_manual)
+                    } else {
+                        stringResource(id = R.string.safety_mode_automated)
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = stringResource(id = R.string.safety_checks_passed, checksPassed, checksTotal),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafetySectionCard(
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SafetySectionShape,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun SafetySectionLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @Preview(showBackground = true)
@@ -128,11 +472,24 @@ private fun SafetyScreenPreview() {
                 loadState = ScreenLoadState.READY,
                 isStale = false,
                 killSwitchEnabled = false,
-                baseTarget = 5.5,
                 staleMinutesLimit = 10,
+                hardBounds = "4.0..10.0",
+                hardMinTargetMmol = 4.0,
+                hardMaxTargetMmol = 10.0,
+                adaptiveBounds = "4.0..9.0",
+                baseTarget = 5.5,
                 maxActionsIn6h = 4,
-                sensorQualitySummary = "score=0.92, blocked=no"
-            )
+                cooldownStatusLines = listOf("Adaptive: ready", "PostHypo: 12m left"),
+                localNightscoutEnabled = true,
+                localNightscoutPort = 17582,
+                localNightscoutTlsOk = true,
+                localNightscoutTlsStatusText = "TLS OK",
+                checklist = listOf(
+                    SafetyChecklistItemUi("Data freshness", true, "age=1 min"),
+                    SafetyChecklistItemUi("Sensor quality", false, "suspect false low")
+                )
+            ),
+            onKillSwitchToggle = {}
         )
     }
 }

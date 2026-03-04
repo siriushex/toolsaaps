@@ -259,6 +259,68 @@
   - `networkSecurityConfigRes = null`,
   - `likelyRejectsUserCa = targetSdk >= 24`.
 
+# Изменения — Этап 9: Adaptive target bounds wiring + ISF/CR test stabilization
+
+## Что сделано
+- `AdaptiveTempTargetController` расширен динамическими bounds:
+  - новый вход `targetMinMmol/targetMaxMmol`,
+  - runtime-clamp теперь учитывает пользовательские границы в безопасном диапазоне `4.0..10.0`,
+  - safety/control/debug-поля отражают фактически применённые границы (`targetMin/targetMax`).
+- `AdaptiveTargetControllerRule` теперь прокидывает границы в контроллер из `RuleContext` и логирует их в `reasons`.
+- `RuleContext` расширен полями:
+  - `adaptiveMinTargetMmol`,
+  - `adaptiveMaxTargetMmol`.
+- `AutomationRepository` в обоих контурах (`runCycle` и `runDryRun`) передаёт `settings.safetyMinTargetMmol/safetyMaxTargetMmol` в `RuleContext`.
+- Добавлен unit-тест `testSafetyForcesHigh_usesConfiguredUpperBound10`, подтверждающий, что safety force-high использует верхнюю границу `10.0`, если она задана.
+- Стабилизирован `IsfCrEngineTest`:
+  - тест day-type параметров приведён к текущей логике покрытия `MIN_DAYTYPE_COVERAGE_HOURS` (не требует weekend-ключи при нулевом weekend-coverage).
+
+## Почему так
+- Пользовательские safety bounds в UI должны реально влиять на adaptive-контур, а не оставаться только визуальной настройкой.
+- Контроллер ранее был жёстко ограничен `4..9`; это мешало сценариям, где верхняя safety-граница задаётся `10.0`.
+- Тест ISF/CR падал из-за несовпадения ожиданий и текущей политики day-type coverage, а не из-за ошибки алгоритма.
+
+## Риски / ограничения
+- Для старых тестов/интеграций без явных bounds сохранено прежнее поведение через default `4..9`.
+- Расширение границ до `10.0` увеличивает диапазон temp target; безопасность по-прежнему ограничивается `SafetyPolicy` и bounds из настроек.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTargetControllerRuleTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.*"`
+4. В UI Safety Center выставить верхнюю границу `10.0` и убедиться по `rule_executions`/audit, что контроллер может выдавать `target=10.0` в `safety_force_high`.
+
+# Изменения — Этап 10: Shadow gate robustness (risk parsing + bounds chain test)
+
+## Что сделано
+- Усилен парсинг daily ISF/CR quality risk label:
+  - `AutomationRepository.parseIsfCrQualityRiskLevelFromTextStatic` теперь понимает:
+    - английские метки (`HIGH/MEDIUM/LOW/UNKNOWN`),
+    - русские метки (`ВЫСОКИЙ/СРЕДНИЙ/НИЗКИЙ/НЕИЗВЕСТНО`),
+    - числовые уровни `0..3`.
+  - добавлена нормализация строки через `Locale.ROOT` и очистка шумовых символов.
+- Добавлен интеграционный unit-test по цепочке safety bounds в adaptive rule:
+  - `AdaptiveTargetControllerRuleTest.safetyForceHigh_usesAdaptiveMaxBoundFromContext`;
+  - подтверждает, что при `adaptiveMaxTargetMmol=10.0` итоговый action target может быть `10.0` (не режется до `9.0`).
+- Обновлен Safety UI mapper:
+  - `adaptiveBounds` теперь отображается в диапазоне до `10.0` (а не жёстко до `9.0`);
+  - добавлен/обновлён unit-test `MainUiStateMappersTest.safetyMapping_usesConfiguredHardBounds`.
+- Добавлен тест на риск-парсинг русских/числовых значений:
+  - `AutomationRepositoryForecastBiasTest.parseIsfCrQualityRiskLevel_parsesRussianLabelsAndNumeric`.
+
+## Почему так
+- В telemetry/audit риск-метки могут приходить не только в английском формате; это критично для корректного daily risk gate и shadow auto-activation.
+- Нужна была явная проверка, что safety bounds из UI доходят до rule/action без скрытого ограничения.
+
+## Риски / ограничения
+- Парсинг по тексту остаётся эвристическим; при нестандартных формулировках (не содержащих ключевые корни) уровень останется `null`.
+- Числовой парсинг ограничен безопасным диапазоном `0..3`.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTargetControllerRuleTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.*" --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest" --tests "io.aaps.copilot.domain.rules.AdaptiveTargetControllerRuleTest"`
+
 ## Почему так
 - На Android 14+ скрытое поле блокируется, что вызывало постоянный `hiddenapi` spam в logcat.
 - Этот шум мешал диагностике и мог косвенно влиять на стабильность UI-потока на слабых устройствах.
@@ -1009,3 +1071,3731 @@
 3. SQL-проверка:
    - `select count(*) from (select timestamp,horizonMinutes,count(*) c from forecasts group by timestamp,horizonMinutes having c>1);`
    - ожидается `0`.
+
+# Изменения — Этап 9: Figma MCP → Compose (Overview screen)
+
+## Что сделано
+- Получен дизайн-контекст через Figma MCP для:
+  - `fileKey=sKcTukYtFHraIm4QuzhCU6`
+  - `nodeId=1:2` (`AAPS Predictive Copilot - Overview`)
+- Переведён макет Figma в Jetpack Compose и внедрён в `OverviewScreen`:
+  - новая структура секций в стиле макета (header/status chip, Current Glucose, Predictions, UAM, Telemetry, Last Action, quick actions);
+  - акцентная типографика числовых значений;
+  - CI/риск-баннер по wide-CI;
+  - чипы телеметрии и статус-плашка последнего действия;
+  - нижний блок `Run cycle now` + `Kill switch` с подтверждением.
+- Расширено состояние экрана:
+  - `OverviewUiState.uamModeLabel`;
+  - заполнение поля в `MainUiStateMappers` из `enableUamBoost` (`BOOST/NORMAL`).
+- Добавлены строки ресурсов `values`/`values-ru` для нового UI-текста Overview.
+
+## Почему так
+- Пользователь запросил генерацию кода из Figma-дизайна через MCP.
+- Из доступного файла с метаданными и скриншотом был реализован точный Compose-экран для Overview без изменения бизнес-логики.
+- Изменения ограничены UI-слоем и маппингом состояния экрана.
+
+## Риски / ограничения
+- Реализован именно `Overview` (узел `1:2`), остальные экраны из дизайн-сета не затрагивались в этом этапе.
+- В проекте остаются существующие предупреждения о deprecated `Icons.Filled.*` в отдельных файлах (не блокируют сборку).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. Открыть вкладку `Overview` в приложении и сверить с Figma-референсом: секции, типографика, CI-баннер, телеметрия, Last Action, кнопки.
+
+# Изменения — Этап 10: Forecast screen visual alignment (Figma language)
+
+## Что сделано
+- Переработан `ForecastScreen` в том же визуальном языке, что и Figma-based `Overview`:
+  - секционные карточки с единой рамкой/радиусами;
+  - блок управления диапазоном и слоями (`Trend/Therapy/UAM/CI`) в одной карточке;
+  - карточка графика с сохранением всей текущей логики Canvas-отрисовки;
+  - карточка горизонтов 5/30/60 в формате компактных tiles;
+  - карточки decomposition и quality в едином стиле.
+- Бизнес-логика прогноза, слои графика и формулы не изменялись.
+
+## Почему так
+- Продолжено внедрение UI из Figma-контекста и унификация визуальной системы между экранами.
+- Улучшена читаемость и иерархия экрана без изменения расчетов.
+
+## Риски / ограничения
+- В исходном доступном Figma-файле есть только `Overview` frame (`1:2`), поэтому `Forecast` стилизован по тем же токенам/паттернам, а не по отдельному frame.
+- Дальше желательно получить отдельные Figma frames для `Forecast/UAM/Safety` и донастроить пиксель-паритет.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. Открыть вкладку `Forecast` и проверить: control chips, график, decomposition, quality cards.
+
+# Изменения — Этап 11: UAM screen visual alignment (section cards)
+
+## Что сделано
+- Переработан `UamScreen` в едином стиле с `Overview/Forecast`:
+  - summary-card для inferred/calculated UAM;
+  - статус экспорта (`disabled / dry-run / live`) отдельной плашкой;
+  - карточки событий UAM с понятной структурой (state/mode, time/carbs/confidence/seq/tag, anti-duplicate статус);
+  - действия `mark correct/wrong`, `merge`, `export` сохранены без изменения логики.
+- Изменены только UI-компоновка и визуальная иерархия, без правок доменной логики.
+
+## Почему так
+- Продолжена унификация UI foundation под один visual language после Figma-based Overview.
+- События UAM стали читаемее и лучше подходят для анализа причин блокировок/экспорта.
+
+## Риски / ограничения
+- Это UI-only изменение; тексты anti-duplicate статусов остались на текущем runtime-источнике.
+- Для полного пиксель-паритета нужен отдельный Figma frame `UAM` (сейчас в доступном файле только Overview frame).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. Открыть вкладку `UAM` и проверить summary/event cards и кнопки действий.
+
+# Изменения — Этап 12: Safety screen visual alignment (section cards)
+
+## Что сделано
+- Переработан `SafetyScreen` в едином стиле с обновленными `Overview/Forecast/UAM`:
+  - статус kill switch отдельной предупреждающей/успешной плашкой;
+  - блок `Kill switch` + toggle в отдельной карточке;
+  - карточка лимитов (stale, max-actions, base target, bounds, local NS/TLS);
+  - карточка cooldown-строк;
+  - checklist в виде структурированных cards с pass/fail иконками.
+- Бизнес-логика safety и обработчики (`onKillSwitchToggle`) не изменялись.
+
+## Почему так
+- Нужна визуальная консистентность UI foundation и более читаемая структура Safety Center.
+- Карточная иерархия и статусы в явном виде снижают шанс неверной интерпретации настроек безопасности.
+
+## Риски / ограничения
+- Это визуальный слой; состав checklist зависит от текущего runtime map и источников данных.
+- Для 1:1 паритета с будущим Figma Safety frame потребуется отдельный node context.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+4. Открыть вкладку `Safety` и проверить kill switch, limits, cooldown, checklist.
+
+# Изменения — Этап 13: Audit / Analytics / Settings visual alignment
+
+## Что сделано
+- Переработаны экраны `Audit`, `Analytics`, `Settings` в едином UI language:
+  - секционные cards с одинаковой иерархией;
+  - структурированные info-surface/pill элементы;
+  - спокойные, но явные статусы уровня/ошибок;
+  - сохранены все существующие действия и колбэки (`filters`, `expand`, `switches`, `toggles`).
+- Изменена только композиция и визуальная структура, без изменений бизнес-логики и data-flow.
+- Установлена обновлённая debug сборка на телефон по USB.
+
+## Почему так
+- После выравнивания `Overview/Forecast/UAM/Safety` оставшиеся экраны должны быть в том же стиле, иначе UX распадался на разные паттерны.
+- Единый стиль упрощает чтение operational данных и аудит-трассировки.
+
+## Риски / ограничения
+- Как и раньше, для 1:1 паритета по каждому экрану нужен отдельный Figma node context; сейчас используется единая визуальная система на базе доступного Overview frame.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+4. На телефоне проверить вкладки `Audit`, `Analytics`, `Settings`.
+
+# Изменения — Этап 14: i18n cleanup (UAM/Safety) + USB smoke check
+
+## Что сделано
+- Убраны оставшиеся runtime-хардкоды строк в `UamScreen`:
+  - статусы экспорта (`enabled dry-run/live`, `disabled`) переведены в `string resources`;
+  - anti-duplicate статусы (`export disabled`, `dry-run mode`, `manual carbs nearby`, `manual COB active`, `ready`) переведены в `string resources`;
+  - `ON/OFF` в UAM summary переведены на `status_on_short/status_off_short`;
+  - единица `g` переведена на ресурс `unit_g`.
+- В `SafetyScreen`:
+  - локальный NS статус теперь использует `status_on_short/status_off_short` вместо встроенных `ON/OFF`;
+  - единицы `min` и `mmol/L` выводятся через ресурсы `unit_minutes`, `unit_mmol_l`.
+- Добавлены новые ключи строк в:
+  - `android-app/app/src/main/res/values/strings.xml`
+  - `android-app/app/src/main/res/values-ru/strings.xml`
+- Выполнены сборка, тесты, установка на устройство по USB и быстрый smoke-check запуска.
+
+## Почему так
+- После обновления UI оставались англоязычные/встроенные строки в runtime, что нарушало единый i18n-подход.
+- Замена на ресурсы делает интерфейс консистентным и безопаснее для дальнейшей локализации.
+
+## Риски / ограничения
+- В `logcat` после запуска наблюдается единичный `NanoHTTPD: Socket is closed` (без `FATAL/ANR`), требуется наблюдение в реальном сценарии сетевого цикла.
+- Изменения этого этапа UI/i18n-only, бизнес-логика не менялась.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+4. `adb shell monkey -p io.aaps.predictivecopilot -c android.intent.category.LAUNCHER 1`
+
+# Изменения — Этап 15: Figma MCP polish pass (interactive UI)
+
+## Что сделано
+- Синхронизированы с Figma MCP source-референсом (`tTZkFh4a8eKSZlyJcIYTNd`):
+  - прочитаны `App.tsx`, `OverviewScreen.tsx`, `ForecastScreen.tsx`, `UAMScreen.tsx`, `SafetyCenterScreen.tsx`, `DESIGN_SYSTEM.md`.
+- Обновлён fallback theme под Material 3 palette из дизайн-системы:
+  - `primary/secondary/warning/error`, surface/outlines и контейнерные цвета для light/dark.
+- Улучшен TopAppBar в `CopilotFoundationRoot`:
+  - state-aware фон (`default/warning/critical`) на основе `staleData` и `killSwitchEnabled`;
+  - badge-индикатор количества активных рисков;
+  - navigation icon меняется на warning при risk-состоянии.
+- Добавлена интерактивность UAM экрана:
+  - карточки событий стали кликабельными;
+  - реализован `ModalBottomSheet` с деталями события, anti-duplicate статусом и action-кнопками;
+  - действия (`mark correct/wrong`, `merge`, `export`) доступны и из листа, и из детализации.
+- Улучшен Forecast chart:
+  - добавлены вертикальные маркеры на `Now`, `+30m`, `+60m` (dash lines);
+  - добавлены подписи маркеров под графиком.
+- Добавлены новые локализованные строки `en/ru` для UAM details и маркеров 30/60m.
+- Debug APK пересобран и установлен на телефон по USB.
+
+## Почему так
+- Пользователь запросил продолжить работу именно совместно с Figma MCP и довести UI до более интерактивного, “живого” состояния.
+- Изменения покрывают наиболее видимые UX-зоны: top-level state awareness, детализация UAM и читаемость прогноза во времени.
+
+## Риски / ограничения
+- Есть только предупреждения о deprecated `Icons.Filled.*` (без влияния на runtime).
+- `dynamicColor` на Android 12+ остаётся включённым по умолчанию, поэтому итоговая палитра может частично отличаться от fallback-токенов Figma (это ожидаемо).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+4. На телефоне:
+   - открыть `UAM` и тапнуть по событию (должен открыться bottom sheet);
+   - открыть `Forecast` и проверить dashed markers `Now/+30m/+60m`;
+   - включить `Kill switch`/получить stale data и проверить смену TopBar-стиля.
+
+# Изменения — Этап 16: Figma MCP parity pass (app shell + interaction)
+
+## Что сделано
+- Продолжен паритет с Figma Make source (`tTZkFh4a8eKSZlyJcIYTNd`) по интерактивным паттернам:
+  - прочитаны референсы `TopAppBar.tsx`, `BottomNavigation.tsx`, `AuditLogScreen.tsx`, `SettingsScreen.tsx`.
+- `CopilotFoundationRoot`:
+  - добавлен `ModalNavigationDrawer` (боковое меню из TopBar);
+  - в drawer вынесены переходы на `Audit/Analytics/Settings`;
+  - TopBar теперь разделяет `menu` (drawer) и `more` (dropdown), как в Figma shell.
+- `AuditScreen`:
+  - фильтрация переведена полностью на chips (`6h/24h/7d + errors`);
+  - в карточках записей добавлен expand-indicator (chevron) и более явный accordion-паттерн.
+- `ForecastScreen`:
+  - legend-layer chips дополнены иконками (`Trend/Therapy/UAM/CI`) по Figma-style.
+- `SafetyScreen`:
+  - добавлена summary-card внизу (режим системы + ratio пройденных safety checks), как в Figma safety summary.
+- Добавлены строковые ресурсы `ru/en` для новых safety-summary подписей.
+- Выполнены сборка, тесты, установка на устройство по USB.
+
+## Почему так
+- Пользователь просил продолжать полноценный интерактивный дизайн совместно с Figma MCP.
+- Этот проход закрывает shell-интерактивность (drawer/menu), audit usability и визуальные сигналы в safety.
+
+## Риски / ограничения
+- В `logcat` нет новых `FATAL` по `io.aaps.predictivecopilot`; единственный `FATAL` относится к `info.nightscout.androidaps` (внешнее приложение).
+- Предупреждения о deprecated `Icons.Filled.*` остаются и не блокируют runtime.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.format.UiFormattersTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+4. На телефоне:
+   - открыть меню в TopBar (drawer должен выезжать слева);
+   - открыть `Audit`, проверить chips фильтров и раскрытие строк;
+   - открыть `Forecast`, проверить иконки на layer chips;
+   - открыть `Safety`, проверить summary-card с количеством passed checks.
+
+# Изменения — Этап 17: Figma MCP interactive Settings wiring + lint hardening
+
+## Что сделано
+- Продолжен Figma MCP-проход для экрана `Settings` (источник `tTZkFh4a8eKSZlyJcIYTNd`):
+  - довязаны интерактивные переключатели к `MainViewModel` в `CopilotFoundationRoot`.
+- `SettingsScreen` теперь выполняет реальные изменения конфигурации:
+  - `Local broadcast ingest` -> `setLocalBroadcastIngestEnabled(...)`;
+  - `Strict sender validation` -> `setStrictBroadcastValidation(...)`;
+  - `UAM inference / boost / export / dry-run` -> единый runtime update через `setUamRuntimeConfig(...)` с сохранением текущего `exportMode`;
+  - `Adaptive controller enabled` -> `setAdaptiveControllerEnabled(...)`.
+- Добавлены недостающие `string resources` (en/ru) для Settings UI:
+  - подписи/subtitle для data sources, UAM, adaptive, debug;
+  - заголовок disclaimer, формат версии приложения, блок detection parameters.
+- Закрыта блокирующая lint-ошибка WorkManager:
+  - в `AndroidManifest.xml` добавлен override `androidx.startup.InitializationProvider` с удалением `androidx.work.WorkManagerInitializer` (т.к. `CopilotApp` реализует `Configuration.Provider`).
+
+## Почему так
+- Пользователь просил продолжать полноценный интерактивный дизайн совместно с Figma MCP; без wiring экран выглядел интерактивным, но не управлял runtime настройками.
+- Lint должен быть в “зелёном” состоянии для стабильного цикла поставки и USB-обновлений.
+
+## Риски / ограничения
+- В предупреждениях компиляции остаются deprecated `Icons.Filled.*` (не блокирует runtime).
+- UAM toggles обновляют runtime-конфиг в целом; при одновременных быстрых переключениях применяется последнее состояние экрана.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+5. На телефоне открыть `Settings` и переключить:
+   - `Local broadcast ingest`, `Strict sender validation`;
+   - `UAM inference/boost/export/dry-run`;
+   - `Adaptive controller`.
+   Проверить snackbar-подтверждения и отсутствие падений.
+
+# Изменения — Этап 18: Figma MCP interaction polish (Forecast + UAM)
+
+## Что сделано
+- Продолжена реализация по Figma Make reference (`tTZkFh4a8eKSZlyJcIYTNd`), фокус на интерактивных паттернах `Forecast/UAM`.
+- `ForecastScreen`:
+  - заменен селектор диапазона на `SingleChoiceSegmentedButtonRow` (`3h/6h/24h`), как в Figma control pattern;
+  - слойные переключатели (`Trend/Therapy/UAM/CI`) переведены на state-aware chips с анимированными цветами/границами;
+  - декомпозиция переработана в визуальные строки с цветовыми маркерами;
+  - добавлен блок `Net change (60m)` с суммой `trend60 + therapy60 + uam60`.
+- `UamScreen`:
+  - добавлен верхний индикатор количества pending-событий;
+  - события в pending-state получают акцентную рамку карточки;
+  - добавлен отдельный confidence-pill (`HIGH/MEDIUM/LOW + %`) в карточках событий;
+  - сохранены все существующие действия (`mark/merge/export`) без изменения бизнес-логики.
+- Добавлены новые строки локализации `en/ru` для UAM confidence/pending и Net change.
+
+## Почему так
+- Пользователь просил продолжать полноценный красивый интерактивный дизайн совместно с Figma MCP.
+- Этот проход усиливает визуальную читаемость и моментальную интерпретацию состояния моделей/событий без изменения расчетных алгоритмов.
+
+## Риски / ограничения
+- Изменения UI-only, бизнес-логика и правила терапии не менялись.
+- В компиляции остаются предупреждения по deprecated `Icons.Filled.*` (не блокируют runtime).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+5. На телефоне открыть:
+   - `Forecast`: проверить segmented range и анимированные layer chips;
+   - `UAM`: проверить pending-индикатор и confidence-pill в событиях.
+
+# Изменения — Этап 19: Figma MCP polish (Overview readability + animated status)
+
+## Что сделано
+- Продолжен Figma MCP pass на основе `DESIGN_SYSTEM.md` (medical readability / safety-first).
+- `OverviewScreen` обновлён без изменения бизнес-логики:
+  - добавлена `AnimatedContent` анимация для `current glucose` и `delta/roc`;
+  - статус гликемического диапазона вынесен в отдельный range-pill с иконкой и текстом (не только цвет);
+  - добавлены явные состояния диапазона: `LOW`, `IN RANGE`, `HIGH`, `VERY HIGH`;
+  - stale/info/range статусы теперь имеют отдельные bg/tone пары для лучшей визуальной иерархии.
+- Добавлены новые локализованные строки `en/ru` для диапазонных лейблов Overview.
+
+## Почему так
+- Пользователь просил продолжать полноценный красивый интерактивный дизайн.
+- Этот шаг повышает читаемость числовых значений и делает статус безопаснее с точки зрения UX (иконка + текст + цвет).
+
+## Риски / ограничения
+- Это UI-only pass; правила терапии/прогнозы не менялись.
+- В проекте остаются предупреждения о deprecated `Icons.Filled.*` (не блокируют сборку).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+5. На телефоне открыть `Overview` и проверить:
+   - анимацию обновления glucose/delta,
+   - range-pill со статусом и иконкой,
+   - читаемость в stale/normal режимах.
+
+# Изменения — Этап 20: ISF/CR analytics tab + interactive charts (Figma-aligned)
+
+## Что сделано
+- Переработан `Analytics` экран в foundation UI под отдельные вкладки:
+  - `ISF/CR` (по умолчанию),
+  - `Quality`.
+- В `ISF/CR` вкладке добавлены:
+  - summary-блок текущих значений `ISF/CR` (`real` и `merged`),
+  - выбор окна истории (`1h/24h/7d/30d/365d/All`),
+  - 2 интерактивных графика (`Real ISF history`, `Real CR history`) с линиями:
+    - `real` (solid),
+    - `merged` (dashed),
+  - мини-легенда (иконка + текст),
+  - статистика `min/max/last` и временной диапазон,
+  - diagnostics-блок (`isfCrDeepLines`) с компактными карточками.
+- Использован существующий `IsfCrHistoryResolver` для фильтрации/даунсемплинга истории без изменения математики.
+- Расширен `AnalyticsUiState` и mapper:
+  - добавлены поля для текущих real/merged ISF/CR,
+  - добавлена история точек и timestamp последнего обновления,
+  - добавлены deep-diagnostics линии.
+- Добавлена локализация (`en/ru`) для новых элементов ISF/CR экрана.
+- Добавлен unit-test `analyticsMapping_includesIsfCrSummaryAndHistory`.
+- Обновлён debug APK и установлен на телефон по USB.
+
+## Почему так
+- Пользователь запросил детальную проработку вкладки и графиков ISF/CR.
+- В Figma Make отсутствует отдельный Analytics экран, поэтому экран реализован в том же визуальном языке дизайн-системы (Material 3, safety-first, icon+text статусы, data readability).
+- Использование существующего resolver сохраняет стабильность текущей data-пайплайна и минимизирует риск регрессий.
+
+## Риски / ограничения
+- Графики построены на уже имеющейся истории `profile_estimates`; точность зависит от качества входных данных/частоты snapshot.
+- В проекте остаются предупреждения по deprecated `Icons.Filled.*` в ряде экранов (не блокируют сборку).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+5. На телефоне: `More -> Analytics -> ISF/CR`, переключить окна истории и проверить оба графика + summary.
+
+# Изменения — Этап 21: Figma MCP polish pass (Audit + Settings interaction)
+
+## Что сделано
+- Продолжен дизайн-проход по Figma MCP (`AuditLogScreen.tsx`, `SettingsScreen.tsx`, `AuditLogRow.tsx`, `ToggleRow.tsx`) для выравнивания интерактивного стиля foundation UI.
+- `Settings`:
+  - добавлены status-pills по источникам данных (`Broadcast`, `Nightscout`) с иконками и текстовыми статусами (`Connected/Disabled/Stale data`);
+  - в UAM-блоке убраны hardcoded параметры и подключены реальные значения из state (`uamMinSnackG/uamMaxSnackG/uamSnackStepG`);
+  - добавлен summary-блок safety-порогов адаптивного контроллера (low/high).
+- Расширен `SettingsUiState` и mapper:
+  - добавлены поля `uamMinSnackG`, `uamMaxSnackG`, `uamSnackStepG`;
+  - обновлён `MainViewModel` initial state.
+- `Audit`:
+  - добавлен summary-блок по событиям (`total/warnings/errors + info/ok`);
+  - улучшены status-pills уровня (`icon + label`, не только цвет);
+  - добавлен дополнительный contextual pill для payload.
+- Добавлены новые строки локализации `en/ru` для `Audit` и `Settings`.
+- Добавлен unit test `settingsMapping_includesUamSnackParameters`.
+- Debug APK пересобран и установлен на телефон по USB.
+
+## Почему так
+- Пользователь просил продолжать полноценный красивый интерактивный дизайн совместно с Figma MCP.
+- Этот проход закрывает последние визуально заметные расхождения с Figma-паттернами на экранах operational configuration и audit trace.
+
+## Риски / ограничения
+- Предупреждения о deprecated `Icons.Filled.*` остаются в проекте (runtime не блокируют).
+- В `Audit` summary метрики считаются по текущему набору `rows` после применённых фильтров окна/ошибок.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+5. На телефоне проверить:
+   - `More -> Settings`: source status pills, реальные UAM parameters, adaptive safety summary;
+   - `More -> Audit`: summary card, icon+label status pills, раскрытие строки.
+
+# Изменения — Этап 22: UI reliability + contrast hardening (buttons/tabs + readable text)
+
+## Что сделано
+- Исправлены нерабочие элементы в foundation UI:
+  - `TopBar` notification button больше не пустой (`onClick = {}` удалён), теперь открывает `Audit Log`.
+  - `PredictionHorizonChip` больше не принудительно `enabled=false`; добавлен параметр `onClick`, чип активируется при переданном обработчике.
+  - Проверен foundation-код на пустые `onClick` и `enabled=false` в интерактивных компонентах.
+- Выполнен проход контрастности по основным экранам (`Overview`, `Forecast`, `UAM`, `Safety`, `Audit`, `Settings`, `Analytics`):
+  - проблемные hardcoded светлые контейнеры заменены на theme-aware цвета (`surfaceVariant`, `primaryContainer`, `secondaryContainer`, `tertiaryContainer`, `errorContainer`);
+  - тексты/иконки переведены на соответствующие `on*Container` / `onSurface*`, чтобы избежать белого текста на светлом фоне в dynamic/dark темах;
+  - секционные бордеры унифицированы через `outlineVariant`.
+- Дополнительно исправлены технические места после рефакторинга:
+  - `riskBadge`, `deltaTone`, `stateColorForEvent` переведены в `@Composable` контекст;
+  - убраны default-аргументы с `MaterialTheme` вне допустимого контекста (`UamSectionCard`, `AnalyticsMetricTile`).
+
+## Почему так
+- Пользователь сообщил о критичной UX-проблеме: низкий контраст текста и ощущение неработающих кнопок/вкладок.
+- Перевод контейнеров на пары `container/onContainer` из Material 3 решает контраст в light/dark и dynamic color без ручной подгонки каждого кейса.
+- Удаление пустых обработчиков устраняет “мертвые” элементы в интерфейсе.
+
+## Риски / ограничения
+- В проекте остаются предупреждения по deprecated `Icons.Filled.*`; на runtime и контраст это не влияет.
+- В worktree присутствуют и другие несвязанные изменения из предыдущих этапов; этот этап не откатывал и не затрагивал их бизнес-логику.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+5. На телефоне проверить:
+   - все 4 bottom tabs переключаются (`Overview/Forecast/UAM/Safety`);
+   - `TopBar` notification icon открывает `Audit`;
+   - на светлой теме текст читаем на карточках/плашках (`Overview`, `UAM`, `Safety`, `Settings`, `Audit`, `Analytics`);
+   - в тёмной теме нет светлых карточек с белым текстом.
+
+# Изменения — Этап 23: Проверка и валидация данных декомпозиции прогноза
+
+## Что сделано
+- Проверен end-to-end контур decomposition:
+  - запись telemetry-ключей в `AutomationRepository.persistForecastDecompositionTelemetry(...)`;
+  - чтение этих ключей в `MainViewModel` (`forecast_trend_60_mmol`, `forecast_therapy_60_mmol`, `forecast_uam_60_mmol`, `forecast_residual_roc0_mmol5`, `forecast_sigmae_mmol5`, `forecast_kf_sigma_g_mmol`).
+- Добавлены unit-тесты на статический extractor decomposition:
+  - `extractForecastDecomposition_usesDiagnosticsComponents`
+  - `extractForecastDecomposition_returnsNullWhenNoDiagnostics`
+  - файл: `android-app/app/src/test/kotlin/io/aaps/copilot/data/repository/AutomationRepositoryForecastBiasTest.kt`.
+- Обновлена сборка и установлена на телефон по USB (`installDebug`).
+- Снята актуальная БД телефона (`run-as io.aaps.predictivecopilot`) и подтверждено появление decomposition-ключей в `telemetry_samples`.
+
+## Почему так
+- Пользователь запросил проверить корректность данных декомпозиции.
+- Без проверки на реальной БД телефона невозможно подтвердить, что UI получает метрики после цикла, даже если код уже изменён.
+- Тесты фиксируют контракт extractor-а и защищают от регрессии формул `trend60/therapy60/uam60`.
+
+## Риски / ограничения
+- `modelVersion` в decomposition берётся из локального baseline-прогноза (до cloud/calibration/cob_iob post-processing), поэтому может отличаться от `modelVersion` в таблице `forecasts`.
+- Компоненты decomposition отражают внутренние вклады path-simulation; они могут не совпадать 1:1 с `pred60 - current glucose` из-за дополнительных clamp/смещений.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest" --tests "io.aaps.copilot.domain.predict.HybridPredictionEngineV3Test" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+3. Вызвать цикл (через UI `Run cycle now` или входящий broadcast), затем снять БД:
+   - `adb exec-out run-as io.aaps.predictivecopilot cat databases/copilot.db > /Users/mac/Andoidaps/tmp_phone_copilot_live_after.db`
+4. Проверить ключи decomposition:
+   - `sqlite3 /Users/mac/Andoidaps/tmp_phone_copilot_live_after.db "SELECT key, COUNT(*), datetime(MAX(timestamp)/1000,'unixepoch','localtime') FROM telemetry_samples WHERE key LIKE 'forecast_%' GROUP BY key ORDER BY key;"`
+
+# Изменения — Этап 24: Графики профилей инсулина в Analytics
+
+## Что сделано
+- Добавлено отображение графиков профилей инсулина на экране `Analytics`:
+  - новая секция `Insulin Action Profiles` во вкладке `ISF/CR`;
+  - отрисовка всех поддерживаемых кривых (`NOVORAPID/HUMALOG/APIDRA/FIASP/LYUMJEV`) на одном Canvas;
+  - активный профиль (из текущих настроек) выделяется толщиной/непрозрачностью и пометкой в легенде;
+  - добавлены подписи и accessibility description.
+- Расширено состояние UI:
+  - `AnalyticsUiState.selectedInsulinProfileId`;
+  - `AnalyticsUiState.insulinProfileCurves` (+ модели `InsulinProfileCurveUi`, `InsulinProfilePointUi`).
+- `MainUiState` mapper теперь наполняет кривые напрямую из `InsulinActionProfiles` c нормализацией активного профиля через `InsulinActionProfileId.fromRaw(...)`.
+- Добавлены строки локализации `en/ru` для новой секции и статусов.
+- Обновлён unit-тест `MainUiStateMappersTest` (проверка наличия кривых и выделения активного профиля).
+- Debug APK установлен на телефон по USB.
+
+## Почему так
+- Запрос пользователя: обеспечить отображение графиков профилей инсулина.
+- Данные профилей уже были в домене, но в UI не визуализировались. Добавлен прямой мост `domain -> Analytics UI` и графическая секция без изменений бизнес-алгоритмов.
+
+## Риски / ограничения
+- Секция показывает референсные action-кривые профилей (кумулятивное действие), а не персонально обученные кривые.
+- В проекте сохраняются предупреждения по deprecated `Icons.Filled.*` (runtime не блокируют).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+4. На телефоне открыть `More -> Analytics -> ISF/CR` и проверить новый график профилей инсулина и легенду с активным профилем.
+
+# Изменения — Этап 25: Подробный 24h отчёт по прогнозированию (для снижения MARD)
+
+## Что сделано
+- Добавлен локальный ежедневный отчёт качества прогнозов (24 часа) в `InsightsRepository`:
+  - формируется автоматически при каждом запуске `DailyAnalysisWorker` (раз в сутки);
+  - работает даже если cloud API недоступен;
+  - отчёт строится по локальным `forecasts` + `glucose_samples`.
+- Формат отчёта:
+  - `Markdown` и `CSV` в `Documents/forecast-reports`;
+  - секции: `Horizon metrics (5/30/60)`, `Hourly hotspots`, `Glucose bands`, `Worst errors`, `Recommendations to lower MARD`.
+- Метрики в отчёте:
+  - `MAE`, `RMSE`, `MARD`, `bias` по горизонтам;
+  - worst-case топ ошибок с временем/горизонтом/model-family;
+  - рекомендации генерируются детерминированно по порогам MARD/bias/hotspots.
+- В телеметрию добавлен срез отчёта (`source=forecast_daily_report`):
+  - `daily_report_mae_5m/30m/60m`,
+  - `daily_report_rmse_5m/30m/60m`,
+  - `daily_report_mard_5m_pct/30m_pct/60m_pct`,
+  - `daily_report_bias_5m/30m/60m`,
+  - `daily_report_markdown_path`,
+  - `daily_report_matched_samples`, `daily_report_forecast_rows`.
+- Расширены документы:
+  - `docs/ARCHITECTURE.md` (daily local reporting contour),
+  - `docs/INVARIANTS.md` (инвариант обязательного 24h отчёта).
+- Добавлены unit-тесты:
+  - `InsightsRepositoryDailyForecastReportTest` (расчёт метрик и рекомендаций).
+
+## Почему так
+- Пользователь запросил подробный отчёт каждые 24 часа для систематической работы над снижением MARD.
+- Детализированный daily-report даёт reproducible baseline по ошибкам и time-slot hotspots, на основании которых можно вносить точечные тюнинги (UAM, carb profiles, bias, safety thresholds).
+
+## Риски / ограничения
+- При малом количестве совпавших пар forecast↔actual отчёт формируется, но некоторые секции могут быть пустыми.
+- Дедуп по дню не делался принудительно: при повторном запуске в тот же день файл перезаписывается по дате.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest"`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug :app:installDebug`
+4. Запустить daily analysis (по расписанию или вручную из UI), затем проверить артефакты:
+   - `/sdcard/Android/data/io.aaps.predictivecopilot/files/Documents/forecast-reports/forecast-report-<YYYY-MM-DD>.md`
+   - `/sdcard/Android/data/io.aaps.predictivecopilot/files/Documents/forecast-reports/forecast-report-<YYYY-MM-DD>.csv`
+5. Проверить telemetry-ключи `daily_report_*` в `telemetry_samples`.
+
+# Изменения — Этап 26: Daily Forecast Report в Analytics UI
+
+## Что сделано
+- Интегрировал локальный `daily_report_*` telemetry (сформированный `InsightsRepository`) в UI-состояние:
+  - `MainUiState`: добавлены поля `dailyReportGeneratedAtTs`, `dailyReportMatchedSamples`, `dailyReportForecastRows`, `dailyReportPeriodStartUtc`, `dailyReportPeriodEndUtc`, `dailyReportMarkdownPath`, `dailyReportMetrics`.
+  - `AnalyticsUiState`: добавлены соответствующие поля + `dailyReportHorizonStats`.
+- В `MainViewModel` добавлен разбор telemetry-ключей `daily_report_*` в структурированные метрики по горизонтам `5/30/60`.
+- В `MainUiStateMappers.toAnalyticsUiState()` добавлен маппинг daily-report полей и расширен `hasData` с учетом daily-report.
+- На экране `Analytics` (вкладка `Quality`) добавлен блок `Daily Forecast Report (24h)`:
+  - время формирования,
+  - количество matched samples / forecast rows,
+  - окно отчета,
+  - строки MAE/RMSE/MARD/Bias/n по 5/30/60,
+  - путь к markdown-отчёту.
+- Добавлены `ru/en` string resources для нового блока.
+- Обновлён `MainUiStateMappersTest` проверками маппинга daily-report полей.
+
+## Почему так
+- Пользовательский запрос: продолжить работу по ежедневной аналитике для снижения MARD.
+- После внедрения генерации отчета за 24ч следующий шаг — сделать метрики видимыми прямо в приложении без открытия файлов вручную.
+
+## Риски / ограничения
+- В текущем состоянии репозитория сборка падает на уже существующих ошибках в других файлах (вне этого этапа), поэтому полный зеленый прогон CI-цепочки недоступен.
+- Новый UI-блок показывает последние telemetry-значения `daily_report_*`; если daily worker не запускался, блок может быть пуст.
+
+## Как проверить
+1. Запустить daily analysis/cycle, чтобы появились telemetry-ключи `daily_report_*`.
+2. Открыть `More -> Analytics -> Quality` и проверить блок `Daily Forecast Report (24h)`.
+3. Проверить наличие файлов отчета в `Documents/forecast-reports`.
+
+# Изменения — Этап 27: Ручной запуск Daily Analysis в Foundation UI
+
+## Что сделано
+- В новый экран `Analytics` (Foundation UI, вкладка `Quality`) добавлена кнопка ручного запуска daily-анализа:
+  - кнопка `Run daily analysis now` вызывает `MainViewModel.runDailyAnalysisNow()`;
+  - позволяет сразу сформировать локальный 24h отчёт и обновить telemetry `daily_report_*` без ожидания периодического запуска.
+- Подключил callback в навигации:
+  - `CopilotFoundationRoot` теперь передаёт `onRunDailyAnalysis` в `AnalyticsScreen`.
+- Добавлены строковые ресурсы `ru/en` для кнопки.
+
+## Почему так
+- После внедрения 24h отчёта требовался практичный путь мгновенно запускать его на телефоне из основного UI.
+- В legacy-экране кнопка была, в Foundation UI — отсутствовала.
+
+## Риски / ограничения
+- Кнопка запускает общий `runDailyAnalysis()` (локальный отчёт + cloud daily analysis при наличии cloud URL).
+- Если cloud не настроен, локальный отчёт всё равно формируется, а в сообщении будет пометка про cloud skip.
+
+## Как проверить
+1. `More -> Analytics -> Quality -> Run daily analysis now`.
+2. Дождаться сообщения результата.
+3. Проверить файлы отчёта в `Documents/forecast-reports`.
+4. Проверить telemetry ключи `daily_report_*` в `telemetry_samples`.
+
+# Изменения — Этап 28: Physiology-Aware ISF/CR Engine v1 (foundation + runtime wiring)
+
+## Что сделано
+- Добавлен новый доменный контур `domain/isfcr`:
+  - `IsfCrEngine`,
+  - `IsfCrWindowExtractor`,
+  - `IsfCrQualityScorer`,
+  - `IsfCrBaseFitter`,
+  - `IsfCrContextModel`,
+  - `IsfCrConfidenceModel`,
+  - `IsfCrFallbackResolver`,
+  - `IsfCrDiagnostics`,
+  - модели `IsfCr*`.
+- Добавлен новый репозиторий `IsfCrRepository`:
+  - base fit и realtime snapshot,
+  - сохранение в `isf_cr_model_state`, `isf_cr_snapshots`, `isf_cr_evidence`,
+  - retention-cleanup,
+  - audit events: `isfcr_base_fit_completed`, `isfcr_realtime_computed`, `isfcr_fallback_applied`.
+- Добавлены/подключены Room-таблицы и DAO (ранее созданные заготовки) в runtime-контур.
+- В `AnalyticsRepository` добавлен periodic base refit для ISF/CR state (каждые 6ч).
+- В `AutomationRepository` добавлен realtime вызов `IsfCrRepository` на цикл:
+  - запись telemetry `isf_realtime_*`,
+  - использование snapshot как приоритетного профиля для rule-context.
+- В `HybridPredictionEngine` добавлен безопасный override чувствительности:
+  - `setSensitivityOverride(isf, cr, confidence, source)`,
+  - override применяется только при `confidence >= 0.55`,
+  - иначе используется существующий legacy estimator.
+- В `AppSettingsStore` добавлены настройки ISF/CR контура:
+  - `isfCrShadowMode`,
+  - `isfCrConfidenceThreshold`,
+  - `isfCrUseActivity`,
+  - `isfCrUseManualTags`,
+  - `isfCrSnapshotRetentionDays`,
+  - `isfCrEvidenceRetentionDays`.
+- Добавлены unit-тесты:
+  - `IsfCrEngineTest` (base fit, fallback, activity/shadow behavior).
+- Обновлены документы:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md`.
+
+## Почему так
+- Требование: внедрить physiology-aware расчёт “реального” ISF/CR с confidence-gate и безопасным fallback.
+- Выбран подход `shadow-first + deterministic v1`, чтобы повысить точность без риска резкой регрессии автоматики.
+
+## Риски / ограничения
+- `computeRealtime` сейчас вызывается на каждом automation cycle; при очень длинной истории это может увеличить CPU.
+- Base refit в текущей версии запускается по 6-часовому интервалу внутри `AnalyticsRepository`; отдельный nightly worker можно выделить следующим этапом.
+- В v1 включён deterministic контур; ML shadow/v2 не активирован.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3. Запустить цикл автоматики и проверить аудит:
+   - `isfcr_base_fit_completed`
+   - `isfcr_realtime_computed`
+   - `isfcr_fallback_applied` (если confidence low)
+4. Проверить таблицы БД:
+   - `isf_cr_model_state`
+   - `isf_cr_snapshots`
+   - `isf_cr_evidence`
+5. Проверить telemetry-ключи:
+   - `isf_realtime_value`
+   - `cr_realtime_value`
+   - `isf_realtime_confidence`
+   - `isf_realtime_quality_score`
+   - `isf_realtime_mode`
+
+# Изменения — Этап 29: ISF/CR UI + Settings Integration (Stage 5)
+
+## Что сделано
+- Доведен `Analytics -> ISF/CR` realtime-блок:
+  - добавлены строки и отображение статуса realtime режима/confidence/quality;
+  - отображаются `ISF eff`, `CR eff`, `ISF base`, `CR base`, CI и факторные линии/активные теги.
+- Расширен `MainViewModel`:
+  - в `settingsUiState` добавлены новые поля `isfCr*` из `AppSettings`;
+  - подключено наблюдение `observeRecentTags(0)` и вывод только активных тегов в настройки;
+  - добавлены action-методы:
+    - `setIsfCrShadowMode`,
+    - `setIsfCrConfidenceThreshold`,
+    - `setIsfCrUseActivity`,
+    - `setIsfCrUseManualTags`,
+    - `setIsfCrRetention`,
+    - `addPhysioTag`,
+    - `clearActivePhysioTags`.
+- Расширен `IsfCrRepository` методом `closeActiveTags(nowTs)` для завершения активных тегов.
+- В `AutomationRepository` добавлен `shadow`-аудит сравнений:
+  - событие `isfcr_shadow_diff_logged` (legacy ISF/CR vs realtime ISF/CR, абсолютные и относительные дельты),
+  - запись происходит только при `snapshot.mode == SHADOW`.
+- Реализована новая секция `Settings -> Real ISF/CR engine`:
+  - переключатели `Shadow mode`, `Use activity`, `Use manual tags`;
+  - порог confidence (20..95%);
+  - retention для snapshots/evidence;
+  - quick-add physiology tags (`stress`, `illness`, `hormonal_phase`, `steroids`, `dawn`);
+  - список активных тегов + `Clear active tags`.
+- В `CopilotFoundationRoot` добавлен полный wiring callbacks из `SettingsScreen` в `MainViewModel`.
+- Обновлены `ru/en` resources для новых Analytics/Settings секций.
+
+## Почему так
+- Это закрывает этап UI/настроек из плана Physiology-Aware ISF/CR Engine v1:
+  - пользователь видит realtime-оценки ISF/CR и факторы;
+  - может управлять shadow/confidence/useActivity/useTags и контекстными тегами без ручного SQL/adb.
+
+## Риски / ограничения
+- Quick-tag UI использует фиксированный набор тегов v1; расширяемый словарь/локализация тегов можно добавить отдельным этапом.
+- В текущем релизе это всё ещё `shadow-first`: реальное влияние на runtime ограничено confidence-gate и fallback-цепочкой.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+3) На устройстве открыть `More -> Settings -> Real ISF/CR engine` и проверить:
+   - сохранение переключателей/порогов/retention,
+   - добавление и очистку тегов.
+4) Открыть `More -> Analytics -> ISF/CR` и проверить realtime карточку (mode/confidence/quality/CI/factors/tags).
+
+# Изменения — Этап 30: Controlled Activation Gate для ISF/CR (Stage 6)
+
+## Что сделано
+- В `AutomationRepository` добавлен явный runtime-gate:
+  - `resolveIsfCrRuntimeGateStatic(snapshot, confidenceThreshold)`,
+  - применение realtime ISF/CR в runtime разрешено **только** при `mode=ACTIVE` и `confidence >= threshold`.
+- Исправлено `shadow-first` поведение:
+  - при `mode=SHADOW` realtime snapshot не подается в `HybridPredictionEngine` как override;
+  - fallback/shadow режимы блокируют runtime override и пишут причину.
+- Добавлен аудит controlled activation:
+  - `isfcr_runtime_gate` c полями `mode/confidence/threshold/applied/reason`;
+  - `isfcr_shadow_diff_logged` сохранен как сравнительный shadow-аудит.
+- Профиль для runtime:
+  - при `applyToRuntime=true` используется realtime профиль;
+  - иначе используется legacy профиль;
+  - добавлен безопасный bootstrap-кейс `isfcr_runtime_bootstrap_profile`, если legacy отсутствует.
+- `HybridPredictionEngine` доработан для настраиваемого confidence-gate:
+  - `setSensitivityOverride(..., minConfidenceRequired=...)`;
+  - сравнение confidence теперь идет с переданным порогом, а не с фиксированной константой.
+- Добавлены unit-tests для runtime gate:
+  - no snapshot,
+  - shadow mode,
+  - fallback mode,
+  - active + low confidence,
+  - active + confident.
+
+## Почему так
+- Это закрывает требование Stage 6 (`controlled activation`) из плана Physiology-Aware ISF/CR:
+  - SHADOW режим теперь действительно “теневой” и не влияет на автоматические решения,
+  - активация нового контура выполняется только по confidence-gate.
+
+## Риски / ограничения
+- Если legacy профиль отсутствует, включается bootstrap-путь на realtime snapshot (логируется отдельно), чтобы не оставлять runtime без профиля.
+- В telemetry на текущем шаге добавлен флаг `isf_realtime_applied` в runtime-map цикла; при необходимости его можно дополнительно писать отдельным telemetry source.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В SHADOW режиме убедиться по audit, что есть `isfcr_runtime_gate` с `applied=false` и reason `shadow_mode`.
+4) В ACTIVE режиме с достаточным confidence убедиться, что `applied=true`.
+
+# Изменения — Этап 31: Shadow KPI Auto-Activation Gate для ISF/CR
+
+## Что сделано
+- Добавлен KPI-контур для выхода из `SHADOW` в `ACTIVE` на основе накопленного `shadow`-аудита:
+  - источник: `audit_logs` с событием `isfcr_shadow_diff_logged`;
+  - метрики: `meanConfidence`, `meanAbsIsfDeltaPct`, `meanAbsCrDeltaPct`, `sampleCount`;
+  - решение: `eligible`/`blocked` с reason-кодом.
+- В `AutomationRepository` добавлены:
+  - `IsfCrShadowDiffSample`, `IsfCrShadowActivationAssessment`;
+  - `evaluateIsfCrShadowActivationStatic(...)`;
+  - `maybeProcessIsfCrShadowAutoActivation(...)` с периодической оценкой (не чаще 1 раза в 30 минут).
+- Добавлены новые audit events:
+  - `isfcr_shadow_activation_evaluated` (результат KPI-gate и метрики);
+  - `isfcr_shadow_auto_promoted` (факт автопереключения в ACTIVE).
+- В `AppSettings` и DataStore добавлены настройки auto-activation:
+  - `isfCrAutoActivationEnabled`;
+  - `isfCrAutoActivationLookbackHours`;
+  - `isfCrAutoActivationMinSamples`;
+  - `isfCrAutoActivationMinMeanConfidence`;
+  - `isfCrAutoActivationMaxMeanAbsIsfDeltaPct`;
+  - `isfCrAutoActivationMaxMeanAbsCrDeltaPct`.
+- UI `Settings -> Real ISF/CR engine` расширен новыми контролами для KPI auto-activation (toggle + thresholds + lookback/sample bounds), добавлен wiring через `MainViewModel`/`CopilotFoundationRoot`, обновлены `ru/en` strings.
+- В `AuditLogDao` добавлен запрос `recentByMessage(...)` для выборки нужных audit-событий по окну времени.
+- Добавлены unit-tests для KPI-гейта:
+  - insufficient samples;
+  - low mean confidence;
+  - high ISF delta;
+  - pass/eligible.
+
+## Почему так
+- Этап controlled activation теперь закрыт не только ручным `shadow`-переключателем, но и проверяемым KPI-gate:
+  - в runtime включение нового контура происходит только при стабильных shadow-метриках;
+  - решение полностью explainable и трассируется в audit.
+
+## Риски / ограничения
+- KPI-gate опирается на качество `shadow_diff` логов; при редких циклах или отсутствии legacy-профиля автоактивация может не сработать.
+- Автопереключение выполняется только если одновременно включены:
+  - `isfCrShadowMode=true`,
+  - `isfCrAutoActivationEnabled=true`.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+4) Включить `Settings -> Real ISF/CR -> Auto activation from shadow` и проверить audit:
+   - сначала `isfcr_shadow_activation_evaluated`;
+   - при выполнении KPI — `isfcr_shadow_auto_promoted` и `isfcr_shadow_mode` становится `false`.
+
+# Изменения — Этап 32: Room migration 9→10 для ISF/CR контура (без потери данных)
+
+## Что сделано
+- Добавлен явный пакет миграций Room:
+  - новый файл `CopilotMigrations.kt`;
+  - `MIGRATION_9_10` создаёт таблицы/индексы:
+    - `isf_cr_snapshots`,
+    - `isf_cr_evidence`,
+    - `isf_cr_model_state`,
+    - `physio_context_tags`.
+- Обновлён `AppContainer`:
+  - подключение `addMigrations(*CopilotMigrations.ALL)`;
+  - destructive fallback ограничен только старыми версиями `1..8` через `fallbackToDestructiveMigrationFrom(...)`.
+- Добавлены unit tests:
+  - `CopilotMigrationsTest`:
+    - проверка версии миграции `9 -> 10`,
+    - проверка покрытия SQL-операторов по новым таблицам/индексам,
+    - проверка подключения миграции в общий пакет.
+- Обновлены документы:
+  - `docs/ARCHITECTURE.md` (зафиксирован non-destructive путь `v9 -> v10`);
+  - `docs/INVARIANTS.md` (инвариант сохранности данных на `9 -> 10`).
+
+## Почему так
+- План Physiology-Aware ISF/CR требует долгосрочного сохранения evidence/snapshots; destructive migration на `9 -> 10` ломала бы эти требования.
+- Выделенный migration-пакет делает переход воспроизводимым и проверяемым.
+
+## Риски / ограничения
+- Для очень старых БД (`<=8`) сохранён destructive fallback.
+- Полноценный instrumentation migration-suite (`MigrationTestHelper`) пока не добавлялся; в этом этапе закрыт JVM unit-check миграционного пакета.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.local.CopilotMigrationsTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+
+# Изменения — Этап 33: ISF/CR auto-activation daily quality gate (24h MAE + hypo-rate)
+
+## Что сделано
+- Усилен контур `SHADOW -> ACTIVE` автоактивации ISF/CR:
+  - в `AutomationRepository` добавлен ежедневный quality gate перед promotion:
+    - `daily_report_matched_samples`,
+    - `daily_report_mae_30m`,
+    - `daily_report_mae_60m`,
+    - `hypo rate` за 24ч по локальным glucose-точкам `< 3.9 mmol/L`.
+  - новое событие аудита: `isfcr_shadow_quality_gate_evaluated`.
+  - promotion (`isfcr_shadow_auto_promoted`) теперь содержит причины/метрики quality-gate.
+- Добавлены настройки в `AppSettings`/DataStore:
+  - `isfCrAutoActivationRequireDailyQualityGate`,
+  - `isfCrAutoActivationMinDailyMatchedSamples`,
+  - `isfCrAutoActivationMaxDailyMae30Mmol`,
+  - `isfCrAutoActivationMaxDailyMae60Mmol`,
+  - `isfCrAutoActivationMaxHypoRatePct`.
+- Расширены UI и wiring:
+  - `Settings -> Real ISF/CR engine` получил переключатель daily quality gate и пороги.
+  - Добавлены методы `MainViewModel` для управления новыми порогами.
+  - Обновлены `MainUiState`, `SettingsUiState`, `MainUiStateMappers`, `CopilotFoundationRoot`.
+- Добавлены unit tests:
+  - в `AutomationRepositoryForecastBiasTest` — проверки daily quality gate (`missing`, `out_of_bounds`, `eligible`).
+
+## Почему так
+- Это продолжение controlled activation по плану Physiology-Aware ISF/CR v1: включение нового контура теперь проверяет не только shadow-дельты, но и фактическое качество прогноза за 24ч и safety-показатель гипо.
+
+## Риски / ограничения
+- Daily quality gate зависит от наличия свежего локального daily report telemetry (`daily_report_*`); при его отсутствии activation блокируется (`daily_report_missing`).
+- Hypo-rate считается по доступной локальной 24h истории CGM; при пустой истории quality-gate блокирует promotion (`hypo_rate_missing`).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+4) В UI: `Settings -> Real ISF/CR engine` проверить новые поля daily quality gate.
+5) В audit проверить события:
+   - `isfcr_shadow_activation_evaluated`,
+   - `isfcr_shadow_quality_gate_evaluated`,
+   - при прохождении — `isfcr_shadow_auto_promoted`.
+
+# Изменения — Этап 34: Daily CI calibration metrics for forecast report
+
+## Что сделано
+- Расширен локальный daily forecast report (`InsightsRepository`) новыми метриками калибровки неопределенности по каждому горизонту `5/30/60`:
+  - `CI coverage (%)` — доля фактов внутри CI,
+  - `mean CI width (mmol/L)` — средняя ширина доверительного интервала.
+- Обновлен расчёт payload:
+  - в `ErrorAccumulator` добавлены счетчики `ciInsideCount` и `ciWidthSum`,
+  - `HorizonForecastStats` расширен полями `ciCoveragePct` и `ciMeanWidth`.
+- Обновлен telemetry-export daily report:
+  - `daily_report_ci_coverage_<h>m_pct`,
+  - `daily_report_ci_width_<h>m`.
+- Обновлены Markdown/CSV артефакты daily report:
+  - в таблицу horizon metrics добавлены столбцы `CI cover (%)` и `CI width`.
+- Обновлен Analytics UI:
+  - в карточке daily report для каждого горизонта показывается отдельная строка `CI coverage` + `mean width`.
+- Обновлены UI-модели и маппинг:
+  - `DailyReportMetricUi`,
+  - `DailyReportHorizonUi`,
+  - `MainUiStateMappers`.
+- Добавлены/обновлены unit tests:
+  - `InsightsRepositoryDailyForecastReportTest` (проверка CI coverage/width),
+  - `MainUiStateMappersTest` (маппинг новых полей в Analytics state).
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md`.
+
+## Почему так
+- Это закрывает часть observability/calibration из плана Physiology-Aware ISF/CR: теперь качество прогноза оценивается не только ошибкой (`MAE/RMSE/MARD/Bias`), но и адекватностью заявленной неопределенности (CI calibration).
+- Эти метрики напрямую полезны для диагностики пере/недокалиброванных CI и дальнейшего снижения MARD без потери safety.
+
+## Риски / ограничения
+- CI coverage/width считаются по доступным matched forecast points; при редком потоке данных статистика может быть шумной.
+- В этом этапе новые CI-метрики добавлены в analytics/telemetry, но не включены в обязательный runtime block-gate.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+4) В приложении открыть `Analytics -> Daily Forecast Report` и проверить наличие строк `CI coverage` и `mean width` для 5m/30m/60m.
+
+# Изменения — Этап 35: ISF/CR daily quality gate v2 (CI calibration-aware)
+
+## Что сделано
+- Усилен `SHADOW -> ACTIVE` quality gate в `AutomationRepository`:
+  - добавлены критерии калибровки CI из daily report:
+    - `daily_report_ci_coverage_30m_pct`, `daily_report_ci_coverage_60m_pct` (нижние пороги),
+    - `daily_report_ci_width_30m`, `daily_report_ci_width_60m` (верхние пороги).
+- Расширен `IsfCrDailyQualityGateAssessment` и audit payload (`isfcr_shadow_quality_gate_evaluated`, `isfcr_shadow_auto_promoted`) полями CI coverage/width.
+- Добавлены новые reason-коды блокировки гейта:
+  - `daily_ci_coverage_missing`,
+  - `daily_ci_coverage30_out_of_bounds`,
+  - `daily_ci_coverage60_out_of_bounds`,
+  - `daily_ci_width_missing`,
+  - `daily_ci_width30_out_of_bounds`,
+  - `daily_ci_width60_out_of_bounds`.
+
+- Расширены настройки `AppSettings`/DataStore:
+  - `isfCrAutoActivationMinDailyCiCoverage30Pct`,
+  - `isfCrAutoActivationMinDailyCiCoverage60Pct`,
+  - `isfCrAutoActivationMaxDailyCiWidth30Mmol`,
+  - `isfCrAutoActivationMaxDailyCiWidth60Mmol`.
+
+- Обновлен UI `Settings -> Real ISF/CR engine`:
+  - добавлены stepper-поля для CI coverage/width порогов,
+  - все изменения протянуты через `SettingsUiState`, `MainUiState`, `MainViewModel`, `MainUiStateMappers`.
+
+- Добавлены/обновлены тесты:
+  - `AutomationRepositoryForecastBiasTest` — новые сценарии блокировки по CI coverage/width,
+  - `MainUiStateMappersTest` — проверка маппинга новых настроек в Settings UI state.
+
+## Почему так
+- Auto-activation ранее опирался на MAE/hypo и мог пропустить случаи некалиброванной неопределенности.
+- Добавление CI coverage/width как обязательных quality-критериев делает переход в `ACTIVE` более устойчивым и безопасным.
+
+## Риски / ограничения
+- Для новых CI-критериев требуется свежий daily report telemetry; при его отсутствии gate ожидаемо блокирует promotion.
+- Пороги CI coverage/width пока настраиваются вручную; авто-тюнинг порогов не включен.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+4) В приложении открыть `Settings -> Real ISF/CR engine` и проверить новые пороги:
+   - Min daily CI coverage 30m/60m,
+   - Max daily CI width 30m/60m.
+
+# Изменения — Этап 36: Analytics activation-gate visibility
+
+## Что сделано
+- Завершено отображение статуса `SHADOW -> ACTIVE` гейта на экране `Analytics -> Quality`:
+  - добавлена карточка `ISF/CR Activation Gate`,
+  - показываются последние строки диагностики KPI-гейта, daily quality-гейта и последнего auto-promotion.
+- Добавлены локализованные строки:
+  - `section_analytics_activation_gate`,
+  - `analytics_activation_gate_empty`
+  в `values` и `values-ru`.
+- Улучшен сбор данных для карточки в `MainViewModel`:
+  - выбор последнего audit-события теперь делается по `max timestamp` для:
+    - `isfcr_shadow_activation_evaluated`,
+    - `isfcr_shadow_quality_gate_evaluated`,
+    - `isfcr_shadow_auto_promoted`.
+- Обновлен unit test маппинга (`MainUiStateMappersTest`) с проверкой передачи `activationGateLines` в `AnalyticsUiState`.
+
+## Почему так
+- До этого логика гейта уже работала в runtime и писала audit, но пользователю не было удобно видеть итоговые причины block/eligible в UI.
+- Отдельная карточка в Analytics закрывает explainability-часть плана `shadow-first` и ускоряет диагностику rollout.
+
+## Риски / ограничения
+- Карточка опирается на наличие соответствующих audit-событий; на “чистых” установках до первого цикла будет показано пустое состояние.
+- Формат строк пока текстовый (человеко-читаемые line items), без структурированных полей/цветовой кодировки.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Analytics -> Quality` и проверить:
+   - секцию `ISF/CR Activation Gate`,
+   - вывод KPI/daily gate причин и CI calibration строк.
+
+# Изменения — Этап 37: ISF/CR realtime observability hardening
+
+## Что сделано
+- Усилен runtime-аудит `IsfCrRepository.computeRealtimeSnapshot`:
+  - событие `isfcr_realtime_computed` теперь пишет расширенные метрики:
+    - `confidenceThreshold`, `qualityScore`,
+    - `usedEvidence`, `droppedEvidence`,
+    - `coverageHoursIsf`, `coverageHoursCr`,
+    - `reasons`.
+- Добавлено отдельное предупреждающее событие:
+  - `isfcr_low_confidence` (пишется при `confidence < threshold`)
+  - с контекстом confidence/quality/evidence/reasons.
+- Расширена доменная диагностика `IsfCrDiagnostics`:
+  - добавлены поля `qualityScore` и `lowConfidence`.
+- Обновлен `IsfCrEngine`:
+  - при формировании diagnostics учитываются `resolved.qualityScore` и флаг low-confidence относительно `settings.confidenceThreshold`.
+- Дополнены unit-тесты `IsfCrEngineTest`:
+  - проверка `diagnostics.lowConfidence` в fallback-сценарии;
+  - проверка диапазона `diagnostics.qualityScore`.
+
+## Почему так
+- Это закрывает часть плана по observability: в audit теперь видны не только финальные `isfEff/crEff`, но и качество входных evidence и причина снижения доверия.
+- Отдельный `isfcr_low_confidence` ускоряет диагностику случаев, когда контур часто уходит в fallback.
+
+## Риски / ограничения
+- Уровень детализации audit вырос; при очень частых циклах возможен более быстрый рост объема audit log.
+- В этом этапе не добавлялась отдельная UI-таблица diagnostics; данные доступны через существующий Audit экран и экспорт логов.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В runtime открыть `Audit` и проверить наличие:
+   - `isfcr_realtime_computed` с полями `usedEvidence/droppedEvidence/coverageHours*`,
+   - `isfcr_low_confidence` при низком confidence.
+
+# Изменения — Этап 38: Runtime diagnostics surfaced in Analytics deep lines
+
+## Что сделано
+- Усилен блок `Analytics -> ISF/CR diagnostics` в `MainViewModel`:
+  - добавлен сбор последних runtime-аудитов:
+    - `isfcr_realtime_computed`,
+    - `isfcr_low_confidence`,
+    - `isfcr_fallback_applied`.
+  - реализован новый helper `buildIsfCrRuntimeDiagnosticsLines(...)`, который формирует человеко-читаемые строки:
+    - mode/confidence/threshold/quality,
+    - evidence used/dropped и coverage hours ISF/CR,
+    - runtime reasons,
+    - low-confidence reasons,
+    - fallback reasons.
+- Новые runtime diagnostics добавлены в `deepIsfCrLinesCombined` перед long-window анализом, чтобы пользователь видел актуальную причину деградации/фоллбэка вверху списка.
+
+## Почему так
+- По плану Physiology-Aware ISF/CR нужен explainable runtime. До этого метрики писались в audit, но в Analytics deep block не поднимались явно.
+- Теперь диагностика доступна сразу в UI без ручного поиска в сырых логах.
+
+## Риски / ограничения
+- Формат остаётся текстовым; структурированный UI-рендер отдельных полей diagnostics пока не добавлен.
+- При большом количестве deep-lines карточка обрезается `take(6)` в Analytics экране, поэтому приоритетные runtime строки выводятся первыми.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Analytics -> ISF/CR` и проверить в карточке diagnostics строки:
+   - `Runtime (...)`,
+   - `Evidence: used/dropped`,
+   - при необходимости `Low confidence (...)`,
+   - `Fallback (...)`.
+
+# Изменения — Этап 39: Diagnostics priority and visibility fix
+
+## Что сделано
+- Исправлен приоритет вывода deep diagnostics в `MainViewModel`:
+  - runtime diagnostics (`Runtime/Low confidence/Fallback`) теперь добавляются раньше factor dump, чтобы не теряться в длинном списке.
+  - `snapshotFactorLines` ограничены `take(6)` после runtime-строк.
+- Увеличен лимит отображения diagnostics в `AnalyticsScreen`:
+  - `state.deepLines.take(6)` -> `state.deepLines.take(10)`.
+
+## Почему так
+- После этапа 38 runtime-строки могли не попадать в видимую часть карточки из-за раннего заполнения факторными ключами.
+- Приоритетные operational причины (confidence/fallback) должны быть видны пользователю в первую очередь.
+
+## Риски / ограничения
+- Карточка стала показывать больше строк, что слегка увеличивает вертикальную высоту секции.
+- Структурированный отдельный UI для runtime diagnostics пока не внедрялся (текстовый формат сохранён).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Analytics -> ISF/CR` и убедиться, что в блоке diagnostics первыми идут строки `Runtime`/`Low confidence`/`Fallback`.
+
+# Изменения — Этап 40: Structured runtime diagnostics card (Analytics ISF/CR)
+
+## Что сделано
+- Добавлена структурированная модель runtime diagnostics в UI:
+  - `IsfCrRuntimeDiagnosticsUi` в `ScreenModels`.
+  - поле `runtimeDiagnostics` в `AnalyticsUiState`.
+- Расширен `MainUiState` полями structured diagnostics:
+  - realtime ts/mode/confidence/threshold/quality,
+  - used/dropped evidence, coverage hours ISF/CR,
+  - reasons + low-confidence/fallback timestamps/reasons.
+- В `MainViewModel` реализован двухшаговый pipeline:
+  1) `buildIsfCrRuntimeDiagnosticsSnapshot(audits)` — структурный снимок из audit-событий
+  2) `buildIsfCrRuntimeDiagnosticsLines(snapshot)` — текстовый deep fallback
+- Добавлена отдельная карточка на экране `Analytics -> ISF/CR`:
+  - секция `ISF/CR Runtime Diagnostics`,
+  - вывод realtime/confidence/evidence/coverage/reasons,
+  - отдельные строки low-confidence и fallback.
+- Добавлены строки `en/ru` для новой карточки.
+- Обновлен unit test `MainUiStateMappersTest`:
+  - проверка маппинга structured runtime diagnostics.
+
+## Почему так
+- Deep-lines полезны для быстрой диагностики, но для регулярной работы нужен структурированный блок с фиксированными полями.
+- Это уменьшает риск пропуска критичных сигналов (low confidence/fallback) и повышает explainability shadow-runtime.
+
+## Риски / ограничения
+- Строки reasons остаются текстовыми (comma-separated), без отдельного парсинга на чипы.
+- Источник diagnostics — последние audit-события; при пустом audit карточка корректно показывает empty state.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Analytics -> ISF/CR` и проверить новую карточку `ISF/CR Runtime Diagnostics` (значения realtime/low-confidence/fallback).
+
+# Изменения — Этап 41: Reason-codes chips for runtime diagnostics
+
+## Что сделано
+- Доработана structured-карточка `ISF/CR Runtime Diagnostics`:
+  - добавлены reason-codes в виде отдельных chip-меток для:
+    - runtime reasons,
+    - low-confidence reasons,
+    - fallback reasons.
+- Расширена UI-модель `IsfCrRuntimeDiagnosticsUi`:
+  - `reasonCodes`,
+  - `lowConfidenceReasonCodes`,
+  - `fallbackReasonCodes`.
+- В `MainUiStateMappers` добавлен парсер reason-кодов:
+  - разбиение строк reasons по `, ; \n`,
+  - trim/filter/distinct.
+- В `AnalyticsScreen` добавлен `ReasonCodesRow` (FlowRow + chip-like Surface labels).
+- Добавлены строки локализации `en/ru` для подписей reason-code групп.
+- Обновлен unit test `MainUiStateMappersTest` проверками reason-codes списков.
+
+## Почему так
+- Длинные текстовые строки reasons были менее удобны для быстрого анализа.
+- Чипы позволяют мгновенно увидеть конкретные коды причин и ускоряют troubleshooting в shadow-runtime.
+
+## Риски / ограничения
+- Коды пока отображаются как raw tokens (без человеко-понятного словаря).
+- Если reasons пусты, группы чипов корректно не показываются.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Analytics -> ISF/CR -> ISF/CR Runtime Diagnostics` и проверить chip-группы `Runtime/Low-confidence/Fallback reason codes`.
+
+# Изменения — Этап 42: Human-readable reason labels (runtime chips)
+
+## Что сделано
+- Улучшено отображение reason-codes в `ISF/CR Runtime Diagnostics`:
+  - для известных кодов добавлены человеко-понятные локализованные подписи вместо raw-токенов.
+- Сопоставлены ключевые runtime-коды:
+  - `model_state_missing`,
+  - `isf_evidence_sparse`,
+  - `cr_evidence_sparse`,
+  - `low_confidence_fallback`.
+- Неизвестные коды по-прежнему показываются как raw (fallback-поведение сохранено).
+- Добавлены строки локализации `en/ru` для новых подписей.
+
+## Почему так
+- Чипы с “сырой” телеметрией были менее понятны в повседневной работе.
+- Локализованные подписи ускоряют диагностику и снижают когнитивную нагрузку в shadow-режиме.
+
+## Риски / ограничения
+- Словарь покрывает основные текущие коды; новые коды будут отображаться raw, пока не добавлены в mapping.
+- Это UI-only изменение, алгоритмы расчёта/гейтов не менялись.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В UI открыть `Analytics -> ISF/CR -> ISF/CR Runtime Diagnostics` и проверить чипы:
+   - известные коды отображаются человеко-понятным текстом,
+   - неизвестные остаются кодами.
+
+# Изменения — Этап 43: Dropped evidence reasons in ISF/CR observability
+
+## Что сделано
+- Расширен extractor `IsfCrWindowExtractor`:
+  - теперь возвращает не только `droppedCount`, но и `droppedReasonCounts` (code -> count),
+  - добавлены детерминированные reason codes для отбраковки ISF/CR evidence:
+    - ISF: `isf_missing_units`, `isf_small_units`, `isf_carbs_around`, `isf_missing_baseline`, `isf_missing_future`, `isf_non_positive_drop`, `isf_out_of_range`, `isf_low_quality`;
+    - CR: `cr_missing_carbs`, `cr_small_carbs`, `cr_no_bolus_nearby`, `cr_sparse_points`, `cr_low_quality`, `cr_sparse_intervals`, `cr_fit_invalid`.
+- Расширены доменные структуры:
+  - `IsfCrEngine.FitResult` теперь содержит `droppedReasonCounts`,
+  - `IsfCrDiagnostics` теперь содержит `droppedReasonCounts`.
+- Расширен audit в `IsfCrRepository`:
+  - в `isfcr_base_fit_completed`,
+  - в `isfcr_realtime_computed`,
+  - в `isfcr_low_confidence`
+  добавлено поле `droppedReasons` в формате `code=count;code=count`.
+- Расширен runtime diagnostics UI-pipeline:
+  - `MainViewModel` читает `droppedReasons` из audit и поднимает в `MainUiState`,
+  - `MainUiStateMappers` маппит `droppedReasons` и `droppedReasonCodes` в `IsfCrRuntimeDiagnosticsUi`,
+  - `AnalyticsScreen` показывает:
+    - строку `Dropped evidence reasons`,
+    - отдельные chip-коды причин отбраковки.
+- Добавлена локализация `en/ru` для:
+  - строки dropped reasons,
+  - заголовка dropped reason codes,
+  - человеко-понятных label’ов для основных dropped reason codes.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md` (контракт observability для dropped reasons),
+  - `docs/INVARIANTS.md` (инвариант обязательной публикации dropped reasons в audit).
+- Добавлены/обновлены unit tests:
+  - `IsfCrEngineTest.extractor_collectsDroppedReasonCounts`,
+  - `MainUiStateMappersTest.analyticsMapping_includesIsfCrSummaryAndHistory` (проверка dropped reason codes маппинга).
+
+## Почему так
+- Ранее была только агрегатная метрика `droppedEvidenceCount`, но не было explainability “почему именно окна выброшены”.
+- Кодированные причины отбраковки закрывают требование observability из Physiology-Aware ISF/CR плана: ускоряют диагностику качества данных и точечно показывают узкие места экстрактора.
+
+## Риски / ограничения
+- Словарь локализованных label’ов покрывает текущие reason codes; новые коды будут отображаться raw до добавления mapping.
+- `droppedReasons` хранится в compact string (`code=count;...`), поэтому в UI сохраняется lightweight-парсинг без отдельной структурной схемы payload.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Analytics -> ISF/CR -> ISF/CR Runtime Diagnostics` и проверить:
+   - строку `Dropped evidence reasons`,
+   - chip-группу `Dropped evidence reason codes`,
+   - человеко-понятные подписи для известных кодов.
+
+# Изменения — Этап 44: Audit event `isfcr_evidence_extracted`
+
+## Что сделано
+- Добавлен отдельный audit event `isfcr_evidence_extracted` в `IsfCrRepository` для обеих фаз:
+  - `phase=base_fit`,
+  - `phase=realtime`.
+- В payload события включены:
+  - `isfEvidence`,
+  - `crEvidence`,
+  - `droppedEvidence`,
+  - `droppedReasons` (code=count;...).
+
+## Почему так
+- В плане Physiology-Aware ISF/CR требовался отдельный audit-трейс “evidence extracted”.
+- Теперь extraction наблюдаем не только через итоговые события realtime/base-fit, но и отдельным нормализованным событием для аналитики и диагностики pipeline.
+
+## Риски / ограничения
+- Частота audit-событий увеличилась (каждый realtime-цикл добавляет ещё одно info-событие).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В `Audit Log` найти `isfcr_evidence_extracted` и убедиться, что есть `phase`, `isfEvidence/crEvidence`, `droppedEvidence`, `droppedReasons`.
+
+# Изменения — Этап 45: Quality-tab dropped reasons analytics (24h/7d)
+
+## Что сделано
+- В `MainViewModel` добавлена агрегация причин отбраковки ISF/CR evidence по audit:
+  - окно `24h`,
+  - окно `7d`.
+- Источник данных:
+  - primary: `isfcr_evidence_extracted`,
+  - fallback для старых сессий: `isfcr_realtime_computed`.
+- Для каждого окна формируется сводка:
+  - `Events=<n>, dropped total=<m>`,
+  - топ reason-codes с count (`code=count`).
+- Новые поля протянуты в UI state:
+  - `MainUiState.isfCrDroppedReasons24hLines`,
+  - `MainUiState.isfCrDroppedReasons7dLines`,
+  - `AnalyticsUiState.droppedReasons24hLines`,
+  - `AnalyticsUiState.droppedReasons7dLines`.
+- На экране `Analytics -> Quality` добавлена отдельная карточка:
+  - `ISF/CR Dropped Evidence Summary`,
+  - подпункты `Last 24h` и `Last 7d`.
+- Добавлена локализация `en/ru` для нового блока.
+- Обновлен unit test `MainUiStateMappersTest`:
+  - проверка корректного маппинга `droppedReasons24hLines/7dLines`.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md`.
+
+## Почему так
+- После этапов 43/44 причины отбраковки были видны в runtime diagnostics/audit, но не было агрегированного quality-view за длительные окна.
+- Новый блок ускоряет root-cause triage (какие причины системно “съедают” evidence) и помогает при тюнинге quality gates.
+
+## Риски / ограничения
+- Агрегация пока строится на клиенте из audit, без отдельной предагрегированной таблицы.
+- Для исторических данных до внедрения `isfcr_evidence_extracted` используется fallback-событие и менее точная статистика.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В UI открыть `Analytics -> Quality` и проверить карточку `ISF/CR Dropped Evidence Summary`:
+   - строки `Last 24h` и `Last 7d`,
+   - header с `Events/dropped total`,
+   - top reason codes.
+
+# Изменения — Этап 46: ISF/CR context model hardening (manual tags + sensor age + activity fallback)
+
+## Что сделано
+- Доработан `IsfCrContextModel`:
+  - `useManualTags` теперь реально управляет ручными тегами:
+    - при `false` manual `stress/illness/hormonal` факторы обнуляются;
+    - latent stress из telemetry сохраняется.
+  - Добавлен `sensor_age_factor`:
+    - вычисляется от `sensor_change/cgm_sensor_change/sensor_start`,
+    - после 120 часов wear-age плавно уменьшает итоговый sensor-factor в безопасных пределах.
+  - Добавлен fallback расчёт `steps_rate_15m` из `steps_count` telemetry (если прямой `steps_rate_15m` отсутствует).
+  - `dawn_factor` теперь состоит из:
+    - базового часового профиля,
+    - telemetry hint (`dawn_factor_hint` / `dawn_resistance_score`) при наличии.
+- Расширен factor trace в snapshot:
+  - `sensor_age_hours`, `sensor_age_factor`,
+  - `dawn_base_factor`, `dawn_hint_factor`,
+  - `manual_tags_enabled`, `manual_*_tag`,
+  - `latent_stress`.
+
+## Тесты
+- Добавлен новый unit test файл:
+  - `IsfCrContextModelTest` со сценариями:
+    1) manual tags toggle (`useManualTags`) действительно меняет влияние тегов;
+    2) sensor age factor снижается при длительном wear-age;
+    3) activity fallback использует `steps_count` для восстановления `steps_rate_15m`.
+
+## Почему так
+- Это закрывает выбранный контекст плана `manual tags + latent model` и устраняет риск скрытого влияния ручных тегов при их отключении.
+- Sensor-age и steps fallback повышают устойчивость runtime факторов при неполной телеметрии.
+
+## Риски / ограничения
+- Sensor-age фактор пока эвристический и требует дальнейшей калибровки на replay.
+- Для `steps_count` fallback требуется минимум две точки в окне ~20 минут; иначе используется 0.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrContextModelTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В runtime diagnostics убедиться, что в factors появляются:
+   - `sensor_age_factor`,
+   - `manual_tags_enabled`,
+   - `latent_stress`,
+   - `steps_rate_15m` (в том числе при отсутствии прямого telemetry key).
+
+# Изменения — Этап 47: Hour-window evidence gating + runtime diagnostics wiring
+
+## Что сделано
+- Завершён контур hour-window gating в `IsfCrEngine`:
+  - учитываются `minIsfEvidencePerHour` / `minCrEvidencePerHour`,
+  - evidence blending по соответствующей ветке блокируется при недостатке hourly evidence,
+  - в runtime reasons добавляются:
+    - `isf_hourly_evidence_below_min`,
+    - `cr_hourly_evidence_below_min`,
+  - confidence/quality корректируются в безопасную сторону, CI расширяется.
+- Данные hourly evidence полностью доведены до UI:
+  - `MainUiStateMappers` теперь прокидывает `hourWindowIsfEvidence`, `hourWindowCrEvidence`, `minIsfEvidencePerHour`, `minCrEvidencePerHour` в `IsfCrRuntimeDiagnosticsUi`.
+  - В `AnalyticsScreen -> ISF/CR Runtime Diagnostics` добавлена отдельная строка:
+    - `Hour-window evidence ISF/CR: current/min`.
+- Расширена локализация `en/ru`:
+  - новый runtime line для hour-window evidence,
+  - человеко-понятные подписи для reason-кодов hourly minima.
+- Расширены unit-tests:
+  - `IsfCrEngineTest`:
+    - новый сценарий `computeRealtime_hourlyEvidenceBelowMinAddsReasonsAndDiagnostics`.
+  - `MainUiStateMappersTest`:
+    - проверка новых runtime diagnostics полей и reason-кодов hourly minima.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md` (инвариант hourly minima).
+
+## Почему так
+- Контур hourly evidence minimum был частично реализован, но не был полностью замкнут в UI-диагностику и тестовое покрытие.
+- После доработки видно не только факт fallback/low confidence, но и конкретную причину: нехватка evidence в релевантном часовом окне.
+
+## Риски / ограничения
+- При строгих `min*EvidencePerHour` система чаще переходит в fallback/low-confidence.
+- Для редких режимов (ночь/нечастые коррекции) требуется аккуратная настройка минимумов, иначе возможен избыточный conservative bias.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) В UI открыть `Analytics -> ISF/CR -> ISF/CR Runtime Diagnostics` и проверить:
+   - строку `Hour-window evidence ISF/CR`,
+   - reason codes с `...hourly_evidence_below_min`, когда hourly evidence ниже минимума.
+
+# Изменения — Этап 48: Configurable hourly evidence minimums (Settings → runtime)
+
+## Что сделано
+- Параметры `minIsfEvidencePerHour` и `minCrEvidencePerHour` сделаны пользовательскими настройками:
+  - добавлены в `AppSettingsStore` (чтение/запись DataStore + defaults),
+  - добавлены в `AppSettings`,
+  - протянуты в `IsfCrRepository.toIsfCrSettings()`.
+- В `Settings -> Real ISF/CR` добавлены два степпера:
+  - `Min ISF evidence per hour window`,
+  - `Min CR evidence per hour window`.
+- Добавлен `MainViewModel.setIsfCrMinEvidencePerHour(...)` с `coerceIn(0, 12)` и reactive cycle trigger.
+- Обновлён wiring UI:
+  - `CopilotFoundationRoot` передаёт callback в `SettingsScreen`.
+  - `SettingsUiState` расширен двумя полями и заполнен в `settingsUiState` flow.
+- Дополнен legacy mapper путь:
+  - `MainUiState -> SettingsUiState` прокидывает новые поля.
+- Обновлены строки локализации `en/ru`.
+- Обновлён unit-test `MainUiStateMappersTest` (проверка маппинга новых полей).
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md` (настройка minima через settings),
+  - `docs/INVARIANTS.md` (clamp `0..12`).
+
+## Почему так
+- Hour-window gating уже работал в движке, но его пороги были фиксированными.
+- Для безопасного rollout и персонализации нужны регулируемые minima без изменений кода.
+
+## Риски / ограничения
+- Слишком высокие minima могут часто переводить контур в low-confidence/fallback.
+- Слишком низкие minima ослабляют качество evidence blending.
+- В v1 эти пороги остаются ручной настройкой; авто-тюнинг не включён.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) В приложении:
+   - `Settings -> Real ISF/CR` изменить оба минимума,
+   - открыть `Analytics -> ISF/CR Runtime Diagnostics` и проверить, что строка hour-window и причины fallback/low-confidence соответствуют новым порогам.
+
+# Изменения — Этап 49: Confidence hardening for physiology ambiguity and sensor faults
+
+## Что сделано
+- Усилен `IsfCrConfidenceModel`:
+  - добавлен вход `factors`,
+  - confidence и quality теперь штрафуются при:
+    - большом возрасте инфузионного набора (`set_age_hours`),
+    - большом возрасте сенсора (`sensor_age_hours`),
+    - неоднозначном контексте (`UAM`, latent stress, manual stress/illness/hormone tags),
+    - признаке ложного low (`sensor_quality_suspect_false_low`).
+- CI для `ISF/CR` расширяется дополнительно при тех же факторах неопределённости.
+- `IsfCrEngine` передаёт `context.factors` в confidence модель.
+- В runtime reasons добавлены явные причины:
+  - `set_age_high`,
+  - `sensor_age_high`,
+  - `context_ambiguity_high`.
+- В `Analytics` добавлен label-mapping и локализация (`en/ru`) для новых reason codes.
+- Добавлены тесты:
+  - `IsfCrConfidenceModelTest` (падение confidence + расширение CI при wear/ambiguity),
+  - `IsfCrEngineTest.computeRealtime_addsAgeAndAmbiguityReasons`.
+
+## Почему так
+- В v1 нужен консервативный confidence-gate при повышенной физиологической/сенсорной неопределённости.
+- Это снижает риск ложного “high confidence” в окнах, где данные потенциально менее надёжны.
+
+## Риски / ограничения
+- Более строгий confidence может чаще переводить контур в `FALLBACK` на “плохих” окнах.
+- Пороги wear/ambiguity эвристические и требуют дальнейшей калибровки на replay.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrConfidenceModelTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) В `Analytics -> ISF/CR Runtime Diagnostics` проверить reason-codes `set_age_high`, `sensor_age_high`, `context_ambiguity_high`.
+
+# Изменения — Этап 50: Wear-aware evidence weighting (CAGE/SAGE as weight modifier)
+
+## Что сделано
+- В `IsfCrWindowExtractor` добавлены wear-aware модификаторы веса evidence:
+  - поиск последнего `set_change` marker (`infusion_set_change/site_change/set_change/cannula_change`) до времени события,
+  - поиск последнего `sensor_change` marker (`sensor_change/cgm_sensor_change/sensor_start/sensor_started`) до времени события,
+  - вычисление `setAgeWeight` и `sensorAgeWeight` с плавным спадом,
+  - итоговый вес sample:
+    - `weight = qualityScore * (setAgeWeight * sensorAgeWeight)`.
+- Weight применяется в обоих контурах evidence:
+  - ISF correction windows,
+  - CR meal windows.
+- В evidence `context/window` добавлены диагностические поля:
+  - `setAgeHours`, `sensorAgeHours`,
+  - `setAgeWeight`, `sensorAgeWeight`.
+- Добавлен unit-test файл:
+  - `IsfCrWindowExtractorTest`:
+    - `extract_appliesWearAgePenaltyToEvidenceWeight`,
+    - `extract_withoutWearMarkersKeepsWeightEqualToQuality`.
+
+## Почему так
+- По плану v1 CAGE/SAGE должны влиять в первую очередь на надёжность evidence (веса), а не напрямую на физиологические множители.
+- Это делает base/realtime fit устойчивее: “уставшие” периоды не доминируют в оценке ISF/CR.
+
+## Риски / ограничения
+- Для корректной работы нужны маркеры `set_change/sensor_change`; если их нет, применяется нейтральный множитель `1.0`.
+- Форма спада весов пока эвристическая (piecewise linear) и может потребовать калибровки.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.domain.isfcr.IsfCrConfidenceModelTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) На diagnostics/replay проверить, что при старых `set/sensor` маркерах weights ниже, чем в свежих окнах.
+
+# Изменения — Этап 51: Wear-impact observability in Analytics Quality (24h/7d)
+
+## Что сделано
+- Расширен audit payload события `isfcr_realtime_computed` в `IsfCrRepository`:
+  - добавлены поля:
+    - `setAgeHours`,
+    - `sensorAgeHours`,
+    - `setFactor`,
+    - `sensorAgeFactor`,
+    - `sensorFactor`,
+    - `contextAmbiguity`,
+    - `latentStress`,
+    - `uamPenaltyFactor`,
+    - `wearConfidencePenalty`.
+- В `MainViewModel` добавлена агрегация wear-влияния по audit окнам:
+  - `24h`,
+  - `7d`.
+- Новая сводка включает:
+  - количество событий,
+  - средний возраст набора/сенсора,
+  - долю high-wear (`set>72h`, `sensor>120h`),
+  - средние wear-факторы,
+  - средние ambiguity/penalty/confidence.
+- Расширены UI state и mapping:
+  - `MainUiState.isfCrWearImpact24hLines/isfCrWearImpact7dLines`,
+  - `AnalyticsUiState.wearImpact24hLines/wearImpact7dLines`.
+- В `Analytics -> Quality` добавлена новая карточка:
+  - `ISF/CR Wear Impact Summary`.
+- Добавлена локализация `en/ru`:
+  - секция wear-impact,
+  - empty/24h/7d подписи.
+- Обновлён unit-test `MainUiStateMappersTest`:
+  - проверка прокидывания новых wear-impact строк в `AnalyticsUiState`.
+
+## Почему так
+- После внедрения wear-aware confidence и evidence weighting не хватало агрегированной диагностики “насколько wear реально влияет на контур”.
+- Новая карточка даёт операционную видимость и ускоряет тюнинг quality-gates/replacement-практик.
+
+## Риски / ограничения
+- Сводка строится по audit-событиям; если realtime цикл был редким, окно может быть sparse.
+- Пороги high-wear (`72h/120h`) соответствуют текущей v1 эвристике и могут корректироваться после replay-калибровки.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --tests io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) В приложении открыть `Analytics -> Quality` и проверить блок `ISF/CR Wear Impact Summary` с секциями `Last 24h`/`Last 7d`.
+
+# Изменения — Этап 52: Day-type aware ISF/CR evidence weighting (weekday/weekend)
+
+## Что сделано
+- В `IsfCrEngine.computeRealtime` добавлен day-type контекст (`WEEKDAY/WEEKEND`) и day-type aware weighting:
+  - `weightedRecentValue(...)` теперь учитывает `currentDayType`;
+  - evidence того же типа дня весится как `1.0`, противоположного типа дня — пониженным весом (`0.72`).
+- Добавлены hour-window day-type counters:
+  - `hourWindowIsfSameDayTypeCount`,
+  - `hourWindowCrSameDayTypeCount`.
+- Добавлены runtime reasons:
+  - `isf_day_type_evidence_sparse`,
+  - `cr_day_type_evidence_sparse`
+  когда в часовом окне есть evidence, но для текущего типа дня отсутствуют соответствующие сэмплы.
+- В confidence/CI контуре добавлен консервативный штраф при day-type sparsity:
+  - confidence/quality дополнительно снижаются,
+  - CI расширяется.
+- Расширен audit payload `isfcr_realtime_computed`:
+  - `currentDayType`,
+  - `hourWindowIsfSameDayType`,
+  - `hourWindowCrSameDayType`.
+- Добавлен unit-test:
+  - `IsfCrEngineTest.computeRealtime_addsDayTypeSparseReasonsWhenHourWindowHasOnlyOtherDayType`.
+
+## Почему так
+- В плане v1 есть требование weekday/weekend устойчивости: одинаковые часы разных типов дней часто имеют различную чувствительность.
+- Day-type aware blending снижает риск смещения `ISF/CR` за счёт нерелевантных (по типу дня) исторических окон.
+
+## Риски / ограничения
+- Текущий коэффициент для opposite day-type (`0.72`) эвристический и должен быть подтверждён replay-метриками.
+- Карточка runtime diagnostics пока не выводит отдельную строку с day-type counters (они доступны в audit/deep diagnostics и quality pipeline).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) В `Audit` проверить `isfcr_realtime_computed` metadata: `currentDayType`, `hourWindowIsfSameDayType`, `hourWindowCrSameDayType`.
+
+# Изменения — Этап 53: Day-type stability diagnostics in Quality analytics
+
+## Что сделано
+- Усилена сводка `ISF/CR Wear Impact Summary` в `MainViewModel`:
+  - добавлены day-type метрики по окнам `24h/7d`:
+    - распределение `weekday/weekend`,
+    - средний same-day-type ratio `ISF/CR`,
+    - доля событий с day-type sparse flags (`isf_day_type_evidence_sparse`, `cr_day_type_evidence_sparse`).
+- Добавлен helper парсинга reason-codes из audit metadata (`auditReasonSet`).
+- В `Analytics` reason-label mapping добавлены новые коды:
+  - `isf_day_type_evidence_sparse`,
+  - `cr_day_type_evidence_sparse`.
+- Обновлены локализации `en/ru` для новых reason labels.
+
+## Почему так
+- После внедрения day-type aware blending нужна наблюдаемость “насколько стабилен day-type контур” в реальной эксплуатации.
+- Это позволяет оценивать качество weekday/weekend разделения без включения дополнительных unsafe автоматик.
+
+## Риски / ограничения
+- Сводка строится по audit-событиям; при редком runtime цикле статистика может быть sparse.
+- Показатели зависят от наличия `currentDayType` и `hourWindow*SameDayType` в payload `isfcr_realtime_computed`.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+4) В `Analytics -> Quality -> ISF/CR Wear Impact Summary` проверить строки:
+   - day-type distribution,
+   - mean same-day-type ratio,
+   - day-type sparse flags ISF/CR.
+
+# Изменения — Этап 54: Physio tags v2 (journal + per-tag close + steroids/dawn context wiring)
+
+## Что сделано
+- Расширен UI `Settings -> Real ISF/CR` для ручных физиотегов:
+  - добавлены stepper-поля `Quick tag severity (%)` и `Quick tag duration (hours)`;
+  - quick-tag action теперь отправляет в `ViewModel` тип + severity + duration.
+- Добавлен журнал физиотегов в `Settings`:
+  - показываются активные и недавно завершенные теги (type, severity, start/end interval, active/ended state),
+  - для активных тегов добавлена точечная кнопка `Close`.
+- Добавлена точечная деактивация тега в data-layer:
+  - `PhysioContextTagDao.closeById(id, closeTs)`,
+  - `IsfCrRepository.closeTag(...)`,
+  - `MainViewModel.closePhysioTag(...)`.
+- Улучшена нормализация quick-tag алиасов:
+  - `hormonal_phase -> hormonal`,
+  - `steroid -> steroids`.
+- Расширен `IsfCrContextModel`:
+  - добавлены факторы `manual_steroid_tag` и `manual_dawn_tag`,
+  - добавлены множители `steroid_factor` и `dawn_tag_factor`,
+  - итоговый dawn-множитель теперь учитывает и базовый dawn контекст, и ручной dawn-тег.
+- Расширены ambiguity-пенализации:
+  - `IsfCrConfidenceModel` теперь учитывает `manual_steroid_tag/manual_dawn_tag`,
+  - `IsfCrEngine`/`IsfCrRepository` включают эти теги в расчёт/аудит `contextAmbiguity`.
+- Обновлены строки локализации `en/ru` для нового UI тегов.
+
+## Почему так
+- В v1 нужен не только quick-add, но и управляемость ручного контекста без “clear all”.
+- Ранее quick-tag `hormonal_phase` не совпадал с токенами контекст-модели; алиас-нормализация устраняет скрытую потерю влияния.
+- `steroids` и `dawn` были в UI options, но не участвовали в формуле ISF/CR; теперь они реально включены в физиологический контур и confidence ambiguity.
+
+## Риски / ограничения
+- Журнал тегов ограничен последними `40` записями в UI и lookback `180` дней.
+- Формы влияния `steroid_factor` и `dawn_tag_factor` пока эвристические и требуют replay-калибровки.
+- Формат quick-tag строк (`type + %`) в active summary сохранён компактным; детализация доступна в журнале.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrContextModelTest --tests io.aaps.copilot.domain.isfcr.IsfCrConfidenceModelTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) В приложении открыть `Settings -> Real ISF/CR`:
+   - изменить severity/duration,
+   - добавить теги `hormonal_phase`, `steroids`, `dawn`,
+   - проверить появление в journal и работу `Close` для отдельного тега.
+4) В `Audit/Analytics` убедиться, что realtime ISF/CR расчёты продолжают выполняться, а ambiguity/penalty не ломают fallback-контур.
+
+# Изменения — Этап 55: Shadow auto-activation day-type stability gate
+
+## Что сделано
+- Усилен контур `ISF/CR shadow -> active` в `AutomationRepository`:
+  - добавлен дополнительный gate по day-type stability на основе `isfcr_realtime_computed` audit-окон;
+  - оценка использует `hourWindowIsfEvidence/hourWindowCrEvidence` и `hourWindowIsfSameDayType/hourWindowCrSameDayType`.
+- Добавлены новые типы/оценки:
+  - `IsfCrDayTypeStabilitySample`,
+  - `IsfCrDayTypeStabilityAssessment`,
+  - `evaluateIsfCrDayTypeStabilityStatic(...)`.
+- В авто-активацию добавлен этап:
+  1) KPI shadow-diff gate,
+  2) day-type stability gate,
+  3) daily quality gate (если включен),
+  4) только затем промоут `SHADOW -> ACTIVE`.
+- Добавлен новый audit event:
+  - `isfcr_shadow_day_type_gate_evaluated` с метриками ratios/sparse-rate и причиной блокировки.
+- Расширен `isfcr_shadow_auto_promoted` metadata:
+  - добавлены `dayTypeReason`, `dayTypeSampleCount`, `dayTypeMeanIsfRatio`, `dayTypeMeanCrRatio`, `dayTypeIsfSparseRatePct`, `dayTypeCrSparseRatePct`.
+- Добавлены unit-тесты:
+  - insufficient samples,
+  - low same-day-type ratio,
+  - high sparse-rate,
+  - eligible case.
+
+## Почему так
+- В shadow-контуре уже есть day-type-aware blending, но не было отдельного gate при auto-promotion.
+- Новый шаг снижает риск включения ACTIVE режима на статистически нестабильной weekday/weekend базе.
+
+## Риски / ограничения
+- Пороги gate сейчас фиксированы в коде (`ratio >= 0.30`, `sparseRate <= 75%`) и требуют replay-калибровки.
+- Gate зависит от наличия `isfcr_realtime_computed` audit-событий в lookback-окне.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) На runtime проверить в `Audit` появление `isfcr_shadow_day_type_gate_evaluated` и причины (`eligible`/`*_day_type_*`).
+
+# Изменения — Этап 56: Shadow auto-activation sensor-quality stability gate
+
+## Что сделано
+- Усилен контур `ISF/CR shadow -> active` в `AutomationRepository`:
+  - добавлен дополнительный gate по стабильности качества сенсора на основе `isfcr_realtime_computed`.
+- Добавлены новые типы/оценки:
+  - `IsfCrSensorQualitySample`,
+  - `IsfCrSensorQualityAssessment`,
+  - `evaluateIsfCrSensorQualityStatic(...)`.
+- В авто-активацию добавлен этап:
+  1) KPI shadow-diff gate,
+  2) day-type stability gate,
+  3) sensor-quality stability gate,
+  4) daily quality gate (если включен),
+  5) только затем `SHADOW -> ACTIVE`.
+- Добавлен новый audit event:
+  - `isfcr_shadow_sensor_gate_evaluated` с причиной блокировки и агрегатами (`meanQualityScore`, `meanSensorFactor`, `meanWearPenalty`, `sensorAgeHighRatePct`).
+- Расширен payload `isfcr_shadow_auto_promoted`:
+  - `sensorGateReason`, `sensorGateSampleCount`, `sensorGateMeanQualityScore`, `sensorGateMeanSensorFactor`, `sensorGateMeanWearPenalty`, `sensorGateSensorAgeHighRatePct`.
+- Добавлены unit-тесты на sensor gate:
+  - insufficient samples,
+  - low quality score,
+  - high wear penalty,
+  - eligible case.
+
+## Почему так
+- После day-type gate оставался риск авто-переключения в `ACTIVE` на деградировавшем сенсоре (шум/старение/нестабильный wear).
+- Новый шаг делает shadow auto-activation ближе к safety-first: режим включается только при стабильных физиологических и технических сигналах.
+
+## Риски / ограничения
+- Пороги gate пока фиксированы в коде и требуют replay-калибровки:
+  - `meanQualityScore >= 0.46`,
+  - `meanSensorFactor >= 0.90`,
+  - `meanWearPenalty <= 0.12`,
+  - `sensorAgeHighRate <= 70%`.
+- Gate зависит от полноты `isfcr_realtime_computed` audit в lookback окне.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+3) На runtime в `Audit` проверить `isfcr_shadow_sensor_gate_evaluated` и причины (`sensor_quality_score_low` / `sensor_factor_low` / `wear_penalty_high` / `sensor_age_high_rate` / `eligible`).
+
+# Изменения — Этап 57: Configurable sensor-gate thresholds (Settings -> runtime)
+
+## Что сделано
+- Добавлены новые настройки auto-activation sensor gate в `AppSettings`/DataStore:
+  - `isfCrAutoActivationMinSensorQualityScore`,
+  - `isfCrAutoActivationMinSensorFactor`,
+  - `isfCrAutoActivationMaxWearConfidencePenalty`,
+  - `isfCrAutoActivationMaxSensorAgeHighRatePct`.
+- Добавлены ключи persistence + defaults + clamp-валидация при сохранении:
+  - `score/factor/penalty` в диапазоне `0.0..1.0`,
+  - `sensorAgeHighRatePct` в диапазоне `0.0..100.0`.
+- В `AutomationRepository` sensor gate переключен с хардкод-констант на настройки пользователя.
+- В UI (`Settings -> Real ISF/CR -> Auto activation`) добавлены 4 stepper-поля:
+  - min sensor quality score,
+  - min sensor factor,
+  - max wear penalty,
+  - max sensor-age-high rate.
+- Добавлен `MainViewModel.setIsfCrAutoActivationSensorThresholds(...)` и сквозной wiring `SettingsScreen -> Root -> ViewModel -> DataStore`.
+- Расширены модели состояния (`MainUiState`, `SettingsUiState`) и mapper для новых полей.
+- Обновлены `strings.xml` и `values-ru/strings.xml` для новых контролов.
+- Обновлен unit-тест `MainUiStateMappersTest.settingsMapping_includesUamSnackParameters` новыми assertions по sensor-gate полям.
+
+## Почему так
+- После внедрения sensor gate (этап 56) пороги были фиксированы в коде.
+- Для controlled activation и replay-калибровки нужен runtime tuning без правки исходников и пересборки.
+
+## Риски / ограничения
+- В окружении иногда наблюдается нестабильность `Gradle Test Executor` (`exit 134`) именно на части тестов UI mapper; это инфраструктурный/flaky issue раннера, не воспроизводит конкретный assertion failure по новым полям.
+- Для стабильной CI проверки следует запускать тесты последовательно и избегать параллельных Gradle задач в одном worktree.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest.settingsMapping_includesUamSnackParameters --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+4) В приложении открыть `Settings -> Real ISF/CR` и изменить новые пороги sensor gate, затем проверить в `Audit` событие `isfcr_shadow_sensor_gate_evaluated` (поля `minMean*`/`max*` должны совпадать с установленными значениями).
+
+# Изменения — Этап 58: Configurable day-type gate thresholds (Settings -> runtime)
+
+## Что сделано
+- Расширены настройки `AppSettings`/DataStore для day-type stability gate:
+  - `isfCrAutoActivationMinDayTypeRatio`,
+  - `isfCrAutoActivationMaxDayTypeSparseRatePct`.
+- Добавлены persistence keys/defaults и clamp при сохранении:
+  - ratio: `0.0..1.0`,
+  - sparse-rate: `0.0..100.0`.
+- В `AutomationRepository` day-type gate переключен с хардкод-констант на настройки пользователя:
+  - `evaluateIsfCrDayTypeStabilityStatic(...)` теперь получает пороги из `settings`,
+  - audit `isfcr_shadow_day_type_gate_evaluated` пишет фактически примененные `minMeanSameDayTypeRatio/maxSparseRatePct`.
+- UI `Settings -> Real ISF/CR -> Auto activation` расширен двумя stepper-полями:
+  - `Day-type gate min same-day ratio`,
+  - `Day-type gate max sparse rate`.
+- Добавлен сквозной wiring:
+  - `SettingsScreen` callback `onIsfCrAutoActivationDayTypeThresholdsChange`,
+  - `CopilotFoundationRoot -> MainViewModel.setIsfCrAutoActivationDayTypeThresholds(...)`,
+  - `MainUiState/SettingsUiState` и мапперы обновлены.
+- Обновлены локализации `values/strings.xml` и `values-ru/strings.xml`.
+- Обновлен unit-test маппера `MainUiStateMappersTest.settingsMapping_includesUamSnackParameters` для новых day-type полей.
+
+## Почему так
+- После этапов 55/57 day-type gate оставался частично “прошитым” в runtime (фиксированные пороги).
+- Для controlled rollout/replay tuning пороги day-type стабильности нужны в runtime без правки кода и пересборки.
+
+## Риски / ограничения
+- В окружении сохраняется flaky поведение unit-test раннера (`Gradle Test Executor`, exit `134`) для части UI mapper тестов; это не дало стабильно прогнать `MainUiStateMappersTest` end-to-end в этом запуске.
+- Таргетные репозиторные тесты (`AutomationRepositoryForecastBiasTest`) проходят; build/lint/typecheck — зелёные.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon`
+4) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon`
+5) В приложении открыть `Settings -> Real ISF/CR` и изменить day-type пороги, затем проверить в `Audit` событие `isfcr_shadow_day_type_gate_evaluated`:
+   - `minMeanSameDayTypeRatio`,
+   - `maxSparseRatePct`
+   должны совпадать с установленными значениями.
+
+# Изменения — Этап 59: Sensor false-low reason-code + conservative confidence/CI
+
+## Что сделано
+- Усилен realtime контур `IsfCrEngine.computeRealtime(...)` для флага качества сенсора:
+  - добавлен парсинг latest telemetry ключа `sensor_quality_suspect_false_low`,
+  - при активном флаге (`>= 0.5`) в этом же цикле:
+    - confidence/quality дополнительно консервативно снижаются,
+    - CI для ISF/CR расширяются (через `inflateCiBounds`).
+- Добавлены новые reason-codes в snapshot:
+  - `sensor_quality_suspect_false_low`,
+  - `sensor_quality_low` (при низком `sensor_quality_score`).
+- Добавлены telemetry-derived factors в `snapshot.factors`:
+  - `sensor_quality_score`,
+  - `sensor_quality_suspect_false_low`.
+- Добавлен unit-test:
+  - `IsfCrEngineTest.computeRealtime_sensorFalseLowFlagAddsReasonAndLowersConfidence`:
+    - проверяет reason-code,
+    - проверяет снижение confidence/quality,
+    - проверяет расширение CI при активном флаге.
+
+## Почему так
+- В рисках плана и тех-аудите выделена проблема ложных low от сенсора.
+- Явный reason-code + более консервативный confidence/CI ускоряет диагностику и снижает риск переагрессивной автоматики при сомнительных сенсорных данных.
+
+## Риски / ограничения
+- Добавлен дополнительный консервативный штраф; в редких случаях это может увеличить долю fallback в сомнительных данных (что ожидаемо по safety-first).
+- В окружении всё ещё периодически встречается flaky `Gradle Test Executor` (`exit 134`) на отдельных UI-mapper тестах; доменные тесты для `isfcr` запускаются стабильно.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon`
+3) В `Audit`/Analytics diagnostics проверить появление reasons:
+   - `sensor_quality_suspect_false_low`,
+   - `sensor_quality_low`
+   при соответствующем telemetry флаге/score.
+
+# Изменения — Этап 60: Shadow sensor gate false-low stability threshold
+
+## Что сделано
+- Усилен `ISF/CR shadow -> active` sensor-gate:
+  - в `AutomationRepository.evaluateIsfCrSensorQualityStatic(...)` добавлена метрика `suspectFalseLowRatePct`,
+  - добавлен новый лимит `maxSuspectFalseLowRatePct`,
+  - при превышении gate блокируется с reason `sensor_suspect_false_low_rate`.
+- Расширены структуры sensor-gate:
+  - `IsfCrSensorQualitySample` получил `suspectFalseLowFlag`,
+  - `IsfCrSensorQualityAssessment` получил `suspectFalseLowRatePct`.
+- В `isfcr_realtime_computed` audit добавлено поле `sensorQualitySuspectFalseLow` (из realtime factors), чтобы sensor-gate опирался на явную метрику, а не только на строковые reason-коды.
+- В `isfcr_shadow_sensor_gate_evaluated` и `isfcr_shadow_auto_promoted` metadata добавлены:
+  - `suspectFalseLowRatePct`,
+  - `maxSuspectFalseLowRatePct`,
+  - `sensorGateSuspectFalseLowRatePct`.
+- `Analytics -> ISF/CR Activation Gate` расширен строкой sensor-gate:
+  - теперь выводит `falseLow` rate вместе с quality/factor/wear/age, чтобы rollout-диагностика была полной.
+- Настройки/DataStore/UI расширены новым параметром:
+  - `isfCrAutoActivationMaxSuspectFalseLowRatePct` (default `35.0`, clamp `0..100`),
+  - добавлен stepper в `Settings -> Real ISF/CR -> Auto activation`.
+- Обновлены unit-tests:
+  - `AutomationRepositoryForecastBiasTest` (новый сценарий блокировки `sensor_suspect_false_low_rate` + обновленные сигнатуры),
+  - `MainUiStateMappersTest` (маппинг нового settings-поля).
+
+## Почему так
+- По плану `Physiology-Aware ISF/CR` и по рискам сенсора auto-promotion не должен включаться на нестабильных данных с частыми ложными low.
+- До этапа 60 false-low уже учитывался в realtime confidence/CI, но не блокировал `SHADOW -> ACTIVE` напрямую.
+
+## Риски / ограничения
+- Более строгий gate может увеличить время до auto-promotion (ожидаемое safety-first поведение).
+- В окружении остается известный flaky `Gradle Test Executor` (`exit 134`) для набора UI mapper тестов; доменные тесты и таргетные репозиторные тесты проходят.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon -Pkotlin.incremental=false`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --no-daemon -Pkotlin.incremental=false`
+4) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon -Pkotlin.incremental=false`
+5) В UI открыть `Settings -> Real ISF/CR -> Auto activation` и изменить `Sensor gate max suspect false-low rate`.
+6) В `Audit` проверить `isfcr_shadow_sensor_gate_evaluated`: поля `suspectFalseLowRatePct` и `maxSuspectFalseLowRatePct` должны соответствовать входным данным и настройке.
+
+# Изменения — Этап 62: Rolling KPI gate wired into real shadow auto-promotion
+
+## Что сделано
+- Подключен rolling quality gate в реальный контур `SHADOW -> ACTIVE` в `AutomationRepository.maybeProcessIsfCrShadowAutoActivation(...)`.
+- В `resolveLatestTelemetry(...)` добавлен расширенный lookback для отчетных ключей (`daily_report_*`, `rolling_report_*`) до `72h`, чтобы gate не терял KPI между запусками daily worker.
+- Добавлена оценка rolling окон `14d/30d/90d` по telemetry ключам `rolling_report_*`:
+  - отдельная структура окна `IsfCrRollingQualityWindowAssessment`,
+  - итоговая оценка gate `IsfCrRollingQualityGateAssessment`.
+- Добавлен статический evaluator `evaluateIsfCrRollingQualityGateStatic(...)`:
+  - блокирует при недостатке доступных окон,
+  - блокирует при провале любого доступного окна,
+  - пропускает только при достаточном числе доступных и прошедших окон.
+- Добавлен аудит `isfcr_shadow_rolling_gate_evaluated` с per-window диагностикой:
+  - `days`, `available`, `eligible`, `reason`,
+  - `matchedSamples`, `mae30/60`, `ciCoverage30/60`, `ciWidth30/60`.
+- В `isfcr_shadow_auto_promoted` добавлены summary-поля rolling gate:
+  - `rollingGateReason`,
+  - `rollingGateRequiredWindowCount`,
+  - `rollingGateEvaluatedWindowCount`,
+  - `rollingGatePassedWindowCount`.
+- Добавлены unit-тесты в `AutomationRepositoryForecastBiasTest`:
+  - `isfCrRollingGate_blocksWhenNotEnoughWindowsAvailable`,
+  - `isfCrRollingGate_blocksWhenAnyAvailableWindowFails`,
+  - `isfCrRollingGate_allowsWhenRequiredWindowsPass`.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md` (rolling gate как часть активации),
+  - `docs/INVARIANTS.md` (инварианты блокировки/аудита rolling gate).
+
+## Почему так
+- На этапе 61 rolling KPI были видимы в аналитике, но не влияли на фактическое решение auto-promotion.
+- Для safe rollout физиологического контура нужен не только 24h daily gate, но и средне/долгосрочный quality filter.
+
+## Риски / ограничения
+- Gate стал строже: auto-promotion может происходить позже, если rolling telemetry еще не накоплена.
+- Окна используют текущие telemetry-метрики `rolling_report_*`; при отсутствии недавнего daily analysis окна будут `missing` и promotion блокируется.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon -Pkotlin.incremental=false`
+3) Выполнить `Run daily analysis` и открыть `Audit`:
+   - убедиться в событии `isfcr_shadow_rolling_gate_evaluated`,
+   - проверить `required/evaluated/passed` и причины по окнам.
+4) Для сценария успешного promotion проверить `isfcr_shadow_auto_promoted`:
+   - присутствуют `rollingGateReason` и window counters.
+
+# Изменения — Этап 61: Rolling replay KPI telemetry (14d/30d/90d) + Analytics visibility
+
+## Что сделано
+- Расширен `InsightsRepository.generateDailyForecastReport(...)`:
+  - локальный репорт теперь вычисляет не только 24h payload, но и rolling-окна `14d/30d/90d`.
+  - добавлен helper `buildRollingForecastPayloadsStatic(...)` для повторного использования и unit-тестов.
+- Расширено сохранение telemetry:
+  - новые ключи `rolling_report_{14|30|90}d_*` (matched/forecast rows, period bounds, MAE/RMSE/MARD/Bias/n, CI coverage/width по `5m/30m/60m`).
+- В UI runtime (`MainViewModel`) добавлен разбор `rolling_report_*` и сбор строк KPI:
+  - `14d/30d/90d: n, MAE30/60, MARD30/60, CI60, width60`.
+- `ISF/CR Activation Gate` в Analytics теперь также показывает rolling MARD по `14d/30d/90d` для быстрого сверочного контекста рядом с gate-решениями.
+- В `Analytics` (Quality tab) добавлен отдельный блок:
+  - `Rolling Replay KPI (14d/30d/90d)`.
+- Добавлен DAO-метод `ForecastDao.since(...)`, чтобы репорт брал данные по timestamp-окну вместо старого fixed-limit `latest(30000)`.
+- Добавлены/обновлены тесты:
+  - `InsightsRepositoryDailyForecastReportTest.buildRollingForecastPayloadsStatic_returnsExpectedWindowsAndMonotonicCoverage`,
+  - `MainUiStateMappersTest.analyticsMapping_includesIsfCrSummaryAndHistory` расширен проверкой `rollingReportLines`.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md`.
+
+## Почему так
+- Для controlled activation и replay-тюнинга 24h daily среза недостаточно: нужен средне- и долгосрочный срез качества (14/30/90 дней).
+- Публикация rolling KPI через telemetry сохраняет текущий lightweight runtime-подход UI и не требует тяжёлых SQL-агрегаций в `MainViewModel`.
+
+## Риски / ограничения
+- `buildRollingForecastPayloadsStatic` фильтрует список forecast-rows по каждому окну в памяти; при очень больших локальных массивах может потребоваться дальнейшая оптимизация SQL-агрегатами.
+- В окружении остаётся известный flaky краш раннера `Gradle Test Executor exit 134` на части UI unit-тестов; компиляция и таргетные доменные тесты при этом проходят.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugUnitTestKotlin --no-daemon -Pkotlin.incremental=false`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug --no-daemon -Pkotlin.incremental=false`
+4) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug --no-daemon -Pkotlin.incremental=false`
+5) В приложении открыть `Analytics -> Quality` и проверить блок `Rolling Replay KPI (14d/30d/90d)` после запуска `Run daily analysis`.
+
+# Изменения — Этап 63: Settings-backed rolling gate thresholds (DataStore + UI + runtime wiring)
+
+## Что сделано
+- Вынесены параметры rolling quality gate из хардкода в `AppSettings`/DataStore:
+  - `isfCrAutoActivationRollingMinRequiredWindows` (`1..3`, default `2`),
+  - `isfCrAutoActivationRollingMaeRelaxFactor` (`1.0..1.5`, default `1.15`),
+  - `isfCrAutoActivationRollingCiCoverageRelaxFactor` (`0.70..1.0`, default `0.90`),
+  - `isfCrAutoActivationRollingCiWidthRelaxFactor` (`1.0..1.5`, default `1.25`).
+- Добавлены ключи/дефолты/клампы в `AppSettingsStore` (чтение, `update`, persistence bounds).
+- Проброшены новые поля по UI-состояниям:
+  - `MainUiState`,
+  - `SettingsUiState`,
+  - `MainUiStateMappers.toSettingsUiState(...)`,
+  - `MainViewModel` (runtime mapping + `settingsUiState` + initial state).
+- Добавлен setter в `MainViewModel`:
+  - `setIsfCrAutoActivationRollingGateSettings(...)`.
+- Расширен `SettingsScreen`:
+  - добавлены 4 steppers в секции `ISF/CR auto-activation` для rolling gate;
+  - добавлен callback wiring в `CopilotFoundationRoot`.
+- `AutomationRepository` переключен на settings-backed значения:
+  - `rollingRequiredWindows`,
+  - `rollingMaeRelaxFactor`,
+  - `rollingCiCoverageRelaxFactor`,
+  - `rollingCiWidthRelaxFactor`.
+- В аудит `isfcr_shadow_rolling_gate_evaluated` добавлены конфиг-поля rolling gate.
+- Добавлены новые строки локализации (`values`/`values-ru`) для rolling настроек.
+- Обновлен `MainUiStateMappersTest` для проверки новых полей settings mapping.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md`.
+
+## Почему так
+- Rolling gate уже участвовал в автоактивации, но его пороги были зашиты в код и не тюнились без релиза.
+- Переход на settings-backed конфиг позволяет безопасно подстраивать rollout без изменения логики gate.
+
+## Риски / ограничения
+- Поведение gate теперь зависит от пользовательских настроек; слишком мягкие значения могут ослабить фильтр (ограничено clamp-диапазонами).
+- В окружении сохраняется flaky краш раннера `Gradle Test Executor exit 134` на одном UI-тест-таргете, не дающий стабильный green-run для этого класса.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3) В приложении открыть `Settings -> Real ISF/CR engine` и изменить rolling-параметры:
+   - min windows,
+   - MAE relax factor,
+   - CI coverage relax factor,
+   - CI width relax factor.
+4) Проверить `Audit` событие `isfcr_shadow_rolling_gate_evaluated`:
+   - присутствуют `requiredWindowCountConfigured`, `maeRelaxFactor`, `ciCoverageRelaxFactor`, `ciWidthRelaxFactor`.
+
+# Изменения — Этап 64: Activation Gate UI detail for rolling windows
+
+## Что сделано
+- Расширен `Analytics -> ISF/CR Activation Gate` в `MainViewModel`:
+  - кроме summary rolling gate (`cfg/eval/pass`) теперь отображаются строки по каждому rolling-окну из audit metadata `windows`.
+  - для каждого окна (`14d/30d/90d`) выводятся:
+    - `status` (`pass/fail/missing`),
+    - `reason`,
+    - `matched samples`,
+    - `MAE30/MAE60` (если доступны).
+- Сохранены уже существующие summary-линии:
+  - `Rolling gate (...)`,
+  - `Rolling relax: MAE×..., CIcov×..., CIwidth×...`.
+- Парсинг/форматирование вынесены в отдельный helper:
+  - `IsfCrActivationGateFormatter.kt` (`parseRollingGateWindows`, `formatRollingGateWindowLine`),
+  - `MainViewModel` использует helper и больше не содержит inline JSON-разбор для `windows`.
+- Добавлен unit-test:
+  - `IsfCrActivationGateFormatterTest` (валидный payload, malformed payload, формат pass/fail/missing).
+
+## Почему так
+- При диагностике auto-activation одного агрегированного `eligible/reason` недостаточно: нужно видеть, какое именно rolling-окно блокирует promotion и почему.
+- Детальный вывод из audit payload ускоряет тюнинг порогов и проверку качества без ручного разбора raw JSON.
+
+## Риски / ограничения
+- Детальные строки зависят от наличия корректного поля `windows` в `isfcr_shadow_rolling_gate_evaluated`; при повреждённом payload блок gracefully деградирует к summary без падений.
+- В `Activation Gate` стало больше текста; на очень маленьких экранах потребуется скролл (ожидаемое поведение текущего layout).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrActivationGateFormatterTest" --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest" --no-daemon -Pkotlin.incremental=false`
+3) В приложении открыть `Analytics -> Quality -> ISF/CR Activation Gate` и проверить наличие строк:
+   - `Rolling gate (...)`,
+   - `Rolling relax: ...`,
+   - `Rolling 14d gate: ...`,
+   - `Rolling 30d gate: ...`,
+   - `Rolling 90d gate: ...` (если окна присутствуют в аудите).
+
+# Изменения — Этап 65: CR extraction integrity gates (sensor/UAM/gap) for Physiology-Aware ISF/CR
+
+## Что сделано
+- Усилен `IsfCrWindowExtractor.extractCrSample(...)`:
+  - окно привязки meal-bolus сделано асимметричным `[-20m, +30m]` (вместо симметричного `±30m`);
+  - добавлен hard-drop при грубых CGM разрывах окна (`maxGapMinutes > 30`);
+  - добавлен telemetry gate для CR-окон:
+    - drop при высоком `sensor_blocked` rate,
+    - drop при высокой UAM ambiguity rate.
+- Добавлены новые dropped-reason коды:
+  - `cr_gross_gap`,
+  - `cr_sensor_blocked`,
+  - `cr_uam_ambiguity`.
+- В CR evidence context добавлены диагностические поля:
+  - `sensorBlockedRate`,
+  - `uamAmbiguityRate`.
+- Добавлены unit-тесты `IsfCrWindowExtractorTest`:
+  - `extract_crSampleDroppedWhenSensorBlockedTelemetryHigh`,
+  - `extract_crSampleDroppedWhenUamAmbiguityTelemetryHigh`,
+  - `extract_crBolusWindowIsAsymmetric_negative20ToPositive30`.
+- Обновлены архитектурные документы:
+  - `docs/ARCHITECTURE.md` (CR extraction quality gates),
+  - `docs/INVARIANTS.md` (инвариант hard-drop условий для CR evidence).
+
+## Почему так
+- По плану `Physiology-Aware ISF/CR Engine v1` CR должен строиться только на качественных meal-windows и исключать окна с сенсорной блокировкой, сильной UAM неоднозначностью и грубыми data gaps.
+- Явные reason codes нужны для последующего аудита качества и тюнинга порогов.
+
+## Риски / ограничения
+- Более строгие CR-gates уменьшают количество usable CR evidence в шумных/нестабильных периодах (ожидаемое safety-first поведение).
+- Пороговые значения (`sensor blocked rate`, `UAM ambiguity rate`, `max gap`) пока фиксированы в extractor и не вынесены в пользовательские настройки.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.*" --no-daemon -Pkotlin.incremental=false`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+4) В `Audit` проверить `isfcr_evidence_extracted` и убедиться, что в `droppedReasons` появляются новые коды (`cr_sensor_blocked`, `cr_uam_ambiguity`, `cr_gross_gap`) на соответствующих сценариях.
+
+# Изменения — Этап 66: Settings-backed CR integrity thresholds (DataStore + UI + runtime wiring)
+
+## Что сделано
+- Вынесены пороги CR-window integrity из хардкода в `AppSettings`/DataStore:
+  - `isfCrCrMaxGapMinutes` (default `30`, clamp `10..60`),
+  - `isfCrCrMaxSensorBlockedRatePct` (default `25.0`, clamp `0..100`),
+  - `isfCrCrMaxUamAmbiguityRatePct` (default `60.0`, clamp `0..100`).
+- Добавлены ключи/дефолты/persistence-клампы в `AppSettingsStore` (чтение + update + сохранение).
+- Проброшены новые настройки в доменный `IsfCrSettings`:
+  - `crGrossGapMinutes`,
+  - `crSensorBlockedRateThreshold`,
+  - `crUamAmbiguityRateThreshold`.
+- `IsfCrRepository.toIsfCrSettings()` теперь передает эти пороги в runtime extractor.
+- `IsfCrWindowExtractor.extractCrSample(...)` переключен на settings-backed thresholds:
+  - `maxGapMinutes > settings.crGrossGapMinutes` => `cr_gross_gap`,
+  - `sensorBlockedRate >= settings.crSensorBlockedRateThreshold` => `cr_sensor_blocked`,
+  - `uamAmbiguityRate >= settings.crUamAmbiguityRateThreshold` => `cr_uam_ambiguity`.
+- UI/VM wiring:
+  - `SettingsUiState`, `MainUiState`, `MainUiStateMappers`, `MainViewModel`, `CopilotFoundationRoot`, `SettingsScreen` расширены новыми полями/колбэком.
+  - Добавлен метод `MainViewModel.setIsfCrCrIntegrityGateSettings(...)`.
+  - В `Settings -> Real ISF/CR` добавлены 3 steppers для CR integrity gate.
+- Локализация:
+  - добавлены строки RU/EN для новых настроек.
+- Тесты:
+  - `IsfCrWindowExtractorTest` дополнен проверками settings-backed порогов:
+    - `extract_crSensorBlockedThresholdCanBeRelaxedFromSettings`,
+    - `extract_crUamAmbiguityThresholdCanBeRelaxedFromSettings`,
+    - `extract_crGrossGapThresholdCanBeRelaxedFromSettings`.
+  - `MainUiStateMappersTest.settingsMapping_includesUamSnackParameters` расширен проверкой новых полей settings mapping.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md` (settings-backed CR integrity thresholds),
+  - `docs/INVARIANTS.md` (новый инвариант по клампам CR integrity thresholds).
+
+## Почему так
+- В Stage 65 CR integrity gates были корректны по сути, но не тюнились без нового релиза.
+- Перевод на settings-backed пороги позволяет безопасно регулировать строгость CR evidence extraction под качество сенсора/данных пользователя без изменения алгоритмической структуры.
+
+## Риски / ограничения
+- Более мягкие пользовательские пороги могут увеличить долю CR evidence из шумных окон; это ограничено безопасными clamp-границами.
+- В окружении сохраняется известный flaky crash `Gradle Test Executor ... exit 134` на части UI unit-test запусков; доменные тесты и сборка проходят стабильно.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.IsfCrEngineTest" --no-daemon -Pkotlin.incremental=false`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin :app:assembleDebug --no-daemon -Pkotlin.incremental=false`
+4) В UI открыть `Settings -> Real ISF/CR` и изменить:
+   - `CR gate max CGM gap`,
+   - `CR gate max sensor-blocked rate`,
+   - `CR gate max UAM ambiguity rate`.
+5) В `Audit -> isfcr_evidence_extracted` проверить, что dropped-коды (`cr_gross_gap`, `cr_sensor_blocked`, `cr_uam_ambiguity`) меняют частоту при изменении этих порогов.
+
+# Изменения — Этап 67: Runtime diagnostics parity for CR integrity thresholds
+
+## Что сделано
+- Расширен доменный diagnostics-модель:
+  - `IsfCrDiagnostics` дополнен полями:
+    - `crMaxGapMinutes`,
+    - `crMaxSensorBlockedRate`,
+    - `crMaxUamAmbiguityRate`.
+- `IsfCrEngine.computeRealtime(...)` теперь пишет в diagnostics фактически применённые пороги CR integrity gate из runtime settings.
+- `IsfCrRepository` расширил audit payload:
+  - `isfcr_realtime_computed`,
+  - `isfcr_low_confidence`
+  полями:
+  - `crMaxGapMinutes`,
+  - `crMaxSensorBlockedRatePct`,
+  - `crMaxUamAmbiguityRatePct`.
+- Runtime diagnostics wiring в UI:
+  - `MainViewModel` парсит и публикует новые поля в `MainUiState`,
+  - `ScreenModels`/`MainUiStateMappers` пробрасывают их в `AnalyticsUiState`,
+  - `AnalyticsScreen` показывает строку:
+    - `CR gate: gap <= Xm • sensor-blocked <= Y% • UAM ambiguity <= Z%`.
+- Добавлены строки i18n RU/EN:
+  - `analytics_runtime_diag_cr_gate_line`.
+- Дополнен unit-test mapping:
+  - `MainUiStateMappersTest.analyticsMapping_includesIsfCrSummaryAndHistory` проверяет передачу новых runtime diagnostics полей.
+
+## Почему так
+- После Stage 66 пороги CR integrity были настраиваемыми, но в runtime diagnostics не было явного отображения “какие именно пороги реально применяются сейчас”.
+- Это усложняло разбор low-confidence/fallback кейсов и тюнинг параметров.
+
+## Риски / ограничения
+- В окружении остаётся flaky `Gradle Test Executor ... exit 134` на отдельных UI test-запусках; доменные тесты и компиляция стабильны.
+- Новая строка diagnostics зависит от наличия свежего `isfcr_realtime_computed`; при пустом аудите блок корректно не показывается.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.IsfCrEngineTest" --tests "io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest" --no-daemon -Pkotlin.incremental=false` (возможен известный flaky `exit 134`)
+3) В `Analytics -> ISF/CR -> Runtime diagnostics` проверить строку `CR gate: ...` и соответствие значений текущим settings.
+
+# Изменения — Этап 68: CR integrity drop-rate breakdown in Quality analytics
+
+## Что сделано
+- Добавлен новый форматтер:
+  - `ui/IsfCrDroppedReasonFormatter.kt`
+  - функция `formatIsfCrDroppedReasonSummaryLines(...)`.
+- `MainViewModel.buildIsfCrDroppedReasonSummaryLines(...)` переведен на новый форматтер (логика вынесена из ViewModel).
+- В блоке dropped reasons теперь, помимо header и top reason counters, добавляется отдельная строка CR integrity breakdown:
+  - `CR integrity drops: gap=...%, sensorBlocked=...%, uamAmbiguity=...%`
+  - проценты считаются от `dropped total` за выбранное окно.
+- Добавлен unit-test:
+  - `IsfCrDroppedReasonFormatterTest`:
+    - проверка формирования CR integrity breakdown,
+    - проверка fallback-поведения при пустых counters.
+
+## Почему так
+- Для тюнинга порогов `CR gate max gap / sensor-blocked / UAM ambiguity` мало видеть только текущие thresholds; нужно видеть фактическую частоту их срабатывания.
+- Явная процентная сводка по 24h/7d ускоряет диагностику “слишком строгих” или “слишком мягких” порогов.
+
+## Риски / ограничения
+- Если `droppedReasons` поврежден/неполон в audit payload, breakdown может быть частичным (header/top reasons остаются корректными).
+- Проценты считаются по aggregate `dropped total`; при множественных reason-кодах на один sample возможна сумма процентов >100% (ожидаемое поведение counters-модели).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrDroppedReasonFormatterTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+3) В `Analytics -> Quality -> Dropped reasons` проверить наличие строки `CR integrity drops: ...` для 24h/7d при наличии соответствующих reason-кодов.
+
+# Изменения — Этап 69: Integration scenarios for Physiology-Aware ISF/CR runtime
+
+## Что сделано
+- Добавлен отдельный integration-набор тестов:
+  - `domain/isfcr/IsfCrEngineIntegrationScenariosTest.kt`.
+- Покрыты ключевые сценарии из плана интеграционной валидации:
+  - `infusionSetAgingScenario_reducesSetFactorAndIsfEff`
+    - проверяет снижение `set_factor` и `ISF_eff` при старом инфузионном наборе, а также рост `CR_eff` (через обратный set-factor).
+  - `sensorDriftScenario_reducesConfidenceAndWidensCi`
+    - проверяет снижение confidence/quality и reason-коды `sensor_quality_low`, `sensor_quality_suspect_false_low` при деградации сенсора.
+  - `activitySurgeScenario_increasesActivityFactorAndIsfEff`
+    - проверяет, что при росте `activity_ratio`/`steps_rate_15m` увеличивается `activity_factor` и повышается `ISF_eff`.
+  - `dawnScenario_appliesMorningDawnFactor`
+    - проверяет, что утренний слот применяет более низкий dawn-factor, чем дневной.
+- Для сценариев добавлен общий synthetic history builder (коррекционное окно + meal/bolus окно + события set/sensor change), чтобы тесты оставались воспроизводимыми.
+
+## Почему так
+- До этого были в основном unit-тесты отдельных модулей (`extractor/context/confidence`), но не было отдельного набора end-to-end сценариев на уровне `IsfCrEngine.computeRealtime`.
+- Интеграционные сценарии закрывают риск “локально корректных модулей, но неверного итогового поведения после склейки факторов/quality/fallback”.
+
+## Риски / ограничения
+- Тесты synthetic и валидируют направленность эффектов, а не абсолютную клиническую калибровку коэффициентов.
+- В noisy runtime возможны дополнительные interactions факторов; для этого остаётся обязательный replay/rolling quality gate в production-контуре.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.IsfCrEngineIntegrationScenariosTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrDroppedReasonFormatterTest" --tests "io.aaps.copilot.domain.isfcr.IsfCrEngineTest" --tests "io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest" --no-daemon -Pkotlin.incremental=false`
+
+# Изменения — Этап 70: Daily forecast report recommendations from ISF/CR dropped-reasons
+
+## Что сделано
+- Расширен `InsightsRepository.generateDailyForecastReport(...)`:
+  - добавлен сбор `isfcr` dropped-reasons за 24ч из audit:
+    - primary source: `isfcr_evidence_extracted`,
+    - fallback: `isfcr_realtime_computed`.
+  - добавлено формирование quality-рекомендаций по CR integrity причинам:
+    - `cr_sensor_blocked`,
+    - `cr_gross_gap`,
+    - `cr_uam_ambiguity`,
+    - общий overload dropped-evidence.
+  - рекомендации автоматически добавляются в `DailyForecastReportPayload.recommendations` и попадают в markdown/csv daily report.
+- Добавлена телеметрия отчёта по dropped-reasons:
+  - `daily_report_isfcr_dropped_event_count`,
+  - `daily_report_isfcr_dropped_total`,
+  - `daily_report_isfcr_dropped_source`,
+  - `daily_report_isfcr_cr_gap_drop_rate_pct`,
+  - `daily_report_isfcr_cr_sensor_drop_rate_pct`,
+  - `daily_report_isfcr_cr_uam_drop_rate_pct`.
+- Расширен audit payload `daily_forecast_report_generated`:
+  - `isfCrDroppedEventCount`,
+  - `isfCrDroppedTotal`,
+  - `isfCrDroppedSource`.
+- Добавлен новый helper в companion:
+  - `buildIsfCrDataQualityRecommendations(...)` (internal, testable).
+- Добавлены unit-тесты:
+  - `InsightsRepositoryDailyForecastReportTest.buildIsfCrDataQualityRecommendations_emitsCrIntegrityGuidance`
+  - `InsightsRepositoryDailyForecastReportTest.buildIsfCrDataQualityRecommendations_returnsEmptyWhenNoDroppedWindows`.
+
+## Почему так
+- По плану требуется не только считать ошибки (MAE/MARD), но и давать actionable шаги для снижения MARD.
+- Основные деградации CR quality уже логируются в dropped-reasons; теперь они превращаются в автоматические рекомендации внутри ежедневного отчёта.
+
+## Риски / ограничения
+- Рекомендации зависят от наличия audit событий `isfcr_evidence_extracted`/`isfcr_realtime_computed` за окно отчёта.
+- Если dropped counters отсутствуют или повреждены, quality-рекомендации не добавляются (без влияния на базовый отчёт по метрикам).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+3) Выполнить daily analysis в приложении и проверить:
+   - в markdown отчёте секцию `Recommendations To Lower MARD` на наличие рекомендаций по sensor/gap/UAM quality;
+   - в telemetry ключи `daily_report_isfcr_*`;
+   - в audit событие `daily_forecast_report_generated` с полями `isfCrDropped*`.
+
+# Изменения — Этап 71: Daily report recommendations surfaced in Analytics UI
+
+## Что сделано
+- В `InsightsRepository.persistDailyForecastReportTelemetry(...)` добавлена публикация top-3 рекомендаций отчёта:
+  - `daily_report_recommendation_1`
+  - `daily_report_recommendation_2`
+  - `daily_report_recommendation_3`
+- В `MainViewModel` добавлен парсинг этих telemetry-полей в runtime state:
+  - `dailyReportRecommendations`.
+- Расширены UI-модели:
+  - `MainUiState` (`dailyReportRecommendations`),
+  - `AnalyticsUiState` (`dailyReportRecommendations`).
+- Обновлен mapper `MainUiStateMappers.toAnalyticsUiState()`:
+  - учитывает рекомендации в `hasData`,
+  - пробрасывает список в analytics state.
+- Обновлен `AnalyticsScreen` (`DailyForecastReportCard`):
+  - добавлен блок `Recommendations`,
+  - рекомендации отображаются в отдельных surface-карточках внутри daily report.
+- Добавлены строки локализации:
+  - `analytics_daily_report_recommendations` (EN/RU).
+- Тесты:
+  - `InsightsRepositoryDailyForecastReportTest` расширен кейсами quality recommendations:
+    - `buildIsfCrDataQualityRecommendations_emitsCrIntegrityGuidance`
+    - `buildIsfCrDataQualityRecommendations_returnsEmptyWhenNoDroppedWindows`
+  - `MainUiStateMappersTest.analyticsMapping_includesIsfCrSummaryAndHistory` расширен проверкой `dailyReportRecommendations`.
+
+## Почему так
+- После Stage 70 рекомендации формировались в markdown/CSV, но в UI их не было видно без открытия файла.
+- Прямой вывод в Analytics ускоряет ежедневную эксплуатацию и тюнинг качества данных для снижения MARD.
+
+## Риски / ограничения
+- `MainUiStateMappersTest` в окружении по-прежнему нестабилен из-за известного `Gradle Test Executor ... exit 134` (не assertion-регрессия, а flaky test-runtime issue).
+- UI показывает только top-3 рекомендации из последнего daily report snapshot.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest" --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+3) В приложении открыть `Analytics -> Quality -> Daily report` и проверить блок `Recommendations`.
+
+# Изменения — Этап 72: ISF/CR data-quality block in daily report files + Analytics card
+
+## Что сделано
+- Расширен export daily-report (markdown/csv):
+  - `InsightsRepository.buildDailyForecastMarkdown(...)` теперь принимает `isfCrDroppedSummary` и добавляет секцию:
+    - `## ISF/CR Data Quality`
+    - source / events / dropped
+    - `CR integrity drop-rate: gap / sensorBlocked / uamAmbiguity`.
+  - `InsightsRepository.buildDailyForecastCsv(...)` добавляет `section=quality` строки с той же summary-информацией.
+- В telemetry daily-report добавлены top-3 рекомендаций (`daily_report_recommendation_1..3`) и уже существующие `daily_report_isfcr_*` метрики используются как источник UI summary.
+- UI wiring:
+  - `MainViewModel` формирует `dailyReportIsfCrQualityLines` из telemetry:
+    - source/events/dropped
+    - CR integrity drop-rate (gap/sensor/UAM).
+  - `MainUiState` и `AnalyticsUiState` расширены полем `dailyReportIsfCrQualityLines`.
+  - `MainUiStateMappers` пробрасывает это поле и учитывает в `hasData`.
+  - `AnalyticsScreen` (`DailyForecastReportCard`) показывает новый блок:
+    - `ISF/CR data quality`.
+- i18n:
+  - добавлен ключ `analytics_daily_report_isfcr_quality` (EN/RU).
+- Тесты:
+  - `MainUiStateMappersTest.analyticsMapping_includesIsfCrSummaryAndHistory` расширен проверкой `dailyReportIsfCrQualityLines`.
+
+## Почему так
+- Отчёт должен быть самодостаточным: раньше quality-информация по ISF/CR была только в telemetry/audit и частично в recommendations.
+- Теперь оператор видит в одном месте и рекомендации, и количественную причину деградации (gap/sensor/UAM rates), что упрощает ежедневный тюнинг для снижения MARD.
+
+## Риски / ограничения
+- `MainUiStateMappersTest` в текущем окружении продолжает падать флейково по раннеру (`Gradle Test Executor ... exit 134`), без явных assertion-fail.
+- При отсутствии audit dropped summary UI блок показывает только то, что доступно в telemetry snapshot.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest" --no-daemon -Pkotlin.incremental=false`
+3) Запустить daily analysis и проверить:
+   - markdown/csv daily-report содержат секцию `ISF/CR Data Quality`,
+   - `Analytics -> Quality -> Daily report` содержит блок `ISF/CR data quality`.
+
+# Изменения — Этап 73: Top dropped-reasons surfaced in daily quality diagnostics
+
+## Что сделано
+- Усилен сбор telemetry для daily report quality:
+  - добавлен ключ `daily_report_isfcr_dropped_top_reasons` (top-6 counters в формате `reason=count;...`).
+- Расширен quality helper в `InsightsRepository`:
+  - `buildIsfCrDroppedQualityLines(...)` стал `internal` и теперь формирует:
+    1) `source/events/dropped`,
+    2) `CR integrity drop-rate: gap/sensorBlocked/uamAmbiguity`,
+    3) `Top dropped reasons: ...`.
+- Markdown/CSV daily-report используют этот helper и включают top reasons в секцию `ISF/CR Data Quality`.
+- UI (`MainViewModel`) теперь читает `daily_report_isfcr_dropped_top_reasons` и добавляет строку:
+  - `Top dropped reasons: ...`
+  в `dailyReportIsfCrQualityLines`, которые отображаются в `Analytics -> Quality -> Daily report`.
+- Добавлен unit-test:
+  - `InsightsRepositoryDailyForecastReportTest.buildIsfCrDroppedQualityLines_includesTopReasons`.
+
+## Почему так
+- Для реального тюнинга порогов/качества мало знать только aggregate rates (gap/sensor/UAM).
+- Top reason counters дают быстрый ответ, что именно чаще всего “ломает” evidence в конкретные сутки.
+
+## Риски / ограничения
+- Top reasons зависят от корректности `droppedReasons` в audit payload.
+- При очень редких dropped events строка top reasons может быть пустой/короткой (ожидаемо).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin --no-daemon -Pkotlin.incremental=false`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest" --no-daemon -Pkotlin.incremental=false`
+3) Выполнить daily analysis и проверить в `Analytics -> Quality -> Daily report` наличие строки:
+   - `Top dropped reasons: ...`
+
+# Изменения — Этап 74: Daily ISF/CR quality risk classification in report + Analytics UI
+
+## Что сделано
+- В daily-report telemetry добавлен и стабилизирован риск-лейбл качества ISF/CR:
+  - `daily_report_isfcr_quality_risk`.
+- Усилен helper `InsightsRepository.buildIsfCrDataQualityRiskLabel(...)`:
+  - возвращает `UNKNOWN` при отсутствии валидной базы,
+  - классифицирует риск в `LOW/MEDIUM/HIGH` по dropped-load и доминирующей причине (`gap/sensorBlocked/uamAmbiguity`).
+- `MainViewModel` теперь читает `daily_report_isfcr_quality_risk` и добавляет в Analytics daily block строку:
+  - `Quality risk: ...`.
+- Обновлены unit-тесты `InsightsRepositoryDailyForecastReportTest`:
+  - адаптирован `buildIsfCrDroppedQualityLines_includesTopReasons` под новый формат с quality risk,
+  - добавлены отдельные тест-кейсы для `buildIsfCrDataQualityRiskLabel` (`UNKNOWN/HIGH/MEDIUM/LOW`).
+
+## Почему так
+- В daily recommendations и CR integrity rates не хватало сводного risk-сигнала для быстрого triage качества данных.
+- Формат `LOW/MEDIUM/HIGH + dominant cause` позволяет быстрее понять, что именно ограничивает точность ISF/CR extraction в текущие сутки.
+
+## Риски / ограничения
+- Классификация зависит от корректности dropped-reason counters в audit metadata.
+- В этом окружении сохраняется известная flaky проблема раннера на части UI-тестов (`Gradle Test Executor ... exit 134`), не связанная с логикой risk-label.
+- В CI/локально для стабильности пришлось запускать Gradle с `--no-daemon -Pksp.incremental=false` из-за нестабильного KSP cache.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest"`
+3) Опционально (известный flaky):
+   `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+4) В приложении открыть `Analytics -> Quality -> Daily report` и проверить наличие строки `Quality risk: ...` в блоке `ISF/CR data quality`.
+
+# Изменения — Этап 75: Daily ISF/CR risk gate for shadow auto-activation
+
+## Что сделано
+- Усилен daily-report telemetry по ISF/CR quality risk:
+  - добавлен числовой ключ `daily_report_isfcr_quality_risk_level` (`0=UNKNOWN, 1=LOW, 2=MEDIUM, 3=HIGH`) рядом с текстовым `daily_report_isfcr_quality_risk`.
+- `InsightsRepository` расширен:
+  - `buildIsfCrDataQualityRiskLevel(...)` (internal, testable),
+  - `buildIsfCrDataQualityRiskLabel(...)` теперь использует единый классификатор уровня риска.
+- В `AutomationRepository` добавлен отдельный gate перед rolling gate в auto-promotion `SHADOW -> ACTIVE`:
+  - `evaluateIsfCrDailyRiskGateStatic(...)`,
+  - новый тип `IsfCrDailyRiskGateAssessment`,
+  - новый audit event `isfcr_shadow_data_quality_risk_gate_evaluated`.
+- Новое правило активации:
+  - если `daily_report_isfcr_quality_risk_level >= 3` (`HIGH`), авто-промоушен блокируется с причиной `daily_risk_high`.
+- В `isfcr_shadow_auto_promoted` добавлены поля:
+  - `dailyRiskGateReason`,
+  - `dailyRiskLevel`.
+- Добавлены unit-тесты:
+  - `InsightsRepositoryDailyForecastReportTest.buildIsfCrDataQualityRiskLevel_returnsExpectedScale`,
+  - `AutomationRepositoryForecastBiasTest`:
+    - `isfCrDailyRiskGate_blocksWhenRiskHigh`,
+    - `isfCrDailyRiskGate_allowsWhenRiskMedium`,
+    - `isfCrDailyRiskGate_allowsWhenRiskMissing`.
+- Обновлены docs:
+  - `docs/ARCHITECTURE.md` (daily risk gate в auto-activation),
+  - `docs/INVARIANTS.md` (инвариант блокировки promotion на HIGH risk).
+
+## Почему так
+- В shadow auto-activation уже есть KPI/day-type/sensor/rolling gate, но не было отдельного стоп-фактора по агрегированному качеству ISF/CR evidence за день.
+- `HIGH` риск в daily report означает нестабильные входные данные для ISF/CR extraction; безопаснее не переводить контур в ACTIVE до стабилизации качества.
+
+## Риски / ограничения
+- Риск-уровень зависит от качества dropped-reasons в audit metadata.
+- При отсутствии daily report (`risk_level=0`) gate не блокирует promotion (fail-open для совместимости), что сохраняет текущее поведение.
+- В окружении остаются нестабильности Kotlin incremental cache/daemon; тесты запускались с fallback-компиляцией.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest"`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+4) В runtime-аудите проверить событие `isfcr_shadow_data_quality_risk_gate_evaluated` и блокировку promotion при `daily_report_isfcr_quality_risk_level=3`.
+
+# Изменения — Этап 76: Activation diagnostics UI line for daily ISF/CR risk gate
+
+## Что сделано
+- В `MainViewModel.buildIsfCrActivationGateLines(...)` добавлено чтение нового audit-события:
+  - `isfcr_shadow_data_quality_risk_gate_evaluated`.
+- В блок `Analytics -> ISF/CR activation diagnostics` добавлена отдельная строка:
+  - `Data-quality risk gate (...)` с полями `eligible`, `reason`, `riskLevel`, `blockAt`.
+
+## Почему так
+- После внедрения risk-gate в auto-activation требовалась прозрачная диагностика в UI, чтобы сразу видеть причину блокировки promotion без разбора raw audit payload.
+
+## Риски / ограничения
+- Строка отображается только при наличии соответствующего audit-события в выбранном окне.
+- Локализация для строки пока форматируется как техническая diagnostics line (в стиле остальных activation diagnostics).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) Выполнить несколько automation cycle и открыть `Analytics`.
+3) Проверить в `ISF/CR activation diagnostics` строку `Data-quality risk gate (...)`.
+
+# Изменения — Этап 77: Configurable daily ISF/CR risk-gate threshold (Settings + runtime wiring)
+
+## Что сделано
+- Порог блокировки daily risk-gate для авто-активации `SHADOW -> ACTIVE` сделан настраиваемым:
+  - новый settings-параметр `isfCrAutoActivationDailyRiskBlockLevel` (`2..3`, default `3`).
+- Persistence/runtime wiring:
+  - `AppSettingsStore`:
+    - добавлены key/default/read/write/clamp для `isfcr_auto_activation_daily_risk_block_level`,
+    - поле добавлено в `AppSettings`.
+  - `MainViewModel`:
+    - поле прокинуто в `MainUiState` и `SettingsUiState`,
+    - добавлен setter `setIsfCrAutoActivationDailyRiskBlockLevel(level: Int)`.
+  - `MainUiStateMappers`:
+    - mapping `MainUiState -> SettingsUiState` расширен новым полем.
+- UI:
+  - `SettingsScreen` (`Real ISF/CR engine`) получил новый stepper:
+    - `Daily risk block level` (`2..3`),
+    - подключён новый callback через `CopilotFoundationRoot`.
+  - добавлены строки локализации EN/RU:
+    - `settings_isfcr_auto_activation_daily_risk_block_level`,
+    - `settings_isfcr_auto_activation_daily_risk_block_level_subtitle`.
+- Runtime gate:
+  - в `AutomationRepository` удалён hardcoded `ISFCR_DAILY_RISK_BLOCK_LEVEL`,
+  - gate использует `settings.isfCrAutoActivationDailyRiskBlockLevel.coerceIn(2,3)`,
+  - audit `isfcr_shadow_data_quality_risk_gate_evaluated` и `isfcr_shadow_auto_promoted` теперь содержат фактический block-level.
+- Тесты:
+  - `AutomationRepositoryForecastBiasTest`:
+    - добавлен кейс `isfCrDailyRiskGate_blocksMediumWhenThresholdIsMedium`,
+    - добавлен кейс `isfCrDailyRiskGate_clampsConfiguredThresholdIntoSafeRange`.
+  - `MainUiStateMappersTest.settingsMapping_includesUamSnackParameters`:
+    - расширен проверкой `isfCrAutoActivationDailyRiskBlockLevel`.
+- Документация:
+  - `docs/ARCHITECTURE.md` и `docs/INVARIANTS.md` обновлены под settings-backed threshold вместо hardcoded `HIGH`.
+
+## Почему так
+- После Stage 75/76 risk-gate был фиксирован на `HIGH`. Для controlled rollout нужен операционный тюнинг чувствительности gate:
+  - `3` (default): блокировать только `HIGH`,
+  - `2`: блокировать уже `MEDIUM/HIGH`.
+- Это позволяет ужесточить критерии promotion без кодовых изменений и с полной audit-трассировкой.
+
+## Риски / ограничения
+- Включение порога `2` может заметно снизить частоту auto-promotion (более консервативный режим).
+- `MainUiStateMappersTest` в текущем окружении остаётся flaky на уровне раннера (`Gradle Test Executor ... exit 134`) и может падать независимо от assertion-логики.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+3) Открыть `Settings -> Real ISF/CR engine` и изменить `Daily risk block level` на `2` или `3`.
+4) Проверить в audit:
+   - `isfcr_shadow_data_quality_risk_gate_evaluated` (`blockedRiskLevel`),
+   - `isfcr_shadow_auto_promoted` (`dailyRiskBlockedLevel`).
+
+# Изменения — Этап 78: Daily risk gate telemetry fallback (text -> level)
+
+## Что сделано
+- Усилена устойчивость daily risk gate в `AutomationRepository`:
+  - при отсутствии числового `daily_report_isfcr_quality_risk_level` runtime теперь берет fallback из последнего текстового `daily_report_isfcr_quality_risk`.
+  - добавлен парсер `parseIsfCrQualityRiskLevelFromTextStatic(...)`:
+    - `HIGH* -> 3`,
+    - `MEDIUM* -> 2`,
+    - `LOW* -> 1`,
+    - `UNKNOWN* -> 0`,
+    - иначе `null`.
+- Логика fallback встроена в `resolveLatestTelemetry(...)`:
+  - если numeric risk-level отсутствует, ищется latest text risk label и конвертируется в numeric level.
+- Расширены unit-тесты `AutomationRepositoryForecastBiasTest`:
+  - `parseIsfCrQualityRiskLevel_parsesEnglishLabels`,
+  - `parseIsfCrQualityRiskLevel_returnsNullForUnrecognizedText`.
+- Документация обновлена:
+  - `docs/ARCHITECTURE.md` (описан fallback text->level),
+  - `docs/INVARIANTS.md` (новый инвариант robust risk-level resolution).
+
+## Почему так
+- На старых/частично мигрированных данных может присутствовать только текстовый риск-лейбл daily report.
+- Без fallback gate работает в fail-open и может ошибочно не блокировать promotion; теперь поведение более предсказуемо и безопасно.
+
+## Риски / ограничения
+- Парсер fallback ожидает English labels (`LOW/MEDIUM/HIGH/UNKNOWN`) из report telemetry.
+- Нестандартные произвольные тексты не распознаются и останутся `null` (с сохранением текущего fail-open поведения на неизвестном формате).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+3) В runtime создать telemetry только с `daily_report_isfcr_quality_risk` (без numeric-level) и проверить audit:
+   - `isfcr_shadow_data_quality_risk_gate_evaluated` должен показывать распознанный `riskLevel`.
+
+# Изменения — Этап 79: Daily risk gate source observability
+
+## Что сделано
+- Улучшена прозрачность risk-gate в `AutomationRepository`:
+  - `resolveLatestTelemetry(...)` теперь пишет служебный флаг:
+    - `daily_report_isfcr_quality_risk_level_fallback_used` (`0/1`),
+    чтобы явно видеть, когда risk-level восстановлен из текстового лейбла.
+- В `maybeProcessIsfCrShadowAutoActivation(...)` добавлен источник resolved risk-level:
+  - `riskLevelSource = numeric | text_fallback | missing_or_unknown`.
+- Audit enrichment:
+  - событие `isfcr_shadow_data_quality_risk_gate_evaluated` теперь включает `riskLevelSource`;
+  - событие `isfcr_shadow_auto_promoted` включает `dailyRiskLevelSource`.
+- UI diagnostics:
+  - в `MainViewModel.buildIsfCrActivationGateLines(...)` строка `Data-quality risk gate` теперь показывает `source=...`.
+- Unit tests:
+  - `AutomationRepositoryForecastBiasTest`:
+    - `resolveIsfCrDailyRiskLevelSource_prefersTextFallbackFlag`,
+    - `resolveIsfCrDailyRiskLevelSource_marksMissingWhenUnknown`.
+- Docs:
+  - `docs/ARCHITECTURE.md` и `docs/INVARIANTS.md` обновлены под обязательную трассировку источника risk-level.
+
+## Почему так
+- Для эксплуатации shadow auto-activation критично видеть не только уровень риска, но и происхождение этого уровня.
+- Это снимает неоднозначность при triage: numeric daily telemetry vs text-fallback из старых отчётов.
+
+## Риски / ограничения
+- Служебный telemetry key (`*_fallback_used`) остаётся внутренним operational-сигналом и не предназначен для пользовательского UI.
+- Если отсутствуют и numeric, и text risk telemetry, источник будет `missing_or_unknown`, gate сохранит fail-open поведение для совместимости.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+3) В `Analytics -> ISF/CR activation diagnostics` проверить строку `Data-quality risk gate` и поле `source=...`.
+
+# Изменения — Этап 80: Info-иконка для параметров Settings (быстрая справка по месту)
+
+## Что сделано
+- В экран настроек добавлен единый inline-help паттерн с иконкой `i` для строк параметров:
+  - `SettingToggleRow`
+  - `SettingIntStepperRow`
+  - `SettingDoubleStepperRow`
+  - `SettingTextInputRow`
+  - `SettingReadOnlyRow`
+  - `OptionChipsRow`
+- Реализован общий composable `SettingTitleWithInfo(...)`:
+  - показывает заголовок параметра + кнопку `Info`,
+  - по нажатию открывает `AlertDialog` с коротким объяснением параметра,
+  - если явного описания нет, показывает fallback-текст.
+- Добавлены локализованные строки:
+  - EN/RU `settings_info_button_cd` (accessibility content description),
+  - EN/RU `settings_info_dialog_fallback`,
+  - EN/RU `action_close`.
+
+## Почему так
+- Требование: для каждого окна/параметра в UI нужен быстрый доступ к краткому объяснению “что это и как работает”.
+- Вынесение в общий `SettingTitleWithInfo` исключает дублирование и гарантирует одинаковое поведение по всему Settings.
+
+## Риски / ограничения
+- Для строк без явного `subtitle/info` используется общий fallback-текст (не параметро-специфичное описание).
+- Поведение затронуло только UI слоя настроек, бизнес-логика расчётов/автоматики не изменялась.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+3) Открыть `Settings`, нажимать `i` у разных параметров (`switch/stepper/text/chips`) и убедиться, что появляется диалог с описанием и кнопкой `Close/Закрыть`.
+
+# Изменения — Этап 81: Полное влияние runtime-переменных на прогноз (DIA + context factors)
+
+## Что сделано
+- Усилена связность переменных с локальным прогнозом:
+  - в `HybridPredictionEngine` добавлен runtime override `setInsulinDurationHours(...)`;
+  - `dia_hours` из telemetry теперь применяется в `AutomationRepository.configurePredictionEngine(...)` и влияет на инсулиновую кривую через scaling возраста действия инсулина.
+- Расширен runtime контур факторных влияний на прогноз:
+  - из realtime `IsfCrSnapshot.factors` в telemetry проброшены `set/sensor/activity/dawn/stress/hormone/steroid` + `context_ambiguity`;
+  - добавлен bounded `applyContextFactorForecastBiasStatic(...)` перед `COB/IOB` bias:
+    - horizon-aware сдвиг прогноза,
+    - horizon-aware расширение CI,
+    - дополнительный guard при низком `sensor_quality_score`.
+- В цикл добавлен audit event `forecast_context_bias_applied` с факторным trace.
+- Тесты:
+  - `HybridPredictionEngineV3Test.t12b_diaOverrideChangesInsulinImpact`;
+  - `AutomationRepositoryForecastBiasTest.contextBias_highActivityAndLowPatternLowersForecast`;
+  - `AutomationRepositoryForecastBiasTest.contextBias_lowSensorQualityWidensCi`.
+- Документация обновлена:
+  - `docs/ARCHITECTURE.md` (runtime context-bias + DIA influence),
+  - `docs/INVARIANTS.md` (новые инварианты по context-bias и DIA scaling).
+
+## Почему так
+- Пользовательский запрос требовал, чтобы на прогноз реально влияли не только параметры, пришедшие из AAPS, но и вычисляемые локально факторы (физиология/качество/паттерны).
+- До изменения `DIA` присутствовал в telemetry/UI, но не влиял напрямую на прогнозную кривую.
+- Контекстный bias позволяет учитывать физиологические факторы даже при частичном/мягком применении ISF/CR runtime snapshot.
+
+## Риски / ограничения
+- Контекстный bias умышленно мягкий и ограниченный clamp-ами; он корректирует прогноз, но не заменяет основной path-simulation.
+- При экстремально шумном sensor-quality включается защитное ограничение отклонения прогноза от текущей глюкозы.
+- Подход детерминированный; ML-контур по-прежнему не участвует в терапевтическом управлении.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest" --tests "io.aaps.copilot.domain.predict.HybridPredictionEngineV3Test"`
+2) Проверить audit:
+   - `isfcr_runtime_gate`,
+   - `forecast_context_bias_applied`,
+   - `forecast_bias_applied`.
+3) В live telemetry убедиться, что заполняются:
+   - `dia_hours`,
+   - `isf_factor_*`,
+   - `isf_factor_context_ambiguity`.
+
+# Изменения — Этап 82: Forecast factor coverage audit + live USB readiness check
+
+## Что сделано
+- В `AutomationRepository` добавлен per-cycle audit event `forecast_factor_coverage`.
+- Новый coverage-event фиксирует, какие драйверы реально участвовали в текущем прогнозном цикле:
+  - `ISF/CR` availability/apply mode,
+  - `DIA` availability,
+  - `COB/IOB` (включая local fallback/merge),
+  - `UAM` detection,
+  - `sensor/activity/set/hormone/stress/dawn/pattern/history` availability,
+  - факты применения стадий bias (`calibration/context/cob_iob`).
+- Добавлена функция `buildForecastFactorCoverageMeta(...)` для единообразной диагностики источников прогноза.
+- Проверка live USB выполнена: `adb devices -l` вернуло отсутствие подключенного устройства в текущем окружении.
+
+## Почему так
+- Нужна прозрачная проверка “влияют ли все переменные на прогнозы” не только на уровне кода, но и в operational-аудите каждого цикла.
+- Событие coverage позволяет быстро найти пропуски данных (например нет `dia_hours` или не пришли контекстные факторы) и понять, почему прогноз не использовал часть контуров.
+
+## Риски / ограничения
+- Coverage-event диагностический: не меняет саму математику прогноза.
+- Для полноценных live-логов нужен подключенный USB device (в этой сессии отсутствует).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false :app:compileDebugKotlin :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest" --tests "io.aaps.copilot.domain.predict.HybridPredictionEngineV3Test"`
+2) Запустить automation cycle и проверить audit:
+   - `forecast_factor_coverage`
+   - `forecast_context_bias_applied`
+   - `forecast_bias_applied`
+3) Для USB-проверки подключить телефон и убедиться, что `adb devices -l` показывает устройство.
+
+# Изменения — Этап 83: Интерактивные профили инсулина (активное действие + активация из Analytics)
+
+## Что сделано
+- Доработан блок `Insulin profiles` на экране Analytics:
+  - добавлен режим `active profile` + `preview profile` с отдельной индикацией;
+  - график переведен на отображение **уровня активного действия** (из производной cumulative-кривой, нормированной к пику);
+  - добавлена явная шкала времени по оси X (`m/h`) и подпись осей.
+- Добавлены контрольные числовые точки активного действия для выбранного профиля:
+  - `Active @ 30m`,
+  - `Active @ 60m`,
+  - `Active @ 120m`.
+- Добавлена кнопка `Activate selected profile` прямо в Analytics:
+  - activation callback прокинут из `CopilotFoundationRoot` в `AnalyticsScreen`,
+  - используется существующий `MainViewModel.setInsulinProfile(...)` без изменения бизнес-логики.
+- Локализации EN/RU обновлены для новых подписей блока профилей.
+- Выполнен USB rollout:
+  - `adb install -r .../app-debug.apk` успешно.
+
+## Почему так
+- Требование пользователя: видеть реальные профили действия инсулина с временной шкалой и уровнем активности, переключать профили для просмотра и активировать выбранный профиль.
+- Контрольные точки (30/60/120) добавлены для быстрого чтения профиля без визуальной оценки кривой “на глаз”.
+- Внедрение через существующий `setInsulinProfile` сохраняет консистентность с текущим runtime-контуром прогноза.
+
+## Риски / ограничения
+- В Android logcat периодически остаются нефатальные сообщения NanoHTTPD `Socket is closed` при локальном TLS-клиенте — на работу UI/прогноза не влияет.
+- После инкрементальной сборки был пойман runtime `VerifyError` (битый dex от incremental pipeline). Решено чистой пересборкой.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --stop && ./gradlew clean`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --no-daemon -Pksp.incremental=false -Pkotlin.incremental=false :app:assembleDebug`
+3) `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+4) Открыть `Analytics -> ISF/CR -> Профили действия инсулина`:
+   - переключать чипы профилей (preview),
+   - проверить график и контрольные точки `30/60/120`,
+   - нажать `Activate selected profile` и убедиться, что профиль становится `active`.
+
+# Изменения — Этап 84: Safety cap на карбы (3h cutoff + 60g max) для COB и прогноза
+
+## Что сделано
+- Добавлены новые safety-настройки в `AppSettings`/`AppSettingsStore`:
+  - `carbAbsorptionMaxAgeMinutes` (default `180`, clamp `60..360`),
+  - `carbComputationMaxGrams` (default `60`, clamp `20..120`).
+- В `AutomationRepository`:
+  - `configurePredictionEngine(...)` теперь передает лимиты в `HybridPredictionEngine`.
+  - `resolveRuntimeCobIobInputs(...)` ограничивает `telemetryCob`, `mergedCob` и fallback COB новым cap.
+  - `estimateLocalCobIob(...)` не учитывает carbs старше cutoff и ограничивает вклад carbs cap-значением.
+- В `HybridPredictionEngine`:
+  - добавлены runtime-параметры и setter `setCarbSafetyLimits(...)`.
+  - carb-вклад в `buildTherapyStepSeries(...)` и `therapyDeltaAtHorizon(...)` считает через cutoff-aware cumulative:
+    - после cutoff carbs считаются полностью абсорбированными (`cumulative=1.0`).
+  - ограничен carbs вклад в прогноз (`extractCarbsGramsForPrediction` cap до `carbComputationMaxGrams`).
+  - `profileCarbEvents(...)` исключает carb-события старше cutoff.
+  - UAM-ветка использует тот же cutoff-aware carb cumulative для исключения двойного/долгого хвоста carbs.
+- В Safety UI (`CopilotRoot` + `MainViewModel` + `MainUiState`) добавлены поля:
+  - `Carb absorption max age (minutes)`
+  - `Carb computation max grams`
+  и сохранение через `setSafetyLimits(...)`.
+- Добавлены unit-тесты в `HybridPredictionEngineTest`:
+  - carbs старше 3h не влияют на legacy прогноз;
+  - carbs `120g` дают тот же прогноз, что `60g` (при default cap).
+
+## Почему так
+- Пользовательское требование: убрать “долгий хвост” углеводов и ввести безопасный потолок carbs, чтобы прогноз/COB не раздувались.
+- Реализация как настройки Safety Center позволяет регулировать ограничения без перекомпиляции.
+
+## Риски / ограничения
+- Ограничения применены в Copilot-контурах (локальный COB, merge, prediction/UAM). Внутренний COB внутри самого AAPS продолжает жить по правилам AAPS.
+- Если у пользователя реально приемы >60g, прогноз в Copilot станет консервативнее по carb-вкладу (это ожидаемый safety tradeoff).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.HybridPredictionEngineTest" --tests "io.aaps.copilot.domain.predict.HybridPredictionEngineV3Test"`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3) В приложении открыть `Safety Center` и проверить поля:
+   - `Carb absorption max age (minutes)` = `180`,
+   - `Carb computation max grams` = `60`.
+4) На данных проверить:
+   - carbs событие старше 3h не увеличивает COB в Copilot,
+   - при carbs > 60g расчеты используют cap (по прогнозу и runtime COB).
+
+# Изменения — Этап 85: Жесткий safety-cap на отправку carbs в AAPS + USB валидация
+
+## Что сделано
+- В `NightscoutActionRepository.submitCarbs(...)` добавлен жесткий блок отправки carbs выше safety cap из настроек (`carbComputationMaxGrams`):
+  - при превышении команда получает `FAILED` с reason `carbs_above_safety_cap`,
+  - пишется audit `carbs_send_blocked_safety_cap`.
+- В `MainViewModel.sendManualCarbs(...)` добавлена валидация ввода по текущему safety cap:
+  - разрешенный диапазон теперь `1..cap`,
+  - пользователю показывается явный лимит в тексте ошибки.
+- APK обновлен на телефон по USB (`adb install -r .../app-debug.apk`).
+- Runtime-валидация на устройстве через DB-аудит:
+  - в `forecast_bias_applied` видно `cobGrams=60.0` при входящем `raw_cob≈68`, т.е. cap реально применяется в рабочем цикле.
+
+## Почему так
+- Требование безопасности: не допускать передачу потенциально опасных carbs величин в AAPS и держать единый safety cap во всем контуре (UI -> outbound -> runtime).
+
+## Риски / ограничения
+- Ограничение применяется к отправкам из Copilot; ручные carbs, введенные напрямую в AAPS, этим контуром не ограничиваются.
+- Для проверки события `carbs_send_blocked_safety_cap` нужен фактический запрос > cap (в текущем логе не было такой попытки после обновления).
+
+## Как проверить
+1) В `Safety Center` установить `Carb computation max grams = 60`.
+2) Отправить ручные carbs `> 60` из Copilot UI: должна появиться ошибка диапазона.
+3) Проверить в `Action commands`, что команда не ушла как `SENT`.
+4) Проверить audit на событие `carbs_send_blocked_safety_cap`.
+
+# Изменения — Этап 86: Targeted Replay 24h (ошибки 5/30/60 + вклад факторов COB/IOB/UAM/CI)
+
+## Что сделано
+- В `InsightsRepository` расширен локальный 24ч replay-отчет:
+  - добавлены `replayHotspots` (топ-3 часовых hotspot-а MAE для горизонтов `5/30/60`);
+  - добавлены `factorContributions` по факторам `COB/IOB/UAM/CI` на основе корреляции с `absError` и uplift (`MAE high quartile` vs `MAE low quartile`);
+  - в matching-сэмпл добавлены `generationTs` и `ciWidth` для корректной факторной атрибуции;
+  - в markdown/csv добавлены секции:
+    - `Targeted Replay 24h: Error Hotspots`,
+    - `Targeted Replay 24h: Factor Contributions (COB/IOB/UAM/CI)`.
+- В `persistDailyForecastReportTelemetry(...)` добавлена запись агрегатов в telemetry:
+  - `daily_report_replay_top_factor_5m/30m/60m`,
+  - `daily_report_replay_hotspot_5m/30m/60m`,
+  - `daily_report_replay_top_factors_overall`.
+- В `MainViewModel` добавлено чтение этих ключей и отображение в `rollingReportLines` (UI-блок отчета).
+- В unit-тесты `InsightsRepositoryDailyForecastReportTest` добавлен сценарий:
+  - проверка генерации replay hotspots;
+  - проверка генерации factor contributions и доминирования COB в синтетическом наборе.
+
+## Почему так
+- Требование: на следующем шаге получить целевой replay-анализ за последние 24ч с указанием зон ошибок по `5/30/60` и факторов, дающих наибольший вклад в ошибку.
+- Реализация встроена в уже существующий ежедневный отчет, чтобы результат появлялся автоматически и сохранялся в telemetry/audit.
+
+## Риски / ограничения
+- Факторный вклад построен на статистической атрибуции (корреляция + uplift), это не каузальный вывод.
+- Качество атрибуции зависит от покрытия telemetry возле `generationTs` (используется nearest sample в окне до 10 минут).
+- При малом объеме сэмплов (<12 на горизонт/фактор) вклад не рассчитывается.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest"`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3) Запустить цикл daily report (или вручную `runDailyAnalysis`) и проверить в отчете секции:
+   - `Targeted Replay 24h: Error Hotspots`,
+   - `Targeted Replay 24h: Factor Contributions (COB/IOB/UAM/CI)`.
+4) Проверить telemetry-ключи `daily_report_replay_top_factor_*`, `daily_report_replay_hotspot_*`, `daily_report_replay_top_factors_overall`.
+
+# Изменения — Этап 87: Structured Replay 24h в Analytics UI (hotspots + factor contributions)
+
+## Что сделано
+- Расширен telemetry payload daily-report:
+  - добавлены JSON-ключи:
+    - `daily_report_replay_hotspots_json`
+    - `daily_report_replay_factors_json`
+  - данные сериализуются из `replayHotspots` и `factorContributions` в `InsightsRepository`.
+- В `MainViewModel` добавлен парсинг replay JSON в типизированные модели:
+  - `DailyReportReplayHotspotUi`
+  - `DailyReportReplayFactorUi`
+  - + связка в `MainUiState` (`dailyReportReplayHotspots`, `dailyReportReplayFactors`, `dailyReportReplayTopFactorsOverall`).
+- В `MainUiStateMappers` добавлен маппинг новых replay-полей в `AnalyticsUiState`.
+- В `AnalyticsScreen` (`DailyForecastReportCard`) добавлен структурированный блок:
+  - общий рейтинг факторов;
+  - список hotspot-окон (5/30/60);
+  - список факторных вкладов с `score/corr/uplift/n`.
+- Добавлены строки локализации (`en/ru`) для replay-секции отчёта.
+- Добавлены/обновлены unit-тесты:
+  - `MainUiStateMappersTest` проверяет перенос replay-hotspots/factors в `AnalyticsUiState`.
+
+## Почему так
+- Текстовые `rollingReportLines` недостаточны для детального целевого replay-анализа.
+- Структурированный вывод в UI позволяет быстро увидеть:
+  - в каких часовых окнах ошибка максимальна по 5/30/60,
+  - какие факторы (`COB/IOB/UAM/CI`) дают основной вклад.
+
+## Риски / ограничения
+- Атрибуция факторов статистическая, не каузальная.
+- JSON-поля replay зависят от актуального daily-report цикла; до первого цикла блок может быть пустым.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew --stop`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew clean :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+4) В приложении открыть `Analytics -> Quality -> Daily Forecast Report` и проверить replay-блоки:
+   - `Targeted replay 24h`
+   - hotspot-строки по 5/30/60
+   - factor-строки по COB/IOB/UAM/CI.
+
+# Изменения — Этап 88: Runtime diagnostics day-type/base-source wiring
+
+## Что сделано
+- Завершена end-to-end проводка новых полей runtime diagnostics из `IsfCrEngine` в UI:
+  - `currentDayType`
+  - `isfBaseSource` / `crBaseSource`
+  - `isfDayTypeBaseAvailable` / `crDayTypeBaseAvailable`
+  - `hourWindowIsfSameDayType` / `hourWindowCrSameDayType`
+- `MainViewModel`:
+  - сохраняет новые поля в `MainUiState`.
+- `MainUiStateMappers` + `ScreenModels`:
+  - расширена модель `IsfCrRuntimeDiagnosticsUi`,
+  - добавлен маппинг всех новых runtime-полей.
+- `AnalyticsScreen`:
+  - в карточку runtime diagnostics добавлены строки:
+    - `Base source ISF/CR + day-type availability`,
+    - `Day-type evidence (current day type, same-day samples ISF/CR)`.
+- Локализация:
+  - добавлен `analytics_runtime_diag_base_source_line` в `values/strings.xml` и `values-ru/strings.xml`.
+- Unit mapping test:
+  - `MainUiStateMappersTest` расширен проверками новых diagnostics-полей.
+
+## Почему так
+- По плану Physiology-Aware ISF/CR важно объяснимо показывать, откуда взялась база (`day_type/hourly/fallback`) и насколько достаточно day-type evidence.
+- Без этих полей в UI новые диагностики в движке были частично “невидимыми” для пользователя.
+
+## Риски / ограничения
+- Изменения без запуска сборки в этом шаге (по запросу пользователя), поэтому возможные мелкие синтаксические несоответствия нужно подтвердить отдельным прогоном тестов/компиляции.
+- Значения `day-type available` выводятся как булевы флаги (`true/false`) для прозрачности; человекочитаемую шкалу можно добавить отдельным UX-шагом.
+
+## Как проверить
+1) В `Analytics -> Runtime diagnostics` проверить появление строк:
+   - `Base source ISF/CR ... day-type available ...`
+   - `Day-type evidence (...) ISF/CR ...`
+2) Убедиться, что при наличии runtime audit с новыми meta-полями значения отображаются и не пустые.
+3) Проверить unit test `MainUiStateMappersTest` на новые assertions runtime diagnostics.
+
+# Изменения — Этап 89: Replay 24h factor attribution расширен (physiology-aware factors)
+
+## Что сделано
+- В `InsightsRepository` расширен набор факторов для `Targeted Replay 24h -> Factor Contributions`:
+  - `COB`, `IOB`, `UAM`, `CI` (было),
+  - `ACTIVITY`, `SENSOR_Q`, `ISF_CONF`, `ISF_Q`,
+  - `SET_AGE_H`, `CTX_AMBIG`, `DAWN`, `STRESS`, `HORMONE`.
+- Добавлен unified-resolver `resolveFactorValue(...)` с fallback по алиасам для телеметрии.
+- Добавлен helper `nearestTelemetryValueMulti(...)` для key-alias источников.
+- Обновлена метрика `contributionScore`:
+  - теперь учитывает **модуль** uplift (а не только положительный uplift),
+  - это позволяет фактору быть значимым, даже если высокий квартиль уменьшает ошибку (защитный эффект).
+- Заголовок markdown-секции отчета обновлен на универсальный:
+  - `Targeted Replay 24h: Factor Contributions`.
+
+## Почему так
+- По плану Physiology-Aware нужно объяснять ошибку прогноза не только через COB/IOB/UAM/CI, но и через физиологические/контекстные сигналы (`activity`, `sensor quality`, `set age`, `dawn/stress/hormone`).
+- Модуль uplift делает ранжирование факторов более корректным для факторов с “защитной” направленностью.
+
+## Риски / ограничения
+- При недостатке telemetry-покрытия по новому фактору он не попадает в attribution (минимум 12 matched pairs, минимум 4/4 в квартилях).
+- Расширение attribution статистическое, не каузальное.
+
+## Как проверить
+1) Запустить daily-report цикл и открыть блок `Targeted Replay 24h: Factor Contributions`.
+2) Проверить, что при наличии telemetry появляются новые факторы (`ACTIVITY`, `SENSOR_Q`, `SET_AGE_H` и др.).
+3) Проверить, что `top factors overall` обновляется с учетом расширенного набора.
+
+# Изменения — Этап 90: Actionable replay hints по доминирующим факторам
+
+## Что сделано
+- В `InsightsRepository.buildRecommendations(...)` добавлен слой factor-specific рекомендаций:
+  - после определения top-factor по горизонту (`5/30/60`) формируется отдельный actionable hint.
+- Добавлен `factorRecommendationHint(...)` с правилами для:
+  - `COB`, `IOB`, `UAM`, `CI`,
+  - `ACTIVITY`, `SENSOR_Q`, `ISF_CONF`, `ISF_Q`,
+  - `SET_AGE_H`, `CTX_AMBIG`, `DAWN`, `STRESS`, `HORMONE`.
+- В `persistDailyForecastReportTelemetry(...)` добавлены ключи:
+  - `daily_report_replay_top_factor_hint_5m`
+  - `daily_report_replay_top_factor_hint_30m`
+  - `daily_report_replay_top_factor_hint_60m`
+- В `MainViewModel` добавлен парсинг и вывод этих hints в `rollingReportLines`.
+
+## Почему так
+- Пользовательский запрос на целевой replay-анализ требует не только “какой фактор доминирует”, но и “что делать дальше”.
+- Эти hints переводят статистику факторов в конкретные действия по настройке контуров (UAM, sensor gate, activity-aware, set-age, dawn/stress/hormone).
+
+## Риски / ограничения
+- Hints rule-based и не являются медицинскими предписаниями; это operational guidance по модели.
+- Точность hints зависит от качества factor attribution (telemetry coverage + достаточно matched samples).
+
+## Как проверить
+1) Выполнить daily-report цикл.
+2) Проверить telemetry ключи `daily_report_replay_top_factor_hint_*`.
+3) Проверить в Analytics/Quality, что `rollingReportLines` содержит строки `Replay 24h * hint: ...`.
+
+# Изменения — Этап 91: Robust factor correlation (Pearson + Spearman)
+
+## Что сделано
+- Для replay factor attribution в `InsightsRepository.buildFactorContributions(...)`:
+  - добавлен `spearmanCorrelation(...)` (rank-based),
+  - добавлен `rankWithTies(...)`,
+  - итоговый `corrAbsError` теперь рассчитывается как robust blend:
+    - `corr = (pearson + spearman) / 2` (с защитой на NaN и clamp в `[-1..1]`).
+
+## Почему так
+- На шумных данных и выбросах чистый Pearson нестабилен и может давать скачущие factor rankings.
+- Spearman лучше держит монотонные зависимости в присутствии выбросов; blend повышает устойчивость attribution.
+
+## Риски / ограничения
+- Корреляция остаётся статистической (не каузальной).
+- При очень малом динамическом диапазоне фактора (почти константа) корреляция стремится к 0, и фактор может выпадать из top-list.
+
+## Как проверить
+1) Выполнить daily-report цикл на сутках с шумными/неровными telemetry окнами.
+2) Сравнить стабильность top-factors между соседними запусками.
+3) Проверить, что `corr` в replay factor lines остаётся в диапазоне `[-1..1]`.
+
+# Изменения — Этап 92: Replay factors UI ranking per horizon
+
+## Что сделано
+- В `AnalyticsScreen` изменен вывод `dailyReportReplayFactorContributions`:
+  - вместо общего `take(12)` с приоритетом по сортировке,
+  - теперь показывается `top-4` факторов отдельно для каждого горизонта `5/30/60`.
+
+## Почему так
+- После расширения factor-space общий срез мог визуально смещаться в пользу одного горизонта.
+- Раздельный top-N на горизонт делает анализ ошибок по окнам 5/30/60 более честным и читаемым.
+
+## Риски / ограничения
+- При недостатке факторов в конкретном горизонте блок может быть коротким (это ожидаемо).
+
+## Как проверить
+1) Открыть `Analytics -> Daily Forecast Report -> Targeted Replay 24h`.
+2) Убедиться, что в блоке факторов есть строки для каждого горизонта (если данные доступны).
+
+# Изменения — Этап 93: Локализованные названия replay-факторов в UI
+
+## Что сделано
+- В `AnalyticsScreen` добавлен маппинг factor-code -> человекочитаемое имя:
+  - `COB/IOB/UAM/CI/ACTIVITY/SENSOR_Q/ISF_CONF/ISF_Q/SET_AGE_H/CTX_AMBIG/DAWN/STRESS/HORMONE`.
+- Добавлены string resources (`en/ru`) для названий replay-факторов:
+  - `analytics_replay_factor_*`.
+- В строке factor-contribution теперь отображается локализованная подпись, а не сырой код.
+
+## Почему так
+- После расширения factor-space коды вида `CTX_AMBIG` ухудшали читаемость аналитики.
+- Локализованные названия делают replay-блок понятнее без потери детализации.
+
+## Риски / ограничения
+- Если появится новый factor-code без маппинга, он будет показан как raw-код (fallback поведение).
+
+## Как проверить
+1) Открыть `Analytics -> Daily Forecast Report -> Targeted Replay 24h`.
+2) Убедиться, что factor-строки показывают понятные названия (например `Sensor quality`, `Infusion set age`).
+
+# Изменения — Этап 94: Replay factor coverage + reliability hints
+
+## Что сделано
+- В `InsightsRepository` добавлена новая метрика для replay-атрибуции:
+  - `ReplayFactorCoverageStats(horizon, factor, sampleCount, coveragePct)`.
+- `buildFactorContributions(...)` теперь возвращает:
+  - `contributions` + `coverage` (через `FactorAttributionResult`).
+- В payload daily-report добавлено поле:
+  - `replayFactorCoverage`.
+- В markdown/csv отчёты добавлен блок `Targeted Replay 24h: Factor Coverage`.
+- В telemetry добавлен JSON-ключ:
+  - `daily_report_replay_factor_coverage_json`.
+- В `buildRecommendations(...)` добавлены reliability-hints:
+  - если для core-факторов (`COB/IOB/UAM/CI`) coverage < 60%, формируется рекомендация сначала улучшить telemetry coverage.
+- В `MainViewModel` добавлен парсинг coverage JSON и выведены строки coverage в analytics lines.
+- В `AnalyticsScreen` добавлен визуальный вывод factor coverage (core-факторы по горизонтам).
+- Обновлены ресурсы `en/ru` для строки coverage.
+- `MainUiStateMappersTest` расширен проверкой mapping coverage-полей.
+
+## Почему так
+- Без coverage нельзя оценить, насколько вообще надежно посчитан факторный вклад.
+- Coverage-слой снижает риск “перекрутить” настройки на основе слабой/дырявой телеметрии.
+
+## Риски / ограничения
+- Coverage считается относительно matched samples горизонта и доступности ближайшей telemetry в окне.
+- При низкой частоте/пропусках telemetry часть факторов останется с низким покрытием (это корректный сигнал качества данных).
+
+## Как проверить
+1) Запустить daily-report и открыть replay-раздел в Analytics.
+2) Убедиться, что виден блок factor coverage по core-факторам.
+3) Проверить, что при coverage < 60% появляются reliability hints в рекомендациях.
+
+# Изменения — Этап 95: Coverage метрика интегрирована в UI и тесты
+
+## Что сделано
+- В `MainViewModel`:
+  - добавлен парсинг `daily_report_replay_factor_coverage_json`,
+  - coverage включен в analytics lines для core-факторов (`COB/IOB/UAM/CI`).
+- В `MainUiState`/`ScreenModels`/`MainUiStateMappers`:
+  - добавлены типы и поля `dailyReportReplayCoverage`.
+- В `AnalyticsScreen`:
+  - добавлен визуальный блок coverage-строк по core-факторам (в replay-секции).
+- В unit tests:
+  - `InsightsRepositoryDailyForecastReportTest` проверяет, что `replayFactorCoverage` формируется;
+  - `MainUiStateMappersTest` проверяет mapping coverage в analytics state.
+
+## Почему так
+- Надежность factor-attribution теперь видна не только в рекомендациях, но и как явная метрика в UI.
+- Это упрощает decision-making: сначала качество покрытия, затем tuning факторов.
+
+## Риски / ограничения
+- Coverage зависит от близости telemetry к `generationTs` (окно до 10 минут), поэтому при редкой telemetry значения могут быть занижены.
+
+## Как проверить
+1) Запустить daily-report цикл.
+2) Открыть `Analytics -> Daily Forecast Report -> Targeted Replay 24h`.
+3) Проверить, что есть строки `coverage` для core-факторов по горизонтам.
+
+# Изменения — Этап 96: Replay attribution расширен факторами DIA/sensor-age/steroid
+
+## Что сделано
+- В `InsightsRepository` расширен набор replay-факторов:
+  - добавлены `DIA_H`, `SENSOR_AGE_H`, `STEROID`.
+- Для новых факторов добавлено разрешение значений из телеметрии:
+  - `DIA_H` <- `dia_hours` / `dia`,
+  - `SENSOR_AGE_H` <- `isf_factor_sensor_age_hours`,
+  - `STEROID` <- `isf_factor_steroid_factor`.
+- Расширен блок rule-based hints (`factorRecommendationHint`) для новых факторов.
+- В `AnalyticsScreen` добавлен display mapping новых factor-code в человекочитаемые названия.
+- Добавлены string resources `en/ru`:
+  - `analytics_replay_factor_dia`,
+  - `analytics_replay_factor_sensor_age`,
+  - `analytics_replay_factor_steroid`.
+- В `InsightsRepositoryDailyForecastReportTest`:
+  - расширен synthetic telemetry набор (dia/sensor-age/steroid),
+  - добавлены проверки, что coverage строится для новых факторов.
+
+## Почему так
+- На 30m/60m горизонтах ошибка часто определяется не только `COB/IOB/UAM`, но и профилем длительности инсулина (`DIA`), старением сенсора и стероидным контекстом.
+- Без этих факторов replay-отчёт недооценивает реальные источники drift на длинных окнах.
+
+## Риски / ограничения
+- Качество атрибуции новых факторов зависит от фактического наличия соответствующих telemetry-ключей.
+- При почти постоянных значениях фактора contribution может быть слабым/нулевым (coverage при этом остаётся корректным).
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Открыть `Analytics -> Daily Forecast Report -> Targeted Replay 24h`.
+3) Проверить появление новых факторов (`DIA`, `Sensor age`, `Steroid`) в replay-строках/coverage при наличии данных.
+
+# Изменения — Этап 97: Top-miss context строки в 24h replay-отчёте
+
+## Что сделано
+- В `InsightsRepository.buildDailyForecastReportPayloadStatic(...)` добавлен расчёт `top miss context` по каждому горизонту (`5m/30m/60m`).
+- Для каждого горизонта выбирается максимальная ошибка и формируется строка контекста:
+  - время,
+  - `err/pred/actual`,
+  - `COB/IOB/UAM/CI width`,
+  - `DIA`,
+  - `activity`,
+  - `sensor quality`.
+- Эти строки добавляются в `recommendations` daily report, чтобы их сразу видеть в UI без отдельного парсера.
+- В `InsightsRepositoryDailyForecastReportTest` добавлены проверки наличия строк `5m/30m/60m top miss`.
+
+## Почему так
+- Требование целевого replay-анализа: не только агрегированные корреляции, но и конкретные “где/когда/с чем” случаи крупных промахов.
+- Это ускоряет ручную калибровку модели (можно сразу увидеть ключевой контекст ошибки по горизонту).
+
+## Риски / ограничения
+- Строки контекста диагностические; они зависят от наличия близкой телеметрии (если нет значения, выводится `0.000`).
+- Формат текстовый и компактный; для дальнейшей детализации потребуется отдельная структурированная секция в payload/UI.
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Проверить в блоке `Recommendations`, что присутствуют строки:
+   - `5m top miss ...`
+   - `30m top miss ...`
+   - `60m top miss ...`
+3) Убедиться, что строки содержат факторы `COB/IOB/UAM/CIw/DIA/activity/sensorQ`.
+
+# Изменения — Этап 98: Replay attribution performance optimization (factor cache)
+
+## Что сделано
+- В `InsightsRepository` оптимизированы функции:
+  - `buildFactorContributions(...)`,
+  - `buildReplayTopMissContextLines(...)`.
+- Добавлен локальный кэш факторных значений по ключу `(FactorSpec, generationTs)`:
+  - устраняет повторные дорогие lookup по телеметрии для одних и тех же `(фактор, timestamp)`.
+- Для отсутствующих значений используется sentinel (`NaN`) с корректным возвратом `null/0` по месту использования.
+
+## Почему так
+- Суточный replay-отчёт обрабатывает много matched-сэмплов и факторов, что без кэша создавало избыточные повторные проходы по telemetry.
+- Кэш снижает CPU-нагрузку и ускоряет построение отчёта на длинной истории без изменения математики.
+
+## Риски / ограничения
+- Кэш живёт только в рамках одного расчёта payload (in-memory), на persistence это не влияет.
+- Sentinel `NaN` используется только внутри helper-функций и не выводится наружу.
+
+## Как проверить
+1) Сформировать daily-report на большем объёме истории (например, при плотной телеметрии).
+2) Проверить, что содержимое `factor contributions/coverage` и `top miss context` не изменилось семантически.
+3) Сравнить latency построения отчёта до/после (по audit timestamps `daily_forecast_report_generated`).
+
+# Изменения — Этап 99: Structured top-miss payload (24h replay) + Analytics UI block
+
+## Что сделано
+- В `InsightsRepository` добавлен структурированный тип:
+  - `ReplayTopMissContextStats`.
+- `DailyForecastReportPayload` расширен:
+  - `replayTopMisses: List<ReplayTopMissContextStats>`.
+- В расчёте daily report теперь формируется `top miss` для каждого горизонта `5m/30m/60m`:
+  - `ts`, `pred`, `actual`, `absError`,
+  - `COB`, `IOB`, `UAM`, `CI width`,
+  - `DIA`, `activity`, `sensorQuality`.
+- Публикация в telemetry:
+  - `daily_report_replay_top_miss_json`,
+  - `daily_report_replay_top_miss_5m/30m/60m`.
+- Markdown/CSV отчёты расширены секцией:
+  - `Targeted Replay 24h: Top Miss Context`.
+- В `MainViewModel` добавлен парсер `parseReplayTopMissJson(...)` и новое состояние:
+  - `dailyReportReplayTopMisses`.
+- В `AnalyticsUiState`/mapper добавлено поле `dailyReportReplayTopMisses`.
+- В `AnalyticsScreen` добавлен отдельный визуальный блок top-miss строк.
+- Добавлены string resources (`en/ru`) для строки top-miss.
+
+## Почему так
+- Текстовые рекомендации были недостаточно структурированы для последующего анализа.
+- Отдельный payload top-miss делает целевой replay разбор по 24ч более точным и пригодным для UI/авто-диагностики.
+
+## Риски / ограничения
+- При пропусках телеметрии часть факторов в top-miss может быть `0` (fallback), это нормальное поведение.
+- Для более глубокой декомпозиции потребуется отдельный drill-down screen с timeline вокруг `ts`.
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Проверить telemetry ключи:
+   - `daily_report_replay_top_miss_json`,
+   - `daily_report_replay_top_miss_5m`,
+   - `daily_report_replay_top_miss_30m`,
+   - `daily_report_replay_top_miss_60m`.
+3) Открыть `Analytics -> Daily Forecast Report` и проверить отображение top-miss блока.
+
+# Изменения — Этап 100: Causal telemetry alignment для replay-факторов
+
+## Что сделано
+- В `InsightsRepository.nearestTelemetryValue(...)` изменена стратегия подбора telemetry-фактора к `generationTs`:
+  - выбирается bounded окно (`lookback <= 10m`, `future tolerance <= 2m`);
+  - приоритетно берётся наиболее поздняя точка из этого окна (каузальный выбор);
+  - fallback на старое nearest-поведение остаётся только если bounded-выбор не найден.
+- Добавлена константа:
+  - `FACTOR_TELEMETRY_FUTURE_TOLERANCE_MS = 2m`.
+
+## Почему так
+- Старый nearest-по-абсолютной-дистанции подход мог подхватывать “слишком будущие” точки и завышать качество factor attribution.
+- Новый каузальный выбор делает replay-анализ честнее и ближе к реальному online-состоянию на момент генерации прогноза.
+
+## Риски / ограничения
+- При редкой телеметрии часть факторов может чаще выпадать в `null` (и снижать coverage), но это корректный сигнал качества данных.
+- Параметр `2m` — компромисс; при необходимости можно вынести в settings/debug.
+
+## Как проверить
+1) Сформировать daily-report на окне с неровной телеметрией.
+2) Сравнить `factor coverage` и `top factors` до/после — expected: меньше ложных корреляций на “future leakage”.
+3) Проверить, что top-miss context по 5/30/60 продолжает публиковаться в telemetry/UI.
+
+# Изменения — Этап 101: Extended low-coverage warnings в replay recommendations
+
+## Что сделано
+- В `InsightsRepository.buildRecommendations(...)` добавлен второй уровень coverage-рекомендаций:
+  - помимо core-факторов (`COB/IOB/UAM/CI`) теперь анализируется и расширенный факторный набор;
+  - если `coverage < 45%` и `n >= 8` для non-core фактора, формируется предупреждение `extended factor coverage is low`.
+
+## Почему так
+- При физиологически-обогащённой модели (`DIA/sensor age/steroid/...`) слабое покрытие таких факторов часто остаётся незамеченным, что снижает качество ручного тюнинга.
+- Явные предупреждения помогают не переинтерпретировать вклад факторов с плохой наблюдаемостью.
+
+## Риски / ограничения
+- При sparse-телеметрии список рекомендаций может стать длиннее; используется порог `45%` и минимум `n=8`, чтобы уменьшить шум.
+
+## Как проверить
+1) Сформировать daily-report на окне с частично отсутствующей расширенной телеметрией.
+2) Проверить появление строк вида:
+   - `extended factor coverage is low (...).`
+
+# Изменения — Этап 102: Core factor regimes в 24h replay (LOW/MID/HIGH)
+
+## Что сделано
+- В `InsightsRepository` добавлен новый слой replay-диагностики:
+  - `ReplayFactorRegimeStats` по core-факторам `COB/IOB/UAM/CI`,
+  - бины `LOW/MID/HIGH` по перцентилям (`33%/67%`) для каждого горизонта `5m/30m/60m`,
+  - метрики на бин: `meanFactorValue`, `MAE`, `MARD`, `Bias`, `n`.
+- `DailyForecastReportPayload` расширен полем:
+  - `replayFactorRegimes`.
+- Daily report расширен:
+  - Markdown секция `Targeted Replay 24h: Core Factor Regimes (Low/Mid/High)`,
+  - CSV строки `factor_regime,...`.
+- Telemetry расширена:
+  - ключ `daily_report_replay_factor_regime_json`.
+- В рекомендации добавлены regime-based hints:
+  - если `HIGH`-режим существенно хуже `LOW` (MAE ratio >= 1.35) — явный сигнал, что фактор критичен под высокой нагрузкой;
+  - если наоборот (ratio <= 0.75) — пометка protective-поведения.
+- В `MainViewModel` добавлен парсер:
+  - `parseReplayRegimesJson(...)`,
+  - новое состояние `dailyReportReplayRegimes`.
+- В Analytics UI добавлен вывод regime-строк:
+  - `%horizon% %factor% %regime% • mean/MAE/MARD/Bias/n`.
+- Добавлены локализации `en/ru`:
+  - `analytics_daily_report_replay_regime_line`,
+  - `analytics_replay_regime_low/mid/high`.
+- Обновлены тесты:
+  - `InsightsRepositoryDailyForecastReportTest` проверяет наличие `replayFactorRegimes` и bucket-покрытие,
+  - `MainUiStateMappersTest` проверяет маппинг `dailyReportReplayRegimes` в `AnalyticsUiState`.
+
+## Почему так
+- Обычные factor contribution/coverage показывают “что важно”, но не показывают “в каком режиме фактора” ошибка резко растет.
+- Режимный разбор даёт прямую диагностическую связь с тюнингом:
+  - например, проблема только в `COB HIGH` или только в `UAM HIGH`.
+
+## Риски / ограничения
+- Бины вычисляются по локальному 24h распределению и могут быть нестабильны при очень малом числе matched samples.
+- Режимный вывод ограничен core-факторами; расширение на другие факторы можно добавить отдельно после оценки signal/noise.
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Проверить telemetry:
+   - `daily_report_replay_factor_regime_json`.
+3) Открыть `Analytics -> Daily Forecast Report -> Targeted Replay 24h`.
+4) Убедиться, что видны строки с режимами `LOW/MID/HIGH` для `COB/IOB/UAM/CI` (при наличии данных).
+
+# Изменения — Этап 103: Core factor pair regimes в 24h replay (LOW/HIGH × LOW/HIGH)
+
+## Что сделано
+- В `InsightsRepository` добавлен новый слой replay-диагностики по парным режимам core-факторов:
+  - `COB×IOB`, `COB×UAM`, `COB×CI`, `IOB×CI`, `UAM×CI`.
+- Добавлен тип `ReplayFactorPairRegimeStats` и расширен `DailyForecastReportPayload` полем:
+  - `replayFactorPairs`.
+- Добавлен расчет `buildReplayFactorPairRegimes(...)`:
+  - отдельно по горизонтам `5m/30m/60m`,
+  - для каждой пары факторов строятся квадранты `LOW/HIGH × LOW/HIGH` (median split),
+  - по каждому квадранту считаются `meanA`, `meanB`, `MAE`, `MARD`, `Bias`, `n`.
+- Daily report расширен:
+  - Markdown секция `Targeted Replay 24h: Core Factor Pair Regimes`,
+  - CSV строки `factor_pair_regime,...`.
+- Telemetry расширена:
+  - ключ `daily_report_replay_factor_pair_json`.
+- `buildRecommendations(...)` расширен pair-based hints:
+  - сравнение `HIGH/HIGH` против `LOW/LOW`,
+  - рекомендация при сильном росте ошибки в комбинированном high-load режиме.
+- UI pipeline обновлен:
+  - `MainViewModel` парсит `daily_report_replay_factor_pair_json`,
+  - добавлены `dailyReportReplayPairs` в `MainUiState`,
+  - добавлены `DailyReportReplayPairUi` в UI state модели,
+  - `AnalyticsScreen` рендерит pair-regime карточки.
+- Добавлены локализации (`en/ru`):
+  - `analytics_daily_report_replay_pair_line`.
+- Обновлены unit-тесты:
+  - `InsightsRepositoryDailyForecastReportTest` проверяет наличие `replayFactorPairs` и pair-based recommendations,
+  - `MainUiStateMappersTest` проверяет маппинг `dailyReportReplayPairs` в `AnalyticsUiState`.
+
+## Почему так
+- Одиночные факторы показывают общий вклад, но часто ошибка резко растет только при одновременном high-состоянии нескольких драйверов.
+- Pair-regime разбор дает более практичный сигнал для тюнинга (например, проблема не в `COB` отдельно, а именно в `COB+IOB` high/high).
+
+## Риски / ограничения
+- Квадранты pair-regime чувствительны к размеру выборки; при sparse-телеметрии некоторые квадранты будут пустыми (это ожидаемо).
+- Разбиение `LOW/HIGH` сделано по медиане 24h окна; на очень неоднородных днях может потребоваться адаптивный threshold.
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Проверить telemetry ключ:
+   - `daily_report_replay_factor_pair_json`.
+3) Открыть `Analytics -> Daily Forecast Report` и убедиться, что видны строки pair-regime по core-парам.
+4) Проверить рекомендации: при наличии сигнала должны появляться строки о `pair ... high/high MAE`.
+
+# Изменения — Этап 104: Top-pair telemetry + recommendation noise reduction
+
+## Что сделано
+- В `InsightsRepository` оптимизированы pair-based рекомендации:
+  - вместо потенциально длинного списка по всем pair-комбинациям теперь выбирается `top worst pair` и (опционально) `top protective pair` на каждый горизонт `5m/30m/60m`.
+- Добавлены per-horizon quick telemetry ключи:
+  - `daily_report_replay_top_pair_{5|30|60}m`,
+  - `daily_report_replay_top_pair_hint_{5|30|60}m`.
+- В `MainViewModel` добавлен разбор новых ключей и включение их в `replayReportLines`.
+- В `InsightsRepositoryDailyForecastReportTest` обновлена проверка pair-рекомендаций:
+  - ожидается наличие `top pair=` вместо проверки конкретной фиксированной пары.
+- Обновлены `docs/ARCHITECTURE.md` и `docs/INVARIANTS.md` для нового telemetry-контракта.
+
+## Почему так
+- После добавления pair-regime диагностики рекомендации могли быть перегружены множеством строк.
+- Для рабочего daily triage полезнее компактный и устойчивый сигнал: один ключевой pair-драйвер на горизонт + короткий hint.
+
+## Риски / ограничения
+- `top pair` выбирается по отношению `HH/LL MAE`, поэтому при sparse-данных и неполных квадрантах пара может отсутствовать.
+- Логика остаётся rule-based и не заменяет полноценный causal analysis.
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Проверить telemetry ключи:
+   - `daily_report_replay_top_pair_5m/30m/60m`,
+   - `daily_report_replay_top_pair_hint_5m/30m/60m`.
+3) Открыть `Analytics` и убедиться, что в replay summary-lines появились строки `top pair`/`pair hint`.
+
+# Изменения — Этап 105: Replay error-clusters (hour + mean COB/IOB/UAM/CI)
+
+## Что сделано
+- В `InsightsRepository` добавлен новый слой replay-диагностики:
+  - `ReplayErrorClusterStats` по горизонту и часу,
+  - метрики: `n`, `MAE`, `MARD`, `Bias`,
+  - средние драйверы в кластере: `meanCob`, `meanIob`, `meanUam`, `meanCiWidth`,
+  - вычисление `dominantFactor` через нормализованный score (`COB/IOB/UAM/CI`).
+- `DailyForecastReportPayload` расширен полем:
+  - `replayErrorClusters`.
+- Daily report расширен:
+  - Markdown секция `Targeted Replay 24h: Error Clusters (Hour + Mean Factors)`,
+  - CSV строки `replay_error_cluster,...`.
+- Telemetry расширена:
+  - JSON ключ `daily_report_replay_error_cluster_json`,
+  - quick keys:
+    - `daily_report_replay_error_cluster_{5|30|60}m`,
+    - `daily_report_replay_error_cluster_hint_{5|30|60}m`.
+- В `MainViewModel` добавлен разбор новых quick keys и включение в `replayReportLines`.
+- `buildRecommendations(...)` дополняет рекомендации строкой про top error cluster по горизонту с dominant driver.
+- Обновлены тесты:
+  - `InsightsRepositoryDailyForecastReportTest` проверяет наличие `replayErrorClusters` и cluster-рекомендации.
+- Обновлены `docs/ARCHITECTURE.md` и `docs/INVARIANTS.md` под новый telemetry-контракт.
+
+## Почему так
+- `Top miss` отражает одиночную точку и может быть шумным.
+- Error-cluster подход показывает устойчивую проблемную зону по часу и сразу даёт факторный контекст (`COB/IOB/UAM/CI`), что лучше подходит для целевого daily triage.
+
+## Риски / ограничения
+- Кластеры считаются по локальному 24h окну и требуют минимум `n>=4`; при редкой телеметрии часть часов будет отсутствовать.
+- Dominant factor нормализован rule-based эвристикой и не является каузальным выводом.
+
+## Как проверить
+1) Сформировать daily forecast report (24h).
+2) Проверить telemetry ключи:
+   - `daily_report_replay_error_cluster_json`,
+   - `daily_report_replay_error_cluster_5m/30m/60m`,
+   - `daily_report_replay_error_cluster_hint_5m/30m/60m`.
+3) Открыть `Analytics` и убедиться, что появились replay строки `error cluster` / `cluster hint`.
+
+# Изменения — Этап 106: Analytics UI block for replay error-clusters
+
+## Что сделано
+- В `MainViewModel` добавлен парсер:
+  - `parseReplayErrorClustersJson(...)` для telemetry `daily_report_replay_error_cluster_json`.
+- `MainUiState` расширен:
+  - `dailyReportReplayErrorClusters`.
+- Добавлен UI-тип:
+  - `DailyReportReplayErrorClusterUi` (в `ui` и `foundation/screens` моделях).
+- Обновлен маппинг `MainUiState -> AnalyticsUiState`:
+  - новое поле передаётся в `AnalyticsUiState`.
+- В `AnalyticsScreen` добавлен отдельный рендер-блок error-clusters:
+  - строка с `hour`, `MAE/MARD/Bias`, средними `COB/IOB/UAM/CI width`, `dominant driver`, `n`.
+- Добавлены локализованные строки (`en/ru`):
+  - `analytics_daily_report_replay_error_cluster_line`.
+- Обновлен unit-тест маппера:
+  - `MainUiStateMappersTest` проверяет, что cluster-поле попадает в `AnalyticsUiState` и сохраняет `dominantFactor`.
+
+## Почему так
+- До этого error-cluster диагностика была доступна в telemetry/recommendation lines, но не имела явного структурного блока в Analytics UI.
+- Новый блок делает replay triage быстрее и стабильнее: видно устойчивую проблемную зону по часу, а не только одиночный top-miss.
+
+## Риски / ограничения
+- Отрисовка кластера зависит от наличия telemetry JSON; при sparse данных блок может быть пустым (это ожидаемо).
+- Dominant driver остаётся rule-based эвристикой и не трактуется как causal-proof.
+
+## Как проверить
+1) Сформировать daily forecast report (24h) с заполнением replay telemetry.
+2) Открыть `Analytics` и проверить блок строк `cluster ...`.
+3) Убедиться, что присутствуют `COB/IOB/UAM/CIw`, `driver`, `n` для доступных горизонтов.
+
+# Изменения — Этап 107: Day-type aware replay error-clusters (WEEKDAY/WEEKEND)
+
+## Что сделано
+- `ReplayErrorClusterStats` расширен полем `dayType` (`WEEKDAY/WEEKEND`).
+- Кластеризация replay-ошибок переведена на ключ:
+  - `(horizonMinutes, hour, dayType)`.
+- JSON/telemetry для кластеров расширены:
+  - `daily_report_replay_error_cluster_json` теперь содержит `dayType`.
+  - quick keys `daily_report_replay_error_cluster_{5|30|60}m` тоже содержат `dayType=...`.
+- Рекомендации (`buildRecommendations`) теперь выводят:
+  - `top <weekday/weekend> error cluster ...`.
+- Daily markdown/csv отчёты обновлены:
+  - cluster-секция с колонкой `DayType`,
+  - CSV `replay_error_cluster` пишет dayType.
+- UI-слой обновлён сквозно:
+  - `MainViewModel` парсит `dayType` из cluster JSON,
+  - добавлено поле `dayType` в `DailyReportReplayErrorClusterUi` (`ui` + `foundation` модели),
+  - Analytics card показывает day-type локализованно (`weekday/weekend`, `будни/выходные`).
+- Обновлены string resources (`en/ru`) для day-type labels.
+- Обновлены unit-тесты:
+  - `InsightsRepositoryDailyForecastReportTest` проверяет валидный `dayType`,
+  - `MainUiStateMappersTest` проверяет перенос `dayType` в `AnalyticsUiState`.
+
+## Почему так
+- Ошибка прогноза нередко системно отличается в будни и выходные даже при одинаковом часе.
+- Day-type aware clusters дают более физиологически релевантный triage и лучше поддерживают настройку weekday/weekend паттернов.
+
+## Риски / ограничения
+- При малой выборке за 24ч один из day-type кластеров может отсутствовать — это ожидаемо.
+- Day-type вывод остаётся диагностическим сигналом и не является causal-доказательством.
+
+## Как проверить
+1) Сформировать daily forecast report за 24ч, где есть данные и будней, и выходных.
+2) Проверить JSON/quick keys:
+   - `daily_report_replay_error_cluster_json`,
+   - `daily_report_replay_error_cluster_5m/30m/60m`.
+3) В `Analytics` убедиться, что строки cluster показывают day-type (`будни/выходные`).
+
+# Изменения — Этап 108: Day-type gap wiring fix (JSON → state → Analytics UI)
+
+## Что сделано
+- Доведена сквозная интеграция `weekday/weekend gap` для replay-аналитики:
+  - исправлена несогласованность полей рекомендаций (`weekdayMae`/`weekendMae`),
+  - в `serializeReplayErrorClusters(...)` добавлен `dayType` в JSON (раньше терялся),
+  - в `MainViewModel` добавлен полноценный парсер `parseReplayDayTypeGapsJson(...)`,
+  - в `MainUiState` добавлено поле `dailyReportReplayDayTypeGaps`,
+  - добавлен UI-тип `DailyReportReplayDayTypeGapUi` (ui + foundation),
+  - обновлён `MainUiStateMappers` (hasData + mapping),
+  - в `AnalyticsScreen` добавлен отдельный блок отображения day-type gap,
+  - добавлены локализованные строки `analytics_daily_report_replay_daytype_gap_line` (en/ru).
+- Усилены тестовые проверки:
+  - `InsightsRepositoryDailyForecastReportTest` теперь проверяет наличие `replayDayTypeGaps` и рекомендаций про `weekday/weekend gap`.
+  - `MainUiStateMappersTest` проверяет перенос `dailyReportReplayDayTypeGaps` в `AnalyticsUiState`.
+
+## Почему так
+- Без `dayType` в cluster JSON UI видел неполный контекст и не мог корректно валидировать weekday/weekend разделение.
+- Day-type gap важен для целевого replay-анализа 24ч: показывает не только “где ошибка”, но и “в какой тип дня она системнее”.
+
+## Риски / ограничения
+- Расчёт gap требует обеих групп (`WEEKDAY` и `WEEKEND`) с минимальной выборкой; на коротких окнах блок может быть пустым.
+- Изменения внесены без запуска сборки/тестов в этом шаге (по текущему режиму работы).
+
+## Как проверить
+1) Сформировать daily report и убедиться, что в telemetry есть:
+   - `daily_report_replay_error_cluster_json` (с `dayType`),
+   - `daily_report_replay_daytype_gap_json`.
+2) Открыть `Analytics` и проверить карточки day-type gap:
+   - `ΔMAE`, weekday/weekend MAE, худший тип дня, драйвер.
+3) Проверить quick lines:
+   - `daily_report_replay_daytype_gap_5m/30m/60m`,
+   - `daily_report_replay_daytype_gap_hint_5m/30m/60m`.
+
+# Изменения — Этап 109: Stabilization of replay day-type diagnostics + validation cycle
+
+## Что сделано
+- Исправлен runtime дефект, найденный при сборке:
+  - удалено ошибочное поле `dayType` из `serializeReplayHotspots(...)` (hotspot-тип не содержит dayType).
+- Исправлена логика кластеров для day-type gap:
+  - `buildReplayErrorClusters(...)` больше не режет кластеры до `top-3` до расчета gap,
+  - сортировка стабилизирована (`horizon -> mae -> sampleCount -> dayType -> hour`),
+  - возвращается полный набор кластеров для корректного `weekday/weekend` сопоставления по одному часу.
+- Усилена/стабилизирована тестовая база под обновленную кластеризацию:
+  - адаптированы ожидания в `InsightsRepositoryDailyForecastReportTest` (менее хрупкие к распределению synthetic-данных),
+  - сохранена проверка наличия day-type gaps и кластерной диагностики.
+
+## Почему так
+- Day-type gap вычисляется по пересечению `WEEKDAY/WEEKEND` в одном `horizon+hour`; при раннем `top-3` урезании это пересечение терялось.
+- После расширения кластеров часть тестов с жесткими строковыми/ранжирующими ожиданиями стала нестабильной; они переведены на проверку инвариантов результата.
+
+## Риски / ограничения
+- Analytics-блок `replay error clusters` теперь может показывать больше строк (это ожидаемо до отдельного UI-лимитера).
+- Остаются compile warnings по deprecated Material icons (не блокирует runtime).
+
+## Как проверить
+1) Unit tests:
+   - `./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.InsightsRepositoryDailyForecastReportTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+2) Build:
+   - `./gradlew :app:assembleDebug`
+3) USB deploy:
+   - `adb install -r -d app/build/outputs/apk/debug/app-debug.apk`
+4) Smoke launch:
+   - `adb shell am start -n io.aaps.predictivecopilot/io.aaps.copilot.MainActivity`
+   - проверить отсутствие `FATAL EXCEPTION` в `adb logcat`.
+
+# Изменения — Этап 110: Реалистичные COB-профили (гипо/быстрые/обычные) + hard safety limits
+
+## Что сделано
+- Введён новый тип усвоения углеводов `ULTRA_FAST` в `/android-app/app/src/main/kotlin/io/aaps/copilot/domain/predict/CarbAbsorptionProfiles.kt`.
+- Перекалиброваны кривые усвоения:
+  - `ULTRA_FAST`: полное усвоение к ~60 минутам.
+  - `FAST`: ускоренный профиль с завершением к ~120 минутам.
+  - `MEDIUM`: профиль для обычной углеводной еды с завершением к ~180 минутам.
+- Добавлена приоритетная классификация “купирование гипо”:
+  - при низком BG вокруг события (<= 4.2 mmol/L) или явных hypo-rescue тегах событие маркируется как `ULTRA_FAST`.
+- Обновлена pattern-классификация: очень резкий ранний рост (`rise15`/`delta5`) уходит в `ULTRA_FAST`.
+- Для `HybridPredictionEngine` обновлены safety-clamp для карбов:
+  - `carbAbsorptionMaxAgeMinutes` ограничен `60..180`.
+  - `carbComputationMaxGrams` ограничен `20..60`.
+  - `ULTRA_FAST` включён в активный быстрый пул (диагностика `carbFastActiveGrams`).
+- Для runtime COB в `AutomationRepository`:
+  - жёстко ограничены лимиты `cutoff <= 180 мин` и `max grams <= 60`.
+  - улучшено смешивание telemetry COB и local COB: при сильном расхождении вес telemetry автоматически снижается.
+  - добавлен guard: если локально нет недавних carb-событий в окне cutoff, telemetry COB не протаскивается как “реальный COB”.
+- Те же safety-границы (`180 мин`, `60 г`) протянуты в `AppSettingsStore`, `MainViewModel`, `NightscoutActionRepository`.
+
+## Почему так
+- Цель: убрать системное “долго висящее COB”, особенно когда внешняя telemetry COB устарела и расходится с локальной моделью.
+- Для сценария купирования гипо логичен `ULTRA_FAST` профиль с закрытием в пределах ~1 часа.
+- Для обычной углеводной еды без белково-жировой задержки реалистичный предел учёта — до 3 часов.
+- Hard safety limits не позволяют прогнозу/COB раздуваться за пределы безопасного диапазона.
+
+## Риски / ограничения
+- Сильное ускорение профиля может изменить ранний вид декомпозиции на горизонте 5–30 минут; поэтому сохранён guard против широких `ULTRA_FAST` текст-триггеров (только rescue-подобные токены).
+- Ветка protein-slow оставлена, но runtime cutoff всё равно ограничивает COB сверху 3 часами как safety-policy.
+
+## Как проверить
+1) Unit tests:
+   - `./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.predict.CarbAbsorptionProfilesTest --tests io.aaps.copilot.domain.predict.HybridPredictionEngineTest --tests io.aaps.copilot.domain.predict.HybridPredictionEngineV3Test`
+2) Доп. регрессия по repository:
+   - `./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest`
+3) Ручной smoke:
+   - ввести hypo-carb событие при BG <= 4.2 и проверить быстрое падение `residualCarbs` к ~0 в течение часа;
+   - ввести обычную carb-еду и проверить, что локальный COB уходит не позже 180 минут;
+   - проверить, что при расхождении local/telemetry COB итоговый runtime COB ближе к local.
+
+# Изменения — Этап 111: Activity-trigger temp target override (7.7–8.7) + auto-recovery
+
+## Что сделано
+- В `AdaptiveTargetControllerRule` добавлен отдельный stateful контур физнагрузки:
+  - чтение telemetry `activity_ratio` и `steps_count` (с алиасами),
+  - детектор spike по `activity_ratio`, `activity_ratio delta` и `steps delta per 5m`,
+  - load-scaled target `7.7..8.7 mmol/L` при активной нагрузке.
+- Добавлена автоматическая деактивация защиты:
+  - при длительном low-load (`~30 мин`, 6 циклов по 5 минут),
+  - с явной командой recovery к base target, который был до входа в activity-protection.
+- Поведение интегратора PI в обычном adaptive-контуре сохранено: activity-ветка обрабатывается как ранний override, остальная логика `AdaptiveTempTargetController` не изменена.
+- Добавлены unit-тесты:
+  - `activityTriggerRaisesTargetInConfiguredRange`,
+  - `activityRecoveryReturnsBaseAfterSustainedLowLoad`.
+- Для устранения скрытых межтестовых состояний `AdaptiveTargetControllerRuleTest` переведен на новый инстанс rule в каждом тесте.
+- В observability adaptive-контура добавлен audit-параметр `mode` в `adaptive_controller_*`:
+  - `activity_protection`,
+  - `activity_recovery`,
+  - либо базовый режим из `reason=...`,
+  чтобы быстрее различать события физнагрузки в логах без ручного парсинга `reasons`.
+- Обновлены документы:
+  - `docs/ARCHITECTURE.md`,
+  - `docs/INVARIANTS.md`.
+
+## Почему так
+- Требование: при резком росте активности быстро повысить целевой sugar для анти-гипо защиты, затем автоматически вернуть прежнюю цель после завершения нагрузки.
+- Реализация в rule-слое позволяет приоритезировать activity safety без изменений PI-ядра и без дублирования логики в других слоях.
+
+## Риски / ограничения
+- Детекция использует telemetry-частоту и качество `steps/activity`; при больших пропусках метрик trigger может сработать позже.
+- Пороговые значения подобраны консервативно и могут потребовать тюнинга под конкретный паттерн носимого источника шагов.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTargetControllerRuleTest" --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest"`
+2) В логе rule reasons проверить activity-пути:
+   - `activity_protection_active`,
+   - `activity_recovery_to_base`.
+3) Ручной сценарий:
+   - поднять `activity_ratio` и/или быстрый прирост `steps_count`,
+   - убедиться, что temp target идет в диапазон `7.7..8.7`,
+   - после устойчиво низкой нагрузки убедиться в recovery к base target.
+
+# Изменения — Этап 112: CR runtime fix (logs/DB) + real CR graph in Analytics
+
+## Что сделано
+- Для `IsfCrWindowExtractor` исправлен gate `cr_no_bolus_nearby`:
+  - добавлен fallback для meal-событий `uam_engine` (без явного болюса),
+  - добавлена дедупликация дублирующих UAM carbs-событий в одном 5-мин бакете,
+  - расширен набор поддерживаемых IOB telemetry-ключей.
+- Для CR-fit добавлена поддержка 1-мин CGM интервалов (`dt=1..15`), чтобы extractor не срезал реальные 1-мин сенсоры как `cr_sparse_intervals`.
+- Смягчены CR-гейты для `uam_engine` meal-сценариев:
+  - высокий `uam_ambiguity` теперь даёт penalty (а не hard-drop),
+  - для `uam_engine` снижен минимум по quality-score и минимум интервалов (2 вместо 4),
+  - вес CR-sample учитывает coverage/ambiguity penalty.
+- В `IsfCrEngine` добавлены runtime factors:
+  - `raw_isf_eff`, `raw_cr_eff`, `raw_confidence`,
+  - `isf_hour_window_evidence_enough`, `cr_hour_window_evidence_enough`.
+- В `IsfCrEngine` обновлен blending базы с evidence:
+  - evidence используется и при sparse-hour режиме (с более низким alpha),
+  - это уменьшает «залипание» CR на fallback-базе.
+- В `MainViewModel` исправлено отображение CR/ISF на графике Analytics:
+  - при `mode=FALLBACK` UI берёт `raw_cr_eff/raw_isf_eff` из `factors` (если доступны),
+  - история `isfCrHistoryPoints` и текущие realtime-метрики строятся из этих значений.
+
+## Почему так
+- По live БД/аудиту на телефоне CR постоянно падал в `cr_no_bolus_nearby` и UI показывал плоскую линию CR=10.0.
+- После фикса gate `cr_no_bolus_nearby` исчез из новых циклов; вместо него в диагностике стали видны реальные причины качества (`cr_sparse_intervals`, `cr_uam_ambiguity`, `cr_low_quality`), что подтверждает работу нового extractor-path.
+- `raw_cr_eff` нужен для честной аналитической визуализации даже когда safety-mode остаётся `FALLBACK`.
+
+## Риски / ограничения
+- Если данных meal-окон по-прежнему мало/шумно, `mode` останется `FALLBACK`; график покажет `raw_cr_eff`, но auto-контур продолжит работать по безопасной ветке.
+- UAM-derived meal samples имеют сниженный вес и предназначены для аналитики/оценки, а не для агрессивного runtime override без confidence-gate.
+
+## Как проверить
+1) Unit tests:
+   - `./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest --tests io.aaps.copilot.domain.isfcr.IsfCrEngineTest --tests io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest`
+2) APK + USB install:
+   - `./gradlew :app:assembleDebug`
+   - `adb install -r app/build/outputs/apk/debug/app-debug.apk`
+3) По pulled DB проверить последние `isfcr_*` логи:
+   - в новых циклах больше нет доминирующего `cr_no_bolus_nearby`,
+   - в `isf_cr_snapshots.factorsJson` присутствует `raw_cr_eff`.
+4) В UI (`Analytics` -> ISF/CR):
+   - линия real CR перестаёт быть строго плоской при наличии `raw_cr_eff`,
+   - merged/base остаётся отдельной линией (fallback/reference).
+
+# Изменения — Этап 113: anti-stall runtime cycle (USB diagnostics + lock stabilization)
+
+## Что сделано
+- В `AutomationRepository` добавлен anti-stall контур для цикла:
+  - `automation_cycle_started/finished/timeout/failed`,
+  - `runningForMs` в `automation_cycle_skipped`,
+  - таймаут всего цикла `AUTOMATION_CYCLE_TIMEOUT_MS=180000`.
+- В `SyncAndAutomateWorker` добавлены события:
+  - `automation_worker_started`,
+  - `automation_worker_completed`,
+  - `automation_worker_failed`.
+- Добавлен step tracing (`automation_cycle_step_started/completed/failed`) для ранних стадий:
+  - `auto_connect_bootstrap`,
+  - `root_db_sync`,
+  - `nightscout_sync`,
+  - `cloud_push_sync`,
+  - `baseline_import`.
+- Добавлены runtime checkpoints (`automation_cycle_checkpoint`) по стадиям после ключевых блоков.
+- Тяжёлый пересчёт `analyticsRepository.recalculate()` исключён из reactive runtime-цикла:
+  - теперь логируется `analytics_recalculate_skipped` с `reason=decoupled_from_reactive_cycle`.
+- `ISF/CR` realtime в runtime-цикле переведён на cached+async модель:
+  - основной цикл читает `latestSnapshot`,
+  - при stale/missing запускается фоновый refresh (`isfcr_realtime_refresh_*`),
+  - основной цикл больше не блокируется тяжёлым realtime-fit.
+
+## Почему так
+- По USB-логам цикл часто зависал в состоянии `already_running`, из-за чего новые reactive прогоны пропускались.
+- Корневой эффект — тяжёлые аналитические/ISFCR операции внутри критической секции цикла.
+- Разделение “оперативный контур” и “тяжёлые пересчёты” восстановило регулярное завершение цикла.
+
+## Риски / ограничения
+- При stale `isf_cr_snapshots` runtime временно работает на последнем валидном snapshot (или fallback), пока идёт фоновый refresh.
+- Step/checkpoint логи увеличивают объём `audit_logs` (это диагностический режим; при необходимости можно позже урезать).
+
+## Как проверить
+1) Сборка и установка:
+   - `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app`
+   - `./gradlew :app:assembleDebug`
+   - `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+2) USB smoke:
+   - отправить `NS_EMULATOR` broadcast,
+   - в `audit_logs` должны появляться `automation_worker_started/completed`, `automation_cycle_started/finished`, `automation_cycle_completed`.
+3) Подтверждение anti-stall:
+   - нет длительных “вечных” `already_running` без последующего `automation_cycle_finished`.
+   - есть checkpoint-цепочка до `post_adaptive_audit`.

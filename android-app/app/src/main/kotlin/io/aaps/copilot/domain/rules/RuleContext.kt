@@ -14,7 +14,7 @@ data class RuleContext(
     val forecasts: List<Forecast>,
     val currentDayPattern: PatternWindow?,
     val baseTargetMmol: Double,
-    val postHypoThresholdMmol: Double = 3.0,
+    val postHypoThresholdMmol: Double = 4.0,
     val postHypoDeltaThresholdMmol5m: Double = 0.20,
     val postHypoTargetMmol: Double = 4.4,
     val postHypoDurationMinutes: Int = 60,
@@ -27,5 +27,7 @@ data class RuleContext(
     val currentProfileSegment: ProfileSegmentEstimate? = null,
     val latestTelemetry: Map<String, Double?> = emptyMap(),
     val retargetCooldownMinutes: Int = 5,
-    val adaptiveMaxStepMmol: Double = 0.25
+    val adaptiveMaxStepMmol: Double = 0.25,
+    val adaptiveMinTargetMmol: Double = 4.0,
+    val adaptiveMaxTargetMmol: Double = 9.0
 )

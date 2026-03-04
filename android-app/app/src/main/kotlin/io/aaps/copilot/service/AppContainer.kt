@@ -5,12 +5,15 @@ import androidx.room.Room
 import com.google.gson.Gson
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.CopilotMigrations
 import io.aaps.copilot.data.repository.AapsExportRepository
 import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.repository.AnalyticsRepository
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.BroadcastIngestRepository
+import io.aaps.copilot.data.repository.CarbsSendThrottle
+import io.aaps.copilot.data.repository.IsfCrRepository
 import io.aaps.copilot.data.repository.InsightsRepository
 import io.aaps.copilot.data.repository.NightscoutAapsCarbGateway
 import io.aaps.copilot.data.repository.NightscoutActionRepository
@@ -45,7 +48,11 @@ class AppContainer(context: Context) {
         CopilotDatabase::class.java,
         "copilot.db"
     )
-        .fallbackToDestructiveMigration(dropAllTables = true)
+        .addMigrations(*CopilotMigrations.ALL)
+        .fallbackToDestructiveMigrationFrom(
+            dropAllTables = true,
+            1, 2, 3, 4, 5, 6, 7, 8
+        )
         .build()
 
     val apiFactory = ApiFactory()
@@ -109,7 +116,18 @@ class AppContainer(context: Context) {
         db = db,
         patternAnalyzer = PatternAnalyzer(),
         gson = gson,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        isfCrRepository = IsfCrRepository(
+            db = db,
+            gson = gson,
+            auditLogger = auditLogger
+        )
+    )
+
+    val isfCrRepository: IsfCrRepository = analyticsRepository.isfCrRepository
+
+    private val carbsSendThrottle = CarbsSendThrottle(
+        actionCommandDao = db.actionCommandDao()
     )
 
     val actionRepository = NightscoutActionRepository(
@@ -117,6 +135,7 @@ class AppContainer(context: Context) {
         db = db,
         settingsStore = settingsStore,
         apiFactory = apiFactory,
+        carbsSendThrottle = carbsSendThrottle,
         gson = gson,
         auditLogger = auditLogger
     )
@@ -124,6 +143,7 @@ class AppContainer(context: Context) {
     private val aapsCarbGateway = NightscoutAapsCarbGateway(
         settingsStore = settingsStore,
         apiFactory = apiFactory,
+        carbsSendThrottle = carbsSendThrottle,
         auditLogger = auditLogger
     )
 
@@ -158,6 +178,7 @@ class AppContainer(context: Context) {
         autoConnectRepository = autoConnectRepository,
         rootDbRepository = rootDbRepository,
         analyticsRepository = analyticsRepository,
+        isfCrRepository = isfCrRepository,
         actionRepository = actionRepository,
         predictionEngine = predictionEngine,
         uamInferenceEngine = uamInferenceEngine,
@@ -171,6 +192,7 @@ class AppContainer(context: Context) {
 
     val insightsRepository = InsightsRepository(
         context = context,
+        db = db,
         settingsStore = settingsStore,
         apiFactory = apiFactory,
         auditLogger = auditLogger

@@ -23,6 +23,7 @@ class AppSettingsStore(context: Context) {
 
     val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
         val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
+        val (safetyMinTargetMmol, safetyMaxTargetMmol) = resolveSafetyTargetBounds(prefs)
         AppSettings(
             nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
             apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
@@ -71,10 +72,96 @@ class AppSettingsStore(context: Context) {
             uamMinConfirmAgeMin = prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] ?: DEFAULT_UAM_MIN_CONFIRM_AGE_MIN,
             uamExportMinIntervalMin = prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] ?: DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN,
             uamExportMaxBackdateMin = prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] ?: DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN,
-            baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
-            postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
+            carbAbsorptionMaxAgeMinutes = (prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES]
+                ?: DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES).coerceIn(60, 180),
+            carbComputationMaxGrams = (prefs[KEY_CARB_COMPUTATION_MAX_GRAMS]
+                ?: DEFAULT_CARB_COMPUTATION_MAX_GRAMS).coerceIn(20.0, 60.0),
+            isfCrShadowMode = prefs[KEY_ISFCR_SHADOW_MODE] ?: DEFAULT_ISFCR_SHADOW_MODE,
+            isfCrConfidenceThreshold = prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] ?: DEFAULT_ISFCR_CONFIDENCE_THRESHOLD,
+            isfCrUseActivity = prefs[KEY_ISFCR_USE_ACTIVITY] ?: DEFAULT_ISFCR_USE_ACTIVITY,
+            isfCrUseManualTags = prefs[KEY_ISFCR_USE_MANUAL_TAGS] ?: DEFAULT_ISFCR_USE_MANUAL_TAGS,
+            isfCrMinIsfEvidencePerHour = prefs[KEY_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR]
+                ?: DEFAULT_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR,
+            isfCrMinCrEvidencePerHour = prefs[KEY_ISFCR_MIN_CR_EVIDENCE_PER_HOUR]
+                ?: DEFAULT_ISFCR_MIN_CR_EVIDENCE_PER_HOUR,
+            isfCrCrMaxGapMinutes = prefs[KEY_ISFCR_CR_MAX_GAP_MINUTES]
+                ?: DEFAULT_ISFCR_CR_MAX_GAP_MINUTES,
+            isfCrCrMaxSensorBlockedRatePct = prefs[KEY_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT]
+                ?: DEFAULT_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT,
+            isfCrCrMaxUamAmbiguityRatePct = prefs[KEY_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT]
+                ?: DEFAULT_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT,
+            isfCrSnapshotRetentionDays = prefs[KEY_ISFCR_SNAPSHOT_RETENTION_DAYS]
+                ?: DEFAULT_ISFCR_SNAPSHOT_RETENTION_DAYS,
+            isfCrEvidenceRetentionDays = prefs[KEY_ISFCR_EVIDENCE_RETENTION_DAYS]
+                ?: DEFAULT_ISFCR_EVIDENCE_RETENTION_DAYS,
+            isfCrAutoActivationEnabled = prefs[KEY_ISFCR_AUTO_ACTIVATION_ENABLED]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ENABLED,
+            isfCrAutoActivationLookbackHours = prefs[KEY_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS,
+            isfCrAutoActivationMinSamples = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES,
+            isfCrAutoActivationMinMeanConfidence = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE,
+            isfCrAutoActivationMaxMeanAbsIsfDeltaPct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT,
+            isfCrAutoActivationMaxMeanAbsCrDeltaPct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT,
+            isfCrAutoActivationMinSensorQualityScore = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE,
+            isfCrAutoActivationMinSensorFactor = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR,
+            isfCrAutoActivationMaxWearConfidencePenalty = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY,
+            isfCrAutoActivationMaxSensorAgeHighRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT,
+            isfCrAutoActivationMaxSuspectFalseLowRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT,
+            isfCrAutoActivationMinDayTypeRatio = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO,
+            isfCrAutoActivationMaxDayTypeSparseRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT,
+            isfCrAutoActivationRequireDailyQualityGate = prefs[KEY_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE,
+            isfCrAutoActivationDailyRiskBlockLevel =
+                (prefs[KEY_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL).coerceIn(2, 3),
+            isfCrAutoActivationMinDailyMatchedSamples = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES,
+            isfCrAutoActivationMaxDailyMae30Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL,
+            isfCrAutoActivationMaxDailyMae60Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL,
+            isfCrAutoActivationMaxHypoRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT,
+            isfCrAutoActivationMinDailyCiCoverage30Pct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT,
+            isfCrAutoActivationMinDailyCiCoverage60Pct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT,
+            isfCrAutoActivationMaxDailyCiWidth30Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL,
+            isfCrAutoActivationMaxDailyCiWidth60Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL]
+                ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL,
+            isfCrAutoActivationRollingMinRequiredWindows =
+                prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS,
+            isfCrAutoActivationRollingMaeRelaxFactor =
+                prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR,
+            isfCrAutoActivationRollingCiCoverageRelaxFactor =
+                prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR,
+            isfCrAutoActivationRollingCiWidthRelaxFactor =
+                prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR,
+            safetyMinTargetMmol = safetyMinTargetMmol,
+            safetyMaxTargetMmol = safetyMaxTargetMmol,
+            baseTargetMmol = (prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL)
+                .coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
+            postHypoThresholdMmol = (prefs[KEY_POST_HYPO_THRESHOLD_MMOL]
+                ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
             postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
-            postHypoTargetMmol = prefs[KEY_POST_HYPO_TARGET_MMOL] ?: DEFAULT_POST_HYPO_TARGET_MMOL,
+            postHypoTargetMmol = (prefs[KEY_POST_HYPO_TARGET_MMOL]
+                ?: DEFAULT_POST_HYPO_TARGET_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
             postHypoDurationMinutes = prefs[KEY_POST_HYPO_DURATION_MINUTES] ?: DEFAULT_POST_HYPO_DURATION_MINUTES,
             postHypoLookbackMinutes = prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] ?: DEFAULT_POST_HYPO_LOOKBACK_MINUTES,
             rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
@@ -112,6 +199,7 @@ class AppSettingsStore(context: Context) {
     suspend fun update(updater: (AppSettings) -> AppSettings) {
         dataStore.edit { prefs ->
             val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
+            val (safetyMinTargetMmol, safetyMaxTargetMmol) = resolveSafetyTargetBounds(prefs)
             val current = AppSettings(
                 nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
                 apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
@@ -160,10 +248,96 @@ class AppSettingsStore(context: Context) {
                 uamMinConfirmAgeMin = prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] ?: DEFAULT_UAM_MIN_CONFIRM_AGE_MIN,
                 uamExportMinIntervalMin = prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] ?: DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN,
                 uamExportMaxBackdateMin = prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] ?: DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN,
-                baseTargetMmol = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
-                postHypoThresholdMmol = prefs[KEY_POST_HYPO_THRESHOLD_MMOL] ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL,
+                carbAbsorptionMaxAgeMinutes = (prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES]
+                    ?: DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES).coerceIn(60, 180),
+                carbComputationMaxGrams = (prefs[KEY_CARB_COMPUTATION_MAX_GRAMS]
+                    ?: DEFAULT_CARB_COMPUTATION_MAX_GRAMS).coerceIn(20.0, 60.0),
+                isfCrShadowMode = prefs[KEY_ISFCR_SHADOW_MODE] ?: DEFAULT_ISFCR_SHADOW_MODE,
+                isfCrConfidenceThreshold = prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] ?: DEFAULT_ISFCR_CONFIDENCE_THRESHOLD,
+                isfCrUseActivity = prefs[KEY_ISFCR_USE_ACTIVITY] ?: DEFAULT_ISFCR_USE_ACTIVITY,
+                isfCrUseManualTags = prefs[KEY_ISFCR_USE_MANUAL_TAGS] ?: DEFAULT_ISFCR_USE_MANUAL_TAGS,
+                isfCrMinIsfEvidencePerHour = prefs[KEY_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR]
+                    ?: DEFAULT_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR,
+                isfCrMinCrEvidencePerHour = prefs[KEY_ISFCR_MIN_CR_EVIDENCE_PER_HOUR]
+                    ?: DEFAULT_ISFCR_MIN_CR_EVIDENCE_PER_HOUR,
+                isfCrCrMaxGapMinutes = prefs[KEY_ISFCR_CR_MAX_GAP_MINUTES]
+                    ?: DEFAULT_ISFCR_CR_MAX_GAP_MINUTES,
+                isfCrCrMaxSensorBlockedRatePct = prefs[KEY_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT]
+                    ?: DEFAULT_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT,
+                isfCrCrMaxUamAmbiguityRatePct = prefs[KEY_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT]
+                    ?: DEFAULT_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT,
+                isfCrSnapshotRetentionDays = prefs[KEY_ISFCR_SNAPSHOT_RETENTION_DAYS]
+                    ?: DEFAULT_ISFCR_SNAPSHOT_RETENTION_DAYS,
+                isfCrEvidenceRetentionDays = prefs[KEY_ISFCR_EVIDENCE_RETENTION_DAYS]
+                    ?: DEFAULT_ISFCR_EVIDENCE_RETENTION_DAYS,
+                isfCrAutoActivationEnabled = prefs[KEY_ISFCR_AUTO_ACTIVATION_ENABLED]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ENABLED,
+                isfCrAutoActivationLookbackHours = prefs[KEY_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS,
+                isfCrAutoActivationMinSamples = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES,
+                isfCrAutoActivationMinMeanConfidence = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE,
+                isfCrAutoActivationMaxMeanAbsIsfDeltaPct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT,
+                isfCrAutoActivationMaxMeanAbsCrDeltaPct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT,
+                isfCrAutoActivationMinSensorQualityScore = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE,
+                isfCrAutoActivationMinSensorFactor = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR,
+                isfCrAutoActivationMaxWearConfidencePenalty = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY,
+                isfCrAutoActivationMaxSensorAgeHighRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT,
+                isfCrAutoActivationMaxSuspectFalseLowRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT,
+                isfCrAutoActivationMinDayTypeRatio = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO,
+                isfCrAutoActivationMaxDayTypeSparseRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT,
+                isfCrAutoActivationRequireDailyQualityGate = prefs[KEY_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE,
+                isfCrAutoActivationDailyRiskBlockLevel =
+                    (prefs[KEY_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL]
+                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL).coerceIn(2, 3),
+                isfCrAutoActivationMinDailyMatchedSamples = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES,
+                isfCrAutoActivationMaxDailyMae30Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL,
+                isfCrAutoActivationMaxDailyMae60Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL,
+                isfCrAutoActivationMaxHypoRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT,
+                isfCrAutoActivationMinDailyCiCoverage30Pct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT,
+                isfCrAutoActivationMinDailyCiCoverage60Pct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT,
+                isfCrAutoActivationMaxDailyCiWidth30Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL,
+                isfCrAutoActivationMaxDailyCiWidth60Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL]
+                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL,
+                isfCrAutoActivationRollingMinRequiredWindows =
+                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS]
+                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS,
+                isfCrAutoActivationRollingMaeRelaxFactor =
+                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR]
+                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR,
+                isfCrAutoActivationRollingCiCoverageRelaxFactor =
+                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR]
+                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR,
+                isfCrAutoActivationRollingCiWidthRelaxFactor =
+                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR]
+                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR,
+                safetyMinTargetMmol = safetyMinTargetMmol,
+                safetyMaxTargetMmol = safetyMaxTargetMmol,
+                baseTargetMmol = (prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL)
+                    .coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
+                postHypoThresholdMmol = (prefs[KEY_POST_HYPO_THRESHOLD_MMOL]
+                    ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
                 postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
-                postHypoTargetMmol = prefs[KEY_POST_HYPO_TARGET_MMOL] ?: DEFAULT_POST_HYPO_TARGET_MMOL,
+                postHypoTargetMmol = (prefs[KEY_POST_HYPO_TARGET_MMOL]
+                    ?: DEFAULT_POST_HYPO_TARGET_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
                 postHypoDurationMinutes = prefs[KEY_POST_HYPO_DURATION_MINUTES] ?: DEFAULT_POST_HYPO_DURATION_MINUTES,
                 postHypoLookbackMinutes = prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] ?: DEFAULT_POST_HYPO_LOOKBACK_MINUTES,
                 rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
@@ -242,17 +416,91 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] = next.uamMinConfirmAgeMin
             prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] = next.uamExportMinIntervalMin
             prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] = next.uamExportMaxBackdateMin
-            prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol
-            prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = next.postHypoThresholdMmol
+            prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES] = next.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180)
+            prefs[KEY_CARB_COMPUTATION_MAX_GRAMS] = next.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+            prefs[KEY_ISFCR_SHADOW_MODE] = next.isfCrShadowMode
+            prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] = next.isfCrConfidenceThreshold.coerceIn(0.2, 0.95)
+            prefs[KEY_ISFCR_USE_ACTIVITY] = next.isfCrUseActivity
+            prefs[KEY_ISFCR_USE_MANUAL_TAGS] = next.isfCrUseManualTags
+            prefs[KEY_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR] = next.isfCrMinIsfEvidencePerHour.coerceIn(0, 12)
+            prefs[KEY_ISFCR_MIN_CR_EVIDENCE_PER_HOUR] = next.isfCrMinCrEvidencePerHour.coerceIn(0, 12)
+            prefs[KEY_ISFCR_CR_MAX_GAP_MINUTES] = next.isfCrCrMaxGapMinutes.coerceIn(10, 60)
+            prefs[KEY_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT] =
+                next.isfCrCrMaxSensorBlockedRatePct.coerceIn(0.0, 100.0)
+            prefs[KEY_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT] =
+                next.isfCrCrMaxUamAmbiguityRatePct.coerceIn(0.0, 100.0)
+            prefs[KEY_ISFCR_SNAPSHOT_RETENTION_DAYS] = next.isfCrSnapshotRetentionDays.coerceIn(30, 730)
+            prefs[KEY_ISFCR_EVIDENCE_RETENTION_DAYS] = next.isfCrEvidenceRetentionDays.coerceIn(30, 1095)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_ENABLED] = next.isfCrAutoActivationEnabled
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS] =
+                next.isfCrAutoActivationLookbackHours.coerceIn(6, 72)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES] = next.isfCrAutoActivationMinSamples.coerceIn(12, 288)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE] =
+                next.isfCrAutoActivationMinMeanConfidence.coerceIn(0.2, 0.95)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT] =
+                next.isfCrAutoActivationMaxMeanAbsIsfDeltaPct.coerceIn(5.0, 100.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT] =
+                next.isfCrAutoActivationMaxMeanAbsCrDeltaPct.coerceIn(5.0, 100.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE] =
+                next.isfCrAutoActivationMinSensorQualityScore.coerceIn(0.0, 1.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR] =
+                next.isfCrAutoActivationMinSensorFactor.coerceIn(0.0, 1.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY] =
+                next.isfCrAutoActivationMaxWearConfidencePenalty.coerceIn(0.0, 1.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT] =
+                next.isfCrAutoActivationMaxSensorAgeHighRatePct.coerceIn(0.0, 100.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT] =
+                next.isfCrAutoActivationMaxSuspectFalseLowRatePct.coerceIn(0.0, 100.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO] =
+                next.isfCrAutoActivationMinDayTypeRatio.coerceIn(0.0, 1.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT] =
+                next.isfCrAutoActivationMaxDayTypeSparseRatePct.coerceIn(0.0, 100.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE] =
+                next.isfCrAutoActivationRequireDailyQualityGate
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL] =
+                next.isfCrAutoActivationDailyRiskBlockLevel.coerceIn(2, 3)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES] =
+                next.isfCrAutoActivationMinDailyMatchedSamples.coerceIn(24, 720)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL] =
+                next.isfCrAutoActivationMaxDailyMae30Mmol.coerceIn(0.3, 4.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL] =
+                next.isfCrAutoActivationMaxDailyMae60Mmol.coerceIn(0.5, 6.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT] =
+                next.isfCrAutoActivationMaxHypoRatePct.coerceIn(0.5, 30.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT] =
+                next.isfCrAutoActivationMinDailyCiCoverage30Pct.coerceIn(20.0, 99.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT] =
+                next.isfCrAutoActivationMinDailyCiCoverage60Pct.coerceIn(20.0, 99.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL] =
+                next.isfCrAutoActivationMaxDailyCiWidth30Mmol.coerceIn(0.3, 6.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL] =
+                next.isfCrAutoActivationMaxDailyCiWidth60Mmol.coerceIn(0.5, 8.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS] =
+                next.isfCrAutoActivationRollingMinRequiredWindows.coerceIn(1, 3)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR] =
+                next.isfCrAutoActivationRollingMaeRelaxFactor.coerceIn(1.0, 1.5)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR] =
+                next.isfCrAutoActivationRollingCiCoverageRelaxFactor.coerceIn(0.70, 1.0)
+            prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR] =
+                next.isfCrAutoActivationRollingCiWidthRelaxFactor.coerceIn(1.0, 1.5)
+            val normalizedSafetyMax = next.safetyMaxTargetMmol.coerceIn(4.2, 10.0)
+            val normalizedSafetyMin = next.safetyMinTargetMmol
+                .coerceIn(4.0, 9.8)
+                .coerceAtMost(normalizedSafetyMax - 0.2)
+            prefs[KEY_SAFETY_MIN_TARGET_MMOL] = normalizedSafetyMin
+            prefs[KEY_SAFETY_MAX_TARGET_MMOL] = normalizedSafetyMax
+            prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol.coerceIn(normalizedSafetyMin, normalizedSafetyMax)
+            prefs[KEY_POST_HYPO_THRESHOLD_MMOL] =
+                next.postHypoThresholdMmol.coerceIn(normalizedSafetyMin, normalizedSafetyMax)
             prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
-            prefs[KEY_POST_HYPO_TARGET_MMOL] = next.postHypoTargetMmol
+            prefs[KEY_POST_HYPO_TARGET_MMOL] =
+                next.postHypoTargetMmol.coerceIn(normalizedSafetyMin, normalizedSafetyMax)
             prefs[KEY_POST_HYPO_DURATION_MINUTES] = next.postHypoDurationMinutes
             prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] = next.postHypoLookbackMinutes
             prefs[KEY_RULE_POST_HYPO_ENABLED] = next.rulePostHypoEnabled
             prefs[KEY_RULE_PATTERN_ENABLED] = next.rulePatternEnabled
             prefs[KEY_RULE_SEGMENT_ENABLED] = next.ruleSegmentEnabled
-            // Product policy: adaptive controller is always enabled in runtime.
-            prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = true
+            prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] = next.adaptiveControllerEnabled
             prefs[KEY_ADAPTIVE_DEFAULT_MIGRATION_DONE] = true
             prefs[KEY_RULE_POST_HYPO_PRIORITY] = next.rulePostHypoPriority
             prefs[KEY_RULE_PATTERN_PRIORITY] = next.rulePatternPriority
@@ -316,9 +564,17 @@ class AppSettingsStore(context: Context) {
         return enabledNow
     }
 
-    private fun resolveAdaptiveControllerEnabled(@Suppress("UNUSED_PARAMETER") prefs: Preferences): Boolean {
-        // Keep controller permanently active even if old settings were saved with disabled flag.
-        return true
+    private fun resolveAdaptiveControllerEnabled(prefs: Preferences): Boolean {
+        return prefs[KEY_ADAPTIVE_CONTROLLER_ENABLED] ?: true
+    }
+
+    private fun resolveSafetyTargetBounds(prefs: Preferences): Pair<Double, Double> {
+        val maxBound = (prefs[KEY_SAFETY_MAX_TARGET_MMOL] ?: DEFAULT_SAFETY_MAX_TARGET_MMOL)
+            .coerceIn(4.2, 10.0)
+        val minBound = (prefs[KEY_SAFETY_MIN_TARGET_MMOL] ?: DEFAULT_SAFETY_MIN_TARGET_MMOL)
+            .coerceIn(4.0, 9.8)
+            .coerceAtMost(maxBound - 0.2)
+        return minBound to maxBound
     }
 
     private fun normalizeInsulinProfileId(raw: String?): String {
@@ -379,6 +635,79 @@ class AppSettingsStore(context: Context) {
         private val KEY_UAM_MIN_CONFIRM_AGE_MIN = intPreferencesKey("uam_min_confirm_age_min")
         private val KEY_UAM_EXPORT_MIN_INTERVAL_MIN = intPreferencesKey("uam_export_min_interval_min")
         private val KEY_UAM_EXPORT_MAX_BACKDATE_MIN = intPreferencesKey("uam_export_max_backdate_min")
+        private val KEY_CARB_ABSORPTION_MAX_AGE_MINUTES = intPreferencesKey("carb_absorption_max_age_minutes")
+        private val KEY_CARB_COMPUTATION_MAX_GRAMS = doublePreferencesKey("carb_computation_max_grams")
+        private val KEY_ISFCR_SHADOW_MODE = booleanPreferencesKey("isfcr_shadow_mode")
+        private val KEY_ISFCR_CONFIDENCE_THRESHOLD = doublePreferencesKey("isfcr_confidence_threshold")
+        private val KEY_ISFCR_USE_ACTIVITY = booleanPreferencesKey("isfcr_use_activity")
+        private val KEY_ISFCR_USE_MANUAL_TAGS = booleanPreferencesKey("isfcr_use_manual_tags")
+        private val KEY_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR =
+            intPreferencesKey("isfcr_min_isf_evidence_per_hour")
+        private val KEY_ISFCR_MIN_CR_EVIDENCE_PER_HOUR =
+            intPreferencesKey("isfcr_min_cr_evidence_per_hour")
+        private val KEY_ISFCR_CR_MAX_GAP_MINUTES =
+            intPreferencesKey("isfcr_cr_max_gap_minutes")
+        private val KEY_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT =
+            doublePreferencesKey("isfcr_cr_max_sensor_blocked_rate_pct")
+        private val KEY_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT =
+            doublePreferencesKey("isfcr_cr_max_uam_ambiguity_rate_pct")
+        private val KEY_ISFCR_SNAPSHOT_RETENTION_DAYS = intPreferencesKey("isfcr_snapshot_retention_days")
+        private val KEY_ISFCR_EVIDENCE_RETENTION_DAYS = intPreferencesKey("isfcr_evidence_retention_days")
+        private val KEY_ISFCR_AUTO_ACTIVATION_ENABLED = booleanPreferencesKey("isfcr_auto_activation_enabled")
+        private val KEY_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS =
+            intPreferencesKey("isfcr_auto_activation_lookback_hours")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES =
+            intPreferencesKey("isfcr_auto_activation_min_samples")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE =
+            doublePreferencesKey("isfcr_auto_activation_min_mean_confidence")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT =
+            doublePreferencesKey("isfcr_auto_activation_max_mean_abs_isf_delta_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT =
+            doublePreferencesKey("isfcr_auto_activation_max_mean_abs_cr_delta_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE =
+            doublePreferencesKey("isfcr_auto_activation_min_sensor_quality_score")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR =
+            doublePreferencesKey("isfcr_auto_activation_min_sensor_factor")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY =
+            doublePreferencesKey("isfcr_auto_activation_max_wear_confidence_penalty")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT =
+            doublePreferencesKey("isfcr_auto_activation_max_sensor_age_high_rate_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT =
+            doublePreferencesKey("isfcr_auto_activation_max_suspect_false_low_rate_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO =
+            doublePreferencesKey("isfcr_auto_activation_min_day_type_ratio")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT =
+            doublePreferencesKey("isfcr_auto_activation_max_day_type_sparse_rate_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE =
+            booleanPreferencesKey("isfcr_auto_activation_require_daily_quality_gate")
+        private val KEY_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL =
+            intPreferencesKey("isfcr_auto_activation_daily_risk_block_level")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES =
+            intPreferencesKey("isfcr_auto_activation_min_daily_matched_samples")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL =
+            doublePreferencesKey("isfcr_auto_activation_max_daily_mae_30_mmol")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL =
+            doublePreferencesKey("isfcr_auto_activation_max_daily_mae_60_mmol")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT =
+            doublePreferencesKey("isfcr_auto_activation_max_hypo_rate_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT =
+            doublePreferencesKey("isfcr_auto_activation_min_daily_ci_coverage_30_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT =
+            doublePreferencesKey("isfcr_auto_activation_min_daily_ci_coverage_60_pct")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL =
+            doublePreferencesKey("isfcr_auto_activation_max_daily_ci_width_30_mmol")
+        private val KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL =
+            doublePreferencesKey("isfcr_auto_activation_max_daily_ci_width_60_mmol")
+        private val KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS =
+            intPreferencesKey("isfcr_auto_activation_rolling_min_required_windows")
+        private val KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR =
+            doublePreferencesKey("isfcr_auto_activation_rolling_mae_relax_factor")
+        private val KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR =
+            doublePreferencesKey("isfcr_auto_activation_rolling_ci_coverage_relax_factor")
+        private val KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR =
+            doublePreferencesKey("isfcr_auto_activation_rolling_ci_width_relax_factor")
+        private val KEY_SAFETY_MIN_TARGET_MMOL = doublePreferencesKey("safety_min_target_mmol")
+        private val KEY_SAFETY_MAX_TARGET_MMOL = doublePreferencesKey("safety_max_target_mmol")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
         private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
         private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
@@ -411,7 +740,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
         private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
         private const val DEFAULT_BASE_TARGET_MMOL = 5.5
-        private const val DEFAULT_POST_HYPO_THRESHOLD_MMOL = 3.0
+        private const val DEFAULT_POST_HYPO_THRESHOLD_MMOL = 4.0
         private const val DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = 0.20
         private const val DEFAULT_POST_HYPO_TARGET_MMOL = 4.4
         private const val DEFAULT_POST_HYPO_DURATION_MINUTES = 60
@@ -435,6 +764,8 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
         private const val DEFAULT_MAX_ACTIONS_6H = 3
         private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
+        private const val DEFAULT_SAFETY_MIN_TARGET_MMOL = 4.0
+        private const val DEFAULT_SAFETY_MAX_TARGET_MMOL = 10.0
         private const val DEFAULT_LOCAL_NIGHTSCOUT_PORT = 17580
         private const val DEFAULT_LOCAL_COMMAND_PACKAGE = "info.nightscout.androidaps"
         private const val DEFAULT_LOCAL_COMMAND_ACTION = "info.nightscout.client.NEW_TREATMENT"
@@ -468,6 +799,46 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_UAM_MIN_CONFIRM_AGE_MIN = 10
         private const val DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN = 10
         private const val DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN = 180
+        private const val DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES = 180
+        private const val DEFAULT_CARB_COMPUTATION_MAX_GRAMS = 60.0
+        private const val DEFAULT_ISFCR_SHADOW_MODE = true
+        private const val DEFAULT_ISFCR_CONFIDENCE_THRESHOLD = 0.55
+        private const val DEFAULT_ISFCR_USE_ACTIVITY = true
+        private const val DEFAULT_ISFCR_USE_MANUAL_TAGS = true
+        private const val DEFAULT_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR = 2
+        private const val DEFAULT_ISFCR_MIN_CR_EVIDENCE_PER_HOUR = 2
+        private const val DEFAULT_ISFCR_CR_MAX_GAP_MINUTES = 30
+        private const val DEFAULT_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT = 25.0
+        private const val DEFAULT_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT = 60.0
+        private const val DEFAULT_ISFCR_SNAPSHOT_RETENTION_DAYS = 365
+        private const val DEFAULT_ISFCR_EVIDENCE_RETENTION_DAYS = 730
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_ENABLED = false
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS = 24
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES = 72
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE = 0.65
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT = 25.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT = 25.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE = 0.46
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR = 0.90
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY = 0.12
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT = 70.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT = 35.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO = 0.30
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT = 75.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE = true
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL = 3
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES = 120
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL = 0.90
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL = 1.40
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT = 6.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT = 55.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT = 55.0
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL = 1.80
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL = 2.60
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS = 2
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR = 1.15
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR = 0.90
+        private const val DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR = 1.25
     }
 }
 
@@ -517,6 +888,48 @@ data class AppSettings(
     val uamMinConfirmAgeMin: Int = 10,
     val uamExportMinIntervalMin: Int = 10,
     val uamExportMaxBackdateMin: Int = 180,
+    val carbAbsorptionMaxAgeMinutes: Int = 180,
+    val carbComputationMaxGrams: Double = 60.0,
+    val isfCrShadowMode: Boolean = true,
+    val isfCrConfidenceThreshold: Double = 0.55,
+    val isfCrUseActivity: Boolean = true,
+    val isfCrUseManualTags: Boolean = true,
+    val isfCrMinIsfEvidencePerHour: Int = 2,
+    val isfCrMinCrEvidencePerHour: Int = 2,
+    val isfCrCrMaxGapMinutes: Int = 30,
+    val isfCrCrMaxSensorBlockedRatePct: Double = 25.0,
+    val isfCrCrMaxUamAmbiguityRatePct: Double = 60.0,
+    val isfCrSnapshotRetentionDays: Int = 365,
+    val isfCrEvidenceRetentionDays: Int = 730,
+    val isfCrAutoActivationEnabled: Boolean = false,
+    val isfCrAutoActivationLookbackHours: Int = 24,
+    val isfCrAutoActivationMinSamples: Int = 72,
+    val isfCrAutoActivationMinMeanConfidence: Double = 0.65,
+    val isfCrAutoActivationMaxMeanAbsIsfDeltaPct: Double = 25.0,
+    val isfCrAutoActivationMaxMeanAbsCrDeltaPct: Double = 25.0,
+    val isfCrAutoActivationMinSensorQualityScore: Double = 0.46,
+    val isfCrAutoActivationMinSensorFactor: Double = 0.90,
+    val isfCrAutoActivationMaxWearConfidencePenalty: Double = 0.12,
+    val isfCrAutoActivationMaxSensorAgeHighRatePct: Double = 70.0,
+    val isfCrAutoActivationMaxSuspectFalseLowRatePct: Double = 35.0,
+    val isfCrAutoActivationMinDayTypeRatio: Double = 0.30,
+    val isfCrAutoActivationMaxDayTypeSparseRatePct: Double = 75.0,
+    val isfCrAutoActivationRequireDailyQualityGate: Boolean = true,
+    val isfCrAutoActivationDailyRiskBlockLevel: Int = 3,
+    val isfCrAutoActivationMinDailyMatchedSamples: Int = 120,
+    val isfCrAutoActivationMaxDailyMae30Mmol: Double = 0.90,
+    val isfCrAutoActivationMaxDailyMae60Mmol: Double = 1.40,
+    val isfCrAutoActivationMaxHypoRatePct: Double = 6.0,
+    val isfCrAutoActivationMinDailyCiCoverage30Pct: Double = 55.0,
+    val isfCrAutoActivationMinDailyCiCoverage60Pct: Double = 55.0,
+    val isfCrAutoActivationMaxDailyCiWidth30Mmol: Double = 1.80,
+    val isfCrAutoActivationMaxDailyCiWidth60Mmol: Double = 2.60,
+    val isfCrAutoActivationRollingMinRequiredWindows: Int = 2,
+    val isfCrAutoActivationRollingMaeRelaxFactor: Double = 1.15,
+    val isfCrAutoActivationRollingCiCoverageRelaxFactor: Double = 0.90,
+    val isfCrAutoActivationRollingCiWidthRelaxFactor: Double = 1.25,
+    val safetyMinTargetMmol: Double = 4.0,
+    val safetyMaxTargetMmol: Double = 10.0,
     val baseTargetMmol: Double,
     val postHypoThresholdMmol: Double,
     val postHypoDeltaThresholdMmol5m: Double,

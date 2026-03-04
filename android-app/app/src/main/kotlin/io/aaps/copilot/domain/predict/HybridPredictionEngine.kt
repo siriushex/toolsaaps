@@ -26,7 +26,22 @@ class HybridPredictionEngine(
     private var insulinProfile: InsulinActionProfile = InsulinActionProfiles.profile(defaultInsulinProfileId)
 
     @Volatile
+    private var insulinDurationOverrideHours: Double? = null
+
+    @Volatile
+    private var insulinAgeScale: Double = 1.0
+
+    @Volatile
     private var lastDiagnostics: V3Diagnostics? = null
+
+    @Volatile
+    private var externalSensitivityOverride: ExternalSensitivityOverride? = null
+
+    @Volatile
+    private var carbAbsorptionMaxAgeMinutes: Double = DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES
+
+    @Volatile
+    private var carbComputationMaxGrams: Double = DEFAULT_CARB_COMPUTATION_MAX_GRAMS
 
     private val kalmanFilterV3 = KalmanGlucoseFilterV3()
     private val residualArModel = ResidualArModel()
@@ -35,10 +50,60 @@ class HybridPredictionEngine(
     fun setInsulinProfile(profileId: InsulinActionProfileId) {
         insulinProfileId = profileId
         insulinProfile = InsulinActionProfiles.profile(profileId)
+        val overrideHours = insulinDurationOverrideHours
+        if (overrideHours != null) {
+            setInsulinDurationHours(overrideHours)
+        } else {
+            insulinAgeScale = 1.0
+        }
     }
 
     fun setInsulinProfile(profileIdRaw: String?) {
         setInsulinProfile(InsulinActionProfileId.fromRaw(profileIdRaw))
+    }
+
+    fun setInsulinDurationHours(hours: Double?) {
+        if (hours == null || !hours.isFinite()) {
+            insulinDurationOverrideHours = null
+            insulinAgeScale = 1.0
+            return
+        }
+        val boundedHours = hours.coerceIn(MIN_INSULIN_DURATION_HOURS, MAX_INSULIN_DURATION_HOURS)
+        insulinDurationOverrideHours = boundedHours
+        val baseMinutes = insulinProfile.points.lastOrNull()?.minute?.coerceAtLeast(30.0)
+            ?: DEFAULT_PROFILE_DURATION_MINUTES
+        val overrideMinutes = boundedHours * 60.0
+        insulinAgeScale = (baseMinutes / overrideMinutes).coerceIn(INSULIN_AGE_SCALE_MIN, INSULIN_AGE_SCALE_MAX)
+    }
+
+    fun setSensitivityOverride(
+        isfMmolPerUnit: Double?,
+        crGramPerUnit: Double?,
+        confidence: Double?,
+        source: String = "external",
+        minConfidenceRequired: Double = EXTERNAL_SENSITIVITY_CONFIDENCE_THRESHOLD,
+        blendWeight: Double = 1.0
+    ) {
+        if (isfMmolPerUnit == null || crGramPerUnit == null || confidence == null) {
+            externalSensitivityOverride = null
+            return
+        }
+        externalSensitivityOverride = ExternalSensitivityOverride(
+            isfMmolPerUnit = isfMmolPerUnit.coerceIn(0.8, 18.0),
+            crGramPerUnit = crGramPerUnit.coerceIn(2.0, 60.0),
+            confidence = confidence.coerceIn(0.0, 1.0),
+            source = source,
+            minConfidenceRequired = minConfidenceRequired.coerceIn(0.0, 1.0),
+            blendWeight = blendWeight.coerceIn(0.0, 1.0)
+        )
+    }
+
+    fun setCarbSafetyLimits(maxAgeMinutes: Int?, maxGrams: Double?) {
+        carbAbsorptionMaxAgeMinutes = (maxAgeMinutes ?: DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES.toInt())
+            .coerceIn(60, 180)
+            .toDouble()
+        carbComputationMaxGrams = (maxGrams ?: DEFAULT_CARB_COMPUTATION_MAX_GRAMS)
+            .coerceIn(20.0, 60.0)
     }
 
     override suspend fun predict(glucose: List<GlucosePoint>, therapyEvents: List<TherapyEvent>): List<Forecast> {
@@ -56,6 +121,7 @@ class HybridPredictionEngine(
         therapyEvents: List<TherapyEvent>
     ): List<Forecast> = predictLegacy(glucose, therapyEvents)
 
+    internal fun diagnosticsSnapshot(): V3Diagnostics? = lastDiagnostics
     internal fun lastDiagnosticsForTest(): V3Diagnostics? = lastDiagnostics
     internal fun currentInsulinProfileForTest(): InsulinActionProfileId = insulinProfileId
 
@@ -122,10 +188,10 @@ class HybridPredictionEngine(
                     enableVirtualMealFit = enableUamVirtualMealFit,
                     carbCumulativeForEvent = { event, ageMinutes ->
                         val type = carbTypeByEventKey[eventKey(event)] ?: CarbAbsorptionType.MEDIUM
-                        carbCumulative(type, ageMinutes)
+                        carbCumulativeWithCutoff(type, ageMinutes)
                     },
                     insulinCumulative = ::insulinCumulative,
-                    extractCarbsGrams = ::extractCarbsGrams,
+                    extractCarbsGrams = ::extractCarbsGramsForPrediction,
                     extractInsulinUnits = ::extractInsulinUnits,
                     eventCanCarryInsulin = ::eventCanCarryInsulin
                 )
@@ -216,6 +282,8 @@ class HybridPredictionEngine(
             kfSigmaA = kfSnapshot?.sigmaA ?: 0.02,
             kfWarmedUp = warmedUp,
             insulinProfileId = insulinProfileId.name,
+            insulinDurationHours = insulinDurationOverrideHours,
+            insulinAgeScale = insulinAgeScale,
             residualRoc0 = residualRoc0,
             uci0 = uamSeries.uci0,
             uciMax = uamSeries.uciMax,
@@ -262,6 +330,9 @@ class HybridPredictionEngine(
             append(" sigmaZ=").append(roundToStep(diagnostics.kfSigmaZ, 0.001))
             append(" sigmaA=").append(roundToStep(diagnostics.kfSigmaA, 0.001))
             append(" insulinProfile=").append(diagnostics.insulinProfileId)
+            append(" insulinDurationH=")
+            append(diagnostics.insulinDurationHours?.let { roundToStep(it, 0.01) } ?: "default")
+            append(" insulinAgeScale=").append(roundToStep(diagnostics.insulinAgeScale, 0.001))
             append(" rocPer5=").append(roundToStep(diagnostics.rocPer5Used, 0.001))
             append(" therapyStep1=").append(roundToStep(diagnostics.therapyStep.getOrElse(1) { 0.0 }, 0.001))
             append(" carbFast=").append(roundToStep(diagnostics.carbFastActiveGrams, 0.1))
@@ -319,12 +390,15 @@ class HybridPredictionEngine(
                 val ageA = age0 + (j - 1) * 5.0
                 val ageB = age0 + j * 5.0
 
-                val carbs = extractCarbsGrams(event)
-                if (carbs != null && carbs > 0.0) {
+                val carbsEffective = extractCarbsGramsForPrediction(event)
+                if (carbsEffective != null && carbsEffective > 0.0) {
                     val profiled = profiledByKey[eventKey(event)]
                     val carbType = profiled?.type ?: CarbAbsorptionType.MEDIUM
-                    stepDelta += carbs * factors.carbSensitivityMmolPerGram *
-                        maxOf(0.0, carbCumulative(carbType, ageB) - carbCumulative(carbType, ageA))
+                    val absorbed = maxOf(
+                        0.0,
+                        carbCumulativeWithCutoff(carbType, ageB) - carbCumulativeWithCutoff(carbType, ageA)
+                    )
+                    stepDelta += carbsEffective * factors.carbSensitivityMmolPerGram * absorbed
                 }
 
                 val insulin = extractInsulinUnits(event)
@@ -358,16 +432,20 @@ class HybridPredictionEngine(
 
         profiledCarbEvents.forEach { profiled ->
             val ageNow = maxOf(0.0, (nowTs - profiled.event.ts) / 60_000.0)
-            val nowFraction = carbCumulative(profiled.type, ageNow).coerceIn(0.0, 1.0)
+            val nowFraction = carbCumulativeWithCutoff(profiled.type, ageNow).coerceIn(0.0, 1.0)
             val residualNowEvent = (profiled.grams * (1.0 - nowFraction)).coerceAtLeast(0.0)
-            val residual30Event = (profiled.grams * (1.0 - carbCumulative(profiled.type, ageNow + 30.0))).coerceAtLeast(0.0)
-            val residual60Event = (profiled.grams * (1.0 - carbCumulative(profiled.type, ageNow + 60.0))).coerceAtLeast(0.0)
-            val residual120Event = (profiled.grams * (1.0 - carbCumulative(profiled.type, ageNow + 120.0))).coerceAtLeast(0.0)
+            val residual30Event = (profiled.grams * (1.0 - carbCumulativeWithCutoff(profiled.type, ageNow + 30.0)))
+                .coerceAtLeast(0.0)
+            val residual60Event = (profiled.grams * (1.0 - carbCumulativeWithCutoff(profiled.type, ageNow + 60.0)))
+                .coerceAtLeast(0.0)
+            val residual120Event = (profiled.grams * (1.0 - carbCumulativeWithCutoff(profiled.type, ageNow + 120.0)))
+                .coerceAtLeast(0.0)
             residualNow += residualNowEvent
             residual30 += residual30Event
             residual60 += residual60Event
             residual120 += residual120Event
             when (profiled.type) {
+                CarbAbsorptionType.ULTRA_FAST -> fastActive += residualNowEvent
                 CarbAbsorptionType.FAST -> fastActive += residualNowEvent
                 CarbAbsorptionType.MEDIUM -> mediumActive += residualNowEvent
                 CarbAbsorptionType.PROTEIN_SLOW -> proteinActive += residualNowEvent
@@ -487,12 +565,14 @@ class HybridPredictionEngine(
                 val ageStart = ((nowTs - event.ts).coerceAtLeast(0L)) / 60_000.0
                 val ageEnd = ageStart + horizon
 
-                val carbs = extractCarbsGrams(event)
-                if (carbs != null && carbs > 0.0) {
+                val carbsEffective = extractCarbsGramsForPrediction(event)
+                if (carbsEffective != null && carbsEffective > 0.0) {
                     val profiled = profiledByKey[eventKey(event)]
                     val carbType = profiled?.type ?: CarbAbsorptionType.MEDIUM
-                    val absorbed = (carbCumulative(carbType, ageEnd) - carbCumulative(carbType, ageStart)).coerceAtLeast(0.0)
-                    delta += carbs * factors.carbSensitivityMmolPerGram * absorbed
+                    val absorbed = (
+                        carbCumulativeWithCutoff(carbType, ageEnd) - carbCumulativeWithCutoff(carbType, ageStart)
+                        ).coerceAtLeast(0.0)
+                    delta += carbsEffective * factors.carbSensitivityMmolPerGram * absorbed
                 }
 
                 val insulinUnits = extractInsulinUnits(event)
@@ -511,7 +591,41 @@ class HybridPredictionEngine(
     ): SensitivityFactors {
         val sortedGlucose = glucose.sortedBy { it.ts }
         val sortedEvents = events.sortedBy { it.ts }
+        val localIsfCr = estimateLocalIsfCr(sortedGlucose = sortedGlucose, sortedEvents = sortedEvents)
+        val external = externalSensitivityOverride
+        if (external != null && external.confidence >= external.minConfidenceRequired) {
+            val confidenceScale = if (external.minConfidenceRequired >= 0.999) {
+                1.0
+            } else {
+                ((external.confidence - external.minConfidenceRequired) / (1.0 - external.minConfidenceRequired))
+                    .coerceIn(0.0, 1.0)
+            }
+            val effectiveBlend = (
+                external.blendWeight * (EXTERNAL_BLEND_BASE + EXTERNAL_BLEND_CONF_GAIN * confidenceScale)
+                ).coerceIn(0.0, 1.0)
+            val blendedIsf = (
+                localIsfCr.first * (1.0 - effectiveBlend) +
+                    external.isfMmolPerUnit * effectiveBlend
+                ).coerceIn(0.8, 18.0)
+            val blendedCr = (
+                localIsfCr.second * (1.0 - effectiveBlend) +
+                    external.crGramPerUnit * effectiveBlend
+                ).coerceIn(2.0, 60.0)
+            val blendedCsf = (blendedIsf / blendedCr).coerceIn(0.05, 0.40)
+            return SensitivityFactors(
+                isfMmolPerUnit = blendedIsf,
+                carbSensitivityMmolPerGram = blendedCsf
+            )
+        }
 
+        val csf = (localIsfCr.first / localIsfCr.second).coerceIn(0.05, 0.40)
+        return SensitivityFactors(isfMmolPerUnit = localIsfCr.first, carbSensitivityMmolPerGram = csf)
+    }
+
+    private fun estimateLocalIsfCr(
+        sortedGlucose: List<GlucosePoint>,
+        sortedEvents: List<TherapyEvent>
+    ): Pair<Double, Double> {
         val crSamples = sortedEvents.mapNotNull { event ->
             val grams = extractCarbsGrams(event) ?: return@mapNotNull null
             val units = extractInsulinUnits(event) ?: return@mapNotNull null
@@ -536,8 +650,7 @@ class HybridPredictionEngine(
             ?: DEFAULT_ISF_MMOL_PER_UNIT
         val cr = median(crSamples).coerceIn(4.0, 30.0).takeIf { crSamples.isNotEmpty() }
             ?: DEFAULT_CR_GRAM_PER_UNIT
-        val csf = (isf / cr).coerceIn(0.05, 0.40)
-        return SensitivityFactors(isfMmolPerUnit = isf, carbSensitivityMmolPerGram = csf)
+        return isf to cr
     }
 
     private fun eventIsCorrection(event: TherapyEvent): Boolean {
@@ -559,6 +672,10 @@ class HybridPredictionEngine(
             ?.takeIf { it in 0.5..400.0 }
     }
 
+    private fun extractCarbsGramsForPrediction(event: TherapyEvent): Double? {
+        return extractCarbsGrams(event)?.coerceAtMost(carbComputationMaxGrams)
+    }
+
     private fun extractInsulinUnits(event: TherapyEvent): Double? {
         return payloadDouble(event, "units", "bolusUnits", "insulin", "enteredInsulin")
             ?.takeIf { it in 0.02..30.0 }
@@ -575,6 +692,12 @@ class HybridPredictionEngine(
         return CarbAbsorptionProfiles.cumulative(type, ageMinutes)
     }
 
+    private fun carbCumulativeWithCutoff(type: CarbAbsorptionType, ageMinutes: Double): Double {
+        val boundedAge = ageMinutes.coerceAtLeast(0.0)
+        if (boundedAge >= carbAbsorptionMaxAgeMinutes) return 1.0
+        return carbCumulative(type = type, ageMinutes = boundedAge)
+    }
+
     private fun profileCarbEvents(
         events: List<TherapyEvent>,
         glucose: List<GlucosePoint>,
@@ -582,7 +705,11 @@ class HybridPredictionEngine(
     ): List<ProfiledCarbEvent> {
         return events.asSequence()
             .mapNotNull { event ->
-                val grams = extractCarbsGrams(event) ?: return@mapNotNull null
+                val ageMinutes = ((nowTs - event.ts).coerceAtLeast(0L)) / 60_000.0
+                if (ageMinutes > carbAbsorptionMaxAgeMinutes) return@mapNotNull null
+                val grams = extractCarbsGrams(event)
+                    ?.coerceAtMost(carbComputationMaxGrams)
+                    ?: return@mapNotNull null
                 if (grams <= 0.0) return@mapNotNull null
                 val classified = CarbAbsorptionProfiles.classifyCarbEvent(event, glucose, nowTs)
                 ProfiledCarbEvent(
@@ -604,7 +731,8 @@ class HybridPredictionEngine(
     }
 
     private fun insulinCumulative(ageMinutes: Double): Double {
-        return insulinProfile.cumulativeAt(ageMinutes)
+        val scaledAge = (ageMinutes.coerceAtLeast(0.0) * insulinAgeScale).coerceAtLeast(0.0)
+        return insulinProfile.cumulativeAt(scaledAge)
     }
 
     private fun estimateVolatility(points: List<GlucosePoint>): Double {
@@ -698,6 +826,8 @@ class HybridPredictionEngine(
         val kfSigmaA: Double,
         val kfWarmedUp: Boolean,
         val insulinProfileId: String,
+        val insulinDurationHours: Double?,
+        val insulinAgeScale: Double,
         val residualRoc0: Double,
         val uci0: Double,
         val uciMax: Double,
@@ -738,6 +868,15 @@ class HybridPredictionEngine(
         val carbSensitivityMmolPerGram: Double
     )
 
+    private data class ExternalSensitivityOverride(
+        val isfMmolPerUnit: Double,
+        val crGramPerUnit: Double,
+        val confidence: Double,
+        val source: String,
+        val minConfidenceRequired: Double,
+        val blendWeight: Double
+    )
+
     private data class TherapyStepSeries(
         val steps: DoubleArray,
         val cumClamped: DoubleArray,
@@ -764,6 +903,16 @@ class HybridPredictionEngine(
         const val MAX_GLUCOSE_MMOL = 22.0
         const val DEFAULT_ISF_MMOL_PER_UNIT = 2.3
         const val DEFAULT_CR_GRAM_PER_UNIT = 10.0
+        const val DEFAULT_PROFILE_DURATION_MINUTES = 300.0
+        const val MIN_INSULIN_DURATION_HOURS = 1.5
+        const val MAX_INSULIN_DURATION_HOURS = 12.0
+        const val INSULIN_AGE_SCALE_MIN = 0.4
+        const val INSULIN_AGE_SCALE_MAX = 2.0
+        const val EXTERNAL_SENSITIVITY_CONFIDENCE_THRESHOLD = 0.55
+        const val EXTERNAL_BLEND_BASE = 0.35
+        const val EXTERNAL_BLEND_CONF_GAIN = 0.65
+        const val DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES = 180.0
+        const val DEFAULT_CARB_COMPUTATION_MAX_GRAMS = 60.0
 
         const val MINUTE_MS = 60_000L
         const val FIVE_MINUTES_MS = 5 * MINUTE_MS
