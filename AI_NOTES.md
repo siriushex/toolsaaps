@@ -5723,3 +5723,43 @@
 2. `./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.tools.CounterfactualReplayToolTest.generateCounterfactualReplayFromSqlite --no-daemon`
 3. Проверить отчет:
    - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_20260305.md`
+
+# Изменения — Этап 140: Cleanup слабых IOB-inferred bolus + калибровка влияния inferred insulin + повторный replay 24h
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/SyncRepository.kt` усилен контур импорта/инференса инсулина:
+  - `payloadFromJson(...)` теперь устойчиво парсит `Map<String, Any?>` и приводит значения к строкам (устраняет пропуски, когда в JSON встречаются не-строковые типы).
+  - Добавлен cleanup устаревших слабых inferred bolus (`method=iob_jump`, `inferred=true`, `insulin < 0.50U`) перед новым inference-проходом.
+  - Cleanup выполняется батчами (`chunked(250)`), чтобы избежать проблем на больших списках id.
+  - Добавлен audit-событие `nightscout_iob_inferred_cleanup` со счетчиками `scannedInferredRows/candidates/deleted/thresholdUnits`.
+  - Формат чисел в payload inference (`insulin/iobPrev/iobNow/deltaIob/dtMin`) переведен на `Locale.US` для стабильной сериализации.
+  - Блокировка рядом стоящих insulin-событий для inference теперь учитывает только события с реальной insulin-дозой (`>0`) или уже inferred-события.
+  - Порог inference повышен до `IOB_INFERENCE_MIN_DELTA_UNITS = 0.50`.
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/domain/predict/HybridPredictionEngine.kt` добавлена калибровка влияния inferred insulin:
+  - события с `inferred=true` или `method=iob_jump` используют scale `INFERRED_INSULIN_IMPACT_SCALE = 0.45`.
+  - scale применён в обоих путях расчета инсулинового вклада: step-series и horizon delta.
+- Добавлен unit-тест в
+  `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/test/kotlin/io/aaps/copilot/domain/predict/HybridPredictionEngineV3Test.kt`:
+  - `t9b_inferredInsulinImpactIsCalibratedLowerThanExplicit`.
+- Сформирован новый replay-артефакт:
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_v5_scale045_20260305.md`.
+
+## Почему так
+- Основной источник деградации 30/60m после фикса импорта — переагрессивный вклад inferred bolus (малые шумовые IOB-jump события и их полный insulin effect).
+- Cleanup + повышение порога inference удаляют слабый шум (`<0.5U`) из `therapy_events`.
+- Дополнительный scale 0.45 для inferred insulin уменьшает систематический negative bias без отключения самого механизма.
+
+## Риски / ограничения
+- Даже после cleanup/scale на текущем 24h окне `30m/60m` все еще хуже baseline (но хуже существенно меньше, чем до калибровки).
+- Inference на основе IOB остается эвристическим и чувствителен к качеству источника телеметрии.
+- Нужен дальнейший тюнинг контуров IOB/UAM/CI по replay (следующий этап).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests 'io.aaps.copilot.domain.predict.HybridPredictionEngineV3Test.t9b_inferredInsulinImpactIsCalibratedLowerThanExplicit'`
+3. Установить на устройство:
+   `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+4. Проверить в копии БД устройства, что слабых inferred bolus нет:
+   - `SELECT COUNT(*) FROM therapy_events WHERE type='correction_bolus' AND payloadJson LIKE '%"method":"iob_jump"%' AND CAST(REPLACE(json_extract(payloadJson,'$.insulin'),',','.') AS REAL) < 0.5;`
+5. Пересчитать counterfactual replay:
+   `COPILOT_REPLAY_BEFORE_DB=/Users/mac/Andoidaps/tmp_live/copilot_before_importfix_20260305.db COPILOT_REPLAY_AFTER_DB=/Users/mac/Andoidaps/tmp_live/copilot_post_cleanupcheck_20260305.db COPILOT_REPLAY_OUTPUT_MD=/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_v5_scale045_20260305.md ./gradlew -p /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app :app:testDebugUnitTest --tests 'io.aaps.copilot.tools.CounterfactualReplayToolTest.generateCounterfactualReplayFromSqlite'`

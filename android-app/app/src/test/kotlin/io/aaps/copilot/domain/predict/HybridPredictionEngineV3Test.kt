@@ -216,6 +216,39 @@ class HybridPredictionEngineV3Test {
     }
 
     @Test
+    fun t9b_inferredInsulinImpactIsCalibratedLowerThanExplicit() = runBlocking {
+        val explicitEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
+        val inferredEngine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
+        val now = 9_100_000_000L
+        val glucose = listOf(8.8, 8.8, 8.8, 8.8, 8.8, 8.8, 8.8, 8.8).series(now)
+
+        val explicit = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts - 10 * 60_000L,
+                type = "correction_bolus",
+                payload = mapOf("units" to "2.0")
+            )
+        )
+        val inferred = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts - 10 * 60_000L,
+                type = "correction_bolus",
+                payload = mapOf(
+                    "units" to "2.0",
+                    "inferred" to "true",
+                    "method" to "iob_jump"
+                )
+            )
+        )
+
+        val explicitPred = explicitEngine.predict(glucose, explicit).associateBy { it.horizonMinutes }
+        val inferredPred = inferredEngine.predict(glucose, inferred).associateBy { it.horizonMinutes }
+
+        assertThat(inferredPred.getValue(30).valueMmol).isGreaterThan(explicitPred.getValue(30).valueMmol)
+        assertThat(inferredPred.getValue(60).valueMmol).isGreaterThan(explicitPred.getValue(60).valueMmol)
+    }
+
+    @Test
     fun t10_announcedCarbsAndInsulinProduceNonFlatHorizons() = runBlocking {
         val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true)
         val now = 10_000_000_000L

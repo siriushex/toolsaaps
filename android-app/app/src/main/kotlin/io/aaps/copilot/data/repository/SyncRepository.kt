@@ -18,6 +18,7 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.service.ApiFactory
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
@@ -417,10 +418,37 @@ class SyncRepository(
     }
 
     private fun payloadFromJson(raw: String): Map<String, String> {
-        val mapType = object : TypeToken<Map<String, String>>() {}.type
+        val anyMapType = object : TypeToken<Map<String, Any?>>() {}.type
+        runCatching {
+            gson.fromJson<Map<String, Any?>>(raw, anyMapType)
+                ?.mapNotNull { (key, value) ->
+                    val cleanKey = key?.trim().orEmpty()
+                    if (cleanKey.isBlank()) {
+                        null
+                    } else {
+                        cleanKey to payloadValueToString(value)
+                    }
+                }
+                ?.toMap()
+                .orEmpty()
+        }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+
+        val stringMapType = object : TypeToken<Map<String, String>>() {}.type
         return runCatching {
-            gson.fromJson<Map<String, String>>(raw, mapType) ?: emptyMap()
+            gson.fromJson<Map<String, String>>(raw, stringMapType) ?: emptyMap()
         }.getOrDefault(emptyMap())
+    }
+
+    private fun payloadValueToString(value: Any?): String {
+        return when (value) {
+            null -> ""
+            is Number -> value.toString()
+            is Boolean -> value.toString()
+            is String -> value
+            else -> gson.toJson(value)
+        }
     }
 
     private fun parseNightscoutTimestamp(
@@ -471,6 +499,41 @@ class SyncRepository(
 
     private suspend fun inferInsulinEventsFromIob(nowTs: Long): Int {
         val since = nowTs - IOB_INFERENCE_LOOKBACK_MS
+        val inferredRows = db.therapyDao().since(since)
+            .asSequence()
+            .filter { it.type == "correction_bolus" }
+            .filter { row ->
+                val payload = payloadFromJson(row.payloadJson)
+                payload["inferred"]?.trim()?.equals("true", ignoreCase = true) == true &&
+                    payload["method"]?.trim()?.lowercase() == "iob_jump"
+            }
+            .toList()
+        val staleInferredIds = inferredRows
+            .mapNotNull { row ->
+                val payload = payloadFromJson(row.payloadJson)
+                val insulin = payloadDouble(payload, "insulin", "units", "bolusUnits", "enteredInsulin") ?: 0.0
+                row.id.takeIf { insulin >= 0.0 && insulin < IOB_INFERENCE_MIN_DELTA_UNITS }
+            }
+            .toList()
+        var cleanupDeleted = 0
+        if (staleInferredIds.isNotEmpty()) {
+            cleanupDeleted = staleInferredIds
+                .chunked(250)
+                .sumOf { ids -> db.therapyDao().deleteByIds(ids) }
+        }
+        if (inferredRows.isNotEmpty() || staleInferredIds.isNotEmpty()) {
+            auditLogger.info(
+                "nightscout_iob_inferred_cleanup",
+                mapOf(
+                    "since" to since,
+                    "scannedInferredRows" to inferredRows.size,
+                    "candidates" to staleInferredIds.size,
+                    "deleted" to cleanupDeleted,
+                    "thresholdUnits" to IOB_INFERENCE_MIN_DELTA_UNITS
+                )
+            )
+        }
+
         val iobRows = db.telemetryDao()
             .sinceByKeys(
                 since = since,
@@ -497,9 +560,16 @@ class SyncRepository(
             .sortedBy { it.first }
         if (points.size < 2) return 0
 
-        val existingInsulin = db.therapyDao().since(since)
+        val existingInsulinTimestamps = db.therapyDao().since(since)
+            .asSequence()
             .filter { it.type in IOB_INFERENCE_BLOCKING_TYPES }
-            .sortedBy { it.timestamp }
+            .mapNotNull { row ->
+                val payload = payloadFromJson(row.payloadJson)
+                val units = payloadDouble(payload, "insulin", "units", "bolusUnits", "enteredInsulin")
+                val inferred = payload["inferred"]?.trim()?.equals("true", ignoreCase = true) == true
+                if ((units ?: 0.0) > 0.0 || inferred) row.timestamp else null
+            }
+            .toList()
         val candidates = mutableListOf<TherapyEventEntity>()
 
         points.zipWithNext { prev, curr ->
@@ -512,8 +582,8 @@ class SyncRepository(
             if (inferredUnits <= 0.0) return@zipWithNext
 
             val ts = curr.first
-            val hasNearbyInsulin = existingInsulin.any { row ->
-                abs(row.timestamp - ts) <= IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS
+            val hasNearbyInsulin = existingInsulinTimestamps.any { existingTs ->
+                abs(existingTs - ts) <= IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS
             } || candidates.any { row ->
                 abs(row.timestamp - ts) <= IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS
             }
@@ -523,14 +593,14 @@ class SyncRepository(
             val unitsRounded = (inferredUnits * 100.0).roundToInt()
             val id = "iob-inf-$bucket-$unitsRounded"
             val payload = mapOf(
-                "insulin" to String.format("%.3f", inferredUnits),
+                "insulin" to String.format(Locale.US, "%.3f", inferredUnits),
                 "inferred" to "true",
                 "method" to "iob_jump",
                 "source" to "aaps_ns_iob",
-                "iobPrev" to String.format("%.3f", prev.second),
-                "iobNow" to String.format("%.3f", curr.second),
-                "deltaIob" to String.format("%.3f", delta),
-                "dtMin" to String.format("%.2f", dtMin),
+                "iobPrev" to String.format(Locale.US, "%.3f", prev.second),
+                "iobNow" to String.format(Locale.US, "%.3f", curr.second),
+                "deltaIob" to String.format(Locale.US, "%.3f", delta),
+                "dtMin" to String.format(Locale.US, "%.2f", dtMin),
                 "confidence" to "0.40"
             )
             candidates += TherapyEventEntity(
@@ -573,7 +643,7 @@ class SyncRepository(
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
         private const val MAX_FUTURE_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000L
         private const val IOB_INFERENCE_LOOKBACK_MS = 24L * 60 * 60 * 1000L
-        private const val IOB_INFERENCE_MIN_DELTA_UNITS = 0.20
+        private const val IOB_INFERENCE_MIN_DELTA_UNITS = 0.50
         private const val IOB_INFERENCE_MAX_DELTA_UNITS = 4.0
         private const val IOB_INFERENCE_MIN_IOB = -1.0
         private const val IOB_INFERENCE_MAX_IOB = 30.0
@@ -595,4 +665,17 @@ class SyncRepository(
             "meal_bolus"
         )
     }
+
+    private fun payloadDouble(payload: Map<String, String>, vararg keys: String): Double? {
+        val normalized = payload.entries.associate { normalizeKey(it.key) to it.value }
+        return keys.firstNotNullOfOrNull { key ->
+            normalized[normalizeKey(key)]?.replace(",", ".")?.toDoubleOrNull()
+        }
+    }
+
+    private fun normalizeKey(raw: String): String = raw
+        .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+        .lowercase()
+        .replace(Regex("[^a-z0-9]+"), "_")
+        .trim('_')
 }

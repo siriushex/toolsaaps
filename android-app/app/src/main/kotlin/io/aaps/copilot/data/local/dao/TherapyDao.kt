@@ -46,4 +46,7 @@ interface TherapyDao {
             "AND type IN ('correction_bolus','meal_bolus','carbs','temp_target')"
     )
     suspend fun deleteLegacyBroadcastArtifacts(): Int
+
+    @Query("DELETE FROM therapy_events WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
 }

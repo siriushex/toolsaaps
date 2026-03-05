@@ -403,7 +403,8 @@ class HybridPredictionEngine(
 
                 val insulin = extractInsulinUnits(event)
                 if (insulin != null && insulin > 0.0 && eventCanCarryInsulin(event)) {
-                    stepDelta += -insulin * factors.isfMmolPerUnit *
+                    val insulinImpactScale = insulinImpactScale(event)
+                    stepDelta += -insulin * factors.isfMmolPerUnit * insulinImpactScale *
                         maxOf(0.0, insulinCumulative(ageB) - insulinCumulative(ageA))
                 }
             }
@@ -578,7 +579,8 @@ class HybridPredictionEngine(
                 val insulinUnits = extractInsulinUnits(event)
                 if (insulinUnits != null && insulinUnits > 0.0 && eventCanCarryInsulin(event)) {
                     val active = (insulinCumulative(ageEnd) - insulinCumulative(ageStart)).coerceAtLeast(0.0)
-                    delta -= insulinUnits * factors.isfMmolPerUnit * active
+                    val insulinImpactScale = insulinImpactScale(event)
+                    delta -= insulinUnits * factors.isfMmolPerUnit * insulinImpactScale * active
                 }
             }
 
@@ -665,6 +667,21 @@ class HybridPredictionEngine(
     private fun eventCanCarryInsulin(event: TherapyEvent): Boolean {
         val type = normalize(event.type)
         return type.contains("bolus") || type.contains("correction") || type == "insulin"
+    }
+
+    private fun insulinImpactScale(event: TherapyEvent): Double {
+        if (!isInferredInsulinEvent(event)) return 1.0
+        return INFERRED_INSULIN_IMPACT_SCALE
+    }
+
+    private fun isInferredInsulinEvent(event: TherapyEvent): Boolean {
+        val inferredFlag = event.payload["inferred"]
+            ?.trim()
+            ?.lowercase(Locale.US)
+        val method = event.payload["method"]
+            ?.trim()
+            ?.lowercase(Locale.US)
+        return inferredFlag == "true" || method == "iob_jump"
     }
 
     private fun extractCarbsGrams(event: TherapyEvent): Double? {
@@ -913,6 +930,7 @@ class HybridPredictionEngine(
         const val EXTERNAL_BLEND_CONF_GAIN = 0.65
         const val DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES = 180.0
         const val DEFAULT_CARB_COMPUTATION_MAX_GRAMS = 60.0
+        const val INFERRED_INSULIN_IMPACT_SCALE = 0.45
 
         const val MINUTE_MS = 60_000L
         const val FIVE_MINUTES_MS = 5 * MINUTE_MS
