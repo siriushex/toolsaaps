@@ -5763,3 +5763,33 @@
    - `SELECT COUNT(*) FROM therapy_events WHERE type='correction_bolus' AND payloadJson LIKE '%"method":"iob_jump"%' AND CAST(REPLACE(json_extract(payloadJson,'$.insulin'),',','.') AS REAL) < 0.5;`
 5. Пересчитать counterfactual replay:
    `COPILOT_REPLAY_BEFORE_DB=/Users/mac/Andoidaps/tmp_live/copilot_before_importfix_20260305.db COPILOT_REPLAY_AFTER_DB=/Users/mac/Andoidaps/tmp_live/copilot_post_cleanupcheck_20260305.db COPILOT_REPLAY_OUTPUT_MD=/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_v5_scale045_20260305.md ./gradlew -p /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app :app:testDebugUnitTest --tests 'io.aaps.copilot.tools.CounterfactualReplayToolTest.generateCounterfactualReplayFromSqlite'`
+
+# Изменения — Этап 141: Устранение timeout автоматики и снижение нагрузки nightscout_sync
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/SyncRepository.kt` добавлен строгий клиентский фильтр treatment-окна:
+  - если `ts < treatmentQuerySince`, treatment пропускается до построения payload/telemetry.
+  - добавлен счетчик `treatmentsSkippedByClientWindow` в `nightscout_sync_completed`.
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/AutomationRepository.kt` добавлен non-fatal режим для тяжелых сетевых шагов:
+  - `nightscout_sync` выполняется с шаговым timeout `60s`;
+  - `cloud_push_sync` выполняется с шаговым timeout `20s`;
+  - при ошибке/timeout цикл продолжает выполнение (`automation_cycle_step_nonfatal_continue`) вместо срыва всего контура.
+
+## Почему так
+- На устройстве `nightscout_sync` регулярно перерабатывал сотни старых treatments за цикл, что тянуло шаг до ~130+ секунд и приводило к `automation_cycle_timeout`.
+- После фильтра по клиентскому окну импорт обрабатывает только свежие treatments, а старый хвост отбрасывается без тяжелой переработки.
+- Non-fatal/step-timeout защищает цикл от полного падения при проблемах внешнего транспорта.
+
+## Риски / ограничения
+- Если Nightscout отдает treatments с некорректными timestamp, жесткая фильтрация может отбрасывать часть запоздавших записей.
+- Для safety это приемлемо: цикл не блокируется, а следующие sync-итерации продолжают догонять данные по курсору.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `adb install -r -t /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+3. Trigger через broadcast и проверить `audit_logs`:
+   - `nightscout_sync_completed` содержит `treatmentsSkippedByClientWindow` и резко меньшие `treatments/telemetry`.
+   - `automation_cycle_finished` присутствует без `automation_cycle_timeout` для новых запусков.
+4. В live-проверке на устройстве после фикса:
+   - `nightscout_sync_completed`: `treatmentsFetchedByDate=789`, `treatmentsSkippedByClientWindow=788`, `treatments=1`, `telemetry=9`.
+   - `automation_cycle_finished`: `durationMs=51144` (без timeout).

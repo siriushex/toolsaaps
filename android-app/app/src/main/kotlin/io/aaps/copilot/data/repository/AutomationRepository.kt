@@ -369,10 +369,10 @@ class AutomationRepository(
         runCycleStep("root_db_sync") {
             rootDbRepository.syncIfEnabled()
         }
-        runCycleStep("nightscout_sync") {
+        runNonFatalCycleStep(name = "nightscout_sync", timeoutMs = NIGHTSCOUT_SYNC_STEP_TIMEOUT_MS) {
             syncRepository.syncNightscoutIncremental()
         }
-        runCycleStep("cloud_push_sync") {
+        runNonFatalCycleStep(name = "cloud_push_sync", timeoutMs = CLOUD_PUSH_STEP_TIMEOUT_MS) {
             syncRepository.pushCloudIncremental()
         }
         runCycleStep("baseline_import") {
@@ -991,6 +991,33 @@ class AutomationRepository(
                 )
             )
             throw error
+        }
+    }
+
+    private suspend fun runNonFatalCycleStep(
+        name: String,
+        timeoutMs: Long? = null,
+        block: suspend () -> Unit
+    ) {
+        runCatching {
+            if (timeoutMs != null) {
+                runCycleStep(name) {
+                    withTimeout(timeoutMs) { block() }
+                }
+            } else {
+                runCycleStep(name) { block() }
+            }
+        }.onFailure { error ->
+            val timeout = error is TimeoutCancellationException
+            auditLogger.warn(
+                "automation_cycle_step_nonfatal_continue",
+                mapOf(
+                    "step" to name,
+                    "timeout" to timeout,
+                    "timeoutMs" to timeoutMs,
+                    "error" to (error.message ?: error::class.simpleName.orEmpty())
+                )
+            )
         }
     }
 
@@ -3356,6 +3383,8 @@ class AutomationRepository(
         private const val AUTOMATION_CYCLE_TIMEOUT_MS = 180_000L
         private const val AUTOMATION_STALL_WARN_MS = 180_000L
         private const val AUTOMATION_STEP_SLOW_MS = 10_000L
+        private const val NIGHTSCOUT_SYNC_STEP_TIMEOUT_MS = 60_000L
+        private const val CLOUD_PUSH_STEP_TIMEOUT_MS = 20_000L
         private const val ISFCR_SNAPSHOT_FRESHNESS_MS = 10 * 60_000L
         private const val ISFCR_REALTIME_TIMEOUT_MS = 45_000L
         private const val ISFCR_REALTIME_SYNC_TIMEOUT_MS = 15_000L

@@ -147,6 +147,7 @@ class SyncRepository(
         val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
         var insulinLikeFetched = 0
         var carbsFetched = 0
+        var treatmentsSkippedByClientWindow = 0
 
         treatments.forEach { treatment ->
             val ts = parseNightscoutTimestamp(
@@ -154,6 +155,12 @@ class SyncRepository(
                 date = treatment.date,
                 mills = treatment.mills
             ) ?: return@forEach
+            // Server-side find filters can occasionally return wider windows.
+            // Keep a strict client-side guard to prevent heavy re-processing of stale treatments.
+            if (ts < treatmentQuerySince) {
+                treatmentsSkippedByClientWindow += 1
+                return@forEach
+            }
             val payload = mutableMapOf<String, String>()
             treatment.duration?.let { payload["duration"] = it.toString() }
             treatment.targetTop?.let { payload["targetTop"] = it.toString() }
@@ -284,6 +291,7 @@ class SyncRepository(
                 "treatmentQuerySince" to treatmentQuerySince,
                 "treatmentsFetchedByDate" to treatmentsByDate.size,
                 "treatmentsFetchedByCreatedAt" to treatmentsByCreatedAt.size,
+                "treatmentsSkippedByClientWindow" to treatmentsSkippedByClientWindow,
                 "deviceStatusQuerySince" to deviceStatusQuerySince,
                 "insulinLikeLocal30d" to insulinLikeCount,
                 "treatmentBootstrap" to shouldBootstrapTreatmentHistory,
