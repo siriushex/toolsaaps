@@ -5860,3 +5860,35 @@
 5. Контрольный replay:
    - 30m: ΔMARD снизился до `+1.585 pp` (после repair),
    - 60m: ΔMARD `+1.572 pp`.
+
+# Изменения — Этап 144: Жесткая нормализация bolus/carbs при импорте NS (без ложных correction_bolus)
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/SyncRepository.kt` усилена классификация `Correction Bolus/Meal Bolus`:
+  - `Correction Bolus` без дозы инсулина теперь не попадает в `correction_bolus` (понижается до `treatment`);
+  - `Meal Bolus` без полного payload теперь детерминированно переразмечается в `correction_bolus` / `carbs` / `treatment` по фактическим данным;
+  - `carbs` без углеводов также понижается до `treatment`.
+- Сохранена whitelist-логика для inferred IOB bolus (`inferred=true`, `method=iob_jump`) чтобы не потерять валидные `iob-inf-*`.
+- Добавлена диагностика импорта:
+  - `treatmentsDowngradedFromBolus` в `nightscout_sync_completed` для контроля деградации сырых NS записей.
+- Выполнена проверка на устройстве (USB):
+  - приложение обновлено,
+  - `correction_bolus` за 24ч без дозы инсулина: `0`,
+  - свежие `iob-inf-*` записи содержат `insulin + inferred + method=iob_jump`.
+
+## Почему так
+- Главный лимит точности 30/60m был в шумных/пустых bolus-событиях из NS, которые ошибочно попадали в insulin-контур.
+- Более строгая нормализация по фактическому payload убирает ложное влияние на IOB/прогноз и сохраняет только валидные bolus-события.
+
+## Риски / ограничения
+- Если внешний источник шлет нестандартные ключи дозы инсулина (вне известных aliases), запись может быть понижена до `treatment`.
+- Текущее окно в live-проверке не содержало новых “пустых” bolus, поэтому `treatmentsDowngradedFromBolus` в последних циклах равно `0` (метрика добавлена и будет заполняться при встрече кейса).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+4. `adb install -r -t /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+5. Проверка БД:
+   - `SELECT COUNT(*) FROM therapy_events WHERE type='correction_bolus' AND timestamp>strftime('%s','now','-24 hour')*1000 AND coalesce(nullif(json_extract(payloadJson,'$.insulin'),''),nullif(json_extract(payloadJson,'$.units'),''),nullif(json_extract(payloadJson,'$.bolusUnits'),'')) IS NULL AND NOT (lower(coalesce(json_extract(payloadJson,'$.inferred'),''))='true' AND lower(coalesce(json_extract(payloadJson,'$.method'),''))='iob_jump');`
+   - ожидаемо `0`.

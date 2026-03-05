@@ -201,6 +201,7 @@ class SyncRepository(
         var insulinLikeFetched = 0
         var carbsFetched = 0
         var treatmentsSkippedByClientWindow = 0
+        var treatmentsDowngradedFromBolus = 0
 
         treatments.forEach { treatment ->
             val ts = parseNightscoutTimestamp(
@@ -235,6 +236,19 @@ class SyncRepository(
                 eventType = treatment.eventType,
                 payload = payload
             )
+            val eventTypeNormalized = treatment.eventType
+                .orEmpty()
+                .trim()
+                .lowercase()
+                .replace('-', ' ')
+                .replace('_', ' ')
+                .replace(Regex("\\s+"), " ")
+            if (
+                (eventTypeNormalized == "correction bolus" || eventTypeNormalized == "meal bolus") &&
+                normalizedType !in setOf("correction_bolus", "meal_bolus")
+            ) {
+                treatmentsDowngradedFromBolus += 1
+            }
 
             val id = treatment.id ?: "ns-$ts-${normalizedType.hashCode()}"
             val mergedPayload = mergePayloadWithExisting(
@@ -374,6 +388,7 @@ class SyncRepository(
                 "treatmentsCreatedAtBackfillDue" to shouldRunTreatmentCreatedAtBackfill,
                 "treatmentsByCreatedAtFetchExecuted" to treatmentsByCreatedAtFetched,
                 "treatmentsSkippedByClientWindow" to treatmentsSkippedByClientWindow,
+                "treatmentsDowngradedFromBolus" to treatmentsDowngradedFromBolus,
                 "sgvFetchDurationMs" to sgvFetchDurationMs,
                 "sgvFetchTimedOut" to sgvFetchTimedOut,
                 "treatmentsByDateFetchDurationMs" to treatmentsByDateFetchDurationMs,
@@ -477,43 +492,7 @@ class SyncRepository(
     private fun normalizeEventType(
         eventType: String?,
         payload: Map<String, String> = emptyMap()
-    ): String {
-        val normalized = eventType
-            .orEmpty()
-            .trim()
-            .lowercase()
-            .replace('-', ' ')
-            .replace('_', ' ')
-            .replace(Regex("\\s+"), " ")
-        val mapped = when (normalized) {
-            "temporary target" -> "temp_target"
-            "carb correction" -> "carbs"
-            "meal bolus" -> "meal_bolus"
-            "correction bolus" -> "correction_bolus"
-            "site change", "cannula change", "infusion set change", "set change", "pump site change" ->
-                "infusion_set_change"
-            "sensor change", "cgm sensor change", "sensor start" -> "sensor_change"
-            "insulin change", "reservoir change", "cartridge change", "pump refill", "insulin refill" ->
-                "insulin_refill"
-            "pump battery change", "battery change", "battery replacement", "pump battery replacement" ->
-                "pump_battery_change"
-            else -> normalized.replace(" ", "_")
-        }
-        if (mapped.isNotBlank()) return mapped
-
-        val carbs = payload["carbs"]?.replace(",", ".")?.toDoubleOrNull()
-        val insulin = payload["insulin"]?.replace(",", ".")?.toDoubleOrNull()
-            ?: payload["units"]?.replace(",", ".")?.toDoubleOrNull()
-            ?: payload["bolusUnits"]?.replace(",", ".")?.toDoubleOrNull()
-        val hasTarget = payload.containsKey("targetTop") || payload.containsKey("targetBottom")
-        return when {
-            carbs != null && carbs > 0.0 && insulin != null && insulin > 0.0 -> "meal_bolus"
-            insulin != null && insulin > 0.0 -> "correction_bolus"
-            carbs != null && carbs > 0.0 -> "carbs"
-            hasTarget -> "temp_target"
-            else -> "treatment"
-        }
-    }
+    ): String = normalizeTreatmentTypeStatic(eventType = eventType, payload = payload)
 
     private fun payloadFromJson(raw: String): Map<String, String> {
         val anyMapType = object : TypeToken<Map<String, Any?>>() {}.type
@@ -547,6 +526,14 @@ class SyncRepository(
             is String -> value
             else -> gson.toJson(value)
         }
+    }
+
+    private fun payloadNumeric(payload: Map<String, String>, vararg keys: String): Double? {
+        return payloadNumericStatic(payload, *keys)
+    }
+
+    private fun hasPositivePayloadValue(payload: Map<String, String>, vararg keys: String): Boolean {
+        return hasPositivePayloadValueStatic(payload, *keys)
     }
 
     private fun mergePayloadWithExisting(
@@ -852,6 +839,83 @@ class SyncRepository(
             "enteredCarbs",
             "mealCarbs"
         )
+
+        internal fun normalizeTreatmentTypeStatic(
+            eventType: String?,
+            payload: Map<String, String> = emptyMap()
+        ): String {
+            val normalized = eventType
+                .orEmpty()
+                .trim()
+                .lowercase()
+                .replace('-', ' ')
+                .replace('_', ' ')
+                .replace(Regex("\\s+"), " ")
+            val mapped = when (normalized) {
+                "temporary target" -> "temp_target"
+                "carb correction" -> "carbs"
+                "meal bolus" -> "meal_bolus"
+                "correction bolus" -> "correction_bolus"
+                "site change", "cannula change", "infusion set change", "set change", "pump site change" ->
+                    "infusion_set_change"
+                "sensor change", "cgm sensor change", "sensor start" -> "sensor_change"
+                "insulin change", "reservoir change", "cartridge change", "pump refill", "insulin refill" ->
+                    "insulin_refill"
+                "pump battery change", "battery change", "battery replacement", "pump battery replacement" ->
+                    "pump_battery_change"
+                else -> normalized.replace(" ", "_")
+            }
+            if (mapped.isNotBlank()) {
+                val hasInsulinDose = hasPositivePayloadValueStatic(
+                    payload,
+                    "insulin",
+                    "units",
+                    "bolusUnits",
+                    "enteredInsulin"
+                )
+                val hasCarbs = hasPositivePayloadValueStatic(
+                    payload,
+                    "carbs",
+                    "grams",
+                    "enteredCarbs",
+                    "mealCarbs"
+                )
+                val inferredIobBolus = payload["inferred"]?.trim()?.equals("true", ignoreCase = true) == true &&
+                    payload["method"]?.trim()?.equals("iob_jump", ignoreCase = true) == true
+                return when (mapped) {
+                    "correction_bolus" -> if (hasInsulinDose || inferredIobBolus) "correction_bolus" else "treatment"
+                    "meal_bolus" -> when {
+                        hasInsulinDose && hasCarbs -> "meal_bolus"
+                        hasInsulinDose -> "correction_bolus"
+                        hasCarbs -> "carbs"
+                        else -> "treatment"
+                    }
+                    "carbs" -> if (hasCarbs) "carbs" else "treatment"
+                    else -> mapped
+                }
+            }
+
+            val carbs = payloadNumericStatic(payload, "carbs", "grams", "enteredCarbs", "mealCarbs")
+            val insulin = payloadNumericStatic(payload, "insulin", "units", "bolusUnits", "enteredInsulin")
+            val hasTarget = payload.containsKey("targetTop") || payload.containsKey("targetBottom")
+            return when {
+                carbs != null && carbs > 0.0 && insulin != null && insulin > 0.0 -> "meal_bolus"
+                insulin != null && insulin > 0.0 -> "correction_bolus"
+                carbs != null && carbs > 0.0 -> "carbs"
+                hasTarget -> "temp_target"
+                else -> "treatment"
+            }
+        }
+
+        internal fun payloadNumericStatic(payload: Map<String, String>, vararg keys: String): Double? {
+            return keys.firstNotNullOfOrNull { key ->
+                payload[key]?.replace(",", ".")?.toDoubleOrNull()
+            }
+        }
+
+        internal fun hasPositivePayloadValueStatic(payload: Map<String, String>, vararg keys: String): Boolean {
+            return payloadNumericStatic(payload, *keys)?.let { it > 0.0 } == true
+        }
     }
 
     private fun payloadDouble(payload: Map<String, String>, vararg keys: String): Double? {
