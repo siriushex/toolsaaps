@@ -3,6 +3,7 @@ package io.aaps.copilot.domain.isfcr
 import io.aaps.copilot.domain.model.DayType
 import kotlin.math.exp
 import kotlin.math.ln
+import kotlin.math.pow
 
 class IsfCrBaseFitter {
 
@@ -129,8 +130,50 @@ class IsfCrBaseFitter {
             ln(sample.value) to w
         }
         if (weighted.isEmpty()) return null
-        val mean = weighted.sumOf { it.first * it.second } / weighted.sumOf { it.second }
+        val center = weightedQuantile(weighted, 0.5) ?: return null
+        val madSamples = weighted.map { (value, weight) ->
+            kotlin.math.abs(value - center) to weight
+        }
+        val mad = weightedQuantile(madSamples, 0.5)?.coerceAtLeast(ROBUST_SCALE_EPSILON) ?: ROBUST_SCALE_EPSILON
+        val scale = (mad * 1.4826).coerceAtLeast(ROBUST_SCALE_EPSILON)
+
+        val reweighted = weighted.mapNotNull { (value, weight) ->
+            val z = kotlin.math.abs(value - center) / scale
+            val huber = if (z <= ROBUST_HUBER_CUTOFF) 1.0 else ROBUST_HUBER_CUTOFF / z
+            val tukey = if (z <= ROBUST_TUKEY_CUTOFF) {
+                val ratio = z / ROBUST_TUKEY_CUTOFF
+                (1.0 - ratio * ratio).pow(2.0)
+            } else {
+                0.0
+            }
+            val combinedWeight = (weight * huber * tukey).coerceAtLeast(0.0)
+            if (combinedWeight <= 0.0) {
+                null
+            } else {
+                value to combinedWeight
+            }
+        }
+
+        val active = if (reweighted.isNotEmpty()) reweighted else weighted
+        val totalWeight = active.sumOf { it.second }.coerceAtLeast(1e-9)
+        val mean = active.sumOf { it.first * it.second } / totalWeight
         return exp(mean)
+    }
+
+    private fun weightedQuantile(values: List<Pair<Double, Double>>, quantile: Double): Double? {
+        if (values.isEmpty()) return null
+        val sorted = values
+            .filter { (_, weight) -> weight > 0.0 }
+            .sortedBy { it.first }
+        if (sorted.isEmpty()) return null
+        val totalWeight = sorted.sumOf { it.second }.coerceAtLeast(1e-9)
+        val target = totalWeight * quantile.coerceIn(0.0, 1.0)
+        var acc = 0.0
+        sorted.forEach { (value, weight) ->
+            acc += weight
+            if (acc >= target) return value
+        }
+        return sorted.last().first
     }
 
     private fun fillMissing(values: List<Double?>, fallback: Double): List<Double> {
@@ -174,5 +217,8 @@ class IsfCrBaseFitter {
         private const val MIN_DAYTYPE_FULL_EXPANSION_COVERAGE_HOURS = 8
         private const val DAYTYPE_LOCAL_EXPANSION_HOURS = 2
         private const val MIN_POSITIVE_VALUE = 1e-3
+        private const val ROBUST_SCALE_EPSILON = 0.02
+        private const val ROBUST_HUBER_CUTOFF = 2.5
+        private const val ROBUST_TUKEY_CUTOFF = 4.5
     }
 }

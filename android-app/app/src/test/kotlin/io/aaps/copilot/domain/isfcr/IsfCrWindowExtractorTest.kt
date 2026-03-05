@@ -569,6 +569,70 @@ class IsfCrWindowExtractorTest {
     }
 
     @Test
+    fun extract_crSampleAlignsMealTimestampWhenRiseStartsEarlier() {
+        val extractor = IsfCrWindowExtractor()
+        val mealTsLogged = 1_700_442_000_000L
+        val extraction = extractor.extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildMealGlucoseWithEarlyRise(mealTsLogged),
+                therapy = listOf(
+                    TherapyEvent(
+                        ts = mealTsLogged,
+                        type = "carbs",
+                        payload = mapOf("grams" to "34")
+                    ),
+                    TherapyEvent(
+                        ts = mealTsLogged - 5L * 60L * 1_000L,
+                        type = "bolus",
+                        payload = mapOf("units" to "3.4")
+                    )
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        val crSample = extraction.evidence.firstOrNull { it.sampleType == IsfCrSampleType.CR }
+        assertThat(crSample).isNotNull()
+        val shift = crSample!!.context["mealAlignmentShiftMin"]?.toDoubleOrNull() ?: 0.0
+        assertThat(crSample.context["mealAligned"]).isEqualTo("1")
+        assertThat(shift).isLessThan(-5.0)
+        assertThat(crSample.ts).isLessThan(mealTsLogged)
+    }
+
+    @Test
+    fun extract_isfSampleOutlierIsAdjustedTowardReference() {
+        val extractor = IsfCrWindowExtractor()
+        val correctionTs = 1_700_445_000_000L
+        val extraction = extractor.extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucoseOutlier(correctionTs),
+                therapy = listOf(
+                    TherapyEvent(
+                        ts = correctionTs,
+                        type = "correction_bolus",
+                        payload = mapOf("units" to "1.0")
+                    )
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        val isfSample = extraction.evidence.firstOrNull { it.sampleType == IsfCrSampleType.ISF }
+        assertThat(isfSample).isNotNull()
+        assertThat(isfSample!!.context["isfOutlier"]).isEqualTo("1")
+        val rawIsf = isfSample.context["rawIsf"]?.toDoubleOrNull() ?: 0.0
+        assertThat(rawIsf).isGreaterThan(5.0)
+        assertThat(isfSample.value).isLessThan(rawIsf)
+        assertThat(isfSample.value).isAtMost(5.0)
+    }
+
+    @Test
     fun extract_crGrossGapThresholdCanBeRelaxedFromSettings() {
         val extractor = IsfCrWindowExtractor()
         val mealTs = 1_700_450_000_000L
@@ -654,6 +718,29 @@ class IsfCrWindowExtractorTest {
         }
     }
 
+    private fun buildMealGlucoseWithEarlyRise(mealTs: Long): List<GlucosePoint> {
+        val actualMealTs = mealTs - 20L * 60L * 1_000L
+        val points = mutableListOf<GlucosePoint>()
+        var ts = actualMealTs - 30L * 60L * 1_000L
+        while (ts <= mealTs + 240L * 60L * 1_000L) {
+            val minuteFromActual = ((ts - actualMealTs) / 60_000.0)
+            val value = when {
+                minuteFromActual <= 0.0 -> 5.9
+                minuteFromActual <= 55.0 -> 5.9 + (minuteFromActual / 55.0) * 2.3
+                minuteFromActual <= 120.0 -> 8.2 - ((minuteFromActual - 55.0) / 65.0) * 1.2
+                else -> 7.0 - ((minuteFromActual - 120.0) / 120.0) * 0.4
+            }
+            points += GlucosePoint(
+                ts = ts,
+                valueMmol = value,
+                source = "cgm",
+                quality = DataQuality.OK
+            )
+            ts += 5L * 60L * 1_000L
+        }
+        return points
+    }
+
     private fun buildMealGlucoseEveryMinute(mealTs: Long): List<GlucosePoint> {
         val points = mutableListOf<GlucosePoint>()
         var ts = mealTs
@@ -671,6 +758,27 @@ class IsfCrWindowExtractorTest {
                 quality = DataQuality.OK
             )
             ts += 60_000L
+        }
+        return points
+    }
+
+    private fun buildCorrectionGlucoseOutlier(correctionTs: Long): List<GlucosePoint> {
+        val points = mutableListOf<GlucosePoint>()
+        var ts = correctionTs - 20L * 60L * 1_000L
+        while (ts <= correctionTs + 240L * 60L * 1_000L) {
+            val minute = ((ts - correctionTs) / 60_000.0)
+            val value = when {
+                minute <= 0.0 -> 10.6
+                minute <= 120.0 -> 10.6 - (minute / 120.0) * 7.2
+                else -> 3.4 + ((minute - 120.0) / 120.0) * 0.6
+            }
+            points += GlucosePoint(
+                ts = ts,
+                valueMmol = value,
+                source = "cgm",
+                quality = DataQuality.OK
+            )
+            ts += 5L * 60L * 1_000L
         }
         return points
     }

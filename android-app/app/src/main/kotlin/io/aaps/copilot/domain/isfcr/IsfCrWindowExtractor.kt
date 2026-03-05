@@ -66,7 +66,8 @@ class IsfCrWindowExtractor(
                     event = event,
                     glucose = glucose,
                     therapy = therapyWithImplicitCorrections,
-                    settings = settings
+                    settings = settings,
+                    isfReference = isfReference
                 )
                 sample.sample?.let { isfSamples += it } ?: markDropped(sample.dropReason)
             }
@@ -98,7 +99,8 @@ class IsfCrWindowExtractor(
         event: TherapyEvent,
         glucose: List<GlucosePoint>,
         therapy: List<TherapyEvent>,
-        settings: IsfCrSettings
+        settings: IsfCrSettings,
+        isfReference: Double
     ): SampleExtractionResult {
         val units = extractInsulinUnits(event)
             ?: return droppedExtraction(DROP_REASON_ISF_MISSING_UNITS)
@@ -124,9 +126,35 @@ class IsfCrWindowExtractor(
         val drop = baseline.valueMmol - minFuture.valueMmol
         if (drop <= 0.0) return droppedExtraction(DROP_REASON_ISF_NON_POSITIVE_DROP)
 
-        val isf = (drop / units).takeIf { it in 0.2..18.0 } ?: return droppedExtraction(DROP_REASON_ISF_OUT_OF_RANGE)
+        val rawIsf = (drop / units).takeIf { it in 0.2..18.0 } ?: return droppedExtraction(DROP_REASON_ISF_OUT_OF_RANGE)
         val qualityPoints = glucose.filter { it.ts in (event.ts - 15 * MINUTE_MS)..windowEnd }
         val quality = qualityScorer.scoreWindow(qualityPoints)
+        val onsetTs = detectSlopeOnsetTs(
+            anchorTs = event.ts,
+            points = qualityPoints,
+            direction = SlopeDirection.DROP,
+            slopeThresholdPer5m = ISF_ONSET_DROP_SLOPE_THRESHOLD_PER_5M,
+            minConsecutive = ISF_ONSET_MIN_CONSECUTIVE,
+            minDelayMinutes = ISF_ONSET_MIN_DELAY_MINUTES,
+            maxDelayMinutes = ISF_ONSET_MAX_DELAY_MINUTES
+        )
+        val onsetMinutes = onsetTs?.let { (it - event.ts) / 60_000.0 }
+        val peakDropSlopePer5m = slopeExtremumPer5m(
+            anchorTs = event.ts,
+            points = qualityPoints,
+            minDelayMinutes = ISF_PEAK_WINDOW_MIN_DELAY_MINUTES,
+            maxDelayMinutes = ISF_PEAK_WINDOW_MAX_DELAY_MINUTES,
+            preferDrop = true
+        )
+        val outlierRatio = if (isfReference > 0.0) rawIsf / isfReference else 1.0
+        val outlier = outlierRatio < ISF_OUTLIER_MIN_RATIO || outlierRatio > ISF_OUTLIER_MAX_RATIO
+        val adjustedIsf = if (!outlier || isfReference <= 0.0) {
+            rawIsf
+        } else {
+            val alpha = (quality.score * ISF_OUTLIER_BLEND_ALPHA_BASE).coerceIn(0.15, ISF_OUTLIER_BLEND_ALPHA_BASE)
+            val blended = isfReference * (1.0 - alpha) + rawIsf * alpha
+            blended.coerceIn(isfReference * ISF_OUTLIER_MIN_RATIO, isfReference * ISF_OUTLIER_MAX_RATIO)
+        }
         val setAgeHours = ageHoursAt(
             ts = event.ts,
             therapy = therapy,
@@ -150,29 +178,39 @@ class IsfCrWindowExtractor(
             minWeight = 0.65
         )
         val wearWeight = (setAgeWeight * sensorAgeWeight).coerceIn(0.35, 1.0)
-        val weight = (quality.score * wearWeight).coerceIn(0.0, 1.0)
+        val onsetPenalty = if (onsetMinutes == null) ISF_NO_ONSET_WEIGHT_PENALTY else 1.0
+        val outlierPenalty = if (outlier) ISF_OUTLIER_WEIGHT_PENALTY else 1.0
+        val weight = (quality.score * wearWeight * onsetPenalty * outlierPenalty).coerceIn(0.0, 1.0)
         if (weight <= 0.0) return droppedExtraction(DROP_REASON_ISF_LOW_QUALITY)
 
         val zoned = Instant.ofEpochMilli(event.ts).atZone(zoneId)
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
         return extractedSample(
             IsfCrEvidenceSample(
-            id = "isf:${event.ts}:${(isf * 100).roundToInt()}",
+            id = "isf:${event.ts}:${(adjustedIsf * 100).roundToInt()}",
             ts = event.ts,
             sampleType = IsfCrSampleType.ISF,
             hourLocal = zoned.hour,
             dayType = dayType,
-            value = isf,
+            value = adjustedIsf,
             weight = weight,
             qualityScore = quality.score,
             context = mapOf(
                 "units" to units.toString(),
                 "drop" to drop.toString(),
+                "rawIsf" to rawIsf.toString(),
+                "isfOutlier" to if (outlier) "1" else "0",
+                "isfOutlierRatio" to outlierRatio.toString(),
+                "isfAdjustedByReference" to if (outlier) "1" else "0",
+                "insulinOnsetMin" to (onsetMinutes?.toString() ?: "nan"),
+                "peakDropSlopePer5m" to (peakDropSlopePer5m?.toString() ?: "nan"),
                 "carbsAround" to carbsAround.toString(),
                 "setAgeHours" to (setAgeHours ?: -1.0).toString(),
                 "sensorAgeHours" to (sensorAgeHours ?: -1.0).toString(),
                 "setAgeWeight" to setAgeWeight.toString(),
-                "sensorAgeWeight" to sensorAgeWeight.toString()
+                "sensorAgeWeight" to sensorAgeWeight.toString(),
+                "onsetPenalty" to onsetPenalty.toString(),
+                "outlierPenalty" to outlierPenalty.toString()
             ),
             window = mapOf(
                 "startTs" to windowStart.toDouble(),
@@ -194,27 +232,34 @@ class IsfCrWindowExtractor(
     ): SampleExtractionResult {
         val carbs = extractCarbsGrams(mealEvent) ?: return droppedExtraction(DROP_REASON_CR_MISSING_CARBS)
         if (carbs < 10.0) return droppedExtraction(DROP_REASON_CR_SMALL_CARBS)
+        val alignedMealTs = alignMealTimestampForCr(
+            mealTs = mealEvent.ts,
+            glucose = glucose
+        )
+        val effectiveMealTs = alignedMealTs ?: mealEvent.ts
+        val mealAlignmentShiftMinutes = (effectiveMealTs - mealEvent.ts) / 60_000.0
+
         val explicitBolusNearby = therapy.firstOrNull { event ->
             if (event.payload["source"]?.equals("isfcr_inference", ignoreCase = true) == true) {
                 return@firstOrNull false
             }
             val units = extractInsulinUnits(event) ?: return@firstOrNull false
             if (units < 0.1) return@firstOrNull false
-            val deltaMs = event.ts - mealEvent.ts
+            val deltaMs = event.ts - effectiveMealTs
             deltaMs in (-20L * MINUTE_MS)..(30L * MINUTE_MS)
         }
         val implicitBolusNearby = if (explicitBolusNearby == null) {
             estimateImplicitBolusFromTelemetry(
                 telemetry = telemetry,
-                mealTs = mealEvent.ts
+                mealTs = effectiveMealTs
             )
         } else {
             null
         }
         val iobContextCount = countIobContextPoints(
             telemetry = telemetry,
-            fromTs = mealEvent.ts - 30L * MINUTE_MS,
-            toTs = mealEvent.ts + 45L * MINUTE_MS
+            fromTs = effectiveMealTs - 30L * MINUTE_MS,
+            toTs = effectiveMealTs + 45L * MINUTE_MS
         )
         val uamTaggedMeal = isUamEngineMealEvent(mealEvent)
         val hasIobContext = iobContextCount >= MIN_IOB_CONTEXT_POINTS
@@ -250,8 +295,8 @@ class IsfCrWindowExtractor(
             )
         }
 
-        val windowStart = mealEvent.ts
-        val windowEnd = mealEvent.ts + 240 * MINUTE_MS
+        val windowStart = effectiveMealTs
+        val windowEnd = effectiveMealTs + 240 * MINUTE_MS
         val points = glucose.filter { it.ts in windowStart..windowEnd }
         if (points.size < 6) return droppedExtraction(DROP_REASON_CR_SPARSE_POINTS)
         val quality = qualityScorer.scoreWindow(points)
@@ -325,7 +370,14 @@ class IsfCrWindowExtractor(
         if (intervals.size < minIntervalsRequired) return droppedExtraction(DROP_REASON_CR_SPARSE_INTERVALS)
         val intervalCoveragePenalty = (intervals.size / 8.0)
             .coerceIn(if (uamTaggedMeal || allowCarbsOnlyMeal) 0.45 else 0.65, 1.0)
+        val alignmentPenalty = when {
+            abs(mealAlignmentShiftMinutes) >= 24.0 -> 0.85
+            abs(mealAlignmentShiftMinutes) >= 12.0 -> 0.92
+            abs(mealAlignmentShiftMinutes) >= 5.0 -> 0.97
+            else -> 1.0
+        }
         val sampleWeight = (quality.score * wearWeight * sourcePenalty * intervalCoveragePenalty * uamAmbiguityPenalty)
+            .times(alignmentPenalty)
             .coerceIn(0.0, 1.0)
 
         var cr = minCr
@@ -357,12 +409,12 @@ class IsfCrWindowExtractor(
         }
         if (bestCr !in minCr..maxCr) return droppedExtraction(DROP_REASON_CR_FIT_INVALID)
 
-        val zoned = Instant.ofEpochMilli(mealEvent.ts).atZone(zoneId)
+        val zoned = Instant.ofEpochMilli(effectiveMealTs).atZone(zoneId)
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
         return extractedSample(
             IsfCrEvidenceSample(
             id = "cr:${mealEvent.ts}:${(bestCr * 10).roundToInt()}",
-            ts = mealEvent.ts,
+            ts = effectiveMealTs,
             sampleType = IsfCrSampleType.CR,
             hourLocal = zoned.hour,
             dayType = dayType,
@@ -375,13 +427,18 @@ class IsfCrWindowExtractor(
                 "mealBolusSource" to bolusSource,
                 "iobContextPoints" to iobContextCount.toString(),
                 "mealFromUamEngine" to if (uamTaggedMeal) "1" else "0",
+                "mealAligned" to if (alignedMealTs != null) "1" else "0",
+                "mealAlignmentShiftMin" to mealAlignmentShiftMinutes.toString(),
+                "mealOriginalTs" to mealEvent.ts.toString(),
+                "mealEffectiveTs" to effectiveMealTs.toString(),
                 "fitSse" to bestSse.toString(),
                 "sensorBlockedRate" to telemetryStats.sensorBlockedRate.toString(),
                 "uamAmbiguityRate" to telemetryStats.uamAmbiguityRate.toString(),
                 "setAgeHours" to (setAgeHours ?: -1.0).toString(),
                 "sensorAgeHours" to (sensorAgeHours ?: -1.0).toString(),
                 "setAgeWeight" to setAgeWeight.toString(),
-                "sensorAgeWeight" to sensorAgeWeight.toString()
+                "sensorAgeWeight" to sensorAgeWeight.toString(),
+                "alignmentPenalty" to alignmentPenalty.toString()
             ),
             window = mapOf(
                 "startTs" to windowStart.toDouble(),
@@ -706,6 +763,109 @@ class IsfCrWindowExtractor(
         return this.minByOrNull { abs(it.ts - targetTs) }?.takeIf { abs(it.ts - targetTs) <= maxDistanceMs }
     }
 
+    private fun alignMealTimestampForCr(
+        mealTs: Long,
+        glucose: List<GlucosePoint>
+    ): Long? {
+        val windowStart = mealTs - (CR_MEAL_ALIGN_SEARCH_MINUTES * MINUTE_MS)
+        val windowEnd = mealTs + (CR_MEAL_ALIGN_SEARCH_MINUTES * MINUTE_MS)
+        val points = glucose.filter { it.ts in windowStart..windowEnd }
+        if (points.size < CR_MEAL_ALIGN_MIN_POINTS) return null
+        val onsetTs = detectSlopeOnsetTs(
+            anchorTs = mealTs,
+            points = points,
+            direction = SlopeDirection.RISE,
+            slopeThresholdPer5m = CR_MEAL_ALIGN_RISE_SLOPE_THRESHOLD_PER_5M,
+            minConsecutive = CR_MEAL_ALIGN_MIN_CONSECUTIVE,
+            minDelayMinutes = -CR_MEAL_ALIGN_MAX_SHIFT_MINUTES,
+            maxDelayMinutes = CR_MEAL_ALIGN_MAX_SHIFT_MINUTES
+        ) ?: return null
+        val shiftMin = abs((onsetTs - mealTs) / 60_000.0)
+        if (shiftMin > CR_MEAL_ALIGN_MAX_SHIFT_MINUTES + 1e-6) return null
+        return onsetTs
+    }
+
+    private enum class SlopeDirection {
+        RISE,
+        DROP
+    }
+
+    private data class SlopeSegment(
+        val startTs: Long,
+        val endTs: Long,
+        val slopePer5m: Double
+    )
+
+    private fun detectSlopeOnsetTs(
+        anchorTs: Long,
+        points: List<GlucosePoint>,
+        direction: SlopeDirection,
+        slopeThresholdPer5m: Double,
+        minConsecutive: Int,
+        minDelayMinutes: Double,
+        maxDelayMinutes: Double
+    ): Long? {
+        val segments = buildSlopeSegments(points)
+        if (segments.isEmpty()) return null
+        var consecutive = 0
+        for (index in segments.indices) {
+            val segment = segments[index]
+            val matches = when (direction) {
+                SlopeDirection.RISE -> segment.slopePer5m >= slopeThresholdPer5m
+                SlopeDirection.DROP -> segment.slopePer5m <= -slopeThresholdPer5m
+            }
+            if (matches) {
+                consecutive += 1
+                if (consecutive >= minConsecutive) {
+                    val onset = segments[index - minConsecutive + 1].startTs
+                    val delayMin = (onset - anchorTs) / 60_000.0
+                    if (delayMin in minDelayMinutes..maxDelayMinutes) {
+                        return onset
+                    }
+                }
+            } else {
+                consecutive = 0
+            }
+        }
+        return null
+    }
+
+    private fun slopeExtremumPer5m(
+        anchorTs: Long,
+        points: List<GlucosePoint>,
+        minDelayMinutes: Double,
+        maxDelayMinutes: Double,
+        preferDrop: Boolean
+    ): Double? {
+        val segments = buildSlopeSegments(points)
+        if (segments.isEmpty()) return null
+        val inRange = segments.filter { segment ->
+            val delayMin = (segment.endTs - anchorTs) / 60_000.0
+            delayMin in minDelayMinutes..maxDelayMinutes
+        }
+        if (inRange.isEmpty()) return null
+        return if (preferDrop) {
+            inRange.minOfOrNull { it.slopePer5m }
+        } else {
+            inRange.maxOfOrNull { it.slopePer5m }
+        }
+    }
+
+    private fun buildSlopeSegments(points: List<GlucosePoint>): List<SlopeSegment> {
+        return points.sortedBy { it.ts }
+            .zipWithNext()
+            .mapNotNull { (a, b) ->
+                val dtMin = (b.ts - a.ts) / 60_000.0
+                if (dtMin !in 2.0..15.0) return@mapNotNull null
+                val slopePer5m = (b.valueMmol - a.valueMmol) / (dtMin / 5.0)
+                SlopeSegment(
+                    startTs = a.ts,
+                    endTs = b.ts,
+                    slopePer5m = slopePer5m
+                )
+            }
+    }
+
     private companion object {
         private const val MINUTE_MS = 60_000L
         private val SET_CHANGE_TYPES = setOf(
@@ -739,6 +899,22 @@ class IsfCrWindowExtractor(
         private const val DROP_REASON_CR_SENSOR_BLOCKED = "cr_sensor_blocked"
         private const val DROP_REASON_CR_UAM_AMBIGUITY = "cr_uam_ambiguity"
         private const val DROP_REASON_CR_GROSS_GAP = "cr_gross_gap"
+        private const val ISF_OUTLIER_MIN_RATIO = 0.5
+        private const val ISF_OUTLIER_MAX_RATIO = 2.0
+        private const val ISF_OUTLIER_BLEND_ALPHA_BASE = 0.55
+        private const val ISF_OUTLIER_WEIGHT_PENALTY = 0.65
+        private const val ISF_NO_ONSET_WEIGHT_PENALTY = 0.90
+        private const val ISF_ONSET_DROP_SLOPE_THRESHOLD_PER_5M = 0.10
+        private const val ISF_ONSET_MIN_CONSECUTIVE = 2
+        private const val ISF_ONSET_MIN_DELAY_MINUTES = 10.0
+        private const val ISF_ONSET_MAX_DELAY_MINUTES = 120.0
+        private const val ISF_PEAK_WINDOW_MIN_DELAY_MINUTES = 20.0
+        private const val ISF_PEAK_WINDOW_MAX_DELAY_MINUTES = 240.0
+        private const val CR_MEAL_ALIGN_MIN_POINTS = 6
+        private const val CR_MEAL_ALIGN_SEARCH_MINUTES = 30L
+        private const val CR_MEAL_ALIGN_MAX_SHIFT_MINUTES = 30.0
+        private const val CR_MEAL_ALIGN_MIN_CONSECUTIVE = 2
+        private const val CR_MEAL_ALIGN_RISE_SLOPE_THRESHOLD_PER_5M = 0.10
         private const val IMPLICIT_BOLUS_MIN_UNITS = 0.15
         private const val IMPLICIT_BOLUS_MAX_UNITS = 8.0
         private const val MIN_IOB_CONTEXT_POINTS = 3

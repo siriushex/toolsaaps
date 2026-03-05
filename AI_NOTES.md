@@ -5892,3 +5892,40 @@
 5. Проверка БД:
    - `SELECT COUNT(*) FROM therapy_events WHERE type='correction_bolus' AND timestamp>strftime('%s','now','-24 hour')*1000 AND coalesce(nullif(json_extract(payloadJson,'$.insulin'),''),nullif(json_extract(payloadJson,'$.units'),''),nullif(json_extract(payloadJson,'$.bolusUnits'),'')) IS NULL AND NOT (lower(coalesce(json_extract(payloadJson,'$.inferred'),''))='true' AND lower(coalesce(json_extract(payloadJson,'$.method'),''))='iob_jump');`
    - ожидаемо `0`.
+
+# Изменения — Этап 145: Реальный ISF/CR v2 (сверка с HBA1 и доработка контуров)
+
+## Что сделано
+- Пересобран extraction-контур ISF/CR по мотивам рабочих подходов из `HBA1/circadian_insights_v2.py`:
+  - добавлен slope-based onset для ISF correction-window (drop onset в диапазоне `10..120` минут);
+  - добавлен контроль outlier ISF относительно reference (`ratio <0.5` или `>2.0`) с мягким blend к reference вместо “сырого” выброса;
+  - добавлены penalties в вес evidence (`onsetPenalty`, `outlierPenalty`) и расширенный trace в context (`rawIsf`, `isfOutlier`, `isfOutlierRatio`, `insulinOnsetMin`, `peakDropSlopePer5m`).
+- Для CR внедрён meal-alignment (как в HBA1-идее rise-onset):
+  - поиск onset роста в окне `±30 минут` вокруг логированного meal;
+  - при обнаружении используется `effectiveMealTs` для fit-window, hour/day bucket и bolus proximity;
+  - в evidence/context добавлены `mealAligned`, `mealAlignmentShiftMin`, `mealOriginalTs`, `mealEffectiveTs`, `alignmentPenalty`.
+- Улучшен базовый fitter для hourly ISF/CR:
+  - вместо простого weighted-log-mean применяется robust reweighting (weighted-median center + MAD scale + Huber/Tukey suppress),
+  - снижена чувствительность к единичным выбросам CR/ISF в часовых сегментах.
+- Добавлены unit-тесты:
+  - `IsfCrWindowExtractorTest`:
+    - meal timestamp alignment при раннем росте BG,
+    - ISF outlier adjustment к reference.
+  - новый `IsfCrBaseFitterTest`:
+    - устойчивость hourly ISF/CR к экстремальному одиночному выбросу.
+- Обновлён APK и установлен на телефон по USB.
+
+## Почему так
+- В HBA1 лучше всего работают три практики: quality/onset-подход, мягкая обработка выбросов, и выравнивание meal-time по фактической динамике BG.
+- Эти механики уменьшают шум в evidence и дают более физиологичные hourly base curves для runtime `ISF_eff/CR_eff`.
+
+## Риски / ограничения
+- Meal-alignment по rise-onset при очень шумном CGM может смещать mealTs неоптимально (ограничено `±30 минут` и через `alignmentPenalty`).
+- ISF outlier blend использует reference как якорь; при плохом reference correction может быть слишком консервативной.
+- Для дальнейшего улучшения 30/60m потребуется replay-калибровка порогов slope/penalty на реальных данных пациента.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.*"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug`
+3. `adb install -r -t /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+4. Проверить в diagnostics/audit наличие новых context-полей ISF/CR (`isfOutlier`, `insulinOnsetMin`, `mealAlignmentShiftMin`) и адекватность hourly-кривых ISF/CR в аналитике.
