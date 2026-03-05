@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
@@ -48,6 +49,7 @@ import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
@@ -90,6 +92,12 @@ class AutomationRepository(
     private var currentCycleStartedAtTs: Long = 0L
     @Volatile
     private var isfCrRealtimeRefreshInFlight = false
+    @Volatile
+    private var isfCrRealtimeRefreshStartedAtTs = 0L
+    @Volatile
+    private var isfCrRealtimeLastFailureTs = 0L
+    @Volatile
+    private var isfCrRealtimeRefreshJob: Job? = null
 
     data class DryRunRuleSummary(
         val ruleId: String,
@@ -138,7 +146,14 @@ class AutomationRepository(
     data class ForecastCalibrationPoint(
         val horizonMinutes: Int,
         val errorMmol: Double,
-        val ageMs: Long
+        val ageMs: Long,
+        val predictedMmol: Double = Double.NaN
+    )
+
+    data class CalibrationAiTuning(
+        val gainScale: Double,
+        val maxUpScale: Double,
+        val maxDownScale: Double
     )
 
     data class ForecastDecompositionSnapshot(
@@ -265,6 +280,7 @@ class AutomationRepository(
     private data class LocalCobIobEstimate(
         val cobGrams: Double,
         val iobUnits: Double,
+        val explicitInsulinEvents: Int,
         val realOnsetMinutes: Double,
         val baseOnsetMinutes: Double,
         val onsetSampleCount: Int
@@ -387,7 +403,7 @@ class AutomationRepository(
             )
         )
         val now = System.currentTimeMillis()
-        val latestTelemetry = resolveLatestTelemetry(now).toMutableMap()
+        val latestTelemetry = resolveLatestTelemetry(nowTs = now, settings = settings).toMutableMap()
         val realtimeIsfCrSnapshot = resolveRealtimeIsfCrSnapshot(settings = settings, nowTs = now)
         val isfCrRuntimeGate = resolveIsfCrRuntimeGateStatic(
             snapshot = realtimeIsfCrSnapshot,
@@ -463,6 +479,7 @@ class AutomationRepository(
             telemetry = latestTelemetry,
             settings = settings
         )
+        val insulinTherapyAvailable = hasInsulinTherapyEvidence(therapy)
         val rawCobFromTelemetry = latestTelemetry["cob_grams"]
         val rawIobFromTelemetry = latestTelemetry["iob_units"]
         latestTelemetry["cob_grams"] = runtimeCobIob.cobGrams
@@ -515,6 +532,16 @@ class AutomationRepository(
                 )
             )
         }
+        if (!insulinTherapyAvailable && runtimeCobIob.iobUnits >= 0.3) {
+            auditLogger.warn(
+                "forecast_insulin_events_missing",
+                mapOf(
+                    "iobUnits" to runtimeCobIob.iobUnits,
+                    "therapyEvents24h" to therapy.size,
+                    "reason" to "iob_present_without_insulin_therapy_events"
+                )
+            )
+        }
         auditLogger.info("automation_cycle_checkpoint", mapOf("stage" to "post_cob_iob_runtime"))
         val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
         val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -537,9 +564,14 @@ class AutomationRepository(
             maybeMergeCloudPrediction(glucose, therapy, localForecasts)
         )
         val calibrationErrors = collectForecastCalibrationErrors(nowTs = now)
+        val calibrationTuning = resolveAiCalibrationTuning(
+            latestTelemetry = latestTelemetry,
+            nowTs = now
+        )
         val mergedForecastsCalibrated = applyRecentForecastCalibrationBias(
             forecasts = mergedForecastsRaw,
-            history = calibrationErrors
+            history = calibrationErrors,
+            aiTuning = calibrationTuning
         )
         val calibrationApplied = mergedForecastsCalibrated != mergedForecastsRaw
         if (mergedForecastsCalibrated != mergedForecastsRaw) {
@@ -547,7 +579,8 @@ class AutomationRepository(
                 "forecast_calibration_bias_applied",
                 buildCalibrationAuditMeta(
                     source = mergedForecastsRaw,
-                    adjusted = mergedForecastsCalibrated
+                    adjusted = mergedForecastsCalibrated,
+                    aiTuning = calibrationTuning
                 )
             )
         }
@@ -577,7 +610,9 @@ class AutomationRepository(
         val mergedForecastsBiased = applyCobIobForecastBias(
             forecasts = mergedForecastsContextBiased,
             cobGrams = latestTelemetry["cob_grams"],
-            iobUnits = latestTelemetry["iob_units"]
+            iobUnits = latestTelemetry["iob_units"],
+            latestGlucoseMmol = latestGlucose.valueMmol,
+            uamActive = resolveUamActiveTelemetry(latestTelemetry)
         )
         val cobIobBiasApplied = mergedForecastsBiased != mergedForecastsContextBiased
         if (mergedForecastsBiased != mergedForecastsContextBiased) {
@@ -771,7 +806,8 @@ class AutomationRepository(
                 contextBiasApplied = contextBiasApplied,
                 cobIobBiasApplied = cobIobBiasApplied,
                 calculatedUam = calculatedUam,
-                inferredUam = inferredUam
+                inferredUam = inferredUam,
+                insulinTherapyAvailable = insulinTherapyAvailable
             )
         )
         auditLogger.info("automation_cycle_checkpoint", mapOf("stage" to "post_uam_and_coverage"))
@@ -970,40 +1006,48 @@ class AutomationRepository(
         settings: AppSettings,
         nowTs: Long
     ): IsfCrRealtimeSnapshot? {
+        if (
+            isfCrRealtimeRefreshInFlight &&
+            isfCrRealtimeRefreshStartedAtTs > 0L &&
+            (nowTs - isfCrRealtimeRefreshStartedAtTs) > ISFCR_REALTIME_IN_FLIGHT_STALE_MS
+        ) {
+            val staleJob = isfCrRealtimeRefreshJob
+            val hadActiveJob = staleJob?.isActive == true
+            staleJob?.cancel()
+            isfCrRealtimeRefreshJob = null
+            isfCrRealtimeRefreshInFlight = false
+            isfCrRealtimeRefreshStartedAtTs = 0L
+            isfCrRealtimeLastFailureTs = nowTs
+            auditLogger.warn(
+                "isfcr_realtime_refresh_recovered",
+                mapOf(
+                    "reason" to "stale_in_flight_guard",
+                    "hadActiveJob" to hadActiveJob
+                )
+            )
+        }
+
         val latest = runCatching { isfCrRepository.latestSnapshot() }.getOrNull()
         val ageMs = latest?.let { nowTs - it.ts } ?: Long.MAX_VALUE
         if (latest != null && ageMs in 0..ISFCR_SNAPSHOT_FRESHNESS_MS) {
             return latest
         }
 
-        if (!isfCrRealtimeRefreshInFlight) {
-            isfCrRealtimeRefreshInFlight = true
-            isfCrRealtimeScope.launch {
-                val startedAt = System.currentTimeMillis()
-                runCatching {
-                    withTimeout(ISFCR_REALTIME_TIMEOUT_MS) {
-                        isfCrRepository.computeRealtimeSnapshot(
-                            settings = settings,
-                            nowTs = System.currentTimeMillis()
-                        )
-                    }
-                }.onSuccess {
-                    auditLogger.info(
-                        "isfcr_realtime_refresh_completed",
-                        mapOf("durationMs" to (System.currentTimeMillis() - startedAt))
-                    )
-                }.onFailure { error ->
-                    auditLogger.warn(
-                        "isfcr_realtime_refresh_failed",
-                        mapOf(
-                            "timeout" to (error is TimeoutCancellationException),
-                            "durationMs" to (System.currentTimeMillis() - startedAt),
-                            "reason" to (error.message ?: error::class.simpleName.orEmpty())
-                        )
-                    )
-                }
-                isfCrRealtimeRefreshInFlight = false
+        val inFailureBackoff = isfCrRealtimeLastFailureTs > 0L &&
+            (nowTs - isfCrRealtimeLastFailureTs) < ISFCR_REALTIME_RETRY_BACKOFF_MS
+
+        if (!isfCrRealtimeRefreshInFlight && !inFailureBackoff) {
+            val refreshReason = when {
+                latest == null -> "missing_snapshot"
+                ageMs >= ISFCR_SYNC_REFRESH_STALE_MS -> "stale_snapshot"
+                else -> "background_refresh"
             }
+            scheduleRealtimeIsfCrRefresh(settings = settings, nowTs = nowTs, reason = refreshReason)
+        } else if (inFailureBackoff && !isfCrRealtimeRefreshInFlight) {
+            auditLogger.info(
+                "isfcr_realtime_refresh_skipped",
+                mapOf("reason" to "backoff")
+            )
         } else {
             auditLogger.info(
                 "isfcr_realtime_refresh_skipped",
@@ -1016,8 +1060,77 @@ class AutomationRepository(
                 "isfcr_realtime_unavailable",
                 mapOf("reason" to "snapshot_missing_or_stale")
             )
+        } else {
+            auditLogger.warn(
+                "isfcr_realtime_unavailable",
+                mapOf(
+                    "reason" to "snapshot_stale",
+                    "snapshotTs" to latest.ts,
+                    "snapshotAgeMs" to ageMs,
+                    "freshnessMs" to ISFCR_SNAPSHOT_FRESHNESS_MS
+                )
+            )
         }
-        return latest
+        return null
+    }
+
+    private suspend fun scheduleRealtimeIsfCrRefresh(
+        settings: AppSettings,
+        nowTs: Long,
+        reason: String
+    ) {
+        if (isfCrRealtimeRefreshInFlight) return
+        isfCrRealtimeRefreshInFlight = true
+        isfCrRealtimeRefreshStartedAtTs = nowTs
+        auditLogger.info("isfcr_realtime_refresh_scheduled", mapOf("reason" to reason))
+
+        var refreshJob: Job? = null
+        refreshJob = isfCrRealtimeScope.launch {
+            val startedAt = System.currentTimeMillis()
+            try {
+                runCatching {
+                    withTimeout(ISFCR_REALTIME_TIMEOUT_MS) {
+                        isfCrRepository.computeRealtimeSnapshot(
+                            settings = settings,
+                            nowTs = System.currentTimeMillis()
+                        )
+                    }
+                }.onSuccess { snapshot ->
+                    isfCrRealtimeLastFailureTs = 0L
+                    auditLogger.info(
+                        "isfcr_realtime_refresh_completed",
+                        mapOf(
+                            "durationMs" to (System.currentTimeMillis() - startedAt),
+                            "snapshotTs" to snapshot.ts
+                        )
+                    )
+                }.onFailure { error ->
+                    isfCrRealtimeLastFailureTs = System.currentTimeMillis()
+                    auditLogger.warn(
+                        "isfcr_realtime_refresh_failed",
+                        mapOf(
+                            "timeout" to (error is TimeoutCancellationException),
+                            "durationMs" to (System.currentTimeMillis() - startedAt),
+                            "reason" to (error.message ?: error::class.simpleName.orEmpty())
+                        )
+                    )
+                }
+            } finally {
+                isfCrRealtimeRefreshInFlight = false
+                isfCrRealtimeRefreshStartedAtTs = 0L
+                if (isfCrRealtimeRefreshJob == refreshJob) {
+                    isfCrRealtimeRefreshJob = null
+                }
+            }
+        }
+        isfCrRealtimeRefreshJob = refreshJob
+        refreshJob.invokeOnCompletion {
+            isfCrRealtimeRefreshInFlight = false
+            isfCrRealtimeRefreshStartedAtTs = 0L
+            if (isfCrRealtimeRefreshJob == refreshJob) {
+                isfCrRealtimeRefreshJob = null
+            }
+        }
     }
 
     private fun alignTempTargetToBaseTarget(
@@ -1097,7 +1210,8 @@ class AutomationRepository(
                 ForecastCalibrationPoint(
                     horizonMinutes = row.horizonMinutes,
                     errorMmol = nearest.mmol - row.valueMmol,
-                    ageMs = nowTs - row.timestamp
+                    ageMs = nowTs - row.timestamp,
+                    predictedMmol = row.valueMmol
                 )
             }
             .toList()
@@ -1131,17 +1245,20 @@ class AutomationRepository(
 
     private fun applyRecentForecastCalibrationBias(
         forecasts: List<Forecast>,
-        history: List<ForecastCalibrationPoint>
+        history: List<ForecastCalibrationPoint>,
+        aiTuning: Map<Int, CalibrationAiTuning>
     ): List<Forecast> {
         return applyRecentForecastCalibrationBiasStatic(
             forecasts = forecasts,
-            history = history
+            history = history,
+            aiTuning = aiTuning
         )
     }
 
     private fun buildCalibrationAuditMeta(
         source: List<Forecast>,
-        adjusted: List<Forecast>
+        adjusted: List<Forecast>,
+        aiTuning: Map<Int, CalibrationAiTuning>
     ): Map<String, Any> {
         val byH = source.associateBy { it.horizonMinutes }
         val shifts = adjusted.associate { forecast ->
@@ -1149,7 +1266,22 @@ class AutomationRepository(
             val delta = if (src == null) 0.0 else forecast.valueMmol - src.valueMmol
             "h${forecast.horizonMinutes}" to roundToStep(delta, 0.001)
         }
-        return shifts + mapOf("model" to "recent_calibration_v1")
+        val tuningMeta = aiTuning.entries
+            .sortedBy { it.key }
+            .associate { (horizon, tuning) ->
+                "h${horizon}_tuning" to "g=${roundToStep(tuning.gainScale, 0.001)},up=${roundToStep(tuning.maxUpScale, 0.001)},down=${roundToStep(tuning.maxDownScale, 0.001)}"
+            }
+        return shifts + tuningMeta + mapOf("model" to "recent_calibration_v1")
+    }
+
+    private fun resolveAiCalibrationTuning(
+        latestTelemetry: Map<String, Double?>,
+        nowTs: Long
+    ): Map<Int, CalibrationAiTuning> {
+        return resolveAiCalibrationTuningStatic(
+            latestTelemetry = latestTelemetry,
+            nowTs = nowTs
+        )
     }
 
     private fun applyContextFactorForecastBias(
@@ -1169,12 +1301,16 @@ class AutomationRepository(
     private fun applyCobIobForecastBias(
         forecasts: List<Forecast>,
         cobGrams: Double?,
-        iobUnits: Double?
+        iobUnits: Double?,
+        latestGlucoseMmol: Double? = null,
+        uamActive: Boolean? = null
     ): List<Forecast> {
         return applyCobIobForecastBiasStatic(
             forecasts = forecasts,
             cobGrams = cobGrams,
-            iobUnits = iobUnits
+            iobUnits = iobUnits,
+            latestGlucoseMmol = latestGlucoseMmol,
+            uamActive = uamActive
         )
     }
 
@@ -1188,7 +1324,10 @@ class AutomationRepository(
         return COB_FORCE_BASE_TARGET_MMOL.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
     }
 
-    private suspend fun resolveLatestTelemetry(nowTs: Long): Map<String, Double?> {
+    private suspend fun resolveLatestTelemetry(
+        nowTs: Long,
+        settings: AppSettings
+    ): Map<String, Double?> {
         val baseRows = db.telemetryDao().since(nowTs - TELEMETRY_LOOKBACK_MS)
         val reportRows = db.telemetryDao().since(nowTs - TELEMETRY_REPORT_LOOKBACK_MS)
             .filter { row -> isReportTelemetryKey(row.key) }
@@ -1201,8 +1340,12 @@ class AutomationRepository(
             .atStartOfDay(ZoneId.systemDefault())
             .toInstant()
             .toEpochMilli()
-        val latestByKey = rows
+        val usableRows = rows
             .filter { it.valueDouble != null && telemetryValueUsable(it.key, it.valueDouble) }
+        val latestTimestampByKey = usableRows
+            .groupBy { it.key }
+            .mapValues { (_, values) -> values.maxOfOrNull { it.timestamp } ?: 0L }
+        val latestByKey = usableRows
             .groupBy { it.key }
             .mapValues { (key, values) ->
                 if (key in CUMULATIVE_ACTIVITY_KEYS) {
@@ -1218,18 +1361,71 @@ class AutomationRepository(
             }
             .toMutableMap()
 
-        fun alias(targetKey: String, tokenAliases: List<String>) {
+        fun alias(
+            targetKey: String,
+            preferredKeys: List<String>,
+            tokenAliases: List<String> = emptyList()
+        ) {
             if (latestByKey[targetKey] != null) return
-            val fallback = latestByKey.entries.firstOrNull { (key, value) ->
-                value != null && tokenAliases.any { alias -> telemetryKeyContainsAlias(key, alias) }
-            }?.value
-            latestByKey[targetKey] = fallback
+
+            val preferred = preferredKeys.asSequence()
+                .mapNotNull { key ->
+                    val value = latestByKey[key] ?: return@mapNotNull null
+                    val ts = latestTimestampByKey[key] ?: Long.MIN_VALUE
+                    key to (ts to value)
+                }
+                .maxByOrNull { it.second.first }
+            if (preferred != null) {
+                latestByKey[targetKey] = preferred.second.second
+                return
+            }
+
+            if (tokenAliases.isEmpty()) return
+            val candidate = latestByKey.keys.asSequence()
+                .filter { key ->
+                    latestByKey[key] != null &&
+                        tokenAliases.any { alias -> telemetryKeyContainsAlias(key, alias) } &&
+                        !key.endsWith("_flag") &&
+                        !key.endsWith("_available") &&
+                        !key.endsWith("_used") &&
+                        !key.endsWith("_merged") &&
+                        !key.endsWith("_blocked")
+                }
+                .maxByOrNull { key -> latestTimestampByKey[key] ?: Long.MIN_VALUE }
+            latestByKey[targetKey] = candidate?.let { latestByKey[it] }
         }
 
-        alias("iob_units", listOf("iob", "insulinonboard"))
-        alias("cob_grams", listOf("cob", "carbsonboard"))
-        alias("activity_ratio", listOf("activity", "activityratio", "sensitivityratio"))
-        alias("uam_value", listOf("uam_calculated_flag", "enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam"))
+        alias(
+            targetKey = "iob_units",
+            preferredKeys = listOf(
+                "iob_units",
+                "iob_effective_units",
+                "iob_real_units",
+                "iob_external_raw_units",
+                "raw_iob"
+            ),
+            tokenAliases = listOf("insulinonboard")
+        )
+        alias(
+            targetKey = "cob_grams",
+            preferredKeys = listOf(
+                "cob_grams",
+                "cob_effective_grams",
+                "cob_external_raw_grams",
+                "raw_cob"
+            ),
+            tokenAliases = listOf("carbsonboard")
+        )
+        alias(
+            targetKey = "activity_ratio",
+            preferredKeys = listOf("activity_ratio", "raw_activityratio"),
+            tokenAliases = listOf("activityratio", "sensitivityratio")
+        )
+        alias(
+            targetKey = "uam_value",
+            preferredKeys = listOf("uam_value", "uam_inferred_flag", "uam_calculated_flag", "uam_flag"),
+            tokenAliases = listOf("enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam")
+        )
         var usedRiskTextFallback = false
         if (latestByKey["daily_report_isfcr_quality_risk_level"] == null) {
             val latestRiskText = rows
@@ -1244,7 +1440,42 @@ class AutomationRepository(
         }
         latestByKey["daily_report_isfcr_quality_risk_level_fallback_used"] =
             if (usedRiskTextFallback) 1.0 else 0.0
+
+        val runtimeFreshnessMs = settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+        val staleRuntimeKeys = latestByKey.keys.filter { key ->
+            requiresRuntimeFreshness(key) &&
+                !isReportTelemetryKey(key) &&
+                ((latestTimestampByKey[key]?.let { ts -> nowTs - ts > runtimeFreshnessMs }) == true)
+        }
+        staleRuntimeKeys.forEach { key -> latestByKey[key] = null }
+        if (staleRuntimeKeys.isNotEmpty()) {
+            auditLogger.info(
+                "telemetry_runtime_freshness_filtered",
+                mapOf(
+                    "runtimeFreshnessMs" to runtimeFreshnessMs,
+                    "filteredCount" to staleRuntimeKeys.size,
+                    "keysSample" to staleRuntimeKeys.sorted().take(12)
+                )
+            )
+        }
         return latestByKey
+    }
+
+    private fun requiresRuntimeFreshness(key: String): Boolean {
+        return key in setOf(
+            "dia_hours",
+            "activity_ratio",
+            "steps_count",
+            "uam_value",
+            "uam_calculated_flag",
+            "uam_inferred_flag",
+            "temp_target_mmol",
+            "temp_target_high_mmol"
+        ) || key.startsWith("cob_") ||
+            key.startsWith("iob_") ||
+            key.startsWith("sensor_quality_") ||
+            key.startsWith("isf_factor_") ||
+            key.startsWith("isf_realtime_")
     }
 
     private fun isReportTelemetryKey(key: String): Boolean {
@@ -1346,11 +1577,22 @@ class AutomationRepository(
                 val telemetryWeight = cobTelemetryWeight(telemetryCob = telemetryCob, localCob = localCob)
                 (telemetryCob * telemetryWeight + localCob * (1.0 - telemetryWeight)).coerceIn(0.0, carbMax)
             }
-            telemetryCob != null && !hasRecentCarbEvents -> 0.0
+            // Trust external COB even when local carb events are missing.
+            // This keeps runtime/input parity with AAPS/xDrip and avoids false persistent zero COB.
+            telemetryCob != null && !hasRecentCarbEvents -> telemetryCob.coerceIn(0.0, carbMax)
             telemetryCob != null -> telemetryCob
             else -> localCob.coerceIn(0.0, carbMax)
         }
         // Prefer locally computed "real IOB" from the insulin activity profile adapted by observed onset.
+        // If local bolus evidence is missing, safely fall back to telemetry IOB to avoid persistent zero real IOB.
+        val realIobUnits = when {
+            localEstimate.explicitInsulinEvents > 0 && localIob > 0.0 && telemetryIob != null ->
+                (localIob * REAL_IOB_LOCAL_CONFIDENT_WEIGHT + telemetryIob * (1.0 - REAL_IOB_LOCAL_CONFIDENT_WEIGHT))
+                    .coerceIn(0.0, 30.0)
+            localIob > 0.0 -> localIob.coerceIn(0.0, 30.0)
+            telemetryIob != null -> telemetryIob.coerceIn(0.0, 30.0)
+            else -> 0.0
+        }
         val mergedIob = when {
             localIob > 0.0 && telemetryIob != null ->
                 (localIob * REAL_IOB_WEIGHT + telemetryIob * (1.0 - REAL_IOB_WEIGHT)).coerceIn(0.0, 30.0)
@@ -1363,7 +1605,7 @@ class AutomationRepository(
         return RuntimeCobIobInputs(
             cobGrams = mergedCob,
             iobUnits = mergedIob,
-            realIobUnits = localIob.coerceIn(0.0, 30.0),
+            realIobUnits = realIobUnits,
             localCobGrams = localCob,
             localIobUnits = localIob,
             realOnsetMinutes = localEstimate.realOnsetMinutes,
@@ -1385,7 +1627,8 @@ class AutomationRepository(
         contextBiasApplied: Boolean,
         cobIobBiasApplied: Boolean,
         calculatedUam: CalculatedUamSnapshot,
-        inferredUam: UamInferenceCycleResult?
+        inferredUam: UamInferenceCycleResult?,
+        insulinTherapyAvailable: Boolean
     ): Map<String, Any> {
         fun hasValue(key: String): Boolean = latestTelemetry[key]?.isFinite() == true
         fun boolFlag(value: Boolean): Double = if (value) 1.0 else 0.0
@@ -1418,7 +1661,7 @@ class AutomationRepository(
         val hasDawnContext = hasValue("manual_dawn_tag") ||
             hasValue("isf_factor_dawn_factor")
         val hasPattern = currentPattern != null
-        val hasUam = ((latestTelemetry["uam_value"] ?: 0.0) >= 0.5) ||
+        val hasUam = resolveUamActiveTelemetry(latestTelemetry) ||
             calculatedUam.flag >= 0.5 ||
             ((inferredUam?.activeFlag ?: 0.0) >= 0.5)
         val historyReady = calibrationSampleCount >= 8
@@ -1461,6 +1704,7 @@ class AutomationRepository(
             "patternContextAvailable" to boolFlag(hasPattern),
             "localCobIobFallbackUsed" to boolFlag(runtimeCobIob.usedLocalFallback),
             "localCobIobMergedWithTelemetry" to boolFlag(runtimeCobIob.mergedWithTelemetry),
+            "insulinTherapyAvailable" to boolFlag(insulinTherapyAvailable),
             "forecastCalibrationApplied" to boolFlag(calibrationApplied),
             "forecastContextBiasApplied" to boolFlag(contextBiasApplied),
             "forecastCobIobBiasApplied" to boolFlag(cobIobBiasApplied)
@@ -1490,11 +1734,12 @@ class AutomationRepository(
             .toList()
         var cob = 0.0
         var iob = 0.0
+        var explicitInsulinEvents = 0
         recentEvents.forEach { event ->
             val ageMin = ((nowTs - event.ts).coerceAtLeast(0L)) / 60_000.0
-            val insulinUnits = payloadDouble(event, "units", "bolusUnits", "insulin", "enteredInsulin")
-                ?.takeIf { it in 0.02..30.0 }
-            if (insulinUnits != null && eventCanCarryInsulin(event.type)) {
+            val insulinUnits = extractInsulinUnits(event)
+            if (insulinUnits != null) {
+                explicitInsulinEvents += 1
                 val delivered = adjustedInsulinCumulativeAt(
                     profile = profile,
                     ageMinutes = ageMin,
@@ -1519,6 +1764,7 @@ class AutomationRepository(
         return LocalCobIobEstimate(
             cobGrams = cob.coerceIn(0.0, carbMaxGrams),
             iobUnits = iob.coerceAtLeast(0.0),
+            explicitInsulinEvents = explicitInsulinEvents,
             realOnsetMinutes = realOnsetMinutes,
             baseOnsetMinutes = baseOnsetMinutes,
             onsetSampleCount = onsetSampleCount
@@ -1564,9 +1810,8 @@ class AutomationRepository(
         val candidates = mutableListOf<Double>()
         therapy.asSequence()
             .filter { event ->
-                eventCanCarryInsulin(event.type) &&
-                    (nowTs - event.ts) in 0..LOCAL_COB_IOB_LOOKBACK_MS &&
-                    (payloadDouble(event, "units", "bolusUnits", "insulin", "enteredInsulin") ?: 0.0) >= 0.5
+                (nowTs - event.ts) in 0..LOCAL_COB_IOB_LOOKBACK_MS &&
+                    (extractInsulinUnits(event) ?: 0.0) >= 0.5
             }
             .forEach { bolusEvent ->
                 val hasNearbyMeal = therapy.any { other ->
@@ -1667,6 +1912,25 @@ class AutomationRepository(
         }
     }
 
+    private fun hasInsulinTherapyEvidence(
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>
+    ): Boolean {
+        return therapy.any { event ->
+            extractInsulinUnits(event)?.let { it > 0.0 } == true ||
+                event.type.equals("meal_bolus", ignoreCase = true) ||
+                event.type.equals("correction_bolus", ignoreCase = true) ||
+                event.type.equals("bolus", ignoreCase = true) ||
+                event.type.equals("insulin", ignoreCase = true)
+        }
+    }
+
+    private fun resolveUamActiveTelemetry(latestTelemetry: Map<String, Double?>): Boolean {
+        return ((latestTelemetry["uam_value"] ?: 0.0) >= 0.5) ||
+            ((latestTelemetry["uam_inferred_flag"] ?: 0.0) >= 0.5) ||
+            ((latestTelemetry["uam_calculated_flag"] ?: 0.0) >= 0.5) ||
+            ((latestTelemetry["uam_flag"] ?: 0.0) >= 0.5)
+    }
+
     private fun payloadDouble(
         event: io.aaps.copilot.domain.model.TherapyEvent,
         vararg keys: String
@@ -1677,9 +1941,11 @@ class AutomationRepository(
         }
     }
 
-    private fun eventCanCarryInsulin(rawType: String): Boolean {
-        val type = normalizeTelemetryKey(rawType)
-        return type.contains("bolus") || type.contains("correction") || type == "insulin"
+    private fun extractInsulinUnits(
+        event: io.aaps.copilot.domain.model.TherapyEvent
+    ): Double? {
+        return payloadDouble(event, "units", "bolusUnits", "insulin", "enteredInsulin")
+            ?.takeIf { it in 0.02..30.0 }
     }
 
     private fun resolveEffectiveStaleMaxMinutes(settings: AppSettings): Int {
@@ -1951,15 +2217,8 @@ class AutomationRepository(
         if (glucose.size >= 10) {
             val explicitPulses = therapy
                 .asSequence()
-                .filter { event -> eventCanCarryInsulin(event.type) }
                 .mapNotNull { event ->
-                    val units = payloadDouble(
-                        event,
-                        "units",
-                        "bolusUnits",
-                        "insulin",
-                        "enteredInsulin"
-                    ) ?: return@mapNotNull null
+                    val units = extractInsulinUnits(event) ?: return@mapNotNull null
                     val ageMs = nowTs - event.ts
                     if (units < REAL_PROFILE_MIN_BOLUS_UNITS) return@mapNotNull null
                     if (ageMs < REAL_PROFILE_MIN_EVENT_AGE_MS) return@mapNotNull null
@@ -2425,7 +2684,16 @@ class AutomationRepository(
 
         when (adaptive.state) {
             RuleState.TRIGGERED -> auditLogger.info("adaptive_controller_triggered", metadata)
-            RuleState.BLOCKED -> auditLogger.warn("adaptive_controller_blocked", metadata)
+            RuleState.BLOCKED -> {
+                val blockedByCooldown = adaptive.reasons.any {
+                    it.startsWith("retarget_cooldown_") || it.startsWith("rule_cooldown_active:")
+                }
+                if (blockedByCooldown) {
+                    auditLogger.info("adaptive_controller_blocked", metadata + ("blockedKind" to "cooldown"))
+                } else {
+                    auditLogger.warn("adaptive_controller_blocked", metadata)
+                }
+            }
             RuleState.NO_MATCH -> Unit
         }
 
@@ -2824,7 +3092,7 @@ class AutomationRepository(
         localForecasts: List<io.aaps.copilot.domain.model.Forecast>
     ): List<io.aaps.copilot.domain.model.Forecast> {
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) return localForecasts
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) return localForecasts
 
         return runCatching {
             val cloudApi = apiFactory.cloudApi(settings)
@@ -3035,7 +3303,11 @@ class AutomationRepository(
         private const val AUTOMATION_STALL_WARN_MS = 180_000L
         private const val AUTOMATION_STEP_SLOW_MS = 10_000L
         private const val ISFCR_SNAPSHOT_FRESHNESS_MS = 10 * 60_000L
-        private const val ISFCR_REALTIME_TIMEOUT_MS = 12_000L
+        private const val ISFCR_REALTIME_TIMEOUT_MS = 45_000L
+        private const val ISFCR_REALTIME_SYNC_TIMEOUT_MS = 15_000L
+        private const val ISFCR_REALTIME_IN_FLIGHT_STALE_MS = 180_000L
+        private const val ISFCR_REALTIME_RETRY_BACKOFF_MS = 5 * 60_000L
+        private const val ISFCR_SYNC_REFRESH_STALE_MS = 30 * 60_000L
         private const val SENSOR_BLOCK_TTL_MS = 30 * 60 * 1000L
         private const val MIN_TARGET_MMOL = 4.0
         private const val MAX_TARGET_MMOL = 10.0
@@ -3074,6 +3346,7 @@ class AutomationRepository(
         private const val IOB_FORECAST_BIAS_MAX = 4.0
         private const val COB_IOB_TELEMETRY_WEIGHT = 0.60
         private const val REAL_IOB_WEIGHT = 0.85
+        private const val REAL_IOB_LOCAL_CONFIDENT_WEIGHT = 0.70
         private const val LOCAL_COB_IOB_LOOKBACK_MS = 12L * 60 * 60 * 1000
         private const val INSULIN_ONSET_FRACTION_THRESHOLD = 0.05
         private const val INSULIN_ONSET_MIN_MINUTES = 8.0
@@ -3095,6 +3368,26 @@ class AutomationRepository(
         private const val CONTEXT_CI_ADD_AMBIGUITY_MAX = 0.40
         private const val CONTEXT_CI_ADD_ABS_MAX = 0.90
         private const val CONTEXT_LOW_QUALITY_MAX_DEVIATION_MMOL = 2.8
+        private const val CONTEXT_LOW_GLUCOSE_GUARD_HARD_MMOL = 4.0
+        private const val CONTEXT_LOW_GLUCOSE_GUARD_SOFT_MMOL = 4.6
+        private const val COB_IOB_LOW_RISK_MMOL = 4.2
+        private const val COB_IOB_HARD_LOW_MMOL = 3.8
+        private const val COB_IOB_LOW_RISK_MIN_IOB = 2.0
+        private const val COB_IOB_LOW_RISK_MIN_COB = 25.0
+        private const val COB_IOB_EXTRA_GUARD_MIN_IOB = 3.0
+        private const val COB_IOB_EXTRA_GUARD_MIN_COB = 35.0
+        private const val COB_IOB_FALLING_SIGNAL_STEP_MMOL = 0.25
+        private const val COB_BIAS_SUPPRESSION_SOFT = 0.80
+        private const val COB_BIAS_SUPPRESSION_HARD = 0.55
+        private const val COB_BIAS_SUPPRESSION_FALLING = 0.85
+        private const val IOB_BIAS_BOOST_SOFT = 1.08
+        private const val IOB_BIAS_BOOST_HARD = 1.20
+        private const val IOB_BIAS_BOOST_FALLING = 1.05
+        private const val IOB_LOW_GUARD_GAIN = 0.14
+        private const val COB_LOW_GUARD_GAIN = 0.004
+        private const val GLUCOSE_LOW_GUARD_GAIN = 0.30
+        private const val LOW_GUARD_FALLING_MULTIPLIER = 1.10
+        private const val LOW_GUARD_EXTRA_DOWN_MAX = 0.90
         private const val MIN_GLUCOSE_MMOL = 2.2
         private const val MAX_GLUCOSE_MMOL = 22.0
         private const val CALIBRATION_FORECAST_LIMIT = 4_000
@@ -3103,6 +3396,17 @@ class AutomationRepository(
         private const val CALIBRATION_MIN_AGE_MS = 2L * 60 * 1000
         private const val CALIBRATION_MATCH_TOLERANCE_MS = 2L * 60 * 1000
         private const val CALIBRATION_HALF_LIFE_MS = 90.0 * 60 * 1000
+        private const val AI_CALIBRATION_MIN_CONFIDENCE = 0.45
+        private const val AI_CALIBRATION_MAX_AGE_MS = 36L * 60 * 60 * 1000
+        private const val AI_CALIBRATION_MIN_MATCHED_SAMPLES = 36.0
+        private const val AI_CALIBRATION_BLOCK_RISK_LEVEL = 3.0
+        private const val AI_CALIBRATION_FUTURE_SKEW_TOLERANCE_MS = 5L * 60 * 1000
+        private const val AI_CALIBRATION_GAIN_SCALE_MIN = 0.80
+        private const val AI_CALIBRATION_GAIN_SCALE_MAX = 1.50
+        private const val AI_CALIBRATION_MAX_UP_SCALE_MIN = 0.80
+        private const val AI_CALIBRATION_MAX_UP_SCALE_MAX = 1.80
+        private const val AI_CALIBRATION_MAX_DOWN_SCALE_MIN = 0.80
+        private const val AI_CALIBRATION_MAX_DOWN_SCALE_MAX = 1.50
         private const val SENSOR_QUALITY_FALSE_LOW_LEVEL_MMOL = 4.2
         private const val SENSOR_QUALITY_FALSE_LOW_DROP_MMOL = 1.4
         private const val SENSOR_QUALITY_DELTA_BLOCK_MMOL5 = 1.6
@@ -3153,7 +3457,9 @@ class AutomationRepository(
             val minSamples: Int,
             val gain: Double,
             val maxUp: Double,
-            val maxDown: Double
+            val maxDown: Double,
+            val minBucketSamples: Int,
+            val bucketBlend: Double
         )
 
         internal fun evaluateSensorQualityStatic(
@@ -3645,20 +3951,130 @@ class AutomationRepository(
         }
 
         private fun calibrationConfig(horizonMinutes: Int): CalibrationConfig? = when (horizonMinutes) {
-            5 -> CalibrationConfig(minSamples = 24, gain = 0.35, maxUp = 0.35, maxDown = 0.25)
-            30 -> CalibrationConfig(minSamples = 18, gain = 0.45, maxUp = 0.70, maxDown = 0.45)
-            60 -> CalibrationConfig(minSamples = 12, gain = 0.55, maxUp = 1.10, maxDown = 0.65)
+            5 -> CalibrationConfig(
+                minSamples = 24,
+                gain = 0.35,
+                maxUp = 0.35,
+                maxDown = 0.25,
+                minBucketSamples = 14,
+                bucketBlend = 0.45
+            )
+            30 -> CalibrationConfig(
+                minSamples = 18,
+                gain = 0.45,
+                maxUp = 0.70,
+                maxDown = 0.45,
+                minBucketSamples = 10,
+                bucketBlend = 0.55
+            )
+            60 -> CalibrationConfig(
+                minSamples = 12,
+                gain = 0.55,
+                maxUp = 1.10,
+                maxDown = 0.65,
+                minBucketSamples = 8,
+                bucketBlend = 0.65
+            )
             else -> null
+        }
+
+        private fun applyAiCalibrationTuning(
+            base: CalibrationConfig,
+            tuning: CalibrationAiTuning?
+        ): CalibrationConfig {
+            if (tuning == null) return base
+            return base.copy(
+                gain = (base.gain * tuning.gainScale).coerceIn(0.15, 1.20),
+                maxUp = (base.maxUp * tuning.maxUpScale).coerceIn(0.10, FORECAST_BIAS_MAX),
+                maxDown = (base.maxDown * tuning.maxDownScale).coerceIn(0.10, abs(FORECAST_BIAS_MIN))
+            )
+        }
+
+        internal fun resolveAiCalibrationTuningStatic(
+            latestTelemetry: Map<String, Double?>,
+            nowTs: Long
+        ): Map<Int, CalibrationAiTuning> {
+            val applyFlag = latestTelemetry["daily_report_ai_opt_apply_flag"] ?: 0.0
+            if (applyFlag < 0.5) return emptyMap()
+
+            val confidence = latestTelemetry["daily_report_ai_opt_confidence"] ?: 0.0
+            if (confidence < AI_CALIBRATION_MIN_CONFIDENCE) return emptyMap()
+
+            val generatedTs = latestTelemetry["daily_report_ai_opt_generated_ts"]
+                ?.takeIf { it.isFinite() && it > 0.0 }
+                ?.toLong()
+                ?: return emptyMap()
+            if (generatedTs > nowTs + AI_CALIBRATION_FUTURE_SKEW_TOLERANCE_MS) return emptyMap()
+            val ageMs = nowTs - generatedTs
+            if (ageMs !in 0..AI_CALIBRATION_MAX_AGE_MS) return emptyMap()
+
+            val matchedSamples = (latestTelemetry["daily_report_matched_samples"] ?: 0.0)
+                .coerceAtLeast(0.0)
+            if (matchedSamples < AI_CALIBRATION_MIN_MATCHED_SAMPLES) return emptyMap()
+
+            val riskLevel = (latestTelemetry["daily_report_isfcr_quality_risk_level"] ?: 0.0)
+                .coerceAtLeast(0.0)
+            if (riskLevel >= AI_CALIBRATION_BLOCK_RISK_LEVEL) return emptyMap()
+
+            return buildMap {
+                put(
+                    5,
+                    CalibrationAiTuning(
+                        gainScale = (latestTelemetry["daily_report_ai_opt_gain_scale_5m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_GAIN_SCALE_MIN, AI_CALIBRATION_GAIN_SCALE_MAX),
+                        maxUpScale = (latestTelemetry["daily_report_ai_opt_max_up_scale_5m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_MAX_UP_SCALE_MIN, AI_CALIBRATION_MAX_UP_SCALE_MAX),
+                        maxDownScale = (latestTelemetry["daily_report_ai_opt_max_down_scale_5m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_MAX_DOWN_SCALE_MIN, AI_CALIBRATION_MAX_DOWN_SCALE_MAX)
+                    )
+                )
+                put(
+                    30,
+                    CalibrationAiTuning(
+                        gainScale = (latestTelemetry["daily_report_ai_opt_gain_scale_30m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_GAIN_SCALE_MIN, AI_CALIBRATION_GAIN_SCALE_MAX),
+                        maxUpScale = (latestTelemetry["daily_report_ai_opt_max_up_scale_30m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_MAX_UP_SCALE_MIN, AI_CALIBRATION_MAX_UP_SCALE_MAX),
+                        maxDownScale = (latestTelemetry["daily_report_ai_opt_max_down_scale_30m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_MAX_DOWN_SCALE_MIN, AI_CALIBRATION_MAX_DOWN_SCALE_MAX)
+                    )
+                )
+                put(
+                    60,
+                    CalibrationAiTuning(
+                        gainScale = (latestTelemetry["daily_report_ai_opt_gain_scale_60m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_GAIN_SCALE_MIN, AI_CALIBRATION_GAIN_SCALE_MAX),
+                        maxUpScale = (latestTelemetry["daily_report_ai_opt_max_up_scale_60m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_MAX_UP_SCALE_MIN, AI_CALIBRATION_MAX_UP_SCALE_MAX),
+                        maxDownScale = (latestTelemetry["daily_report_ai_opt_max_down_scale_60m"] ?: 1.0)
+                            .coerceIn(AI_CALIBRATION_MAX_DOWN_SCALE_MIN, AI_CALIBRATION_MAX_DOWN_SCALE_MAX)
+                    )
+                )
+            }.filterValues { tuning ->
+                abs(tuning.gainScale - 1.0) > 1e-6 ||
+                    abs(tuning.maxUpScale - 1.0) > 1e-6 ||
+                    abs(tuning.maxDownScale - 1.0) > 1e-6
+            }
+        }
+
+        private fun forecastValueBucket(mmol: Double): Int = when {
+            mmol < 5.0 -> 0
+            mmol < 8.0 -> 1
+            else -> 2
         }
 
         internal fun applyRecentForecastCalibrationBiasStatic(
             forecasts: List<Forecast>,
-            history: List<ForecastCalibrationPoint>
+            history: List<ForecastCalibrationPoint>,
+            aiTuning: Map<Int, CalibrationAiTuning> = emptyMap()
         ): List<Forecast> {
             if (forecasts.isEmpty() || history.isEmpty()) return forecasts
             val historyByHorizon = history.groupBy { it.horizonMinutes }
             return forecasts.map { forecast ->
-                val cfg = calibrationConfig(forecast.horizonMinutes) ?: return@map forecast
+                val cfg = applyAiCalibrationTuning(
+                    base = calibrationConfig(forecast.horizonMinutes) ?: return@map forecast,
+                    tuning = aiTuning[forecast.horizonMinutes]
+                )
                 val points = historyByHorizon[forecast.horizonMinutes]
                     .orEmpty()
                     .filter { it.ageMs in CALIBRATION_MIN_AGE_MS..CALIBRATION_LOOKBACK_MS }
@@ -3666,16 +4082,39 @@ class AutomationRepository(
 
                 var sumW = 0.0
                 var sumErr = 0.0
+                val bucketErrSum = DoubleArray(3)
+                val bucketWeightSum = DoubleArray(3)
+                val bucketCount = IntArray(3)
                 points.forEach { point ->
                     val age = point.ageMs.coerceAtLeast(0L).toDouble()
                     val weight = exp(-age / CALIBRATION_HALF_LIFE_MS)
                     sumW += weight
                     sumErr += weight * point.errorMmol
+                    if (point.predictedMmol.isFinite()) {
+                        val bucket = forecastValueBucket(point.predictedMmol)
+                        bucketErrSum[bucket] += weight * point.errorMmol
+                        bucketWeightSum[bucket] += weight
+                        bucketCount[bucket] += 1
+                    }
                 }
                 if (sumW <= 1e-9) return@map forecast
 
-                val meanErr = sumErr / sumW
-                val bias = (meanErr * cfg.gain).coerceIn(-cfg.maxDown, cfg.maxUp)
+                val overallMeanErr = sumErr / sumW
+                val bucket = forecastValueBucket(forecast.valueMmol)
+                val bucketMeanErr = if (
+                    bucketCount[bucket] >= cfg.minBucketSamples &&
+                    bucketWeightSum[bucket] > 1e-9
+                ) {
+                    bucketErrSum[bucket] / bucketWeightSum[bucket]
+                } else {
+                    null
+                }
+                val blendedErr = if (bucketMeanErr != null) {
+                    overallMeanErr * (1.0 - cfg.bucketBlend) + bucketMeanErr * cfg.bucketBlend
+                } else {
+                    overallMeanErr
+                }
+                val bias = (blendedErr * cfg.gain).coerceIn(-cfg.maxDown, cfg.maxUp)
                 if (abs(bias) < 0.02) return@map forecast
 
                 val shiftedValue = (forecast.valueMmol + bias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
@@ -3781,7 +4220,27 @@ class AutomationRepository(
                     60 -> 1.0
                     else -> (forecast.horizonMinutes / 60.0).coerceIn(0.35, 1.2)
                 }
-                val bias = (rawBias * horizonScale)
+                val ciWidth = (forecast.ciHigh - forecast.ciLow).coerceAtLeast(0.0)
+                val uncertaintyAttenuation = when {
+                    ciWidth >= 4.0 -> 0.55
+                    ciWidth >= 3.2 -> 0.70
+                    ciWidth >= 2.5 -> 0.85
+                    else -> 1.0
+                }
+                val lowRiskAnchor = minOf(currentGlucose, forecast.ciLow)
+                val lowGlucosePositiveBiasAttenuation = if (rawBias > 0.0) {
+                    when {
+                        lowRiskAnchor <= CONTEXT_LOW_GLUCOSE_GUARD_HARD_MMOL -> 0.0
+                        lowRiskAnchor >= CONTEXT_LOW_GLUCOSE_GUARD_SOFT_MMOL -> 1.0
+                        else -> (
+                            (lowRiskAnchor - CONTEXT_LOW_GLUCOSE_GUARD_HARD_MMOL) /
+                                (CONTEXT_LOW_GLUCOSE_GUARD_SOFT_MMOL - CONTEXT_LOW_GLUCOSE_GUARD_HARD_MMOL)
+                            ).coerceIn(0.0, 1.0)
+                    }
+                } else {
+                    1.0
+                }
+                val bias = (rawBias * horizonScale * uncertaintyAttenuation * lowGlucosePositiveBiasAttenuation)
                     .coerceIn(-CONTEXT_VALUE_BIAS_ABS_MAX, CONTEXT_VALUE_BIAS_ABS_MAX)
                 val shiftedValue = (forecast.valueMmol + bias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
 
@@ -3821,12 +4280,29 @@ class AutomationRepository(
         internal fun applyCobIobForecastBiasStatic(
             forecasts: List<Forecast>,
             cobGrams: Double?,
-            iobUnits: Double?
+            iobUnits: Double?,
+            latestGlucoseMmol: Double? = null,
+            uamActive: Boolean? = null
         ): List<Forecast> {
             if (forecasts.isEmpty()) return forecasts
             val cob = (cobGrams ?: 0.0).coerceIn(0.0, 400.0)
             val iob = (iobUnits ?: 0.0).coerceIn(0.0, 30.0)
             if (cob <= 0.0 && iob <= 0.0) return forecasts
+            val latestGlucose = latestGlucoseMmol?.coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+            val hasUam = uamActive == true
+            val lowRisk = !hasUam &&
+                latestGlucose != null &&
+                latestGlucose <= COB_IOB_LOW_RISK_MMOL &&
+                iob >= COB_IOB_LOW_RISK_MIN_IOB &&
+                cob >= COB_IOB_LOW_RISK_MIN_COB
+            val hardLowRisk = lowRisk && (latestGlucose ?: MAX_GLUCOSE_MMOL) <= COB_IOB_HARD_LOW_MMOL
+
+            val pred5 = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol
+            val pred30 = forecasts.firstOrNull { it.horizonMinutes == 30 }?.valueMmol
+            val pred60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+            val fallingSignal = pred5 != null && pred30 != null && pred60 != null &&
+                pred30 <= pred5 - COB_IOB_FALLING_SIGNAL_STEP_MMOL &&
+                pred60 <= pred30 - COB_IOB_FALLING_SIGNAL_STEP_MMOL
 
             return forecasts.map { forecast ->
                 val cobGain = when (forecast.horizonMinutes) {
@@ -3842,9 +4318,58 @@ class AutomationRepository(
                     else -> IOB_FORECAST_GAIN_60 * (forecast.horizonMinutes / 60.0)
                 }
 
-                val cobBias = (cob * cobGain).coerceIn(0.0, COB_FORECAST_BIAS_MAX)
-                val iobBias = (iob * iobGain).coerceIn(0.0, IOB_FORECAST_BIAS_MAX)
-                val totalBias = (cobBias - iobBias).coerceIn(FORECAST_BIAS_MIN, FORECAST_BIAS_MAX)
+                val baseCobBias = (cob * cobGain).coerceIn(0.0, COB_FORECAST_BIAS_MAX)
+                val baseIobBias = (iob * iobGain).coerceIn(0.0, IOB_FORECAST_BIAS_MAX)
+                val cobRiskAttenuation = if (hasUam) {
+                    1.0
+                } else {
+                    val lowRiskScale = when {
+                        hardLowRisk -> COB_BIAS_SUPPRESSION_HARD
+                        lowRisk -> COB_BIAS_SUPPRESSION_SOFT
+                        else -> 1.0
+                    }
+                    val fallingScale = if (fallingSignal) COB_BIAS_SUPPRESSION_FALLING else 1.0
+                    lowRiskScale * fallingScale
+                }
+                val cobBias = (baseCobBias * cobRiskAttenuation).coerceIn(0.0, COB_FORECAST_BIAS_MAX)
+
+                var iobRiskBoost = 1.0
+                if (!hasUam && lowRisk) {
+                    iobRiskBoost *= if (hardLowRisk) IOB_BIAS_BOOST_HARD else IOB_BIAS_BOOST_SOFT
+                }
+                if (!hasUam && fallingSignal) {
+                    iobRiskBoost *= IOB_BIAS_BOOST_FALLING
+                }
+                val iobBias = (baseIobBias * iobRiskBoost).coerceIn(0.0, IOB_FORECAST_BIAS_MAX)
+
+                val horizonLowRiskScale = when (forecast.horizonMinutes) {
+                    5 -> 0.45
+                    30 -> 0.75
+                    60 -> 1.0
+                    else -> (forecast.horizonMinutes / 60.0).coerceIn(0.45, 1.1)
+                }
+                val extraLowGuardDown = if (
+                    !hasUam &&
+                    hardLowRisk &&
+                    iob >= COB_IOB_EXTRA_GUARD_MIN_IOB &&
+                    cob >= COB_IOB_EXTRA_GUARD_MIN_COB
+                ) {
+                    val glucoseDelta = (COB_IOB_HARD_LOW_MMOL - (latestGlucose ?: forecast.valueMmol))
+                        .coerceAtLeast(0.0)
+                    var guard = (
+                        (iob - COB_IOB_EXTRA_GUARD_MIN_IOB).coerceAtLeast(0.0) * IOB_LOW_GUARD_GAIN +
+                            (cob - COB_IOB_EXTRA_GUARD_MIN_COB).coerceAtLeast(0.0) * COB_LOW_GUARD_GAIN +
+                            glucoseDelta * GLUCOSE_LOW_GUARD_GAIN
+                        ) * horizonLowRiskScale
+                    if (fallingSignal) {
+                        guard *= LOW_GUARD_FALLING_MULTIPLIER
+                    }
+                    guard.coerceIn(0.0, LOW_GUARD_EXTRA_DOWN_MAX)
+                } else {
+                    0.0
+                }
+
+                val totalBias = (cobBias - iobBias - extraLowGuardDown).coerceIn(FORECAST_BIAS_MIN, FORECAST_BIAS_MAX)
                 if (abs(totalBias) < 1e-6) return@map forecast
 
                 val shiftedValue = (forecast.valueMmol + totalBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
