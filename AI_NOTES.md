@@ -5793,3 +5793,37 @@
 4. В live-проверке на устройстве после фикса:
    - `nightscout_sync_completed`: `treatmentsFetchedByDate=789`, `treatmentsSkippedByClientWindow=788`, `treatments=1`, `telemetry=9`.
    - `automation_cycle_finished`: `durationMs=51144` (без timeout).
+
+# Изменения — Этап 142: Nightscout sync fast-path (count/timeout/backfill cadence) для устранения cycle timeouts
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/SyncRepository.kt` внедрен fast-path для инкрементального NS sync:
+  - уменьшен `count` в обычном режиме:
+    - treatments/sgv/deviceStatus: `250` (в bootstrap остается `2000`);
+  - добавлены локальные таймауты запросов:
+    - SGV: `25s`, treatments(date): `20s`, treatments(created_at): `20s`, deviceStatus: `20s`;
+  - `created_at` backfill вынесен в периодический режим:
+    - выполняется только при `bootstrap` или раз в `30 минут` (или если `date`-выборка пуста);
+    - состояние хранится в cursor `nightscout_treatment_created_at_backfill_cursor`.
+- Расширен audit `nightscout_sync_completed`:
+  - `treatmentsCreatedAtBackfill`, `treatmentsCreatedAtBackfillDue`, `treatmentsByCreatedAtFetchExecuted`,
+  - `sgvFetchDurationMs`, `treatmentsByDateFetchDurationMs`, `treatmentsByCreatedAtFetchDurationMs`, `deviceStatusFetchDurationMs`,
+  - timeout flags для каждого канала fetch.
+
+## Почему так
+- Главный источник timeout был в тяжелом `nightscout_sync`: повторная переработка большого хвоста treatments и регулярный второй запрос `created_at`.
+- Ограничение `count` + cadence для `created_at` + per-call timeout резко уменьшают длительность шага и сохраняют актуальность данных.
+
+## Риски / ограничения
+- При нестабильном NS могут временно выпадать поздние записи, но цикл не блокируется и догоняет историю последующими sync итерациями.
+- Для полного backfill точность сохраняется через bootstrap и периодический `created_at` канал.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. Установить APK: `adb install -r -t /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+3. Проверить `audit_logs` после 1–2 циклов:
+   - `nightscout_sync_completed` содержит новые поля durations/timeout/backfill,
+   - `automation_cycle_finished` присутствует без `automation_cycle_timeout` в свежих циклах.
+4. Фактическая проверка на устройстве после фикса:
+   - `nightscout_sync` шаг: `739ms` и `1458ms`,
+   - full cycle: `automation_cycle_finished durationMs=15861`.

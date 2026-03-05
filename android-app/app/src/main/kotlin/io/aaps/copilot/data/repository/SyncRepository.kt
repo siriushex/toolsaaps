@@ -21,7 +21,9 @@ import java.time.Instant
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 
 class SyncRepository(
     private val db: CopilotDatabase,
@@ -46,10 +48,14 @@ class SyncRepository(
         val treatmentSince = loadCursor(SOURCE_NIGHTSCOUT_TREATMENT_CURSOR, legacySince)
         val deviceStatusSince = loadCursor(SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR, legacySince)
         val bootstrapAttemptTs = loadCursor(SOURCE_NIGHTSCOUT_TREATMENT_BOOTSTRAP, 0L)
+        val treatmentCreatedAtBackfillTs = loadCursor(SOURCE_NIGHTSCOUT_TREATMENT_CREATED_AT_BACKFILL, 0L)
         val insulinLikeCount = db.therapyDao().countInsulinLikeSince(nowTs - THERAPY_BOOTSTRAP_LOOKBACK_MS)
         val shouldBootstrapTreatmentHistory =
             insulinLikeCount < THERAPY_BOOTSTRAP_MIN_INSULIN_EVENTS &&
                 (nowTs - bootstrapAttemptTs >= THERAPY_BOOTSTRAP_RETRY_MS)
+        val shouldRunTreatmentCreatedAtBackfill =
+            shouldBootstrapTreatmentHistory ||
+                (nowTs - treatmentCreatedAtBackfillTs >= TREATMENT_CREATED_AT_BACKFILL_INTERVAL_MS)
 
         val sgvQuerySince = (sgvSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
         val treatmentQuerySince = if (shouldBootstrapTreatmentHistory) {
@@ -62,12 +68,31 @@ class SyncRepository(
         }
         val deviceStatusQuerySince = (deviceStatusSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
 
+        val sgvCount = if (shouldBootstrapTreatmentHistory) NS_FETCH_COUNT_BOOTSTRAP else NS_FETCH_COUNT_INCREMENTAL
+        val treatmentCount = if (shouldBootstrapTreatmentHistory) NS_FETCH_COUNT_BOOTSTRAP else NS_FETCH_COUNT_INCREMENTAL
         val query = mapOf(
-            "count" to "2000",
+            "count" to sgvCount.toString(),
             "find[date][\$gte]" to sgvQuerySince.toString()
         )
 
-        val sgv = nsApi.getSgvEntries(query)
+        val sgvFetchStartedAt = System.currentTimeMillis()
+        var sgvFetchTimedOut = false
+        val sgv = runCatching {
+            withTimeout(NS_SGV_FETCH_TIMEOUT_MS) {
+                nsApi.getSgvEntries(query)
+            }
+        }.onFailure {
+            sgvFetchTimedOut = it is TimeoutCancellationException
+            auditLogger.warn(
+                "nightscout_sgv_fetch_failed",
+                mapOf(
+                    "error" to (it.message ?: "unknown"),
+                    "timedOut" to sgvFetchTimedOut,
+                    "querySince" to sgvQuerySince
+                )
+            )
+        }.getOrDefault(emptyList())
+        val sgvFetchDurationMs = System.currentTimeMillis() - sgvFetchStartedAt
         val glucoseRows = sgv.mapNotNull { entry ->
             val ts = normalizeTimestamp(entry.date) ?: return@mapNotNull null
             GlucosePoint(
@@ -101,38 +126,63 @@ class SyncRepository(
             existingNightscoutGlucose[timestamp] = row
         }
 
+        val treatmentsByDateFetchStartedAt = System.currentTimeMillis()
+        var treatmentsByDateFetchTimedOut = false
         val treatmentsByDate = runCatching {
-            nsApi.getTreatments(
-                mapOf(
-                    "count" to "2000",
-                    "find[date][\$gte]" to treatmentQuerySince.toString()
+            withTimeout(NS_TREATMENT_FETCH_TIMEOUT_MS) {
+                nsApi.getTreatments(
+                    mapOf(
+                        "count" to treatmentCount.toString(),
+                        "find[date][\$gte]" to treatmentQuerySince.toString()
+                    )
                 )
-            )
+            }
         }.onFailure {
+            treatmentsByDateFetchTimedOut = it is TimeoutCancellationException
             auditLogger.warn(
                 "nightscout_treatments_fetch_failed",
                 mapOf(
                     "mode" to "date",
-                    "error" to (it.message ?: "unknown")
+                    "error" to (it.message ?: "unknown"),
+                    "timedOut" to treatmentsByDateFetchTimedOut,
+                    "querySince" to treatmentQuerySince
                 )
             )
         }.getOrDefault(emptyList())
-        val treatmentsByCreatedAt = runCatching {
-            nsApi.getTreatments(
-                mapOf(
-                    "count" to "2000",
-                    "find[created_at][\$gte]" to Instant.ofEpochMilli(treatmentQuerySince).toString()
+        val treatmentsByDateFetchDurationMs = System.currentTimeMillis() - treatmentsByDateFetchStartedAt
+        val shouldFetchTreatmentsByCreatedAt = shouldRunTreatmentCreatedAtBackfill || treatmentsByDate.isEmpty()
+        var treatmentsByCreatedAtFetchTimedOut = false
+        var treatmentsByCreatedAtFetchDurationMs = 0L
+        var treatmentsByCreatedAtFetched = false
+        val treatmentsByCreatedAt = if (shouldFetchTreatmentsByCreatedAt) {
+            treatmentsByCreatedAtFetched = true
+            val startedAt = System.currentTimeMillis()
+            val result = runCatching {
+                withTimeout(NS_TREATMENT_FETCH_TIMEOUT_MS) {
+                    nsApi.getTreatments(
+                        mapOf(
+                            "count" to treatmentCount.toString(),
+                            "find[created_at][\$gte]" to Instant.ofEpochMilli(treatmentQuerySince).toString()
+                        )
+                    )
+                }
+            }.onFailure {
+                treatmentsByCreatedAtFetchTimedOut = it is TimeoutCancellationException
+                auditLogger.warn(
+                    "nightscout_treatments_fetch_failed",
+                    mapOf(
+                        "mode" to "created_at",
+                        "error" to (it.message ?: "unknown"),
+                        "timedOut" to treatmentsByCreatedAtFetchTimedOut,
+                        "querySince" to treatmentQuerySince
+                    )
                 )
-            )
-        }.onFailure {
-            auditLogger.warn(
-                "nightscout_treatments_fetch_failed",
-                mapOf(
-                    "mode" to "created_at",
-                    "error" to (it.message ?: "unknown")
-                )
-            )
-        }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList())
+            treatmentsByCreatedAtFetchDurationMs = System.currentTimeMillis() - startedAt
+            result
+        } else {
+            emptyList()
+        }
         val treatments = (treatmentsByDate + treatmentsByCreatedAt)
             .distinctBy { treatment ->
                 val normalizedTs = parseNightscoutTimestamp(
@@ -204,16 +254,30 @@ class SyncRepository(
             )
         }
 
+        val deviceStatusFetchStartedAt = System.currentTimeMillis()
+        var deviceStatusFetchTimedOut = false
+        val deviceStatusCount = if (shouldBootstrapTreatmentHistory) NS_FETCH_COUNT_BOOTSTRAP else NS_DEVICESTATUS_FETCH_COUNT_INCREMENTAL
         val deviceStatuses = runCatching {
-            nsApi.getDeviceStatus(
+            withTimeout(NS_DEVICESTATUS_FETCH_TIMEOUT_MS) {
+                nsApi.getDeviceStatus(
+                    mapOf(
+                        "count" to deviceStatusCount.toString(),
+                        "find[created_at][\$gte]" to Instant.ofEpochMilli(deviceStatusQuerySince).toString()
+                    )
+                )
+            }
+        }.onFailure {
+            deviceStatusFetchTimedOut = it is TimeoutCancellationException
+            auditLogger.warn(
+                "nightscout_devicestatus_failed",
                 mapOf(
-                    "count" to "2000",
-                    "find[created_at][\$gte]" to Instant.ofEpochMilli(deviceStatusQuerySince).toString()
+                    "error" to (it.message ?: "unknown"),
+                    "timedOut" to deviceStatusFetchTimedOut,
+                    "querySince" to deviceStatusQuerySince
                 )
             )
-        }.onFailure {
-            auditLogger.warn("nightscout_devicestatus_failed", mapOf("error" to (it.message ?: "unknown")))
         }.getOrDefault(emptyList())
+        val deviceStatusFetchDurationMs = System.currentTimeMillis() - deviceStatusFetchStartedAt
 
         deviceStatuses.forEach { status ->
             val ts = parseNightscoutTimestamp(
@@ -279,6 +343,14 @@ class SyncRepository(
                 )
             )
         }
+        if (treatmentsByCreatedAtFetched && !treatmentsByCreatedAtFetchTimedOut) {
+            db.syncStateDao().upsert(
+                SyncStateEntity(
+                    source = SOURCE_NIGHTSCOUT_TREATMENT_CREATED_AT_BACKFILL,
+                    lastSyncedTimestamp = nowTs
+                )
+            )
+        }
         auditLogger.info(
             "nightscout_sync_completed",
             mapOf(
@@ -291,7 +363,18 @@ class SyncRepository(
                 "treatmentQuerySince" to treatmentQuerySince,
                 "treatmentsFetchedByDate" to treatmentsByDate.size,
                 "treatmentsFetchedByCreatedAt" to treatmentsByCreatedAt.size,
+                "treatmentsCreatedAtBackfill" to shouldFetchTreatmentsByCreatedAt,
+                "treatmentsCreatedAtBackfillDue" to shouldRunTreatmentCreatedAtBackfill,
+                "treatmentsByCreatedAtFetchExecuted" to treatmentsByCreatedAtFetched,
                 "treatmentsSkippedByClientWindow" to treatmentsSkippedByClientWindow,
+                "sgvFetchDurationMs" to sgvFetchDurationMs,
+                "sgvFetchTimedOut" to sgvFetchTimedOut,
+                "treatmentsByDateFetchDurationMs" to treatmentsByDateFetchDurationMs,
+                "treatmentsByDateFetchTimedOut" to treatmentsByDateFetchTimedOut,
+                "treatmentsByCreatedAtFetchDurationMs" to treatmentsByCreatedAtFetchDurationMs,
+                "treatmentsByCreatedAtFetchTimedOut" to treatmentsByCreatedAtFetchTimedOut,
+                "deviceStatusFetchDurationMs" to deviceStatusFetchDurationMs,
+                "deviceStatusFetchTimedOut" to deviceStatusFetchTimedOut,
                 "deviceStatusQuerySince" to deviceStatusQuerySince,
                 "insulinLikeLocal30d" to insulinLikeCount,
                 "treatmentBootstrap" to shouldBootstrapTreatmentHistory,
@@ -644,9 +727,17 @@ class SyncRepository(
         private const val SOURCE_NIGHTSCOUT_TREATMENT_CURSOR = "nightscout_treatment_cursor"
         private const val SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR = "nightscout_devicestatus_cursor"
         private const val SOURCE_NIGHTSCOUT_TREATMENT_BOOTSTRAP = "nightscout_treatment_bootstrap_cursor"
+        private const val SOURCE_NIGHTSCOUT_TREATMENT_CREATED_AT_BACKFILL = "nightscout_treatment_created_at_backfill_cursor"
         private const val NS_CURSOR_OVERLAP_MS = 5 * 60_000L
+        private const val NS_FETCH_COUNT_BOOTSTRAP = 2000
+        private const val NS_FETCH_COUNT_INCREMENTAL = 250
+        private const val NS_DEVICESTATUS_FETCH_COUNT_INCREMENTAL = 250
+        private const val NS_SGV_FETCH_TIMEOUT_MS = 25_000L
+        private const val NS_TREATMENT_FETCH_TIMEOUT_MS = 20_000L
+        private const val NS_DEVICESTATUS_FETCH_TIMEOUT_MS = 20_000L
         private const val THERAPY_BOOTSTRAP_LOOKBACK_MS = 30L * 24 * 60 * 60 * 1000
         private const val THERAPY_BOOTSTRAP_RETRY_MS = 12L * 60 * 60 * 1000
+        private const val TREATMENT_CREATED_AT_BACKFILL_INTERVAL_MS = 30L * 60 * 1000
         private const val THERAPY_BOOTSTRAP_MIN_INSULIN_EVENTS = 10
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
         private const val MAX_FUTURE_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000L
