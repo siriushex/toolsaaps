@@ -192,6 +192,9 @@ class SyncRepository(
                 ) ?: 0L
                 "${treatment.id.orEmpty()}|${treatment.eventType.orEmpty()}|$normalizedTs|${treatment.carbs ?: 0.0}|${treatment.insulin ?: 0.0}"
             }
+        val existingTherapyById = db.therapyDao()
+            .since(treatmentQuerySince)
+            .associateBy { it.id }
 
         val treatmentRows = mutableListOf<TherapyEventEntity>()
         val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
@@ -234,11 +237,15 @@ class SyncRepository(
             )
 
             val id = treatment.id ?: "ns-$ts-${normalizedType.hashCode()}"
+            val mergedPayload = mergePayloadWithExisting(
+                incoming = payload,
+                existing = existingTherapyById[id]?.payloadJson?.let(::payloadFromJson).orEmpty()
+            )
             treatmentRows += TherapyEventEntity(
                 id = id,
                 timestamp = ts,
                 type = normalizedType,
-                payloadJson = gson.toJson(payload)
+                payloadJson = gson.toJson(mergedPayload)
             )
             if (normalizedType == "meal_bolus" || normalizedType == "correction_bolus" || normalizedType == "insulin") {
                 insulinLikeFetched += 1
@@ -250,7 +257,7 @@ class SyncRepository(
                 timestamp = ts,
                 source = SOURCE_NIGHTSCOUT_TREATMENT,
                 eventType = treatment.eventType ?: normalizedType,
-                payload = payload
+                payload = mergedPayload
             )
         }
 
@@ -542,6 +549,23 @@ class SyncRepository(
         }
     }
 
+    private fun mergePayloadWithExisting(
+        incoming: Map<String, String>,
+        existing: Map<String, String>
+    ): Map<String, String> {
+        if (existing.isEmpty()) return incoming
+        val merged = incoming.toMutableMap()
+        CRITICAL_THERAPY_PAYLOAD_KEYS.forEach { key ->
+            val incomingValue = merged[key]?.trim().orEmpty()
+            if (incomingValue.isNotBlank()) return@forEach
+            val existingValue = existing[key]?.trim().orEmpty()
+            if (existingValue.isNotBlank()) {
+                merged[key] = existingValue
+            }
+        }
+        return merged
+    }
+
     private fun parseNightscoutTimestamp(
         createdAt: String?,
         date: Long?,
@@ -590,7 +614,53 @@ class SyncRepository(
 
     private suspend fun inferInsulinEventsFromIob(nowTs: Long): Int {
         val since = nowTs - IOB_INFERENCE_LOOKBACK_MS
-        val inferredRows = db.therapyDao().since(since)
+        val therapyRowsSince = db.therapyDao().since(since)
+        val repairedRows = therapyRowsSince
+            .asSequence()
+            .filter { it.type == "correction_bolus" && it.id.startsWith("iob-inf-") }
+            .mapNotNull { row ->
+                val payload = payloadFromJson(row.payloadJson)
+                val existingInsulin = payloadDouble(payload, "insulin", "units", "bolusUnits", "enteredInsulin")
+                val inferredFlag = payload["inferred"]?.trim()?.equals("true", ignoreCase = true) == true
+                val method = payload["method"]?.trim()?.lowercase(Locale.US)
+                if (existingInsulin != null && inferredFlag && method == "iob_jump") return@mapNotNull null
+
+                val idMatch = IOB_INFERENCE_ID_REGEX.matchEntire(row.id) ?: return@mapNotNull null
+                val unitsRounded = idMatch.groupValues.getOrNull(2)?.toIntOrNull() ?: return@mapNotNull null
+                val inferredUnits = unitsRounded / 100.0
+                if (inferredUnits <= 0.0 || inferredUnits > IOB_INFERENCE_MAX_DELTA_UNITS) return@mapNotNull null
+
+                val repairedPayload = payload.toMutableMap()
+                repairedPayload["insulin"] = String.format(Locale.US, "%.3f", inferredUnits)
+                repairedPayload["inferred"] = "true"
+                repairedPayload["method"] = "iob_jump"
+                repairedPayload["source"] = repairedPayload["source"]?.takeIf { it.isNotBlank() } ?: "aaps_ns_iob"
+                if (repairedPayload["confidence"].isNullOrBlank()) {
+                    repairedPayload["confidence"] = "0.40"
+                }
+                TherapyEventEntity(
+                    id = row.id,
+                    timestamp = row.timestamp,
+                    type = row.type,
+                    payloadJson = gson.toJson(repairedPayload)
+                )
+            }
+            .toList()
+        if (repairedRows.isNotEmpty()) {
+            db.therapyDao().upsertAll(repairedRows)
+            auditLogger.info(
+                "nightscout_iob_inferred_repaired",
+                mapOf("since" to since, "repaired" to repairedRows.size)
+            )
+        }
+        val repairedById = repairedRows.associateBy { it.id }
+        val therapyRows = if (repairedById.isEmpty()) {
+            therapyRowsSince
+        } else {
+            therapyRowsSince.map { row -> repairedById[row.id] ?: row }
+        }
+
+        val inferredRows = therapyRows
             .asSequence()
             .filter { it.type == "correction_bolus" }
             .filter { row ->
@@ -651,7 +721,7 @@ class SyncRepository(
             .sortedBy { it.first }
         if (points.size < 2) return 0
 
-        val existingInsulinTimestamps = db.therapyDao().since(since)
+        val existingInsulinTimestamps = therapyRows
             .asSequence()
             .filter { it.type in IOB_INFERENCE_BLOCKING_TYPES }
             .mapNotNull { row ->
@@ -750,6 +820,7 @@ class SyncRepository(
         private const val IOB_INFERENCE_MAX_DT_MIN = 15.0
         private const val IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS = 10 * 60_000L
         private const val IOB_INFERENCE_BUCKET_MS = 5 * 60_000L
+        private val IOB_INFERENCE_ID_REGEX = Regex("^iob-inf-(\\d+)-(\\d+)$")
         private val IOB_INFERENCE_ALLOWED_SOURCES = setOf(
             SOURCE_AAPS_BROADCAST,
             SOURCE_XDRIP_BROADCAST,
@@ -762,6 +833,24 @@ class SyncRepository(
             "bolus",
             "correction_bolus",
             "meal_bolus"
+        )
+        private val CRITICAL_THERAPY_PAYLOAD_KEYS = setOf(
+            "insulin",
+            "units",
+            "bolusUnits",
+            "enteredInsulin",
+            "inferred",
+            "method",
+            "source",
+            "iobPrev",
+            "iobNow",
+            "deltaIob",
+            "dtMin",
+            "confidence",
+            "carbs",
+            "grams",
+            "enteredCarbs",
+            "mealCarbs"
         )
     }
 

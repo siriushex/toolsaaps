@@ -5827,3 +5827,36 @@
 4. Фактическая проверка на устройстве после фикса:
    - `nightscout_sync` шаг: `739ms` и `1458ms`,
    - full cycle: `automation_cycle_finished durationMs=15861`.
+
+# Изменения — Этап 143: Repair sparse iob-inf payload + cleanup и контрольный replay 24h
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/SyncRepository.kt` добавлен self-heal для исторических `iob-inf-*` correction_bolus:
+  - если payload частично затерт (нет `insulin/inferred/method`), данные восстанавливаются из `id` формата `iob-inf-<bucket>-<unitsRounded>`;
+  - после repair автоматически выполняется существующий cleanup `<0.5U` inferred bolus;
+  - добавлен audit `nightscout_iob_inferred_repaired`.
+- Добавлен merge-policy payload при upsert treatments:
+  - sparse payload из NS больше не затирает критичные поля (`insulin/units/bolusUnits/inferred/method/...`) у уже существующих записей.
+- Сформирован свежий counterfactual replay-отчет:
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_v8_repair_20260305.md`.
+
+## Почему так
+- В live БД были `correction_bolus` с `id=iob-inf-*`, но без `insulin`, из-за чего часть inferred-событий деградировала в sparse записи.
+- Это ухудшало консистентность терапии и вносило шум в анализ ошибок прогноза.
+
+## Риски / ограничения
+- Repair опирается на соглашение формата id `iob-inf-...`; для нестандартных id repair не применяется.
+- Контур по-прежнему консервативный: после repair cleanup удаляет inferred bolus `<0.5U`.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+2. `adb install -r -t /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+3. В `audit_logs` должны быть:
+   - `nightscout_iob_inferred_repaired` (первый проход на старых данных),
+   - `nightscout_iob_inferred_cleanup` с `candidates/deleted`.
+4. Проверка БД в окне 24ч:
+   - `correction_bolus` с `id=iob-inf-*` содержат `insulin` + `inferred=true` + `method=iob_jump`,
+   - слабые `<0.5U` удалены.
+5. Контрольный replay:
+   - 30m: ΔMARD снизился до `+1.585 pp` (после repair),
+   - 60m: ΔMARD `+1.572 pp`.
