@@ -5693,3 +5693,33 @@
    - `nightscout_sync_completed.treatmentsInsulinInferredFromIob`,
    - отсутствие новых `forecast_insulin_events_missing` после появления inferred events.
 6. Проверить в `therapy_events` за 24ч наличие `correction_bolus` с `payload.insulin > 0` и `payload.inferred=true`.
+
+# Изменения — Этап 139: Counterfactual replay 24h (engine recompute) для эффекта insulin-import фикса
+
+## Что сделано
+- Добавлен офлайн инструмент контрфактического replay как unit-test раннер:
+  - [CounterfactualReplayToolTest.kt](/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/test/kotlin/io/aaps/copilot/tools/CounterfactualReplayToolTest.kt)
+  - читает две SQLite БД (`before/after`),
+  - выбирает единое фиксированное окно 24ч (по общему `min(maxTs)`),
+  - пересчитывает прогнозы `HybridPredictionEngine` на каждом 5-мин цикле (не использует historical `forecasts`),
+  - считает `MAE/RMSE/MARD/Bias` по горизонтам `5/30/60`,
+  - считает факторный вклад `IOB/UAM/CI` (score/corr/uplift),
+  - сохраняет markdown-артефакт.
+- В `android-app/app/build.gradle.kts` добавлена test-only зависимость:
+  - `testImplementation("org.xerial:sqlite-jdbc:3.50.3.0")`.
+- Сформирован артефакт:
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_20260305.md`.
+
+## Почему так
+- Обычный replay в daily отчете анализирует уже записанные forecast-строки и не показывает ретро-эффект исправления импорта терапии.
+- Контрфактический replay пересчитывает прогнозы заново из `glucose + therapy`, поэтому отражает реальное влияние появления insulin events в истории.
+
+## Риски / ограничения
+- Это офлайн-диагностический контур (не runtime), используется для проверки гипотез и regression-анализа.
+- Вклад UAM может иметь низкое покрытие в окне без выраженных UAM-эпизодов.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app`
+2. `./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.tools.CounterfactualReplayToolTest.generateCounterfactualReplayFromSqlite --no-daemon`
+3. Проверить отчет:
+   - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_20260305.md`
