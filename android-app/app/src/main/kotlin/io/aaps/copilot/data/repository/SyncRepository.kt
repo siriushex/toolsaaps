@@ -19,6 +19,7 @@ import io.aaps.copilot.service.ApiFactory
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
 
 class SyncRepository(
@@ -99,18 +100,59 @@ class SyncRepository(
             existingNightscoutGlucose[timestamp] = row
         }
 
-        val treatments = nsApi.getTreatments(
-            mapOf(
-                "count" to "2000",
-                "find[created_at][\$gte]" to Instant.ofEpochMilli(treatmentQuerySince).toString()
+        val treatmentsByDate = runCatching {
+            nsApi.getTreatments(
+                mapOf(
+                    "count" to "2000",
+                    "find[date][\$gte]" to treatmentQuerySince.toString()
+                )
             )
-        )
+        }.onFailure {
+            auditLogger.warn(
+                "nightscout_treatments_fetch_failed",
+                mapOf(
+                    "mode" to "date",
+                    "error" to (it.message ?: "unknown")
+                )
+            )
+        }.getOrDefault(emptyList())
+        val treatmentsByCreatedAt = runCatching {
+            nsApi.getTreatments(
+                mapOf(
+                    "count" to "2000",
+                    "find[created_at][\$gte]" to Instant.ofEpochMilli(treatmentQuerySince).toString()
+                )
+            )
+        }.onFailure {
+            auditLogger.warn(
+                "nightscout_treatments_fetch_failed",
+                mapOf(
+                    "mode" to "created_at",
+                    "error" to (it.message ?: "unknown")
+                )
+            )
+        }.getOrDefault(emptyList())
+        val treatments = (treatmentsByDate + treatmentsByCreatedAt)
+            .distinctBy { treatment ->
+                val normalizedTs = parseNightscoutTimestamp(
+                    createdAt = treatment.createdAt,
+                    date = treatment.date,
+                    mills = treatment.mills
+                ) ?: 0L
+                "${treatment.id.orEmpty()}|${treatment.eventType.orEmpty()}|$normalizedTs|${treatment.carbs ?: 0.0}|${treatment.insulin ?: 0.0}"
+            }
 
         val treatmentRows = mutableListOf<TherapyEventEntity>()
         val telemetryRows = mutableListOf<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>()
+        var insulinLikeFetched = 0
+        var carbsFetched = 0
 
         treatments.forEach { treatment ->
-            val ts = parseNightscoutTimestamp(treatment.createdAt) ?: return@forEach
+            val ts = parseNightscoutTimestamp(
+                createdAt = treatment.createdAt,
+                date = treatment.date,
+                mills = treatment.mills
+            ) ?: return@forEach
             val payload = mutableMapOf<String, String>()
             treatment.duration?.let { payload["duration"] = it.toString() }
             treatment.targetTop?.let { payload["targetTop"] = it.toString() }
@@ -123,18 +165,33 @@ class SyncRepository(
             treatment.absolute?.let { payload["absolute"] = it.toString() }
             treatment.rate?.let { payload["rate"] = it.toString() }
             treatment.percentage?.let { payload["percentage"] = it.toString() }
+            treatment.eventType?.let { payload["eventType"] = it }
+            treatment.date?.let { payload["date"] = it.toString() }
+            treatment.mills?.let { payload["mills"] = it.toString() }
+            treatment.createdAt?.let { payload["createdAt"] = it }
 
-            val id = treatment.id ?: "ns-$ts-${treatment.eventType.hashCode()}"
+            val normalizedType = normalizeEventType(
+                eventType = treatment.eventType,
+                payload = payload
+            )
+
+            val id = treatment.id ?: "ns-$ts-${normalizedType.hashCode()}"
             treatmentRows += TherapyEventEntity(
                 id = id,
                 timestamp = ts,
-                type = normalizeEventType(treatment.eventType),
+                type = normalizedType,
                 payloadJson = gson.toJson(payload)
             )
+            if (normalizedType == "meal_bolus" || normalizedType == "correction_bolus" || normalizedType == "insulin") {
+                insulinLikeFetched += 1
+            }
+            if (normalizedType == "carbs" || normalizedType == "meal_bolus") {
+                carbsFetched += 1
+            }
             telemetryRows += TelemetryMetricMapper.fromNightscoutTreatment(
                 timestamp = ts,
                 source = SOURCE_NIGHTSCOUT_TREATMENT,
-                eventType = treatment.eventType,
+                eventType = treatment.eventType ?: normalizedType,
                 payload = payload
             )
         }
@@ -151,8 +208,11 @@ class SyncRepository(
         }.getOrDefault(emptyList())
 
         deviceStatuses.forEach { status ->
-            val ts = parseNightscoutTimestamp(status.createdAt)
-                ?: normalizeTimestamp(status.date ?: 0L)
+            val ts = parseNightscoutTimestamp(
+                createdAt = status.createdAt,
+                date = status.date,
+                mills = null
+            )
                 ?: return@forEach
             telemetryRows += telemetryFromDeviceStatus(status, ts)
         }
@@ -166,14 +226,18 @@ class SyncRepository(
         if (telemetryRows.isNotEmpty()) {
             db.telemetryDao().upsertAll(telemetryRows.distinctBy { it.id })
         }
+        val inferredInsulinCount = inferInsulinEventsFromIob(nowTs)
 
         val nextSgvSince = maxOf(sgvSince, glucoseRows.maxOfOrNull { it.timestamp } ?: sgvSince)
         val nextTreatmentSince = maxOf(treatmentSince, treatmentRows.maxOfOrNull { it.timestamp } ?: treatmentSince)
         val nextDeviceStatusSince = maxOf(
             deviceStatusSince,
             deviceStatuses.maxOfOrNull {
-                parseNightscoutTimestamp(it.createdAt)
-                    ?: normalizeTimestamp(it.date ?: 0L)
+                parseNightscoutTimestamp(
+                    createdAt = it.createdAt,
+                    date = it.date,
+                    mills = null
+                )
                     ?: 0L
             } ?: deviceStatusSince
         )
@@ -217,6 +281,8 @@ class SyncRepository(
                 "deviceStatusSince" to deviceStatusSince,
                 "sgvQuerySince" to sgvQuerySince,
                 "treatmentQuerySince" to treatmentQuerySince,
+                "treatmentsFetchedByDate" to treatmentsByDate.size,
+                "treatmentsFetchedByCreatedAt" to treatmentsByCreatedAt.size,
                 "deviceStatusQuerySince" to deviceStatusQuerySince,
                 "insulinLikeLocal30d" to insulinLikeCount,
                 "treatmentBootstrap" to shouldBootstrapTreatmentHistory,
@@ -225,6 +291,9 @@ class SyncRepository(
                 "glucoseSkippedDuplicate" to glucoseSkippedDuplicate,
                 "glucoseReplaced" to glucoseReplaced,
                 "treatments" to treatmentRows.size,
+                "treatmentsInsulinLike" to insulinLikeFetched,
+                "treatmentsCarbLike" to carbsFetched,
+                "treatmentsInsulinInferredFromIob" to inferredInsulinCount,
                 "telemetry" to telemetryRows.size,
                 "deviceStatus" to deviceStatuses.size
             )
@@ -306,14 +375,18 @@ class SyncRepository(
         return TherapySanitizer.filterEntities(db.therapyDao().since(since)).map { it.toDomain(gson) }
     }
 
-    private fun normalizeEventType(eventType: String): String {
+    private fun normalizeEventType(
+        eventType: String?,
+        payload: Map<String, String> = emptyMap()
+    ): String {
         val normalized = eventType
+            .orEmpty()
             .trim()
             .lowercase()
             .replace('-', ' ')
             .replace('_', ' ')
             .replace(Regex("\\s+"), " ")
-        return when (normalized) {
+        val mapped = when (normalized) {
             "temporary target" -> "temp_target"
             "carb correction" -> "carbs"
             "meal bolus" -> "meal_bolus"
@@ -327,6 +400,20 @@ class SyncRepository(
                 "pump_battery_change"
             else -> normalized.replace(" ", "_")
         }
+        if (mapped.isNotBlank()) return mapped
+
+        val carbs = payload["carbs"]?.replace(",", ".")?.toDoubleOrNull()
+        val insulin = payload["insulin"]?.replace(",", ".")?.toDoubleOrNull()
+            ?: payload["units"]?.replace(",", ".")?.toDoubleOrNull()
+            ?: payload["bolusUnits"]?.replace(",", ".")?.toDoubleOrNull()
+        val hasTarget = payload.containsKey("targetTop") || payload.containsKey("targetBottom")
+        return when {
+            carbs != null && carbs > 0.0 && insulin != null && insulin > 0.0 -> "meal_bolus"
+            insulin != null && insulin > 0.0 -> "correction_bolus"
+            carbs != null && carbs > 0.0 -> "carbs"
+            hasTarget -> "temp_target"
+            else -> "treatment"
+        }
     }
 
     private fun payloadFromJson(raw: String): Map<String, String> {
@@ -336,12 +423,24 @@ class SyncRepository(
         }.getOrDefault(emptyMap())
     }
 
-    private fun parseNightscoutTimestamp(raw: String?): Long? {
-        if (raw.isNullOrBlank()) return null
-        val trimmed = raw.trim()
-        val parsed = runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
-            ?: trimmed.toLongOrNull()?.let { ts -> if (ts < 10_000_000_000L) ts * 1000L else ts }
-        return normalizeTimestamp(parsed ?: return null)
+    private fun parseNightscoutTimestamp(
+        createdAt: String?,
+        date: Long?,
+        mills: Long?
+    ): Long? {
+        val createdAtMillis = createdAt
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { raw ->
+                runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
+                    ?: raw.toLongOrNull()?.let { ts -> if (ts < 10_000_000_000L) ts * 1000L else ts }
+            }
+        return normalizeTimestamp(
+            createdAtMillis
+                ?: normalizeTimestamp(mills ?: 0L)
+                ?: normalizeTimestamp(date ?: 0L)
+                ?: return null
+        )
     }
 
     private fun normalizeTimestamp(raw: Long): Long? {
@@ -370,11 +469,99 @@ class SyncRepository(
         )
     }
 
+    private suspend fun inferInsulinEventsFromIob(nowTs: Long): Int {
+        val since = nowTs - IOB_INFERENCE_LOOKBACK_MS
+        val iobRows = db.telemetryDao()
+            .sinceByKeys(
+                since = since,
+                keys = listOf("iob_units", "raw_iob")
+            )
+            .filter {
+                it.source in IOB_INFERENCE_ALLOWED_SOURCES &&
+                    it.valueDouble != null
+            }
+            .sortedBy { it.timestamp }
+        if (iobRows.size < 2) return 0
+
+        val iobByTs = linkedMapOf<Long, Double>()
+        iobRows.forEach { sample ->
+            val value = sample.valueDouble ?: return@forEach
+            if (value < IOB_INFERENCE_MIN_IOB || value > IOB_INFERENCE_MAX_IOB) return@forEach
+            val existing = iobByTs[sample.timestamp]
+            if (existing == null || abs(value) > abs(existing)) {
+                iobByTs[sample.timestamp] = value
+            }
+        }
+        val points = iobByTs.entries
+            .map { it.key to it.value }
+            .sortedBy { it.first }
+        if (points.size < 2) return 0
+
+        val existingInsulin = db.therapyDao().since(since)
+            .filter { it.type in IOB_INFERENCE_BLOCKING_TYPES }
+            .sortedBy { it.timestamp }
+        val candidates = mutableListOf<TherapyEventEntity>()
+
+        points.zipWithNext { prev, curr ->
+            val dtMin = (curr.first - prev.first) / 60_000.0
+            if (dtMin < IOB_INFERENCE_MIN_DT_MIN || dtMin > IOB_INFERENCE_MAX_DT_MIN) return@zipWithNext
+
+            val delta = curr.second - prev.second
+            if (delta < IOB_INFERENCE_MIN_DELTA_UNITS) return@zipWithNext
+            val inferredUnits = delta.coerceAtMost(IOB_INFERENCE_MAX_DELTA_UNITS)
+            if (inferredUnits <= 0.0) return@zipWithNext
+
+            val ts = curr.first
+            val hasNearbyInsulin = existingInsulin.any { row ->
+                abs(row.timestamp - ts) <= IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS
+            } || candidates.any { row ->
+                abs(row.timestamp - ts) <= IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS
+            }
+            if (hasNearbyInsulin) return@zipWithNext
+
+            val bucket = ts / IOB_INFERENCE_BUCKET_MS
+            val unitsRounded = (inferredUnits * 100.0).roundToInt()
+            val id = "iob-inf-$bucket-$unitsRounded"
+            val payload = mapOf(
+                "insulin" to String.format("%.3f", inferredUnits),
+                "inferred" to "true",
+                "method" to "iob_jump",
+                "source" to "aaps_ns_iob",
+                "iobPrev" to String.format("%.3f", prev.second),
+                "iobNow" to String.format("%.3f", curr.second),
+                "deltaIob" to String.format("%.3f", delta),
+                "dtMin" to String.format("%.2f", dtMin),
+                "confidence" to "0.40"
+            )
+            candidates += TherapyEventEntity(
+                id = id,
+                timestamp = ts,
+                type = "correction_bolus",
+                payloadJson = gson.toJson(payload)
+            )
+        }
+
+        if (candidates.isEmpty()) return 0
+        db.therapyDao().upsertAll(candidates)
+        auditLogger.info(
+            "nightscout_iob_insulin_inferred",
+            mapOf(
+                "since" to since,
+                "samples" to points.size,
+                "created" to candidates.size
+            )
+        )
+        return candidates.size
+    }
+
     companion object {
         private const val SOURCE_NIGHTSCOUT = "nightscout"
         private const val SOURCE_CLOUD_PUSH = "cloud_push"
         private const val SOURCE_NIGHTSCOUT_TREATMENT = "nightscout_treatment"
         private const val SOURCE_NIGHTSCOUT_DEVICESTATUS = "nightscout_devicestatus"
+        private const val SOURCE_AAPS_BROADCAST = "aaps_broadcast"
+        private const val SOURCE_XDRIP_BROADCAST = "xdrip_broadcast"
+        private const val SOURCE_LOCAL_BROADCAST = "local_broadcast"
         private const val SOURCE_NIGHTSCOUT_SGV = "nightscout_sgv_cursor"
         private const val SOURCE_NIGHTSCOUT_TREATMENT_CURSOR = "nightscout_treatment_cursor"
         private const val SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR = "nightscout_devicestatus_cursor"
@@ -385,5 +572,27 @@ class SyncRepository(
         private const val THERAPY_BOOTSTRAP_MIN_INSULIN_EVENTS = 10
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
         private const val MAX_FUTURE_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000L
+        private const val IOB_INFERENCE_LOOKBACK_MS = 24L * 60 * 60 * 1000L
+        private const val IOB_INFERENCE_MIN_DELTA_UNITS = 0.20
+        private const val IOB_INFERENCE_MAX_DELTA_UNITS = 4.0
+        private const val IOB_INFERENCE_MIN_IOB = -1.0
+        private const val IOB_INFERENCE_MAX_IOB = 30.0
+        private const val IOB_INFERENCE_MIN_DT_MIN = 1.0
+        private const val IOB_INFERENCE_MAX_DT_MIN = 15.0
+        private const val IOB_INFERENCE_NEARBY_EVENT_WINDOW_MS = 10 * 60_000L
+        private const val IOB_INFERENCE_BUCKET_MS = 5 * 60_000L
+        private val IOB_INFERENCE_ALLOWED_SOURCES = setOf(
+            SOURCE_AAPS_BROADCAST,
+            SOURCE_XDRIP_BROADCAST,
+            SOURCE_LOCAL_BROADCAST,
+            SOURCE_NIGHTSCOUT_DEVICESTATUS,
+            SOURCE_NIGHTSCOUT_TREATMENT
+        )
+        private val IOB_INFERENCE_BLOCKING_TYPES = setOf(
+            "insulin",
+            "bolus",
+            "correction_bolus",
+            "meal_bolus"
+        )
     }
 }

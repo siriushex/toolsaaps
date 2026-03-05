@@ -12,8 +12,9 @@ data class NightscoutSgvEntry(
 data class NightscoutTreatment(
     @SerializedName("_id") val id: String? = null,
     @SerializedName("date") val date: Long? = null,
-    @SerializedName("created_at") val createdAt: String,
-    @SerializedName("eventType") val eventType: String,
+    @SerializedName("mills") val mills: Long? = null,
+    @SerializedName("created_at") val createdAt: String? = null,
+    @SerializedName("eventType") val eventType: String? = null,
     @SerializedName("carbs") val carbs: Double? = null,
     @SerializedName("insulin") val insulin: Double? = null,
     @SerializedName("enteredBy") val enteredBy: String? = null,

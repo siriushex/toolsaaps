@@ -45,4 +45,29 @@ interface TelemetryDao {
 
     @Query("DELETE FROM telemetry_samples WHERE source = :source AND key LIKE :likePattern")
     suspend fun deleteBySourceAndKeyLike(source: String, likePattern: String): Int
+
+    @Query(
+        "DELETE FROM telemetry_samples " +
+            "WHERE rowid NOT IN (" +
+            "SELECT MAX(rowid) FROM telemetry_samples " +
+            "GROUP BY source, key, timestamp, " +
+            "COALESCE(valueDouble, -1.0E308), COALESCE(valueText, ''), COALESCE(unit, ''), quality" +
+            ")"
+    )
+    suspend fun deleteDuplicateRows(): Int
+
+    @Query("DELETE FROM telemetry_samples WHERE timestamp < :olderThan")
+    suspend fun deleteOlderThan(olderThan: Long): Int
+
+    @Query("DELETE FROM telemetry_samples WHERE timestamp < :olderThan AND key LIKE :keyPattern")
+    suspend fun deleteOlderThanByKeyPattern(olderThan: Long, keyPattern: String): Int
+
+    @Query(
+        "DELETE FROM telemetry_samples " +
+            "WHERE timestamp < :olderThan " +
+            "AND key NOT LIKE 'daily_report_%' " +
+            "AND key NOT LIKE 'rolling_report_%' " +
+            "AND key NOT LIKE 'insulin_profile_real_%'"
+    )
+    suspend fun deleteOlderThanExcludingReportAndProfile(olderThan: Long): Int
 }

@@ -31,6 +31,17 @@ interface TherapyDao {
 
     @Query(
         "DELETE FROM therapy_events " +
+            "WHERE rowid NOT IN (" +
+            "SELECT MAX(rowid) FROM therapy_events GROUP BY timestamp, type, payloadJson" +
+            ")"
+    )
+    suspend fun deleteDuplicateByTimestampTypePayload(): Int
+
+    @Query("DELETE FROM therapy_events WHERE timestamp < :olderThan")
+    suspend fun deleteOlderThan(olderThan: Long): Int
+
+    @Query(
+        "DELETE FROM therapy_events " +
             "WHERE id LIKE 'br-local_broadcast-%' " +
             "AND type IN ('correction_bolus','meal_bolus','carbs','temp_target')"
     )

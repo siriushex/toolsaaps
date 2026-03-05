@@ -9,6 +9,7 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
+import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.remote.cloud.CloudGlucosePoint
 import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
@@ -376,6 +377,9 @@ class AutomationRepository(
         }
         runCycleStep("baseline_import") {
             exportRepository.importBaselineFromExports()
+        }
+        runCycleStep("db_housekeeping") {
+            runDbHousekeepingIfDue(nowTs = System.currentTimeMillis())
         }
         maybeRecalculateAnalytics(settings)
         val removedInvalidTelemetryTs = db.telemetryDao().deleteByTimestampAtOrBelow(0L)
@@ -1459,6 +1463,56 @@ class AutomationRepository(
             )
         }
         return latestByKey
+    }
+
+    private suspend fun runDbHousekeepingIfDue(nowTs: Long) {
+        val lastRunTs = db.syncStateDao().bySource(SOURCE_DB_HOUSEKEEPING_CURSOR)?.lastSyncedTimestamp ?: 0L
+        if (lastRunTs > 0L && (nowTs - lastRunTs) < DB_HOUSEKEEPING_INTERVAL_MS) {
+            return
+        }
+
+        var glucoseDedupRemoved = 0
+        GLUCOSE_HOUSEKEEPING_SOURCES.forEach { source ->
+            glucoseDedupRemoved += db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source)
+        }
+        val therapyDedupRemoved = db.therapyDao().deleteDuplicateByTimestampTypePayload()
+        val telemetryDedupRemoved = db.telemetryDao().deleteDuplicateRows()
+        val rawTelemetryTrimmed = db.telemetryDao().deleteOlderThanByKeyPattern(
+            olderThan = nowTs - TELEMETRY_RAW_RETENTION_MS,
+            keyPattern = "raw_%"
+        )
+        val telemetryTrimmed = db.telemetryDao().deleteOlderThanExcludingReportAndProfile(
+            olderThan = nowTs - TELEMETRY_GENERAL_RETENTION_MS
+        )
+        val auditTrimmed = db.auditLogDao().deleteOlderThan(nowTs - AUDIT_LOG_RETENTION_MS)
+
+        db.syncStateDao().upsert(
+            SyncStateEntity(
+                source = SOURCE_DB_HOUSEKEEPING_CURSOR,
+                lastSyncedTimestamp = nowTs
+            )
+        )
+
+        auditLogger.info(
+            "db_housekeeping_completed",
+            mapOf(
+                "intervalHours" to (DB_HOUSEKEEPING_INTERVAL_MS / 3_600_000L),
+                "glucoseDedupRemoved" to glucoseDedupRemoved,
+                "therapyDedupRemoved" to therapyDedupRemoved,
+                "telemetryDedupRemoved" to telemetryDedupRemoved,
+                "rawTelemetryTrimmed" to rawTelemetryTrimmed,
+                "telemetryTrimmed" to telemetryTrimmed,
+                "auditTrimmed" to auditTrimmed
+            )
+        )
+        auditLogger.info(
+            "audit_log_rotation_completed",
+            mapOf(
+                "intervalHours" to (DB_HOUSEKEEPING_INTERVAL_MS / 3_600_000L),
+                "retentionHours" to (AUDIT_LOG_RETENTION_MS / 3_600_000L),
+                "deletedRows" to auditTrimmed
+            )
+        )
     }
 
     private fun requiresRuntimeFreshness(key: String): Boolean {
@@ -4405,6 +4459,18 @@ class AutomationRepository(
         private const val ISFCR_AUTO_ACTIVATION_EVAL_INTERVAL_MINUTES = 30
         private const val ISFCR_AUTO_ACTIVATION_HYPO_THRESHOLD_MMOL = 3.9
         private val ISFCR_ROLLING_WINDOWS_DAYS = listOf(14, 30, 90)
+        private const val SOURCE_DB_HOUSEKEEPING_CURSOR = "db_housekeeping_cursor"
+        private const val DB_HOUSEKEEPING_INTERVAL_MS = 2L * 60 * 60 * 1000
+        private const val AUDIT_LOG_RETENTION_MS = 14L * 24 * 60 * 60 * 1000
+        private const val TELEMETRY_RAW_RETENTION_MS = 24L * 60 * 60 * 1000
+        private const val TELEMETRY_GENERAL_RETENTION_MS = 365L * 24 * 60 * 60 * 1000
+        private val GLUCOSE_HOUSEKEEPING_SOURCES = listOf(
+            "nightscout",
+            "aaps_broadcast",
+            "xdrip_broadcast",
+            "local_broadcast",
+            "local_nightscout_entry"
+        )
     }
 
     private fun IsfCrRealtimeSnapshot.toProfileEstimate(lookbackDays: Int): ProfileEstimate {

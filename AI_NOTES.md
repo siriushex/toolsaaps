@@ -5655,3 +5655,41 @@
 4. В `telemetry_samples`:
    - `cob_grams` (xdrip_broadcast) свежий и >0,
    - `cob_effective_grams` (copilot_runtime_cob_iob) обновляется свежим временем и соответствует runtime merge.
+
+# Изменения — Этап 138: Insulin import recovery from AAPS/NS telemetry + DB housekeeping cadence
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/SyncRepository.kt` расширен импорт инсулина в `therapy_events`:
+  - сохранена загрузка treatments из NS по двум курсорам (`date` и `created_at`) с дедупликацией;
+  - добавлен fallback `IOB jump -> inferred insulin event`:
+    - чтение `iob_units/raw_iob` за 24ч из источников `aaps_broadcast/xdrip_broadcast/local_broadcast/nightscout_*`,
+    - детект положительных шагов IOB (`delta >= 0.20U`, `dt 1..15m`),
+    - запись `correction_bolus` в `therapy_events` с payload:
+      `inferred=true`, `method=iob_jump`, `insulin`, `iobPrev/iobNow`, `deltaIob`, `dtMin`.
+  - добавлен аудит `nightscout_iob_insulin_inferred`.
+  - в `nightscout_sync_completed` добавлено поле `treatmentsInsulinInferredFromIob`.
+- Подтверждена работа DB housekeeping и ротации логов по 2-часовому cadence:
+  - `db_housekeeping_completed`,
+  - `audit_log_rotation_completed` (`intervalHours=2`, retention `14d`).
+
+## Почему так
+- На реальном устройстве из NS treatments приходили только `Temporary Target` и `Carb Correction`, при этом `IOB` был положительный.
+- Из-за отсутствия insulin-like `therapy_events` прогнозный контур терял важный вклад инсулина для горизонтов `30/60m`.
+- Fallback по IOB позволяет восстановить insulin-события из AAPS/NS телеметрии, даже когда NS не публикует болюсы явно.
+
+## Риски / ограничения
+- `iob_jump`-инференс не равен точному delivered-bolus и может давать шум при нестабильной телеметрии.
+- Модель intentionally conservative: есть пороги (`delta`, `dt`, clamp), блокировка по близким insulin-событиям и дедуп по 5m bucket id.
+- При наличии явных insulin treatments в NS этот fallback должен играть вторичную роль.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
+4. Триггер цикла через broadcast:
+   - `adb shell am broadcast -a com.eveningoutpost.dexdrip.BgEstimate -n io.aaps.predictivecopilot/io.aaps.copilot.receiver.LocalDataBroadcastReceiver --ei com.eveningoutpost.dexdrip.Extras.BgEstimate 160 --es com.eveningoutpost.dexdrip.Extras.Display.Units mg/dl --el com.eveningoutpost.dexdrip.Extras.Time <now_ms>`
+5. Проверить в `audit_logs`:
+   - `nightscout_iob_insulin_inferred` (created > 0 на первом цикле после фикса),
+   - `nightscout_sync_completed.treatmentsInsulinInferredFromIob`,
+   - отсутствие новых `forecast_insulin_events_missing` после появления inferred events.
+6. Проверить в `therapy_events` за 24ч наличие `correction_bolus` с `payload.insulin > 0` и `payload.inferred=true`.

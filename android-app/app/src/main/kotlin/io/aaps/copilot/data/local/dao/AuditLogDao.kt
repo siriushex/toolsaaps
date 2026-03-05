@@ -24,5 +24,5 @@ interface AuditLogDao {
     suspend fun recentByMessage(message: String, sinceTs: Long, limit: Int): List<AuditLogEntity>
 
     @Query("DELETE FROM audit_logs WHERE timestamp < :olderThan")
-    suspend fun deleteOlderThan(olderThan: Long)
+    suspend fun deleteOlderThan(olderThan: Long): Int
 }
