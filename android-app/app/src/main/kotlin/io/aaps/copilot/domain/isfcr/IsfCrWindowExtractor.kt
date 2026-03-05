@@ -36,7 +36,11 @@ class IsfCrWindowExtractor(
     ): ExtractionResult {
         val glucose = history.glucose.sortedBy { it.ts }
         val therapy = history.therapy.sortedBy { it.ts }
-        if (glucose.size < 8 || therapy.isEmpty()) {
+        val therapyWithImplicitCorrections = mergeWithImplicitCorrections(
+            therapy = therapy,
+            telemetry = history.telemetry
+        )
+        if (glucose.size < 8 || therapyWithImplicitCorrections.isEmpty()) {
             return ExtractionResult(
                 evidence = emptyList(),
                 droppedCount = 0,
@@ -56,12 +60,12 @@ class IsfCrWindowExtractor(
             droppedReasonCounts[normalizedReason] = (droppedReasonCounts[normalizedReason] ?: 0) + 1
         }
 
-        therapy.forEach { event ->
+        therapyWithImplicitCorrections.forEach { event ->
             if (isCorrectionEvent(event)) {
                 val sample = extractIsfSample(
                     event = event,
                     glucose = glucose,
-                    therapy = therapy,
+                    therapy = therapyWithImplicitCorrections,
                     settings = settings
                 )
                 sample.sample?.let { isfSamples += it } ?: markDropped(sample.dropReason)
@@ -74,7 +78,7 @@ class IsfCrWindowExtractor(
                 val sample = extractCrSample(
                     mealEvent = event,
                     glucose = glucose,
-                    therapy = therapy,
+                    therapy = therapyWithImplicitCorrections,
                     telemetry = history.telemetry,
                     settings = settings,
                     isfReference = isfReference
@@ -191,6 +195,9 @@ class IsfCrWindowExtractor(
         val carbs = extractCarbsGrams(mealEvent) ?: return droppedExtraction(DROP_REASON_CR_MISSING_CARBS)
         if (carbs < 10.0) return droppedExtraction(DROP_REASON_CR_SMALL_CARBS)
         val explicitBolusNearby = therapy.firstOrNull { event ->
+            if (event.payload["source"]?.equals("isfcr_inference", ignoreCase = true) == true) {
+                return@firstOrNull false
+            }
             val units = extractInsulinUnits(event) ?: return@firstOrNull false
             if (units < 0.1) return@firstOrNull false
             val deltaMs = event.ts - mealEvent.ts
@@ -210,11 +217,13 @@ class IsfCrWindowExtractor(
             toTs = mealEvent.ts + 45L * MINUTE_MS
         )
         val uamTaggedMeal = isUamEngineMealEvent(mealEvent)
+        val hasIobContext = iobContextCount >= MIN_IOB_CONTEXT_POINTS
+        val allowCarbsOnlyMeal = uamTaggedMeal
         if (
             explicitBolusNearby == null &&
             implicitBolusNearby == null &&
-            iobContextCount < MIN_IOB_CONTEXT_POINTS &&
-            !uamTaggedMeal
+            !hasIobContext &&
+            !allowCarbsOnlyMeal
         ) {
             return droppedExtraction(DROP_REASON_CR_NO_BOLUS_NEARBY)
         }
@@ -294,7 +303,9 @@ class IsfCrWindowExtractor(
         val sourcePenalty = when {
             explicitBolusNearby != null -> 1.0
             implicitBolusNearby != null -> 0.72
+            hasIobContext -> 0.55
             uamTaggedMeal -> 0.38
+            allowCarbsOnlyMeal -> 0.32
             else -> 0.45
         }
 
@@ -310,10 +321,10 @@ class IsfCrWindowExtractor(
                 val dt = (b.ts - a.ts) / 60_000.0
                 dt in 1.0..15.0
             }
-        val minIntervalsRequired = if (uamTaggedMeal) 2 else 4
+        val minIntervalsRequired = if (uamTaggedMeal || allowCarbsOnlyMeal) 2 else 4
         if (intervals.size < minIntervalsRequired) return droppedExtraction(DROP_REASON_CR_SPARSE_INTERVALS)
         val intervalCoveragePenalty = (intervals.size / 8.0)
-            .coerceIn(if (uamTaggedMeal) 0.45 else 0.65, 1.0)
+            .coerceIn(if (uamTaggedMeal || allowCarbsOnlyMeal) 0.45 else 0.65, 1.0)
         val sampleWeight = (quality.score * wearWeight * sourcePenalty * intervalCoveragePenalty * uamAmbiguityPenalty)
             .coerceIn(0.0, 1.0)
 
@@ -525,6 +536,66 @@ class IsfCrWindowExtractor(
             .trim('_')
     }
 
+    private fun mergeWithImplicitCorrections(
+        therapy: List<TherapyEvent>,
+        telemetry: List<io.aaps.copilot.domain.predict.TelemetrySignal>
+    ): List<TherapyEvent> {
+        if (telemetry.isEmpty()) return therapy
+        val inferred = inferImplicitCorrectionEvents(therapy = therapy, telemetry = telemetry)
+        if (inferred.isEmpty()) return therapy
+        return (therapy + inferred).sortedBy { it.ts }
+    }
+
+    private fun inferImplicitCorrectionEvents(
+        therapy: List<TherapyEvent>,
+        telemetry: List<io.aaps.copilot.domain.predict.TelemetrySignal>
+    ): List<TherapyEvent> {
+        val iobSeries = telemetry.asSequence()
+            .mapNotNull { sample ->
+                if (!CR_IOB_KEYS.contains(normalize(sample.key))) return@mapNotNull null
+                val value = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
+                val numeric = value ?: return@mapNotNull null
+                sample.ts to numeric
+            }
+            .filter { (_, value) -> value >= -0.1 }
+            .groupBy({ it.first }, { it.second })
+            .mapNotNull { (ts, values) -> values.maxOrNull()?.let { ts to it } }
+            .sortedBy { it.first }
+            .toList()
+        if (iobSeries.size < 2) return emptyList()
+
+        val existingInsulinTs = therapy.asSequence()
+            .filter { (extractInsulinUnits(it) ?: 0.0) >= 0.1 }
+            .map { it.ts }
+            .toList()
+        val inferredByBucket = linkedMapOf<Long, TherapyEvent>()
+
+        iobSeries.zipWithNext().forEach { (a, b) ->
+            val dtMin = (b.first - a.first) / 60_000.0
+            if (dtMin !in 0.5..IMPLICIT_CORRECTION_MAX_DT_MIN) return@forEach
+            val jump = (b.second - a.second)
+            if (jump < IMPLICIT_CORRECTION_MIN_UNITS || jump > IMPLICIT_CORRECTION_MAX_UNITS) return@forEach
+            val ts = b.first
+            val nearExplicit = existingInsulinTs.any { abs(it - ts) <= IMPLICIT_CORRECTION_NEAR_EXPLICIT_MS }
+            if (nearExplicit) return@forEach
+            val bucket = ts / (IMPLICIT_CORRECTION_BUCKET_MINUTES * MINUTE_MS)
+            val previous = inferredByBucket[bucket]
+            val previousUnits = previous?.payload?.get("units")?.toDoubleOrNull() ?: 0.0
+            if (jump <= previousUnits) return@forEach
+            inferredByBucket[bucket] = TherapyEvent(
+                ts = ts,
+                type = "correction_bolus",
+                payload = mapOf(
+                    "units" to jump.toString(),
+                    "reason" to "implicit_iob_jump",
+                    "source" to "isfcr_inference"
+                )
+            )
+        }
+
+        return inferredByBucket.values.toList()
+    }
+
     private data class CrTelemetryWindowStats(
         val sensorBlockedRate: Double,
         val uamAmbiguityRate: Double
@@ -670,7 +741,12 @@ class IsfCrWindowExtractor(
         private const val DROP_REASON_CR_GROSS_GAP = "cr_gross_gap"
         private const val IMPLICIT_BOLUS_MIN_UNITS = 0.15
         private const val IMPLICIT_BOLUS_MAX_UNITS = 8.0
-        private const val MIN_IOB_CONTEXT_POINTS = 6
+        private const val MIN_IOB_CONTEXT_POINTS = 3
+        private const val IMPLICIT_CORRECTION_MIN_UNITS = 0.2
+        private const val IMPLICIT_CORRECTION_MAX_UNITS = 8.0
+        private const val IMPLICIT_CORRECTION_MAX_DT_MIN = 20.0
+        private const val IMPLICIT_CORRECTION_BUCKET_MINUTES = 15L
+        private const val IMPLICIT_CORRECTION_NEAR_EXPLICIT_MS = 15L * MINUTE_MS
         private val CR_IOB_KEYS = setOf(
             "iob",
             "iob_units",

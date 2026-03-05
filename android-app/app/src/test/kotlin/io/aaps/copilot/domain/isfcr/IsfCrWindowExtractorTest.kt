@@ -11,6 +11,31 @@ import org.junit.Test
 class IsfCrWindowExtractorTest {
 
     @Test
+    fun extract_isfSampleCanBeInferredFromImplicitIobCorrectionWithoutTherapyEvents() {
+        val extractor = IsfCrWindowExtractor()
+        val correctionTs = 1_700_050_000_000L
+        val extraction = extractor.extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = emptyList(),
+                telemetry = listOf(
+                    TelemetrySignal(ts = correctionTs - 10L * 60L * 1_000L, key = "iob_units", valueDouble = 0.2),
+                    TelemetrySignal(ts = correctionTs - 5L * 60L * 1_000L, key = "iob_units", valueDouble = 0.3),
+                    TelemetrySignal(ts = correctionTs, key = "iob_units", valueDouble = 1.1),
+                    TelemetrySignal(ts = correctionTs + 5L * 60L * 1_000L, key = "iob_units", valueDouble = 1.0)
+                ),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        val isfSample = extraction.evidence.firstOrNull { it.sampleType == IsfCrSampleType.ISF }
+        assertThat(isfSample).isNotNull()
+        assertThat(isfSample!!.value).isAtLeast(0.2)
+    }
+
+    @Test
     fun extract_appliesWearAgePenaltyToEvidenceWeight() {
         val extractor = IsfCrWindowExtractor()
         val correctionTs = 1_700_000_000_000L

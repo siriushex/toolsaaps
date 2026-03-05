@@ -16,8 +16,14 @@ interface TelemetryDao {
     @Query("SELECT * FROM telemetry_samples ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<TelemetrySampleEntity>>
 
+    @Query("SELECT * FROM telemetry_samples WHERE key IN (:keys) ORDER BY timestamp DESC LIMIT :limit")
+    fun observeLatestByKeys(limit: Int, keys: List<String>): Flow<List<TelemetrySampleEntity>>
+
     @Query("SELECT * FROM telemetry_samples WHERE timestamp >= :since ORDER BY timestamp ASC")
     suspend fun since(since: Long): List<TelemetrySampleEntity>
+
+    @Query("SELECT * FROM telemetry_samples WHERE timestamp >= :since AND key IN (:keys) ORDER BY timestamp ASC")
+    suspend fun sinceByKeys(since: Long, keys: List<String>): List<TelemetrySampleEntity>
 
     @Query("DELETE FROM telemetry_samples WHERE key = :key AND valueDouble > :threshold")
     suspend fun deleteByKeyAboveThreshold(key: String, threshold: Double): Int

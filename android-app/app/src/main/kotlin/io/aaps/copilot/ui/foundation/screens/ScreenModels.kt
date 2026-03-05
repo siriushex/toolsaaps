@@ -151,6 +151,14 @@ data class SafetyChecklistItemUi(
     val details: String
 )
 
+data class AiTuningStatusUi(
+    val state: String,
+    val reason: String,
+    val generatedTs: Long? = null,
+    val confidence: Double? = null,
+    val statusRaw: String? = null
+)
+
 data class SafetyUiState(
     val loadState: ScreenLoadState,
     val isStale: Boolean,
@@ -168,6 +176,7 @@ data class SafetyUiState(
     val localNightscoutPort: Int,
     val localNightscoutTlsOk: Boolean? = null,
     val localNightscoutTlsStatusText: String = "--",
+    val aiTuningStatus: AiTuningStatusUi? = null,
     val checklist: List<SafetyChecklistItemUi> = emptyList()
 )
 
@@ -253,6 +262,164 @@ data class AnalyticsUiState(
     val insulinRealProfilePeakMinutes: Double? = null,
     val insulinRealProfileScale: Double? = null,
     val insulinRealProfileStatus: String? = null
+)
+
+data class AiCloudJobUi(
+    val jobId: String,
+    val lastStatus: String?,
+    val lastRunTs: Long?,
+    val nextRunTs: Long?,
+    val lastMessage: String?
+)
+
+data class AiAnalysisHistoryItemUi(
+    val runTs: Long,
+    val date: String,
+    val source: String,
+    val status: String,
+    val summary: String,
+    val anomalies: List<String>,
+    val recommendations: List<String>,
+    val errorMessage: String?
+)
+
+data class AiAnalysisTrendItemUi(
+    val weekStart: String,
+    val totalRuns: Int,
+    val successRuns: Int,
+    val failedRuns: Int,
+    val anomaliesCount: Int,
+    val recommendationsCount: Int
+)
+
+data class AiReplayForecastStatUi(
+    val horizonMinutes: Int,
+    val sampleCount: Int,
+    val mae: Double,
+    val rmse: Double,
+    val mardPct: Double
+)
+
+data class AiReplayRuleStatUi(
+    val ruleId: String,
+    val triggered: Int,
+    val blocked: Int,
+    val noMatch: Int
+)
+
+data class AiReplayDayTypeStatUi(
+    val dayType: String,
+    val metrics: List<AiReplayForecastStatUi>
+)
+
+data class AiReplayHourStatUi(
+    val hour: Int,
+    val sampleCount: Int,
+    val mae: Double,
+    val mardPct: Double
+)
+
+data class AiReplayDriftStatUi(
+    val horizonMinutes: Int,
+    val previousMae: Double,
+    val recentMae: Double,
+    val deltaMae: Double
+)
+
+data class AiHorizonScoreUi(
+    val horizonMinutes: Int,
+    val sampleCount: Int?,
+    val mae: Double?,
+    val mardPct: Double?,
+    val scoreBand: String
+)
+
+data class AiTopFactorUi(
+    val horizonMinutes: Int,
+    val factor: String,
+    val contributionScore: Double,
+    val upliftPct: Double,
+    val sampleCount: Int
+)
+
+data class AiHotspotUi(
+    val horizonMinutes: Int,
+    val hour: Int,
+    val sampleCount: Int,
+    val mae: Double,
+    val mardPct: Double,
+    val bias: Double
+)
+
+data class AiTopMissUi(
+    val horizonMinutes: Int,
+    val ts: Long,
+    val absError: Double,
+    val pred: Double,
+    val actual: Double,
+    val cob: Double,
+    val iob: Double,
+    val uam: Double,
+    val ciWidth: Double,
+    val activity: Double
+)
+
+data class AiDayTypeGapUi(
+    val horizonMinutes: Int,
+    val hour: Int,
+    val worseDayType: String,
+    val maeGapMmol: Double,
+    val mardGapPct: Double,
+    val dominantFactor: String?,
+    val sampleCount: Int
+)
+
+data class AiReplayUi(
+    val days: Int,
+    val points: Int,
+    val stepMinutes: Int,
+    val forecastStats: List<AiReplayForecastStatUi> = emptyList(),
+    val ruleStats: List<AiReplayRuleStatUi> = emptyList(),
+    val dayTypeStats: List<AiReplayDayTypeStatUi> = emptyList(),
+    val hourlyTop: List<AiReplayHourStatUi> = emptyList(),
+    val driftStats: List<AiReplayDriftStatUi> = emptyList()
+)
+
+data class AiChatMessageUi(
+    val id: String,
+    val role: String,
+    val text: String,
+    val ts: Long
+)
+
+data class AiAnalysisUiState(
+    val loadState: ScreenLoadState,
+    val isStale: Boolean,
+    val errorText: String? = null,
+    val minDataHours: Int = 24,
+    val dataCoverageHours: Double = 0.0,
+    val analysisReady: Boolean = false,
+    val cloudConfigured: Boolean = false,
+    val filterLabel: String = "",
+    val jobs: List<AiCloudJobUi> = emptyList(),
+    val historyItems: List<AiAnalysisHistoryItemUi> = emptyList(),
+    val trendItems: List<AiAnalysisTrendItemUi> = emptyList(),
+    val replay: AiReplayUi? = null,
+    val localDailyGeneratedAtTs: Long? = null,
+    val localDailyPeriodStartUtc: String? = null,
+    val localDailyPeriodEndUtc: String? = null,
+    val localDailyMetrics: List<DailyReportHorizonUi> = emptyList(),
+    val localHorizonScores: List<AiHorizonScoreUi> = emptyList(),
+    val localTopFactorsOverall: String? = null,
+    val localTopFactors: List<AiTopFactorUi> = emptyList(),
+    val localHotspots: List<AiHotspotUi> = emptyList(),
+    val localTopMisses: List<AiTopMissUi> = emptyList(),
+    val localDayTypeGaps: List<AiDayTypeGapUi> = emptyList(),
+    val localRecommendations: List<String> = emptyList(),
+    val rollingLines: List<String> = emptyList(),
+    val aiTuningStatus: AiTuningStatusUi? = null,
+    val chatMessages: List<AiChatMessageUi> = emptyList(),
+    val chatInProgress: Boolean = false
 )
 
 data class IsfCrRuntimeDiagnosticsUi(
@@ -425,6 +592,9 @@ data class SettingsUiState(
     val proModeEnabled: Boolean = false,
     val baseTarget: Double,
     val nightscoutUrl: String,
+    val aiApiUrl: String,
+    val aiApiKey: String,
+    val uiStyle: String,
     val resolvedNightscoutUrl: String,
     val insulinProfileId: String,
     val localNightscoutEnabled: Boolean,

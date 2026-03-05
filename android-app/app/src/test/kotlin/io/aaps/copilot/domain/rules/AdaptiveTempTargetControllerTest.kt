@@ -171,6 +171,56 @@ class AdaptiveTempTargetControllerTest {
     }
 
     @Test
+    fun testLowBoundRisk_withCurrentTargetBelowFive_raisesToFive() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 10.0,
+                pred5 = 9.6,
+                pred30 = 9.4,
+                pred60 = 9.2,
+                ciLow5 = 6.2,
+                ciHigh5 = 10.4,
+                ciLow30 = 4.4,
+                ciHigh30 = 10.8,
+                ciLow60 = 3.4,
+                ciHigh60 = 11.0,
+                prevTarget = 4.3,
+                prevI = 12.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("safety_raise_target_to_five")
+        assertThat(out.newTempTarget).isEqualTo(5.0)
+        assertThat(out.debugFields["Pmin"]).isEqualTo(3.4)
+    }
+
+    @Test
+    fun testLowBoundRisk_withCurrentTargetAboveFive_keepsExistingTarget() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 6.8,
+                pred5 = 6.2,
+                pred30 = 5.8,
+                pred60 = 5.4,
+                ciLow5 = 4.7,
+                ciHigh5 = 7.2,
+                ciLow30 = 3.9,
+                ciHigh30 = 6.8,
+                ciLow60 = 3.5,
+                ciHigh60 = 6.1,
+                prevTarget = 6.6,
+                prevI = 4.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("safety_keep_existing_target")
+        assertThat(out.newTempTarget).isEqualTo(6.6)
+        assertThat(out.debugFields["Pmin"]).isEqualTo(3.5)
+    }
+
+    @Test
     fun testCobSignificant_forcesEffectiveBaseTo42() {
         val out = controller.evaluate(
             input(

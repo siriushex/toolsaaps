@@ -4,7 +4,10 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.os.Environment
+import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
+import io.aaps.copilot.config.isOpenAiApiEndpoint
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
@@ -38,8 +41,15 @@ class InsightsRepository(
     private val db: CopilotDatabase,
     private val settingsStore: AppSettingsStore,
     private val apiFactory: ApiFactory,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val aiChatRepository: AiChatRepository? = null
 ) {
+    private val aiOptimizerRepository: AiChatRepository by lazy {
+        aiChatRepository ?: AiChatRepository(
+            settingsStore = settingsStore,
+            auditLogger = auditLogger
+        )
+    }
 
     private data class IsfCrDroppedReasonSummary(
         val eventCount: Int,
@@ -60,14 +70,34 @@ class InsightsRepository(
                 csvPath = null,
                 matchedSamples = 0,
                 topMardHorizon = null,
-                topMardPct = null
+                topMardPct = null,
+                payload = null
             )
         }
 
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) {
-            val message = "Cloud API not configured"
-            auditLogger.warn("daily_analysis_skipped", mapOf("reason" to "missing_cloud_url"))
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) {
+            val openAiOptimizerStatus = if (isOpenAiApiEndpoint(settings.cloudBaseUrl)) {
+                runDailyOpenAiOptimizer(
+                    reportResult = localReportStatus,
+                    settings = settings
+                )
+            } else {
+                null
+            }
+            val message = if (settings.cloudBaseUrl.isBlank()) {
+                "Cloud API not configured"
+            } else {
+                openAiOptimizerStatus
+                    ?: "Cloud analytics backend is disabled in OpenAI mode"
+            }
+            auditLogger.info(
+                "daily_analysis_cloud_skipped",
+                mapOf(
+                    "reason" to "cloud_backend_unavailable",
+                    "openAiOptimizer" to (openAiOptimizerStatus != null)
+                )
+            )
             return buildString {
                 append(localReportStatus.statusLine)
                 append('\n')
@@ -108,6 +138,119 @@ class InsightsRepository(
                 append(localReportStatus.statusLine)
             }
         }
+    }
+
+    private suspend fun runDailyOpenAiOptimizer(
+        reportResult: DailyForecastReportResult,
+        settings: AppSettings
+    ): String? {
+        if (!isOpenAiApiEndpoint(settings.cloudBaseUrl)) return null
+        val nowTs = System.currentTimeMillis()
+        val reportPayload = reportResult.payload
+        if (reportPayload == null) {
+            val reason = "OpenAI optimizer skipped: local report payload missing"
+            auditLogger.warn("ai_daily_optimizer_skipped", mapOf("reason" to "payload_missing"))
+            persistDailyAiOptimizerTelemetry(
+                nowTs = nowTs,
+                result = null,
+                error = reason
+            )
+            return reason
+        }
+        if (settings.openAiApiKey.isBlank()) {
+            val reason = "OpenAI optimizer skipped: API key is empty"
+            auditLogger.warn("ai_daily_optimizer_skipped", mapOf("reason" to "missing_api_key"))
+            persistDailyAiOptimizerTelemetry(
+                nowTs = nowTs,
+                result = null,
+                error = reason
+            )
+            return reason
+        }
+
+        return runCatching {
+            val result = aiOptimizerRepository.requestDailyForecastOptimization(reportPayload)
+            persistDailyAiOptimizerTelemetry(
+                nowTs = nowTs,
+                result = result,
+                error = null
+            )
+            val focusLabel = result.focusHorizonMinutes?.let { "${it}m" } ?: "all"
+            "OpenAI optimizer ${result.status}: conf=${fmt(result.confidence)} model=${result.model} focus=$focusLabel"
+        }.getOrElse { error ->
+            val message = error.message ?: "optimizer failed"
+            auditLogger.warn(
+                "ai_daily_optimizer_failed",
+                mapOf("error" to message.take(320))
+            )
+            persistDailyAiOptimizerTelemetry(
+                nowTs = nowTs,
+                result = null,
+                error = message
+            )
+            "OpenAI optimizer failed: ${message.take(240)}"
+        }
+    }
+
+    private suspend fun persistDailyAiOptimizerTelemetry(
+        nowTs: Long,
+        result: AiForecastOptimizationResult?,
+        error: String?
+    ) {
+        val source = "forecast_daily_ai_opt"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+
+        fun addNumeric(key: String, value: Double?, unit: String? = null) {
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = value,
+                valueText = null,
+                unit = unit,
+                quality = if (value == null) "STALE" else "OK"
+            )
+        }
+
+        fun addText(key: String, value: String?) {
+            val text = value?.trim().orEmpty()
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = text.ifBlank { null },
+                unit = null,
+                quality = if (text.isBlank()) "STALE" else "OK"
+            )
+        }
+
+        addNumeric("daily_report_ai_opt_generated_ts", nowTs.toDouble())
+        addText("daily_report_ai_opt_error", error?.take(400))
+        addText("daily_report_ai_opt_status", result?.status ?: if (error.isNullOrBlank()) "NO_DATA" else "ERROR")
+        addNumeric("daily_report_ai_opt_confidence", result?.confidence ?: 0.0)
+        addText("daily_report_ai_opt_model", result?.model)
+        addNumeric("daily_report_ai_opt_focus_horizon_min", result?.focusHorizonMinutes?.toDouble())
+        addText("daily_report_ai_opt_reason", result?.reason?.take(360))
+        addText("daily_report_ai_opt_notes", result?.notes?.joinToString(" | ")?.take(1200))
+        addText("daily_report_ai_opt_response_id", result?.responseId)
+        addText("daily_report_ai_opt_response_status", result?.responseStatus)
+        addNumeric("daily_report_ai_opt_apply_flag", if (result?.status == "APPLY") 1.0 else 0.0)
+
+        // Always write neutral scales on failures to prevent stale previous APPLY values from leaking into runtime.
+        addNumeric("daily_report_ai_opt_gain_scale_5m", result?.gainScale5m ?: 1.0)
+        addNumeric("daily_report_ai_opt_gain_scale_30m", result?.gainScale30m ?: 1.0)
+        addNumeric("daily_report_ai_opt_gain_scale_60m", result?.gainScale60m ?: 1.0)
+        addNumeric("daily_report_ai_opt_max_up_scale_5m", result?.maxUpScale5m ?: 1.0)
+        addNumeric("daily_report_ai_opt_max_up_scale_30m", result?.maxUpScale30m ?: 1.0)
+        addNumeric("daily_report_ai_opt_max_up_scale_60m", result?.maxUpScale60m ?: 1.0)
+        addNumeric("daily_report_ai_opt_max_down_scale_5m", result?.maxDownScale5m ?: 1.0)
+        addNumeric("daily_report_ai_opt_max_down_scale_30m", result?.maxDownScale30m ?: 1.0)
+        addNumeric("daily_report_ai_opt_max_down_scale_60m", result?.maxDownScale60m ?: 1.0)
+
+        db.telemetryDao().upsertAll(rows)
     }
 
     suspend fun generateDailyForecastReport(hours: Int = 24): DailyForecastReportResult = withContext(Dispatchers.IO) {
@@ -204,7 +347,8 @@ class InsightsRepository(
             csvPath = csvFile.absolutePath,
             matchedSamples = enrichedPayload.matchedSamples,
             topMardHorizon = topHorizon?.horizonMinutes,
-            topMardPct = topHorizon?.mardPct
+            topMardPct = topHorizon?.mardPct,
+            payload = enrichedPayload
         )
     }
 
@@ -215,7 +359,7 @@ class InsightsRepository(
         days: Int = 60
     ): CloudAnalysisHistoryUiModel {
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) {
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) {
             return CloudAnalysisHistoryUiModel(items = emptyList())
         }
 
@@ -244,7 +388,7 @@ class InsightsRepository(
         status: String? = null
     ): CloudAnalysisTrendUiModel {
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) {
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) {
             return CloudAnalysisTrendUiModel(items = emptyList())
         }
 
@@ -267,7 +411,7 @@ class InsightsRepository(
 
     suspend fun fetchJobsStatus(): CloudJobsUiModel {
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) {
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) {
             return CloudJobsUiModel(timezone = "local", jobs = emptyList())
         }
 
@@ -288,8 +432,8 @@ class InsightsRepository(
 
     suspend fun runReplayReport(days: Int, stepMinutes: Int = 5): CloudReplayUiModel {
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) {
-            error("Cloud API not configured")
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) {
+            error("Cloud replay requires Copilot cloud backend endpoint")
         }
 
         val clampedDays = days.coerceIn(1, 60)
@@ -2649,7 +2793,8 @@ data class DailyForecastReportResult(
     val csvPath: String?,
     val matchedSamples: Int,
     val topMardHorizon: Int?,
-    val topMardPct: Double?
+    val topMardPct: Double?,
+    val payload: DailyForecastReportPayload? = null
 )
 
 data class DailyForecastReportPayload(

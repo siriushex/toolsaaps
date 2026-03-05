@@ -18,6 +18,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,6 +29,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -37,6 +42,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -45,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.BuildConfig
 import io.aaps.copilot.R
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
@@ -55,12 +63,19 @@ import kotlin.math.roundToInt
 private val SettingsSectionShape = RoundedCornerShape(18.dp)
 private val SettingsInfoShape = RoundedCornerShape(12.dp)
 
+private enum class SettingsTab {
+    BASIC,
+    ADVANCED
+}
+
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
     onVerboseLogsToggle: (Boolean) -> Unit,
     onProModeToggle: (Boolean) -> Unit,
     onNightscoutUrlSave: (String) -> Unit = {},
+    onAiApiSettingsSave: (String, String) -> Unit = { _, _ -> },
+    onUiStyleChange: (String) -> Unit = {},
     onBaseTargetChange: (Double) -> Unit = {},
     onInsulinProfileSelect: (String) -> Unit = {},
     onLocalNightscoutToggle: (Boolean) -> Unit = {},
@@ -102,6 +117,9 @@ fun SettingsScreen(
     onRetentionDaysChange: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var selectedTabRaw by rememberSaveable { mutableStateOf(SettingsTab.BASIC.name) }
+    val selectedTab = runCatching { SettingsTab.valueOf(selectedTabRaw) }
+        .getOrDefault(SettingsTab.BASIC)
     ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
@@ -113,83 +131,136 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             item {
-                DataSourcesCard(
-                    state = state,
-                    onNightscoutUrlSave = onNightscoutUrlSave,
-                    onLocalNightscoutToggle = onLocalNightscoutToggle,
-                    onLocalBroadcastIngestToggle = onLocalBroadcastIngestToggle,
-                    onStrictSenderValidationToggle = onStrictSenderValidationToggle
+                SettingsTabCard(
+                    selectedTab = selectedTab,
+                    onTabSelected = { selectedTabRaw = it.name }
                 )
             }
-            item {
-                UamSettingsCard(
-                    state = state,
-                    onUamInferenceToggle = onUamInferenceToggle,
-                    onUamBoostToggle = onUamBoostToggle,
-                    onUamExportToggle = onUamExportToggle,
-                    onUamExportModeChange = onUamExportModeChange,
-                    onUamSnackConfigChange = onUamSnackConfigChange,
-                    onUamDryRunToggle = onUamDryRunToggle
-                )
-            }
-            item {
-                IsfCrSettingsCard(
-                    state = state,
-                    onShadowModeToggle = onIsfCrShadowModeToggle,
-                    onConfidenceThresholdChange = onIsfCrConfidenceThresholdChange,
-                    onUseActivityToggle = onIsfCrUseActivityToggle,
-                    onUseManualTagsToggle = onIsfCrUseManualTagsToggle,
-                    onMinEvidencePerHourChange = onIsfCrMinEvidencePerHourChange,
-                    onCrIntegrityGateSettingsChange = onIsfCrCrIntegrityGateSettingsChange,
-                    onRetentionChange = onIsfCrRetentionChange,
-                    onAutoActivationEnabledToggle = onIsfCrAutoActivationEnabledToggle,
-                    onAutoActivationLookbackHoursChange = onIsfCrAutoActivationLookbackHoursChange,
-                    onAutoActivationMinSamplesChange = onIsfCrAutoActivationMinSamplesChange,
-                    onAutoActivationMinMeanConfidenceChange = onIsfCrAutoActivationMinMeanConfidenceChange,
-                    onAutoActivationMaxMeanAbsDeltaPctChange = onIsfCrAutoActivationMaxMeanAbsDeltaPctChange,
-                    onAutoActivationSensorThresholdsChange = onIsfCrAutoActivationSensorThresholdsChange,
-                    onAutoActivationDayTypeThresholdsChange = onIsfCrAutoActivationDayTypeThresholdsChange,
-                    onAutoActivationRequireDailyQualityGateToggle = onIsfCrAutoActivationRequireDailyQualityGateToggle,
-                    onAutoActivationDailyRiskBlockLevelChange = onIsfCrAutoActivationDailyRiskBlockLevelChange,
-                    onAutoActivationDailyQualityThresholdsChange = onIsfCrAutoActivationDailyQualityThresholdsChange,
-                    onAutoActivationRollingGateSettingsChange = onIsfCrAutoActivationRollingGateSettingsChange,
-                    onAddPhysioTag = onAddPhysioTag,
-                    onClosePhysioTag = onClosePhysioTag,
-                    onClearPhysioTags = onClearPhysioTags
-                )
-            }
-            item {
-                AdaptiveSettingsCard(
-                    state = state,
-                    onAdaptiveControllerToggle = onAdaptiveControllerToggle,
-                    onBaseTargetChange = onBaseTargetChange,
-                    onInsulinProfileSelect = onInsulinProfileSelect,
-                    onSafetyBoundsChange = onSafetyBoundsChange,
-                    onPostHypoThresholdChange = onPostHypoThresholdChange,
-                    onPostHypoTargetChange = onPostHypoTargetChange
-                )
-            }
-            item {
-                DebugSettingsCard(
-                    proModeEnabled = state.proModeEnabled,
-                    verboseLogsEnabled = state.verboseLogsEnabled,
-                    onProModeToggle = onProModeToggle,
-                    onVerboseLogsToggle = onVerboseLogsToggle
-                )
-            }
-            item {
-                PrivacyCard(
-                    retentionDays = state.retentionDays,
-                    onRetentionDaysChange = onRetentionDaysChange
-                )
-            }
-            item {
-                DisclaimerCard(text = state.warningText)
-            }
-            item {
-                AppInfoCard()
+
+            when (selectedTab) {
+                SettingsTab.BASIC -> {
+                    item {
+                        DataSourcesCard(
+                            state = state,
+                            onNightscoutUrlSave = onNightscoutUrlSave,
+                            onAiApiSettingsSave = onAiApiSettingsSave,
+                            onUiStyleChange = onUiStyleChange,
+                            onLocalNightscoutToggle = onLocalNightscoutToggle,
+                            onLocalBroadcastIngestToggle = onLocalBroadcastIngestToggle,
+                            onStrictSenderValidationToggle = onStrictSenderValidationToggle
+                        )
+                    }
+                    item {
+                        UamSettingsCard(
+                            state = state,
+                            onUamInferenceToggle = onUamInferenceToggle,
+                            onUamBoostToggle = onUamBoostToggle,
+                            onUamExportToggle = onUamExportToggle,
+                            onUamExportModeChange = onUamExportModeChange,
+                            onUamSnackConfigChange = onUamSnackConfigChange,
+                            onUamDryRunToggle = onUamDryRunToggle
+                        )
+                    }
+                    item {
+                        AdaptiveSettingsCard(
+                            state = state,
+                            onAdaptiveControllerToggle = onAdaptiveControllerToggle,
+                            onBaseTargetChange = onBaseTargetChange,
+                            onInsulinProfileSelect = onInsulinProfileSelect,
+                            onSafetyBoundsChange = onSafetyBoundsChange,
+                            onPostHypoThresholdChange = onPostHypoThresholdChange,
+                            onPostHypoTargetChange = onPostHypoTargetChange
+                        )
+                    }
+                    item {
+                        DisclaimerCard(text = state.warningText)
+                    }
+                    item {
+                        AppInfoCard()
+                    }
+                }
+
+                SettingsTab.ADVANCED -> {
+                    item {
+                        IsfCrSettingsCard(
+                            state = state,
+                            onShadowModeToggle = onIsfCrShadowModeToggle,
+                            onConfidenceThresholdChange = onIsfCrConfidenceThresholdChange,
+                            onUseActivityToggle = onIsfCrUseActivityToggle,
+                            onUseManualTagsToggle = onIsfCrUseManualTagsToggle,
+                            onMinEvidencePerHourChange = onIsfCrMinEvidencePerHourChange,
+                            onCrIntegrityGateSettingsChange = onIsfCrCrIntegrityGateSettingsChange,
+                            onRetentionChange = onIsfCrRetentionChange,
+                            onAutoActivationEnabledToggle = onIsfCrAutoActivationEnabledToggle,
+                            onAutoActivationLookbackHoursChange = onIsfCrAutoActivationLookbackHoursChange,
+                            onAutoActivationMinSamplesChange = onIsfCrAutoActivationMinSamplesChange,
+                            onAutoActivationMinMeanConfidenceChange = onIsfCrAutoActivationMinMeanConfidenceChange,
+                            onAutoActivationMaxMeanAbsDeltaPctChange = onIsfCrAutoActivationMaxMeanAbsDeltaPctChange,
+                            onAutoActivationSensorThresholdsChange = onIsfCrAutoActivationSensorThresholdsChange,
+                            onAutoActivationDayTypeThresholdsChange = onIsfCrAutoActivationDayTypeThresholdsChange,
+                            onAutoActivationRequireDailyQualityGateToggle = onIsfCrAutoActivationRequireDailyQualityGateToggle,
+                            onAutoActivationDailyRiskBlockLevelChange = onIsfCrAutoActivationDailyRiskBlockLevelChange,
+                            onAutoActivationDailyQualityThresholdsChange = onIsfCrAutoActivationDailyQualityThresholdsChange,
+                            onAutoActivationRollingGateSettingsChange = onIsfCrAutoActivationRollingGateSettingsChange,
+                            onAddPhysioTag = onAddPhysioTag,
+                            onClosePhysioTag = onClosePhysioTag,
+                            onClearPhysioTags = onClearPhysioTags
+                        )
+                    }
+                    item {
+                        DebugSettingsCard(
+                            proModeEnabled = state.proModeEnabled,
+                            verboseLogsEnabled = state.verboseLogsEnabled,
+                            onProModeToggle = onProModeToggle,
+                            onVerboseLogsToggle = onVerboseLogsToggle
+                        )
+                    }
+                    item {
+                        PrivacyCard(
+                            retentionDays = state.retentionDays,
+                            onRetentionDaysChange = onRetentionDaysChange
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsTabCard(
+    selectedTab: SettingsTab,
+    onTabSelected: (SettingsTab) -> Unit
+) {
+    SettingsSectionCard {
+        SettingsSectionLabel(text = stringResource(id = R.string.section_settings_mode))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            val options = listOf(
+                SettingsTab.BASIC to stringResource(id = R.string.settings_tab_basic),
+                SettingsTab.ADVANCED to stringResource(id = R.string.settings_tab_advanced)
+            )
+            options.forEachIndexed { index, (tab, label) ->
+                SegmentedButton(
+                    selected = selectedTab == tab,
+                    onClick = { onTabSelected(tab) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = options.size
+                    )
+                ) {
+                    Text(text = label)
+                }
+            }
+        }
+        Text(
+            text = if (selectedTab == SettingsTab.BASIC) {
+                stringResource(id = R.string.settings_tab_basic_subtitle)
+            } else {
+                stringResource(id = R.string.settings_tab_advanced_subtitle)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -226,12 +297,14 @@ private fun IsfCrSettingsCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_isfcr_shadow_mode),
             subtitle = stringResource(id = R.string.settings_isfcr_shadow_mode_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_shadow_mode),
             value = state.isfCrShadowMode,
             onToggle = onShadowModeToggle
         )
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_isfcr_confidence_threshold),
             subtitle = stringResource(id = R.string.settings_isfcr_confidence_threshold_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_confidence_threshold),
             value = (state.isfCrConfidenceThreshold * 100).roundToInt(),
             min = 20,
             max = 95,
@@ -243,18 +316,21 @@ private fun IsfCrSettingsCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_isfcr_use_activity),
             subtitle = stringResource(id = R.string.settings_isfcr_use_activity_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_use_activity),
             value = state.isfCrUseActivity,
             onToggle = onUseActivityToggle
         )
         SettingToggleRow(
             title = stringResource(id = R.string.settings_isfcr_use_manual_tags),
             subtitle = stringResource(id = R.string.settings_isfcr_use_manual_tags_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_use_manual_tags),
             value = state.isfCrUseManualTags,
             onToggle = onUseManualTagsToggle
         )
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_isfcr_min_isf_evidence_per_hour),
             subtitle = stringResource(id = R.string.settings_isfcr_min_isf_evidence_per_hour_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_min_isf_evidence),
             value = state.isfCrMinIsfEvidencePerHour,
             min = 0,
             max = 12,
@@ -266,6 +342,7 @@ private fun IsfCrSettingsCard(
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_isfcr_min_cr_evidence_per_hour),
             subtitle = stringResource(id = R.string.settings_isfcr_min_cr_evidence_per_hour_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_min_cr_evidence),
             value = state.isfCrMinCrEvidencePerHour,
             min = 0,
             max = 12,
@@ -277,6 +354,7 @@ private fun IsfCrSettingsCard(
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_isfcr_cr_max_gap_minutes),
             subtitle = stringResource(id = R.string.settings_isfcr_cr_max_gap_minutes_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_cr_max_gap_minutes),
             value = state.isfCrCrMaxGapMinutes,
             min = 10,
             max = 60,
@@ -292,6 +370,7 @@ private fun IsfCrSettingsCard(
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_isfcr_cr_max_sensor_blocked_rate),
             subtitle = stringResource(id = R.string.settings_isfcr_cr_max_sensor_blocked_rate_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_cr_max_sensor_blocked_rate),
             value = state.isfCrCrMaxSensorBlockedRatePct.roundToInt(),
             min = 0,
             max = 100,
@@ -307,6 +386,7 @@ private fun IsfCrSettingsCard(
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_isfcr_cr_max_uam_ambiguity_rate),
             subtitle = stringResource(id = R.string.settings_isfcr_cr_max_uam_ambiguity_rate_subtitle),
+            infoText = stringResource(id = R.string.settings_info_isfcr_cr_max_uam_ambiguity_rate),
             value = state.isfCrCrMaxUamAmbiguityRatePct.roundToInt(),
             min = 0,
             max = 100,
@@ -819,6 +899,8 @@ private fun IsfCrSettingsCard(
 private fun DataSourcesCard(
     state: SettingsUiState,
     onNightscoutUrlSave: (String) -> Unit,
+    onAiApiSettingsSave: (String, String) -> Unit,
+    onUiStyleChange: (String) -> Unit,
     onLocalNightscoutToggle: (Boolean) -> Unit,
     onLocalBroadcastIngestToggle: (Boolean) -> Unit,
     onStrictSenderValidationToggle: (Boolean) -> Unit
@@ -826,16 +908,46 @@ private fun DataSourcesCard(
     var nightscoutUrlDraft by rememberSaveable(state.nightscoutUrl) {
         mutableStateOf(state.nightscoutUrl)
     }
+    var aiApiUrlDraft by rememberSaveable(state.aiApiUrl) {
+        mutableStateOf(state.aiApiUrl)
+    }
+    var aiApiKeyDraft by rememberSaveable(state.aiApiKey) {
+        mutableStateOf(state.aiApiKey)
+    }
     SettingsSectionCard {
         SettingsSectionLabel(text = stringResource(id = R.string.section_settings_data_sources))
 
         SettingTextInputRow(
             title = stringResource(id = R.string.settings_nightscout_url),
             subtitle = stringResource(id = R.string.settings_data_sources_nightscout_subtitle),
+            infoText = stringResource(id = R.string.settings_info_nightscout_url),
             value = nightscoutUrlDraft,
             placeholder = stringResource(id = R.string.placeholder_missing),
             onValueChange = { nightscoutUrlDraft = it },
             onApply = { onNightscoutUrlSave(nightscoutUrlDraft) }
+        )
+        SettingTextInputRow(
+            title = stringResource(id = R.string.settings_ai_api_url),
+            subtitle = stringResource(id = R.string.settings_ai_api_url_subtitle),
+            infoText = stringResource(id = R.string.settings_info_ai_api_url),
+            value = aiApiUrlDraft,
+            placeholder = stringResource(id = R.string.placeholder_missing),
+            onValueChange = { aiApiUrlDraft = it },
+            onApply = { onAiApiSettingsSave(aiApiUrlDraft, aiApiKeyDraft) }
+        )
+        SettingTextInputRow(
+            title = stringResource(id = R.string.settings_ai_api_key),
+            subtitle = stringResource(id = R.string.settings_ai_api_key_subtitle),
+            infoText = stringResource(id = R.string.settings_info_ai_api_key),
+            value = aiApiKeyDraft,
+            placeholder = stringResource(id = R.string.placeholder_missing),
+            onValueChange = { aiApiKeyDraft = it },
+            onApply = { onAiApiSettingsSave(aiApiUrlDraft, aiApiKeyDraft) },
+            secret = true
+        )
+        SettingUiStyleRow(
+            selectedStyle = state.uiStyle,
+            onSelect = onUiStyleChange
         )
         SettingReadOnlyRow(
             title = stringResource(id = R.string.settings_resolved_url),
@@ -844,6 +956,7 @@ private fun DataSourcesCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_local_nightscout),
             subtitle = stringResource(id = R.string.settings_local_nightscout_subtitle),
+            infoText = stringResource(id = R.string.settings_info_local_nightscout),
             value = state.localNightscoutEnabled,
             onToggle = onLocalNightscoutToggle
         )
@@ -879,15 +992,68 @@ private fun DataSourcesCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_local_broadcast_ingest),
             subtitle = stringResource(id = R.string.settings_data_sources_broadcast_subtitle),
+            infoText = stringResource(id = R.string.settings_info_local_broadcast_ingest),
             value = state.localBroadcastIngestEnabled,
             onToggle = onLocalBroadcastIngestToggle
         )
         SettingToggleRow(
             title = stringResource(id = R.string.settings_strict_sender_validation),
             subtitle = stringResource(id = R.string.settings_data_sources_sender_subtitle),
+            infoText = stringResource(id = R.string.settings_info_strict_sender_validation),
             value = state.strictBroadcastSenderValidation,
             onToggle = onStrictSenderValidationToggle
         )
+    }
+}
+
+@Composable
+private fun SettingUiStyleRow(
+    selectedStyle: String,
+    onSelect: (String) -> Unit
+) {
+    val options = listOf(
+        UiStyle.CLASSIC to stringResource(id = R.string.settings_ui_style_classic),
+        UiStyle.DYNAMIC_GRADIENT to stringResource(id = R.string.settings_ui_style_dynamic_gradient)
+    )
+    Surface(
+        shape = SettingsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            SettingTitleWithInfo(
+                title = stringResource(id = R.string.settings_ui_style),
+                subtitle = stringResource(id = R.string.settings_info_ui_style),
+                titleStyle = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = stringResource(id = R.string.settings_ui_style_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                options.forEach { (style, label) ->
+                    FilterChip(
+                        selected = selectedStyle == style.name,
+                        onClick = { onSelect(style.name) },
+                        label = {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -907,6 +1073,7 @@ private fun UamSettingsCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_uam_inference),
             subtitle = stringResource(id = R.string.settings_uam_inference_subtitle),
+            infoText = stringResource(id = R.string.settings_info_uam_inference),
             value = state.enableUamInference,
             onToggle = onUamInferenceToggle
         )
@@ -915,18 +1082,21 @@ private fun UamSettingsCard(
                 SettingToggleRow(
                     title = stringResource(id = R.string.settings_uam_boost),
                     subtitle = stringResource(id = R.string.settings_uam_boost_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_uam_boost),
                     value = state.enableUamBoost,
                     onToggle = onUamBoostToggle
                 )
                 SettingToggleRow(
                     title = stringResource(id = R.string.settings_uam_export),
                     subtitle = stringResource(id = R.string.settings_uam_export_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_uam_export),
                     value = state.enableUamExportToAaps,
                     onToggle = onUamExportToggle
                 )
                 SettingToggleRow(
                     title = stringResource(id = R.string.settings_uam_dry_run),
                     subtitle = stringResource(id = R.string.settings_uam_dry_run_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_uam_dry_run),
                     value = state.dryRunExport,
                     onToggle = onUamDryRunToggle
                 )
@@ -934,11 +1104,13 @@ private fun UamSettingsCard(
                     title = stringResource(id = R.string.settings_uam_export_mode),
                     options = listOf("OFF", "CONFIRMED_ONLY", "INCREMENTAL"),
                     selected = state.uamExportMode,
+                    infoText = stringResource(id = R.string.settings_info_uam_export_mode),
                     onSelect = onUamExportModeChange
                 )
                 SettingIntStepperRow(
                     title = stringResource(id = R.string.settings_uam_min_snack),
                     subtitle = stringResource(id = R.string.settings_uam_min_snack_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_uam_min_snack),
                     value = state.uamMinSnackG,
                     min = 5,
                     max = state.uamMaxSnackG,
@@ -950,6 +1122,7 @@ private fun UamSettingsCard(
                 SettingIntStepperRow(
                     title = stringResource(id = R.string.settings_uam_max_snack),
                     subtitle = stringResource(id = R.string.settings_uam_max_snack_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_uam_max_snack),
                     value = state.uamMaxSnackG,
                     min = state.uamMinSnackG,
                     max = 120,
@@ -961,6 +1134,7 @@ private fun UamSettingsCard(
                 SettingIntStepperRow(
                     title = stringResource(id = R.string.settings_uam_snack_step),
                     subtitle = stringResource(id = R.string.settings_uam_snack_step_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_uam_snack_step),
                     value = state.uamSnackStepG,
                     min = 1,
                     max = 20,
@@ -1014,6 +1188,7 @@ private fun AdaptiveSettingsCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_adaptive_enabled),
             subtitle = stringResource(id = R.string.settings_adaptive_enabled_subtitle),
+            infoText = stringResource(id = R.string.settings_info_adaptive_enabled),
             value = state.adaptiveControllerEnabled,
             onToggle = onAdaptiveControllerToggle
         )
@@ -1022,6 +1197,7 @@ private fun AdaptiveSettingsCard(
                 SettingDoubleStepperRow(
                     title = stringResource(id = R.string.settings_base_target),
                     subtitle = stringResource(id = R.string.settings_base_target_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_base_target),
                     value = state.baseTarget,
                     min = state.safetyMinTargetMmol,
                     max = state.safetyMaxTargetMmol,
@@ -1033,11 +1209,13 @@ private fun AdaptiveSettingsCard(
                     title = stringResource(id = R.string.settings_insulin_profile),
                     options = InsulinActionProfileId.values().map { it.name },
                     selected = state.insulinProfileId,
+                    infoText = stringResource(id = R.string.settings_info_insulin_profile),
                     onSelect = onInsulinProfileSelect
                 )
                 SettingDoubleStepperRow(
                     title = stringResource(id = R.string.settings_adaptive_low_alert),
                     subtitle = stringResource(id = R.string.settings_adaptive_low_alert_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_safety_low_bound),
                     value = state.safetyMinTargetMmol,
                     min = 4.0,
                     max = (state.safetyMaxTargetMmol - 0.2).coerceAtLeast(4.0),
@@ -1048,6 +1226,7 @@ private fun AdaptiveSettingsCard(
                 SettingDoubleStepperRow(
                     title = stringResource(id = R.string.settings_adaptive_high_alert),
                     subtitle = stringResource(id = R.string.settings_adaptive_high_alert_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_safety_high_bound),
                     value = state.safetyMaxTargetMmol,
                     min = (state.safetyMinTargetMmol + 0.2).coerceAtMost(10.0),
                     max = 10.0,
@@ -1058,6 +1237,7 @@ private fun AdaptiveSettingsCard(
                 SettingDoubleStepperRow(
                     title = stringResource(id = R.string.settings_post_hypo_threshold),
                     subtitle = stringResource(id = R.string.settings_post_hypo_threshold_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_post_hypo_threshold),
                     value = state.postHypoThresholdMmol,
                     min = 4.0,
                     max = 10.0,
@@ -1068,6 +1248,7 @@ private fun AdaptiveSettingsCard(
                 SettingDoubleStepperRow(
                     title = stringResource(id = R.string.settings_post_hypo_target),
                     subtitle = stringResource(id = R.string.settings_post_hypo_target_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_post_hypo_target),
                     value = state.postHypoTargetMmol,
                     min = 4.0,
                     max = 10.0,
@@ -1126,12 +1307,14 @@ private fun DebugSettingsCard(
         SettingToggleRow(
             title = stringResource(id = R.string.settings_pro_mode),
             subtitle = stringResource(id = R.string.settings_pro_mode_subtitle),
+            infoText = stringResource(id = R.string.settings_info_pro_mode),
             value = proModeEnabled,
             onToggle = onProModeToggle
         )
         SettingToggleRow(
             title = stringResource(id = R.string.settings_verbose_logs),
             subtitle = stringResource(id = R.string.settings_verbose_logs_subtitle),
+            infoText = stringResource(id = R.string.settings_info_verbose_logs),
             value = verboseLogsEnabled,
             onToggle = onVerboseLogsToggle
         )
@@ -1148,6 +1331,7 @@ private fun PrivacyCard(
         SettingIntStepperRow(
             title = stringResource(id = R.string.settings_retention_days),
             subtitle = stringResource(id = R.string.settings_retention_days_subtitle),
+            infoText = stringResource(id = R.string.settings_info_retention_days),
             value = retentionDays,
             min = 30,
             max = 730,
@@ -1325,11 +1509,14 @@ private fun PhysioTagJournalRow(
 private fun SettingTextInputRow(
     title: String,
     subtitle: String,
+    infoText: String = subtitle,
     value: String,
     placeholder: String,
     onValueChange: (String) -> Unit,
-    onApply: () -> Unit
+    onApply: () -> Unit,
+    secret: Boolean = false
 ) {
+    var secretVisible by rememberSaveable(title) { mutableStateOf(false) }
     Surface(
         shape = SettingsInfoShape,
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -1343,7 +1530,7 @@ private fun SettingTextInputRow(
         ) {
             SettingTitleWithInfo(
                 title = title,
-                subtitle = subtitle,
+                subtitle = infoText,
                 titleStyle = MaterialTheme.typography.bodyMedium
             )
             Text(
@@ -1356,6 +1543,31 @@ private fun SettingTextInputRow(
                 onValueChange = onValueChange,
                 placeholder = { Text(text = placeholder) },
                 singleLine = true,
+                visualTransformation = if (secret && !secretVisible) {
+                    PasswordVisualTransformation()
+                } else {
+                    VisualTransformation.None
+                },
+                trailingIcon = if (secret) {
+                    {
+                        IconButton(onClick = { secretVisible = !secretVisible }) {
+                            Icon(
+                                imageVector = if (secretVisible) {
+                                    Icons.Default.VisibilityOff
+                                } else {
+                                    Icons.Default.Visibility
+                                },
+                                contentDescription = if (secretVisible) {
+                                    stringResource(id = R.string.action_hide)
+                                } else {
+                                    stringResource(id = R.string.action_show)
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    null
+                },
                 modifier = Modifier.fillMaxWidth()
             )
             Row(
@@ -1419,6 +1631,7 @@ private fun OptionChipsRow(
 private fun SettingIntStepperRow(
     title: String,
     subtitle: String,
+    infoText: String = subtitle,
     value: Int,
     min: Int,
     max: Int,
@@ -1443,7 +1656,7 @@ private fun SettingIntStepperRow(
             ) {
                 SettingTitleWithInfo(
                     title = title,
-                    subtitle = subtitle,
+                    subtitle = infoText,
                     titleStyle = MaterialTheme.typography.bodyMedium
                 )
                 Text(
@@ -1477,6 +1690,7 @@ private fun SettingIntStepperRow(
 private fun SettingDoubleStepperRow(
     title: String,
     subtitle: String,
+    infoText: String = subtitle,
     value: Double,
     min: Double,
     max: Double,
@@ -1505,7 +1719,7 @@ private fun SettingDoubleStepperRow(
             ) {
                 SettingTitleWithInfo(
                     title = title,
-                    subtitle = subtitle,
+                    subtitle = infoText,
                     titleStyle = MaterialTheme.typography.bodyMedium
                 )
                 Text(
@@ -1539,6 +1753,7 @@ private fun SettingDoubleStepperRow(
 private fun SettingToggleRow(
     title: String,
     subtitle: String,
+    infoText: String = subtitle,
     value: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
@@ -1562,7 +1777,7 @@ private fun SettingToggleRow(
             ) {
                 SettingTitleWithInfo(
                     title = title,
-                    subtitle = subtitle,
+                    subtitle = infoText,
                     titleStyle = MaterialTheme.typography.bodyMedium
                 )
                 Text(
@@ -1763,6 +1978,9 @@ private fun SettingsScreenPreview() {
                 isStale = false,
                 baseTarget = 5.5,
                 nightscoutUrl = "https://example.ns",
+                aiApiUrl = "https://api.openai.com/v1",
+                aiApiKey = "sk-***",
+                uiStyle = UiStyle.CLASSIC.name,
                 resolvedNightscoutUrl = "https://127.0.0.1:17582",
                 insulinProfileId = "NOVORAPID",
                 localNightscoutEnabled = true,

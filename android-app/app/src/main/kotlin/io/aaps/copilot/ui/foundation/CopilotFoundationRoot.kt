@@ -46,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -57,16 +58,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import io.aaps.copilot.R
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.ui.MainViewModel
 import io.aaps.copilot.ui.foundation.components.AppHealthBanner
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.screens.AnalyticsScreen
+import io.aaps.copilot.ui.foundation.screens.AiAnalysisScreen
 import io.aaps.copilot.ui.foundation.screens.AuditScreen
 import io.aaps.copilot.ui.foundation.screens.ForecastScreen
 import io.aaps.copilot.ui.foundation.screens.OverviewScreen
 import io.aaps.copilot.ui.foundation.screens.SafetyScreen
 import io.aaps.copilot.ui.foundation.screens.SettingsScreen
 import io.aaps.copilot.ui.foundation.screens.UamScreen
+import io.aaps.copilot.ui.foundation.theme.CopilotStyledBackground
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.rememberDrawerState
@@ -82,11 +86,12 @@ private object Destinations {
     object Safety : BottomDestination("safety", R.string.nav_safety, Icons.Default.Security)
 
     object Audit : MoreDestination("audit", R.string.menu_audit_log, Icons.Default.TableChart)
+    object AiAnalysis : MoreDestination("ai_analysis", R.string.menu_ai_analysis, Icons.Default.Assessment)
     object Analytics : MoreDestination("analytics", R.string.menu_analytics, Icons.Default.Assessment)
     object Settings : MoreDestination("settings", R.string.menu_settings, Icons.Default.Tune)
 
     val bottom = listOf(Overview, Forecast, Uam, Safety)
-    val more = listOf(Audit, Analytics, Settings)
+    val more = listOf(Audit, AiAnalysis, Analytics, Settings)
 }
 
 @Composable
@@ -103,6 +108,7 @@ fun CopilotFoundationRoot(
     val uam by viewModel.uamUiState.collectAsStateWithLifecycle()
     val safety by viewModel.safetyUiState.collectAsStateWithLifecycle()
     val audit by viewModel.auditUiState.collectAsStateWithLifecycle()
+    val aiAnalysis by viewModel.aiAnalysisUiState.collectAsStateWithLifecycle()
     val analytics by viewModel.analyticsUiState.collectAsStateWithLifecycle()
     val settings by viewModel.settingsUiState.collectAsStateWithLifecycle()
     val message by viewModel.messageUiState.collectAsStateWithLifecycle()
@@ -110,6 +116,7 @@ fun CopilotFoundationRoot(
     val snackbarHostState = remember { SnackbarHostState() }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val selectedUiStyle = UiStyle.fromRaw(settings.uiStyle)
 
     LaunchedEffect(message) {
         val text = message
@@ -119,10 +126,14 @@ fun CopilotFoundationRoot(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
+    CopilotStyledBackground(
+        uiStyle = selectedUiStyle,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet {
                 Text(
                     text = stringResource(id = R.string.menu_more),
                     modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
@@ -150,10 +161,11 @@ fun CopilotFoundationRoot(
                     icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+                }
             }
-        }
-    ) {
-        Scaffold(
+        ) {
+            Scaffold(
+            containerColor = Color.Transparent,
             topBar = {
                 TopBar(
                     title = screenTitle(currentRoute),
@@ -256,6 +268,21 @@ fun CopilotFoundationRoot(
                             onOnlyErrorsChange = viewModel::setAuditOnlyErrors
                         )
                     }
+                    composable(Destinations.AiAnalysis.route) {
+                        AiAnalysisScreen(
+                            state = aiAnalysis,
+                            onRunDailyAnalysis = viewModel::runDailyAnalysisNow,
+                            onRefreshCloudJobs = { viewModel.refreshCloudJobs(silent = false) },
+                            onRefreshInsights = { viewModel.refreshAnalysisHistory(silent = false) },
+                            onApplyFilters = viewModel::applyInsightsFilters,
+                            onRunReplay = viewModel::runCloudReplayNow,
+                            onExportInsightsCsv = viewModel::exportInsightsCsv,
+                            onExportInsightsPdf = viewModel::exportInsightsPdf,
+                            onExportReplayCsv = viewModel::exportReplayCsv,
+                            onExportReplayPdf = viewModel::exportReplayPdf,
+                            onSendChatPrompt = viewModel::sendAiChatPrompt
+                        )
+                    }
                     composable(Destinations.Analytics.route) {
                         AnalyticsScreen(
                             state = analytics,
@@ -283,6 +310,8 @@ fun CopilotFoundationRoot(
                             onVerboseLogsToggle = viewModel::setVerboseLogsEnabled,
                             onProModeToggle = viewModel::setProModeEnabled,
                             onNightscoutUrlSave = viewModel::setNightscoutUrl,
+                            onAiApiSettingsSave = viewModel::setAiApiSettings,
+                            onUiStyleChange = viewModel::setUiStyle,
                             onBaseTargetChange = viewModel::setBaseTarget,
                             onInsulinProfileSelect = viewModel::setInsulinProfile,
                             onLocalNightscoutToggle = viewModel::setLocalNightscoutEnabled,
@@ -354,6 +383,7 @@ fun CopilotFoundationRoot(
             }
         }
     }
+}
 }
 
 @Composable
@@ -447,6 +477,7 @@ private fun screenTitle(route: String?): String {
         Destinations.Uam.route -> stringResource(id = R.string.nav_uam)
         Destinations.Safety.route -> stringResource(id = R.string.nav_safety)
         Destinations.Audit.route -> stringResource(id = R.string.menu_audit_log)
+        Destinations.AiAnalysis.route -> stringResource(id = R.string.menu_ai_analysis)
         Destinations.Analytics.route -> stringResource(id = R.string.menu_analytics)
         Destinations.Settings.route -> stringResource(id = R.string.menu_settings)
         else -> stringResource(id = R.string.nav_overview)

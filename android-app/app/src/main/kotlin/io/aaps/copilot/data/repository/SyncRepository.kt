@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.resolvedNightscoutUrl
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
@@ -37,13 +38,26 @@ class SyncRepository(
         }
 
         val nsApi = apiFactory.nightscoutApi(nightscoutUrl, settings.apiSecret)
+        val nowTs = System.currentTimeMillis()
         val legacySince = db.syncStateDao().bySource(SOURCE_NIGHTSCOUT)?.lastSyncedTimestamp ?: 0L
         val sgvSince = loadCursor(SOURCE_NIGHTSCOUT_SGV, legacySince)
         val treatmentSince = loadCursor(SOURCE_NIGHTSCOUT_TREATMENT_CURSOR, legacySince)
         val deviceStatusSince = loadCursor(SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR, legacySince)
+        val bootstrapAttemptTs = loadCursor(SOURCE_NIGHTSCOUT_TREATMENT_BOOTSTRAP, 0L)
+        val insulinLikeCount = db.therapyDao().countInsulinLikeSince(nowTs - THERAPY_BOOTSTRAP_LOOKBACK_MS)
+        val shouldBootstrapTreatmentHistory =
+            insulinLikeCount < THERAPY_BOOTSTRAP_MIN_INSULIN_EVENTS &&
+                (nowTs - bootstrapAttemptTs >= THERAPY_BOOTSTRAP_RETRY_MS)
 
         val sgvQuerySince = (sgvSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
-        val treatmentQuerySince = (treatmentSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
+        val treatmentQuerySince = if (shouldBootstrapTreatmentHistory) {
+            minOf(
+                (treatmentSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L),
+                nowTs - THERAPY_BOOTSTRAP_LOOKBACK_MS
+            )
+        } else {
+            (treatmentSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
+        }
         val deviceStatusQuerySince = (deviceStatusSince - NS_CURSOR_OVERLAP_MS).coerceAtLeast(0L)
 
         val query = mapOf(
@@ -177,6 +191,22 @@ class SyncRepository(
         db.syncStateDao().upsert(
             SyncStateEntity(source = SOURCE_NIGHTSCOUT, lastSyncedTimestamp = nextSince)
         )
+        if (shouldBootstrapTreatmentHistory) {
+            db.syncStateDao().upsert(
+                SyncStateEntity(
+                    source = SOURCE_NIGHTSCOUT_TREATMENT_BOOTSTRAP,
+                    lastSyncedTimestamp = nowTs
+                )
+            )
+            auditLogger.info(
+                "nightscout_treatment_bootstrap_attempted",
+                mapOf(
+                    "insulinLikeCount" to insulinLikeCount,
+                    "bootstrapAttemptTs" to bootstrapAttemptTs,
+                    "querySince" to treatmentQuerySince
+                )
+            )
+        }
         auditLogger.info(
             "nightscout_sync_completed",
             mapOf(
@@ -188,6 +218,8 @@ class SyncRepository(
                 "sgvQuerySince" to sgvQuerySince,
                 "treatmentQuerySince" to treatmentQuerySince,
                 "deviceStatusQuerySince" to deviceStatusQuerySince,
+                "insulinLikeLocal30d" to insulinLikeCount,
+                "treatmentBootstrap" to shouldBootstrapTreatmentHistory,
                 "glucoseFetched" to glucoseRows.size,
                 "glucoseInserted" to glucoseRowsToInsert.size,
                 "glucoseSkippedDuplicate" to glucoseSkippedDuplicate,
@@ -201,8 +233,8 @@ class SyncRepository(
 
     suspend fun pushCloudIncremental() {
         val settings = settingsStore.settings.first()
-        if (settings.cloudBaseUrl.isBlank()) {
-            auditLogger.warn("cloud_push_skipped", mapOf("reason" to "missing_cloud_url"))
+        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) {
+            auditLogger.info("cloud_push_skipped", mapOf("reason" to "cloud_backend_unavailable"))
             return
         }
 
@@ -346,7 +378,11 @@ class SyncRepository(
         private const val SOURCE_NIGHTSCOUT_SGV = "nightscout_sgv_cursor"
         private const val SOURCE_NIGHTSCOUT_TREATMENT_CURSOR = "nightscout_treatment_cursor"
         private const val SOURCE_NIGHTSCOUT_DEVICESTATUS_CURSOR = "nightscout_devicestatus_cursor"
+        private const val SOURCE_NIGHTSCOUT_TREATMENT_BOOTSTRAP = "nightscout_treatment_bootstrap_cursor"
         private const val NS_CURSOR_OVERLAP_MS = 5 * 60_000L
+        private const val THERAPY_BOOTSTRAP_LOOKBACK_MS = 30L * 24 * 60 * 60 * 1000
+        private const val THERAPY_BOOTSTRAP_RETRY_MS = 12L * 60 * 60 * 1000
+        private const val THERAPY_BOOTSTRAP_MIN_INSULIN_EVENTS = 10
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
         private const val MAX_FUTURE_TIMESTAMP_SKEW_MS = 24 * 60 * 60 * 1000L
     }

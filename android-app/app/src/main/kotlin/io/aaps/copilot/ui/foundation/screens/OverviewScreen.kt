@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
@@ -27,6 +28,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -37,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -187,7 +190,10 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
         .maxByOrNull { it.horizonMinutes }
 
     SectionCard {
-        SectionLabel(text = stringResource(id = R.string.metric_current_glucose))
+        SectionLabel(
+            text = stringResource(id = R.string.metric_current_glucose),
+            infoText = stringResource(id = R.string.overview_info_current_glucose_section)
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -318,7 +324,10 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
 private fun PredictionsSection(horizons: List<HorizonPredictionUi>) {
     val sorted = horizons.sortedBy { it.horizonMinutes }
     SectionCard {
-        SectionLabel(text = stringResource(id = R.string.section_overview_predictions))
+        SectionLabel(
+            text = stringResource(id = R.string.section_overview_predictions),
+            infoText = stringResource(id = R.string.overview_info_predictions_section)
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -378,7 +387,10 @@ private fun UamSection(
     mode: String?
 ) {
     SectionCard {
-        SectionLabel(text = stringResource(id = R.string.section_overview_uam_status))
+        SectionLabel(
+            text = stringResource(id = R.string.section_overview_uam_status),
+            infoText = stringResource(id = R.string.overview_info_uam_section)
+        )
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -453,7 +465,10 @@ private fun UamInfoCard(
 @Composable
 private fun TelemetrySection(chips: List<TelemetryChipUi>) {
     SectionCard {
-        SectionLabel(text = stringResource(id = R.string.section_overview_telemetry))
+        SectionLabel(
+            text = stringResource(id = R.string.section_overview_telemetry),
+            infoText = stringResource(id = R.string.overview_info_telemetry_section)
+        )
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -492,7 +507,10 @@ private fun TelemetrySection(chips: List<TelemetryChipUi>) {
 @Composable
 private fun LastActionSection(action: LastActionUi?) {
     SectionCard {
-        SectionLabel(text = stringResource(id = R.string.section_overview_last_action))
+        SectionLabel(
+            text = stringResource(id = R.string.section_overview_last_action),
+            infoText = stringResource(id = R.string.overview_info_last_action_section)
+        )
         if (action == null) {
             Text(
                 text = stringResource(id = R.string.overview_no_actions),
@@ -602,12 +620,43 @@ private fun SectionCard(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun SectionLabel(
+    text: String,
+    infoText: String? = null
+) {
+    var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (!infoText.isNullOrBlank()) {
+            IconButton(onClick = { showInfo = true }) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+    if (showInfo && !infoText.isNullOrBlank()) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(text = text) },
+            text = { Text(text = infoText) },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) {
+                    Text(text = stringResource(id = R.string.action_close))
+                }
+            }
+        )
+    }
 }
 
 private fun compactAgeLabel(minutes: Long?): String {

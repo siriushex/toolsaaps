@@ -1,5 +1,6 @@
 package io.aaps.copilot.ui.foundation.screens
 
+import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.InsulinActionProfiles
 import io.aaps.copilot.ui.LastActionRowUi
@@ -210,6 +211,7 @@ internal fun MainUiState.toSafetyUiState(): SafetyUiState {
         localNightscoutPort = localNightscoutPort,
         localNightscoutTlsOk = tlsOk,
         localNightscoutTlsStatusText = tlsLine ?: "No TLS diagnostics yet",
+        aiTuningStatus = toAiTuningStatusUi(),
         checklist = checklist
     )
 }
@@ -281,10 +283,31 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
     }
     val all = rows + baselineDeltaLines
     val error = inferErrorText()
-    val currentIsfReal = isfCrRealtimeIsfEff ?: profileCalculatedIsf ?: profileIsf
-    val currentCrReal = isfCrRealtimeCrEff ?: profileCalculatedCr ?: profileCr
-    val currentIsfMerged = isfCrRealtimeIsfBase ?: profileIsf
-    val currentCrMerged = isfCrRealtimeCrBase ?: profileCr
+    val latestHistoryPoint = isfCrHistoryPoints.maxByOrNull { it.timestamp }
+    val latestRealHistoryPoint = isfCrHistoryPoints
+        .asSequence()
+        .filter { it.isfCalculated != null || it.crCalculated != null }
+        .maxByOrNull { it.timestamp }
+    val latestAapsHistoryPoint = isfCrHistoryPoints
+        .asSequence()
+        .filter { it.isfAaps != null || it.crAaps != null }
+        .maxByOrNull { it.timestamp }
+    val currentIsfReal = isfCrRealtimeIsfEff
+        ?: latestRealHistoryPoint?.isfCalculated
+        ?: profileCalculatedIsf
+        ?: profileIsf
+    val currentCrReal = isfCrRealtimeCrEff
+        ?: latestRealHistoryPoint?.crCalculated
+        ?: profileCalculatedCr
+        ?: profileCr
+    val currentIsfMerged = latestAapsHistoryPoint?.isfAaps
+        ?: isfCrRealtimeIsfBase
+        ?: latestHistoryPoint?.isfMerged
+        ?: profileIsf
+    val currentCrMerged = latestAapsHistoryPoint?.crAaps
+        ?: isfCrRealtimeCrBase
+        ?: latestHistoryPoint?.crMerged
+        ?: profileCr
     val hasData = all.isNotEmpty() ||
         dailyReportGeneratedAtTs != null ||
         dailyReportMetrics.isNotEmpty() ||
@@ -547,6 +570,245 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
     )
 }
 
+internal fun MainUiState.toAiAnalysisUiState(
+    chatMessages: List<AiChatMessageUi> = emptyList(),
+    chatInProgress: Boolean = false
+): AiAnalysisUiState {
+    val syncWarning = inferErrorText()
+    val blockingError = syncWarning?.takeIf {
+        val normalized = it.uppercase(Locale.US)
+        normalized.startsWith("LAST SYNC ISSUE: ERROR") ||
+            normalized.startsWith("LAST SYNC ISSUE: FATAL")
+    }
+    val horizonScores = dailyReportMetrics
+        .sortedBy { it.horizonMinutes }
+        .map { metric ->
+            AiHorizonScoreUi(
+                horizonMinutes = metric.horizonMinutes,
+                sampleCount = metric.sampleCount,
+                mae = metric.mae,
+                mardPct = metric.mardPct,
+                scoreBand = classifyMardBand(metric.mardPct)
+            )
+        }
+    val topFactors = dailyReportReplayFactors
+        .sortedByDescending { it.contributionScore }
+        .take(12)
+        .map { factor ->
+            AiTopFactorUi(
+                horizonMinutes = factor.horizonMinutes,
+                factor = factor.factor,
+                contributionScore = factor.contributionScore,
+                upliftPct = factor.upliftPct,
+                sampleCount = factor.sampleCount
+            )
+        }
+    val topHotspots = dailyReportReplayHotspots
+        .sortedByDescending { it.mae }
+        .take(12)
+        .map { hotspot ->
+            AiHotspotUi(
+                horizonMinutes = hotspot.horizonMinutes,
+                hour = hotspot.hour,
+                sampleCount = hotspot.sampleCount,
+                mae = hotspot.mae,
+                mardPct = hotspot.mardPct,
+                bias = hotspot.bias
+            )
+        }
+    val topMisses = dailyReportReplayTopMisses
+        .sortedByDescending { it.absError }
+        .take(12)
+        .map { miss ->
+            AiTopMissUi(
+                horizonMinutes = miss.horizonMinutes,
+                ts = miss.ts,
+                absError = miss.absError,
+                pred = miss.pred,
+                actual = miss.actual,
+                cob = miss.cob,
+                iob = miss.iob,
+                uam = miss.uam,
+                ciWidth = miss.ciWidth,
+                activity = miss.activity
+            )
+        }
+    val dayTypeGaps = dailyReportReplayDayTypeGaps
+        .sortedByDescending { kotlin.math.abs(it.maeGapMmol) }
+        .take(8)
+        .map { gap ->
+            AiDayTypeGapUi(
+                horizonMinutes = gap.horizonMinutes,
+                hour = gap.hour,
+                worseDayType = gap.worseDayType,
+                maeGapMmol = gap.maeGapMmol,
+                mardGapPct = gap.mardGapPct,
+                dominantFactor = gap.dominantFactor,
+                sampleCount = gap.weekdaySampleCount + gap.weekendSampleCount
+            )
+        }
+    val replayState = cloudReplay?.let { replay ->
+        AiReplayUi(
+            days = replay.days,
+            points = replay.points,
+            stepMinutes = replay.stepMinutes,
+            forecastStats = replay.forecastStats.map { stat ->
+                AiReplayForecastStatUi(
+                    horizonMinutes = stat.horizon,
+                    sampleCount = stat.sampleCount,
+                    mae = stat.mae,
+                    rmse = stat.rmse,
+                    mardPct = stat.mardPct
+                )
+            },
+            ruleStats = replay.ruleStats.map { stat ->
+                AiReplayRuleStatUi(
+                    ruleId = stat.ruleId,
+                    triggered = stat.triggered,
+                    blocked = stat.blocked,
+                    noMatch = stat.noMatch
+                )
+            },
+            dayTypeStats = replay.dayTypeStats.map { stat ->
+                AiReplayDayTypeStatUi(
+                    dayType = stat.dayType,
+                    metrics = stat.forecastStats.map { forecast ->
+                        AiReplayForecastStatUi(
+                            horizonMinutes = forecast.horizon,
+                            sampleCount = forecast.sampleCount,
+                            mae = forecast.mae,
+                            rmse = forecast.rmse,
+                            mardPct = forecast.mardPct
+                        )
+                    }
+                )
+            },
+            hourlyTop = replay.hourlyStats
+                .sortedByDescending { it.mae }
+                .take(8)
+                .map { stat ->
+                    AiReplayHourStatUi(
+                        hour = stat.hour,
+                        sampleCount = stat.sampleCount,
+                        mae = stat.mae,
+                        mardPct = stat.mardPct
+                    )
+                },
+            driftStats = replay.driftStats.map { stat ->
+                AiReplayDriftStatUi(
+                    horizonMinutes = stat.horizon,
+                    previousMae = stat.previousMae,
+                    recentMae = stat.recentMae,
+                    deltaMae = stat.deltaMae
+                )
+            }
+        )
+    }
+
+    val hasData = analysisHistoryItems.isNotEmpty() ||
+        analysisTrendItems.isNotEmpty() ||
+        cloudJobRows.isNotEmpty() ||
+        aiAnalysisReady ||
+        replayState != null ||
+        dailyReportGeneratedAtTs != null ||
+        dailyReportMetrics.isNotEmpty() ||
+        horizonScores.isNotEmpty() ||
+        topFactors.isNotEmpty() ||
+        topHotspots.isNotEmpty() ||
+        topMisses.isNotEmpty() ||
+        dayTypeGaps.isNotEmpty() ||
+        dailyReportRecommendations.isNotEmpty() ||
+        rollingReportLines.isNotEmpty()
+
+    return AiAnalysisUiState(
+        loadState = resolveLoadState(hasData = hasData, errorText = blockingError),
+        isStale = isDataStale(),
+        errorText = blockingError,
+        minDataHours = aiMinDataHours,
+        dataCoverageHours = aiDataCoverageHours,
+        analysisReady = aiAnalysisReady,
+        cloudConfigured = isCopilotCloudBackendEndpoint(cloudUrl),
+        filterLabel = insightsFilterLabel,
+        jobs = cloudJobRows.map { row ->
+            AiCloudJobUi(
+                jobId = row.jobId,
+                lastStatus = row.lastStatus,
+                lastRunTs = row.lastRunTs,
+                nextRunTs = row.nextRunTs,
+                lastMessage = row.lastMessage
+            )
+        },
+        historyItems = analysisHistoryItems
+            .sortedByDescending { it.runTs }
+            .map { row ->
+                AiAnalysisHistoryItemUi(
+                    runTs = row.runTs,
+                    date = row.date,
+                    source = row.source,
+                    status = row.status,
+                    summary = row.summary,
+                    anomalies = row.anomalies,
+                    recommendations = row.recommendations,
+                    errorMessage = row.errorMessage
+                )
+            },
+        trendItems = analysisTrendItems
+            .sortedByDescending { it.weekStart }
+            .map { row ->
+                AiAnalysisTrendItemUi(
+                    weekStart = row.weekStart,
+                    totalRuns = row.totalRuns,
+                    successRuns = row.successRuns,
+                    failedRuns = row.failedRuns,
+                    anomaliesCount = row.anomaliesCount,
+                    recommendationsCount = row.recommendationsCount
+                )
+            },
+        replay = replayState,
+        localDailyGeneratedAtTs = dailyReportGeneratedAtTs,
+        localDailyPeriodStartUtc = dailyReportPeriodStartUtc,
+        localDailyPeriodEndUtc = dailyReportPeriodEndUtc,
+        localDailyMetrics = dailyReportMetrics
+            .sortedBy { it.horizonMinutes }
+            .map { metric ->
+                DailyReportHorizonUi(
+                    horizonMinutes = metric.horizonMinutes,
+                    sampleCount = metric.sampleCount,
+                    mae = metric.mae,
+                    rmse = metric.rmse,
+                    mardPct = metric.mardPct,
+                    bias = metric.bias,
+                    ciCoveragePct = metric.ciCoveragePct,
+                    ciMeanWidth = metric.ciMeanWidth
+                )
+            },
+        localHorizonScores = horizonScores,
+        localTopFactorsOverall = dailyReportReplayTopFactorsOverall,
+        localTopFactors = topFactors,
+        localHotspots = topHotspots,
+        localTopMisses = topMisses,
+        localDayTypeGaps = dayTypeGaps,
+        localRecommendations = dailyReportRecommendations,
+        rollingLines = rollingReportLines,
+        aiTuningStatus = toAiTuningStatusUi(),
+        chatMessages = chatMessages,
+        chatInProgress = chatInProgress
+    )
+}
+
+private fun MainUiState.toAiTuningStatusUi(): AiTuningStatusUi? {
+    val state = aiTuningState.trim().uppercase(Locale.US).ifBlank { "BLOCKED" }
+    val reason = aiTuningReason.trim().ifBlank { "n/a" }
+    if (state.isBlank() && aiTuningGeneratedTs == null && aiTuningStatusRaw.isNullOrBlank()) return null
+    return AiTuningStatusUi(
+        state = state,
+        reason = reason,
+        generatedTs = aiTuningGeneratedTs,
+        confidence = aiTuningConfidence,
+        statusRaw = aiTuningStatusRaw
+    )
+}
+
 internal fun MainUiState.toSettingsUiState(
     verboseLogsEnabled: Boolean,
     proModeEnabled: Boolean
@@ -557,6 +819,9 @@ internal fun MainUiState.toSettingsUiState(
         proModeEnabled = proModeEnabled,
         baseTarget = baseTargetMmol,
         nightscoutUrl = nightscoutUrl,
+        aiApiUrl = cloudUrl,
+        aiApiKey = openAiApiKey,
+        uiStyle = uiStyle,
         resolvedNightscoutUrl = resolvedNightscoutUrl,
         insulinProfileId = insulinProfileId,
         localNightscoutEnabled = localNightscoutEnabled,
@@ -721,6 +986,16 @@ private fun MainUiState.resolveLoadState(hasData: Boolean, errorText: String?): 
         !errorText.isNullOrBlank() && !hasData -> ScreenLoadState.ERROR
         hasData -> ScreenLoadState.READY
         else -> ScreenLoadState.EMPTY
+    }
+}
+
+private fun classifyMardBand(mardPct: Double?): String {
+    val value = mardPct ?: return "NO_DATA"
+    return when {
+        value <= 10.0 -> "EXCELLENT"
+        value <= 15.0 -> "GOOD"
+        value <= 25.0 -> "WARNING"
+        else -> "CRITICAL"
     }
 }
 

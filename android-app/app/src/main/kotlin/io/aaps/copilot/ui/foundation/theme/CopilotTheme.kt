@@ -1,6 +1,14 @@
 package io.aaps.copilot.ui.foundation.theme
 
 import android.os.Build
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -12,12 +20,19 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.aaps.copilot.config.UiStyle
+import kotlin.math.max
 
 private val LightColors = lightColorScheme(
     primary = androidx.compose.ui.graphics.Color(0xFF005CB8),
@@ -155,5 +170,100 @@ fun AapsCopilotTheme(
             shapes = AppShapes,
             content = content
         )
+    }
+}
+
+@Composable
+fun CopilotStyledBackground(
+    uiStyle: UiStyle,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val darkTheme = isSystemInDarkTheme()
+    when (uiStyle) {
+        UiStyle.CLASSIC -> {
+            val backgroundColor = MaterialTheme.colorScheme.background
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        drawRect(color = backgroundColor)
+                    }
+            ) {
+                content()
+            }
+        }
+
+        UiStyle.DYNAMIC_GRADIENT -> {
+            val transition = rememberInfiniteTransition(label = "copilot-gradient")
+            val phase = transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 13_000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "phase"
+            )
+            val primary = if (darkTheme) {
+                listOf(
+                    Color(0xFF0B132B),
+                    Color(0xFF1C2541),
+                    Color(0xFF1B4965),
+                    Color(0xFF102A43)
+                )
+            } else {
+                listOf(
+                    Color(0xFFEAF2FF),
+                    Color(0xFFDDF7FF),
+                    Color(0xFFF1F7FF),
+                    Color(0xFFEAF4F4)
+                )
+            }
+            val overlay = if (darkTheme) {
+                listOf(
+                    Color(0x553B82F6),
+                    Color(0x4438BDF8),
+                    Color(0x3322D3EE),
+                    Color.Transparent
+                )
+            } else {
+                listOf(
+                    Color(0x6693C5FD),
+                    Color(0x55A5F3FC),
+                    Color(0x4499F6E4),
+                    Color.Transparent
+                )
+            }
+
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        val w = size.width
+                        val h = size.height
+                        val shift = phase.value
+                        drawRect(
+                            brush = Brush.linearGradient(
+                                colors = primary,
+                                start = Offset(x = -w + w * shift, y = 0f),
+                                end = Offset(x = w + w * shift, y = h)
+                            )
+                        )
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = overlay,
+                                center = Offset(
+                                    x = w * (0.2f + 0.6f * shift),
+                                    y = h * (0.2f + 0.3f * (1f - shift))
+                                ),
+                                radius = max(w, h) * 0.95f
+                            )
+                        )
+                    }
+            ) {
+                content()
+            }
+        }
     }
 }

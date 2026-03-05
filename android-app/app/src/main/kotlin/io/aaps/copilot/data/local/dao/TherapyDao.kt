@@ -19,6 +19,13 @@ interface TherapyDao {
     @Query("SELECT * FROM therapy_events WHERE type = :type AND timestamp >= :since ORDER BY timestamp ASC")
     suspend fun byTypeSince(type: String, since: Long): List<TherapyEventEntity>
 
+    @Query(
+        "SELECT COUNT(*) FROM therapy_events " +
+            "WHERE timestamp >= :since " +
+            "AND type IN ('correction_bolus','meal_bolus','bolus','insulin')"
+    )
+    suspend fun countInsulinLikeSince(since: Long): Int
+
     @Query("SELECT * FROM therapy_events ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<TherapyEventEntity>>
 

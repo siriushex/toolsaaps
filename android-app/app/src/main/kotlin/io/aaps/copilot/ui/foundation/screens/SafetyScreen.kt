@@ -14,8 +14,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -24,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +44,10 @@ import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val SafetySectionShape = RoundedCornerShape(18.dp)
 private val SafetyInfoShape = RoundedCornerShape(12.dp)
@@ -75,6 +82,11 @@ fun SafetyScreen(
                     onSafetyBoundsChange = onSafetyBoundsChange
                 )
             }
+            state.aiTuningStatus?.let { tuning ->
+                item {
+                    AiTuningStatusCard(status = tuning)
+                }
+            }
             if (state.cooldownStatusLines.isNotEmpty()) {
                 item {
                     CooldownCard(lines = state.cooldownStatusLines)
@@ -89,6 +101,94 @@ fun SafetyScreen(
                     checksPassed = state.checklist.count { it.ok },
                     checksTotal = state.checklist.size
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiTuningStatusCard(status: AiTuningStatusUi) {
+    val normalizedState = status.state.trim().uppercase(Locale.US)
+    val (statusIcon, statusColor) = when (normalizedState) {
+        "ACTIVE" -> Icons.Default.CheckCircle to MaterialTheme.colorScheme.secondaryContainer
+        "STALE" -> Icons.Default.Warning to MaterialTheme.colorScheme.tertiaryContainer
+        else -> Icons.Default.Error to MaterialTheme.colorScheme.errorContainer
+    }
+    val stateLabel = when (normalizedState) {
+        "ACTIVE" -> stringResource(id = R.string.ai_tuning_state_active)
+        "STALE" -> stringResource(id = R.string.ai_tuning_state_stale)
+        else -> stringResource(id = R.string.ai_tuning_state_blocked)
+    }
+
+    SafetySectionCard {
+        SafetySectionLabel(
+            text = stringResource(id = R.string.section_ai_tuning_status),
+            infoText = stringResource(id = R.string.ai_tuning_status_info)
+        )
+        Surface(
+            shape = SafetyInfoShape,
+            color = statusColor,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = statusIcon,
+                    contentDescription = null
+                )
+                Text(
+                    text = stateLabel,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+        Surface(
+            shape = SafetyInfoShape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.ai_tuning_reason_line, status.reason),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                status.generatedTs?.let { ts ->
+                    Text(
+                        text = stringResource(
+                            id = R.string.ai_tuning_generated_line,
+                            formatSafetyTs(ts)
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                status.confidence?.let { confidence ->
+                    Text(
+                        text = stringResource(
+                            id = R.string.ai_tuning_confidence_line,
+                            String.format(Locale.US, "%.2f", confidence)
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                status.statusRaw
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { raw ->
+                        Text(
+                            text = stringResource(id = R.string.ai_tuning_raw_line, raw),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
             }
         }
     }
@@ -159,7 +259,10 @@ private fun LimitsCard(
     onSafetyBoundsChange: (Double, Double) -> Unit
 ) {
     SafetySectionCard {
-        SafetySectionLabel(text = stringResource(id = R.string.section_safety_limits))
+        SafetySectionLabel(
+            text = stringResource(id = R.string.section_safety_limits),
+            infoText = stringResource(id = R.string.safety_info_limits_section)
+        )
         val unitMinutes = stringResource(id = R.string.unit_minutes)
         val unitMmol = stringResource(id = R.string.unit_mmol_l)
 
@@ -337,7 +440,10 @@ private fun StatCell(
 @Composable
 private fun CooldownCard(lines: List<String>) {
     SafetySectionCard {
-        SafetySectionLabel(text = stringResource(id = R.string.section_safety_cooldown))
+        SafetySectionLabel(
+            text = stringResource(id = R.string.section_safety_cooldown),
+            infoText = stringResource(id = R.string.safety_info_cooldown_section)
+        )
         lines.forEach { line ->
             Surface(
                 shape = SafetyInfoShape,
@@ -357,7 +463,10 @@ private fun CooldownCard(lines: List<String>) {
 @Composable
 private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
     SafetySectionCard {
-        SafetySectionLabel(text = stringResource(id = R.string.section_safety_checklist))
+        SafetySectionLabel(
+            text = stringResource(id = R.string.section_safety_checklist),
+            infoText = stringResource(id = R.string.safety_info_checklist_section)
+        )
         items.forEach { item ->
             Surface(
                 shape = SafetyInfoShape,
@@ -455,12 +564,49 @@ private fun SafetySectionCard(
 }
 
 @Composable
-private fun SafetySectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun SafetySectionLabel(
+    text: String,
+    infoText: String? = null
+) {
+    var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (!infoText.isNullOrBlank()) {
+            IconButton(onClick = { showInfo = true }) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+    if (showInfo && !infoText.isNullOrBlank()) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(text = text) },
+            text = { Text(text = infoText) },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) {
+                    Text(text = stringResource(id = R.string.action_close))
+                }
+            }
+        )
+    }
+}
+
+private fun formatSafetyTs(ts: Long): String {
+    return Instant.ofEpochMilli(ts)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
 }
 
 @Preview(showBackground = true)
@@ -484,6 +630,13 @@ private fun SafetyScreenPreview() {
                 localNightscoutPort = 17582,
                 localNightscoutTlsOk = true,
                 localNightscoutTlsStatusText = "TLS OK",
+                aiTuningStatus = AiTuningStatusUi(
+                    state = "BLOCKED",
+                    reason = "confidence below threshold",
+                    generatedTs = 1_800_000_000_000L,
+                    confidence = 0.38,
+                    statusRaw = "blocked:low_confidence"
+                ),
                 checklist = listOf(
                     SafetyChecklistItemUi("Data freshness", true, "age=1 min"),
                     SafetyChecklistItemUi("Sensor quality", false, "suspect false low")

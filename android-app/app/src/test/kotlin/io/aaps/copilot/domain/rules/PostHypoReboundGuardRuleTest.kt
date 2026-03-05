@@ -28,6 +28,7 @@ class PostHypoReboundGuardRuleTest {
                 forecasts = emptyList(),
                 currentDayPattern = null,
                 baseTargetMmol = 5.5,
+                postHypoThresholdMmol = 3.0,
                 dataFresh = true,
                 activeTempTargetMmol = null,
                 actionsLast6h = 0,

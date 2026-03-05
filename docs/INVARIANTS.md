@@ -51,6 +51,12 @@
    - max UAM ambiguity rate (`0..100%`).
 30. `dia_hours` telemetry must affect insulin action in prediction engine when present: insulin cumulative progression is scaled by DIA/profile-duration ratio within safe bounds; absent/invalid DIA must revert to profile default behavior.
 31. Each automation forecast cycle must emit factor coverage audit (`forecast_factor_coverage`) so missing runtime drivers can be diagnosed (`ISF/CR`, DIA, COB/IOB, UAM, sensor/activity/context, pattern/history, and applied bias stages).
+32. AI daily optimizer may tune only forecast calibration scales (`gain/maxUp/maxDown`) and must stay within bounded clamps before runtime use.
+33. AI daily optimizer output must never bypass deterministic safety/rule engine and must never generate direct therapy commands.
+34. Runtime AI calibration tuning is valid only for fresh optimizer payloads and quality-gated daily reports:
+   - optimizer payload age must be bounded (`<= 36h`),
+   - matched sample count must pass minimum threshold,
+   - high ISF/CR data-quality risk blocks tuning application.
 
 ## Data invariants
 1. Glucose and derived values in app domain use mmol/L.
@@ -94,3 +100,5 @@
 10. Daily replay must also persist per-horizon top-pair quick summaries (`daily_report_replay_top_pair_{5|30|60}m` and `daily_report_replay_top_pair_hint_{5|30|60}m`) for fast UI diagnostics without full JSON parsing.
 11. Daily replay must persist per-horizon day-type-aware error-cluster diagnostics (`WEEKDAY/WEEKEND` + hour-window + mean `COB/IOB/UAM/CI`) as structured telemetry/JSON and quick keys (`daily_report_replay_error_cluster_{5|30|60}m`, `daily_report_replay_error_cluster_hint_{5|30|60}m`).
 12. Daily replay must persist per-horizon weekday/weekend gap diagnostics (`daily_report_replay_daytype_gap_json`) and quick keys (`daily_report_replay_daytype_gap_{5|30|60}m`, `daily_report_replay_daytype_gap_hint_{5|30|60}m`) so UI can expose asymmetric day-type error windows.
+13. In OpenAI mode, daily analysis must still produce local report; optimizer failure must degrade safely to local-only behavior and persist explicit failure telemetry (`daily_report_ai_opt_error`).
+14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.

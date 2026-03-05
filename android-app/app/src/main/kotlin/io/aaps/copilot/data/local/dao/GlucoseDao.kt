@@ -25,6 +25,15 @@ interface GlucoseDao {
     @Query("SELECT MAX(timestamp) FROM glucose_samples")
     suspend fun maxTimestamp(): Long?
 
+    @Query("SELECT MIN(timestamp) FROM glucose_samples")
+    suspend fun minTimestamp(): Long?
+
+    @Query("SELECT MIN(timestamp) FROM glucose_samples")
+    fun observeMinTimestamp(): Flow<Long?>
+
+    @Query("SELECT MAX(timestamp) FROM glucose_samples")
+    fun observeMaxTimestamp(): Flow<Long?>
+
     @Query("SELECT * FROM glucose_samples ORDER BY timestamp DESC LIMIT 1")
     suspend fun latestOne(): GlucoseSampleEntity?
 

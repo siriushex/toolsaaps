@@ -218,6 +218,7 @@
 ## Как проверить
 1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
 2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.activity.LocalActivityMetricsEstimatorTest"`
+
 3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
 4. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:installDebug`
 5. На телефоне:
@@ -4799,3 +4800,858 @@
 3) Подтверждение anti-stall:
    - нет длительных “вечных” `already_running` без последующего `automation_cycle_finished`.
    - есть checkpoint-цепочка до `post_adaptive_audit`.
+
+# Изменения — Этап 114: MARD tuning pass (30/60m) через runtime post-bias rebalancing
+
+## Что сделано
+- Выполнен целевой анализ live БД (`copilot_analysis.db`) по 24h/72h:
+  - подтверждено, что главная проблема — длинный горизонт `60m` (ошибки в сценариях `high COB + high IOB` и нестабильные контекстные/калибровочные сдвиги).
+  - для 24h baseline: `MARD 30m ~22%`, `MARD 60m ~39%`; для 72h: `MARD 60m >50%`.
+- В `AutomationRepository` доработаны пост-слои прогноза:
+  1. `applyContextFactorForecastBiasStatic(...)`
+     - добавлено ослабление контекстного value-bias при широкой CI (чем шире CI, тем меньше сдвиг),
+     - добавлен low-glucose guard для положительного context-bias (не разгонять прогноз вверх при низком текущем BG/риске).
+  2. `applyCobIobForecastBiasStatic(...)`
+     - добавлен риск-aware режим только для узкого low-glucose сценария (`low BG + high IOB + high COB`, `UAM=false`),
+     - в этом режиме мягко подавляется положительный COB-bias и усиливается IOB-bias,
+     - добавлен ограниченный extra downshift только в hard-low/high-load комбинациях, чтобы гасить экстремальные overpredict на 60m.
+- Усилена калибровка `calib_v1`:
+  - `ForecastCalibrationPoint` расширен полем `predictedMmol`,
+  - `collectForecastCalibrationErrors(...)` теперь сохраняет и уровень предсказанного сахара,
+  - `applyRecentForecastCalibrationBiasStatic(...)` переведен на гибрид:
+    - общий EWMA residual + bucketed residual по диапазонам предикта (`<5`, `5..8`, `>=8 mmol/L`),
+    - bucketed bias используется при достаточном числе sample и смешивается с общим bias (horizon-specific blend).
+  - это убирает «один общий сдвиг на все режимы» и делает bias более режимно-специфичным.
+- Пайплайн вызова updated bias-функций прокинут из runtime цикла:
+  - `applyCobIobForecastBias(...)` теперь получает `latestGlucoseMmol` и `uamActive`.
+
+## Почему так
+- Ошибки 60m имеют смешанную природу:
+  - локальные экстремумы overpredict в low/high-load кейсах,
+  - и одновременно общие underpredict в других режимах.
+- Один глобальный коэффициент не решает обе проблемы одновременно.
+- Поэтому сделан «двухконтурный» патч:
+  - точечный анти-overshoot guard для узких опасных кейсов,
+  - более контекстная калибровка для основной массы данных.
+
+## Риски / ограничения
+- Реальное улучшение MARD нужно подтверждать повторным runtime/replay после накопления новых forecast rows (патч меняет forward-поведение, исторические строки не пересчитываются автоматически).
+- Guard-параметры подобраны консервативно; возможен дополнительный тюнинг по 3–7 дням новых данных.
+- В рабочем дереве остаются другие незакоммиченные изменения (из параллельных этапов); этот этап целенаправленно трогает только forecast post-bias/calibration слой и его тесты.
+
+## Как проверить
+1) Unit tests:
+   - `cd android-app && ./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest`
+2) После накопления новых циклов (минимум 24h) сравнить daily report:
+   - `daily_report_mard_30m_pct`,
+   - `daily_report_mard_60m_pct`,
+   - `daily_report_bias_60m`,
+   - `daily_report_replay_error_cluster_json` (особенно low-BG/high-COB/high-IOB кластеры).
+3) Ручной sanity:
+   - в low BG + high IOB + high COB сценарии 60m прогноз не должен «улетать вверх» сверх прежнего уровня,
+   - в обычных post-meal/high-BG сценариях калибровка должна оставаться активной (нет глобального “зажатия” прогноза).
+
+# Изменения — Этап 115: Понятные `i`-подсказки в настройках + словарь терминов
+
+## Что сделано
+- В `SettingsScreen` расширены компоненты настроек:
+  - `SettingToggleRow`,
+  - `SettingIntStepperRow`,
+  - `SettingDoubleStepperRow`,
+  - `SettingTextInputRow`.
+  Теперь они принимают отдельный `infoText`, который показывается в диалоге по нажатию `i` и не перегружает краткий subtitle.
+- Добавлены понятные текстовые объяснения (RU/EN) для ключевых параметров:
+  - источники данных (Nightscout URL, local NS, broadcast ingest, strict sender),
+  - UAM (inference/boost/export/dry-run/mode/min-max-step),
+  - adaptive controller (enable/base target/insulin profile/safety bounds/post-hypo),
+  - real ISF/CR engine (shadow/confidence/activity/manual tags/evidence/CR integrity),
+  - debug/privacy (pro mode, verbose logs, retention).
+- `i`-диалог теперь показывает «что это» и «как влияет на сахар/компенсацию» для указанных ключевых настроек.
+- В `manual.md` добавлен раздел `Короткий словарь для i-подсказок в UI` с практичными объяснениями терминов (`ISF/CR/CSF/IOB/COB/UAM/DIA/CI/...`) и ссылками на AndroidAPS/OpenAPS.
+
+## Почему так
+- Раньше `i`-иконка в большинстве случаев повторяла технический subtitle и не всегда объясняла влияние на компенсацию простыми словами.
+- Разделение `subtitle` и `infoText` позволило оставить экран компактным и одновременно дать полный контекст в один тап.
+- Единый словарь снижает неоднозначность трактовки ключевых терминов.
+
+## Риски / ограничения
+- Полный охват сделан для ключевых параметров (основной поток настройки); для редких/глубоких экспертных полей остаётся fallback на subtitle.
+- Тексты intentionally короткие, поэтому клинические нюансы могут быть упрощены.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. Открыть `Settings` и нажать `i` на параметрах:
+   - `Nightscout URL`,
+   - `Enable UAM inference`,
+   - `Base target`,
+   - `ISF/CR confidence threshold`.
+3. Убедиться, что в диалоге показано понятное объяснение «что это» и «на что влияет», а не только технический subtitle.
+4. Проверить раздел `manual.md` -> `## 29. Короткий словарь для i-подсказок в UI`.
+
+Примечание по тестам:
+- `./gradlew :app:testDebugUnitTest` в текущем состоянии репозитория падает на существующем тесте `PostHypoReboundGuardRuleTest > triggers_whenHypoAndTwoRisingIntervals` (не связан с текущими UI/документационными изменениями).
+
+# Изменения — Этап 116: `i`-подсказки на экранах Overview/Forecast/UAM/Safety
+
+## Что сделано
+- Завершено расширение `i`-подсказок за пределами `Settings`:
+  - `OverviewScreen`: добавлены пояснения для секций текущего сахара, прогнозов, UAM, телеметрии, последнего действия.
+  - `ForecastScreen`: добавлены пояснения для range/layers/chart/horizons/decomposition.
+  - `UamScreen`: добавлены `i`-кнопки и диалоги для секций `Inferred UAM` и `UAM Events`.
+  - `SafetyScreen`: добавлены `i`-кнопки и диалоги для секций `Global Hard Safety Limits`, `Cooldown status`, `Safety checklist`.
+- Добавлены недостающие RU/EN string resources для новых `overview_info_*`, `forecast_info_*`, `uam_info_*`, `safety_info_*`.
+- Устранен потенциальный compile-break из-за ссылок на отсутствующие string keys.
+
+## Почему так
+- Пользователь запросил единый и понятный формат подсказок по параметрам и блокам интерфейса.
+- На практике часть экранов уже ссылалась на новые `info` ключи, но строки еще не были заведены; это создавало риск падения сборки/ресурсов.
+- Единый паттерн `SectionLabel(..., infoText=...)` делает UX консистентным и предсказуемым.
+
+## Риски / ограничения
+- Подсказки покрывают ключевые секции; отдельные глубоко-диагностические поля пока используют существующие подписи/лейблы.
+- Формулировки намеренно короткие и практичные, без клинических деталей.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. Открыть экраны `Overview`, `Forecast`, `UAM`, `Safety`.
+3. Нажать `i` рядом с заголовками секций и убедиться:
+   - диалог открывается сразу;
+   - текст объясняет, что показывает секция и как это влияет на прогноз/автоматику;
+   - строки доступны в RU/EN.
+
+# Изменения — Этап 117: `i`-подсказки на экранах Audit и Analytics
+
+## Что сделано
+- Добавлен такой же `i`-паттерн в `AuditScreen` и `AnalyticsScreen` на уровне `SectionLabel`.
+- Для обоих экранов добавлены понятные `RU/EN` тексты:
+  - `audit_info_section_generic`
+  - `analytics_info_section_generic`
+- Теперь на всех основных экранах приложения есть единообразный способ открыть краткое пояснение по секции в один тап.
+
+## Почему так
+- Пользователь запросил консистентную документацию прямо из UI “для каждого окна”.
+- Audit/Analytics до этого оставались без встроенной подсказки в заголовках секций.
+
+## Риски / ограничения
+- Для Audit/Analytics пока используется универсальный текст по секции (не отдельный текст под каждый под-блок внутри аналитики).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. Открыть `Audit` и `Analytics`.
+3. Нажать `i` у заголовков секций и проверить открытие/закрытие диалога и корректность текста.
+
+# Изменения — Этап 118: Проверка и фиксы графиков ISF/CR (real vs AAPS)
+
+## Что сделано
+- Выполнена проверка локальной live БД:
+  - `telemetry_samples` содержит профильные точки `isf_value/cr_value` из `xdrip_broadcast`,
+  - `isf_cr_snapshots` содержит realtime real-оценки (в текущем срезе fallback ~`ISF 3.1`, `CR 10.0`),
+  - подтвержден разнос real vs AAPS в данных (например AAPS `ISF 3.5`).
+- Устранена подмена линий на графике:
+  - в `IsfCrHistoryPointUi` добавлены strict-поля `isfRealStrict/crRealStrict/isfAapsStrict/crAapsStrict`,
+  - `AnalyticsScreen` переведен на strict-данные для real/AAPS линий вместо fallback-склейки.
+- Обновлен рендер серии ISF/CR:
+  - real линия теперь nullable-aware (строится только по фактическим real точкам, без автоподстановки merged),
+  - AAPS линия строится отдельно и пунктиром только по доступным `isfAaps/crAaps`,
+  - `last delta` считается по последней точке, где присутствуют обе линии.
+- Улучшен выбор текущих значений в `MainUiStateMappers`:
+  - current real берется из последней real-точки,
+  - current AAPS берется из последней точки с реальным AAPS значением (а не через merged fallback).
+- Расширен фильтр источников AAPS-профиля в истории (`MainViewModel`):
+  - добавлен `broadcast` для кейсов, где профиль ISF/CR приходит с broadcast-меткой источника.
+
+## Почему так
+- Ранее часть UI-маршрута использовала fallback-значения для real линии, что визуально могло «склеивать» real и AAPS графики.
+- Для точного сравнения нужна строгая декомпозиция: real только из вычисленного контура, AAPS только из профильной телеметрии.
+
+## Риски / ограничения
+- Если real-точек мало (или они отсутствуют), real линия может быть короче/прерывистой — это ожидаемое поведение, а не ошибка.
+- При полном отсутствии AAPS-рядов сохраняется fallback в summary-числах, но сама AAPS-линия на графике не рисуется.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `./gradlew :app:testDebugUnitTest --tests io.aaps.copilot.ui.IsfCrHistoryResolverTest`
+3. В UI открыть `Аналитика -> ISF/CR`, выбрать масштаб `12h/24h/3d/7d/30d` и проверить:
+   - сплошная линия = real calculated,
+   - пунктир = AAPS profile,
+   - `AAPS coverage` > 0 при наличии `isf_value/cr_value` в telemetry.
+
+# Изменения — Этап 7: Error stabilization (ISF/CR evidence, sync bootstrap, UI latency, DB integrity)
+
+## Что сделано
+- Усилен Nightscout sync для терапии:
+  - добавлен bootstrap backfill treatment history на 30 дней, если в локальной БД мало insulin-like событий;
+  - добавлены метрики bootstrap в audit (`nightscout_treatment_bootstrap_attempted`, поля в `nightscout_sync_completed`).
+- Расширен DAO терапии:
+  - `TherapyDao.countInsulinLikeSince(...)` для runtime-решения о bootstrap backfill.
+- Исправлен ISF/CR extractor:
+  - добавлен вывод implicit correction bolus из IOB jump telemetry (для ISF evidence даже при отсутствии явных bolus событий в therapy);
+  - сохранён безопасный meal-gate и dedup;
+  - улучшено разделение implicit correction (для ISF) и explicit bolus-link в CR (implicit события `source=isfcr_inference` не считаются явным meal bolus).
+- Улучшена стабильность realtime ISF/CR snapshot:
+  - при сильной устарелости snapshot теперь сначала выполняется синхронный refresh (bounded timeout), затем fallback на async refresh.
+- Снижена нагрузка на главный UI combine:
+  - уменьшены лимиты наблюдаемых рядов (`glucose/therapy/forecast/telemetry`) в `MainViewModel`.
+- Добавлен периодический контроль целостности Room БД в maintenance ingest-контура:
+  - `PRAGMA quick_check`, audit `db_integrity_ok` / `db_integrity_issue_detected` + checkpoint попытка.
+- Добавлен unit-тест:
+  - `IsfCrWindowExtractorTest.extract_isfSampleCanBeInferredFromImplicitIobCorrectionWithoutTherapyEvents`.
+
+## Почему так
+- В device diagnostics выявлены проблемы:
+  - `isf_cr_evidence = 0`, постоянный `FALLBACK`;
+  - stale ISF/CR snapshot;
+  - UI lag на переключателях;
+  - повреждение `copilot.db` на устройстве.
+- Эти изменения адресуют причины напрямую: пополнение therapy history, генерация implicit ISF evidence, более надежный refresh snapshot, снижение UI давления и ранний сигнал по integrity.
+
+## Риски / ограничения
+- Bootstrap treatment backfill зависит от доступности historical treatments в Nightscout.
+- Implicit IOB correction может давать шум в нестандартных IOB-паттернах; ограничено порогами jump/dt и dedup bucket.
+- Полный `testDebugUnitTest` в ветке содержит ранее существующий нестабильный тест `PostHypoReboundGuardRuleTest` (не связан с этим этапом).
+
+## Как проверить
+1. `cd android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd android-app && ./gradlew :app:assembleDebug`
+3. `cd android-app && ./gradlew :app:lintDebug`
+4. `cd android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.isfcr.IsfCrWindowExtractorTest"`
+5. `cd android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.BroadcastIngest*"`
+6. `cd android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.rules.AdaptiveTempTargetControllerTest"`
+
+# Изменения — Этап 119: Закрытие полного test gate
+
+## Что сделано
+- Исправлен падающий unit-тест `PostHypoReboundGuardRuleTest`:
+  - в сценарии trigger добавлена явная передача `postHypoThresholdMmol = 3.0`,
+  - тест больше не зависит от текущих дефолтных safety-настроек контекста.
+
+## Почему так
+- После ужесточения дефолтных safety-границ тест неявно сломался из-за зависимости от дефолта `postHypoThresholdMmol`.
+- Явная фиксация порога в тесте делает проверку стабильной и корректной по смыслу сценария.
+
+## Риски / ограничения
+- Изменение только тестовое, бизнес-логика runtime не менялась.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:lintDebug`
+3. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+
+# Изменения — Этап 120: Новая вкладка `AI Analysis / AI Reports` (HBA1-like)
+
+## Что сделано
+- Добавлена отдельная вкладка `AI Analysis` в `More`-навигацию foundation UI:
+  - новый destination `ai_analysis`,
+  - новый экран `AiAnalysisScreen`,
+  - подключение в `CopilotFoundationRoot`.
+- Добавлена новая UI-модель состояния `AiAnalysisUiState` и связанные модели для:
+  - cloud jobs,
+  - history/trend блоков AI-аналитики,
+  - replay summary (forecast/rules/daytype/hour/drift),
+  - локального daily report + рекомендаций.
+- Расширен `MainViewModel`:
+  - собраны rows для cloud jobs/history/trend из текущих репозиториев,
+  - добавлен `StateFlow` `aiAnalysisUiState`.
+- Добавлен mapper `toAiAnalysisUiState()` в `MainUiStateMappers`.
+- Реализован экран `AiAnalysisScreen` с секциями:
+  - `AI controls` (run/refresh/filter/export/replay),
+  - `Cloud analysis status`,
+  - `Latest AI report`,
+  - `AI report history`,
+  - `Weekly trend`,
+  - `Replay summary`,
+  - `Local daily report (24h)`,
+  - `AI recommendations`,
+  - `Rolling quality lines`.
+- Добавлены `i`-пояснения в заголовках секций (единый UX-паттерн).
+- Добавлены локализованные строки RU/EN для новой вкладки и всех блоков.
+- Добавлен unit-тест маппинга:
+  - `MainUiStateMappersTest.aiAnalysisMapping_exposesCloudHistoryTrendAndLocalReport`.
+
+## Почему так
+- Пользователь запросил отдельный контур AI-аналитики/отчетов, похожий на HBA1.
+- Вкладка собрана на уже имеющихся доменных данных (cloud jobs, insights, replay, daily report), чтобы получить полноценный экран без изменения бизнес-алгоритмов прогноза/автоматики.
+
+## Риски / ограничения
+- Это UI+state integration этап: алгоритмы HBA1-подобной аналитики дальше можно расширять в доменном слое без изменения экранного контракта.
+- Есть только warning по deprecated иконкам (`Icons.Default.ShowChart/TrendingUp/...`), на работу не влияет.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. В приложении открыть `More -> AI Analysis` и проверить:
+   - секции и действия отображаются,
+   - фильтры применяются,
+   - экспорт/replay кнопки вызывают соответствующие actions,
+   - `i`-диалоги открываются.
+
+# Изменения — Этап 121: AI Analysis v2 (HBA1-style replay intelligence)
+
+## Что сделано
+- Расширен контракт `AiAnalysisUiState` и добавлены структурированные блоки:
+  - `localHorizonScores` (оценка качества 5/30/60),
+  - `localTopFactorsOverall`,
+  - `localTopFactors` (factor contribution),
+  - `localHotspots` (hourly error hotspots),
+  - `localTopMisses` (largest misses + контекст),
+  - `localDayTypeGaps` (weekday/weekend gap).
+- Добавлены новые модели в `ScreenModels.kt`:
+  - `AiHorizonScoreUi`, `AiTopFactorUi`, `AiHotspotUi`, `AiTopMissUi`, `AiDayTypeGapUi`.
+- Расширен `toAiAnalysisUiState()`:
+  - маппинг из `dailyReport*` replay структур в AI-вкладку,
+  - сортировки по приоритету (score/factors/hotspots/misses),
+  - добавлена классификация MARD-band (`EXCELLENT/GOOD/WARNING/CRITICAL`).
+- Расширен `AiAnalysisScreen` новыми секциями:
+  - `Prediction quality scorecards`,
+  - `Top error factors`,
+  - `Error hotspots by hour`,
+  - `Largest misses context`,
+  - `Weekday/weekend gaps`.
+- Для UI добавлены RU/EN строки и подписи.
+- Расширен unit-test `aiAnalysisMapping_exposesCloudHistoryTrendAndLocalReport`:
+  - проверяет заполнение новых AI-блоков и band-классификацию.
+
+## Почему так
+- Пользователь запросил AI-анализ “как в HBA1”: ключевая ценность там — не только запуск jobs, но и explainable replay-диагностика, где ошибка концентрируется и какие факторы её драйвят.
+- В проекте уже был богатый replay/daily report контур, поэтому интеграция в новую вкладку сделана без изменения бизнес-ядра.
+
+## Риски / ограничения
+- Качество блоков зависит от полноты `dailyReportReplay*` данных.
+- Band-классификация MARD сейчас rule-based (фиксированные пороги), без персональной калибровки.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. В UI открыть `More -> AI Analysis` и проверить появление новых секций с данными replay/daily report.
+
+# Изменения — Этап 122: AI Analysis v3 (interactive filters + mini charts)
+
+## Что сделано
+- Добавлены интерактивные фильтры прямо в AI-вкладку:
+  - фильтр по горизонту (`all/5m/30m/60m`),
+  - фильтр по доминирующему фактору (`all + факторы из replay`).
+- Фильтры применяются к блокам:
+  - scorecards,
+  - top factors,
+  - hotspots,
+  - top misses,
+  - day-type gaps.
+- Добавлены мини-графики в секции `Error hotspots by hour`:
+  - для горизонтов 5/30/60 (или выбранного горизонта),
+  - dual-line sparkline: `MAE line` + `MARD line`,
+  - `contentDescription` для accessibility.
+- Добавлены новые строки RU/EN:
+  - подписи фильтров,
+  - подписи/легенды mini-charts,
+  - строки accessibility.
+
+## Почему так
+- Пользователь запросил следующий шаг: mini-charts по MAE/MARD и интерактивную аналитическую фильтрацию.
+- Реализация выполнена локально в UI-слое поверх уже существующих replay/daily-report структур, без изменения safety/therapy бизнес-логики.
+
+## Риски / ограничения
+- Мини-графики строятся по hourly hotspot-данным: если данных мало (<2 точки), выводится корректное `not enough points`.
+- MAE и MARD рисуются как две отдельные нормированные линии формы (для тренда), а не как одна абсолютная шкала.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. В UI открыть `More -> AI Analysis`:
+   - переключать `Filter by horizon` и `Filter by dominant factor`,
+   - проверить, что списки и мини-графики пересчитываются по выбранным фильтрам.
+
+# Изменения — Этап 123: AI Analysis open-state fix + AI API settings
+
+## Что сделано
+- Исправлена блокировка экрана `AI Analysis` из-за неблокирующих sync warning:
+  - в `toAiAnalysisUiState()` warning уровня `WARN` больше не переводит экран в `ERROR`;
+  - блокирующим считается только `Last sync issue: ERROR/FATAL`.
+- Добавлены поля настроек для AI API:
+  - `AI API URL` (базовый endpoint),
+  - `AI API key` (секрет, с режимом show/hide в UI).
+- Добавлено сохранение этих параметров в `AppSettingsStore` через `MainViewModel.setAiApiSettings(...)`.
+- Провязаны поля через UI-state:
+  - `SettingsUiState.aiApiUrl`,
+  - `SettingsUiState.aiApiKey`.
+- Обновлены RU/EN ресурсы строк для новых полей и подсказок (`i`-описания).
+- Добавлены unit-проверки маппера:
+  - warning-only sync issue не блокирует `AI Analysis`,
+  - `Settings`-маппинг отдает `aiApiUrl/aiApiKey`.
+
+## Почему так
+- Пользовательский сценарий: экран “не открывается” из-за warning при отсутствии cloud-данных.
+- Для рабочих AI-инсайтов и облачного анализа нужен прямой ввод endpoint и API key из телефона без редактирования файлов.
+
+## Риски / ограничения
+- `AI API key` хранится в DataStore как обычная строка настроек (без отдельного Android Keystore-шифрования на этом этапе).
+- Если `AI API URL` указывает на неверный backend, экран будет открываться, но cloud-операции останутся пустыми/ошибочными по данным синхронизации.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3. На устройстве открыть `Settings -> Источники данных`:
+   - заполнить `AI API URL` и `AI API key`,
+   - нажать `Save`.
+4. Открыть `More -> AI Analysis`:
+   - экран должен открываться даже при `Last sync issue: WARN: ...`,
+   - при `ERROR/FATAL` должен показываться error-state.
+
+# Изменения — Этап 124: Default OpenAI API URL/Key in settings
+
+## Что сделано
+- В `AppSettingsStore` добавлены значения по умолчанию для AI-подключения:
+  - `cloudBaseUrl` → `https://api.openai.com/v1`
+  - `openAiApiKey` → ключ из пользовательского запроса.
+- Эти дефолты применяются:
+  - при чтении `settings` потока,
+  - при `update(...)` в построении `current` состояния.
+
+## Почему так
+- Пользователь запросил, чтобы URL и ключ OpenAI автоматически подставлялись как дефолтные значения без ручного ввода после установки.
+
+## Риски / ограничения
+- Ключ зашит в исходный код приложения как дефолт. Это повышает риск компрометации при утечке исходников/APK.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+2. Установить APK на устройство.
+3. На чистых настройках открыть `Settings -> Data sources` и убедиться, что `AI API URL` и `AI API key` уже заполнены.
+
+# Изменения — Этап 125: CPU/Energy optimization for UI telemetry pipeline
+
+## Что сделано
+- Оптимизирован `MainViewModel` для уменьшения CPU-нагрузки на каждом цикле обновления данных:
+  - `latestTelemetryByKey(...)` теперь считается **один раз** за цикл и переиспользуется в:
+    - `buildTelemetryCoverageLines(...)`
+    - `buildTelemetryLines(...)`
+    - `buildActivitySummaryLines(...)`
+  - Убран тройной/четверной повторный пересчёт телеметрического map.
+- Переписан `latestTelemetryByKey(...)` с allocation-heavy `filter + groupBy + mapValues` на **однопроходный** алгоритм:
+  - один проход по samples,
+  - отдельный fast-path для cumulative ключей (steps/distance/active/calories),
+  - сохранена исходная логика выбора максимума за день/всё время.
+- Оптимизирован расчёт графиков ISF/CR в аналитике:
+  - `buildIsfCrHistoryPoints(...)` теперь ограничивает входные данные окном `30d` (`ISFCR_ANALYTICS_WINDOW_MS`),
+  - `buildAapsSeriesFromTelemetry(...)` фильтрует telemetry по `minTs`,
+  - сокращён объём обработки при минутных обновлениях без потери заявленных UI-масштабов (12h/24h/3d/7d/30d).
+
+## Почему так
+- Основной перегрев CPU был в частом полном пересчёте UI-state на каждый входящий telemetry update.
+- Повторный пересчёт `latestTelemetryByKey` и полная агрегация длинной истории ISF/CR были самыми дорогими участками.
+- Изменения нацелены на уменьшение числа аллокаций и объёма обрабатываемых данных без изменения бизнес-логики прогнозирования/автоматизации.
+
+## Риски / ограничения
+- Для аналитического графика ISF/CR теперь используется окно последних 30 дней; более старая история не участвует в рендере.
+- Бизнес-решения (safety/rules/automation) не менялись, только оптимизация UI-пайплайна и подготовительных вычислений.
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2) Открыть экран `Analytics` и убедиться, что графики ISF/CR корректно отображаются в масштабах `12h/24h/3d/7d/30d`.
+3) На устройстве проверить отзывчивость UI при входящем telemetry потоке (минутные обновления):
+   - отсутствие лагов при открытии `Overview/Forecast/Analytics`,
+   - отсутствие долгих задержек при переключении вкладок.
+
+# Изменения — Этап 126: AI Analysis 24h gate + context AI chat
+
+## Что сделано
+- Реализован жёсткий 24h-гейт для AI-анализа:
+  - в `MainViewModel.runDailyAnalysisNow()` запуск блокируется, если покрытия глюкозы меньше 24ч;
+  - показывается прогресс покрытия (`x.y/24h`).
+- Добавлена авто-генерация локального daily-анализа при готовности данных:
+  - `maybeGenerateLocalDailyAnalysis(...)` запускает `generateDailyForecastReport(24)` при наличии >=24ч и отсутствии свежего локального отчета;
+  - выполнено без зависимости от cloud endpoint.
+- В `AiAnalysisUiState` и mapper добавлены поля готовности окна:
+  - `minDataHours`, `dataCoverageHours`, `analysisReady`.
+- На экране `AI Analysis` добавлен блок `Data readiness window`:
+  - отображает “collecting data” до 24ч;
+  - после достижения порога показывает готовность;
+  - кнопка `Run AI analysis` отключена до готовности.
+- Добавлен AI-чат на вкладку `AI Analysis`:
+  - новый репозиторий `AiChatRepository` (OpenAI-compatible `chat/completions`);
+  - в чат передается контекст из runtime/state: glucose, forecasts+CI, IOB/COB, ISF/CR, DIA, UAM, activity/steps, daily-report и replay факторы;
+  - история чата и статус запроса (`chatInProgress`) выведены в UI.
+- Навигация провязана:
+  - `CopilotFoundationRoot` -> `AiAnalysisScreen(onSendChatPrompt = viewModel::sendAiChatPrompt)`.
+- Добавлены RU/EN строки для:
+  - 24h readiness,
+  - AI chat labels/placeholders/messages.
+- Добавлен unit-test mapping:
+  - `aiAnalysisMapping_includesCoverageReadinessAndChatState`.
+
+## Почему так
+- Пользовательский запрос: AI анализ должен появляться только после накопления достаточного окна данных (минимум сутки) и нужен AI-чат на реальных данных контура.
+- Разделили cloud-инсайты и локальную ежедневную аналитику: локальный блок формируется даже при проблемах cloud API.
+
+## Риски / ограничения
+- AI-чат требует валидный `AI API URL` с OpenAI-compatible `chat/completions` и корректный `AI API key`.
+- Контекст чата summary-based (агрегированный), не полный raw dump всех точек.
+- История чата пока in-memory (без persist между перезапусками).
+
+## Как проверить
+1) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2) `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3) В UI открыть `AI Analysis`:
+   - до 24ч видеть прогресс `Collecting data`;
+   - после 24ч активируется `Run AI analysis` и формируется локальный daily block;
+   - в секции `AI chat` отправить вопрос и получить ответ по контексту данных.
+
+# Изменения — Этап 127: AI readiness from full DB span (fix stuck collecting)
+
+## Что сделано
+- Исправлен источник расчета покрытия данных для AI:
+  - в `GlucoseDao` добавлены `minTimestamp()/maxTimestamp()` и реактивные `observeMinTimestamp()/observeMaxTimestamp()`;
+  - в `MainViewModel` поле `aiDataCoverageHours` теперь считается по полному диапазону `MIN/MAX(timestamp)` таблицы `glucose_samples`, а не по лимитированному `latest(limit=...)` списку.
+- Обновлены все критичные проверки готовности AI:
+  - `runDailyAnalysisNow()` использует `loadAiCoverageHours(...)` на базе полного DB-span;
+  - `maybeGenerateLocalDailyAnalysis()` использует тот же источник.
+- Добавлен fallback:
+  - если span из БД недоступен, остается прежний расчет по `latest(limit=...)`, чтобы не ломать поведение при edge-cases.
+
+## Почему так
+- Симптом “AI завис на сборе данных” возникал из-за того, что readiness-гейт брал только последние N точек из UI-среза и недооценивал реальную длительность истории.
+- Пользовательское требование: все данные должны браться из существующей БД. Новый расчет использует полный интервал данных в `glucose_samples`.
+
+## Риски / ограничения
+- Покрытие по-прежнему ограничено сверху `72h` (существующее ограничение).
+- Если в таблице только одна точка или `MIN == MAX`, покрытие остается `0h` по текущей формуле.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.config.CloudEndpointModesTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. На устройстве проверить span в БД:
+   - `adb shell run-as io.aaps.predictivecopilot ls -la databases`
+   - локально: `sqlite3 /Users/mac/Andoidaps/tmp_ai_fix/copilot_device_tmp.db "select count(*), min(timestamp), max(timestamp), round((max(timestamp)-min(timestamp))/3600000.0,1) from glucose_samples;"`
+4. Открыть `AI Analysis` и убедиться, что при покрытии >=24ч статус готовности больше не зависает в `Collecting data`.
+
+# Изменения — Этап 128: MainViewModel combine lambda split (UI freeze/perf hardening)
+
+## Что сделано
+- Устранен перегруженный inline-лямбда-блок в `uiState`:
+  - раньше весь heavy-пайплайн сборки `MainUiState` выполнялся прямо внутри `combine { values -> ... }`;
+  - теперь `combine` вызывает короткую обертку: `buildMainUiState(values)`.
+- Вынесена основная логика сборки `MainUiState` в отдельный метод:
+  - `private fun buildMainUiState(values: Array<Any?>): MainUiState`
+  - без изменения бизнес-логики, формул и safety-веток.
+- Внутри нового метода добавлен явный `return MainUiState().apply { ... }`.
+
+## Почему так
+- На устройстве фиксировались регулярные сообщения:
+  - `Method exceeds compiler instruction limit ... MainViewModel$special$$inlined$combine$1$3.invokeSuspend(...)`
+- Это признак слишком тяжелой coroutine-lambda, которая хуже компилируется JIT/AOT и может давать лаги UI.
+- Разделение на отдельный метод уменьшает размер лямбды и снижает риск подвисаний при частых обновлениях flow.
+
+## Риски / ограничения
+- Логика не менялась функционально, но выполнен крупный структурный перенос кода в файле `MainViewModel.kt`; возможны регрессии только при ошибках маппинга полей.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+3. На телефоне открыть `Overview / Forecast / AI Analysis` и проверить:
+   - отсутствие длительных (2-3с) фризов при переключениях,
+   - сохранение прежних данных/показателей в UI,
+   - отсутствие новых ошибок в logcat по `MainViewModel`.
+
+# Изменения — Этап 129: ISF/CR chart completeness fix (real vs AAPS continuity)
+
+## Что сделано
+- Исправлена сборка точек для графиков ISF/CR в `MainViewModel.buildIsfCrHistoryPoints(...)`:
+  - добавлен контролируемый carry-forward для разрывов рядов (`real`, `aaps`, `merged`) с отдельными лимитами по времени;
+  - убран сценарий, где точка полностью выпадала из графика из-за отсутствия только одной из компонент в конкретный timestamp.
+- Добавлена нормализация `isf_value` из телеметрии AAPS:
+  - если ISF приходит в mg/dL/U (`>18`), значение автоматически переводится в mmol/L/U;
+  - это устраняет пропадание AAPS-референсной линии при смешанных единицах источника.
+- Добавлены внутренние helper-функции:
+  - `carryForwardMetric(...)`
+  - `normalizeAapsTelemetryMetric(...)`
+- Собран новый debug APK и установлен на устройство по USB.
+
+## Почему так
+- Причина “неполноценных” графиков: часть точек выбрасывалась при неполном совпадении таймсерий, а AAPS ISF в mg/dL/U мог отфильтровываться как выходящий за диапазон.
+- Новый пайплайн делает линии устойчивыми к разрывам и единицам источника, сохраняя разделение:
+  - `real` (расчетный),
+  - `AAPS` (референсный/загруженный).
+
+## Риски / ограничения
+- Carry-forward ограничен по окну времени и может сглаживать краткие разрывы, но не заменяет реальные новые данные.
+- Для очень редких/шумных источников возможны участки с пониженной плотностью `strict`-точек, что отражает качество входных данных.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrHistoryResolverTest"`
+3. Установка по USB:
+   - `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+4. На телефоне открыть `Analytics -> ISF/CR`:
+   - проверить переключение диапазонов `12h/24h/3d/7d/30d`,
+   - проверить две линии: real (сплошная) и AAPS (пунктир),
+   - проверить, что график не “обрывается” на участках с частичными пропусками.
+
+# Изменения — Этап 130: Daily OpenAI optimizer for 30/60m forecast calibration
+
+## Что сделано
+- Добавлен суточный AI-оптимизатор в `AiChatRepository`:
+  - выбор модели через `GET /v1/models` с приоритетом `gpt-5* pro`,
+  - запуск анализа через `POST /v1/responses` в background-режиме,
+  - polling статуса и строгий парсинг structured JSON-ответа.
+- В `InsightsRepository.runDailyAnalysis()` добавлен OpenAI optimizer-path для режима OpenAI endpoint (без custom cloud backend):
+  - локальный 24h report формируется как и раньше (обязательно),
+  - затем запускается оптимизатор и его результат пишется в telemetry (`daily_report_ai_opt_*`),
+  - при ошибке оптимизатора выполняется safe fallback на local-report-only с явным `daily_report_ai_opt_error`.
+- В `AutomationRepository` добавлено bounded-применение AI-тюнинга к этапу calibration bias:
+  - читаются `daily_report_ai_opt_gain/maxUp/maxDown` для `5/30/60`,
+  - применяются только при `apply_flag=1` и confidence >= 0.45,
+  - все масштабы дополнительно ограничены безопасными clamp-границами.
+- Добавлены unit-тесты:
+  - `AiChatRepositoryOptimizerTest` (выбор модели, парсинг structured output, parsing output_text),
+  - расширен `AutomationRepositoryForecastBiasTest` сценарием AI-tuning uplift для горизонта 60m.
+
+## Почему так
+- На устройстве подтверждено, что ключевая проблема точности — 30/60m underprediction в режимах повышенного COB/UAM.
+- Локальный replay уже пишет богатый факторный контекст; optimizer использует именно эти локальные метрики и выдает только безопасные тюнинги калибровки, без прямого вмешательства в therapy.
+- Такой контур дает ежедневный цикл улучшений и сохраняет deterministic safety-chain в runtime.
+
+## Риски / ограничения
+- Optimizer зависит от доступности OpenAI API и валидного ключа; при недоступности деградация идет в local-only режим.
+- AI-тюнинг сейчас влияет только на calibration stage (не меняет rule/safety policy напрямую).
+- Качество оптимизации зависит от полноты суточного matched dataset; при sparse data optimizer чаще возвращает `NO_CHANGE`.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AiChatRepositoryOptimizerTest" --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+2. Запустить в приложении `AI Analysis -> Run daily` при OpenAI endpoint.
+3. Проверить в БД/telemetry наличие ключей `daily_report_ai_opt_*` и отсутствие `daily_report_ai_opt_error`.
+4. Проверить audit-события:
+   - `ai_daily_optimizer_completed` (успех),
+   - либо `ai_daily_optimizer_failed`/`ai_daily_optimizer_skipped` (fallback).
+
+# Изменения — Этап 131: AI tuning freshness/quality gate + stale-apply leak fix
+
+## Что сделано
+- Исправлен риск “stale APPLY leakage” в daily optimizer telemetry:
+  - в `InsightsRepository.persistDailyAiOptimizerTelemetry(...)` ключи runtime-тюнинга теперь пишутся **всегда**;
+  - при ошибке/skip пишутся нейтральные значения:
+    - `daily_report_ai_opt_apply_flag=0`,
+    - `daily_report_ai_opt_gain/max_up/max_down_scale_* = 1.0`,
+    - confidence/status/error сохраняются явно.
+- Усилен runtime-gate применения AI calibration tuning в `AutomationRepository`:
+  - тюнинг применяется только если payload свежий (`generated_ts <= 36h`),
+  - есть минимальное покрытие (`daily_report_matched_samples >= 36`),
+  - `daily_report_isfcr_quality_risk_level < 3` (high-risk блокирует применение),
+  - сохранены confidence/apply-flag проверки и clamp-границы scale.
+- Добавлен тестируемый static helper:
+  - `resolveAiCalibrationTuningStatic(latestTelemetry, nowTs)`.
+- Добавлены unit-тесты:
+  - блокировка stale payload,
+  - блокировка при high risk,
+  - блокировка при недостатке matched samples,
+  - успешное применение с clamp значений.
+
+## Почему так
+- После неуспешного daily AI-run старый `apply_flag` мог оставаться последним валидным по ключу и влиять на runtime дольше суток.
+- Для безопасного снижения ошибки 30/60m AI-тюнинг должен быть не только bounded, но и “свежий + качественный”.
+
+## Риски / ограничения
+- При бедных данных (`matched_samples < 36`) AI-тюнинг будет отключаться чаще, что снижает агрессивность авто-адаптации.
+- Гейт по risk-level завязан на корректность построения `daily_report_isfcr_quality_risk_level` в daily report.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.AiChatRepositoryOptimizerTest"`
+3. Вручную:
+   - спровоцировать failed optimizer run,
+   - проверить в telemetry последние `daily_report_ai_opt_*` (apply_flag=0, scales=1.0),
+   - убедиться, что runtime не применяет старый AI-тюнинг.
+
+# Изменения — Этап 132: UAM export recovery (stuck SUSPECTED events)
+
+## Что сделано
+- Проведена диагностика по device DB:
+  - `action_commands` и `audit_logs` подтверждают, что `UAM_ENGINE` отправка в AAPS/NS работает (`uam_export_post_success`), но после 06:50 появились зависшие `SUSPECTED` события без перехода в `CONFIRMED`.
+  - Из-за этого активные UAM-слоты заполнялись и новые экспортируемые события переставали формироваться.
+- В `UamInferenceEngine` добавлено безопасное авто-закрытие stale `SUSPECTED` событий:
+  - если fit недоступен и возраст события слишком большой -> `MERGED`,
+  - если длительный weak-tail + низкая confidence -> `MERGED`,
+  - hard-timeout для `SUSPECTED` (force close), чтобы не блокировать pipeline.
+- Добавлен unit-тест:
+  - `UamInferenceEngineTest.staleSuspectedEventIsClosedToMergedToUnblockExportPipeline`.
+
+## Почему так
+- Проблема была не в AI optimizer-контуре и не в сетевой отправке NS, а в застревании UAM state-machine до этапа экспорта.
+- Новый guard сохраняет существующую логику `CONFIRMED_ONLY/INCREMENTAL`, но предотвращает постоянный “захват” активных слотов старыми неподтверждёнными событиями.
+
+## Риски / ограничения
+- Слишком агрессивные таймауты могут закрывать пограничные SUSPECTED события раньше подтверждения; выбраны консервативные пороги.
+- Hard throttle отправки carbs (`30m`) и дальше может давать `uam_export_blocked_rate_limit` — это ожидаемая safety-политика, а не ошибка.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.domain.predict.UamInferenceEngineTest" --tests "io.aaps.copilot.data.repository.UamExportCoordinatorTest"`
+2. На устройстве проверить `audit_logs`:
+   - исчезают длительно висящие `SUSPECTED` без обновления,
+   - после освобождения слотов снова появляются `uam_export_post_success` при валидных UAM-сценариях.
+
+# Изменения — Этап 133: ISF/CR analytics chart validity + realtime refresh recovery
+
+## Что сделано
+- Исправлен потенциально залипающий `isfcr_realtime_refresh_in_flight` в `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/AutomationRepository.kt`:
+  - добавлен stale-guard recovery,
+  - добавлен `invokeOnCompletion` reset флага,
+  - reset флага в `finally` для sync/async refresh веток.
+- Оптимизирован realtime-окно расчёта ISF/CR в `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/IsfCrRepository.kt`:
+  - ограничение lookback для realtime до `3..5` дней, чтобы убрать систематические timeout на телефоне.
+- Усилен пайплайн данных графиков ISF/CR:
+  - в `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/MainViewModel.kt` добавлена валидация/санация ISF/CR переменных, регулярная 5-мин timeline grid, расширен набор telemetry-ключей AAPS (`isf_value/raw_isf/...`, `cr_value/raw_cr/...`).
+  - в `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/IsfCrHistoryResolver.kt` добавлена фильтрация невалидных точек, улучшенный dedupe, anchor-поддержка для длинных окон (3d/7d/30d).
+- Улучшена визуализация графиков ISF/CR в `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/foundation/screens/AnalyticsScreen.kt`:
+  - trim-устойчивый autoscale по оси Y,
+  - отдельное покрытие real/AAPS,
+  - явные hints, когда одна из линий отсутствует,
+  - улучшенная читабельность chart area.
+- Добавлены новые строки локализации (`en/ru`) для coverage/hints real-линии.
+- Добавлены/обновлены тесты в `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/test/kotlin/io/aaps/copilot/ui/IsfCrHistoryResolverTest.kt` для окон `3d/7d` и фильтрации невалидных точек.
+
+## Почему так
+- По device-логам графики были деградированы из-за зацикленного `in_flight` + timeout realtime refresh; из-за этого “real” линия устаревала.
+- Для корректной отрисовки длинных окон нужны валидированные значения и ровная временная сетка.
+- Пользовательский сценарий 3d/7d требует прозрачного отображения покрытия каждой линии, а не только “общего” графика.
+
+## Риски / ограничения
+- Если realtime-движок стабильно не может завершить расчёт даже на 3..5 днях, real-линия всё равно будет редкой; теперь это видно по `real coverage`.
+- Anchor для длинных окон может добавить одну точку до cutoff (осознанно для непрерывности левого края).
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrHistoryResolverTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3. На устройстве (Analytics → ISF/CR):
+   - переключить окна `12h/24h/3d/7d/30d`,
+   - убедиться, что график строится, есть оси времени/единиц,
+   - проверить отдельные строки `Real line coverage` и `AAPS coverage`.
+
+# Изменения — Этап 134: ISF/CR charts 3d/7d data completeness + window diagnostics
+
+## Что сделано
+- В `TelemetryDao` добавлен отдельный flow-запрос для history-графиков ISF/CR:
+  - `observeLatestByKeys(limit, keys)`.
+- В `MainViewModel` добавлен выделенный telemetry-канал только для ISF/CR ключей (`isf_value/raw_isf/aaps_isf/...`, `cr_value/raw_cr/aaps_cr/...`) с большим лимитом:
+  - это убирает обрезание 3d/7d окон из-за общего лимита `telemetry_samples`.
+- Построение `isfCrHistoryPoints` переведено на этот выделенный history-канал.
+- `isfCrHistoryLastUpdatedTs` теперь вычисляется по максимуму из нескольких источников (`history points`, `isf_cr_snapshots`, `profile_estimates`, telemetry-history), чтобы окно графика не якорилось на устаревшем timestamp.
+- В `AnalyticsScreen` добавлена явная диагностика покрытия выбранного окна:
+  - строка `Window <label> (<hours>): available data <hours>`,
+  - hint, если выбранное окно шире доступного диапазона истории.
+- Добавлены локализованные строки (`ru/en`) для покрытия окна.
+
+## Почему так
+- Корень проблемы 3d/7d графиков: общий telemetry-limit содержал много разных ключей и не давал достаточно истории для ISF/CR рядов.
+- Пользователь видел “некорректную” отрисовку, хотя проблема была в неполном входном окне.
+- Новый отдельный канал данных и подсказка coverage делают график и корректным, и объяснимым.
+
+## Риски / ограничения
+- Если в базе физически меньше данных, 3d и 7d могут выглядеть одинаково; теперь это явно показано через coverage-строку.
+- Для real-линии остаётся зависимость от актуальности ISF/CR runtime pipeline.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.ui.IsfCrHistoryResolverTest" --tests "io.aaps.copilot.ui.foundation.screens.MainUiStateMappersTest"`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3. USB install:
+   - `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+4. На устройстве (`Аналитика -> ISF/CR`):
+   - переключить `3d/7d`,
+   - проверить, что карточка показывает `История: ...` + `Окно ...: доступно данных ...`,
+   - убедиться, что chart section `ИСТОРИЯ ISF/CR` отрисовывается и содержит real/AAPS линии.
+
+# Изменения — Этап 135: UI-индикатор AI tuning active/stale/blocked (why)
+
+## Что сделано
+- Добавлен визуальный индикатор статуса AI-тюнинга на двух экранах:
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/foundation/screens/AiAnalysisScreen.kt`
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/foundation/screens/SafetyScreen.kt`
+- На карточке показываются:
+  - состояние `ACTIVE/STALE/BLOCKED`,
+  - причина (`why`),
+  - время генерации optimizer-отчета,
+  - confidence,
+  - raw status (если есть).
+- Добавлены строки локализации `en/ru`:
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/res/values/strings.xml`
+  - `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/res/values-ru/strings.xml`
+
+## Почему так
+- Пользователь должен видеть прямо на телефоне, почему AI-тюнинг применился или был отключён.
+- Статус в `Safety` и `AI Analysis` помогает быстро диагностировать блокировки (`low confidence`, `stale`, `risk gate`, `apply off`) без просмотра логов.
+
+## Риски / ограничения
+- В рабочем дереве есть существующие несвязанные compile-ошибки в других файлах (`CopilotRoot.kt`, `MainUiStateMappers.kt`), поэтому общий `compileDebugKotlin` сейчас падает не из-за этого изменения.
+- Карточка опирается на telemetry-поля optimizer; если они не приходят, статус будет `BLOCKED` с причиной отсутствия отчета.
+
+## Как проверить
+1. Открыть `More -> AI Analysis` и убедиться, что есть секция `AI tuning status`.
+2. Открыть `Safety` и убедиться, что есть такая же секция.
+3. Проверить кейсы:
+   - свежий отчет + apply=true + confidence выше порога => `ACTIVE`;
+   - старый отчет => `STALE`;
+   - apply=false/low confidence/risk gate => `BLOCKED` с причиной.
+
+# Изменения — Этап 136: Runtime performance stabilization (UI state + Safety toggle)
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/MainViewModel.kt` снижены тяжёлые лимиты потоков данных для общего `uiState`:
+  - `profile history`: `20000 -> 12000`
+  - `isf/cr history`: `20000 -> 12000`
+  - `isf/cr telemetry by keys`: `120000 -> 25000`
+  - `ai tuning telemetry`: `30000 -> 4000`
+  - добавлены именованные константы лимитов вместо hardcoded чисел.
+- Для Safety UI добавлен мгновенный локальный override `killSwitchOverrideState`:
+  - переключатель `Kill switch` теперь меняет состояние на экране сразу,
+  - фактическая запись в DataStore остаётся асинхронной и безопасной.
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/AutomationRepository.kt` понижен шум WARN для адаптивного контроллера:
+  - `adaptive_controller_blocked` при причине `retarget_cooldown_*` теперь пишется как `INFO`,
+  - реальные блокировки (не cooldown) сохраняют `WARN`.
+- Устранён runtime hot-spot метода `buildMainUiState`:
+  - apply-блок заполнения `MainUiState` вынесен в отдельный локальный helper (`populateResult`),
+  - предупреждение ART `Method exceeds compiler instruction limit ... buildMainUiState(...)` перестало появляться в логах.
+
+## Почему так
+- Основной лаг UI и повышенная CPU-нагрузка были связаны с монолитным пересчётом одного огромного UI-state и избыточными историческими выборками.
+- Быстрый визуальный отклик `Kill switch` критичен для safety UX и не должен зависеть от длительного полного пересчёта всего состояния.
+
+## Риски / ограничения
+- Для отдельных diagnostics-разделов глубина истории по telemetry стала меньше; на практических данных это остаётся достаточным для окон `12h/24h/3d/7d/30d`.
+- Глубокий рефактор декомпозиции `buildMainUiState` на несколько чистых модулей ещё желателен как следующий шаг, но текущий фикс уже снимает warning и уменьшает нагрузку.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:compileDebugKotlin`
+2. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+3. `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+4. `adb logcat -c && adb shell am start -n io.aaps.predictivecopilot/io.aaps.copilot.MainActivity`
+5. Проверить, что в `adb logcat` больше нет строк:
+   - `Method exceeds compiler instruction limit ... buildMainUiState(...)`
+6. На экране Safety проверить `Kill switch`: визуальное переключение происходит сразу, без 2–3 секунд задержки.
+
+# Изменения — Этап 137: COB=0 fix (runtime merge + UI recency + cycle unstall)
+
+## Что сделано
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/data/repository/AutomationRepository.kt` исправлен runtime merge для COB:
+  - ветка `telemetryCob != null && !hasRecentCarbEvents` больше не обнуляет COB,
+  - теперь используется внешний COB (`telemetryCob`) в границах safety clamp.
+- В `/Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/src/main/kotlin/io/aaps/copilot/ui/MainViewModel.kt` добавлен выбор `IOB/COB` по свежести timestamp:
+  - если `*_effective` устарел, UI берет свежий raw (`iob_units` / `cob_grams`).
+- Устранена блокировка automation цикла до этапа `post_isfcr`:
+  - синхронный refresh realtime ISF/CR в runtime цикле убран,
+  - refresh выполняется только async через `scheduleRealtimeIsfCrRefresh(...)`,
+  - цикл не блокируется тяжелым `computeRealtimeSnapshot`.
+
+## Почему так
+- На телефоне импортированные `cob_grams` были свежими и >0, но `cob_effective_grams` застрял на старом значении `0.0`.
+- Из-за этого UI часто показывал ноль и прогнозный контур терял COB-влияние.
+- Дополнительно часть циклов “подвисала” после `post_recent_data`, что не давало обновлять runtime telemetry.
+
+## Риски / ограничения
+- Async refresh realtime ISF/CR может применять свежий snapshot с задержкой до следующего цикла; это безопаснее, чем блокировать цикл.
+- В очень коротких окнах после старта возможен fallback на stale snapshot/legacy до завершения async refresh.
+
+## Как проверить
+1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:assembleDebug`
+2. `adb install -r /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app/app/build/outputs/apk/debug/app-debug.apk`
+3. В `audit_logs` должны появляться поздние checkpoint-и цикла:
+   - `post_isfcr`, `post_cob_iob_runtime`, `post_forecast_storage`, `post_rule_evaluate`, `automation_cycle_finished`.
+4. В `telemetry_samples`:
+   - `cob_grams` (xdrip_broadcast) свежий и >0,
+   - `cob_effective_grams` (copilot_runtime_cob_iob) обновляется свежим временем и соответствует runtime merge.

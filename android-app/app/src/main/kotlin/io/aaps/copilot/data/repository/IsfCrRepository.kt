@@ -101,10 +101,16 @@ class IsfCrRepository(
         nowTs: Long = System.currentTimeMillis()
     ): IsfCrRealtimeSnapshot = withContext(Dispatchers.Default) {
         val config = settings.toIsfCrSettings()
-        val recentStart = nowTs - maxOf(config.lookbackDays.coerceAtMost(14), 3) * DAY_MS
+        // Realtime path must stay cheap and deterministic; use a bounded recent window.
+        val realtimeLookbackDays = config.lookbackDays.coerceIn(3, 5)
+        val recentStart = nowTs - realtimeLookbackDays * DAY_MS
         val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(recentStart)).map { it.toDomain() }
         val therapy = TherapySanitizer.filterEntities(db.therapyDao().since(recentStart)).map { it.toDomain(gson) }
-        val telemetry = db.telemetryDao().since(recentStart).map { entity ->
+        val telemetryRows = db.telemetryDao().sinceByKeys(
+            since = recentStart,
+            keys = ISFCR_REALTIME_TELEMETRY_KEYS
+        )
+        val telemetry = telemetryRows.map { entity ->
             io.aaps.copilot.domain.predict.TelemetrySignal(
                 ts = entity.timestamp,
                 key = entity.key,
@@ -452,5 +458,40 @@ class IsfCrRepository(
         private const val DAY_MS = 24L * 60 * 60 * 1000
         private const val DEFAULT_ISF = 2.5
         private const val DEFAULT_CR = 12.0
+        private val ISFCR_REALTIME_TELEMETRY_KEYS = listOf(
+            "activity_ratio",
+            "steps_count",
+            "steps_rate_15m",
+            "set_age_hours",
+            "sensor_age_hours",
+            "sensor_quality_score",
+            "sensor_quality_noise_std5",
+            "sensor_quality_blocked",
+            "sensor_quality_suspect_false_low",
+            "sensor_blocked",
+            "dawn_factor_hint",
+            "dawn_resistance_score",
+            "stress_score",
+            "uam_stress_index",
+            "uam_value",
+            "uam_calculated_flag",
+            "uam_inferred_flag",
+            "uam_active",
+            "uam_detected",
+            "has_uam",
+            "is_uam",
+            "iob",
+            "iob_units",
+            "iob_effective_units",
+            "raw_iob",
+            "raw_iob_units",
+            "raw_iob_iob",
+            "openaps_iob",
+            "openaps_iob_iob",
+            "openaps_iob_basaliob",
+            "openaps_iob_activity",
+            "iob_iob",
+            "iob_basaliob"
+        )
     }
 }

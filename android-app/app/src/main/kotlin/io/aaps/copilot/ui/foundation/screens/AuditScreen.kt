@@ -20,13 +20,20 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -399,11 +406,44 @@ private fun AuditSectionCard(
 
 @Composable
 private fun AuditSectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    var showInfo by rememberSaveable(text) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        IconButton(onClick = { showInfo = true }) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(text = text) },
+            text = {
+                Text(
+                    text = stringResource(
+                        id = R.string.audit_info_section_generic,
+                        text
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) {
+                    Text(text = stringResource(id = R.string.action_close))
+                }
+            }
+        )
+    }
 }
 
 @Preview(showBackground = true)

@@ -27,8 +27,15 @@ class AppSettingsStore(context: Context) {
         AppSettings(
             nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
             apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
-            cloudBaseUrl = prefs[KEY_CLOUD_URL].orEmpty(),
-            openAiApiKey = prefs[KEY_OPENAI_KEY].orEmpty(),
+            cloudBaseUrl = prefs[KEY_CLOUD_URL]
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: DEFAULT_CLOUD_BASE_URL,
+            openAiApiKey = prefs[KEY_OPENAI_KEY]
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: DEFAULT_OPENAI_API_KEY,
+            uiStyle = resolveUiStyle(prefs[KEY_UI_STYLE]),
             killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
@@ -203,8 +210,15 @@ class AppSettingsStore(context: Context) {
             val current = AppSettings(
                 nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
                 apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
-                cloudBaseUrl = prefs[KEY_CLOUD_URL].orEmpty(),
-                openAiApiKey = prefs[KEY_OPENAI_KEY].orEmpty(),
+                cloudBaseUrl = prefs[KEY_CLOUD_URL]
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT_CLOUD_BASE_URL,
+                openAiApiKey = prefs[KEY_OPENAI_KEY]
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT_OPENAI_API_KEY,
+                uiStyle = resolveUiStyle(prefs[KEY_UI_STYLE]),
                 killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
                 rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
                 localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
@@ -375,6 +389,7 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_NS_SECRET] = next.apiSecret
             prefs[KEY_CLOUD_URL] = next.cloudBaseUrl
             prefs[KEY_OPENAI_KEY] = next.openAiApiKey
+            prefs[KEY_UI_STYLE] = next.uiStyle.name
             prefs[KEY_KILL_SWITCH] = next.killSwitch
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
@@ -587,11 +602,16 @@ class AppSettingsStore(context: Context) {
         }.getOrDefault(UamExportMode.CONFIRMED_ONLY)
     }
 
+    private fun resolveUiStyle(raw: String?): UiStyle {
+        return UiStyle.fromRaw(raw)
+    }
+
     companion object {
         private val KEY_NS_URL = stringPreferencesKey("nightscout_url")
         private val KEY_NS_SECRET = stringPreferencesKey("nightscout_secret")
         private val KEY_CLOUD_URL = stringPreferencesKey("cloud_base_url")
         private val KEY_OPENAI_KEY = stringPreferencesKey("openai_api_key")
+        private val KEY_UI_STYLE = stringPreferencesKey("ui_style")
         private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
         private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
@@ -739,6 +759,8 @@ class AppSettingsStore(context: Context) {
         private val KEY_MAX_ACTIONS_6H = intPreferencesKey("max_actions_in_6h")
         private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
         private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
+        private const val DEFAULT_CLOUD_BASE_URL = "https://api.openai.com/v1"
+        private const val DEFAULT_OPENAI_API_KEY = ""
         private const val DEFAULT_BASE_TARGET_MMOL = 5.5
         private const val DEFAULT_POST_HYPO_THRESHOLD_MMOL = 4.0
         private const val DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = 0.20
@@ -847,6 +869,7 @@ data class AppSettings(
     val apiSecret: String,
     val cloudBaseUrl: String,
     val openAiApiKey: String,
+    val uiStyle: UiStyle = UiStyle.CLASSIC,
     val killSwitch: Boolean,
     val rootExperimentalEnabled: Boolean,
     val localBroadcastIngestEnabled: Boolean,

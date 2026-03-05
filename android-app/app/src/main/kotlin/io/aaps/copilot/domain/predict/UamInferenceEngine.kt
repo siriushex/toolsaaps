@@ -163,13 +163,27 @@ class UamInferenceEngine {
         }
 
         val updated = activeEvents.map { event ->
+            val ageMinutes = ((input.nowTs - event.createdAt).coerceAtLeast(0L) / 60_000L).toInt()
             val fit = fitDiscrete(
                 intervals = intervals,
                 nowTs = input.nowTs,
                 csfUam = csfUam,
                 settings = input.userSettings
-            ) ?: return@map event
-            val ageMinutes = ((input.nowTs - event.createdAt).coerceAtLeast(0L) / 60_000L).toInt()
+            )
+            if (fit == null) {
+                val shouldCloseStaleSuspected = event.state == UamInferenceState.SUSPECTED &&
+                    ageMinutes >= SUSPECTED_EVENT_FORCE_CLOSE_MINUTES
+                return@map if (shouldCloseStaleSuspected) {
+                    event.copy(
+                        state = UamInferenceState.MERGED,
+                        updatedAt = input.nowTs,
+                        confidence = 0.0,
+                        learnedEligible = false
+                    )
+                } else {
+                    event.copy(updatedAt = input.nowTs)
+                }
+            }
             val allowDecrease = event.state == UamInferenceState.SUSPECTED && fit.confidence < 0.20
             val nextDisplay = if (allowDecrease) {
                 fit.carbsGrams
@@ -187,14 +201,25 @@ class UamInferenceEngine {
             } else {
                 nextState
             }
+            val staleSuspectedShouldClose =
+                event.state == UamInferenceState.SUSPECTED &&
+                    (
+                        ageMinutes >= SUSPECTED_EVENT_FORCE_CLOSE_MINUTES ||
+                            (
+                                ageMinutes >= SUSPECTED_WEAK_TAIL_CLOSE_MINUTES &&
+                                    weakTail &&
+                                    fit.confidence < confirmConf * SUSPECTED_STALE_CONFIDENCE_FACTOR
+                                )
+                        )
+            val resolvedState = if (staleSuspectedShouldClose) UamInferenceState.MERGED else finalState
             event.copy(
-                state = finalState,
+                state = resolvedState,
                 updatedAt = input.nowTs,
                 ingestionTs = fit.ingestionTs.coerceAtLeast(input.nowTs - input.userSettings.exportMaxBackdateMin * 60_000L),
                 carbsModelG = fit.carbsGrams.coerceIn(0.0, input.userSettings.maxUamTotalG),
                 carbsDisplayG = quantizeSnack(nextDisplay, input.userSettings),
                 confidence = fit.confidence,
-                learnedEligible = finalState == UamInferenceState.FINAL && fit.confidence >= 0.60
+                learnedEligible = resolvedState == UamInferenceState.FINAL && fit.confidence >= 0.60
             )
         }
 
@@ -520,5 +545,8 @@ class UamInferenceEngine {
         const val FIVE_MIN_MS = 5 * 60_000L
         const val EVENT_LOOKBACK_MS = 8 * 60 * 60_000L
         const val DEFAULT_ISF = 2.3
+        const val SUSPECTED_WEAK_TAIL_CLOSE_MINUTES = 90
+        const val SUSPECTED_EVENT_FORCE_CLOSE_MINUTES = 150
+        const val SUSPECTED_STALE_CONFIDENCE_FACTOR = 0.85
     }
 }

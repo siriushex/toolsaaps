@@ -266,11 +266,7 @@ class BroadcastIngestRepository(
     private fun parseTherapy(action: String, extras: Map<String, String>): List<TherapyEventEntity> {
         val ts = extractTimestamp(extras)
         val source = resolveSource(action)
-
-        if (action.startsWith("info.nightscout.androidaps.")) {
-            // androidaps.* broadcasts contain status/derived fields, not authoritative therapy events.
-            return emptyList()
-        }
+        val isAapsStatusAction = action.startsWith("info.nightscout.androidaps.")
 
         if (action.endsWith("BgEstimateNoData")) {
             return listOf(
@@ -301,6 +297,24 @@ class BroadcastIngestRepository(
         val targetTop = findDoubleExact(extras, listOf("targetTop", "target_top", "targetHigh"))
         val eventTypeRaw = findStringExact(extras, listOf("eventType", "event_type", "type"))
         val eventType = normalizeTherapyEventType(eventTypeRaw)
+
+        if (isAapsStatusAction) {
+            val explicitCarbInput = findDoubleExact(extras, listOf("enteredCarbs", "mealCarbs", "grams"))
+            val explicitInsulinInput = findDoubleExact(extras, listOf("enteredInsulin", "bolusUnits", "insulinUnits", "units"))
+            val explicitReason = findStringExact(extras, listOf("reason", "notes", "enteredBy"))
+            val hasExplicitTherapyHints =
+                eventTypeRaw != null ||
+                    explicitCarbInput != null ||
+                    explicitInsulinInput != null ||
+                    duration != null ||
+                    targetBottom != null ||
+                    targetTop != null ||
+                    explicitReason?.contains("uam_engine", ignoreCase = true) == true
+            if (!hasExplicitTherapyHints) {
+                // Most androidaps.* status broadcasts are telemetry-only; avoid synthetic therapy noise.
+                return emptyList()
+            }
+        }
 
         val typeAndPayload = when {
             eventType?.contains("temp") == true && duration != null && (targetBottom != null || targetTop != null) -> {
@@ -582,12 +596,45 @@ class BroadcastIngestRepository(
         if (now - last < MAINTENANCE_INTERVAL_MS) return
         if (!lastMaintenanceAtMs.compareAndSet(last, now)) return
         runCatching {
+            checkDatabaseIntegrity()
             pruneLegacyInvalidBroadcastGlucose()
             pruneLegacyBroadcastArtifacts()
         }.onFailure {
             auditLogger.warn(
                 "broadcast_maintenance_failed",
                 mapOf("error" to (it.message ?: "unknown"))
+            )
+        }
+    }
+
+    private suspend fun checkDatabaseIntegrity() {
+        val quickCheck = runCatching {
+            db.openHelper.writableDatabase
+                .query("PRAGMA quick_check")
+                .use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else "unknown"
+                }
+        }.getOrElse { error ->
+            auditLogger.warn(
+                "db_integrity_check_failed",
+                mapOf("reason" to (error.message ?: "unknown"))
+            )
+            return
+        }
+        if (quickCheck.equals("ok", ignoreCase = true)) {
+            auditLogger.info("db_integrity_ok", emptyMap<String, Any>())
+            return
+        }
+        auditLogger.warn(
+            "db_integrity_issue_detected",
+            mapOf("quickCheck" to quickCheck)
+        )
+        runCatching {
+            db.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+        }.onFailure { error ->
+            auditLogger.warn(
+                "db_integrity_checkpoint_failed",
+                mapOf("reason" to (error.message ?: "unknown"))
             )
         }
     }

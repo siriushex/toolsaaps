@@ -42,6 +42,54 @@ class AutomationRepositoryForecastBiasTest {
     }
 
     @Test
+    fun cobIobBias_appliesLowRiskDownshiftWhenGlucoseLowAndIobHigh() {
+        val source = listOf(
+            Forecast(System.currentTimeMillis() + 5 * 60_000L, 5, 7.6, 5.8, 9.2, "test"),
+            Forecast(System.currentTimeMillis() + 30 * 60_000L, 30, 8.6, 6.0, 11.2, "test"),
+            Forecast(System.currentTimeMillis() + 60 * 60_000L, 60, 9.6, 6.2, 12.8, "test")
+        )
+        val adjusted = AutomationRepository.applyCobIobForecastBiasStatic(
+            forecasts = source,
+            cobGrams = 60.0,
+            iobUnits = 4.0,
+            latestGlucoseMmol = 3.8,
+            uamActive = false
+        )
+
+        assertThat(adjusted.first { it.horizonMinutes == 60 }.valueMmol)
+            .isLessThan(source.first { it.horizonMinutes == 60 }.valueMmol)
+        assertThat(adjusted.first { it.horizonMinutes == 30 }.valueMmol)
+            .isLessThan(source.first { it.horizonMinutes == 30 }.valueMmol)
+    }
+
+    @Test
+    fun cobIobBias_doesNotApplyExtraLowRiskDownshiftWhenUamActive() {
+        val source = listOf(
+            Forecast(System.currentTimeMillis() + 5 * 60_000L, 5, 7.6, 5.8, 9.2, "test"),
+            Forecast(System.currentTimeMillis() + 30 * 60_000L, 30, 8.6, 6.0, 11.2, "test"),
+            Forecast(System.currentTimeMillis() + 60 * 60_000L, 60, 9.6, 6.2, 12.8, "test")
+        )
+        val lowRiskAdjusted = AutomationRepository.applyCobIobForecastBiasStatic(
+            forecasts = source,
+            cobGrams = 60.0,
+            iobUnits = 4.0,
+            latestGlucoseMmol = 3.8,
+            uamActive = false
+        )
+        val uamAdjusted = AutomationRepository.applyCobIobForecastBiasStatic(
+            forecasts = source,
+            cobGrams = 60.0,
+            iobUnits = 4.0,
+            latestGlucoseMmol = 3.8,
+            uamActive = true
+        )
+
+        val lowRisk60 = lowRiskAdjusted.first { it.horizonMinutes == 60 }.valueMmol
+        val uam60 = uamAdjusted.first { it.horizonMinutes == 60 }.valueMmol
+        assertThat(lowRisk60).isLessThan(uam60)
+    }
+
+    @Test
     fun ciAndValueStayWithinPhysiologicBounds() {
         val source = listOf(
             Forecast(
@@ -119,6 +167,25 @@ class AutomationRepositoryForecastBiasTest {
 
         assertThat(adjWidth).isGreaterThan(srcWidth)
         assertThat(adj60.modelVersion).contains("ctx_bias_v1")
+    }
+
+    @Test
+    fun contextBias_doesNotRaiseForecastWhenCurrentGlucoseLow() {
+        val source = sampleForecasts()
+        val adjusted = AutomationRepository.applyContextFactorForecastBiasStatic(
+            forecasts = source,
+            telemetry = mapOf(
+                "isf_factor_set_factor" to 0.70,
+                "isf_factor_dawn_factor" to 0.75,
+                "isf_factor_stress_factor" to 0.80,
+                "sensor_quality_score" to 0.95,
+                "isf_factor_context_ambiguity" to 0.0
+            ),
+            latestGlucoseMmol = 3.9,
+            pattern = null
+        )
+
+        assertThat(adjusted[2].valueMmol).isAtMost(source[2].valueMmol)
     }
 
     @Test
@@ -210,6 +277,142 @@ class AutomationRepositoryForecastBiasTest {
         )
 
         assertThat(adjusted).isEqualTo(source)
+    }
+
+    @Test
+    fun calibrationBias_aiTuningIncreasesPositiveCorrectionFor60m() {
+        val source = sampleForecasts()
+        val history = buildList {
+            repeat(40) { idx ->
+                add(
+                    AutomationRepository.ForecastCalibrationPoint(
+                        horizonMinutes = 60,
+                        errorMmol = 1.0,
+                        ageMs = (idx + 1) * 5 * 60_000L
+                    )
+                )
+            }
+        }
+
+        val baseline = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history
+        )
+        val tuned = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history,
+            aiTuning = mapOf(
+                60 to AutomationRepository.CalibrationAiTuning(
+                    gainScale = 1.35,
+                    maxUpScale = 1.25,
+                    maxDownScale = 1.0
+                )
+            )
+        )
+
+        val src60 = source.first { it.horizonMinutes == 60 }.valueMmol
+        val baseline60 = baseline.first { it.horizonMinutes == 60 }.valueMmol
+        val tuned60 = tuned.first { it.horizonMinutes == 60 }.valueMmol
+        assertThat(baseline60).isGreaterThan(src60)
+        assertThat(tuned60).isGreaterThan(baseline60)
+    }
+
+    @Test
+    fun resolveAiCalibrationTuning_blocksStaleOptimizerPayload() {
+        val nowTs = System.currentTimeMillis()
+        val staleTelemetry = mapOf(
+            "daily_report_ai_opt_apply_flag" to 1.0,
+            "daily_report_ai_opt_confidence" to 0.80,
+            "daily_report_ai_opt_generated_ts" to (nowTs - 48L * 60 * 60 * 1000).toDouble(),
+            "daily_report_matched_samples" to 200.0,
+            "daily_report_isfcr_quality_risk_level" to 1.0,
+            "daily_report_ai_opt_gain_scale_60m" to 1.25,
+            "daily_report_ai_opt_max_up_scale_60m" to 1.20,
+            "daily_report_ai_opt_max_down_scale_60m" to 1.0
+        )
+
+        val tuning = AutomationRepository.resolveAiCalibrationTuningStatic(
+            latestTelemetry = staleTelemetry,
+            nowTs = nowTs
+        )
+
+        assertThat(tuning).isEmpty()
+    }
+
+    @Test
+    fun resolveAiCalibrationTuning_blocksWhenIsfCrRiskHigh() {
+        val nowTs = System.currentTimeMillis()
+        val highRiskTelemetry = mapOf(
+            "daily_report_ai_opt_apply_flag" to 1.0,
+            "daily_report_ai_opt_confidence" to 0.80,
+            "daily_report_ai_opt_generated_ts" to (nowTs - 30 * 60_000L).toDouble(),
+            "daily_report_matched_samples" to 240.0,
+            "daily_report_isfcr_quality_risk_level" to 3.0,
+            "daily_report_ai_opt_gain_scale_30m" to 1.25,
+            "daily_report_ai_opt_max_up_scale_30m" to 1.20,
+            "daily_report_ai_opt_max_down_scale_30m" to 0.95
+        )
+
+        val tuning = AutomationRepository.resolveAiCalibrationTuningStatic(
+            latestTelemetry = highRiskTelemetry,
+            nowTs = nowTs
+        )
+
+        assertThat(tuning).isEmpty()
+    }
+
+    @Test
+    fun resolveAiCalibrationTuning_blocksWhenMatchedSamplesTooLow() {
+        val nowTs = System.currentTimeMillis()
+        val sparseTelemetry = mapOf(
+            "daily_report_ai_opt_apply_flag" to 1.0,
+            "daily_report_ai_opt_confidence" to 0.80,
+            "daily_report_ai_opt_generated_ts" to (nowTs - 30 * 60_000L).toDouble(),
+            "daily_report_matched_samples" to 12.0,
+            "daily_report_isfcr_quality_risk_level" to 1.0,
+            "daily_report_ai_opt_gain_scale_30m" to 1.25,
+            "daily_report_ai_opt_max_up_scale_30m" to 1.20,
+            "daily_report_ai_opt_max_down_scale_30m" to 0.95
+        )
+
+        val tuning = AutomationRepository.resolveAiCalibrationTuningStatic(
+            latestTelemetry = sparseTelemetry,
+            nowTs = nowTs
+        )
+
+        assertThat(tuning).isEmpty()
+    }
+
+    @Test
+    fun resolveAiCalibrationTuning_returnsClampedValuesWhenFreshAndValid() {
+        val nowTs = System.currentTimeMillis()
+        val telemetry = mapOf(
+            "daily_report_ai_opt_apply_flag" to 1.0,
+            "daily_report_ai_opt_confidence" to 0.90,
+            "daily_report_ai_opt_generated_ts" to (nowTs - 20 * 60_000L).toDouble(),
+            "daily_report_matched_samples" to 220.0,
+            "daily_report_isfcr_quality_risk_level" to 1.0,
+            "daily_report_ai_opt_gain_scale_5m" to 4.0,
+            "daily_report_ai_opt_max_up_scale_5m" to 0.1,
+            "daily_report_ai_opt_max_down_scale_5m" to 9.0,
+            "daily_report_ai_opt_gain_scale_30m" to 1.2,
+            "daily_report_ai_opt_max_up_scale_30m" to 1.3,
+            "daily_report_ai_opt_max_down_scale_30m" to 1.1,
+            "daily_report_ai_opt_gain_scale_60m" to 1.35,
+            "daily_report_ai_opt_max_up_scale_60m" to 1.25,
+            "daily_report_ai_opt_max_down_scale_60m" to 1.0
+        )
+
+        val tuning = AutomationRepository.resolveAiCalibrationTuningStatic(
+            latestTelemetry = telemetry,
+            nowTs = nowTs
+        )
+
+        assertThat(tuning.keys).containsAtLeast(5, 30, 60)
+        assertThat(tuning.getValue(5).gainScale).isAtMost(1.50)
+        assertThat(tuning.getValue(5).maxUpScale).isAtLeast(0.80)
+        assertThat(tuning.getValue(5).maxDownScale).isAtMost(1.50)
+        assertThat(tuning.getValue(60).gainScale).isWithin(1e-9).of(1.35)
     }
 
     @Test

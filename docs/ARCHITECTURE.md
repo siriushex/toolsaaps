@@ -26,6 +26,8 @@ AAPS Predictive Copilot is a two-part system:
   - replay attribution block includes factor contributions + coverage for metabolic/runtime drivers (`COB/IOB/UAM/CI`, `DIA`, `activity`, `sensor quality/age`, `ISF quality/confidence`, `set age`, `dawn/stress/hormone/steroid`, context ambiguity).
   - replay attribution additionally includes core-factor regime diagnostics (`LOW/MID/HIGH` bins for `COB/IOB/UAM/CI`) with per-bin MAE/MARD/bias for targeted tuning.
   - replay block also persists structured per-horizon top-miss context (`pred/actual/error + COB/IOB/UAM/CI/DIA/activity/sensorQ`) for targeted tuning.
+  - when OpenAI endpoint is configured, daily optimizer runs in background (`responses` API), emits bounded calibration scales to telemetry (`daily_report_ai_opt_*`) and never emits therapy commands.
+  - optimizer telemetry always writes neutral fallback values on failure (`apply_flag=0`, scales=`1.0`) so runtime cannot reuse stale tuning from older successful runs.
 
 ## Backend modules (logical)
 - API endpoints for sync/predict/rules/actions/analysis/replay.
@@ -54,6 +56,8 @@ AAPS Predictive Copilot is a two-part system:
   - `calories_active_kcal`.
 - If `cob_grams >= 20`, adaptive runtime base target is forced to `4.2 mmol/L` (within hard target bounds) for automation decisions.
 - Daily worker must generate a local 24h forecast report from on-device data even when cloud analysis is unavailable.
+- In OpenAI mode, daily worker may run optimizer-only path (without custom cloud backend) and persist conservative calibration tuning for runtime forecast-bias stage.
+- Runtime applies AI tuning only when payload is fresh (`<=36h`), confidence-gated, sample-coverage-gated and not blocked by high ISF/CR quality-risk level.
 
 ## Architectural decisions
 - Keep prediction engine strategy switchable via flags (legacy vs enhanced versions).

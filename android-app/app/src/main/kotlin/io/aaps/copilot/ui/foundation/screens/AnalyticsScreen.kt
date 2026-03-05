@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -21,7 +22,9 @@ import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
@@ -29,6 +32,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -72,10 +77,16 @@ private enum class AnalyticsTab {
     ISF_CR
 }
 
+private enum class IsfCrChartScale(val rangeMultiplier: Double) {
+    AUTO(1.0),
+    ZOOM_IN(0.7),
+    ZOOM_OUT(1.6)
+}
+
 private data class IsfCrSeriesPoint(
     val ts: Long,
-    val real: Double,
-    val merged: Double
+    val real: Double?,
+    val aaps: Double?
 )
 
 private data class InsulinProfileActivityPoint(
@@ -95,12 +106,12 @@ fun AnalyticsScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTabRaw by rememberSaveable { mutableStateOf(AnalyticsTab.ISF_CR.name) }
-    var selectedWindowRaw by rememberSaveable { mutableStateOf(IsfCrHistoryWindow.DAY.name) }
+    var selectedWindowRaw by rememberSaveable { mutableStateOf(IsfCrHistoryWindow.LAST_24H.name) }
     val selectedTab = remember(selectedTabRaw) {
         runCatching { AnalyticsTab.valueOf(selectedTabRaw) }.getOrDefault(AnalyticsTab.ISF_CR)
     }
     val selectedWindow = remember(selectedWindowRaw) {
-        runCatching { IsfCrHistoryWindow.valueOf(selectedWindowRaw) }.getOrDefault(IsfCrHistoryWindow.DAY)
+        runCatching { IsfCrHistoryWindow.valueOf(selectedWindowRaw) }.getOrDefault(IsfCrHistoryWindow.LAST_24H)
     }
     val anchorTs = state.historyLastUpdatedTs ?: System.currentTimeMillis()
     val historyPoints = remember(
@@ -206,6 +217,8 @@ fun AnalyticsScreen(
                             selectedWindow = selectedWindow,
                             shownPoints = historyPoints.size,
                             totalPoints = state.historyPoints.size,
+                            visibleStartTs = historyPoints.firstOrNull()?.timestamp,
+                            visibleEndTs = historyPoints.lastOrNull()?.timestamp,
                             onWindowSelected = { selectedWindowRaw = it.name }
                         )
                     }
@@ -223,24 +236,26 @@ fun AnalyticsScreen(
                     }
                     item {
                         IsfCrSeriesCard(
+                            chartKey = "isf",
                             title = stringResource(id = R.string.analytics_chart_isf),
                             unit = stringResource(id = R.string.unit_mmol_l) + "/U",
                             points = historyPoints,
                             realColor = Color(0xFF0A5FBF),
-                            mergedColor = Color(0xFF6C7E95),
-                            realSelector = { it.isfReal },
-                            mergedSelector = { it.isfMerged }
+                            aapsColor = Color(0xFFCC6A00),
+                            realSelector = { it.isfRealStrict },
+                            aapsSelector = { it.isfAapsStrict }
                         )
                     }
                     item {
                         IsfCrSeriesCard(
+                            chartKey = "cr",
                             title = stringResource(id = R.string.analytics_chart_cr),
                             unit = stringResource(id = R.string.unit_g) + "/U",
                             points = historyPoints,
                             realColor = Color(0xFF00796B),
-                            mergedColor = Color(0xFF6C7E95),
-                            realSelector = { it.crReal },
-                            mergedSelector = { it.crMerged }
+                            aapsColor = Color(0xFFCC6A00),
+                            realSelector = { it.crRealStrict },
+                            aapsSelector = { it.crAapsStrict }
                         )
                     }
                     if (state.deepLines.isNotEmpty()) {
@@ -1196,8 +1211,20 @@ private fun IsfCrOverviewCard(
     selectedWindow: IsfCrHistoryWindow,
     shownPoints: Int,
     totalPoints: Int,
+    visibleStartTs: Long?,
+    visibleEndTs: Long?,
     onWindowSelected: (IsfCrHistoryWindow) -> Unit
 ) {
+    val selectedWindowHours = selectedWindow.durationMs?.div(60L * 60L * 1000L)?.toInt()
+    val visibleCoverageHours = if (visibleStartTs != null && visibleEndTs != null && visibleEndTs >= visibleStartTs) {
+        ((visibleEndTs - visibleStartTs).toDouble() / (60.0 * 60.0 * 1000.0))
+    } else {
+        null
+    }
+    val hasPartialCoverage = selectedWindowHours != null &&
+        visibleCoverageHours != null &&
+        visibleCoverageHours + 0.01 < selectedWindowHours * 0.9
+
     AnalyticsSectionCard {
         AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_isfcr_overview))
         Row(
@@ -1250,6 +1277,25 @@ private fun IsfCrOverviewCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (selectedWindowHours != null && visibleCoverageHours != null) {
+            Text(
+                text = stringResource(
+                    id = R.string.analytics_window_coverage_template,
+                    selectedWindow.label,
+                    selectedWindowHours,
+                    UiFormatters.formatDecimalOrPlaceholder(visibleCoverageHours, 1)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (hasPartialCoverage) {
+            Text(
+                text = stringResource(id = R.string.analytics_window_coverage_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Text(
             text = stringResource(
                 id = R.string.analytics_updated_template,
@@ -1314,38 +1360,71 @@ private fun AnalyticsMetricTile(
 
 @Composable
 private fun IsfCrSeriesCard(
+    chartKey: String,
     title: String,
     unit: String,
     points: List<IsfCrHistoryPointUi>,
     realColor: Color,
-    mergedColor: Color,
-    realSelector: (IsfCrHistoryPointUi) -> Double,
-    mergedSelector: (IsfCrHistoryPointUi) -> Double
+    aapsColor: Color,
+    realSelector: (IsfCrHistoryPointUi) -> Double?,
+    aapsSelector: (IsfCrHistoryPointUi) -> Double?
 ) {
+    var selectedScaleRaw by rememberSaveable(chartKey) { mutableStateOf(IsfCrChartScale.AUTO.name) }
+    val selectedScale = remember(selectedScaleRaw) {
+        runCatching { IsfCrChartScale.valueOf(selectedScaleRaw) }.getOrDefault(IsfCrChartScale.AUTO)
+    }
     val series = remember(points) {
         points
             .map {
                 IsfCrSeriesPoint(
                     ts = it.timestamp,
                     real = realSelector(it),
-                    merged = mergedSelector(it)
+                    aaps = aapsSelector(it)
                 )
             }
             .sortedBy { it.ts }
     }
-    val min = series.minOfOrNull { it.real }
-    val max = series.maxOfOrNull { it.real }
-    val lastReal = series.lastOrNull()?.real
-    val lastMerged = series.lastOrNull()?.merged
+    val realValues = series.mapNotNull { it.real?.takeIf { value -> value.isFinite() } }
+    val aapsValues = series.mapNotNull { it.aaps?.takeIf { value -> value.isFinite() } }
+    val statsValues = if (realValues.isNotEmpty()) realValues else aapsValues
+    val min = statsValues.minOrNull()
+    val max = statsValues.maxOrNull()
+    val lastReal = realValues.lastOrNull()
+    val lastAaps = aapsValues.lastOrNull()
+    val lastPair = series.lastOrNull { it.real != null && it.aaps != null }
+    val lastDelta = if (lastPair?.real != null && lastPair.aaps != null) {
+        lastPair.real - lastPair.aaps
+    } else {
+        null
+    }
     val startTs = series.firstOrNull()?.ts
     val endTs = series.lastOrNull()?.ts
-    val hasRealSeparation = series.any { abs(it.real - it.merged) >= 0.02 }
+    val hasRealSeparation = series.any { point ->
+        val real = point.real ?: return@any false
+        val aaps = point.aaps ?: return@any false
+        abs(real - aaps) >= 0.02
+    }
+    val aapsCoveragePct = if (series.isNotEmpty()) {
+        (series.count { it.aaps != null }.toDouble() / series.size.toDouble() * 100.0).coerceIn(0.0, 100.0)
+    } else {
+        0.0
+    }
+    val realCoveragePct = if (series.isNotEmpty()) {
+        (series.count { it.real != null }.toDouble() / series.size.toDouble() * 100.0).coerceIn(0.0, 100.0)
+    } else {
+        0.0
+    }
 
     AnalyticsSectionCard {
         AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_isfcr_history))
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall
+        )
+        Text(
+            text = stringResource(id = R.string.analytics_series_line_mapping),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         if (series.size < 2) {
@@ -1356,112 +1435,251 @@ private fun IsfCrSeriesCard(
             return@AnalyticsSectionCard
         }
 
-        val allValues = series.flatMap { listOf(it.real, it.merged) }
-        val yMinRaw = allValues.minOrNull() ?: 0.0
-        val yMaxRaw = allValues.maxOrNull() ?: 1.0
-        val yPadding = max(0.1, (yMaxRaw - yMinRaw) * 0.15)
-        val yMin = yMinRaw - yPadding
-        val yMax = yMaxRaw + yPadding
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            listOf(IsfCrChartScale.ZOOM_IN, IsfCrChartScale.AUTO, IsfCrChartScale.ZOOM_OUT).forEach { candidate ->
+                FilterChip(
+                    selected = selectedScale == candidate,
+                    onClick = { selectedScaleRaw = candidate.name },
+                    label = {
+                        Text(
+                            text = when (candidate) {
+                                IsfCrChartScale.ZOOM_IN -> stringResource(id = R.string.analytics_scale_zoom_in)
+                                IsfCrChartScale.AUTO -> stringResource(id = R.string.analytics_scale_auto)
+                                IsfCrChartScale.ZOOM_OUT -> stringResource(id = R.string.analytics_scale_zoom_out)
+                            }
+                        )
+                    }
+                )
+            }
+        }
+
+        val allValues = series.flatMap { point ->
+            buildList {
+                point.real?.let { add(it) }
+                point.aaps?.let { add(it) }
+            }
+        }.filter { it.isFinite() }.sorted()
+        val trimmedCount = (allValues.size * 0.02).toInt().coerceAtMost((allValues.size - 1).coerceAtLeast(0) / 2)
+        val yMinRaw = allValues.getOrNull(trimmedCount) ?: 0.0
+        val yMaxRaw = allValues.getOrNull(allValues.lastIndex - trimmedCount) ?: 1.0
+        val baseRange = (yMaxRaw - yMinRaw).coerceAtLeast(0.05)
+        val yCenter = yMinRaw + baseRange * 0.5
+        val yPadding = max(0.1, baseRange * 0.15)
+        val scaledRange = baseRange * selectedScale.rangeMultiplier
+        val yMin = yCenter - scaledRange * 0.5 - yPadding
+        val yMax = yCenter + scaledRange * 0.5 + yPadding
+        val yMid = yMin + (yMax - yMin) * 0.5
         val minTs = series.first().ts
         val maxTs = max(minTs + 1L, series.last().ts)
+        val midTs = minTs + (maxTs - minTs) / 2L
 
         val chartDescription = stringResource(
             id = R.string.analytics_chart_accessibility_template,
             title,
             UiFormatters.formatMmol(lastReal, 2),
             unit,
-            UiFormatters.formatMmol(lastMerged, 2)
+            UiFormatters.formatMmol(lastAaps, 2)
         )
         val gridMajor = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f)
         val gridMinor = MaterialTheme.colorScheme.outline.copy(alpha = 0.10f)
         val axisColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+        val chartBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
 
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(220.dp)
-                .semantics { contentDescription = chartDescription }
+        Text(
+            text = stringResource(id = R.string.analytics_axis_units_template, unit),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            val left = 36.dp.toPx()
-            val right = 12.dp.toPx()
-            val top = 10.dp.toPx()
-            val bottom = 22.dp.toPx()
-            val chartWidth = (size.width - left - right).coerceAtLeast(1f)
-            val chartHeight = (size.height - top - bottom).coerceAtLeast(1f)
-
-            fun xOf(ts: Long): Float {
-                return left + ((ts - minTs).toDouble() / (maxTs - minTs).toDouble() * chartWidth).toFloat()
-            }
-
-            fun yOf(value: Double): Float {
-                val ratio = ((value - yMin) / (yMax - yMin)).coerceIn(0.0, 1.0)
-                return (top + chartHeight - ratio * chartHeight).toFloat()
-            }
-
-            repeat(5) { index ->
-                val y = top + chartHeight * index / 4f
-                drawLine(
-                    color = gridMajor,
-                    start = Offset(left, y),
-                    end = Offset(left + chartWidth, y),
-                    strokeWidth = 1f
+            Column(
+                modifier = Modifier
+                    .width(56.dp)
+                    .height(240.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End
+            ) {
+                Text(
+                    text = UiFormatters.formatDecimalOrPlaceholder(yMax, decimals = 2),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-            repeat(7) { index ->
-                val x = left + chartWidth * index / 6f
-                drawLine(
-                    color = gridMinor,
-                    start = Offset(x, top),
-                    end = Offset(x, top + chartHeight),
-                    strokeWidth = 1f
+                Text(
+                    text = UiFormatters.formatDecimalOrPlaceholder(yMid, decimals = 2),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = UiFormatters.formatDecimalOrPlaceholder(yMin, decimals = 2),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            drawLine(
-                color = axisColor,
-                start = Offset(left, top),
-                end = Offset(left, top + chartHeight),
-                strokeWidth = 1.2f
-            )
-            drawLine(
-                color = axisColor,
-                start = Offset(left, top + chartHeight),
-                end = Offset(left + chartWidth, top + chartHeight),
-                strokeWidth = 1.2f
-            )
+            Canvas(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(240.dp)
+                    .semantics { contentDescription = chartDescription }
+            ) {
+                val left = 20.dp.toPx()
+                val right = 8.dp.toPx()
+                val top = 10.dp.toPx()
+                val bottom = 22.dp.toPx()
+                val chartWidth = (size.width - left - right).coerceAtLeast(1f)
+                val chartHeight = (size.height - top - bottom).coerceAtLeast(1f)
+                drawRect(
+                    color = chartBackground,
+                    topLeft = Offset(left, top),
+                    size = Size(chartWidth, chartHeight)
+                )
 
-            val mergedPath = Path()
-            val realPath = Path()
-            series.forEachIndexed { index, point ->
-                val x = xOf(point.ts)
-                val yReal = yOf(point.real)
-                val yMerged = yOf(point.merged)
-                if (index == 0) {
-                    realPath.moveTo(x, yReal)
-                    mergedPath.moveTo(x, yMerged)
-                } else {
-                    realPath.lineTo(x, yReal)
-                    mergedPath.lineTo(x, yMerged)
+                fun xOf(ts: Long): Float {
+                    return left + ((ts - minTs).toDouble() / (maxTs - minTs).toDouble() * chartWidth).toFloat()
+                }
+
+                fun yOf(value: Double): Float {
+                    val ratio = ((value - yMin) / (yMax - yMin)).coerceIn(0.0, 1.0)
+                    return (top + chartHeight - ratio * chartHeight).toFloat()
+                }
+
+                repeat(5) { index ->
+                    val y = top + chartHeight * index / 4f
+                    drawLine(
+                        color = gridMajor,
+                        start = Offset(left, y),
+                        end = Offset(left + chartWidth, y),
+                        strokeWidth = 1f
+                    )
+                }
+                repeat(7) { index ->
+                    val x = left + chartWidth * index / 6f
+                    drawLine(
+                        color = gridMinor,
+                        start = Offset(x, top),
+                        end = Offset(x, top + chartHeight),
+                        strokeWidth = 1f
+                    )
+                }
+
+                drawLine(
+                    color = axisColor,
+                    start = Offset(left, top),
+                    end = Offset(left, top + chartHeight),
+                    strokeWidth = 1.2f
+                )
+                drawLine(
+                    color = axisColor,
+                    start = Offset(left, top + chartHeight),
+                    end = Offset(left + chartWidth, top + chartHeight),
+                    strokeWidth = 1.2f
+                )
+
+                val realPath = Path()
+                val aapsPath = Path()
+                var hasRealPath = false
+                var pendingMoveReal = true
+                series.forEach { point ->
+                    val realValue = point.real ?: run {
+                        pendingMoveReal = true
+                        return@forEach
+                    }
+                    val x = xOf(point.ts)
+                    val yReal = yOf(realValue)
+                    if (pendingMoveReal) {
+                        realPath.moveTo(x, yReal)
+                        pendingMoveReal = false
+                    } else {
+                        realPath.lineTo(x, yReal)
+                    }
+                    hasRealPath = true
+                }
+                var hasAapsPath = false
+                var pendingMoveAaps = true
+                series.forEach { point ->
+                    val aapsValue = point.aaps ?: run {
+                        pendingMoveAaps = true
+                        return@forEach
+                    }
+                    val x = xOf(point.ts)
+                    val y = yOf(aapsValue)
+                    if (pendingMoveAaps) {
+                        aapsPath.moveTo(x, y)
+                        pendingMoveAaps = false
+                    } else {
+                        aapsPath.lineTo(x, y)
+                    }
+                    hasAapsPath = true
+                }
+                if (hasAapsPath) {
+                    drawPath(
+                        path = aapsPath,
+                        color = aapsColor,
+                        style = Stroke(
+                            width = 2.5f,
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
+                        )
+                    )
+                }
+                if (hasRealPath) {
+                    drawPath(
+                        path = realPath,
+                        color = realColor,
+                        style = Stroke(width = 3.5f, cap = StrokeCap.Round)
+                    )
+                }
+
+                lastAaps?.let {
+                    val lastAapsPoint = series.lastOrNull { seriesPoint -> seriesPoint.aaps != null }
+                    if (lastAapsPoint != null) {
+                        drawCircle(
+                            color = aapsColor,
+                            radius = 4.5f,
+                            center = Offset(xOf(lastAapsPoint.ts), yOf(lastAapsPoint.aaps ?: it))
+                        )
+                    }
+                }
+                val lastRealPoint = series.lastOrNull { it.real != null }
+                if (lastRealPoint?.real != null) {
+                    drawCircle(
+                        color = realColor,
+                        radius = 5.2f,
+                        center = Offset(xOf(lastRealPoint.ts), yOf(lastRealPoint.real))
+                    )
                 }
             }
-            drawPath(
-                path = mergedPath,
-                color = mergedColor,
-                style = Stroke(
-                    width = 2.5f,
-                    cap = StrokeCap.Round,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
-                )
+        }
+        Text(
+            text = stringResource(id = R.string.analytics_axis_time),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = formatHistoryAxisTick(minTs, maxTs - minTs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            drawPath(
-                path = realPath,
-                color = realColor,
-                style = Stroke(width = 3.5f, cap = StrokeCap.Round)
+            Text(
+                text = formatHistoryAxisTick(midTs, maxTs - minTs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            val last = series.last()
-            drawCircle(color = mergedColor, radius = 4.5f, center = Offset(xOf(last.ts), yOf(last.merged)))
-            drawCircle(color = realColor, radius = 5.2f, center = Offset(xOf(last.ts), yOf(last.real)))
+            Text(
+                text = formatHistoryAxisTick(maxTs, maxTs - minTs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Row(
@@ -1475,11 +1693,40 @@ private fun IsfCrSeriesCard(
             )
             AnalyticsLegendItem(
                 text = stringResource(id = R.string.analytics_legend_merged),
-                color = mergedColor,
+                color = aapsColor,
                 icon = Icons.Default.Info
             )
         }
-        if (!hasRealSeparation) {
+        Text(
+            text = stringResource(
+                id = R.string.analytics_real_coverage_template,
+                UiFormatters.formatDecimalOrPlaceholder(realCoveragePct, 0)
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = stringResource(
+                id = R.string.analytics_aaps_coverage_template,
+                UiFormatters.formatDecimalOrPlaceholder(aapsCoveragePct, 0)
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (realCoveragePct <= 0.0) {
+            Text(
+                text = stringResource(id = R.string.analytics_real_series_empty_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (aapsCoveragePct <= 0.0) {
+            Text(
+                text = stringResource(id = R.string.analytics_aaps_series_empty_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else if (!hasRealSeparation) {
             Text(
                 text = stringResource(id = R.string.analytics_series_realtime_matches_base_hint),
                 style = MaterialTheme.typography.bodySmall,
@@ -1490,9 +1737,18 @@ private fun IsfCrSeriesCard(
         Text(
             text = stringResource(
                 id = R.string.analytics_stats_template,
-                UiFormatters.formatMmol(min, 2),
-                UiFormatters.formatMmol(max, 2),
-                UiFormatters.formatMmol(lastReal, 2),
+                UiFormatters.formatDecimalOrPlaceholder(min, 2),
+                UiFormatters.formatDecimalOrPlaceholder(max, 2),
+                UiFormatters.formatDecimalOrPlaceholder(lastReal, 2),
+                unit
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = stringResource(
+                id = R.string.analytics_last_delta_template,
+                UiFormatters.formatSignedDelta(lastDelta),
                 unit
             ),
             style = MaterialTheme.typography.bodySmall,
@@ -2083,11 +2339,44 @@ private fun AnalyticsSectionCard(
 
 @Composable
 private fun AnalyticsSectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    var showInfo by rememberSaveable(text) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        IconButton(onClick = { showInfo = true }) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(text = text) },
+            text = {
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_info_section_generic,
+                        text
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) {
+                    Text(text = stringResource(id = R.string.action_close))
+                }
+            }
+        )
+    }
 }
 
 private fun formatHistoryTs(ts: Long?): String {
@@ -2095,6 +2384,19 @@ private fun formatHistoryTs(ts: Long?): String {
     return Instant.ofEpochMilli(ts)
         .atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("dd MMM HH:mm", Locale.getDefault()))
+}
+
+private fun formatHistoryAxisTick(ts: Long, spanMs: Long): String {
+    if (ts <= 0L) return "--"
+    val pattern = when {
+        spanMs <= 36L * 60L * 60L * 1000L -> "HH:mm"
+        spanMs <= 4L * 24L * 60L * 60L * 1000L -> "dd MMM HH:mm"
+        spanMs <= 8L * 24L * 60L * 60L * 1000L -> "dd MMM"
+        else -> "dd MMM"
+    }
+    return Instant.ofEpochMilli(ts)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
 }
 
 @Preview(showBackground = true)

@@ -9,6 +9,7 @@ import io.aaps.copilot.data.local.CopilotMigrations
 import io.aaps.copilot.data.repository.AapsExportRepository
 import io.aaps.copilot.data.repository.AapsAutoConnectRepository
 import io.aaps.copilot.data.repository.AnalyticsRepository
+import io.aaps.copilot.data.repository.AiChatRepository
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.BroadcastIngestRepository
@@ -190,12 +191,18 @@ class AppContainer(context: Context) {
         auditLogger = auditLogger
     )
 
+    val aiChatRepository = AiChatRepository(
+        settingsStore = settingsStore,
+        auditLogger = auditLogger
+    )
+
     val insightsRepository = InsightsRepository(
         context = context,
         db = db,
         settingsStore = settingsStore,
         apiFactory = apiFactory,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        aiChatRepository = aiChatRepository
     )
 
     init {

@@ -16,6 +16,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
 import io.aaps.copilot.config.resolvedNightscoutUrl
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.repository.AapsAutoConnectRepository
@@ -37,6 +39,7 @@ import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.TherapySanitizer
+import io.aaps.copilot.data.repository.AiChatTurn
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
@@ -60,6 +63,8 @@ import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutTls
 import io.aaps.copilot.ui.foundation.screens.AnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.AiAnalysisUiState
+import io.aaps.copilot.ui.foundation.screens.AiChatMessageUi
 import io.aaps.copilot.ui.foundation.screens.AppHealthUiState
 import io.aaps.copilot.ui.foundation.screens.AuditItemUi
 import io.aaps.copilot.ui.foundation.screens.AuditWindowUi
@@ -73,6 +78,7 @@ import io.aaps.copilot.ui.foundation.screens.SafetyUiState
 import io.aaps.copilot.ui.foundation.screens.SettingsUiState
 import io.aaps.copilot.ui.foundation.screens.UamUiState
 import io.aaps.copilot.ui.foundation.screens.toAnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.toAiAnalysisUiState
 import io.aaps.copilot.ui.foundation.screens.toAppHealthUiState
 import io.aaps.copilot.ui.foundation.screens.toAuditUiState
 import io.aaps.copilot.ui.foundation.screens.toForecastUiState
@@ -114,11 +120,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val cloudJobsState = MutableStateFlow<CloudJobsUiModel?>(null)
     private val analysisHistoryState = MutableStateFlow<CloudAnalysisHistoryUiModel?>(null)
     private val analysisTrendState = MutableStateFlow<CloudAnalysisTrendUiModel?>(null)
+    private val aiChatMessagesState = MutableStateFlow<List<AiChatMessageUi>>(emptyList())
+    private val aiChatInProgressState = MutableStateFlow(false)
     private val insightsFilterState = MutableStateFlow(InsightsFilterUi())
     private val forecastRangeState = MutableStateFlow(ForecastRangeUi.H3)
     private val forecastLayersState = MutableStateFlow(ForecastLayerState())
     private val auditWindowState = MutableStateFlow(AuditWindowUi.H24)
     private val auditOnlyErrorsState = MutableStateFlow(false)
+    private val killSwitchOverrideState = MutableStateFlow<Boolean?>(null)
     private val proModeState = MutableStateFlow(false)
     private val verboseLogsState = MutableStateFlow(false)
     private val autoConnectState = MutableStateFlow<AutoConnectUi?>(null)
@@ -129,20 +138,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         runAutoConnectNow(silent = true)
         refreshCloudJobs(silent = true)
         refreshAnalysisInsights(silent = true)
+        maybeGenerateLocalDailyAnalysis(silent = true)
     }
 
     val uiState: StateFlow<MainUiState> = combine(
-        db.glucoseDao().observeLatest(limit = 3_000),
-        db.therapyDao().observeLatest(limit = 1_800),
-        db.forecastDao().observeLatest(limit = 7000),
-        db.baselineDao().observeLatest(limit = 600),
+        db.glucoseDao().observeLatest(limit = GLUCOSE_LATEST_LIMIT),
+        db.therapyDao().observeLatest(limit = THERAPY_LATEST_LIMIT),
+        db.forecastDao().observeLatest(limit = FORECAST_LATEST_LIMIT),
+        db.baselineDao().observeLatest(limit = BASELINE_LATEST_LIMIT),
         db.ruleExecutionDao().observeLatest(limit = 20),
         db.actionCommandDao().observeLatest(limit = 40),
-        db.auditLogDao().observeLatest(limit = 50),
-        db.telemetryDao().observeLatest(limit = 12_000),
+        db.auditLogDao().observeLatest(limit = 80),
+        db.telemetryDao().observeLatest(limit = TELEMETRY_LATEST_LIMIT),
         container.analyticsRepository.observePatterns(),
         container.analyticsRepository.observeProfileEstimate(),
-        db.profileEstimateDao().observeHistory(limit = 20_000),
+        db.profileEstimateDao().observeHistory(limit = PROFILE_HISTORY_LIMIT),
         container.analyticsRepository.observeProfileSegments(),
         db.syncStateDao().observeAll(),
         container.settingsStore.settings,
@@ -156,9 +166,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         insightsFilterState,
         db.uamInferenceEventDao().observeLatest(limit = 300),
         container.analyticsRepository.observeIsfCrSnapshot(),
-        container.analyticsRepository.observeIsfCrHistory(limit = 20_000),
-        container.isfCrRepository.observeRecentTags(sinceTs = 0L)
+        container.analyticsRepository.observeIsfCrHistory(limit = ISF_CR_HISTORY_LIMIT),
+        container.isfCrRepository.observeRecentTags(sinceTs = 0L),
+        db.telemetryDao().observeLatestByKeys(
+            limit = ISF_CR_HISTORY_TELEMETRY_LIMIT,
+            keys = ISFCR_HISTORY_TELEMETRY_KEYS
+        ),
+        db.telemetryDao().observeLatestByKeys(
+            limit = AI_TUNING_TELEMETRY_LIMIT,
+            keys = AI_TUNING_TELEMETRY_KEYS
+        ),
+        db.glucoseDao().observeMinTimestamp(),
+        db.glucoseDao().observeMaxTimestamp()
     ) { values ->
+        buildMainUiState(values)
+    }
+        .conflate()
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = MainUiState()
+    )
+
+    private fun buildMainUiState(values: Array<Any?>): MainUiState {
         @Suppress("UNCHECKED_CAST")
         val glucose = GlucoseSanitizer.filterEntities(values[0] as List<GlucoseSampleEntity>)
         @Suppress("UNCHECKED_CAST")
@@ -204,6 +235,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val isfCrHistory = values[24] as List<IsfCrRealtimeSnapshot>
         @Suppress("UNCHECKED_CAST")
         val physioTags = values[25] as List<PhysioContextTag>
+        @Suppress("UNCHECKED_CAST")
+        val isfCrTelemetryHistory = values[26] as List<TelemetrySampleEntity>
+        @Suppress("UNCHECKED_CAST")
+        val aiTuningTelemetry = values[27] as List<TelemetrySampleEntity>
+        val glucoseMinTs = values[28] as Long?
+        val glucoseMaxTs = values[29] as Long?
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
         val latest = sortedGlucose.lastOrNull()
@@ -214,6 +251,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             baseline = baseline
         )
         val now = System.currentTimeMillis()
+        val aiDataCoverageHours = computeAiCoverageHours(
+            oldestTs = glucoseMinTs,
+            latestTs = glucoseMaxTs,
+            nowTs = now
+        )
+        val aiAnalysisReady = aiDataCoverageHours >= AI_MIN_DATA_HOURS.toDouble()
         val nightscoutSyncTs = syncStates.firstOrNull { it.source == "nightscout" }?.lastSyncedTimestamp
         val cloudPushSyncTs = syncStates.firstOrNull { it.source == "cloud_push" }?.lastSyncedTimestamp
         val latestGlucoseTs = latest?.timestamp
@@ -351,6 +394,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             listOf(header) + items
         }
+        val cloudJobRows = cloudJobs?.jobs?.map { job ->
+            CloudJobRowUi(
+                jobId = job.jobId,
+                lastStatus = job.lastStatus,
+                lastRunTs = job.lastRunTs,
+                nextRunTs = job.nextRunTs,
+                lastMessage = job.lastMessage
+            )
+        } ?: emptyList()
+        val analysisHistoryRows = analysisHistory?.items?.map { item ->
+            AnalysisHistoryRowUi(
+                runTs = item.runTs,
+                date = item.date,
+                source = item.source,
+                status = item.status,
+                summary = item.summary,
+                anomalies = item.anomalies,
+                recommendations = item.recommendations,
+                errorMessage = item.errorMessage
+            )
+        } ?: emptyList()
+        val analysisTrendRows = analysisTrend?.items?.map { item ->
+            AnalysisTrendRowUi(
+                weekStart = item.weekStart,
+                totalRuns = item.totalRuns,
+                successRuns = item.successRuns,
+                failedRuns = item.failedRuns,
+                anomaliesCount = item.anomaliesCount,
+                recommendationsCount = item.recommendationsCount
+            )
+        } ?: emptyList()
         val analysisHistoryLines = analysisHistory?.items?.map { item ->
             val counts = "an=${item.anomalies.size}, rec=${item.recommendations.size}"
             val summaryPreview = item.summary.replace('\n', ' ').trim().take(120)
@@ -380,15 +454,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             telemetry = telemetry,
             nowTs = now
         )
+        val telemetryByKey = latestTelemetryByKey(telemetry, nowTs = now)
+        val aiTuningTelemetryByKey = latestTelemetryByKey(aiTuningTelemetry, nowTs = now)
+        val aiTuningStatus = resolveAiTuningStatus(
+            telemetryByKey = aiTuningTelemetryByKey,
+            nowTs = now
+        )
         val activityLines = buildActivitySummaryLines(
             telemetry = telemetry,
+            telemetryByKey = telemetryByKey,
             nowTs = now,
             activityPermissionGranted = isActivityRecognitionGranted(),
             audits = audits
         )
-        val telemetryCoverageLines = buildTelemetryCoverageLines(telemetry, therapy, profile, now)
-        val telemetryLines = buildTelemetryLines(telemetry)
-        val telemetryByKey = latestTelemetryByKey(telemetry)
+        val telemetryCoverageLines = buildTelemetryCoverageLines(
+            samples = telemetry,
+            latestByKey = telemetryByKey,
+            therapyEvents = therapy,
+            profile = profile,
+            nowTs = now
+        )
+        val telemetryLines = buildTelemetryLines(
+            samples = telemetry,
+            latestByKey = telemetryByKey
+        )
         val actionLines = buildActionLines(actionCommands)
         val glucoseHistoryPoints = sortedGlucose
             .filter { it.timestamp >= now - 24 * 60 * 60_000L }
@@ -402,15 +491,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val forecast30CiHigh = latestForecast30Row?.ciHigh
         val forecast60CiLow = latestForecast60Row?.ciLow
         val forecast60CiHigh = latestForecast60Row?.ciHigh
-        val latestIobUnits = (
-            telemetryByKey["iob_effective_units"].toNumericValue()
-                ?: telemetryByKey["iob_units"].toNumericValue()
-            )
+        val latestIobUnits = resolveMetricByRecency(
+            preferred = telemetryByKey["iob_effective_units"],
+            fallback = telemetryByKey["iob_units"]
+        )
         val latestIobRealUnits = telemetryByKey["iob_real_units"].toNumericValue()
-        val latestCobGrams = (
-            telemetryByKey["cob_effective_grams"].toNumericValue()
-                ?: telemetryByKey["cob_grams"].toNumericValue()
-            )
+        val latestCobGrams = resolveMetricByRecency(
+            preferred = telemetryByKey["cob_effective_grams"],
+            fallback = telemetryByKey["cob_grams"]
+        )
             ?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
         val insulinRealOnsetMinutes = telemetryByKey["insulin_real_onset_min"].toNumericValue()
         val insulinRealProfileCurveCompact = telemetryByKey["insulin_profile_real_curve_compact"]
@@ -837,35 +926,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val crText = segment.crGramPerUnit?.let { String.format("%.2f", it) } ?: "-"
                 "${segment.dayType} ${segment.timeSlot}: ISF=$isfText, CR=$crText, conf=${String.format("%.0f", segment.confidence * 100)}%, n(ISF/CR)=${segment.isfSampleCount}/${segment.crSampleCount}"
             }
-        val profileHistoryPoints = if (isfCrHistory.isNotEmpty()) {
-            isfCrHistory
-                .asSequence()
-                .map { row ->
-                    IsfCrHistoryPointUi(
-                        timestamp = row.ts,
-                        isfMerged = row.isfBase,
-                        crMerged = row.crBase,
-                        isfCalculated = row.displayIsfEffForAnalytics(),
-                        crCalculated = row.displayCrEffForAnalytics()
-                    )
-                }
-                .sortedBy { it.timestamp }
-                .toList()
-        } else {
-            profileHistory
-                .asSequence()
-                .map { row ->
-                    IsfCrHistoryPointUi(
-                        timestamp = row.timestamp,
-                        isfMerged = row.isfMmolPerUnit,
-                        crMerged = row.crGramPerUnit,
-                        isfCalculated = row.calculatedIsfMmolPerUnit,
-                        crCalculated = row.calculatedCrGramPerUnit
-                    )
-                }
-                .sortedBy { it.timestamp }
-                .toList()
-        }
+        val profileHistoryPoints = buildIsfCrHistoryPoints(
+            profileHistory = profileHistory,
+            isfCrHistory = isfCrHistory,
+            telemetry = isfCrTelemetryHistory
+        )
         val snapshotFactorLines = isfCrSnapshot?.factors
             ?.entries
             ?.sortedBy { it.key }
@@ -923,9 +988,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             addAll(isfCrDeepLines)
         }
 
-        MainUiState().apply {
+        val result = MainUiState()
+        fun populateResult() = with(result) {
             this.nightscoutUrl = settings.nightscoutUrl
             this.cloudUrl = settings.cloudBaseUrl
+            this.openAiApiKey = settings.openAiApiKey
+            this.uiStyle = settings.uiStyle.name
             this.exportUri = settings.exportFolderUri
             this.killSwitch = settings.killSwitch
             this.localNightscoutEnabled = settings.localNightscoutEnabled
@@ -1000,6 +1068,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.adaptiveControllerStaleMaxMinutes = settings.adaptiveControllerStaleMaxMinutes
             this.adaptiveControllerMaxActions6h = settings.adaptiveControllerMaxActions6h
             this.adaptiveControllerMaxStepMmol = settings.adaptiveControllerMaxStepMmol
+            this.aiMinDataHours = AI_MIN_DATA_HOURS
+            this.aiDataCoverageHours = aiDataCoverageHours
+            this.aiAnalysisReady = aiAnalysisReady
+            this.aiTuningState = aiTuningStatus.state.name
+            this.aiTuningReason = aiTuningStatus.reason
+            this.aiTuningGeneratedTs = aiTuningStatus.generatedTs
+            this.aiTuningConfidence = aiTuningStatus.confidence
+            this.aiTuningStatusRaw = aiTuningStatus.statusRaw
             this.latestDataAgeMinutes = latestDataAgeMinutes
             this.nightscoutSyncAgeMinutes = nightscoutAgeMinutes
             this.cloudPushBacklogMinutes = cloudPushBacklogMinutes
@@ -1126,7 +1202,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.isfCrWearImpact7dLines = isfCrWearImpact7d
             this.isfCrActiveTags = physioTagLines
             this.isfCrHistoryPoints = profileHistoryPoints
-            this.isfCrHistoryLastUpdatedTs = profileHistoryPoints.lastOrNull()?.timestamp
+            this.isfCrHistoryLastUpdatedTs = listOfNotNull(
+                profileHistoryPoints.lastOrNull()?.timestamp,
+                isfCrTelemetryHistory.maxOfOrNull { it.timestamp },
+                isfCrHistory.maxOfOrNull { it.ts },
+                profileHistory.maxOfOrNull { it.timestamp }
+            ).maxOrNull()
             this.profileSegmentLines = profileSegmentLines
             this.yesterdayProfileLines = yesterdayProfileLines
             this.isfCrDeepLines = deepIsfCrLinesCombined
@@ -1220,8 +1301,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.replacementHistoryLines = replacementHistoryLines
             this.syncStatusLines = syncStatusLines
             this.jobStatusLines = jobStatusLines
+            this.cloudJobRows = cloudJobRows
             this.insightsFilterLabel = insightsFilterLabel
+            this.analysisHistoryItems = analysisHistoryRows
             this.analysisHistoryLines = analysisHistoryLines
+            this.analysisTrendItems = analysisTrendRows
             this.analysisTrendLines = analysisTrendLines
             this.ruleCooldownLines = ruleCooldownLines
             this.dryRun = dryRun
@@ -1239,14 +1323,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.auditLines = audits.map { "${it.level}: ${it.message}" }
             this.message = message
         }
+        populateResult()
+        return result
     }
-        .conflate()
-        .flowOn(Dispatchers.Default)
-        .stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = MainUiState()
-    )
 
     val messageUiState: StateFlow<String?> = messageState.asStateFlow()
 
@@ -1292,8 +1371,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = UamUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
         )
 
-    val safetyUiState: StateFlow<SafetyUiState> = uiState
-        .map { it.toSafetyUiState() }
+    val safetyUiState: StateFlow<SafetyUiState> = combine(
+        uiState,
+        killSwitchOverrideState
+    ) { state, killSwitchOverride ->
+        val mapped = state.toSafetyUiState()
+        if (killSwitchOverride != null) mapped.copy(killSwitchEnabled = killSwitchOverride) else mapped
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -1337,6 +1421,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = AnalyticsUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
         )
 
+    val aiAnalysisUiState: StateFlow<AiAnalysisUiState> = combine(
+        uiState,
+        aiChatMessagesState,
+        aiChatInProgressState
+    ) { state, messages, inProgress ->
+        state.toAiAnalysisUiState(
+            chatMessages = messages,
+            chatInProgress = inProgress
+        )
+    }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AiAnalysisUiState(
+                loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
+                isStale = true
+            )
+        )
+
     val settingsUiState: StateFlow<SettingsUiState> = combine(
         container.settingsStore.settings,
         verboseLogsState,
@@ -1377,6 +1480,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             proModeEnabled = proMode,
             baseTarget = settings.baseTargetMmol,
             nightscoutUrl = settings.nightscoutUrl,
+            aiApiUrl = settings.cloudBaseUrl,
+            aiApiKey = settings.openAiApiKey,
+            uiStyle = settings.uiStyle.name,
             resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
             insulinProfileId = settings.insulinProfileId,
             localNightscoutEnabled = settings.localNightscoutEnabled,
@@ -1449,6 +1555,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 proModeEnabled = false,
                 baseTarget = 5.5,
                 nightscoutUrl = "",
+                aiApiUrl = "",
+                aiApiKey = "",
+                uiStyle = UiStyle.CLASSIC.name,
                 resolvedNightscoutUrl = "",
                 insulinProfileId = "NOVORAPID",
                 localNightscoutEnabled = false,
@@ -1681,6 +1790,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             container.settingsStore.update { it.copy(nightscoutUrl = url.trim()) }
             messageState.value = "Nightscout URL updated"
+        }
+    }
+
+    fun setAiApiSettings(apiUrl: String, apiKey: String) {
+        viewModelScope.launch {
+            container.settingsStore.update {
+                it.copy(
+                    cloudBaseUrl = apiUrl.trim(),
+                    openAiApiKey = apiKey.trim()
+                )
+            }
+            messageState.value = "AI API settings updated"
+        }
+    }
+
+    fun setUiStyle(styleRaw: String) {
+        viewModelScope.launch {
+            val style = UiStyle.fromRaw(styleRaw)
+            container.settingsStore.update { it.copy(uiStyle = style) }
+            messageState.value = "UI style updated: ${style.name}"
         }
     }
 
@@ -2112,9 +2241,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setKillSwitch(enabled: Boolean) {
+        killSwitchOverrideState.value = enabled
         viewModelScope.launch(Dispatchers.IO) {
-            container.settingsStore.update { it.copy(killSwitch = enabled) }
-            messageState.value = if (enabled) "Kill switch enabled" else "Kill switch disabled"
+            try {
+                container.settingsStore.update { it.copy(killSwitch = enabled) }
+                messageState.value = if (enabled) "Kill switch enabled" else "Kill switch disabled"
+            } finally {
+                killSwitchOverrideState.value = null
+            }
         }
     }
 
@@ -2676,6 +2810,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runDailyAnalysisNow() {
         viewModelScope.launch {
+            val coverageHours = loadAiCoverageHours(nowTs = System.currentTimeMillis())
+            if (coverageHours < AI_MIN_DATA_HOURS.toDouble()) {
+                messageState.value = "AI analysis requires at least 24h data (${String.format(Locale.US, "%.1f", coverageHours)}/24h)"
+                return@launch
+            }
             val result = container.insightsRepository.runDailyAnalysis()
             messageState.value = result
             refreshCloudJobs(silent = true)
@@ -2683,8 +2822,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendAiChatPrompt(prompt: String) {
+        val question = prompt.trim()
+        if (question.isBlank()) return
+
+        viewModelScope.launch {
+            val snapshot = uiState.value
+            if (!snapshot.aiAnalysisReady) {
+                val waiting = String.format(
+                    Locale.US,
+                    "%.1f/%dh",
+                    snapshot.aiDataCoverageHours,
+                    snapshot.aiMinDataHours
+                )
+                aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
+                    id = "assistant-wait-${System.currentTimeMillis()}",
+                    role = "assistant",
+                    text = "Нужно накопить минимум 24ч данных для AI-чата. Сейчас: $waiting",
+                    ts = System.currentTimeMillis()
+                )
+                return@launch
+            }
+
+            val now = System.currentTimeMillis()
+            aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
+                id = "user-$now",
+                role = "user",
+                text = question,
+                ts = now
+            )
+            aiChatInProgressState.value = true
+
+            val historyTurns = aiChatMessagesState.value
+                .takeLast(10)
+                .map { msg -> AiChatTurn(role = msg.role, text = msg.text) }
+            val contextSummary = buildAiChatContextSummary(snapshot)
+
+            runCatching {
+                container.aiChatRepository.ask(
+                    question = question,
+                    contextSummary = contextSummary,
+                    history = historyTurns
+                )
+            }.onSuccess { response ->
+                aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
+                    id = "assistant-${System.currentTimeMillis()}",
+                    role = "assistant",
+                    text = response,
+                    ts = System.currentTimeMillis()
+                )
+            }.onFailure { error ->
+                aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
+                    id = "assistant-err-${System.currentTimeMillis()}",
+                    role = "assistant",
+                    text = "AI chat failed: ${error.message ?: "unknown error"}",
+                    ts = System.currentTimeMillis()
+                )
+            }
+            aiChatInProgressState.value = false
+        }
+    }
+
     fun refreshCloudJobs(silent: Boolean = false) {
         viewModelScope.launch {
+            val cloudBackendEnabled = isCopilotCloudBackendEndpoint(
+                container.settingsStore.settings.first().cloudBaseUrl
+            )
+            if (!cloudBackendEnabled) {
+                cloudJobsState.value = CloudJobsUiModel(timezone = "local", jobs = emptyList())
+                if (!silent) {
+                    messageState.value = "Cloud jobs disabled: OpenAI chat mode"
+                }
+                return@launch
+            }
             runCatching {
                 container.insightsRepository.fetchJobsStatus()
             }.onSuccess { jobs ->
@@ -2719,6 +2929,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun refreshAnalysisInsights(silent: Boolean) {
+        maybeGenerateLocalDailyAnalysis(silent = true)
         viewModelScope.launch {
             val filter = insightsFilterState.value
             runCatching {
@@ -2757,6 +2968,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runCloudReplayNow(days: Int = 14, stepMinutes: Int = 5) {
         viewModelScope.launch {
+            val cloudBackendEnabled = isCopilotCloudBackendEndpoint(
+                container.settingsStore.settings.first().cloudBaseUrl
+            )
+            if (!cloudBackendEnabled) {
+                messageState.value = "Cloud replay disabled: OpenAI chat mode"
+                return@launch
+            }
             runCatching {
                 container.insightsRepository.runReplayReport(days, stepMinutes)
             }.onSuccess { report ->
@@ -2840,6 +3058,135 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 messageState.value = "PDF export failed: ${it.message}"
             }
         }
+    }
+
+    private fun maybeGenerateLocalDailyAnalysis(silent: Boolean) {
+        viewModelScope.launch {
+            val nowTs = System.currentTimeMillis()
+            val coverageHours = loadAiCoverageHours(nowTs = nowTs)
+            if (coverageHours < AI_MIN_DATA_HOURS.toDouble()) {
+                return@launch
+            }
+
+            val recentTelemetry = db.telemetryDao().since(nowTs - AI_REPORT_RECENT_WINDOW_MS)
+            val hasRecentLocalReport = recentTelemetry.any {
+                it.source == "forecast_daily_report" && it.key == "daily_report_matched_samples"
+            }
+            if (hasRecentLocalReport) {
+                return@launch
+            }
+
+            runCatching {
+                container.insightsRepository.generateDailyForecastReport(hours = AI_MIN_DATA_HOURS)
+            }.onSuccess { report ->
+                if (!silent) {
+                    messageState.value = report.statusLine
+                }
+                refreshAnalysisInsights(silent = true)
+            }.onFailure { error ->
+                if (!silent) {
+                    messageState.value = "Local AI report failed: ${error.message}"
+                }
+            }
+        }
+    }
+
+    private fun computeAiCoverageHours(
+        glucose: List<GlucoseSampleEntity>,
+        nowTs: Long
+    ): Double {
+        val sorted = glucose.sortedBy { it.timestamp }
+        return computeAiCoverageHours(
+            oldestTs = sorted.firstOrNull()?.timestamp,
+            latestTs = sorted.lastOrNull()?.timestamp,
+            nowTs = nowTs
+        )
+    }
+
+    private fun computeAiCoverageHours(
+        oldestTs: Long?,
+        latestTs: Long?,
+        nowTs: Long
+    ): Double {
+        if (oldestTs == null || latestTs == null || latestTs <= oldestTs) return 0.0
+        val effectiveEnd = maxOf(nowTs, latestTs)
+        val spanMs = (effectiveEnd - oldestTs).coerceAtLeast(0L)
+        return (spanMs / 3_600_000.0).coerceAtMost(72.0)
+    }
+
+    private suspend fun loadAiCoverageHours(nowTs: Long): Double {
+        val oldestTs = db.glucoseDao().minTimestamp()
+        val latestTs = db.glucoseDao().maxTimestamp()
+        val fromDbSpan = computeAiCoverageHours(oldestTs = oldestTs, latestTs = latestTs, nowTs = nowTs)
+        if (fromDbSpan > 0.0) {
+            return fromDbSpan
+        }
+        val fallback = db.glucoseDao().latest(limit = AI_COVERAGE_LATEST_LIMIT)
+        return computeAiCoverageHours(glucose = fallback, nowTs = nowTs)
+    }
+
+    private fun buildAiChatContextSummary(state: MainUiState): String {
+        val reportMetrics = if (state.dailyReportMetrics.isEmpty()) {
+            "daily_report_metrics: none"
+        } else {
+            state.dailyReportMetrics.joinToString(separator = "\n") { metric ->
+                "${metric.horizonMinutes}m -> " +
+                    "MAE=${formatNullable(metric.mae)}, " +
+                    "RMSE=${formatNullable(metric.rmse)}, " +
+                    "MARD=${formatNullable(metric.mardPct)}%, " +
+                    "BIAS=${formatNullable(metric.bias)}, " +
+                    "n=${metric.sampleCount ?: 0}"
+            }
+        }
+
+        val topFactors = state.dailyReportReplayFactors
+            .sortedByDescending { it.contributionScore }
+            .take(6)
+            .joinToString(separator = "; ") { factor ->
+                "${factor.horizonMinutes}m:${factor.factor} score=${formatNullable(factor.contributionScore)} uplift=${formatNullable(factor.upliftPct)}%"
+            }
+            .ifBlank { "none" }
+
+        val hotspots = state.dailyReportReplayHotspots
+            .sortedByDescending { it.mae }
+            .take(6)
+            .joinToString(separator = "; ") { hotspot ->
+                "${hotspot.horizonMinutes}m H${hotspot.hour}: MAE=${formatNullable(hotspot.mae)} MARD=${formatNullable(hotspot.mardPct)}%"
+            }
+            .ifBlank { "none" }
+
+        val recommendations = state.dailyReportRecommendations
+            .take(6)
+            .joinToString(separator = "; ")
+            .ifBlank { "none" }
+
+        return buildString {
+            appendLine("coverage_hours=${String.format(Locale.US, "%.1f", state.aiDataCoverageHours)}")
+            appendLine("glucose_current=${formatNullable(state.latestGlucoseMmol)} mmol/L")
+            appendLine("delta=${formatNullable(state.glucoseDelta)} mmol/L")
+            appendLine("forecast_5=${formatNullable(state.forecast5m)} ci=[${formatNullable(state.forecast5mCiLow)}..${formatNullable(state.forecast5mCiHigh)}]")
+            appendLine("forecast_30=${formatNullable(state.forecast30m)} ci=[${formatNullable(state.forecast30mCiLow)}..${formatNullable(state.forecast30mCiHigh)}]")
+            appendLine("forecast_60=${formatNullable(state.forecast60m)} ci=[${formatNullable(state.forecast60mCiLow)}..${formatNullable(state.forecast60mCiHigh)}]")
+            appendLine("iob=${formatNullable(state.latestIobUnits)}U iob_real=${formatNullable(state.latestIobRealUnits)}U cob=${formatNullable(state.latestCobGrams)}g dia_h=${formatNullable(state.insulinRealOnsetMinutes?.div(60.0))}")
+            appendLine("isf_real=${formatNullable(state.isfCrRealtimeIsfEff)} isf_base=${formatNullable(state.isfCrRealtimeIsfBase)}")
+            appendLine("cr_real=${formatNullable(state.isfCrRealtimeCrEff)} cr_base=${formatNullable(state.isfCrRealtimeCrBase)}")
+            appendLine("isfcr_conf=${formatNullable(state.isfCrRealtimeConfidence)} quality=${formatNullable(state.isfCrRealtimeQualityScore)} mode=${state.isfCrRealtimeMode ?: "--"}")
+            appendLine("activity_ratio=${formatNullable(state.latestActivityRatio)} steps=${formatNullable(state.latestStepsCount)}")
+            appendLine("uam_calc_active=${state.calculatedUamActive ?: false} uci0=${formatNullable(state.calculatedUci0Mmol5m)} uam_carbs=${formatNullable(state.calculatedUamCarbsGrams)}")
+            appendLine("sensor_quality_score=${formatNullable(state.sensorQualityScore)} sensor_blocked=${state.sensorQualityBlocked ?: false}")
+            appendLine("adaptive_state=${state.controllerState ?: "--"} next_target=${formatNullable(state.controllerNextTarget)} confidence=${formatNullable(state.controllerConfidence)}")
+            appendLine("daily_report_generated_ts=${state.dailyReportGeneratedAtTs ?: 0}")
+            appendLine("daily_report_metrics:")
+            appendLine(reportMetrics)
+            appendLine("daily_replay_top_factors=$topFactors")
+            appendLine("daily_replay_hotspots=$hotspots")
+            appendLine("daily_recommendations=$recommendations")
+        }
+    }
+
+    private fun formatNullable(value: Double?, decimals: Int = 2): String {
+        if (value == null || !value.isFinite()) return "--"
+        return String.format(Locale.US, "%.${decimals}f", value)
     }
 
     private fun minutesSince(now: Long, ts: Long?): Long? {
@@ -4377,11 +4724,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildTelemetryCoverageLines(
         samples: List<TelemetrySampleEntity>,
+        latestByKey: Map<String, TelemetrySampleEntity>,
         therapyEvents: List<TherapyEventEntity>,
         profile: ProfileEstimateEntity?,
         nowTs: Long
     ): List<String> {
-        val latestByKey = latestTelemetryByKey(samples)
         val therapyFallback = resolveTherapyFallback(therapyEvents)
         val lines = telemetryCoverageSpecs().map { spec ->
             val sample = resolveTelemetrySample(spec, latestByKey)
@@ -4403,9 +4750,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun buildTelemetryLines(samples: List<TelemetrySampleEntity>): List<String> {
+    private fun buildTelemetryLines(
+        samples: List<TelemetrySampleEntity>,
+        latestByKey: Map<String, TelemetrySampleEntity>
+    ): List<String> {
         if (samples.isEmpty()) return emptyList()
-        val latestByKey = latestTelemetryByKey(samples)
         val primaryKeys = listOf(
             "iob_effective_units",
             "iob_real_units",
@@ -4491,29 +4840,179 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         samples: List<TelemetrySampleEntity>,
         nowTs: Long = System.currentTimeMillis()
     ): Map<String, TelemetrySampleEntity> {
+        if (samples.isEmpty()) return emptyMap()
         val todayStart = Instant.ofEpochMilli(nowTs)
             .atZone(ZoneId.systemDefault())
             .toLocalDate()
             .atStartOfDay(ZoneId.systemDefault())
             .toInstant()
             .toEpochMilli()
-        return samples
-            .filter { isTelemetrySampleUsable(it) }
-            .groupBy { it.key }
-            .mapValues { (key, values) ->
-                if (key in CUMULATIVE_ACTIVITY_KEYS) {
-                    val dayValues = values.filter { it.timestamp >= todayStart }
-                    val sourceValues = if (dayValues.isNotEmpty()) dayValues else values
-                    sourceValues.maxWithOrNull(
-                        compareBy<TelemetrySampleEntity> { it.valueDouble ?: Double.NEGATIVE_INFINITY }
-                            .thenBy { it.timestamp }
-                    )
-                } else {
-                    values.maxByOrNull { it.timestamp }
+        val latestByKey = HashMap<String, TelemetrySampleEntity>(256)
+        val cumulativeTodayMax = HashMap<String, TelemetrySampleEntity>(CUMULATIVE_ACTIVITY_KEYS.size)
+        val cumulativeAllTimeMax = HashMap<String, TelemetrySampleEntity>(CUMULATIVE_ACTIVITY_KEYS.size)
+
+        samples.forEach { sample ->
+            if (!isTelemetrySampleUsable(sample)) return@forEach
+
+            val key = sample.key
+            val latest = latestByKey[key]
+            if (latest == null || sample.timestamp >= latest.timestamp) {
+                latestByKey[key] = sample
+            }
+
+            if (key !in CUMULATIVE_ACTIVITY_KEYS) return@forEach
+
+            val previousAllTimeMax = cumulativeAllTimeMax[key]
+            if (previousAllTimeMax == null || sample.isHigherCumulativeSampleThan(previousAllTimeMax)) {
+                cumulativeAllTimeMax[key] = sample
+            }
+
+            if (sample.timestamp >= todayStart) {
+                val previousTodayMax = cumulativeTodayMax[key]
+                if (previousTodayMax == null || sample.isHigherCumulativeSampleThan(previousTodayMax)) {
+                    cumulativeTodayMax[key] = sample
                 }
             }
-            .filterValues { it != null }
-            .mapValues { it.value!! }
+        }
+
+        CUMULATIVE_ACTIVITY_KEYS.forEach { key ->
+            val preferred = cumulativeTodayMax[key] ?: cumulativeAllTimeMax[key]
+            if (preferred != null) {
+                latestByKey[key] = preferred
+            }
+        }
+
+        return latestByKey
+    }
+
+    private fun resolveAiTuningStatus(
+        telemetryByKey: Map<String, TelemetrySampleEntity>,
+        nowTs: Long
+    ): AiTuningStatusSnapshot {
+        val generatedTs = telemetryByKey["daily_report_ai_opt_generated_ts"]
+            .toNumericValue()
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?.toLong()
+        val applyFlag = (telemetryByKey["daily_report_ai_opt_apply_flag"].toNumericValue() ?: 0.0) >= 0.5
+        val confidence = telemetryByKey["daily_report_ai_opt_confidence"]
+            .toNumericValue()
+            ?.takeIf { it.isFinite() }
+            ?.coerceIn(0.0, 1.0)
+        val statusRaw = telemetryByKey["daily_report_ai_opt_status"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val reasonRaw = telemetryByKey["daily_report_ai_opt_reason"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val errorRaw = telemetryByKey["daily_report_ai_opt_error"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val matchedSamples = telemetryByKey["daily_report_matched_samples"]
+            .toNumericValue()
+            ?.takeIf { it.isFinite() }
+            ?.coerceAtLeast(0.0)
+        val riskLevel = telemetryByKey["daily_report_isfcr_quality_risk_level"]
+            .toNumericValue()
+            ?.takeIf { it.isFinite() }
+            ?.coerceAtLeast(0.0)
+
+        if (generatedTs == null) {
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.BLOCKED,
+                reason = "no optimizer report yet",
+                generatedTs = null,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        if (generatedTs > nowTs + AI_TUNING_FUTURE_SKEW_TOLERANCE_MS) {
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.BLOCKED,
+                reason = "invalid future report timestamp",
+                generatedTs = generatedTs,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        val ageMs = (nowTs - generatedTs).coerceAtLeast(0L)
+        if (ageMs > AI_TUNING_MAX_AGE_MS) {
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.STALE,
+                reason = "report older than ${AI_TUNING_MAX_AGE_HOURS}h",
+                generatedTs = generatedTs,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        if (!applyFlag) {
+            val reason = when {
+                !errorRaw.isNullOrBlank() -> "optimizer error: ${errorRaw.take(120)}"
+                !reasonRaw.isNullOrBlank() -> reasonRaw
+                !statusRaw.isNullOrBlank() -> "status=$statusRaw"
+                else -> "apply flag is off"
+            }
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.BLOCKED,
+                reason = reason,
+                generatedTs = generatedTs,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        if ((confidence ?: 0.0) < AI_TUNING_MIN_CONFIDENCE) {
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.BLOCKED,
+                reason = "confidence ${String.format(Locale.US, "%.0f%%", (confidence ?: 0.0) * 100.0)} below ${String.format(Locale.US, "%.0f%%", AI_TUNING_MIN_CONFIDENCE * 100.0)}",
+                generatedTs = generatedTs,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        if ((matchedSamples ?: 0.0) < AI_TUNING_MIN_MATCHED_SAMPLES) {
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.BLOCKED,
+                reason = "matched samples ${matchedSamples?.toInt() ?: 0} < ${AI_TUNING_MIN_MATCHED_SAMPLES.toInt()}",
+                generatedTs = generatedTs,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        if ((riskLevel ?: 0.0) >= AI_TUNING_BLOCK_RISK_LEVEL) {
+            return AiTuningStatusSnapshot(
+                state = AiTuningState.BLOCKED,
+                reason = "daily risk gate level ${riskLevel?.toInt() ?: 0}",
+                generatedTs = generatedTs,
+                confidence = confidence,
+                statusRaw = statusRaw
+            )
+        }
+
+        return AiTuningStatusSnapshot(
+            state = AiTuningState.ACTIVE,
+            reason = reasonRaw ?: "optimizer tuning applied",
+            generatedTs = generatedTs,
+            confidence = confidence,
+            statusRaw = statusRaw
+        )
+    }
+
+    private fun TelemetrySampleEntity.isHigherCumulativeSampleThan(other: TelemetrySampleEntity): Boolean {
+        val value = valueDouble ?: Double.NEGATIVE_INFINITY
+        val otherValue = other.valueDouble ?: Double.NEGATIVE_INFINITY
+        return if (value == otherValue) {
+            timestamp >= other.timestamp
+        } else {
+            value > otherValue
+        }
     }
 
     private fun latestForecastValue(forecasts: List<ForecastEntity>, horizonMinutes: Int): Double? {
@@ -4533,6 +5032,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun TelemetrySampleEntity?.toNumericValue(): Double? {
         if (this == null) return null
         return valueDouble ?: valueText?.replace(",", ".")?.toDoubleOrNull()
+    }
+
+    private fun resolveMetricByRecency(
+        preferred: TelemetrySampleEntity?,
+        fallback: TelemetrySampleEntity?
+    ): Double? {
+        val preferredValue = preferred.toNumericValue()
+        val fallbackValue = fallback.toNumericValue()
+        return when {
+            preferredValue == null -> fallbackValue
+            fallbackValue == null -> preferredValue
+            (preferred?.timestamp ?: Long.MIN_VALUE) >= (fallback?.timestamp ?: Long.MIN_VALUE) -> preferredValue
+            else -> fallbackValue
+        }
     }
 
     private fun buildSmbContextSummary(
@@ -4997,6 +5510,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildActivitySummaryLines(
         telemetry: List<TelemetrySampleEntity>,
+        telemetryByKey: Map<String, TelemetrySampleEntity>,
         nowTs: Long,
         activityPermissionGranted: Boolean,
         audits: List<AuditLogEntity>
@@ -5004,14 +5518,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val dayWindow = resolveDayWindow(nowTs)
         val todayStart = dayWindow.startTodayTs
         val yesterdayStart = dayWindow.startYesterdayTs
-        val byKey = latestTelemetryByKey(telemetry, nowTs = nowTs)
 
         val stepsToday = maxMetricInRange(telemetry, "steps_count", todayStart, nowTs + 1)
         val stepsYesterday = maxMetricInRange(telemetry, "steps_count", yesterdayStart, todayStart)
         val distanceTodayKm = maxMetricInRange(telemetry, "distance_km", todayStart, nowTs + 1)
         val activeMinutesToday = maxMetricInRange(telemetry, "active_minutes", todayStart, nowTs + 1)
         val activeCaloriesToday = maxMetricInRange(telemetry, "calories_active_kcal", todayStart, nowTs + 1)
-        val activityRatioCurrent = byKey["activity_ratio"].toNumericValue()
+        val activityRatioCurrent = telemetryByKey["activity_ratio"].toNumericValue()
         val activityRatioAvg6h = averageMetricInRange(
             telemetry = telemetry,
             key = "activity_ratio",
@@ -5034,7 +5547,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .maxByOrNull { it.timestamp }
         val healthConnectState = latestHealthConnectAudit?.let { auditMetaField(it, "state") }
         val healthConnectMissingPermissions = latestHealthConnectAudit?.let { auditMetaField(it, "missingPermissions") }
-        val activityLabel = byKey["activity_label"]?.valueText?.trim().takeIf { !it.isNullOrBlank() }
+        val activityLabel = telemetryByKey["activity_label"]?.valueText?.trim().takeIf { !it.isNullOrBlank() }
 
         val hasAnyMetric = listOfNotNull(
             stepsToday,
@@ -5166,6 +5679,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val startTodayTs: Long
     )
 
+    private enum class AiTuningState {
+        ACTIVE,
+        STALE,
+        BLOCKED
+    }
+
+    private data class AiTuningStatusSnapshot(
+        val state: AiTuningState,
+        val reason: String,
+        val generatedTs: Long?,
+        val confidence: Double?,
+        val statusRaw: String?
+    )
+
     private fun resolveDayWindow(nowTs: Long): DayWindow {
         val zone = ZoneId.systemDefault()
         val today = Instant.ofEpochMilli(nowTs).atZone(zone).toLocalDate()
@@ -5178,10 +5705,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private companion object {
+        private const val GLUCOSE_LATEST_LIMIT = 1_800
+        private const val THERAPY_LATEST_LIMIT = 1_500
+        private const val FORECAST_LATEST_LIMIT = 3_500
+        private const val BASELINE_LATEST_LIMIT = 600
+        private const val TELEMETRY_LATEST_LIMIT = 5_000
+        private const val PROFILE_HISTORY_LIMIT = 12_000
+        private const val ISF_CR_HISTORY_LIMIT = 12_000
+        private const val ISF_CR_HISTORY_TELEMETRY_LIMIT = 25_000
+        private const val AI_TUNING_TELEMETRY_LIMIT = 4_000
         private const val TLS_DIAGNOSTIC_WINDOW_MINUTES = 15
         private const val TLS_DIAGNOSTIC_WINDOW_MS = TLS_DIAGNOSTIC_WINDOW_MINUTES * 60_000L
         private const val LOCAL_NS_START_FAILURE_WINDOW_MS = 60 * 60_000L
         private const val HEALTH_CONNECT_ENABLED = false
+        private const val AI_MIN_DATA_HOURS = 24
+        private const val AI_TUNING_MIN_CONFIDENCE = 0.45
+        private const val AI_TUNING_MIN_MATCHED_SAMPLES = 36.0
+        private const val AI_TUNING_BLOCK_RISK_LEVEL = 3.0
+        private const val AI_TUNING_MAX_AGE_HOURS = 36L
+        private const val AI_TUNING_MAX_AGE_MS = AI_TUNING_MAX_AGE_HOURS * 60L * 60L * 1000L
+        private const val AI_TUNING_FUTURE_SKEW_TOLERANCE_MS = 5L * 60L * 1000L
+        private const val AI_COVERAGE_LATEST_LIMIT = 2_000
+        private const val AI_REPORT_RECENT_WINDOW_MS = 20L * 60L * 60L * 1000L
         private const val PHYSIO_TAG_JOURNAL_MAX_ROWS = 40
         private const val PHYSIO_TAG_JOURNAL_LOOKBACK_MS = 180L * 24 * 60 * 60 * 1000
         private val CUMULATIVE_ACTIVITY_KEYS = setOf(
@@ -5193,6 +5738,352 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 }
+
+private fun buildIsfCrHistoryPoints(
+    profileHistory: List<ProfileEstimateEntity>,
+    isfCrHistory: List<IsfCrRealtimeSnapshot>,
+    telemetry: List<TelemetrySampleEntity>
+): List<IsfCrHistoryPointUi> {
+    if (profileHistory.isEmpty() && isfCrHistory.isEmpty() && telemetry.isEmpty()) return emptyList()
+
+    val latestTs = listOfNotNull(
+        profileHistory.maxOfOrNull { it.timestamp },
+        isfCrHistory.maxOfOrNull { it.ts },
+        telemetry.maxOfOrNull { it.timestamp }
+    ).maxOrNull() ?: return emptyList()
+    val minTs = (latestTs - ISFCR_ANALYTICS_WINDOW_MS).coerceAtLeast(0L)
+
+    val profileSorted = profileHistory
+        .asSequence()
+        .filter { it.timestamp >= minTs }
+        .sortedBy { it.timestamp }
+        .toList()
+    val runtimeSorted = isfCrHistory
+        .asSequence()
+        .filter { it.ts >= minTs }
+        .sortedBy { it.ts }
+        .toList()
+    val aapsIsfSeries = buildAapsSeriesFromTelemetry(
+        telemetry = telemetry,
+        keys = setOf("isf_value", "raw_isf", "aaps_isf", "profile_isf", "isf"),
+        min = 0.2,
+        max = 18.0,
+        minTs = minTs
+    )
+    val aapsCrSeries = buildAapsSeriesFromTelemetry(
+        telemetry = telemetry,
+        keys = setOf("cr_value", "raw_cr", "aaps_cr", "profile_cr", "cr"),
+        min = 2.0,
+        max = 60.0,
+        minTs = minTs
+    )
+    val runtimeSeries = runtimeSorted.map {
+        TimedRuntimeValue(
+            ts = it.ts,
+            isfReal = it.displayIsfEffForAnalytics(),
+            crReal = it.displayCrEffForAnalytics(),
+            isfBase = it.isfBase,
+            crBase = it.crBase
+        )
+    }
+    val profileSeries = profileSorted.map {
+        TimedProfileValue(
+            ts = it.timestamp,
+            isfMerged = it.isfMmolPerUnit,
+            crMerged = it.crGramPerUnit,
+            isfCalculated = it.calculatedIsfMmolPerUnit,
+            crCalculated = it.calculatedCrGramPerUnit
+        )
+    }
+    val gridStartTs = (minTs / ISFCR_HISTORY_BUCKET_MS) * ISFCR_HISTORY_BUCKET_MS
+    val gridEndTs = (latestTs / ISFCR_HISTORY_BUCKET_MS) * ISFCR_HISTORY_BUCKET_MS
+    val sortedTimeline = buildList {
+        if (gridEndTs >= gridStartTs) {
+            var ts = gridStartTs
+            while (ts <= gridEndTs) {
+                add(ts)
+                ts += ISFCR_HISTORY_BUCKET_MS
+            }
+        }
+    }
+    var lastIsfMerged: TimedMetricValue? = null
+    var lastCrMerged: TimedMetricValue? = null
+    var lastIsfReal: TimedMetricValue? = null
+    var lastCrReal: TimedMetricValue? = null
+    var lastAapsIsf: TimedMetricValue? = null
+    var lastAapsCr: TimedMetricValue? = null
+
+    return buildList {
+        sortedTimeline.forEach { ts ->
+            val runtimePoint = findNearestByTs(
+                series = runtimeSeries,
+                ts = ts,
+                tsSelector = { it.ts },
+                maxDistanceMs = RUNTIME_HISTORY_MATCH_MAX_DISTANCE_MS
+            )
+            val profilePoint = findNearestByTs(
+                series = profileSeries,
+                ts = ts,
+                tsSelector = { it.ts },
+                maxDistanceMs = PROFILE_HISTORY_MATCH_MAX_DISTANCE_MS
+            )
+            val nearestAapsIsf = findNearestTimedValue(
+                series = aapsIsfSeries,
+                ts = ts,
+                maxDistanceMs = AAPS_HISTORY_MATCH_MAX_DISTANCE_MS
+            )
+            val nearestAapsCr = findNearestTimedValue(
+                series = aapsCrSeries,
+                ts = ts,
+                maxDistanceMs = AAPS_HISTORY_MATCH_MAX_DISTANCE_MS
+            )
+
+            val rawIsfReal = sanitizeIsfValue(runtimePoint?.isfReal ?: profilePoint?.isfCalculated)
+            val rawCrReal = sanitizeCrValue(runtimePoint?.crReal ?: profilePoint?.crCalculated)
+            val carriedIsfReal = carryForwardMetric(lastIsfReal, ts, ISFCR_REAL_CARRY_MAX_DISTANCE_MS)
+            val carriedCrReal = carryForwardMetric(lastCrReal, ts, ISFCR_REAL_CARRY_MAX_DISTANCE_MS)
+            val isfReal = rawIsfReal ?: carriedIsfReal
+            val crReal = rawCrReal ?: carriedCrReal
+
+            val carriedAapsIsf = carryForwardMetric(lastAapsIsf, ts, ISFCR_AAPS_CARRY_MAX_DISTANCE_MS)
+            val carriedAapsCr = carryForwardMetric(lastAapsCr, ts, ISFCR_AAPS_CARRY_MAX_DISTANCE_MS)
+            val isfAaps = sanitizeIsfValue(nearestAapsIsf ?: carriedAapsIsf)
+            val crAaps = sanitizeCrValue(nearestAapsCr ?: carriedAapsCr)
+
+            val rawIsfMerged = sanitizeIsfValue(isfAaps ?: profilePoint?.isfMerged ?: runtimePoint?.isfBase ?: isfReal)
+            val rawCrMerged = sanitizeCrValue(crAaps ?: profilePoint?.crMerged ?: runtimePoint?.crBase ?: crReal)
+            val isfMerged = rawIsfMerged ?: carryForwardMetric(lastIsfMerged, ts, ISFCR_MERGED_CARRY_MAX_DISTANCE_MS)
+            val crMerged = rawCrMerged ?: carryForwardMetric(lastCrMerged, ts, ISFCR_MERGED_CARRY_MAX_DISTANCE_MS)
+            if (isfMerged == null || crMerged == null) return@forEach
+
+            if (isfReal != null) {
+                lastIsfReal = TimedMetricValue(ts = ts, value = isfReal)
+            }
+            if (crReal != null) {
+                lastCrReal = TimedMetricValue(ts = ts, value = crReal)
+            }
+            if (isfAaps != null) {
+                lastAapsIsf = TimedMetricValue(ts = ts, value = isfAaps)
+            }
+            if (crAaps != null) {
+                lastAapsCr = TimedMetricValue(ts = ts, value = crAaps)
+            }
+            lastIsfMerged = TimedMetricValue(ts = ts, value = isfMerged)
+            lastCrMerged = TimedMetricValue(ts = ts, value = crMerged)
+
+            add(
+                IsfCrHistoryPointUi(
+                    timestamp = ts,
+                    isfMerged = isfMerged,
+                    crMerged = crMerged,
+                    isfCalculated = isfReal,
+                    crCalculated = crReal,
+                    isfAaps = isfAaps,
+                    crAaps = crAaps
+                )
+            )
+        }
+    }
+}
+
+private data class TimedMetricValue(
+    val ts: Long,
+    val value: Double
+)
+
+private data class TimedRuntimeValue(
+    val ts: Long,
+    val isfReal: Double,
+    val crReal: Double,
+    val isfBase: Double,
+    val crBase: Double
+)
+
+private data class TimedProfileValue(
+    val ts: Long,
+    val isfMerged: Double,
+    val crMerged: Double,
+    val isfCalculated: Double?,
+    val crCalculated: Double?
+)
+
+private fun buildAapsSeriesFromTelemetry(
+    telemetry: List<TelemetrySampleEntity>,
+    keys: Set<String>,
+    min: Double,
+    max: Double,
+    minTs: Long
+): List<TimedMetricValue> {
+    val normalizedKeys = keys.map { it.lowercase(Locale.US) }.toSet()
+    val byBucket = linkedMapOf<Long, TimedMetricValue>()
+    telemetry
+        .asSequence()
+        .filter { sample ->
+            sample.key.lowercase(Locale.US) in normalizedKeys &&
+                isAapsLikeTelemetrySource(sample.source) &&
+                sample.timestamp >= minTs &&
+                sample.timestamp > 0L
+        }
+        .forEach { sample ->
+            val numeric = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
+            if (numeric == null) return@forEach
+            val normalized = normalizeAapsTelemetryMetric(key = sample.key, value = numeric)
+            val sanitized = normalized.takeIf { it.isFinite() && it in min..max } ?: return@forEach
+            val bucketTs = (sample.timestamp / ISFCR_HISTORY_BUCKET_MS) * ISFCR_HISTORY_BUCKET_MS
+            val current = byBucket[bucketTs]
+            if (current == null || sample.timestamp >= current.ts) {
+                byBucket[bucketTs] = TimedMetricValue(
+                    ts = sample.timestamp,
+                    value = sanitized
+                )
+            }
+        }
+    return byBucket.values.sortedBy { it.ts }
+}
+
+private fun carryForwardMetric(
+    last: TimedMetricValue?,
+    ts: Long,
+    maxDistanceMs: Long
+): Double? {
+    if (last == null) return null
+    return last.value.takeIf { kotlin.math.abs(ts - last.ts) <= maxDistanceMs }
+}
+
+private fun normalizeAapsTelemetryMetric(
+    key: String,
+    value: Double
+): Double {
+    if (!value.isFinite()) return value
+    if (!key.lowercase(Locale.US).contains("isf")) return value
+    // Some sources report ISF in mg/dL/U; normalize to mmol/L/U for a single chart scale.
+    return if (value > 18.0) value / MMOL_TO_MGDL else value
+}
+
+private fun sanitizeIsfValue(value: Double?): Double? =
+    value?.takeIf { it.isFinite() && it in 0.2..18.0 }
+
+private fun sanitizeCrValue(value: Double?): Double? =
+    value?.takeIf { it.isFinite() && it in 2.0..60.0 }
+
+private fun isAapsLikeTelemetrySource(source: String): Boolean {
+    val normalized = source.lowercase(Locale.US)
+    return normalized.contains("aaps") ||
+        normalized.contains("xdrip") ||
+        normalized.contains("openaps") ||
+        normalized.contains("nightscout") ||
+        normalized.contains("broadcast")
+}
+
+private fun findNearestTimedValue(
+    series: List<TimedMetricValue>,
+    ts: Long,
+    maxDistanceMs: Long
+): Double? {
+    if (series.isEmpty()) return null
+    var low = 0
+    var high = series.lastIndex
+    while (low <= high) {
+        val mid = (low + high) ushr 1
+        val midTs = series[mid].ts
+        when {
+            midTs < ts -> low = mid + 1
+            midTs > ts -> high = mid - 1
+            else -> return series[mid].value
+        }
+    }
+
+    val right = series.getOrNull(low)
+    val left = series.getOrNull(low - 1)
+    val nearest = when {
+        left == null -> right
+        right == null -> left
+        else -> {
+            val leftDistance = kotlin.math.abs(left.ts - ts)
+            val rightDistance = kotlin.math.abs(right.ts - ts)
+            if (leftDistance <= rightDistance) left else right
+        }
+    } ?: return null
+
+    val distance = kotlin.math.abs(nearest.ts - ts)
+    return nearest.value.takeIf { distance <= maxDistanceMs }
+}
+
+private fun <T> findNearestByTs(
+    series: List<T>,
+    ts: Long,
+    tsSelector: (T) -> Long,
+    maxDistanceMs: Long
+): T? {
+    if (series.isEmpty()) return null
+    var low = 0
+    var high = series.lastIndex
+    while (low <= high) {
+        val mid = (low + high) ushr 1
+        val midTs = tsSelector(series[mid])
+        when {
+            midTs < ts -> low = mid + 1
+            midTs > ts -> high = mid - 1
+            else -> return series[mid]
+        }
+    }
+    val right = series.getOrNull(low)
+    val left = series.getOrNull(low - 1)
+    val nearest = when {
+        left == null -> right
+        right == null -> left
+        else -> {
+            val leftDistance = kotlin.math.abs(tsSelector(left) - ts)
+            val rightDistance = kotlin.math.abs(tsSelector(right) - ts)
+            if (leftDistance <= rightDistance) left else right
+        }
+    } ?: return null
+
+    val distance = kotlin.math.abs(tsSelector(nearest) - ts)
+    return nearest.takeIf { distance <= maxDistanceMs }
+}
+
+private const val AAPS_HISTORY_MATCH_MAX_DISTANCE_MS = 30L * 60L * 1000L
+private const val ISFCR_HISTORY_BUCKET_MS = 5L * 60L * 1000L
+private const val ISFCR_ANALYTICS_WINDOW_MS = 30L * 24L * 60L * 60L * 1000L
+private const val RUNTIME_HISTORY_MATCH_MAX_DISTANCE_MS = 45L * 60L * 1000L
+
+private const val PROFILE_HISTORY_MATCH_MAX_DISTANCE_MS = 45L * 60L * 1000L
+private const val ISFCR_REAL_CARRY_MAX_DISTANCE_MS = 90L * 60L * 1000L
+private const val ISFCR_AAPS_CARRY_MAX_DISTANCE_MS = 60L * 60L * 1000L
+private const val ISFCR_MERGED_CARRY_MAX_DISTANCE_MS = 4L * 60L * 60L * 1000L
+private const val MMOL_TO_MGDL = 18.01559
+private val ISFCR_HISTORY_TELEMETRY_KEYS = listOf(
+    "isf_value",
+    "raw_isf",
+    "aaps_isf",
+    "profile_isf",
+    "isf",
+    "cr_value",
+    "raw_cr",
+    "aaps_cr",
+    "profile_cr",
+    "cr"
+)
+private val AI_TUNING_TELEMETRY_KEYS = listOf(
+    "daily_report_ai_opt_generated_ts",
+    "daily_report_ai_opt_status",
+    "daily_report_ai_opt_error",
+    "daily_report_ai_opt_reason",
+    "daily_report_ai_opt_confidence",
+    "daily_report_ai_opt_apply_flag",
+    "daily_report_ai_opt_gain_scale_5m",
+    "daily_report_ai_opt_gain_scale_30m",
+    "daily_report_ai_opt_gain_scale_60m",
+    "daily_report_ai_opt_max_up_scale_5m",
+    "daily_report_ai_opt_max_up_scale_30m",
+    "daily_report_ai_opt_max_up_scale_60m",
+    "daily_report_ai_opt_max_down_scale_5m",
+    "daily_report_ai_opt_max_down_scale_30m",
+    "daily_report_ai_opt_max_down_scale_60m",
+    "daily_report_matched_samples",
+    "daily_report_isfcr_quality_risk_level"
+)
 
 private fun ForecastEntity.toDomainForecast(): io.aaps.copilot.domain.model.Forecast =
     io.aaps.copilot.domain.model.Forecast(
@@ -5226,6 +6117,8 @@ private data class AapsTlsCompatibility(
 class MainUiState {
     var nightscoutUrl: String = ""
     var cloudUrl: String = ""
+    var openAiApiKey: String = ""
+    var uiStyle: String = UiStyle.CLASSIC.name
     var exportUri: String? = null
     var killSwitch: Boolean = false
     var localNightscoutEnabled: Boolean = false
@@ -5300,6 +6193,14 @@ class MainUiState {
     var adaptiveControllerStaleMaxMinutes: Int = 15
     var adaptiveControllerMaxActions6h: Int = 4
     var adaptiveControllerMaxStepMmol: Double = 0.25
+    var aiMinDataHours: Int = 24
+    var aiDataCoverageHours: Double = 0.0
+    var aiAnalysisReady: Boolean = false
+    var aiTuningState: String = "BLOCKED"
+    var aiTuningReason: String = "no optimizer report yet"
+    var aiTuningGeneratedTs: Long? = null
+    var aiTuningConfidence: Double? = null
+    var aiTuningStatusRaw: String? = null
     var latestDataAgeMinutes: Long? = null
     var nightscoutSyncAgeMinutes: Long? = null
     var cloudPushBacklogMinutes: Long? = null
@@ -5482,8 +6383,11 @@ class MainUiState {
     var replacementHistoryLines: List<String> = emptyList()
     var syncStatusLines: List<String> = emptyList()
     var jobStatusLines: List<String> = emptyList()
+    var cloudJobRows: List<CloudJobRowUi> = emptyList()
     var insightsFilterLabel: String = "Filters: source=all, status=all, days=60, weeks=8"
+    var analysisHistoryItems: List<AnalysisHistoryRowUi> = emptyList()
     var analysisHistoryLines: List<String> = emptyList()
+    var analysisTrendItems: List<AnalysisTrendRowUi> = emptyList()
     var analysisTrendLines: List<String> = emptyList()
     var ruleCooldownLines: List<String> = emptyList()
     var dryRun: DryRunUi? = null
@@ -5655,6 +6559,34 @@ data class LastActionRowUi(
     val carbsGrams: Double? = null,
     val idempotencyKey: String? = null,
     val payloadSummary: String? = null
+)
+
+data class CloudJobRowUi(
+    val jobId: String,
+    val lastStatus: String?,
+    val lastRunTs: Long?,
+    val nextRunTs: Long?,
+    val lastMessage: String?
+)
+
+data class AnalysisHistoryRowUi(
+    val runTs: Long,
+    val date: String,
+    val source: String,
+    val status: String,
+    val summary: String,
+    val anomalies: List<String>,
+    val recommendations: List<String>,
+    val errorMessage: String?
+)
+
+data class AnalysisTrendRowUi(
+    val weekStart: String,
+    val totalRuns: Int,
+    val successRuns: Int,
+    val failedRuns: Int,
+    val anomaliesCount: Int,
+    val recommendationsCount: Int
 )
 
 data class UamEventRowUi(

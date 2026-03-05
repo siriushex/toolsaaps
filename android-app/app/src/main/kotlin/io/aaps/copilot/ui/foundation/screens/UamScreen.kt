@@ -12,19 +12,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -85,7 +92,10 @@ fun UamScreen(
             if (state.events.isEmpty()) {
                 item {
                     UamSectionCard {
-                        UamSectionLabel(text = stringResource(id = R.string.section_uam_events))
+                        UamSectionLabel(
+                            text = stringResource(id = R.string.section_uam_events),
+                            infoText = stringResource(id = R.string.uam_info_events_section)
+                        )
                         Text(
                             text = stringResource(id = R.string.uam_events_empty),
                             style = MaterialTheme.typography.bodyMedium
@@ -94,7 +104,10 @@ fun UamScreen(
                 }
             } else {
                 item {
-                    UamSectionLabel(text = stringResource(id = R.string.section_uam_events))
+                    UamSectionLabel(
+                        text = stringResource(id = R.string.section_uam_events),
+                        infoText = stringResource(id = R.string.uam_info_events_section)
+                    )
                 }
                 items(state.events) { event ->
                     UamEventCard(
@@ -141,7 +154,10 @@ fun UamScreen(
 @Composable
 private fun UamSummaryCard(state: UamUiState) {
     UamSectionCard {
-        UamSectionLabel(text = stringResource(id = R.string.section_uam_inferred))
+        UamSectionLabel(
+            text = stringResource(id = R.string.section_uam_inferred),
+            infoText = stringResource(id = R.string.uam_info_inferred_section)
+        )
         val unitG = stringResource(id = R.string.unit_g)
 
         Row(
@@ -451,12 +467,43 @@ private fun UamSectionCard(
 }
 
 @Composable
-private fun UamSectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun UamSectionLabel(
+    text: String,
+    infoText: String? = null
+) {
+    var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (!infoText.isNullOrBlank()) {
+            IconButton(onClick = { showInfo = true }) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+    if (showInfo && !infoText.isNullOrBlank()) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(text = text) },
+            text = { Text(text = infoText) },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) {
+                    Text(text = stringResource(id = R.string.action_close))
+                }
+            }
+        )
+    }
 }
 
 @Composable

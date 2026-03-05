@@ -378,7 +378,7 @@ private fun TelemetryScreen(state: MainUiState) {
 
 @Composable
 private fun IsfCrHistoryScreen(state: MainUiState) {
-    var window by remember { mutableStateOf(IsfCrHistoryWindow.DAY) }
+    var window by remember { mutableStateOf(IsfCrHistoryWindow.LAST_24H) }
     val anchorTs = state.isfCrHistoryLastUpdatedTs ?: System.currentTimeMillis()
     val points = remember(state.isfCrHistoryPoints, state.isfCrHistoryLastUpdatedTs, window) {
         IsfCrHistoryResolver.resolve(

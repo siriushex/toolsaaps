@@ -2,6 +2,9 @@ package io.aaps.copilot.ui.foundation.screens
 
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.ui.AuditRecordRowUi
+import io.aaps.copilot.ui.AnalysisHistoryRowUi
+import io.aaps.copilot.ui.AnalysisTrendRowUi
+import io.aaps.copilot.ui.CloudJobRowUi
 import io.aaps.copilot.ui.GlucoseHistoryRowUi
 import io.aaps.copilot.ui.IsfCrHistoryPointUi
 import io.aaps.copilot.ui.LastActionRowUi
@@ -592,6 +595,8 @@ class MainUiStateMappersTest {
         val state = state {
             baseTargetMmol = 5.6
             nightscoutUrl = "https://example.ns"
+            cloudUrl = "https://ai.example"
+            openAiApiKey = "sk-test"
             resolvedNightscoutUrl = "https://127.0.0.1:17582"
             insulinProfileId = "NOVORAPID"
             localNightscoutEnabled = true
@@ -647,6 +652,8 @@ class MainUiStateMappersTest {
         assertThat(ui.enableUamExportToAaps).isTrue()
         assertThat(ui.uamExportMode).isEqualTo("CONFIRMED_ONLY")
         assertThat(ui.nightscoutUrl).isEqualTo("https://example.ns")
+        assertThat(ui.aiApiUrl).isEqualTo("https://ai.example")
+        assertThat(ui.aiApiKey).isEqualTo("sk-test")
         assertThat(ui.isfCrMinIsfEvidencePerHour).isEqualTo(3)
         assertThat(ui.isfCrMinCrEvidencePerHour).isEqualTo(4)
         assertThat(ui.isfCrCrMaxGapMinutes).isEqualTo(35)
@@ -675,5 +682,223 @@ class MainUiStateMappersTest {
         assertThat(ui.isfCrAutoActivationDailyRiskBlockLevel).isEqualTo(2)
         assertThat(ui.safetyMinTargetMmol).isEqualTo(4.3)
         assertThat(ui.safetyMaxTargetMmol).isEqualTo(9.2)
+    }
+
+    @Test
+    fun aiAnalysisMapping_exposesCloudHistoryTrendAndLocalReport() {
+        val state = state {
+            latestDataAgeMinutes = 3
+            staleDataMaxMinutes = 10
+            cloudUrl = "https://cloud.example"
+            insightsFilterLabel = "Filters: source=scheduler, status=SUCCESS, days=90, weeks=12"
+            cloudJobRows = listOf(
+                CloudJobRowUi(
+                    jobId = "daily_analysis",
+                    lastStatus = "SUCCESS",
+                    lastRunTs = 1_800_000_000_000L,
+                    nextRunTs = 1_800_000_360_000L,
+                    lastMessage = "ok"
+                )
+            )
+            analysisHistoryItems = listOf(
+                AnalysisHistoryRowUi(
+                    runTs = 1_800_000_000_000L,
+                    date = "2026-03-04",
+                    source = "scheduler",
+                    status = "SUCCESS",
+                    summary = "Summary line",
+                    anomalies = listOf("Anomaly #1"),
+                    recommendations = listOf("Recommendation #1"),
+                    errorMessage = null
+                )
+            )
+            analysisTrendItems = listOf(
+                AnalysisTrendRowUi(
+                    weekStart = "2026-02-29",
+                    totalRuns = 14,
+                    successRuns = 13,
+                    failedRuns = 1,
+                    anomaliesCount = 5,
+                    recommendationsCount = 8
+                )
+            )
+            dailyReportGeneratedAtTs = 1_800_000_000_000L
+            dailyReportPeriodStartUtc = "2026-03-03T00:00:00Z"
+            dailyReportPeriodEndUtc = "2026-03-04T00:00:00Z"
+            dailyReportMetrics = listOf(
+                io.aaps.copilot.ui.DailyReportMetricUi(
+                    horizonMinutes = 30,
+                    sampleCount = 100,
+                    mae = 0.52,
+                    rmse = 0.72,
+                    mardPct = 7.1,
+                    bias = -0.04
+                )
+            )
+            dailyReportReplayTopFactorsOverall = "COB=0.61;CI=0.52"
+            dailyReportReplayFactors = listOf(
+                io.aaps.copilot.ui.DailyReportReplayFactorUi(
+                    horizonMinutes = 60,
+                    factor = "COB",
+                    sampleCount = 88,
+                    corrAbsError = 0.48,
+                    maeHigh = 1.10,
+                    maeLow = 0.74,
+                    upliftPct = 64.2,
+                    contributionScore = 0.61
+                )
+            )
+            dailyReportReplayHotspots = listOf(
+                io.aaps.copilot.ui.DailyReportReplayHotspotUi(
+                    horizonMinutes = 60,
+                    hour = 19,
+                    sampleCount = 17,
+                    mae = 1.12,
+                    mardPct = 12.8,
+                    bias = -0.22
+                )
+            )
+            dailyReportReplayTopMisses = listOf(
+                io.aaps.copilot.ui.DailyReportReplayTopMissUi(
+                    horizonMinutes = 60,
+                    ts = 1_800_000_000_000L,
+                    absError = 1.34,
+                    pred = 10.2,
+                    actual = 8.9,
+                    cob = 31.0,
+                    iob = 1.5,
+                    uam = 0.21,
+                    ciWidth = 1.42,
+                    diaHours = 4.2,
+                    activity = 1.03,
+                    sensorQuality = 0.90
+                )
+            )
+            dailyReportReplayDayTypeGaps = listOf(
+                io.aaps.copilot.ui.DailyReportReplayDayTypeGapUi(
+                    horizonMinutes = 60,
+                    hour = 18,
+                    worseDayType = "WEEKEND",
+                    weekdaySampleCount = 10,
+                    weekendSampleCount = 9,
+                    weekdayMae = 0.82,
+                    weekendMae = 1.19,
+                    weekdayMardPct = 9.2,
+                    weekendMardPct = 12.3,
+                    maeGapMmol = 0.37,
+                    mardGapPct = 3.1,
+                    worseMeanCob = 28.4,
+                    worseMeanIob = 1.4,
+                    worseMeanUam = 0.19,
+                    worseMeanCiWidth = 1.33,
+                    dominantFactor = "COB",
+                    dominantScore = 1.24
+                )
+            )
+            dailyReportRecommendations = listOf("Tune evening profile")
+            rollingReportLines = listOf("30d: n=1020, MAE30=0.55")
+        }
+
+        val ui = state.toAiAnalysisUiState()
+
+        assertThat(ui.loadState).isEqualTo(ScreenLoadState.READY)
+        assertThat(ui.cloudConfigured).isTrue()
+        assertThat(ui.filterLabel).contains("scheduler")
+        assertThat(ui.jobs).hasSize(1)
+        assertThat(ui.jobs.first().jobId).isEqualTo("daily_analysis")
+        assertThat(ui.historyItems).hasSize(1)
+        assertThat(ui.historyItems.first().anomalies).containsExactly("Anomaly #1")
+        assertThat(ui.trendItems).hasSize(1)
+        assertThat(ui.trendItems.first().successRuns).isEqualTo(13)
+        assertThat(ui.localDailyMetrics).hasSize(1)
+        assertThat(ui.localDailyMetrics.first().mae).isEqualTo(0.52)
+        assertThat(ui.localHorizonScores).hasSize(1)
+        assertThat(ui.localHorizonScores.first().scoreBand).isEqualTo("EXCELLENT")
+        assertThat(ui.localTopFactorsOverall).contains("COB")
+        assertThat(ui.localTopFactors).hasSize(1)
+        assertThat(ui.localTopFactors.first().factor).isEqualTo("COB")
+        assertThat(ui.localHotspots).hasSize(1)
+        assertThat(ui.localHotspots.first().hour).isEqualTo(19)
+        assertThat(ui.localTopMisses).hasSize(1)
+        assertThat(ui.localTopMisses.first().absError).isEqualTo(1.34)
+        assertThat(ui.localDayTypeGaps).hasSize(1)
+        assertThat(ui.localDayTypeGaps.first().worseDayType).isEqualTo("WEEKEND")
+        assertThat(ui.localRecommendations).containsExactly("Tune evening profile")
+        assertThat(ui.rollingLines).containsExactly("30d: n=1020, MAE30=0.55")
+    }
+
+    @Test
+    fun aiAnalysisMapping_doesNotBlockOnWarnOnlySyncIssue() {
+        val state = state {
+            latestDataAgeMinutes = 2
+            staleDataMaxMinutes = 10
+            syncStatusLines = listOf(
+                "Nightscout last sync: 2026-03-04 12:00",
+                "Last sync issue: WARN: isfcr_realtime_refresh_sync_failed"
+            )
+        }
+
+        val ui = state.toAiAnalysisUiState()
+
+        assertThat(ui.loadState).isEqualTo(ScreenLoadState.EMPTY)
+        assertThat(ui.errorText).isNull()
+    }
+
+    @Test
+    fun aiAnalysisMapping_includesCoverageReadinessAndChatState() {
+        val state = state {
+            aiMinDataHours = 24
+            aiDataCoverageHours = 26.4
+            aiAnalysisReady = true
+        }
+        val chatMessages = listOf(
+            AiChatMessageUi(
+                id = "u1",
+                role = "user",
+                text = "Why is MARD high?",
+                ts = 1_800_000_000_000L
+            ),
+            AiChatMessageUi(
+                id = "a1",
+                role = "assistant",
+                text = "COB and CI are dominant contributors.",
+                ts = 1_800_000_000_050L
+            )
+        )
+
+        val ui = state.toAiAnalysisUiState(
+            chatMessages = chatMessages,
+            chatInProgress = true
+        )
+
+        assertThat(ui.minDataHours).isEqualTo(24)
+        assertThat(ui.dataCoverageHours).isWithin(0.001).of(26.4)
+        assertThat(ui.analysisReady).isTrue()
+        assertThat(ui.chatMessages).hasSize(2)
+        assertThat(ui.chatMessages.last().role).isEqualTo("assistant")
+        assertThat(ui.chatInProgress).isTrue()
+    }
+
+    @Test
+    fun aiAnalysisMapping_marksOpenAiEndpointAsNoCloudBackend() {
+        val state = state {
+            cloudUrl = "https://api.openai.com/v1"
+            dailyReportGeneratedAtTs = 1_800_000_000_000L
+            dailyReportMetrics = listOf(
+                io.aaps.copilot.ui.DailyReportMetricUi(
+                    horizonMinutes = 30,
+                    sampleCount = 64,
+                    mae = 0.77,
+                    rmse = 1.02,
+                    mardPct = 11.2,
+                    bias = 0.05
+                )
+            )
+        }
+
+        val ui = state.toAiAnalysisUiState()
+
+        assertThat(ui.cloudConfigured).isFalse()
+        assertThat(ui.localDailyMetrics).hasSize(1)
     }
 }
