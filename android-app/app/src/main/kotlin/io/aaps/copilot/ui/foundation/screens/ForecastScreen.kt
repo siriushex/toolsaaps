@@ -52,12 +52,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.components.DebugRow
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import kotlin.math.max
 import kotlin.math.min
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,6 +80,7 @@ fun ForecastScreen(
     onLayerChange: (ForecastLayerState) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
@@ -92,21 +95,26 @@ fun ForecastScreen(
                 ForecastControlsCard(
                     state = state,
                     onSelectRange = onSelectRange,
-                    onLayerChange = onLayerChange
+                    onLayerChange = onLayerChange,
+                    midnightGlass = midnightGlass
                 )
             }
             item {
-                ForecastChartCard(state = state)
+                ForecastChartCard(state = state, midnightGlass = midnightGlass)
             }
             item {
-                ForecastHorizonsCard(horizons = state.horizons)
+                ForecastHorizonsCard(horizons = state.horizons, midnightGlass = midnightGlass)
             }
             item {
-                DecompositionCard(state = state, showProMetrics = state.isProMode)
+                DecompositionCard(
+                    state = state,
+                    showProMetrics = state.isProMode,
+                    midnightGlass = midnightGlass
+                )
             }
             if (state.qualityLines.isNotEmpty()) {
                 item {
-                    QualityCard(lines = state.qualityLines)
+                    QualityCard(lines = state.qualityLines, midnightGlass = midnightGlass)
                 }
             }
         }
@@ -117,7 +125,8 @@ fun ForecastScreen(
 private fun ForecastControlsCard(
     state: ForecastUiState,
     onSelectRange: (ForecastRangeUi) -> Unit,
-    onLayerChange: (ForecastLayerState) -> Unit
+    onLayerChange: (ForecastLayerState) -> Unit,
+    midnightGlass: Boolean
 ) {
     ForecastSectionCard {
         ForecastSectionLabel(
@@ -134,6 +143,18 @@ private fun ForecastControlsCard(
                         index = index,
                         count = ranges.size
                     ),
+                    colors = if (midnightGlass) {
+                        SegmentedButtonDefaults.colors(
+                            activeContainerColor = Color(0xFF1D4ED8),
+                            activeContentColor = Color(0xFFF8FAFC),
+                            inactiveContainerColor = Color(0xAA101D38),
+                            inactiveContentColor = Color(0xFFB5C0D8),
+                            activeBorderColor = Color(0x332563EB),
+                            inactiveBorderColor = Color(0x1FFFFFFF)
+                        )
+                    } else {
+                        SegmentedButtonDefaults.colors()
+                    },
                     label = {
                         Text(
                             text = when (range) {
@@ -161,9 +182,9 @@ private fun ForecastControlsCard(
                 label = stringResource(id = R.string.forecast_layer_trend),
                 icon = Icons.Default.TrendingUp,
                 palette = LayerChipPalette(
-                    container = Color(0xFFE6EEFF),
-                    onContainer = Color(0xFF113A86),
-                    border = Color(0xFF2D5DAE)
+                    container = if (midnightGlass) Color(0x221D4ED8) else Color(0xFFE6EEFF),
+                    onContainer = if (midnightGlass) Color(0xFF8DB6FF) else Color(0xFF113A86),
+                    border = if (midnightGlass) Color(0x332563EB) else Color(0xFF2D5DAE)
                 )
             )
             LayerToggleChip(
@@ -172,9 +193,9 @@ private fun ForecastControlsCard(
                 label = stringResource(id = R.string.forecast_layer_therapy),
                 icon = Icons.Default.MedicalServices,
                 palette = LayerChipPalette(
-                    container = Color(0xFFE6F8F0),
-                    onContainer = Color(0xFF116D3D),
-                    border = Color(0xFF2F8A57)
+                    container = if (midnightGlass) Color(0x2200E676) else Color(0xFFE6F8F0),
+                    onContainer = if (midnightGlass) Color(0xFF9FFFB0) else Color(0xFF116D3D),
+                    border = if (midnightGlass) Color(0x3325C685) else Color(0xFF2F8A57)
                 )
             )
             LayerToggleChip(
@@ -183,9 +204,9 @@ private fun ForecastControlsCard(
                 label = stringResource(id = R.string.forecast_layer_uam),
                 icon = Icons.Default.Restaurant,
                 palette = LayerChipPalette(
-                    container = MaterialTheme.colorScheme.tertiaryContainer,
-                    onContainer = MaterialTheme.colorScheme.onTertiaryContainer,
-                    border = Color(0xFFE5B454)
+                    container = if (midnightGlass) Color(0x664F2D00) else MaterialTheme.colorScheme.tertiaryContainer,
+                    onContainer = if (midnightGlass) Color(0xFFFFC94A) else MaterialTheme.colorScheme.onTertiaryContainer,
+                    border = if (midnightGlass) Color(0x33FFB020) else Color(0xFFE5B454)
                 )
             )
             LayerToggleChip(
@@ -194,9 +215,9 @@ private fun ForecastControlsCard(
                 label = stringResource(id = R.string.forecast_layer_ci),
                 icon = Icons.Default.ShowChart,
                 palette = LayerChipPalette(
-                    container = Color(0xFFEAF3FF),
-                    onContainer = Color(0xFF104D8C),
-                    border = Color(0xFF4A82BF)
+                    container = if (midnightGlass) Color(0xFF10275A) else Color(0xFFEAF3FF),
+                    onContainer = if (midnightGlass) Color(0xFFDCEBFF) else Color(0xFF104D8C),
+                    border = if (midnightGlass) Color(0x334A82BF) else Color(0xFF4A82BF)
                 )
             )
         }
@@ -204,7 +225,7 @@ private fun ForecastControlsCard(
 }
 
 @Composable
-private fun ForecastChartCard(state: ForecastUiState) {
+private fun ForecastChartCard(state: ForecastUiState, midnightGlass: Boolean) {
     val allSeries = buildList {
         addAll(state.historyPoints)
         addAll(state.futurePath)
@@ -249,16 +270,16 @@ private fun ForecastChartCard(state: ForecastUiState) {
                 UiFormatters.formatMmol(yMax, 2)
             ),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        val outlineMajor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
-        val outlineMinor = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
-        val ciColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
-        val historyColor = MaterialTheme.colorScheme.primary
-        val futureColor = MaterialTheme.colorScheme.secondary
-        val currentMarkerColor = MaterialTheme.colorScheme.error
-        val markerLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        val outlineMajor = if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+        val outlineMinor = if (midnightGlass) Color(0x14FFFFFF) else MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
+        val ciColor = if (midnightGlass) Color(0x223B82F6) else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+        val historyColor = if (midnightGlass) Color(0xFF7FB3FF) else MaterialTheme.colorScheme.primary
+        val futureColor = if (midnightGlass) Color(0xFF9FFFB0) else MaterialTheme.colorScheme.secondary
+        val currentMarkerColor = if (midnightGlass) Color(0xFFEF4444) else MaterialTheme.colorScheme.error
+        val markerLineColor = if (midnightGlass) Color(0x55CBD5E1) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         val nowValue = state.historyPoints.lastOrNull()?.value
         val pred60 = state.horizons.firstOrNull { it.horizonMinutes == 60 }?.pred
         val chartDescription = stringResource(
@@ -407,18 +428,38 @@ private fun ForecastChartCard(state: ForecastUiState) {
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
         ) {
-            Text(text = stringResource(id = R.string.forecast_axis_past), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(text = stringResource(id = R.string.forecast_axis_now), style = MaterialTheme.typography.bodySmall)
-            Text(text = stringResource(id = R.string.forecast_axis_30m), style = MaterialTheme.typography.bodySmall)
-            Text(text = stringResource(id = R.string.forecast_axis_60m), style = MaterialTheme.typography.bodySmall)
+            ForecastSummaryCell(
+                modifier = Modifier.weight(1f),
+                label = stringResource(id = R.string.forecast_axis_now),
+                value = state.historyPoints.lastOrNull()?.value,
+                accent = if (midnightGlass) Color(0xFF7FB3FF) else MaterialTheme.colorScheme.primary,
+                midnightGlass = midnightGlass
+            )
+            ForecastSummaryCell(
+                modifier = Modifier.weight(1f),
+                label = stringResource(id = R.string.forecast_axis_30m),
+                value = state.horizons.firstOrNull { it.horizonMinutes == 30 }?.pred,
+                accent = if (midnightGlass) Color(0xFFFFC94A) else MaterialTheme.colorScheme.tertiary,
+                midnightGlass = midnightGlass
+            )
+            ForecastSummaryCell(
+                modifier = Modifier.weight(1f),
+                label = stringResource(id = R.string.forecast_axis_60m),
+                value = state.horizons.firstOrNull { it.horizonMinutes == 60 }?.pred,
+                accent = if (midnightGlass) Color(0xFFFF8A80) else MaterialTheme.colorScheme.error,
+                midnightGlass = midnightGlass
+            )
         }
     }
 }
 
 @Composable
-private fun ForecastHorizonsCard(horizons: List<HorizonPredictionUi>) {
+private fun ForecastHorizonsCard(
+    horizons: List<HorizonPredictionUi>,
+    midnightGlass: Boolean
+) {
     val sorted = horizons.sortedBy { it.horizonMinutes }
     ForecastSectionCard {
         ForecastSectionLabel(
@@ -433,8 +474,12 @@ private fun ForecastHorizonsCard(horizons: List<HorizonPredictionUi>) {
                 Surface(
                     modifier = Modifier.weight(1f),
                     shape = ForecastInfoShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    color = when {
+                        midnightGlass && horizon.pred != null && horizon.pred < 4.4 -> Color(0x55312735)
+                        midnightGlass -> Color(0xFF10275A)
+                        else -> MaterialTheme.colorScheme.primaryContainer
+                    },
+                    border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
@@ -443,11 +488,12 @@ private fun ForecastHorizonsCard(horizons: List<HorizonPredictionUi>) {
                         Text(
                             text = "${horizon.horizonMinutes}m",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = UiFormatters.formatMmol(horizon.pred, 2),
-                            style = MaterialTheme.typography.titleLarge.copy(letterSpacing = (-0.4).sp)
+                            style = MaterialTheme.typography.titleLarge.copy(letterSpacing = (-0.4).sp),
+                            color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = stringResource(
@@ -456,7 +502,7 @@ private fun ForecastHorizonsCard(horizons: List<HorizonPredictionUi>) {
                                 UiFormatters.formatMmol(horizon.ciHigh, 2)
                             ),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -510,7 +556,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawComponentLine(
 @Composable
 private fun DecompositionCard(
     state: ForecastUiState,
-    showProMetrics: Boolean
+    showProMetrics: Boolean,
+    midnightGlass: Boolean
 ) {
     val trend60 = state.decomposition.trend60
     val therapy60 = state.decomposition.therapy60
@@ -539,8 +586,8 @@ private fun DecompositionCard(
         )
         Surface(
             shape = ForecastInfoShape,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(
                 modifier = Modifier
@@ -556,7 +603,11 @@ private fun DecompositionCard(
                 Text(
                     text = "${UiFormatters.formatSignedDelta(netChange, 2)} ${stringResource(id = R.string.unit_mmol_l)}",
                     style = MaterialTheme.typography.titleMedium.copy(letterSpacing = (-0.2).sp),
-                    color = if ((netChange ?: 0.0) >= 0.0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                    color = if (midnightGlass) {
+                        if ((netChange ?: 0.0) >= 0.0) Color(0xFF9FFFB0) else Color(0xFFFF8A80)
+                    } else {
+                        if ((netChange ?: 0.0) >= 0.0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                    }
                 )
             }
         }
@@ -656,18 +707,19 @@ private fun DecompositionRow(
 }
 
 @Composable
-private fun QualityCard(lines: List<String>) {
+private fun QualityCard(lines: List<String>, midnightGlass: Boolean) {
     ForecastSectionCard {
         ForecastSectionLabel(text = stringResource(id = R.string.section_forecast_quality))
         lines.forEach { line ->
             Surface(
                 shape = ForecastInfoShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Text(
                     text = line,
                     style = MaterialTheme.typography.bodySmall,
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(Spacing.sm)
                 )
             }
@@ -677,11 +729,12 @@ private fun QualityCard(lines: List<String>) {
 
 @Composable
 private fun ForecastSectionCard(content: @Composable ColumnScope.() -> Unit) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = ForecastSectionShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = if (midnightGlass) RoundedCornerShape(28.dp) else ForecastSectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -698,6 +751,7 @@ private fun ForecastSectionLabel(
     infoText: String? = null
 ) {
     var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -706,15 +760,20 @@ private fun ForecastSectionLabel(
         Text(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (!infoText.isNullOrBlank()) {
-            IconButton(onClick = { showInfo = true }) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
+            ) {
+                IconButton(onClick = { showInfo = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                        tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
@@ -729,6 +788,38 @@ private fun ForecastSectionLabel(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ForecastSummaryCell(
+    label: String,
+    value: Double?,
+    accent: Color,
+    midnightGlass: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = UiFormatters.formatMmol(value, 2),
+                style = MaterialTheme.typography.titleMedium.copy(letterSpacing = (-0.2).sp),
+                color = accent
+            )
+        }
     }
 }
 

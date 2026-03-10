@@ -26,6 +26,7 @@ internal fun MainUiState.toOverviewUiState(
 ): OverviewUiState {
     val error = inferErrorText()
     val horizons = buildHorizonPredictions()
+    val sensorLagRolloutVerdict = buildOverviewSensorLagRolloutVerdict()
 
     val telemetryChips = buildList {
         add(TelemetryChipUi("IOB", UiFormatters.formatUnits(latestIobUnits), "U"))
@@ -33,6 +34,15 @@ internal fun MainUiState.toOverviewUiState(
             add(TelemetryChipUi("IOB real", UiFormatters.formatUnits(latestIobRealUnits), "U"))
         }
         add(TelemetryChipUi("COB", UiFormatters.formatGrams(latestCobGrams), "g"))
+        if (sensorLagMinutes != null && sensorLagMode?.equals("OFF", ignoreCase = true) != true && !sensorLagMode.isNullOrBlank()) {
+            add(
+                TelemetryChipUi(
+                    "Lag",
+                    UiFormatters.formatDecimalOrPlaceholder(sensorLagMinutes, decimals = 0),
+                    "min"
+                )
+            )
+        }
         if (insulinRealOnsetMinutes != null) {
             add(
                 TelemetryChipUi(
@@ -53,8 +63,13 @@ internal fun MainUiState.toOverviewUiState(
         errorText = error,
         isProMode = isProMode,
         glucose = latestGlucoseMmol,
+        correctedGlucose = correctedGlucoseMmol,
         delta = glucoseDelta,
         sampleAgeMinutes = latestDataAgeMinutes,
+        sensorLagMode = sensorLagMode,
+        sensorLagMinutes = sensorLagMinutes,
+        sensorLagDisableReason = sensorLagDisableReason,
+        sensorLagRolloutVerdict = sensorLagRolloutVerdict,
         horizons = horizons,
         uamActive = inferredUamActive ?: calculatedUamActive,
         uci0Mmol5m = calculatedUci0Mmol5m,
@@ -95,6 +110,52 @@ internal fun MainUiState.toForecastUiState(
             it.sampleCount
         )
     }
+    val sensorLagModeValue = sensorLagMode
+    val sensorLagDisableReasonValue = sensorLagDisableReason
+    val sensorLagLines = buildList {
+        if (!sensorLagModeValue.isNullOrBlank() && sensorLagModeValue.equals("OFF", ignoreCase = true).not()) {
+            add(
+                "Sensor lag ${sensorLagModeValue.uppercase(Locale.US)}: corrected " +
+                    "${UiFormatters.formatMmol(correctedGlucoseMmol, 2)} mmol/L, lag " +
+                    "${UiFormatters.formatDecimalOrPlaceholder(sensorLagMinutes, 0)} min, age " +
+                    "${UiFormatters.formatDecimalOrPlaceholder(sensorAgeHours, 0)} h (${sensorAgeSource ?: "--"})"
+            )
+        }
+        if (!sensorLagDisableReasonValue.isNullOrBlank()) {
+            add("Sensor lag gate: ${sensorLagDisableReasonValue.replace('_', ' ')}")
+        }
+    }
+    val patternLines = if (isProMode) {
+        buildList {
+            if (patternPrior30Mmol != null || patternPrior60Mmol != null || patternPriorConfidence != null) {
+                add(
+                    "Pattern prior Δ30/Δ60 ${UiFormatters.formatMmol(patternPrior30Mmol, 2)}/" +
+                        "${UiFormatters.formatMmol(patternPrior60Mmol, 2)} mmol · conf " +
+                        UiFormatters.formatPercent(patternPriorConfidence)
+                )
+            }
+            if (patternPriorBgMedianMmol != null || patternPriorSegmentSource != null) {
+                add(
+                    "Pattern median ${UiFormatters.formatMmol(patternPriorBgMedianMmol, 2)} mmol/L · source " +
+                        (patternPriorSegmentSource ?: "--")
+                )
+            }
+            if (patternPriorResidualBias30Mmol != null || patternPriorResidualBias60Mmol != null) {
+                add(
+                    "Pattern residual 30/60 ${UiFormatters.formatMmol(patternPriorResidualBias30Mmol, 2)}/" +
+                        "${UiFormatters.formatMmol(patternPriorResidualBias60Mmol, 2)} mmol"
+                )
+            }
+            if (patternPriorAcuteAttenuation != null || patternPriorStaleBlocked != null) {
+                add(
+                    "Pattern attenuation ${UiFormatters.formatPercent(patternPriorAcuteAttenuation)} · stale " +
+                        (patternPriorStaleBlocked?.let { if (it) "blocked" else "ok" } ?: "--")
+                )
+            }
+        }
+    } else {
+        emptyList()
+    }
 
     val hasData = history.isNotEmpty() || futurePath.isNotEmpty()
     return ForecastUiState(
@@ -116,7 +177,7 @@ internal fun MainUiState.toForecastUiState(
             sigmaE = sigmaEMmol5m,
             kfSigmaG = kfSigmaGMmol
         ),
-        qualityLines = quality + baselineDeltaLines
+        qualityLines = sensorLagLines + quality + baselineDeltaLines + patternLines
     )
 }
 
@@ -253,7 +314,11 @@ internal fun MainUiState.toAuditUiState(
     )
 }
 
-internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
+internal fun MainUiState.toAnalyticsUiState(
+    circadianReplaySummary: CircadianReplaySummaryUi? = null
+): AnalyticsUiState {
+    val circadianStateStatus = buildCircadianStateStatus()
+
     fun parseReasonCodes(raw: String?): List<String> {
         if (raw.isNullOrBlank()) return emptyList()
         return raw
@@ -288,27 +353,76 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
         .asSequence()
         .filter { it.isfCalculated != null || it.crCalculated != null }
         .maxByOrNull { it.timestamp }
+    val latestFallbackHistoryPoint = isfCrHistoryPoints
+        .asSequence()
+        .filter { it.isfMerged.isFinite() || it.crMerged.isFinite() }
+        .maxByOrNull { it.timestamp }
     val latestAapsHistoryPoint = isfCrHistoryPoints
         .asSequence()
         .filter { it.isfAaps != null || it.crAaps != null }
         .maxByOrNull { it.timestamp }
-    val currentIsfReal = isfCrRealtimeIsfEff
-        ?: latestRealHistoryPoint?.isfCalculated
+    val realtimeFallbackActive = isfCrRealtimeMode.equals("FALLBACK", ignoreCase = true)
+    val currentIsfReal = latestRealHistoryPoint?.isfCalculated
         ?: profileCalculatedIsf
-        ?: profileIsf
-    val currentCrReal = isfCrRealtimeCrEff
-        ?: latestRealHistoryPoint?.crCalculated
+    val currentCrReal = latestRealHistoryPoint?.crCalculated
         ?: profileCalculatedCr
-        ?: profileCr
-    val currentIsfMerged = latestAapsHistoryPoint?.isfAaps
-        ?: isfCrRealtimeIsfBase
-        ?: latestHistoryPoint?.isfMerged
-        ?: profileIsf
-    val currentCrMerged = latestAapsHistoryPoint?.crAaps
-        ?: isfCrRealtimeCrBase
-        ?: latestHistoryPoint?.crMerged
-        ?: profileCr
+    val currentIsfMerged = when {
+        realtimeFallbackActive && isfCrRealtimeIsfEff != null -> isfCrRealtimeIsfEff
+        isfCrRealtimeIsfBase != null -> isfCrRealtimeIsfBase
+        latestFallbackHistoryPoint?.isfMerged != null -> latestFallbackHistoryPoint.isfMerged
+        else -> profileIsf ?: latestAapsHistoryPoint?.isfAaps
+    }
+    val currentCrMerged = when {
+        realtimeFallbackActive && isfCrRealtimeCrEff != null -> isfCrRealtimeCrEff
+        isfCrRealtimeCrBase != null -> isfCrRealtimeCrBase
+        latestFallbackHistoryPoint?.crMerged != null -> latestFallbackHistoryPoint.crMerged
+        else -> profileCr ?: latestAapsHistoryPoint?.crAaps
+    }
+    val currentIsfAapsRaw = latestAapsHistoryPoint?.isfAaps
+    val currentCrAapsRaw = latestAapsHistoryPoint?.crAaps
+    val rawGlucoseMmol = latestGlucoseMmol
+    val correctedLagGlucoseMmol = correctedGlucoseMmol
+    val sensorLagCorrectionMmol = if (rawGlucoseMmol != null && correctedLagGlucoseMmol != null) {
+        correctedLagGlucoseMmol - rawGlucoseMmol
+    } else {
+        null
+    }
+    val sensorLagDiagnostics = if (
+        sensorLagCorrectionMode.equals("OFF", ignoreCase = true).not() ||
+        !sensorLagMode.isNullOrBlank() ||
+        correctedGlucoseMmol != null ||
+        sensorLagMinutes != null ||
+        sensorAgeHours != null ||
+        !sensorLagDisableReason.isNullOrBlank()
+    ) {
+        SensorLagDiagnosticsUi(
+            configuredMode = sensorLagCorrectionMode,
+            runtimeMode = sensorLagMode,
+            rawGlucoseMmol = rawGlucoseMmol,
+            correctedGlucoseMmol = correctedLagGlucoseMmol,
+            correctionMmol = sensorLagCorrectionMmol,
+            lagMinutes = sensorLagMinutes,
+            ageHours = sensorAgeHours,
+            ageSource = sensorAgeSource,
+            confidence = sensorLagConfidence,
+            disableReason = sensorLagDisableReason,
+            sensorQualityScore = sensorQualityScore,
+            sensorQualityBlocked = sensorQualityBlocked,
+            sensorQualitySuspectFalseLow = sensorQualitySuspectFalseLow,
+            sensorQualityReason = sensorQualityReason,
+            lagTrendPoints = sensorLagTrendLagPoints,
+            correctionTrendPoints = sensorLagTrendCorrectionPoints,
+            modeSegments = sensorLagModeSegments,
+            bucketSegments = sensorLagBucketSegments,
+            trendStartAgeHours = sensorLagTrendStartAgeHours,
+            trendEndAgeHours = sensorLagTrendEndAgeHours
+        )
+    } else {
+        null
+    }
     val hasData = all.isNotEmpty() ||
+        sensorLagDiagnostics != null ||
+        circadianStateStatus != null ||
         dailyReportGeneratedAtTs != null ||
         dailyReportMetrics.isNotEmpty() ||
         dailyReportRecommendations.isNotEmpty() ||
@@ -321,10 +435,13 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
         dailyReportReplayTopMisses.isNotEmpty() ||
         dailyReportReplayErrorClusters.isNotEmpty() ||
         dailyReportReplayDayTypeGaps.isNotEmpty() ||
+        dailyReportSensorLagReplayBuckets.isNotEmpty() ||
+        dailyReportSensorLagShadowBuckets.isNotEmpty() ||
         dailyReportMatchedSamples != null ||
         isfCrDroppedReasons24hLines.isNotEmpty() ||
         isfCrDroppedReasons7dLines.isNotEmpty() ||
         isfCrHistoryPoints.isNotEmpty() ||
+        circadianPatternSections.isNotEmpty() ||
         currentIsfReal != null ||
         currentCrReal != null ||
         profileIsf != null ||
@@ -353,6 +470,8 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
         loadState = resolveLoadState(hasData = hasData, errorText = error),
         isStale = isDataStale(),
         errorText = error,
+        sensorLagDiagnostics = sensorLagDiagnostics,
+        circadianStateStatus = circadianStateStatus,
         qualityLines = rows,
         baselineDeltaLines = baselineDeltaLines,
         dailyReportGeneratedAtTs = dailyReportGeneratedAtTs,
@@ -475,6 +594,27 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
             )
         },
         dailyReportReplayTopFactorsOverall = dailyReportReplayTopFactorsOverall,
+        dailyReportSensorLagReplayBuckets = dailyReportSensorLagReplayBuckets.map {
+            DailyReportSensorLagReplayUi(
+                horizonMinutes = it.horizonMinutes,
+                bucket = it.bucket,
+                sampleCount = it.sampleCount,
+                rawMae = it.rawMae,
+                lagMae = it.lagMae,
+                maeImprovementMmol = it.maeImprovementMmol,
+                rawBias = it.rawBias,
+                lagBias = it.lagBias
+            )
+        },
+        dailyReportSensorLagShadowBuckets = dailyReportSensorLagShadowBuckets.map {
+            DailyReportSensorLagShadowUi(
+                bucket = it.bucket,
+                sampleCount = it.sampleCount,
+                ruleChangedRatePct = it.ruleChangedRatePct,
+                meanAbsTargetDeltaMmol = it.meanAbsTargetDeltaMmol
+            )
+        },
+        circadianReplaySummary = circadianReplaySummary,
         dailyReportHorizonStats = dailyReportMetrics.map {
             DailyReportHorizonUi(
                 horizonMinutes = it.horizonMinutes,
@@ -492,6 +632,8 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
         currentCrReal = currentCrReal,
         currentIsfMerged = currentIsfMerged,
         currentCrMerged = currentCrMerged,
+        currentIsfAapsRaw = currentIsfAapsRaw,
+        currentCrAapsRaw = currentCrAapsRaw,
         realtimeMode = isfCrRealtimeMode,
         realtimeConfidence = isfCrRealtimeConfidence,
         realtimeQualityScore = isfCrRealtimeQualityScore,
@@ -554,7 +696,9 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
         wearImpact7dLines = isfCrWearImpact7dLines,
         activeTagLines = isfCrActiveTags,
         historyPoints = isfCrHistoryPoints,
+        historyOverlayPoints = isfCrHistoryOverlayPoints,
         historyLastUpdatedTs = isfCrHistoryLastUpdatedTs,
+        circadianSections = circadianPatternSections,
         deepLines = isfCrDeepLines,
         selectedInsulinProfileId = selectedProfile.name,
         insulinProfileCurves = insulinCurves,
@@ -570,9 +714,64 @@ internal fun MainUiState.toAnalyticsUiState(): AnalyticsUiState {
     )
 }
 
+private fun MainUiState.buildCircadianStateStatus(): CircadianStateStatusUi? {
+    val slotCount = circadianSlotStatCount
+    val transitionCount = circadianTransitionStatCount
+    val snapshotCount = circadianSnapshotCount
+    val replayCount = circadianReplayStatCount
+    val latestSnapshotTs = circadianLatestSnapshotUpdatedTs
+    val latestReplayTs = circadianLatestReplayUpdatedTs
+    val sectionCount = circadianPatternSections.size
+    val nowTs = System.currentTimeMillis()
+    val staleCutoffMs = 12 * 60 * 60_000L
+    val state = when {
+        slotCount == 0 && snapshotCount == 0 && replayCount == 0 -> "EMPTY"
+        slotCount == 0 || snapshotCount == 0 || replayCount == 0 -> "PARTIAL"
+        latestSnapshotTs != null && nowTs - latestSnapshotTs > staleCutoffMs -> "STALE"
+        latestReplayTs != null && nowTs - latestReplayTs > staleCutoffMs -> "STALE"
+        sectionCount == 0 -> "PARTIAL"
+        else -> "READY"
+    }
+    val reason = when {
+        slotCount == 0 && snapshotCount == 0 && replayCount == 0 -> "no circadian rows yet"
+        slotCount == 0 -> "slot stats missing"
+        transitionCount == 0 -> "transition stats missing"
+        snapshotCount == 0 -> "pattern snapshots missing"
+        replayCount == 0 -> "replay stats missing"
+        latestSnapshotTs != null && nowTs - latestSnapshotTs > staleCutoffMs -> "pattern snapshots older than 12h"
+        latestReplayTs != null && nowTs - latestReplayTs > staleCutoffMs -> "replay stats older than 12h"
+        sectionCount == 0 -> "ui sections not resolved"
+        else -> "circadian pattern state ready"
+    }
+    val sourceSummary = circadianPatternSections
+        .joinToString(separator = " · ") {
+            "${it.requestedDayType.lowercase(Locale.US)}→${it.segmentSource.lowercase(Locale.US)}:${it.stableWindowDays}d"
+        }
+        .ifBlank { null }
+    return CircadianStateStatusUi(
+        state = state,
+        reason = reason,
+        slotCount = slotCount,
+        transitionCount = transitionCount,
+        snapshotCount = snapshotCount,
+        replayCount = replayCount,
+        sectionCount = sectionCount,
+        latestSnapshotTs = latestSnapshotTs,
+        latestReplayTs = latestReplayTs,
+        sourceSummary = sourceSummary
+    )
+}
+
 internal fun MainUiState.toAiAnalysisUiState(
+    circadianReplaySummary: CircadianReplaySummaryUi? = null,
     chatMessages: List<AiChatMessageUi> = emptyList(),
-    chatInProgress: Boolean = false
+    chatInProgress: Boolean = false,
+    chatDraft: String = "",
+    chatPendingAttachments: List<AiChatAttachmentUi> = emptyList(),
+    chatVoiceRepliesEnabled: Boolean = false,
+    chatRecording: Boolean = false,
+    chatVoiceBusy: Boolean = false,
+    chatSpeaking: Boolean = false
 ): AiAnalysisUiState {
     val syncWarning = inferErrorText()
     val blockingError = syncWarning?.takeIf {
@@ -728,6 +927,7 @@ internal fun MainUiState.toAiAnalysisUiState(
         dataCoverageHours = aiDataCoverageHours,
         analysisReady = aiAnalysisReady,
         cloudConfigured = isCopilotCloudBackendEndpoint(cloudUrl),
+        windowDays = insightsWindowDays,
         filterLabel = insightsFilterLabel,
         jobs = cloudJobRows.map { row ->
             AiCloudJobUi(
@@ -788,11 +988,18 @@ internal fun MainUiState.toAiAnalysisUiState(
         localHotspots = topHotspots,
         localTopMisses = topMisses,
         localDayTypeGaps = dayTypeGaps,
+        circadianReplaySummary = circadianReplaySummary,
         localRecommendations = dailyReportRecommendations,
         rollingLines = rollingReportLines,
         aiTuningStatus = toAiTuningStatusUi(),
         chatMessages = chatMessages,
-        chatInProgress = chatInProgress
+        chatInProgress = chatInProgress,
+        chatDraft = chatDraft,
+        chatPendingAttachments = chatPendingAttachments,
+        chatVoiceRepliesEnabled = chatVoiceRepliesEnabled,
+        chatRecording = chatRecording,
+        chatVoiceBusy = chatVoiceBusy,
+        chatSpeaking = chatSpeaking
     )
 }
 
@@ -835,6 +1042,14 @@ internal fun MainUiState.toSettingsUiState(
         uamMinSnackG = uamMinSnackG,
         uamMaxSnackG = uamMaxSnackG,
         uamSnackStepG = uamSnackStepG,
+        sensorLagCorrectionMode = sensorLagCorrectionMode,
+        circadianPatternsEnabled = circadianPatternsEnabled,
+        circadianStableLookbackDays = circadianStableLookbackDays,
+        circadianRecencyLookbackDays = circadianRecencyLookbackDays,
+        circadianUseWeekendSplit = circadianUseWeekendSplit,
+        circadianUseReplayResidualBias = circadianUseReplayResidualBias,
+        circadianForecastWeight30 = circadianForecastWeight30,
+        circadianForecastWeight60 = circadianForecastWeight60,
         isfCrShadowMode = isfCrShadowMode,
         isfCrConfidenceThreshold = isfCrConfidenceThreshold,
         isfCrUseActivity = isfCrUseActivity,
@@ -1005,6 +1220,41 @@ private fun MainUiState.isDataStale(): Boolean {
 
 private fun MainUiState.inferErrorText(): String? {
     return syncStatusLines.firstOrNull { it.startsWith("Last sync issue", ignoreCase = true) }
+}
+
+private fun MainUiState.buildOverviewSensorLagRolloutVerdict(): SensorLagRolloutVerdictUi? {
+    val ageHours = sensorAgeHours ?: return null
+    if (dailyReportSensorLagReplayBuckets.isEmpty() && dailyReportSensorLagShadowBuckets.isEmpty()) {
+        return null
+    }
+    val guidance = buildSensorLagRolloutGuidance(
+        replayBuckets = dailyReportSensorLagReplayBuckets.map {
+            DailyReportSensorLagReplayUi(
+                horizonMinutes = it.horizonMinutes,
+                bucket = it.bucket,
+                sampleCount = it.sampleCount,
+                rawMae = it.rawMae,
+                lagMae = it.lagMae,
+                maeImprovementMmol = it.maeImprovementMmol,
+                rawBias = it.rawBias,
+                lagBias = it.lagBias
+            )
+        },
+        shadowBuckets = dailyReportSensorLagShadowBuckets.map {
+            DailyReportSensorLagShadowUi(
+                bucket = it.bucket,
+                sampleCount = it.sampleCount,
+                ruleChangedRatePct = it.ruleChangedRatePct,
+                meanAbsTargetDeltaMmol = it.meanAbsTargetDeltaMmol
+            )
+        }
+    )
+    val currentBucket = sensorLagAgeBucket(ageHours)
+    val currentGuidance = guidance.firstOrNull { it.bucket == currentBucket } ?: return null
+    return SensorLagRolloutVerdictUi(
+        status = currentGuidance.status.name,
+        bucket = currentGuidance.bucket
+    )
 }
 
 private fun LastActionRowUi.toUi(): LastActionUi {

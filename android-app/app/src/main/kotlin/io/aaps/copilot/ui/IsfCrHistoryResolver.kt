@@ -25,6 +25,24 @@ data class IsfCrHistoryPointUi(
     val isfAaps: Double? = null,
     val crAaps: Double? = null
 ) {
+    val isfEvidenceStrict: Double?
+        get() = isfCalculated
+
+    val crEvidenceStrict: Double?
+        get() = crCalculated
+
+    val isfFallbackRuntimeStrict: Double
+        get() = isfMerged
+
+    val crFallbackRuntimeStrict: Double
+        get() = crMerged
+
+    val isfAapsRawStrict: Double?
+        get() = isfAaps
+
+    val crAapsRawStrict: Double?
+        get() = crAaps
+
     val isfRealStrict: Double?
         get() = isfCalculated
 
@@ -49,6 +67,13 @@ data class IsfCrHistoryPointUi(
     val crAapsResolved: Double
         get() = crAaps ?: crMerged
 }
+
+data class IsfCrOverlayPointUi(
+    val timestamp: Long,
+    val cobGrams: Double? = null,
+    val uamGrams: Double? = null,
+    val activityRatio: Double? = null
+)
 
 object IsfCrHistoryResolver {
 

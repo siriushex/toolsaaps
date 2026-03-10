@@ -48,6 +48,12 @@ data class InsulinActionProfile(
     val id: InsulinActionProfileId,
     val points: List<InsulinActionPoint>
 ) {
+    val defaultDurationMinutes: Double
+        get() = points.lastOrNull()?.minute?.coerceAtLeast(30.0) ?: 300.0
+
+    val defaultDurationHours: Double
+        get() = defaultDurationMinutes / 60.0
+
     fun cumulativeAt(ageMinutes: Double): Double {
         if (ageMinutes <= 0.0) return 0.0
         val sorted = points

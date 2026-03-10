@@ -18,7 +18,9 @@ import io.aaps.copilot.data.remote.nightscout.NightscoutSgvEntry
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatment
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.data.repository.AuditLogger
+import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.GlucoseValueResolver
+import io.aaps.copilot.data.repository.SyncRepository
 import io.aaps.copilot.data.repository.TelemetryMetricMapper
 import io.aaps.copilot.util.GlucoseUnitNormalizer
 import io.aaps.copilot.util.UnitConverter
@@ -26,6 +28,9 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.logging.Filter
+import java.util.logging.Handler
+import java.util.logging.Logger
 import kotlinx.coroutines.runBlocking
 
 class LocalNightscoutServer(
@@ -35,6 +40,10 @@ class LocalNightscoutServer(
     private val auditLogger: AuditLogger,
     private val onReactiveDataIngested: (() -> Unit)? = null
 ) {
+
+    init {
+        suppressKnownNanoHttpdNoise()
+    }
 
     @Volatile
     private var server: EmbeddedServer? = null
@@ -598,20 +607,12 @@ class LocalNightscoutServer(
             val durationMinutes = request.duration
                 ?: request.durationInMilliseconds?.let { (it / 60_000L).toInt() }
             val sourceEventType = request.eventType
-            val normalizedType = normalizeEventType(sourceEventType)
 
-            val payloadMap = linkedMapOf<String, String>().apply {
-                durationMinutes?.let { put("duration", it.toString()) }
-                request.durationInMilliseconds?.let { put("durationInMilliseconds", it.toString()) }
-                request.targetTop?.let { put("targetTop", it.toString()) }
-                request.targetBottom?.let { put("targetBottom", it.toString()) }
-                request.carbs?.let { put("carbs", it.toString()) }
-                request.insulin?.let { put("insulin", it.toString()) }
-                request.units?.let { put("units", it) }
-                request.isValid?.let { put("isValid", it.toString()) }
-                request.reason?.let { put("reason", it) }
-                request.notes?.let { put("notes", it) }
-            }
+            val payloadMap = SyncRepository.buildNightscoutTreatmentPayloadStatic(
+                request = request,
+                source = SOURCE_LOCAL_NS_TREATMENT
+            )
+            val normalizedType = SyncRepository.normalizeTreatmentTypeStatic(sourceEventType, payloadMap)
 
             val therapyRow = TherapyEventEntity(
                 id = treatmentId,
@@ -640,6 +641,8 @@ class LocalNightscoutServer(
                 eventType = sourceEventType,
                 carbs = request.carbs,
                 insulin = request.insulin,
+                enteredCarbs = request.enteredCarbs,
+                enteredInsulin = request.enteredInsulin,
                 duration = durationMinutes,
                 durationInMilliseconds = request.durationInMilliseconds,
                 targetTop = request.targetTop,
@@ -667,7 +670,11 @@ class LocalNightscoutServer(
 
         private fun buildDataUpdatePayload(fromTs: Long, delta: Boolean): JsonObject {
             val since = fromTs.coerceAtLeast(0L)
-            val glucoseRows = runBlocking { db.glucoseDao().since(since).takeLast(SOCKET_DATAUPDATE_MAX_ROWS) }
+            val glucoseRows = runBlocking {
+                GlucoseSanitizer
+                    .filterEntities(db.glucoseDao().since(since))
+                    .takeLast(SOCKET_DATAUPDATE_MAX_ROWS)
+            }
             val treatmentRows = runBlocking { db.therapyDao().since(since).takeLast(SOCKET_DATAUPDATE_MAX_ROWS) }
 
             return JsonObject().apply {
@@ -821,9 +828,9 @@ class LocalNightscoutServer(
             val since = firstLong(session, "find[date][\$gte]", 0L).coerceAtLeast(0L)
             val rows = runBlocking {
                 if (since > 0L) {
-                    db.glucoseDao().since(since)
+                    GlucoseSanitizer.filterEntities(db.glucoseDao().since(since))
                 } else {
-                    db.glucoseDao().latest(count).reversed()
+                    GlucoseSanitizer.filterEntities(db.glucoseDao().latest(count)).reversed()
                 }
             }
             val selected = rows
@@ -959,22 +966,19 @@ class LocalNightscoutServer(
                     ?: request.durationInMilliseconds?.let { (it / 60_000L).toInt() }
 
                 val payload = linkedMapOf<String, String>().apply {
-                    durationMinutes?.let { put("duration", it.toString()) }
-                    request.durationInMilliseconds?.let { put("durationInMilliseconds", it.toString()) }
-                    request.targetTop?.let { put("targetTop", it.toString()) }
-                    request.targetBottom?.let { put("targetBottom", it.toString()) }
-                    request.carbs?.let { put("carbs", it.toString()) }
-                    request.insulin?.let { put("insulin", it.toString()) }
-                    request.units?.let { put("units", it) }
-                    request.isValid?.let { put("isValid", it.toString()) }
-                    request.reason?.let { put("reason", it) }
-                    request.notes?.let { put("notes", it) }
+                    putAll(
+                        SyncRepository.buildNightscoutTreatmentPayloadStatic(
+                            request = request,
+                            source = SOURCE_LOCAL_NS_TREATMENT
+                        )
+                    )
                 }
+                val normalizedType = SyncRepository.normalizeTreatmentTypeStatic(request.eventType, payload)
 
                 therapyRows += TherapyEventEntity(
                     id = treatmentId,
                     timestamp = timestamp,
-                    type = normalizeEventType(request.eventType),
+                    type = normalizedType,
                     payloadJson = gson.toJson(payload)
                 )
 
@@ -992,6 +996,8 @@ class LocalNightscoutServer(
                     eventType = request.eventType,
                     carbs = request.carbs,
                     insulin = request.insulin,
+                    enteredCarbs = request.enteredCarbs,
+                    enteredInsulin = request.enteredInsulin,
                     duration = durationMinutes,
                     durationInMilliseconds = request.durationInMilliseconds,
                     targetTop = request.targetTop,
@@ -1239,6 +1245,10 @@ class LocalNightscoutServer(
                 eventType = toNightscoutEventType(type),
                 carbs = payload["carbs"]?.toDoubleOrNull(),
                 insulin = payload["insulin"]?.toDoubleOrNull(),
+                enteredCarbs = payload["enteredCarbs"]?.toDoubleOrNull()
+                    ?: payload["mealCarbs"]?.toDoubleOrNull(),
+                enteredInsulin = payload["enteredInsulin"]?.toDoubleOrNull()
+                    ?: payload["bolusUnits"]?.toDoubleOrNull(),
                 enteredBy = payload["enteredBy"],
                 absolute = payload["absolute"]?.toDoubleOrNull(),
                 rate = payload["rate"]?.toDoubleOrNull(),
@@ -1477,6 +1487,8 @@ class LocalNightscoutServer(
     }
 
     private companion object {
+        @Volatile
+        private var nanoHttpdNoiseFilterInstalled = false
         private const val HOST = "127.0.0.1"
         private const val CONTENT_TYPE_JSON = "application/json; charset=utf-8"
         private const val CONTENT_TYPE_HTML = "text/html; charset=utf-8"
@@ -1512,5 +1524,54 @@ class LocalNightscoutServer(
         private const val ENGINE_PACKET_MESSAGE = '4'
         private const val ENGINE_PACKET_NOOP = '6'
         private const val ENGINE_PACKET_SEPARATOR = '\u001e'
+
+        private fun suppressKnownNanoHttpdNoise() {
+            if (nanoHttpdNoiseFilterInstalled) return
+            synchronized(LocalNightscoutServer::class.java) {
+                if (nanoHttpdNoiseFilterInstalled) return
+                val suppressionFilter = buildNanoHttpdNoiseFilter()
+                var logger: Logger? = Logger.getLogger(NanoHTTPD::class.java.name)
+                while (logger != null) {
+                    val existingFilter = logger.filter
+                    logger.filter = Filter { record ->
+                        if (!suppressionFilter.isLoggable(record)) {
+                            false
+                        } else {
+                            existingFilter?.isLoggable(record) ?: true
+                        }
+                    }
+                    installHandlerFilters(logger.handlers, suppressionFilter)
+                    logger = logger.parent
+                }
+                installHandlerFilters(Logger.getLogger("").handlers, suppressionFilter)
+                nanoHttpdNoiseFilterInstalled = true
+            }
+        }
+
+        private fun buildNanoHttpdNoiseFilter(): Filter = Filter { record ->
+            val message = record.message.orEmpty()
+            val throwable = record.thrown
+            val isKnownSocketCloseNoise = message.contains(
+                "Could not send response to the client",
+                ignoreCase = true
+            ) && (
+                throwable?.message?.contains("Socket is closed", ignoreCase = true) == true ||
+                    throwable is java.net.SocketException
+                )
+            !isKnownSocketCloseNoise
+        }
+
+        private fun installHandlerFilters(handlers: Array<Handler>, suppressionFilter: Filter) {
+            handlers.forEach { handler ->
+                val existingFilter = handler.filter
+                handler.filter = Filter { record ->
+                    if (!suppressionFilter.isLoggable(record)) {
+                        false
+                    } else {
+                        existingFilter?.isLoggable(record) ?: true
+                    }
+                }
+            }
+        }
     }
 }

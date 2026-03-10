@@ -14,7 +14,13 @@ interface ProfileSegmentEstimateDao {
     suspend fun upsertAll(items: List<ProfileSegmentEstimateEntity>)
 
     @Query("DELETE FROM profile_segment_estimates")
-    suspend fun clear()
+    suspend fun clear(): Int
+
+    @Query("SELECT COUNT(*) FROM profile_segment_estimates")
+    suspend fun countAll(): Int
+
+    @Query("SELECT MAX(updatedAt) FROM profile_segment_estimates")
+    suspend fun latestUpdatedAt(): Long?
 
     @Query("DELETE FROM profile_segment_estimates WHERE updatedAt < :olderThan")
     suspend fun deleteOlderThan(olderThan: Long)

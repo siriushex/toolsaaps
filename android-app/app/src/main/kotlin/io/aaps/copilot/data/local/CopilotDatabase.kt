@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import io.aaps.copilot.data.local.dao.ActionCommandDao
 import io.aaps.copilot.data.local.dao.AuditLogDao
 import io.aaps.copilot.data.local.dao.BaselineDao
+import io.aaps.copilot.data.local.dao.CircadianPatternDao
 import io.aaps.copilot.data.local.dao.ForecastDao
 import io.aaps.copilot.data.local.dao.GlucoseDao
 import io.aaps.copilot.data.local.dao.IsfCrEvidenceDao
@@ -22,6 +23,10 @@ import io.aaps.copilot.data.local.dao.UamInferenceEventDao
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.BaselinePointEntity
+import io.aaps.copilot.data.local.entity.CircadianPatternSnapshotEntity
+import io.aaps.copilot.data.local.entity.CircadianReplaySlotStatEntity
+import io.aaps.copilot.data.local.entity.CircadianSlotStatEntity
+import io.aaps.copilot.data.local.entity.CircadianTransitionStatEntity
 import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.IsfCrEvidenceEntity
@@ -48,6 +53,10 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         AuditLogEntity::class,
         BaselinePointEntity::class,
         PatternWindowEntity::class,
+        CircadianSlotStatEntity::class,
+        CircadianTransitionStatEntity::class,
+        CircadianPatternSnapshotEntity::class,
+        CircadianReplaySlotStatEntity::class,
         ProfileEstimateEntity::class,
         ProfileSegmentEstimateEntity::class,
         IsfCrSnapshotEntity::class,
@@ -57,7 +66,7 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         TelemetrySampleEntity::class,
         UamInferenceEventEntity::class
     ],
-    version = 10,
+    version = 12,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
@@ -70,6 +79,7 @@ abstract class CopilotDatabase : RoomDatabase() {
     abstract fun auditLogDao(): AuditLogDao
     abstract fun baselineDao(): BaselineDao
     abstract fun patternDao(): PatternDao
+    abstract fun circadianPatternDao(): CircadianPatternDao
     abstract fun profileEstimateDao(): ProfileEstimateDao
     abstract fun profileSegmentEstimateDao(): ProfileSegmentEstimateDao
     abstract fun isfCrSnapshotDao(): IsfCrSnapshotDao

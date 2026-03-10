@@ -52,15 +52,22 @@ import java.util.Locale
 private val AuditSectionShape = RoundedCornerShape(18.dp)
 private val AuditInfoShape = RoundedCornerShape(12.dp)
 private val AuditPillShape = RoundedCornerShape(999.dp)
+private enum class AuditContentTab { LOG, UAM }
 
 @Composable
 fun AuditScreen(
     state: AuditUiState,
+    uamState: UamUiState,
     onSelectWindow: (AuditWindowUi) -> Unit,
     onOnlyErrorsChange: (Boolean) -> Unit,
+    onMarkUamCorrect: (String) -> Unit,
+    onMarkUamWrong: (String) -> Unit,
+    onMergeUamWithManual: (String) -> Unit,
+    onExportUamToAaps: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val expanded = remember { mutableStateListOf<String>() }
+    var contentTab by rememberSaveable { mutableStateOf(AuditContentTab.LOG) }
     val successCount = state.rows.count { it.level.equals("INFO", ignoreCase = true) || it.level.equals("OK", ignoreCase = true) }
     val warningCount = state.rows.count { it.level.equals("WARN", ignoreCase = true) || it.summary.contains("warning", ignoreCase = true) }
     val errorCount = state.rows.count { it.level.equals("ERROR", ignoreCase = true) || it.summary.contains("failed", ignoreCase = true) }
@@ -78,38 +85,51 @@ fun AuditScreen(
             item {
                 FiltersCard(
                     state = state,
+                    contentTab = contentTab,
+                    onContentTabChange = { contentTab = it },
                     onSelectWindow = onSelectWindow,
                     onOnlyErrorsChange = onOnlyErrorsChange
                 )
             }
-            item {
-                AuditSummaryCard(
-                    total = state.rows.size,
-                    successCount = successCount,
-                    warningCount = warningCount,
-                    errorCount = errorCount
-                )
-            }
-            if (state.rows.isEmpty()) {
+            if (contentTab == AuditContentTab.LOG) {
+                item { AuditSectionLabel(text = stringResource(id = R.string.section_audit_recent)) }
                 item {
-                    AuditSectionCard {
-                        AuditSectionLabel(text = stringResource(id = R.string.section_audit_recent))
-                        Text(
-                            text = stringResource(id = R.string.audit_empty),
-                            style = MaterialTheme.typography.bodyMedium
+                    AuditSummaryCard(
+                        total = state.rows.size,
+                        successCount = successCount,
+                        warningCount = warningCount,
+                        errorCount = errorCount
+                    )
+                }
+                if (state.rows.isEmpty()) {
+                    item {
+                        AuditSectionCard {
+                            Text(
+                                text = stringResource(id = R.string.audit_empty),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                } else {
+                    items(state.rows) { row ->
+                        val isExpanded = expanded.contains(row.id)
+                        AuditRowCard(
+                            row = row,
+                            expanded = isExpanded,
+                            onToggle = {
+                                if (isExpanded) expanded.remove(row.id) else expanded.add(row.id)
+                            }
                         )
                     }
                 }
             } else {
-                item { AuditSectionLabel(text = stringResource(id = R.string.section_audit_recent)) }
-                items(state.rows) { row ->
-                    val isExpanded = expanded.contains(row.id)
-                    AuditRowCard(
-                        row = row,
-                        expanded = isExpanded,
-                        onToggle = {
-                            if (isExpanded) expanded.remove(row.id) else expanded.add(row.id)
-                        }
+                item {
+                    AuditUamPanel(
+                        state = uamState,
+                        onMarkCorrect = onMarkUamCorrect,
+                        onMarkWrong = onMarkUamWrong,
+                        onMergeWithManual = onMergeUamWithManual,
+                        onExportToAaps = onExportUamToAaps
                     )
                 }
             }
@@ -120,6 +140,8 @@ fun AuditScreen(
 @Composable
 private fun FiltersCard(
     state: AuditUiState,
+    contentTab: AuditContentTab,
+    onContentTabChange: (AuditContentTab) -> Unit,
     onSelectWindow: (AuditWindowUi) -> Unit,
     onOnlyErrorsChange: (Boolean) -> Unit
 ) {
@@ -127,18 +149,33 @@ private fun FiltersCard(
         AuditSectionLabel(text = stringResource(id = R.string.section_audit_filters))
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            listOf(AuditWindowUi.H6, AuditWindowUi.H24, AuditWindowUi.D7).forEach { window ->
+            FilterChip(
+                selected = contentTab == AuditContentTab.LOG,
+                onClick = { onContentTabChange(AuditContentTab.LOG) },
+                label = { Text(stringResource(id = R.string.audit_tab_log)) }
+            )
+            FilterChip(
+                selected = contentTab == AuditContentTab.UAM,
+                onClick = { onContentTabChange(AuditContentTab.UAM) },
+                label = { Text(stringResource(id = R.string.audit_tab_uam)) }
+            )
+        }
+
+        if (contentTab == AuditContentTab.LOG) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                listOf(AuditWindowUi.H6, AuditWindowUi.H24, AuditWindowUi.D7).forEach { window ->
+                    FilterChip(
+                        selected = state.window == window,
+                        onClick = { onSelectWindow(window) },
+                        label = { Text(window.label) }
+                    )
+                }
                 FilterChip(
-                    selected = state.window == window,
-                    onClick = { onSelectWindow(window) },
-                    label = { Text(window.label) }
+                    selected = state.onlyErrors,
+                    onClick = { onOnlyErrorsChange(!state.onlyErrors) },
+                    label = { Text(stringResource(id = R.string.audit_only_errors)) }
                 )
             }
-            FilterChip(
-                selected = state.onlyErrors,
-                onClick = { onOnlyErrorsChange(!state.onlyErrors) },
-                label = { Text(stringResource(id = R.string.audit_only_errors)) }
-            )
         }
     }
 }
@@ -469,8 +506,13 @@ private fun AuditScreenPreview() {
                     )
                 )
             ),
+            uamState = UamUiState(loadState = ScreenLoadState.READY, isStale = false),
             onSelectWindow = {},
-            onOnlyErrorsChange = {}
+            onOnlyErrorsChange = {},
+            onMarkUamCorrect = {},
+            onMarkUamWrong = {},
+            onMergeUamWithManual = {},
+            onExportUamToAaps = {}
         )
     }
 }

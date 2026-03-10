@@ -104,6 +104,49 @@ class UamInferenceEngineTest {
     }
 
     @Test
+    fun sourceOnlySyntheticExportDoesNotCountAsManualCob_andStillBlocksDuplicate() {
+        val nowTs = 1_760_000_000_000L
+        val glucose = mildlyRisingGlucose(nowTs)
+        val exportedSynthetic = TherapyEvent(
+            ts = nowTs - 25 * 60_000L,
+            type = "carbs",
+            payload = mapOf(
+                "carbs" to "20",
+                "source" to "uam_engine",
+                "reason" to "uam_engine"
+            )
+        )
+
+        val out = engine.infer(
+            UamInferenceEngine.Input(
+                nowTs = nowTs,
+                glucose = glucose,
+                therapyEvents = listOf(exportedSynthetic),
+                existingEvents = emptyList(),
+                isfMmolPerUnit = 2.3,
+                crGramPerUnit = 10.0,
+                insulinProfileId = "NOVORAPID",
+                enableUamInference = true,
+                enableUamBoost = false,
+                learnedMultiplier = 1.0,
+                userSettings = UamUserSettings(
+                    disableUamWhenManualCobActive = true,
+                    manualCobThresholdG = 5.0,
+                    disableUamIfManualCarbsNearby = true,
+                    manualMergeWindowMinutes = 45,
+                    gAbsThreshold_Normal = 1.0,
+                    mOfN_Normal = 1 to 1
+                )
+            )
+        )
+
+        assertThat(out.manualCobNow).isWithin(0.001).of(0.0)
+        assertThat(out.createdNewEvent).isFalse()
+        assertThat(out.activeEvent).isNull()
+        assertThat(out.events).isEmpty()
+    }
+
+    @Test
     fun staleSuspectedEventIsClosedToMergedToUnblockExportPipeline() {
         val nowTs = 1_760_000_000_000L
         val stale = UamInferenceEvent(

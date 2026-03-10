@@ -218,6 +218,102 @@ class IsfCrEngineTest {
     }
 
     @Test
+    fun fallbackResolver_keepsCrCandidateWhenGlobalCrEvidenceIsStrong() {
+        val resolver = IsfCrFallbackResolver()
+        val snapshot = IsfCrRealtimeSnapshot(
+            id = "snapshot-test",
+            ts = 1_700_900_000_000L,
+            isfEff = 2.8,
+            crEff = 15.4,
+            isfBase = 3.1,
+            crBase = 10.0,
+            ciIsfLow = 2.0,
+            ciIsfHigh = 3.6,
+            ciCrLow = 12.0,
+            ciCrHigh = 18.8,
+            confidence = 0.42,
+            qualityScore = 0.46,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 0.0,
+                "cr_hour_window_evidence_enough" to 0.0,
+                "isf_global_evidence_strong" to 0.0,
+                "cr_global_evidence_strong" to 1.0,
+                "sensor_quality_suspect_false_low" to 0.0
+            ),
+            mode = IsfCrRuntimeMode.SHADOW,
+            isfEvidenceCount = 0,
+            crEvidenceCount = 5,
+            reasons = listOf("isf_evidence_sparse", "cr_hourly_evidence_below_min")
+        )
+
+        val resolved = resolver.resolve(
+            snapshot = snapshot,
+            settings = IsfCrSettings(
+                confidenceThreshold = 0.55,
+                minIsfEvidencePerHour = 2,
+                minCrEvidencePerHour = 2
+            ),
+            fallbackIsf = 3.1,
+            fallbackCr = 10.0
+        )
+
+        assertThat(resolved.mode).isEqualTo(IsfCrRuntimeMode.FALLBACK)
+        assertThat(resolved.reasons).contains("partial_metric_keep")
+        assertThat(resolved.reasons).contains("isf_metric_fallback_applied")
+        assertThat(resolved.reasons).doesNotContain("cr_metric_fallback_applied")
+        assertThat(resolved.isfEff).isWithin(0.001).of(3.1)
+        assertThat(resolved.crEff).isWithin(0.001).of(15.4)
+    }
+
+    @Test
+    fun fallbackResolver_promotesSoftShadowWhenBothMetricsHaveCompEvidenceSupport() {
+        val resolver = IsfCrFallbackResolver()
+        val snapshot = IsfCrRealtimeSnapshot(
+            id = "snapshot-soft-shadow",
+            ts = 1_700_901_000_000L,
+            isfEff = 2.75,
+            crEff = 15.8,
+            isfBase = 3.1,
+            crBase = 10.2,
+            ciIsfLow = 2.2,
+            ciIsfHigh = 3.3,
+            ciCrLow = 13.0,
+            ciCrHigh = 18.6,
+            confidence = 0.48,
+            qualityScore = 0.56,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 1.0,
+                "cr_hour_window_evidence_enough" to 1.0,
+                "isf_global_evidence_strong" to 1.0,
+                "cr_global_evidence_strong" to 1.0,
+                "sensor_quality_suspect_false_low" to 0.0
+            ),
+            mode = IsfCrRuntimeMode.SHADOW,
+            isfEvidenceCount = 3,
+            crEvidenceCount = 5,
+            reasons = listOf("candidate_ready")
+        )
+
+        val resolved = resolver.resolve(
+            snapshot = snapshot,
+            settings = IsfCrSettings(
+                confidenceThreshold = 0.55,
+                shadowMode = true,
+                minIsfEvidencePerHour = 2,
+                minCrEvidencePerHour = 2
+            ),
+            fallbackIsf = 3.1,
+            fallbackCr = 10.0
+        )
+
+        assertThat(resolved.mode).isEqualTo(IsfCrRuntimeMode.SHADOW)
+        assertThat(resolved.isfEff).isWithin(0.001).of(2.75)
+        assertThat(resolved.crEff).isWithin(0.001).of(15.8)
+        assertThat(resolved.reasons).contains("soft_shadow_keep")
+        assertThat(resolved.reasons).doesNotContain("low_confidence_fallback")
+    }
+
+    @Test
     fun computeRealtime_addsAgeAndAmbiguityReasons() {
         val engine = IsfCrEngine()
         val now = 1_700_500_000_000L

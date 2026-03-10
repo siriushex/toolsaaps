@@ -20,6 +20,7 @@ import io.aaps.copilot.data.repository.NightscoutAapsCarbGateway
 import io.aaps.copilot.data.repository.NightscoutActionRepository
 import io.aaps.copilot.data.repository.RootDbExperimentalRepository
 import io.aaps.copilot.data.repository.SyncRepository
+import io.aaps.copilot.data.repository.TempTargetSendThrottle
 import io.aaps.copilot.data.repository.UamEventStore
 import io.aaps.copilot.data.repository.UamExportCoordinator
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
@@ -36,6 +37,7 @@ import io.aaps.copilot.scheduler.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -79,6 +81,9 @@ class AppContainer(context: Context) {
         auditLogger = auditLogger
     )
     private val healthConnectEnabled = false
+    @Volatile
+    private var runtimeControllersActive = false
+    private var localNightscoutSettingsJob: Job? = null
 
     val syncRepository = SyncRepository(
         db = db,
@@ -131,12 +136,17 @@ class AppContainer(context: Context) {
         actionCommandDao = db.actionCommandDao()
     )
 
+    private val tempTargetSendThrottle = TempTargetSendThrottle(
+        actionCommandDao = db.actionCommandDao()
+    )
+
     val actionRepository = NightscoutActionRepository(
         context = context,
         db = db,
         settingsStore = settingsStore,
         apiFactory = apiFactory,
         carbsSendThrottle = carbsSendThrottle,
+        tempTargetSendThrottle = tempTargetSendThrottle,
         gson = gson,
         auditLogger = auditLogger
     )
@@ -206,10 +216,6 @@ class AppContainer(context: Context) {
     )
 
     init {
-        startLocalActivitySensors()
-        if (healthConnectEnabled) {
-            startHealthConnectCollection()
-        }
         appScope.launch {
             val adaptiveMigrationEnabled = settingsStore.ensureAdaptiveControllerDefaultEnabled()
             val uamMigrationEnabled = settingsStore.ensureUamExportDefaultsEnabled()
@@ -221,34 +227,6 @@ class AppContainer(context: Context) {
             }
             if (uamMigrationEnabled) {
                 auditLogger.info("uam_export_defaults_enabled", emptyMap<String, Any>())
-            }
-        }
-        appScope.launch {
-            settingsStore.settings.collectLatest { settings ->
-                val actualPort = localNightscoutServer.update(
-                    enabled = settings.localNightscoutEnabled,
-                    port = settings.localNightscoutPort
-                )
-                if (
-                    settings.localNightscoutEnabled &&
-                    actualPort != null &&
-                    actualPort != settings.localNightscoutPort
-                ) {
-                    settingsStore.update { current ->
-                        if (!current.localNightscoutEnabled || current.localNightscoutPort == actualPort) {
-                            current
-                        } else {
-                            current.copy(localNightscoutPort = actualPort)
-                        }
-                    }
-                    auditLogger.warn(
-                        "local_nightscout_port_auto_adjusted",
-                        mapOf(
-                            "requestedPort" to settings.localNightscoutPort,
-                            "actualPort" to actualPort
-                        )
-                    )
-                }
             }
         }
     }
@@ -269,5 +247,56 @@ class AppContainer(context: Context) {
     fun stopHealthConnectCollection() {
         if (!healthConnectEnabled) return
         healthConnectActivityCollector.stop()
+    }
+
+    fun startRuntimeControllers() {
+        if (runtimeControllersActive) return
+        runtimeControllersActive = true
+        startLocalActivitySensors()
+        if (healthConnectEnabled) {
+            startHealthConnectCollection()
+        }
+        if (localNightscoutSettingsJob == null) {
+            localNightscoutSettingsJob = appScope.launch {
+                settingsStore.settings.collectLatest { settings ->
+                    val actualPort = localNightscoutServer.update(
+                        enabled = settings.localNightscoutEnabled,
+                        port = settings.localNightscoutPort
+                    )
+                    if (
+                        settings.localNightscoutEnabled &&
+                        actualPort != null &&
+                        actualPort != settings.localNightscoutPort
+                    ) {
+                        settingsStore.update { current ->
+                            if (!current.localNightscoutEnabled || current.localNightscoutPort == actualPort) {
+                                current
+                            } else {
+                                current.copy(localNightscoutPort = actualPort)
+                            }
+                        }
+                        auditLogger.warn(
+                            "local_nightscout_port_auto_adjusted",
+                            mapOf(
+                                "requestedPort" to settings.localNightscoutPort,
+                                "actualPort" to actualPort
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun stopRuntimeControllers() {
+        if (!runtimeControllersActive) return
+        runtimeControllersActive = false
+        localNightscoutSettingsJob?.cancel()
+        localNightscoutSettingsJob = null
+        localNightscoutServer.stop()
+        stopLocalActivitySensors()
+        if (healthConnectEnabled) {
+            stopHealthConnectCollection()
+        }
     }
 }

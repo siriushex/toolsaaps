@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.Surface
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
@@ -17,11 +16,12 @@ import io.aaps.copilot.service.AppVisibilityTracker
 import io.aaps.copilot.service.HealthConnectActivityCollector
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.ui.foundation.CopilotFoundationRoot
-import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val healthConnectEnabled = false
+    private var postDrawStartupQueued = false
 
     private val healthConnectPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -43,38 +43,56 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            AapsCopilotTheme {
-                Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
-                    CopilotFoundationRoot()
-                }
-            }
+            CopilotFoundationRoot()
         }
     }
 
     override fun onStart() {
         super.onStart()
         AppVisibilityTracker.markForeground(true)
-        LocalNightscoutServiceController.start(this)
-        ensureActivityRecognitionPermission()
-        (application as? CopilotApp)?.container?.startLocalActivitySensors()
-        if (healthConnectEnabled) {
-            ensureHealthConnectPermissions()
-            (application as? CopilotApp)?.container?.startHealthConnectCollection()
-        }
+        enqueuePostDrawStartup()
     }
 
     override fun onStop() {
+        postDrawStartupQueued = false
         AppVisibilityTracker.markForeground(false)
         super.onStop()
     }
 
-    private fun ensureActivityRecognitionPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val granted = ContextCompat.checkSelfPermission(
+    private fun enqueuePostDrawStartup() {
+        if (postDrawStartupQueued) return
+        postDrawStartupQueued = true
+        window.decorView.post {
+            lifecycleScope.launch {
+                delay(250)
+                postDrawStartupQueued = false
+                if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                    return@launch
+                }
+                LocalNightscoutServiceController.start(this@MainActivity)
+                if (hasActivityRecognitionPermission()) {
+                    (application as? CopilotApp)?.container?.startLocalActivitySensors()
+                } else {
+                    ensureActivityRecognitionPermission()
+                }
+                if (healthConnectEnabled) {
+                    ensureHealthConnectPermissions()
+                    (application as? CopilotApp)?.container?.startHealthConnectCollection()
+                }
+            }
+        }
+    }
+
+    private fun hasActivityRecognitionPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        return ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACTIVITY_RECOGNITION
         ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
+    }
+
+    private fun ensureActivityRecognitionPermission() {
+        if (!hasActivityRecognitionPermission()) {
             activityRecognitionPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
         }
     }

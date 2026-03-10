@@ -25,6 +25,9 @@ interface ProfileEstimateDao {
     @Query("SELECT * FROM profile_estimates WHERE id != 'active' ORDER BY timestamp DESC LIMIT :limit")
     fun observeHistory(limit: Int): Flow<List<ProfileEstimateEntity>>
 
+    @Query("DELETE FROM profile_estimates WHERE telemetryIsfSampleCount > 1 OR telemetryCrSampleCount > 1")
+    suspend fun deleteLegacyTelemetryPollutedRows(): Int
+
     @Query("DELETE FROM profile_estimates WHERE id != 'active' AND timestamp < :olderThan")
     suspend fun deleteHistoryOlderThan(olderThan: Long)
 }

@@ -17,6 +17,8 @@ data class NightscoutTreatment(
     @SerializedName("eventType") val eventType: String? = null,
     @SerializedName("carbs") val carbs: Double? = null,
     @SerializedName("insulin") val insulin: Double? = null,
+    @SerializedName(value = "enteredCarbs", alternate = ["mealCarbs", "grams"]) val enteredCarbs: Double? = null,
+    @SerializedName(value = "enteredInsulin", alternate = ["bolusUnits", "insulinUnits"]) val enteredInsulin: Double? = null,
     @SerializedName("enteredBy") val enteredBy: String? = null,
     @SerializedName("absolute") val absolute: Double? = null,
     @SerializedName("rate") val rate: Double? = null,
@@ -59,6 +61,8 @@ data class NightscoutTreatmentRequest(
     @SerializedName("units") val units: String? = null,
     @SerializedName("carbs") val carbs: Double? = null,
     @SerializedName("insulin") val insulin: Double? = null,
+    @SerializedName(value = "enteredCarbs", alternate = ["mealCarbs", "grams"]) val enteredCarbs: Double? = null,
+    @SerializedName(value = "enteredInsulin", alternate = ["bolusUnits", "insulinUnits"]) val enteredInsulin: Double? = null,
     @SerializedName("isValid") val isValid: Boolean? = null,
     @SerializedName("reason") val reason: String? = null,
     @SerializedName("notes") val notes: String? = null

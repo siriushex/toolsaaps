@@ -112,6 +112,8 @@ adb shell am broadcast \
   --el timestamp $(date +%s)
 ```
 
+For the full Sensor Lag V1 validation checklist and instrumentation fallback flow, see [docs/SENSOR_LAG_V1_QA.md](/Users/mac/Andoidaps/AAPSPredictiveCopilot/docs/SENSOR_LAG_V1_QA.md).
+
 ## Backend quick start
 
 ```bash

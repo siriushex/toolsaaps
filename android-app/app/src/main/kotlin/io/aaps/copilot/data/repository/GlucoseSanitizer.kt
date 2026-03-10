@@ -23,6 +23,27 @@ object GlucoseSanitizer {
         return selected.values.sortedBy { it.timestamp }
     }
 
+    fun duplicateEntityIdsToDelete(samples: List<GlucoseSampleEntity>): List<Long> {
+        if (samples.isEmpty()) return emptyList()
+        val selected = linkedMapOf<Long, GlucoseSampleEntity>()
+        val droppedIds = mutableListOf<Long>()
+        samples
+            .asSequence()
+            .filterNot(::isLegacyStatusArtifact)
+            .forEach { sample ->
+                val existing = selected[sample.timestamp]
+                when {
+                    existing == null -> selected[sample.timestamp] = sample
+                    shouldReplace(existing, sample) -> {
+                        droppedIds += existing.id
+                        selected[sample.timestamp] = sample
+                    }
+                    else -> droppedIds += sample.id
+                }
+            }
+        return droppedIds
+    }
+
     fun filterPoints(points: List<GlucosePoint>): List<GlucosePoint> {
         if (points.isEmpty()) return emptyList()
         val selected = linkedMapOf<Long, GlucosePoint>()

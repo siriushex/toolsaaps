@@ -118,6 +118,38 @@ class HybridPredictionEngineTest {
         assertThat(pred120.getValue(60).valueMmol).isEqualTo(pred60.getValue(60).valueMmol)
     }
 
+    @Test
+    fun legacyIgnoresSyntheticUamCarbsWithoutTagNote() = runBlocking {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        val now = 5_000_000_000L
+        val glucose = List(8) { 7.2 }.mapIndexed { idx, value ->
+            GlucosePoint(
+                ts = now + idx * FIVE_MINUTES,
+                valueMmol = value,
+                source = "test",
+                quality = DataQuality.OK
+            )
+        }
+        val syntheticCarbs = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts - 20 * 60_000L,
+                type = "carbs",
+                payload = mapOf(
+                    "grams" to "30",
+                    "source" to "uam_engine",
+                    "reason" to "uam_engine"
+                )
+            )
+        )
+
+        val noEvents = engine.predict(glucose, emptyList()).associateBy { it.horizonMinutes }
+        val withSynthetic = engine.predict(glucose, syntheticCarbs).associateBy { it.horizonMinutes }
+
+        assertThat(withSynthetic.getValue(5).valueMmol).isEqualTo(noEvents.getValue(5).valueMmol)
+        assertThat(withSynthetic.getValue(30).valueMmol).isEqualTo(noEvents.getValue(30).valueMmol)
+        assertThat(withSynthetic.getValue(60).valueMmol).isEqualTo(noEvents.getValue(60).valueMmol)
+    }
+
     private companion object {
         const val FIVE_MINUTES = 5 * 60_000L
     }

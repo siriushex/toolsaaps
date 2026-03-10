@@ -7,6 +7,7 @@ import io.aaps.copilot.domain.predict.CarbAbsorptionProfiles
 import io.aaps.copilot.domain.predict.CarbAbsorptionType
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.InsulinActionProfiles
+import io.aaps.copilot.domain.predict.isSyntheticUamCarbEvent
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -27,6 +28,13 @@ class IsfCrWindowExtractor(
     private data class SampleExtractionResult(
         val sample: IsfCrEvidenceSample?,
         val dropReason: String?
+    )
+
+    private data class CrFitInterval(
+        val observedDelta: Double,
+        val insulinDelta: Double,
+        val carbBaseDelta: Double,
+        val weight: Double
     )
 
     fun extract(
@@ -51,6 +59,8 @@ class IsfCrWindowExtractor(
         val isfSamples = mutableListOf<IsfCrEvidenceSample>()
         val crSamples = mutableListOf<IsfCrEvidenceSample>()
         val seenUamMealCandidates = mutableSetOf<String>()
+        val correctionCandidates = therapyWithImplicitCorrections.filter(::isCorrectionEvent)
+        val mealCandidates = therapyWithImplicitCorrections.filter(::isMealEvent)
         var dropped = 0
         val droppedReasonCounts = linkedMapOf<String, Int>()
 
@@ -60,32 +70,31 @@ class IsfCrWindowExtractor(
             droppedReasonCounts[normalizedReason] = (droppedReasonCounts[normalizedReason] ?: 0) + 1
         }
 
-        therapyWithImplicitCorrections.forEach { event ->
-            if (isCorrectionEvent(event)) {
-                val sample = extractIsfSample(
-                    event = event,
-                    glucose = glucose,
-                    therapy = therapyWithImplicitCorrections,
-                    settings = settings,
-                    isfReference = isfReference
-                )
-                sample.sample?.let { isfSamples += it } ?: markDropped(sample.dropReason)
+        correctionCandidates.forEach { event ->
+            val sample = extractIsfSample(
+                event = event,
+                glucose = glucose,
+                therapy = therapyWithImplicitCorrections,
+                settings = settings,
+                isfReference = isfReference
+            )
+            sample.sample?.let { isfSamples += it } ?: markDropped(sample.dropReason)
+        }
+
+        mealCandidates.forEach { event ->
+            val mealDedupKey = uamMealDedupKey(event)
+            if (mealDedupKey != null && !seenUamMealCandidates.add(mealDedupKey)) {
+                return@forEach
             }
-            if (isMealEvent(event)) {
-                val mealDedupKey = uamMealDedupKey(event)
-                if (mealDedupKey != null && !seenUamMealCandidates.add(mealDedupKey)) {
-                    return@forEach
-                }
-                val sample = extractCrSample(
-                    mealEvent = event,
-                    glucose = glucose,
-                    therapy = therapyWithImplicitCorrections,
-                    telemetry = history.telemetry,
-                    settings = settings,
-                    isfReference = isfReference
-                )
-                sample.sample?.let { crSamples += it } ?: markDropped(sample.dropReason)
-            }
+            val sample = extractCrSample(
+                mealEvent = event,
+                glucose = glucose,
+                therapy = therapyWithImplicitCorrections,
+                telemetry = history.telemetry,
+                settings = settings,
+                isfReference = isfReference
+            )
+            sample.sample?.let { crSamples += it } ?: markDropped(sample.dropReason)
         }
 
         return ExtractionResult(
@@ -107,8 +116,9 @@ class IsfCrWindowExtractor(
         if (units < 0.1) return droppedExtraction(DROP_REASON_ISF_SMALL_UNITS)
 
         val carbsAround = therapy
+            .eventsInRange(event.ts - 60 * MINUTE_MS, event.ts + 60 * MINUTE_MS)
             .asSequence()
-            .filter { abs(it.ts - event.ts) <= 60 * MINUTE_MS }
+            .filterNot(::isSyntheticUamCarbEvent)
             .mapNotNull(::extractCarbsGrams)
             .sum()
         if (carbsAround > 5.0) return droppedExtraction(DROP_REASON_ISF_CARBS_AROUND)
@@ -120,14 +130,14 @@ class IsfCrWindowExtractor(
 
         val windowStart = event.ts + 60 * MINUTE_MS
         val windowEnd = event.ts + 240 * MINUTE_MS
-        val future = glucose.filter { it.ts in windowStart..windowEnd }
+        val future = glucose.pointsInRange(windowStart, windowEnd)
         if (future.isEmpty()) return droppedExtraction(DROP_REASON_ISF_MISSING_FUTURE)
         val minFuture = future.minByOrNull { it.valueMmol } ?: return droppedExtraction(DROP_REASON_ISF_MISSING_FUTURE)
         val drop = baseline.valueMmol - minFuture.valueMmol
         if (drop <= 0.0) return droppedExtraction(DROP_REASON_ISF_NON_POSITIVE_DROP)
 
         val rawIsf = (drop / units).takeIf { it in 0.2..18.0 } ?: return droppedExtraction(DROP_REASON_ISF_OUT_OF_RANGE)
-        val qualityPoints = glucose.filter { it.ts in (event.ts - 15 * MINUTE_MS)..windowEnd }
+        val qualityPoints = glucose.pointsInRange(event.ts - 15 * MINUTE_MS, windowEnd)
         val quality = qualityScorer.scoreWindow(qualityPoints)
         val onsetTs = detectSlopeOnsetTs(
             anchorTs = event.ts,
@@ -297,7 +307,7 @@ class IsfCrWindowExtractor(
 
         val windowStart = effectiveMealTs
         val windowEnd = effectiveMealTs + 240 * MINUTE_MS
-        val points = glucose.filter { it.ts in windowStart..windowEnd }
+        val points = glucose.pointsInRange(windowStart, windowEnd)
         if (points.size < 6) return droppedExtraction(DROP_REASON_CR_SPARSE_POINTS)
         val quality = qualityScorer.scoreWindow(points)
         if (quality.maxGapMinutes > settings.crGrossGapMinutes.coerceIn(10.0, 60.0)) {
@@ -360,7 +370,7 @@ class IsfCrWindowExtractor(
         var bestCr = 0.0
         var bestSse = Double.POSITIVE_INFINITY
 
-        val intervals = points.sortedBy { it.ts }
+        val intervals = points
             .zipWithNext()
             .filter { (a, b) ->
                 val dt = (b.ts - a.ts) / 60_000.0
@@ -379,27 +389,33 @@ class IsfCrWindowExtractor(
         val sampleWeight = (quality.score * wearWeight * sourcePenalty * intervalCoveragePenalty * uamAmbiguityPenalty)
             .times(alignmentPenalty)
             .coerceIn(0.0, 1.0)
+        val insulinProfile = InsulinActionProfiles.profile(InsulinActionProfileId.NOVORAPID)
+        val fitIntervals = intervals.map { (a, b) ->
+            val dt = (b.ts - a.ts) / 60_000.0
+            CrFitInterval(
+                observedDelta = b.valueMmol - a.valueMmol,
+                insulinDelta = therapyDeltaInsulinBase(
+                    therapy = therapyForFit,
+                    intervalStartTs = a.ts,
+                    intervalEndTs = b.ts,
+                    isf = isfReference,
+                    profile = insulinProfile
+                ),
+                carbBaseDelta = therapyDeltaCarbBase(
+                    therapy = therapyForFit,
+                    intervalStartTs = a.ts,
+                    intervalEndTs = b.ts
+                ),
+                weight = 1.0 / dt.coerceIn(1.0, 15.0)
+            )
+        }
 
         var cr = minCr
         while (cr <= maxCr + 1e-9) {
-            val sse = intervals.sumOf { (a, b) ->
-                val dGobs = b.valueMmol - a.valueMmol
-                val dGins = therapyDeltaInsulin(
-                    therapy = therapyForFit,
-                    intervalStartTs = a.ts,
-                    intervalEndTs = b.ts,
-                    isf = isfReference
-                )
-                val dGcarb = therapyDeltaCarbs(
-                    therapy = therapyForFit,
-                    intervalStartTs = a.ts,
-                    intervalEndTs = b.ts,
-                    csf = (isfReference / cr).coerceIn(0.05, 0.40)
-                )
-                val residual = dGobs - dGins - dGcarb
-                val dt = (b.ts - a.ts) / 60_000.0
-                val w = 1.0 / dt.coerceIn(1.0, 15.0)
-                w * residual * residual
+            val csf = (isfReference / cr).coerceIn(0.05, 0.40)
+            val sse = fitIntervals.sumOf { interval ->
+                val residual = interval.observedDelta - interval.insulinDelta - (interval.carbBaseDelta * csf)
+                interval.weight * residual * residual
             }
             if (sse < bestSse) {
                 bestSse = sse
@@ -458,11 +474,12 @@ class IsfCrWindowExtractor(
         return SampleExtractionResult(sample = null, dropReason = reason)
     }
 
-    private fun therapyDeltaInsulin(
+    private fun therapyDeltaInsulinBase(
         therapy: List<TherapyEvent>,
         intervalStartTs: Long,
         intervalEndTs: Long,
-        isf: Double
+        isf: Double,
+        profile: io.aaps.copilot.domain.predict.InsulinActionProfile
     ): Double {
         return therapy.sumOf { event ->
             val units = extractInsulinUnits(event) ?: return@sumOf 0.0
@@ -470,17 +487,15 @@ class IsfCrWindowExtractor(
             val age0 = ((intervalStartTs - event.ts) / 60_000.0).coerceAtLeast(0.0)
             val age1 = ((intervalEndTs - event.ts) / 60_000.0).coerceAtLeast(0.0)
             if (age0 > 8 * 60.0) return@sumOf 0.0
-            val profile = InsulinActionProfiles.profile(InsulinActionProfileId.NOVORAPID)
             val deltaCum = (profile.cumulativeAt(age1) - profile.cumulativeAt(age0)).coerceAtLeast(0.0)
             -units * isf * deltaCum
         }
     }
 
-    private fun therapyDeltaCarbs(
+    private fun therapyDeltaCarbBase(
         therapy: List<TherapyEvent>,
         intervalStartTs: Long,
-        intervalEndTs: Long,
-        csf: Double
+        intervalEndTs: Long
     ): Double {
         return therapy.sumOf { event ->
             val carbs = extractCarbsGrams(event) ?: return@sumOf 0.0
@@ -491,7 +506,7 @@ class IsfCrWindowExtractor(
             val type = classifyCarbType(event)
             val deltaCum = (CarbAbsorptionProfiles.cumulative(type, age1) -
                 CarbAbsorptionProfiles.cumulative(type, age0)).coerceAtLeast(0.0)
-            carbs * csf * deltaCum
+            carbs * deltaCum
         }
     }
 
@@ -522,10 +537,7 @@ class IsfCrWindowExtractor(
     }
 
     private fun isUamEngineMealEvent(event: TherapyEvent): Boolean {
-        val reason = event.payload["reason"]?.lowercase(Locale.US).orEmpty()
-        val notes = event.payload["notes"]?.lowercase(Locale.US).orEmpty()
-        val source = event.payload["source"]?.lowercase(Locale.US).orEmpty()
-        return reason.contains("uam_engine") || source.contains("uam_engine") || notes.contains("uam_engine|")
+        return isSyntheticUamCarbEvent(event)
     }
 
     private fun uamMealDedupKey(event: TherapyEvent): String? {
@@ -556,14 +568,17 @@ class IsfCrWindowExtractor(
         therapy: List<TherapyEvent>,
         markerTypes: Set<String>
     ): Double? {
-        val markerTs = therapy
-            .asSequence()
-            .filter { it.ts <= ts }
-            .filter { markerTypes.contains(normalize(it.type)) }
-            .map { it.ts }
-            .maxOrNull()
-            ?: return null
-        val ageMinutes = ((ts - markerTs) / 60_000.0).coerceAtLeast(0.0)
+        var markerTs: Long? = null
+        for (index in therapy.indices.reversed()) {
+            val event = therapy[index]
+            if (event.ts > ts) continue
+            if (markerTypes.contains(normalize(event.type))) {
+                markerTs = event.ts
+                break
+            }
+        }
+        val resolvedMarkerTs = markerTs ?: return null
+        val ageMinutes = ((ts - resolvedMarkerTs) / 60_000.0).coerceAtLeast(0.0)
         return ageMinutes / 60.0
     }
 
@@ -579,17 +594,22 @@ class IsfCrWindowExtractor(
     }
 
     private fun payloadDouble(event: TherapyEvent, vararg keys: String): Double? {
-        val normalizedPayload = event.payload.entries.associate { normalize(it.key) to it.value }
-        return keys.firstNotNullOfOrNull { key ->
-            normalizedPayload[normalize(key)]?.replace(",", ".")?.toDoubleOrNull()
+        val normalizedKeys = keys.asSequence()
+            .map(::normalize)
+            .toSet()
+        event.payload.entries.forEach { (rawKey, rawValue) ->
+            if (normalizedKeys.contains(normalize(rawKey))) {
+                return rawValue.replace(",", ".").toDoubleOrNull()
+            }
         }
+        return null
     }
 
     private fun normalize(value: String): String {
         return value
-            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .replace(CAMEL_BOUNDARY_REGEX, "$1_$2")
             .lowercase(Locale.US)
-            .replace(Regex("[^a-z0-9]+"), "_")
+            .replace(NON_ALNUM_REGEX, "_")
             .trim('_')
     }
 
@@ -760,7 +780,14 @@ class IsfCrWindowExtractor(
     }
 
     private fun List<GlucosePoint>.closestTo(targetTs: Long, maxDistanceMs: Long): GlucosePoint? {
-        return this.minByOrNull { abs(it.ts - targetTs) }?.takeIf { abs(it.ts - targetTs) <= maxDistanceMs }
+        if (isEmpty()) return null
+        val insertion = lowerBoundGlucose(targetTs)
+        val candidates = mutableListOf<GlucosePoint>()
+        this.getOrNull(insertion - 1)?.let { candidates += it }
+        this.getOrNull(insertion)?.let { candidates += it }
+        return candidates
+            .minByOrNull { abs(it.ts - targetTs) }
+            ?.takeIf { abs(it.ts - targetTs) <= maxDistanceMs }
     }
 
     private fun alignMealTimestampForCr(
@@ -769,7 +796,7 @@ class IsfCrWindowExtractor(
     ): Long? {
         val windowStart = mealTs - (CR_MEAL_ALIGN_SEARCH_MINUTES * MINUTE_MS)
         val windowEnd = mealTs + (CR_MEAL_ALIGN_SEARCH_MINUTES * MINUTE_MS)
-        val points = glucose.filter { it.ts in windowStart..windowEnd }
+        val points = glucose.pointsInRange(windowStart, windowEnd)
         if (points.size < CR_MEAL_ALIGN_MIN_POINTS) return null
         val onsetTs = detectSlopeOnsetTs(
             anchorTs = mealTs,
@@ -852,7 +879,7 @@ class IsfCrWindowExtractor(
     }
 
     private fun buildSlopeSegments(points: List<GlucosePoint>): List<SlopeSegment> {
-        return points.sortedBy { it.ts }
+        return points
             .zipWithNext()
             .mapNotNull { (a, b) ->
                 val dtMin = (b.ts - a.ts) / 60_000.0
@@ -864,6 +891,78 @@ class IsfCrWindowExtractor(
                     slopePer5m = slopePer5m
                 )
             }
+    }
+
+    private fun List<GlucosePoint>.pointsInRange(startTs: Long, endTs: Long): List<GlucosePoint> {
+        if (isEmpty() || startTs > endTs) return emptyList()
+        val fromIndex = lowerBoundGlucose(startTs)
+        val toIndex = upperBoundGlucose(endTs)
+        if (fromIndex >= toIndex) return emptyList()
+        return subList(fromIndex, toIndex)
+    }
+
+    private fun List<TherapyEvent>.eventsInRange(startTs: Long, endTs: Long): List<TherapyEvent> {
+        if (isEmpty() || startTs > endTs) return emptyList()
+        val fromIndex = lowerBoundTherapy(startTs)
+        val toIndex = upperBoundTherapy(endTs)
+        if (fromIndex >= toIndex) return emptyList()
+        return subList(fromIndex, toIndex)
+    }
+
+    private fun List<GlucosePoint>.lowerBoundGlucose(targetTs: Long): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (this[mid].ts < targetTs) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    private fun List<GlucosePoint>.upperBoundGlucose(targetTs: Long): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (this[mid].ts <= targetTs) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    private fun List<TherapyEvent>.lowerBoundTherapy(targetTs: Long): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (this[mid].ts < targetTs) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    private fun List<TherapyEvent>.upperBoundTherapy(targetTs: Long): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (this[mid].ts <= targetTs) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
     }
 
     private companion object {
@@ -951,5 +1050,7 @@ class IsfCrWindowExtractor(
             "has_uam",
             "is_uam"
         )
+        private val CAMEL_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
+        private val NON_ALNUM_REGEX = Regex("[^a-z0-9]+")
     }
 }

@@ -25,6 +25,44 @@ interface TelemetryDao {
     @Query("SELECT * FROM telemetry_samples WHERE timestamp >= :since AND key IN (:keys) ORDER BY timestamp ASC")
     suspend fun sinceByKeys(since: Long, keys: List<String>): List<TelemetrySampleEntity>
 
+    @Query("SELECT * FROM telemetry_samples WHERE timestamp >= :since AND key IN (:keys) ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun sinceByKeysDescLimit(
+        since: Long,
+        keys: List<String>,
+        limit: Int
+    ): List<TelemetrySampleEntity>
+
+    @Query(
+        "SELECT t.* FROM telemetry_samples t " +
+            "INNER JOIN (" +
+            "SELECT source, key, MAX(timestamp) AS maxTimestamp " +
+            "FROM telemetry_samples " +
+            "WHERE timestamp >= :since " +
+            "GROUP BY source, key" +
+            ") latest " +
+            "ON t.source = latest.source AND t.key = latest.key AND t.timestamp = latest.maxTimestamp " +
+            "ORDER BY t.timestamp ASC"
+    )
+    suspend fun latestBySourceAndKeySince(since: Long): List<TelemetrySampleEntity>
+
+    @Query(
+        "SELECT t.* FROM telemetry_samples t " +
+            "INNER JOIN (" +
+            "SELECT key, MAX(timestamp) AS maxTimestamp " +
+            "FROM telemetry_samples " +
+            "WHERE timestamp >= :since " +
+            "AND (" +
+            "key LIKE 'daily_report_%' OR " +
+            "key LIKE 'rolling_report_%' OR " +
+            "key LIKE 'insulin_profile_real_%'" +
+            ") " +
+            "GROUP BY key" +
+            ") latest " +
+            "ON t.key = latest.key AND t.timestamp = latest.maxTimestamp " +
+            "ORDER BY t.timestamp ASC"
+    )
+    suspend fun latestReportAndProfileSince(since: Long): List<TelemetrySampleEntity>
+
     @Query("DELETE FROM telemetry_samples WHERE key = :key AND valueDouble > :threshold")
     suspend fun deleteByKeyAboveThreshold(key: String, threshold: Double): Int
 

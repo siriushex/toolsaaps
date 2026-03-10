@@ -91,6 +91,72 @@ class IsfCrConfidenceModelTest {
         assertThat(output.ciCrHigh).isAtMost(60.0)
     }
 
+    @Test
+    fun evaluate_strongCompensationEvidenceReachesOperationalConfidence() {
+        val evidence = sampleEvidence(count = 8, quality = 0.78)
+        val telemetry = listOf(
+            TelemetrySignal(ts = 1_700_000_000_000L, key = "sensor_quality_score", valueDouble = 0.97, valueText = null),
+            TelemetrySignal(ts = 1_700_000_000_000L, key = "sensor_quality_noise_std5", valueDouble = 0.04, valueText = null),
+            TelemetrySignal(ts = 1_700_000_000_000L, key = "uam_value", valueDouble = 0.0, valueText = null)
+        )
+        val output = model.evaluate(
+            isfEff = 2.7,
+            crEff = 14.8,
+            evidence = evidence,
+            telemetry = telemetry,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 1.0,
+                "cr_hour_window_evidence_enough" to 1.0,
+                "isf_global_evidence_strong" to 1.0,
+                "cr_global_evidence_strong" to 1.0,
+                "isf_hour_window_same_day_type_ratio" to 0.75,
+                "cr_hour_window_same_day_type_ratio" to 0.75,
+                "set_age_hours" to 12.0,
+                "sensor_age_hours" to 24.0
+            )
+        )
+
+        assertThat(output.confidence).isAtLeast(0.55)
+    }
+
+    @Test
+    fun evaluate_missingIsfEvidenceDoesNotOverPromoteConfidence() {
+        val evidence = List(5) { idx ->
+            IsfCrEvidenceSample(
+                id = "cr$idx",
+                ts = 1_700_000_000_000L - idx * 20 * 60_000L,
+                sampleType = IsfCrSampleType.CR,
+                hourLocal = 8,
+                dayType = DayType.WEEKDAY,
+                value = 15.0,
+                weight = 0.85,
+                qualityScore = 0.80,
+                context = emptyMap(),
+                window = emptyMap()
+            )
+        }
+        val telemetry = listOf(
+            TelemetrySignal(ts = 1_700_000_000_000L, key = "sensor_quality_score", valueDouble = 0.97, valueText = null),
+            TelemetrySignal(ts = 1_700_000_000_000L, key = "sensor_quality_noise_std5", valueDouble = 0.04, valueText = null)
+        )
+        val output = model.evaluate(
+            isfEff = 3.1,
+            crEff = 14.8,
+            evidence = evidence,
+            telemetry = telemetry,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 0.0,
+                "cr_hour_window_evidence_enough" to 1.0,
+                "isf_global_evidence_strong" to 0.0,
+                "cr_global_evidence_strong" to 1.0,
+                "isf_hour_window_same_day_type_ratio" to 0.0,
+                "cr_hour_window_same_day_type_ratio" to 0.8
+            )
+        )
+
+        assertThat(output.confidence).isLessThan(0.55)
+    }
+
     private fun sampleEvidence(count: Int, quality: Double): List<IsfCrEvidenceSample> {
         val now = 1_700_000_000_000L
         return List(count) { idx ->
@@ -110,4 +176,3 @@ class IsfCrConfidenceModelTest {
         }
     }
 }
-

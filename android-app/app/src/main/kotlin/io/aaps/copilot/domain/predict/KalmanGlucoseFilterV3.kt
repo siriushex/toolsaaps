@@ -31,7 +31,7 @@ internal class KalmanGlucoseFilterV3 {
     private var sigmaZ = 0.18
     private var sigmaA = 0.02
 
-    fun update(zMmol: Double, ts: Long, volNorm: Double): KalmanSnapshotV3 {
+    fun update(zMmol: Double, ts: Long, volNorm: Double, uRocPerMin: Double = 0.0): KalmanSnapshotV3 {
         if (!inited) {
             reset(zMmol, ts)
             return snapshot()
@@ -57,7 +57,7 @@ internal class KalmanGlucoseFilterV3 {
         val q01 = qScale * (dt3 / 2.0)
         val q11 = qScale * dt2
 
-        val gPred = g + v * dt
+        val gPred = g + (v + uRocPerMin) * dt
         val vPred = v
 
         val p00Pred = p00 + dt * (p10 + p01) + dt2 * p11 + q00

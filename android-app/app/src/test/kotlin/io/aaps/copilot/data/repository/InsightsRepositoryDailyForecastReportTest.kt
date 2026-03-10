@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
+import java.util.Locale
 import org.junit.Test
 
 class InsightsRepositoryDailyForecastReportTest {
@@ -308,6 +309,178 @@ class InsightsRepositoryDailyForecastReportTest {
         ).isTrue()
     }
 
+    @Test
+    fun buildDailyForecastReportPayload_buildsSensorLagReplayAndShadowBuckets() {
+        val now = 1_800_000_000_000L
+        val since = now - 16L * 24L * 60L * 60L * 1000L
+        val glucose = buildGlucose(since, now)
+        val forecasts = buildReplayForecasts(glucose)
+        val telemetry = buildSensorLagReplayTelemetry(
+            since = since,
+            until = now,
+            glucose = glucose,
+            modeResolver = { ts ->
+                val ageHours = ((ts - since).toDouble() / (60.0 * 60.0 * 1000.0)).coerceAtLeast(0.0)
+                if (ageHours >= 240.0) "SHADOW" else "ACTIVE"
+            }
+        )
+
+        val payload = InsightsRepository.buildDailyForecastReportPayloadStatic(
+            forecasts = forecasts,
+            glucose = glucose,
+            telemetrySamples = telemetry,
+            sinceTs = since,
+            untilTs = now
+        )
+
+        assertThat(payload.sensorLagReplayBuckets).isNotEmpty()
+        assertThat(payload.sensorLagReplayBuckets.map { it.bucket })
+            .containsAtLeast("1-10d", "10-12d", "12-14d", ">14d")
+        val lateLife60 = payload.sensorLagReplayBuckets
+            .firstOrNull { it.horizonMinutes == 60 && it.bucket == "12-14d" }
+        assertThat(lateLife60).isNotNull()
+        assertThat(lateLife60!!.maeImprovementMmol).isGreaterThan(0.0)
+        assertThat(payload.sensorLagShadowBuckets).isNotEmpty()
+        assertThat(payload.sensorLagShadowBuckets.map { it.bucket }).contains("12-14d")
+        val lateLifeShadow = payload.sensorLagShadowBuckets.first { it.bucket == "12-14d" }
+        assertThat(lateLifeShadow.ruleChangedRatePct).isGreaterThan(0.0)
+        assertThat(
+            payload.recommendations.any {
+                it.contains("Sensor-lag replay") || it.contains("Sensor-lag SHADOW")
+            }
+        ).isTrue()
+    }
+
+    @Test
+    fun buildDailyForecastReportPayload_excludesSensorLagReplayWhenModeOff() {
+        val now = 1_800_000_000_000L
+        val since = now - 3L * 24L * 60L * 60L * 1000L
+        val glucose = buildGlucose(since, now)
+        val forecasts = buildReplayForecasts(glucose)
+        val telemetry = buildSensorLagReplayTelemetry(
+            since = since,
+            until = now,
+            glucose = glucose,
+            modeResolver = { "OFF" }
+        )
+
+        val payload = InsightsRepository.buildDailyForecastReportPayloadStatic(
+            forecasts = forecasts,
+            glucose = glucose,
+            telemetrySamples = telemetry,
+            sinceTs = since,
+            untilTs = now
+        )
+
+        assertThat(payload.sensorLagReplayBuckets).isEmpty()
+        assertThat(payload.sensorLagShadowBuckets).isEmpty()
+    }
+
+    @Test
+    fun buildDailyForecastReportPayload_prefersCandidateForecastsOverControlTelemetry() {
+        val now = 1_800_000_000_000L
+        val since = now - 16L * 24L * 60L * 60L * 1000L
+        val glucose = buildGlucose(since, now)
+        val forecasts = buildReplayForecasts(glucose)
+        val telemetry = buildSensorLagReplayTelemetry(
+            since = since,
+            until = now,
+            glucose = glucose,
+            modeResolver = { "SHADOW" },
+            includeCandidateForecasts = true,
+            includeControlForecasts = true,
+            controlErrorMultiplier = 2.4,
+            candidateErrorMultiplier = 0.55
+        )
+
+        val payload = InsightsRepository.buildDailyForecastReportPayloadStatic(
+            forecasts = forecasts,
+            glucose = glucose,
+            telemetrySamples = telemetry,
+            sinceTs = since,
+            untilTs = now
+        )
+
+        val replay60 = payload.sensorLagReplayBuckets.firstOrNull { it.horizonMinutes == 60 && it.bucket == "12-14d" }
+        assertThat(replay60).isNotNull()
+        assertThat(replay60!!.maeImprovementMmol).isGreaterThan(0.0)
+        assertThat(replay60.lagMae).isLessThan(replay60.rawMae)
+    }
+
+    @Test
+    fun resolveSensorLagReplayForecastRows_prefersCandidateRowsForHorizon() {
+        val ts = 1_800_000_000_000L
+        val telemetryByKey = listOf(
+            TelemetrySampleEntity(
+                id = "candidate-30",
+                timestamp = ts,
+                source = "sensor-lag-test",
+                key = "sensor_lag_candidate_forecast_30m",
+                valueDouble = 6.2,
+                valueText = null,
+                unit = "mmol/L",
+                quality = "OK"
+            ),
+            TelemetrySampleEntity(
+                id = "control-30",
+                timestamp = ts,
+                source = "sensor-lag-test",
+                key = "sensor_lag_control_forecast_30m",
+                valueDouble = 6.8,
+                valueText = null,
+                unit = "mmol/L",
+                quality = "OK"
+            )
+        ).groupBy { it.key.lowercase(Locale.US) }
+
+        val resolved = InsightsRepository.resolveSensorLagReplayForecastRowsStatic(
+            telemetryByKey = telemetryByKey,
+            horizonMinutes = 30
+        )
+
+        assertThat(resolved).isNotNull()
+        assertThat(resolved!!.modelFamily).isEqualTo("sensor_lag_candidate")
+        assertThat(resolved.rows).hasSize(1)
+        assertThat(resolved.rows.single().valueDouble).isWithin(0.001).of(6.2)
+    }
+
+    @Test
+    fun resolveSensorLagReplayForecastRows_fallsBackToControlRowsWhenCandidateMissing() {
+        val ts = 1_800_000_000_000L
+        val telemetryByKey = listOf(
+            TelemetrySampleEntity(
+                id = "candidate-30",
+                timestamp = ts,
+                source = "sensor-lag-test",
+                key = "sensor_lag_candidate_forecast_30m",
+                valueDouble = 6.2,
+                valueText = null,
+                unit = "mmol/L",
+                quality = "OK"
+            ),
+            TelemetrySampleEntity(
+                id = "control-60",
+                timestamp = ts,
+                source = "sensor-lag-test",
+                key = "sensor_lag_control_forecast_60m",
+                valueDouble = 7.1,
+                valueText = null,
+                unit = "mmol/L",
+                quality = "OK"
+            )
+        ).groupBy { it.key.lowercase(Locale.US) }
+
+        val resolved = InsightsRepository.resolveSensorLagReplayForecastRowsStatic(
+            telemetryByKey = telemetryByKey,
+            horizonMinutes = 60
+        )
+
+        assertThat(resolved).isNotNull()
+        assertThat(resolved!!.modelFamily).isEqualTo("sensor_lag_control")
+        assertThat(resolved.rows).hasSize(1)
+        assertThat(resolved.rows.single().valueDouble).isWithin(0.001).of(7.1)
+    }
+
     private fun buildGlucose(since: Long, until: Long): List<GlucoseSampleEntity> {
         val points = mutableListOf<GlucoseSampleEntity>()
         var ts = since
@@ -451,6 +624,105 @@ class InsightsRepositoryDailyForecastReportTest {
                 unit = null,
                 quality = "OK"
             )
+            ts += 5 * 60_000L
+        }
+        return rows
+    }
+
+    private fun buildSensorLagReplayTelemetry(
+        since: Long,
+        until: Long,
+        glucose: List<GlucoseSampleEntity>,
+        modeResolver: (Long) -> String = { "ACTIVE" },
+        includeCandidateForecasts: Boolean = false,
+        includeControlForecasts: Boolean = true,
+        controlErrorMultiplier: Double = 1.0,
+        candidateErrorMultiplier: Double = 1.0
+    ): List<TelemetrySampleEntity> {
+        val rows = mutableListOf<TelemetrySampleEntity>()
+        val glucoseByTs = glucose.associateBy { it.timestamp }
+        var ts = since
+        while (ts <= until) {
+            val ageHours = ((ts - since).toDouble() / (60.0 * 60.0 * 1000.0)).coerceAtLeast(0.0)
+            val lateLife = ageHours >= 240.0
+            val mode = modeResolver(ts)
+            rows += TelemetrySampleEntity(
+                id = "tm-sensor-lag-age-$ts",
+                timestamp = ts,
+                source = "sensor-lag-test",
+                key = "sensor_lag_age_hours",
+                valueDouble = ageHours,
+                valueText = null,
+                unit = "h",
+                quality = "OK"
+            )
+            rows += TelemetrySampleEntity(
+                id = "tm-sensor-lag-mode-$ts",
+                timestamp = ts,
+                source = "sensor-lag-test",
+                key = "sensor_lag_mode",
+                valueDouble = null,
+                valueText = mode,
+                unit = null,
+                quality = "OK"
+            )
+            if (mode.equals("SHADOW", ignoreCase = true)) {
+                rows += TelemetrySampleEntity(
+                    id = "tm-sensor-lag-shadow-$ts",
+                    timestamp = ts,
+                    source = "sensor-lag-test",
+                    key = "sensor_lag_shadow_rule_changed",
+                    valueDouble = if (lateLife) 1.0 else 0.0,
+                    valueText = null,
+                    unit = null,
+                    quality = "OK"
+                )
+                rows += TelemetrySampleEntity(
+                    id = "tm-sensor-lag-delta-$ts",
+                    timestamp = ts,
+                    source = "sensor-lag-test",
+                    key = "sensor_lag_shadow_target_delta_mmol",
+                    valueDouble = if (lateLife) 0.22 else 0.04,
+                    valueText = null,
+                    unit = "mmol/L",
+                    quality = "OK"
+                )
+            }
+            listOf(5, 30, 60).forEach { horizon ->
+                val target = glucoseByTs[ts + horizon * 60_000L] ?: return@forEach
+                val generationHour = ((ts / 3_600_000L) % 24L).toInt()
+                val highCobWindow = generationHour in 14..22
+                val rawError = when (horizon) {
+                    5 -> if (highCobWindow) 0.20 else 0.05
+                    30 -> if (highCobWindow) 0.60 else 0.20
+                    else -> if (highCobWindow) 1.40 else 0.35
+                }
+                val adjustedError = if (lateLife) rawError * 0.55 else rawError * 0.92
+                if (includeControlForecasts) {
+                    rows += TelemetrySampleEntity(
+                        id = "tm-sensor-lag-control-$horizon-$ts",
+                        timestamp = ts,
+                        source = "sensor-lag-test",
+                        key = "sensor_lag_control_forecast_${horizon}m",
+                        valueDouble = target.mmol + adjustedError * controlErrorMultiplier,
+                        valueText = null,
+                        unit = "mmol/L",
+                        quality = "OK"
+                    )
+                }
+                if (includeCandidateForecasts) {
+                    rows += TelemetrySampleEntity(
+                        id = "tm-sensor-lag-candidate-$horizon-$ts",
+                        timestamp = ts,
+                        source = "sensor-lag-test",
+                        key = "sensor_lag_candidate_forecast_${horizon}m",
+                        valueDouble = target.mmol + adjustedError * candidateErrorMultiplier,
+                        valueText = null,
+                        unit = "mmol/L",
+                        quality = "OK"
+                    )
+                }
+            }
             ts += 5 * 60_000L
         }
         return rows

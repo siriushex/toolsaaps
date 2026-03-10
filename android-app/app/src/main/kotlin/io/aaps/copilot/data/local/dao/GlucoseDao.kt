@@ -19,6 +19,9 @@ interface GlucoseDao {
     @Query("SELECT * FROM glucose_samples WHERE timestamp >= :since ORDER BY timestamp ASC")
     suspend fun since(since: Long): List<GlucoseSampleEntity>
 
+    @Query("SELECT * FROM glucose_samples WHERE timestamp >= :since ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun sinceDescLimit(since: Long, limit: Int): List<GlucoseSampleEntity>
+
     @Query("SELECT * FROM glucose_samples ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<GlucoseSampleEntity>>
 
@@ -45,6 +48,9 @@ interface GlucoseDao {
 
     @Query("DELETE FROM glucose_samples WHERE source = :source AND timestamp = :timestamp")
     suspend fun deleteBySourceAndTimestamp(source: String, timestamp: Long): Int
+
+    @Query("DELETE FROM glucose_samples WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>): Int
 
     @Query(
         "DELETE FROM glucose_samples " +

@@ -133,9 +133,64 @@ class IsfCrContextModelTest {
 
         assertTrue((activeOutput.factors["steps_rate_15m"] ?: 0.0) > 0.0)
         assertTrue((activeOutput.factors["activity_factor"] ?: 1.0) > 1.0)
+        assertTrue((activeOutput.factors["steps_rate_60m"] ?: 0.0) > 0.0)
         assertEquals(0.0, disabledOutput.factors["steps_rate_15m"] ?: -1.0, 1e-9)
         assertEquals(1.0, disabledOutput.factors["activity_factor"] ?: 0.0, 1e-9)
         assertTrue(activeOutput.isfEff > disabledOutput.isfEff)
+    }
+
+    @Test
+    fun activityFactor_acceptsCamelCaseTelemetryKeys() {
+        val nowTs = ZonedDateTime.of(2026, 3, 3, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val telemetry = listOf(
+            TelemetrySignal(ts = nowTs, key = "activityRatio", valueDouble = 1.35, valueText = null),
+            TelemetrySignal(ts = nowTs - 10 * 60_000L, key = "stepsCount", valueDouble = 5_000.0, valueText = null),
+            TelemetrySignal(ts = nowTs, key = "stepsCount", valueDouble = 5_180.0, valueText = null)
+        )
+
+        val output = model.apply(
+            nowTs = nowTs,
+            isfBase = 2.5,
+            crBase = 12.0,
+            therapy = emptyList(),
+            telemetry = telemetry,
+            tags = emptyList(),
+            previous = null,
+            settings = IsfCrSettings(useActivityFactor = true)
+        )
+
+        assertTrue((output.factors["activity_ratio"] ?: 1.0) > 1.0)
+        assertTrue((output.factors["steps_rate_15m"] ?: 0.0) > 0.0)
+        assertTrue(output.isfEff > 2.5)
+    }
+
+    @Test
+    fun staleActivityTelemetry_isIgnored() {
+        val nowTs = ZonedDateTime.of(2026, 3, 3, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val staleTelemetry = listOf(
+            TelemetrySignal(ts = nowTs - 45 * 60_000L, key = "activity_ratio", valueDouble = 1.5, valueText = null),
+            TelemetrySignal(ts = nowTs - 70 * 60_000L, key = "steps_count", valueDouble = 8_000.0, valueText = null),
+            TelemetrySignal(ts = nowTs - 45 * 60_000L, key = "steps_count", valueDouble = 8_250.0, valueText = null)
+        )
+
+        val output = model.apply(
+            nowTs = nowTs,
+            isfBase = 2.5,
+            crBase = 12.0,
+            therapy = emptyList(),
+            telemetry = staleTelemetry,
+            tags = emptyList(),
+            previous = null,
+            settings = IsfCrSettings(useActivityFactor = true)
+        )
+
+        assertEquals(1.0, output.factors["activity_ratio"] ?: 0.0, 1e-9)
+        assertEquals(0.0, output.factors["steps_rate_15m"] ?: -1.0, 1e-9)
+        assertEquals(0.0, output.factors["steps_rate_60m"] ?: -1.0, 1e-9)
+        assertEquals(1.0, output.factors["activity_ratio_avg_90m"] ?: 0.0, 1e-9)
+        assertEquals(1.0, output.factors["activity_factor"] ?: 0.0, 1e-9)
+        assertEquals(2.5, output.isfEff, 1e-9)
+        assertTrue((output.factors["activity_ratio_age_min"] ?: 0.0) > 20.0)
     }
 
     @Test

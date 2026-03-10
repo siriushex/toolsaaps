@@ -32,6 +32,12 @@ class IsfCrConfidenceModel {
         val noiseStd = abs(latestTelemetry["sensor_quality_noise_std5"] ?: 0.0).coerceIn(0.0, 2.0)
         val setAgeHours = (factors["set_age_hours"] ?: latestTelemetry["set_age_hours"] ?: 0.0).coerceAtLeast(0.0)
         val sensorAgeHours = (factors["sensor_age_hours"] ?: latestTelemetry["sensor_age_hours"] ?: 0.0).coerceAtLeast(0.0)
+        val isfHourEvidenceEnough = (factors["isf_hour_window_evidence_enough"] ?: 0.0) >= 0.5
+        val crHourEvidenceEnough = (factors["cr_hour_window_evidence_enough"] ?: 0.0) >= 0.5
+        val isfStrongGlobalEvidence = (factors["isf_global_evidence_strong"] ?: 0.0) >= 0.5
+        val crStrongGlobalEvidence = (factors["cr_global_evidence_strong"] ?: 0.0) >= 0.5
+        val isfSameDayRatio = (factors["isf_hour_window_same_day_type_ratio"] ?: 0.0).coerceIn(0.0, 1.0)
+        val crSameDayRatio = (factors["cr_hour_window_same_day_type_ratio"] ?: 0.0).coerceIn(0.0, 1.0)
         val manualStressTag = (factors["manual_stress_tag"] ?: 0.0).coerceIn(0.0, 1.0)
         val manualIllnessTag = (factors["manual_illness_tag"] ?: 0.0).coerceIn(0.0, 1.0)
         val manualHormoneTag = (factors["manual_hormone_tag"] ?: 0.0).coerceIn(0.0, 1.0)
@@ -53,7 +59,42 @@ class IsfCrConfidenceModel {
         val sensorAgePenalty = if (sensorAgeHours <= 120.0) 0.0 else ((sensorAgeHours - 120.0) / 96.0).coerceIn(0.0, 1.0) * 0.08
         val falseLowPenalty = falseLowFlag * 0.08
 
-        val volumeScore = ((isfEvidence + crEvidence) / 36.0).coerceIn(0.0, 1.0)
+        val isfVolumeScore = evidenceCoverageScore(
+            evidenceCount = isfEvidence,
+            fullCount = when {
+                isfHourEvidenceEnough -> 3.0
+                isfStrongGlobalEvidence -> 4.0
+                else -> 6.0
+            }
+        )
+        val crVolumeScore = evidenceCoverageScore(
+            evidenceCount = crEvidence,
+            fullCount = when {
+                crHourEvidenceEnough -> 4.0
+                crStrongGlobalEvidence -> 5.0
+                else -> 8.0
+            }
+        )
+        val volumeScore = (
+            isfVolumeScore * 0.5 +
+                crVolumeScore * 0.5
+            )
+            .coerceIn(0.0, 1.0)
+        val structuralSupport = (
+            (if (isfHourEvidenceEnough) 0.03 else 0.0) +
+                (if (crHourEvidenceEnough) 0.03 else 0.0) +
+                (if (isfStrongGlobalEvidence) 0.04 else 0.0) +
+                (if (crStrongGlobalEvidence) 0.04 else 0.0) +
+                isfSameDayRatio * 0.02 +
+                crSameDayRatio * 0.02
+            )
+            .coerceIn(0.0, 0.18)
+        val metricCoverageRatio = (
+            (if (isfEvidence > 0) 0.5 else 0.0) +
+                (if (crEvidence > 0) 0.5 else 0.0)
+            )
+            .coerceIn(0.0, 1.0)
+        val crossMetricPenalty = if (isfEvidence == 0 || crEvidence == 0) 0.15 else 0.0
         val qualityScore = (
             quality * 0.50 +
                 sensorQuality * 0.30 +
@@ -65,10 +106,12 @@ class IsfCrConfidenceModel {
             )
             .coerceIn(0.0, 1.0)
         val confidence = (
-            volumeScore * 0.48 +
-                qualityScore * 0.38 +
+            volumeScore * 0.46 +
+                qualityScore * 0.32 +
+                structuralSupport * metricCoverageRatio +
                 (1.0 - uamActive * 0.5) * 0.08 +
                 (1.0 - contextAmbiguity * 0.5) * 0.06 -
+                crossMetricPenalty -
                 setAgePenalty -
                 sensorAgePenalty -
                 falseLowPenalty
@@ -118,5 +161,13 @@ class IsfCrConfidenceModel {
             .lowercase()
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
+    }
+
+    private fun evidenceCoverageScore(
+        evidenceCount: Int,
+        fullCount: Double
+    ): Double {
+        if (evidenceCount <= 0 || fullCount <= 0.0) return 0.0
+        return (evidenceCount / fullCount).coerceIn(0.0, 1.0)
     }
 }

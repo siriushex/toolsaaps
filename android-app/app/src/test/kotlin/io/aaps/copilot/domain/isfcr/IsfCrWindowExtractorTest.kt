@@ -131,6 +131,41 @@ class IsfCrWindowExtractorTest {
     }
 
     @Test
+    fun extract_syntheticUamCarbsDoNotInvalidateIsfCorrectionWindow() {
+        val extractor = IsfCrWindowExtractor()
+        val correctionTs = 1_700_120_000_000L
+        val extraction = extractor.extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = listOf(
+                    TherapyEvent(
+                        ts = correctionTs,
+                        type = "correction_bolus",
+                        payload = mapOf("units" to "1.0")
+                    ),
+                    TherapyEvent(
+                        ts = correctionTs + 10L * 60L * 1_000L,
+                        type = "carbs",
+                        payload = mapOf(
+                            "grams" to "18",
+                            "source" to "uam_engine",
+                            "synthetic" to "true",
+                            "note" to "UAM_ENGINE|id=test|seq=1|ver=1|mode=NORMAL|"
+                        )
+                    )
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(extraction.evidence.any { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+        assertThat(extraction.droppedReasonCounts["isf_carbs_around"] ?: 0).isEqualTo(0)
+    }
+
+    @Test
     fun extract_crSampleDroppedWhenSensorBlockedTelemetryHigh() {
         val extractor = IsfCrWindowExtractor()
         val mealTs = 1_700_200_000_000L

@@ -1,5 +1,11 @@
 package io.aaps.copilot.ui.foundation.screens
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
@@ -14,24 +20,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,19 +58,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -74,44 +96,50 @@ fun AiAnalysisScreen(
     onExportReplayCsv: () -> Unit = {},
     onExportReplayPdf: (horizonFilter: Int?) -> Unit = {},
     onSendChatPrompt: (String) -> Unit = {},
+    onChatDraftChange: (String) -> Unit = {},
+    onAttachImage: (Uri) -> Unit = {},
+    onAttachFile: (Uri) -> Unit = {},
+    onRemoveChatAttachment: (String) -> Unit = {},
+    onVoiceRepliesToggle: (Boolean) -> Unit = {},
+    onStartVoiceRecording: () -> Unit = {},
+    onStopVoiceRecording: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedSource by rememberSaveable { mutableStateOf("all") }
-    var selectedStatus by rememberSaveable { mutableStateOf("all") }
-    var selectedDays by rememberSaveable { mutableIntStateOf(60) }
-    var selectedWeeks by rememberSaveable { mutableIntStateOf(8) }
-    var selectedHorizonFilter by rememberSaveable { mutableIntStateOf(0) }
-    var selectedFactorFilter by rememberSaveable { mutableStateOf("ALL") }
-    var chatInput by rememberSaveable { mutableStateOf("") }
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val context = LocalContext.current
+    var selectedDays by rememberSaveable { mutableIntStateOf(state.windowDays) }
+    LaunchedEffect(state.windowDays) {
+        selectedDays = state.windowDays
+    }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(it, flags)
+            }
+            onAttachImage(it)
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(it, flags)
+            }
+            onAttachFile(it)
+        }
+    }
+    val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) onStartVoiceRecording()
+    }
 
-    val sourceOptions = listOf("all", "manual", "scheduler")
-    val statusOptions = listOf("all", "success", "failed")
-    val daysOptions = listOf(30, 60, 90)
-    val weeksOptions = listOf(4, 8, 12)
-    val horizonOptions = listOf(0, 5, 30, 60)
-    val factorOptions = buildList {
-        add("ALL")
-        addAll(state.localTopFactors.map { it.factor }.distinct())
-        addAll(state.localDayTypeGaps.mapNotNull { it.dominantFactor }.distinct())
-    }.distinct()
+    val daysOptions = listOf(3, 5, 7, 30)
     val dayTypeMetricPattern = stringResource(id = R.string.ai_analysis_replay_daytype_metric_item)
-    val filteredHorizonScores = state.localHorizonScores.filter {
-        selectedHorizonFilter == 0 || it.horizonMinutes == selectedHorizonFilter
-    }
-    val filteredTopFactors = state.localTopFactors.filter {
-        (selectedHorizonFilter == 0 || it.horizonMinutes == selectedHorizonFilter) &&
-            (selectedFactorFilter == "ALL" || it.factor.equals(selectedFactorFilter, ignoreCase = true))
-    }
-    val filteredHotspots = state.localHotspots.filter {
-        selectedHorizonFilter == 0 || it.horizonMinutes == selectedHorizonFilter
-    }
-    val filteredTopMisses = state.localTopMisses.filter {
-        selectedHorizonFilter == 0 || it.horizonMinutes == selectedHorizonFilter
-    }
-    val filteredDayTypeGaps = state.localDayTypeGaps.filter {
-        (selectedHorizonFilter == 0 || it.horizonMinutes == selectedHorizonFilter) &&
-            (selectedFactorFilter == "ALL" || it.dominantFactor.equals(selectedFactorFilter, ignoreCase = true))
-    }
+    val filteredHorizonScores = state.localHorizonScores
+    val filteredTopFactors = state.localTopFactors
+    val filteredHotspots = state.localHotspots
+    val filteredTopMisses = state.localTopMisses
+    val filteredDayTypeGaps = state.localDayTypeGaps
 
     ScreenStateLayout(
         loadState = state.loadState,
@@ -131,6 +159,21 @@ fun AiAnalysisScreen(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
+            item {
+                AiChatHeroCard(
+                    state = state,
+                    onDraftChange = onChatDraftChange,
+                    onSend = { onSendChatPrompt(state.chatDraft) },
+                    onAttachImage = { imagePicker.launch(arrayOf("image/*")) },
+                    onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+                    onRemoveAttachment = onRemoveChatAttachment,
+                    onVoiceRepliesToggle = onVoiceRepliesToggle,
+                    onStartVoiceRecording = {
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onStopVoiceRecording = onStopVoiceRecording
+                )
+            }
             item {
                 AiSectionCard {
                     AiSectionLabel(
@@ -173,11 +216,6 @@ fun AiAnalysisScreen(
                         )
                     )
                     Text(
-                        text = stringResource(id = R.string.ai_analysis_filter_label, state.filterLabel),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
                         text = if (state.cloudConfigured) {
                             stringResource(id = R.string.ai_analysis_cloud_configured)
                         } else {
@@ -186,50 +224,25 @@ fun AiAnalysisScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        text = stringResource(id = R.string.ai_analysis_filters_title),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    FilterChipGroup(
-                        selected = selectedSource,
-                        options = sourceOptions
-                    ) { selectedSource = it }
-                    FilterChipGroup(
-                        selected = selectedStatus,
-                        options = statusOptions
-                    ) { selectedStatus = it }
                     IntFilterChipGroup(
                         selected = selectedDays,
                         options = daysOptions,
                         formatter = { value ->
                             stringResource(id = R.string.ai_analysis_filter_days_label, value)
                         }
-                    ) { selectedDays = it }
-                    IntFilterChipGroup(
-                        selected = selectedWeeks,
-                        options = weeksOptions,
-                        formatter = { value ->
-                            stringResource(id = R.string.ai_analysis_filter_weeks_label, value)
-                        }
-                    ) { selectedWeeks = it }
+                    ) {
+                        selectedDays = it
+                        onApplyFilters(
+                            "all",
+                            "all",
+                            it.toString(),
+                            if (it >= 30) "4" else "1"
+                        )
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                onApplyFilters(
-                                    selectedSource,
-                                    selectedStatus,
-                                    selectedDays.toString(),
-                                    selectedWeeks.toString()
-                                )
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(text = stringResource(id = R.string.ai_analysis_apply_filters))
-                        }
                         OutlinedButton(
                             onClick = onRefreshCloudJobs,
                             modifier = Modifier.weight(1f),
@@ -261,7 +274,7 @@ fun AiAnalysisScreen(
                         horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
                     ) {
                         OutlinedButton(
-                            onClick = { onRunReplay(1, 5) },
+                            onClick = { onRunReplay(selectedDays, 5) },
                             modifier = Modifier.weight(1f),
                             enabled = state.cloudConfigured
                         ) {
@@ -561,38 +574,6 @@ fun AiAnalysisScreen(
             item {
                 AiSectionCard {
                     AiSectionLabel(
-                        text = stringResource(id = R.string.section_ai_focus_filters),
-                        infoText = stringResource(
-                            id = R.string.analytics_info_section_generic,
-                            stringResource(id = R.string.section_ai_focus_filters)
-                        )
-                    )
-                    Text(
-                        text = stringResource(id = R.string.ai_analysis_focus_horizon),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    HorizonFilterChipGroup(
-                        selected = selectedHorizonFilter,
-                        options = horizonOptions,
-                        onSelected = { selectedHorizonFilter = it }
-                    )
-                    Text(
-                        text = stringResource(id = R.string.ai_analysis_focus_factor),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    FactorFilterChipGroup(
-                        selected = selectedFactorFilter,
-                        options = factorOptions,
-                        onSelected = { selectedFactorFilter = it }
-                    )
-                }
-            }
-
-            item {
-                AiSectionCard {
-                    AiSectionLabel(
                         text = stringResource(id = R.string.section_ai_local_daily),
                         infoText = stringResource(
                             id = R.string.analytics_info_section_generic,
@@ -637,6 +618,21 @@ fun AiAnalysisScreen(
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
+                    }
+                }
+            }
+
+            state.circadianReplaySummary?.let { summary ->
+                item {
+                    AiSectionCard {
+                        AiSectionLabel(
+                            text = stringResource(id = R.string.analytics_circadian_replay_title),
+                            infoText = stringResource(id = R.string.analytics_circadian_replay_info)
+                        )
+                        CircadianReplaySummaryContent(
+                            summary = summary,
+                            emptyText = stringResource(id = R.string.analytics_empty)
+                        )
                     }
                 }
             }
@@ -737,11 +733,7 @@ fun AiAnalysisScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        val chartHorizons = if (selectedHorizonFilter == 0) {
-                            listOf(5, 30, 60)
-                        } else {
-                            listOf(selectedHorizonFilter)
-                        }
+                        val chartHorizons = listOf(5, 30, 60)
                         chartHorizons.forEach { horizon ->
                             val points = filteredHotspots
                                 .filter { it.horizonMinutes == horizon }
@@ -870,77 +862,6 @@ fun AiAnalysisScreen(
             item {
                 AiSectionCard {
                     AiSectionLabel(
-                        text = stringResource(id = R.string.section_ai_chat),
-                        infoText = stringResource(id = R.string.ai_analysis_chat_info)
-                    )
-                    if (!state.analysisReady) {
-                        Text(
-                            text = stringResource(
-                                id = R.string.ai_analysis_chat_requires_data,
-                                state.dataCoverageHours,
-                                state.minDataHours
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (state.chatMessages.isEmpty()) {
-                        Text(
-                            text = stringResource(id = R.string.ai_analysis_chat_empty),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        state.chatMessages.takeLast(8).forEach { message ->
-                            val prefix = if (message.role.equals("user", ignoreCase = true)) {
-                                stringResource(id = R.string.ai_analysis_chat_role_user)
-                            } else {
-                                stringResource(id = R.string.ai_analysis_chat_role_ai)
-                            }
-                            Text(
-                                text = "$prefix: ${message.text}",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                    TextField(
-                        value = chatInput,
-                        onValueChange = { chatInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_label)) },
-                        placeholder = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_placeholder)) },
-                        enabled = !state.chatInProgress
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                val payload = chatInput.trim()
-                                if (payload.isNotBlank()) {
-                                    onSendChatPrompt(payload)
-                                    chatInput = ""
-                                }
-                            },
-                            enabled = !state.chatInProgress && chatInput.trim().isNotBlank(),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(text = stringResource(id = R.string.ai_analysis_chat_send))
-                        }
-                        if (state.chatInProgress) {
-                            CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Spacer(modifier = Modifier.height(18.dp))
-                        }
-                    }
-                }
-            }
-
-            item {
-                AiSectionCard {
-                    AiSectionLabel(
                         text = stringResource(id = R.string.ai_analysis_rolling_title),
                         infoText = stringResource(
                             id = R.string.analytics_info_section_generic,
@@ -969,11 +890,346 @@ fun AiAnalysisScreen(
 }
 
 @Composable
+private fun AiChatHeroCard(
+    state: AiAnalysisUiState,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onAttachImage: () -> Unit,
+    onAttachFile: () -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onVoiceRepliesToggle: (Boolean) -> Unit,
+    onStartVoiceRecording: () -> Unit,
+    onStopVoiceRecording: () -> Unit
+) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val quickPrompts = listOf(
+        stringResource(id = R.string.ai_analysis_chat_quick_trend),
+        stringResource(id = R.string.ai_analysis_chat_quick_errors),
+        stringResource(id = R.string.ai_analysis_chat_quick_isfcr),
+        stringResource(id = R.string.ai_analysis_chat_quick_uam)
+    )
+    AiSectionCard(
+        modifier = Modifier.animateContentSize()
+    ) {
+        AiSectionLabel(
+            text = stringResource(id = R.string.section_ai_chat),
+            infoText = stringResource(id = R.string.ai_analysis_chat_info)
+        )
+        if (!state.analysisReady) {
+            Text(
+                text = stringResource(
+                    id = R.string.ai_analysis_chat_requires_data,
+                    state.dataCoverageHours,
+                    state.minDataHours
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.ai_analysis_chat_voice_mode_title),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    text = when {
+                        state.chatRecording -> stringResource(id = R.string.ai_analysis_chat_recording_active)
+                        state.chatVoiceBusy -> stringResource(id = R.string.ai_analysis_chat_voice_busy)
+                        state.chatSpeaking -> stringResource(id = R.string.ai_analysis_chat_speaking)
+                        else -> stringResource(id = R.string.ai_analysis_chat_voice_mode_body)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = state.chatVoiceRepliesEnabled,
+                onCheckedChange = onVoiceRepliesToggle
+            )
+        }
+        if (state.analysisReady) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                quickPrompts.forEach { prompt ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onDraftChange(prompt) },
+                        label = {
+                            Text(
+                                text = prompt,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
+                        colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors()
+                    )
+                }
+            }
+        }
+        if (state.chatMessages.isEmpty()) {
+            Text(
+                text = stringResource(id = R.string.ai_analysis_chat_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                state.chatMessages.takeLast(10).forEach { message ->
+                    AiChatMessageBubble(message = message)
+                }
+            }
+        }
+        if (state.chatPendingAttachments.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                state.chatPendingAttachments.forEach { attachment ->
+                    AiAttachmentChip(
+                        attachment = attachment,
+                        removable = true,
+                        onRemove = { onRemoveAttachment(attachment.id) }
+                    )
+                }
+            }
+        }
+        TextField(
+            value = state.chatDraft,
+            onValueChange = onDraftChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_label)) },
+            placeholder = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_placeholder)) },
+            textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
+            enabled = !state.chatInProgress && !state.chatVoiceBusy,
+            colors = if (midnightGlass) {
+                TextFieldDefaults.colors(
+                    focusedContainerColor = Color(0x33182947),
+                    unfocusedContainerColor = Color(0x33182947),
+                    focusedTextColor = Color(0xFFF8FAFC),
+                    unfocusedTextColor = Color(0xFFF8FAFC),
+                    focusedLabelColor = Color(0xFF8DB6FF),
+                    unfocusedLabelColor = Color(0xFFB5C0D8),
+                    focusedPlaceholderColor = Color(0x8093A5C3),
+                    unfocusedPlaceholderColor = Color(0x8093A5C3),
+                    focusedIndicatorColor = Color(0xFF4A82BF),
+                    unfocusedIndicatorColor = Color(0x33FFFFFF),
+                    cursorColor = Color(0xFF8DB6FF)
+                )
+            } else {
+                TextFieldDefaults.colors()
+            }
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = onAttachImage,
+                enabled = !state.chatInProgress && !state.chatVoiceBusy
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhotoCamera,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(text = stringResource(id = R.string.ai_analysis_chat_attach_photo_short))
+            }
+            OutlinedButton(
+                onClick = onAttachFile,
+                enabled = !state.chatInProgress && !state.chatVoiceBusy
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AttachFile,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(text = stringResource(id = R.string.ai_analysis_chat_attach_file_short))
+            }
+            OutlinedButton(
+                onClick = if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
+                enabled = !state.chatInProgress && !state.chatVoiceBusy && state.analysisReady
+            ) {
+                Icon(
+                    imageVector = if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(
+                    text = if (state.chatRecording) {
+                        stringResource(id = R.string.ai_analysis_chat_stop_recording_short)
+                    } else {
+                        stringResource(id = R.string.ai_analysis_chat_start_recording_short)
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            if (state.chatInProgress || state.chatVoiceBusy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.height(18.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+            OutlinedButton(
+                onClick = onSend,
+                enabled = state.analysisReady &&
+                    !state.chatInProgress &&
+                    !state.chatVoiceBusy &&
+                    (state.chatDraft.isNotBlank() || state.chatPendingAttachments.isNotEmpty())
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(text = stringResource(id = R.string.ai_analysis_chat_send))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiChatMessageBubble(
+    message: AiChatMessageUi
+) {
+    val isUser = message.role.equals("user", ignoreCase = true)
+    val containerColor = if (isUser) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = if (isUser) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val roleLabel = if (isUser) {
+        stringResource(id = R.string.ai_analysis_chat_role_user)
+    } else {
+        stringResource(id = R.string.ai_analysis_chat_role_ai)
+    }
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = roleLabel,
+                    style = MaterialTheme.typography.labelLarge
+                )
+                if (message.voiceTranscript) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                        Text(
+                            text = stringResource(id = R.string.ai_analysis_chat_voice_transcript),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+            Text(
+                text = message.text,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp)
+            )
+            if (message.attachments.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    message.attachments.forEach { attachment ->
+                        AiAttachmentChip(
+                            attachment = attachment,
+                            removable = false,
+                            onRemove = {}
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiAttachmentChip(
+    attachment: AiChatAttachmentUi,
+    removable: Boolean,
+    onRemove: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            Icon(
+                imageVector = when (attachment.kind.lowercase(Locale.US)) {
+                    "image" -> Icons.Default.PhotoCamera
+                    else -> Icons.Default.AttachFile
+                },
+                contentDescription = null
+            )
+            Column {
+                Text(
+                    text = attachment.name,
+                    style = MaterialTheme.typography.labelMedium
+                )
+                val meta = listOfNotNull(attachment.previewLabel, attachment.sizeLabel).joinToString(" • ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (removable) {
+                IconButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(id = R.string.ai_analysis_chat_remove_attachment)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FilterChipGroup(
     selected: String,
     options: List<String>,
     onSelected: (String) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -982,6 +1238,7 @@ private fun FilterChipGroup(
             FilterChip(
                 selected = selected == option,
                 onClick = { onSelected(option) },
+                colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors(),
                 label = {
                     Text(
                         text = when (option) {
@@ -1000,11 +1257,12 @@ private fun FilterChipGroup(
 
 @Composable
 private fun AiTuningStatusCard(status: AiTuningStatusUi) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val normalizedState = status.state.trim().uppercase(Locale.US)
     val (statusIcon, statusColor) = when (normalizedState) {
-        "ACTIVE" -> Icons.Default.CheckCircle to MaterialTheme.colorScheme.secondaryContainer
-        "STALE" -> Icons.Default.Warning to MaterialTheme.colorScheme.tertiaryContainer
-        else -> Icons.Default.Error to MaterialTheme.colorScheme.errorContainer
+        "ACTIVE" -> Icons.Default.CheckCircle to if (midnightGlass) Color(0x2200E676) else MaterialTheme.colorScheme.secondaryContainer
+        "STALE" -> Icons.Default.Warning to if (midnightGlass) Color(0x664F2D00) else MaterialTheme.colorScheme.tertiaryContainer
+        else -> Icons.Default.Error to if (midnightGlass) Color(0x665A1E25) else MaterialTheme.colorScheme.errorContainer
     }
     val stateLabel = when (normalizedState) {
         "ACTIVE" -> stringResource(id = R.string.ai_tuning_state_active)
@@ -1019,7 +1277,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = statusColor,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(
                 modifier = Modifier
@@ -1046,7 +1304,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
             Text(
                 text = stringResource(id = R.string.ai_tuning_generated_line, formatTs(ts)),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         status.confidence?.let { confidence ->
@@ -1056,7 +1314,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
                     String.format(Locale.US, "%.2f", confidence)
                 ),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         status.statusRaw
@@ -1065,7 +1323,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
                 Text(
                     text = stringResource(id = R.string.ai_tuning_raw_line, raw),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
     }
@@ -1078,6 +1336,7 @@ private fun IntFilterChipGroup(
     formatter: @Composable (Int) -> String,
     onSelected: (Int) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -1086,6 +1345,7 @@ private fun IntFilterChipGroup(
             FilterChip(
                 selected = selected == value,
                 onClick = { onSelected(value) },
+                colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors(),
                 label = { Text(text = formatter(value)) }
             )
         }
@@ -1098,6 +1358,7 @@ private fun HorizonFilterChipGroup(
     options: List<Int>,
     onSelected: (Int) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -1112,6 +1373,7 @@ private fun HorizonFilterChipGroup(
             FilterChip(
                 selected = selected == value,
                 onClick = { onSelected(value) },
+                colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors(),
                 label = { Text(text = label) }
             )
         }
@@ -1124,6 +1386,7 @@ private fun FactorFilterChipGroup(
     options: List<String>,
     onSelected: (String) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -1132,6 +1395,7 @@ private fun FactorFilterChipGroup(
             FilterChip(
                 selected = selected.equals(value, ignoreCase = true),
                 onClick = { onSelected(value) },
+                colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors(),
                 label = {
                     Text(
                         text = if (value.equals("ALL", ignoreCase = true)) {
@@ -1256,11 +1520,12 @@ private fun AiSectionCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = AiSectionShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = if (midnightGlass) RoundedCornerShape(28.dp) else AiSectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -1276,6 +1541,7 @@ private fun AiSectionLabel(
     text: String,
     infoText: String
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     var showInfo by rememberSaveable(text) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1285,14 +1551,19 @@ private fun AiSectionLabel(
         Text(
             text = text.uppercase(Locale.US),
             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
-        IconButton(onClick = { showInfo = true }) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
-                tint = MaterialTheme.colorScheme.primary
-            )
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
+        ) {
+            IconButton(onClick = { showInfo = true }) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                    tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
     if (showInfo) {
@@ -1308,6 +1579,16 @@ private fun AiSectionLabel(
         )
     }
 }
+
+@Composable
+private fun aiFilterChipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = Color(0x221D4ED8),
+    selectedLabelColor = Color(0xFF8DB6FF),
+    selectedLeadingIconColor = Color(0xFF8DB6FF),
+    containerColor = Color(0xAA101D38),
+    labelColor = Color(0xFFB5C0D8),
+    iconColor = Color(0xFFB5C0D8)
+)
 
 private fun formatTs(ts: Long?): String {
     if (ts == null) return "--"

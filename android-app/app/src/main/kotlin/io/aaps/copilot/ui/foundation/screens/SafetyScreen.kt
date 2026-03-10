@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,10 +41,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -108,11 +111,12 @@ fun SafetyScreen(
 
 @Composable
 private fun AiTuningStatusCard(status: AiTuningStatusUi) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val normalizedState = status.state.trim().uppercase(Locale.US)
     val (statusIcon, statusColor) = when (normalizedState) {
-        "ACTIVE" -> Icons.Default.CheckCircle to MaterialTheme.colorScheme.secondaryContainer
-        "STALE" -> Icons.Default.Warning to MaterialTheme.colorScheme.tertiaryContainer
-        else -> Icons.Default.Error to MaterialTheme.colorScheme.errorContainer
+        "ACTIVE" -> Icons.Default.CheckCircle to if (midnightGlass) Color(0x2200E676) else MaterialTheme.colorScheme.secondaryContainer
+        "STALE" -> Icons.Default.Warning to if (midnightGlass) Color(0x664F2D00) else MaterialTheme.colorScheme.tertiaryContainer
+        else -> Icons.Default.Error to if (midnightGlass) Color(0x665A1E25) else MaterialTheme.colorScheme.errorContainer
     }
     val stateLabel = when (normalizedState) {
         "ACTIVE" -> stringResource(id = R.string.ai_tuning_state_active)
@@ -128,7 +132,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
         Surface(
             shape = SafetyInfoShape,
             color = statusColor,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(
                 modifier = Modifier
@@ -149,8 +153,8 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
         }
         Surface(
             shape = SafetyInfoShape,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -167,7 +171,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
                             formatSafetyTs(ts)
                         ),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 status.confidence?.let { confidence ->
@@ -177,7 +181,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
                             String.format(Locale.US, "%.2f", confidence)
                         ),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 status.statusRaw
@@ -186,7 +190,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
                         Text(
                             text = stringResource(id = R.string.ai_tuning_raw_line, raw),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
             }
@@ -199,6 +203,7 @@ private fun KillSwitchCard(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     var localEnabled by rememberSaveable { mutableStateOf(enabled) }
     LaunchedEffect(enabled) {
         localEnabled = enabled
@@ -206,8 +211,12 @@ private fun KillSwitchCard(
     SafetySectionCard {
         Surface(
             shape = SafetyInfoShape,
-            color = if (localEnabled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            color = if (midnightGlass) {
+                if (localEnabled) Color(0x55312735) else Color(0x221D4ED8)
+            } else {
+                if (localEnabled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
+            },
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(
                 modifier = Modifier
@@ -219,7 +228,11 @@ private fun KillSwitchCard(
                 Icon(
                     imageVector = if (localEnabled) Icons.Default.Warning else Icons.Default.CheckCircle,
                     contentDescription = null,
-                    tint = if (localEnabled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                    tint = if (midnightGlass) {
+                        if (localEnabled) Color(0xFFFFD180) else Color(0xFF8DB6FF)
+                    } else {
+                        if (localEnabled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                    }
                 )
                 Text(
                     text = if (localEnabled) {
@@ -228,7 +241,11 @@ private fun KillSwitchCard(
                         stringResource(id = R.string.safety_kill_switch_off)
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (localEnabled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                    color = if (midnightGlass) {
+                        if (localEnabled) Color(0xFFFFD180) else Color(0xFF8DB6FF)
+                    } else {
+                        if (localEnabled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                    }
                 )
             }
         }
@@ -247,6 +264,18 @@ private fun KillSwitchCard(
                 onCheckedChange = { next ->
                     localEnabled = next
                     onToggle(next)
+                },
+                colors = if (midnightGlass) {
+                    SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFFF8FAFC),
+                        checkedTrackColor = Color(0xFF1D4ED8),
+                        checkedBorderColor = Color.Transparent,
+                        uncheckedThumbColor = Color(0xFFDCEBFF),
+                        uncheckedTrackColor = Color(0xFF334155),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                } else {
+                    SwitchDefaults.colors()
                 }
             )
         }
@@ -258,6 +287,7 @@ private fun LimitsCard(
     state: SafetyUiState,
     onSafetyBoundsChange: (Double, Double) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     SafetySectionCard {
         SafetySectionLabel(
             text = stringResource(id = R.string.section_safety_limits),
@@ -300,8 +330,8 @@ private fun LimitsCard(
 
         Surface(
             shape = SafetyInfoShape,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -309,7 +339,8 @@ private fun LimitsCard(
             ) {
                 Text(
                     text = "${stringResource(id = R.string.safety_adaptive_bounds)}: ${state.adaptiveBounds}",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "${stringResource(id = R.string.safety_local_ns_status)}: ${
@@ -319,11 +350,13 @@ private fun LimitsCard(
                             stringResource(id = R.string.status_off_short)
                         }
                     }",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "${stringResource(id = R.string.safety_local_ns_tls)}: ${state.localNightscoutTlsStatusText}",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -356,10 +389,11 @@ private fun BoundAdjustRow(
     max: Double,
     onChange: (Double) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Surface(
         shape = SafetyInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -374,7 +408,7 @@ private fun BoundAdjustRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -414,11 +448,12 @@ private fun StatCell(
     value: String,
     modifier: Modifier = Modifier
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Surface(
         modifier = modifier,
         shape = SafetyInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -427,11 +462,12 @@ private fun StatCell(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleSmall
+                style = MaterialTheme.typography.titleSmall,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -439,6 +475,7 @@ private fun StatCell(
 
 @Composable
 private fun CooldownCard(lines: List<String>) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     SafetySectionCard {
         SafetySectionLabel(
             text = stringResource(id = R.string.section_safety_cooldown),
@@ -447,12 +484,13 @@ private fun CooldownCard(lines: List<String>) {
         lines.forEach { line ->
             Surface(
                 shape = SafetyInfoShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Text(
                     text = line,
                     style = MaterialTheme.typography.bodySmall,
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                 )
             }
@@ -462,6 +500,7 @@ private fun CooldownCard(lines: List<String>) {
 
 @Composable
 private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     SafetySectionCard {
         SafetySectionLabel(
             text = stringResource(id = R.string.section_safety_checklist),
@@ -470,8 +509,16 @@ private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
         items.forEach { item ->
             Surface(
                 shape = SafetyInfoShape,
-                color = if (item.ok) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
-                border = BorderStroke(1.dp, if (item.ok) MaterialTheme.colorScheme.outlineVariant else MaterialTheme.colorScheme.outlineVariant)
+                color = if (midnightGlass) {
+                    if (item.ok) Color(0x55103A35) else Color(0x665A1E25)
+                } else {
+                    if (item.ok) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer
+                },
+                border = BorderStroke(1.dp, if (midnightGlass) {
+                    if (item.ok) Color(0x3325C685) else Color(0x33FF6B74)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                })
             ) {
                 Row(
                     modifier = Modifier
@@ -483,17 +530,22 @@ private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
                     Icon(
                         imageVector = if (item.ok) Icons.Default.CheckCircle else Icons.Default.Error,
                         contentDescription = null,
-                        tint = if (item.ok) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                        tint = if (midnightGlass) {
+                            if (item.ok) Color(0xFF9FFFB0) else Color(0xFFFFA7AE)
+                        } else {
+                            if (item.ok) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                        }
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             text = item.title,
-                            style = MaterialTheme.typography.labelLarge
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = item.details,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -508,11 +560,12 @@ private fun SafetySummaryCard(
     checksPassed: Int,
     checksTotal: Int
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     SafetySectionCard {
         Surface(
             shape = SafetyInfoShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            color = if (midnightGlass) Color(0xFF10275A) else MaterialTheme.colorScheme.primaryContainer,
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x334A82BF) else MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(
                 modifier = Modifier
@@ -523,7 +576,7 @@ private fun SafetySummaryCard(
                 Text(
                     text = stringResource(id = R.string.safety_system_status),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
                     text = if (killSwitchEnabled) {
@@ -532,12 +585,12 @@ private fun SafetySummaryCard(
                         stringResource(id = R.string.safety_mode_automated)
                     },
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
                     text = stringResource(id = R.string.safety_checks_passed, checksPassed, checksTotal),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
@@ -548,11 +601,12 @@ private fun SafetySummaryCard(
 private fun SafetySectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = SafetySectionShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = if (midnightGlass) RoundedCornerShape(28.dp) else SafetySectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -568,6 +622,7 @@ private fun SafetySectionLabel(
     text: String,
     infoText: String? = null
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -577,15 +632,20 @@ private fun SafetySectionLabel(
         Text(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (!infoText.isNullOrBlank()) {
-            IconButton(onClick = { showInfo = true }) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+            Surface(
+                shape = SafetyPillShape,
+                color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
+            ) {
+                IconButton(onClick = { showInfo = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                        tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }

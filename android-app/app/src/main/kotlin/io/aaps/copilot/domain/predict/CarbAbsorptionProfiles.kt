@@ -280,11 +280,17 @@ object CarbAbsorptionProfiles {
     }
 
     private fun extractCarbsGrams(event: TherapyEvent): Double? {
-        val normalizedPayload = event.payload.entries.associate { normalize(it.key) to it.value }
+        if (event.payload.isEmpty()) return null
         val keys = listOf("grams", "carbs", "enteredcarbs", "mealcarbs")
-        return keys.firstNotNullOfOrNull { key ->
-            normalizedPayload[key]?.replace(",", ".")?.toDoubleOrNull()
-        }?.takeIf { it in 0.5..400.0 }
+        for (candidate in keys) {
+            for ((rawKey, rawValue) in event.payload) {
+                if (normalize(rawKey) == candidate) {
+                    return rawValue.replace(",", ".").toDoubleOrNull()
+                        ?.takeIf { it in 0.5..400.0 }
+                }
+            }
+        }
+        return null
     }
 
     private const val MINUTE_MS = 60_000L

@@ -23,6 +23,7 @@ data class RuleContext(
     val activeTempTargetMmol: Double?,
     val actionsLast6h: Int,
     val sensorBlocked: Boolean = false,
+    val currentGlucoseMmol: Double? = null,
     val currentProfileEstimate: ProfileEstimate? = null,
     val currentProfileSegment: ProfileSegmentEstimate? = null,
     val latestTelemetry: Map<String, Double?> = emptyMap(),

@@ -10,6 +10,7 @@ class AdaptiveTempTargetController {
         val targetMinMmol: Double = TMIN,
         val targetMaxMmol: Double = TMAX,
         val currentGlucoseMmol: Double? = null,
+        val observedDelta5Mmol: Double? = null,
         val pred5: Double,
         val pred30: Double,
         val pred60: Double,
@@ -60,11 +61,35 @@ class AdaptiveTempTargetController {
         val w30CI = ((input.ciHigh30 - input.ciLow30) / 2.0).coerceAtLeast(1e-6)
         val w60CI = ((input.ciHigh60 - input.ciLow60) / 2.0).coerceAtLeast(1e-6)
 
-        val (w5Base, w30Base, w60Base) = if (input.uamActive) {
+        val (baseW5, baseW30, baseW60) = if (input.uamActive) {
             Triple(0.10, 0.30, 0.60)
         } else {
             Triple(0.15, 0.35, 0.50)
         }
+
+        val riseFromNow = currentGlucose
+            ?.let { (input.pred5 - it).coerceAtLeast(0.0) }
+            ?: 0.0
+        val observedDelta5 = input.observedDelta5Mmol
+            ?.coerceIn(-MAX_OBSERVED_DELTA5_MMOL, MAX_OBSERVED_DELTA5_MMOL)
+            ?: currentGlucose
+                ?.let { (input.pred5 - it).coerceIn(-MAX_OBSERVED_DELTA5_MMOL, MAX_OBSERVED_DELTA5_MMOL) }
+            ?: 0.0
+        val riseShockUrgency = ((observedDelta5 - TREND_SHOCK_THRESHOLD_MMOL5) / TREND_SHOCK_FULL_SCALE_MMOL5)
+            .coerceIn(0.0, 1.0)
+        val fallShockUrgency = (((-observedDelta5) - TREND_SHOCK_THRESHOLD_MMOL5) / TREND_SHOCK_FULL_SCALE_MMOL5)
+            .coerceIn(0.0, 1.0)
+        val rise30 = (input.pred30 - input.pred5).coerceAtLeast(0.0)
+        val rise60 = (input.pred60 - input.pred30).coerceAtLeast(0.0)
+        val fastRiseSignal = riseFromNow + rise30 * FAST_RISE_30_WEIGHT + rise60 * FAST_RISE_60_WEIGHT
+        val riseUrgency = maxOf(
+            (fastRiseSignal / FAST_RISE_FULL_SCALE_MMOL).coerceIn(0.0, 1.0),
+            riseShockUrgency
+        )
+
+        val w5Base = baseW5 + FAST_RISE_W5_BOOST * riseUrgency
+        val w30Base = (baseW30 + FAST_RISE_W30_BOOST * riseUrgency).coerceAtLeast(0.05)
+        val w60Base = (baseW60 - FAST_RISE_W60_REDUCTION * riseUrgency).coerceAtLeast(0.10)
 
         val w5Adj = w5Base / (w5CI * w5CI + EPS_W)
         val w30Adj = w30Base / (w30CI * w30CI + EPS_W)
@@ -198,22 +223,56 @@ class AdaptiveTempTargetController {
         }
 
         val pCtrlRaw = w5N * input.pred5 + w30N * input.pred30 + w60N * input.pred60
+        val leadOvershoot = (input.pred5 - pCtrlRaw).coerceAtLeast(0.0)
+        val rapidRiseBias = if (fastRiseSignal > 0.0) {
+            (
+                (
+                    ((input.pred5 - tb).coerceAtLeast(0.0)) * RAPID_RISE_PRED5_GAIN +
+                        leadOvershoot * RAPID_RISE_LEAD_GAIN
+                    ) * riseUrgency
+                ).coerceIn(0.0, RAPID_RISE_BIAS_MAX_MMOL)
+        } else {
+            0.0
+        }
+        val trendShockBias = when {
+            observedDelta5 >= TREND_SHOCK_THRESHOLD_MMOL5 -> (
+                observedDelta5 * TREND_SHOCK_BIAS_GAIN * riseShockUrgency
+            ).coerceIn(0.0, TREND_SHOCK_BIAS_MAX_MMOL)
+            observedDelta5 <= -TREND_SHOCK_THRESHOLD_MMOL5 -> -(
+                (-observedDelta5) * TREND_SHOCK_BIAS_GAIN * fallShockUrgency
+            ).coerceIn(0.0, TREND_SHOCK_BIAS_MAX_MMOL)
+            else -> 0.0
+        }
         val cobBias = (cob * COB_CONTROL_GAIN_PER_GRAM).coerceIn(0.0, COB_CONTROL_BIAS_MAX_MMOL)
         val iobBias = (iob * IOB_CONTROL_GAIN_PER_UNIT).coerceIn(0.0, IOB_CONTROL_BIAS_MAX_MMOL)
-        val pCtrl = (pCtrlRaw + cobBias - iobBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
+        val pCtrl = (pCtrlRaw + rapidRiseBias + trendShockBias + cobBias - iobBias)
+            .coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
         val e = pCtrl - tb
+        val effectiveDeadband = (M_DEAD - FAST_RISE_DEADBAND_REDUCTION * riseUrgency)
+            .coerceAtLeast(M_DEAD_MIN)
 
         var iNew: Double
         val tRaw: Double
 
-        if (abs(e) < M_DEAD) {
+        if (abs(e) < effectiveDeadband) {
             tRaw = tb
             iNew = input.previousI * 0.8
         } else {
             val iRaw = input.previousI + e * CYCLE_MIN
             iNew = iRaw.coerceIn(-I_MAX, I_MAX)
 
-            var deltaT = -KP * e - KI * iNew
+            val positiveErrorUrgency = if (e > 0.0) {
+                maxOf(
+                    riseUrgency,
+                    ((pCtrl - tb) / HIGH_GLUCOSE_FULL_SCALE_MMOL).coerceIn(0.0, 1.0)
+                )
+            } else {
+                0.0
+            }
+            val kpApplied = KP + HIGH_GLUCOSE_KP_BOOST * positiveErrorUrgency
+            val kiApplied = KI + HIGH_GLUCOSE_KI_BOOST * positiveErrorUrgency
+
+            var deltaT = -kpApplied * e - kiApplied * iNew
             deltaT = deltaT.coerceIn(-DELTA_T_MAX, DELTA_T_MAX)
 
             val unclampedTarget = tb + deltaT
@@ -237,7 +296,19 @@ class AdaptiveTempTargetController {
         } else {
             tRaw
         }
-        val target = applyRateLimit(guardedRawTarget, input.previousTempTarget).coerceIn(effectiveMinTarget, tMax)
+        val relaxedTarget = applyTrendStopRelaxation(
+            rawTarget = guardedRawTarget,
+            baseTarget = tb,
+            currentTarget = currentTempTarget,
+            observedDelta5 = observedDelta5,
+            pred30 = input.pred30,
+            pred60 = input.pred60
+        )
+        if (abs(relaxedTarget - guardedRawTarget) > 1e-6) {
+            val relaxStrength = (abs(relaxedTarget - guardedRawTarget) / RELAXATION_FULL_EFFECT_MMOL).coerceIn(0.0, 1.0)
+            iNew *= (1.0 - RELAXATION_I_DECAY_GAIN * relaxStrength).coerceIn(RELAXATION_I_MIN_SCALE, 1.0)
+        }
+        val target = applyRateLimit(relaxedTarget, input.previousTempTarget).coerceIn(effectiveMinTarget, tMax)
         val debugFields = mutableMapOf(
             "Tb" to tb,
             "TbUser" to userBaseTarget,
@@ -253,9 +324,18 @@ class AdaptiveTempTargetController {
             "severeNearTermLow" to if (severeNearTermLow) 1.0 else 0.0,
             "Pctrl" to pCtrl,
             "PctrlRaw" to pCtrlRaw,
+            "observedDelta5" to observedDelta5,
+            "fastRiseSignal" to fastRiseSignal,
+            "riseUrgency" to riseUrgency,
+            "riseShockUrgency" to riseShockUrgency,
+            "fallShockUrgency" to fallShockUrgency,
+            "leadOvershoot" to leadOvershoot,
+            "rapidRiseBias" to rapidRiseBias,
+            "trendShockBias" to trendShockBias,
             "cobBias" to cobBias,
             "iobBias" to iobBias,
             "error" to e,
+            "effectiveDeadband" to effectiveDeadband,
             "Pmin" to pMin,
             "PctrlLow" to pCtrlLow,
             "safetySuppressedByCurrentHigh" to if (safetySuppressedByCurrentHigh) 1.0 else 0.0,
@@ -266,6 +346,7 @@ class AdaptiveTempTargetController {
             "updatedI" to iNew,
             "targetRaw" to tRaw,
             "targetGuarded" to guardedRawTarget,
+            "targetRelaxed" to relaxedTarget,
             "targetFinal" to target,
             "highGuardActive" to if (guard.active) 1.0 else 0.0
         )
@@ -315,6 +396,44 @@ class AdaptiveTempTargetController {
         return target
     }
 
+    private fun applyTrendStopRelaxation(
+        rawTarget: Double,
+        baseTarget: Double,
+        currentTarget: Double?,
+        observedDelta5: Double,
+        pred30: Double,
+        pred60: Double
+    ): Double {
+        val activeTarget = currentTarget ?: return rawTarget
+        val targetDistanceFromBase = activeTarget - baseTarget
+        if (abs(targetDistanceFromBase) < RELAXATION_MIN_ACTIVE_DISTANCE_MMOL) return rawTarget
+
+        val activePushDirection = when {
+            activeTarget < baseTarget -> -1.0
+            activeTarget > baseTarget -> 1.0
+            else -> 0.0
+        }
+        if (activePushDirection == 0.0) return rawTarget
+
+        val trendStoppedUrgency = ((TREND_STOP_THRESHOLD_MMOL5 - abs(observedDelta5)) / TREND_STOP_THRESHOLD_MMOL5)
+            .coerceIn(0.0, 1.0)
+        if (trendStoppedUrgency <= 0.0) return rawTarget
+
+        val midTermProjected = pred30 * RELAXATION_MIDTERM_PRED30_WEIGHT + pred60 * RELAXATION_MIDTERM_PRED60_WEIGHT
+        val midTermError = midTermProjected - baseTarget
+        val stillNeedsSameDirectionPressure = when {
+            activePushDirection < 0.0 -> midTermError >= RELAXATION_SAME_DIRECTION_MARGIN_MMOL
+            else -> midTermError <= -RELAXATION_SAME_DIRECTION_MARGIN_MMOL
+        }
+        if (stillNeedsSameDirectionPressure) return rawTarget
+
+        val closenessToBase = (1.0 - abs(midTermError) / RELAXATION_MIDTERM_FULL_SCALE_MMOL).coerceIn(0.0, 1.0)
+        if (closenessToBase <= 0.0) return rawTarget
+
+        val relaxBlend = (trendStoppedUrgency * closenessToBase * RELAXATION_MAX_BLEND).coerceIn(0.0, RELAXATION_MAX_BLEND)
+        return rawTarget + (baseTarget - rawTarget) * relaxBlend
+    }
+
     companion object {
         const val TMIN = 4.0
         const val TMAX = 9.0
@@ -348,6 +467,35 @@ class AdaptiveTempTargetController {
         private const val COB_CONTROL_BIAS_MAX_MMOL = 1.20
         private const val IOB_CONTROL_GAIN_PER_UNIT = 0.35
         private const val IOB_CONTROL_BIAS_MAX_MMOL = 1.40
+        private const val FAST_RISE_30_WEIGHT = 0.75
+        private const val FAST_RISE_60_WEIGHT = 0.35
+        private const val FAST_RISE_FULL_SCALE_MMOL = 1.20
+        private const val FAST_RISE_W5_BOOST = 0.42
+        private const val FAST_RISE_W30_BOOST = 0.10
+        private const val FAST_RISE_W60_REDUCTION = 0.32
+        private const val FAST_RISE_DEADBAND_REDUCTION = 0.10
+        private const val M_DEAD_MIN = 0.08
+        private const val RAPID_RISE_PRED5_GAIN = 0.30
+        private const val RAPID_RISE_LEAD_GAIN = 0.28
+        private const val RAPID_RISE_BIAS_MAX_MMOL = 1.20
+        private const val TREND_SHOCK_THRESHOLD_MMOL5 = 0.30
+        private const val TREND_SHOCK_FULL_SCALE_MMOL5 = 0.40
+        private const val TREND_SHOCK_BIAS_GAIN = 0.90
+        private const val TREND_SHOCK_BIAS_MAX_MMOL = 0.95
+        private const val MAX_OBSERVED_DELTA5_MMOL = 1.6
+        private const val HIGH_GLUCOSE_FULL_SCALE_MMOL = 1.80
+        private const val HIGH_GLUCOSE_KP_BOOST = 0.16
+        private const val HIGH_GLUCOSE_KI_BOOST = 0.02
+        private const val TREND_STOP_THRESHOLD_MMOL5 = 0.10
+        private const val RELAXATION_MIDTERM_PRED30_WEIGHT = 0.55
+        private const val RELAXATION_MIDTERM_PRED60_WEIGHT = 0.45
+        private const val RELAXATION_MIDTERM_FULL_SCALE_MMOL = 1.20
+        private const val RELAXATION_SAME_DIRECTION_MARGIN_MMOL = 0.45
+        private const val RELAXATION_MAX_BLEND = 0.55
+        private const val RELAXATION_MIN_ACTIVE_DISTANCE_MMOL = 0.20
+        private const val RELAXATION_I_DECAY_GAIN = 0.85
+        private const val RELAXATION_I_MIN_SCALE = 0.25
+        private const val RELAXATION_FULL_EFFECT_MMOL = 1.20
 
         private const val MIN_GLUCOSE_MMOL = 2.2
         private const val MAX_GLUCOSE_MMOL = 22.0

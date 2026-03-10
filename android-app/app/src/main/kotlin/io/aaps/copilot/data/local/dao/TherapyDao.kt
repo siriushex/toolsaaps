@@ -16,6 +16,9 @@ interface TherapyDao {
     @Query("SELECT * FROM therapy_events WHERE timestamp >= :since ORDER BY timestamp ASC")
     suspend fun since(since: Long): List<TherapyEventEntity>
 
+    @Query("SELECT * FROM therapy_events WHERE timestamp >= :since ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun sinceDescLimit(since: Long, limit: Int): List<TherapyEventEntity>
+
     @Query("SELECT * FROM therapy_events WHERE type = :type AND timestamp >= :since ORDER BY timestamp ASC")
     suspend fun byTypeSince(type: String, since: Long): List<TherapyEventEntity>
 
@@ -25,6 +28,15 @@ interface TherapyDao {
             "AND type IN ('correction_bolus','meal_bolus','bolus','insulin')"
     )
     suspend fun countInsulinLikeSince(since: Long): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM therapy_events " +
+            "WHERE timestamp >= :since " +
+            "AND type IN ('correction_bolus','meal_bolus','bolus','insulin') " +
+            "AND payloadJson NOT LIKE '%\"inferred\":\"true\"%' " +
+            "AND payloadJson NOT LIKE '%\"source\":\"aaps_ns_iob\"%'"
+    )
+    suspend fun countInsulinLikeForBootstrapSince(since: Long): Int
 
     @Query("SELECT * FROM therapy_events ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<TherapyEventEntity>>

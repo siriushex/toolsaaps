@@ -2,6 +2,7 @@ package io.aaps.copilot.domain.rules
 
 import io.aaps.copilot.domain.model.ActionProposal
 import io.aaps.copilot.domain.model.Forecast
+import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
 import kotlin.math.abs
@@ -151,7 +152,9 @@ class AdaptiveTargetControllerRule : TargetRule {
                 baseTarget = context.baseTargetMmol,
                 targetMinMmol = adaptiveMinTarget,
                 targetMaxMmol = adaptiveMaxTarget,
-                currentGlucoseMmol = context.glucose.maxByOrNull { it.ts }?.valueMmol,
+                currentGlucoseMmol = context.currentGlucoseMmol
+                    ?: context.glucose.maxByOrNull { it.ts }?.valueMmol,
+                observedDelta5Mmol = observedDelta5(context.glucose),
                 pred5 = forecast5,
                 pred30 = forecast30,
                 pred60 = forecast60,
@@ -203,6 +206,24 @@ class AdaptiveTargetControllerRule : TargetRule {
             controllerOut.newTempTarget.coerceIn(adaptiveMinTarget, adaptiveMaxTarget),
             TARGET_STEP_MMOL
         )
+        val activeTarget = context.activeTempTargetMmol
+            ?.coerceIn(adaptiveMinTarget, adaptiveMaxTarget)
+            ?.let { roundToStep(it, TARGET_STEP_MMOL) }
+
+        if (activeTarget != null && abs(target - activeTarget) < TARGET_STEP_MMOL / 2.0) {
+            return RuleDecision(
+                id,
+                RuleState.NO_MATCH,
+                listOf(
+                    "target_equals_active",
+                    "reason=${controllerOut.reason}",
+                    "active=${format2(activeTarget)}",
+                    "computed=${format2(target)}",
+                    "updatedI=${format2(controllerOut.updatedI)}"
+                ),
+                null
+            )
+        }
 
         return RuleDecision(
             ruleId = id,
@@ -338,6 +359,20 @@ class AdaptiveTargetControllerRule : TargetRule {
             triggerBySteps = triggerBySteps,
             lowCycles = activityProtectionLowCycles
         )
+    }
+
+    private fun observedDelta5(glucose: List<GlucosePoint>): Double? {
+        val latest = glucose.maxByOrNull { it.ts } ?: return null
+        val previous = glucose
+            .asSequence()
+            .filter { it.ts < latest.ts }
+            .sortedByDescending { it.ts }
+            .firstOrNull { candidate ->
+                val dtMin = (latest.ts - candidate.ts).toDouble() / 60_000.0
+                dtMin in 2.0..15.0
+            } ?: return null
+        val dtMin = (latest.ts - previous.ts).toDouble() / 60_000.0
+        return ((latest.valueMmol - previous.valueMmol) / (dtMin / 5.0)).coerceIn(-1.6, 1.6)
     }
 
     private fun mapActivityTarget(activityRatio: Double?, stepsDelta5: Double?): Double {

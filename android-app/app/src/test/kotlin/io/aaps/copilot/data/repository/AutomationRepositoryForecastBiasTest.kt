@@ -1,16 +1,30 @@
 package io.aaps.copilot.data.repository
 
+import com.google.gson.Gson
 import com.google.common.truth.Truth.assertThat
+import io.aaps.copilot.config.SensorLagCorrectionMode
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.domain.model.ActionProposal
+import io.aaps.copilot.domain.model.CircadianDayType
+import io.aaps.copilot.domain.model.CircadianForecastPrior
+import io.aaps.copilot.domain.model.CircadianReplayBucketStatus
+import io.aaps.copilot.domain.model.RuleDecision
+import io.aaps.copilot.domain.model.RuleState
+import io.aaps.copilot.domain.model.SensorLagAgeSource
+import io.aaps.copilot.domain.model.SensorLagEstimate
 import io.aaps.copilot.domain.isfcr.IsfCrRealtimeSnapshot
 import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import org.junit.Test
 
 class AutomationRepositoryForecastBiasTest {
+
+    private val gson = Gson()
 
     @Test
     fun cobBias_raisesForecasts() {
@@ -28,6 +42,28 @@ class AutomationRepositoryForecastBiasTest {
     }
 
     @Test
+    fun externalCobAdjustment_subtractsSyntheticUamResidual() {
+        val adjusted = AutomationRepository.adjustExternalCobForSyntheticUamStatic(
+            externalCobGrams = 28.0,
+            syntheticUamCobGrams = 9.5,
+            carbMaxGrams = 60.0
+        )
+
+        assertThat(adjusted).isWithin(0.001).of(18.5)
+    }
+
+    @Test
+    fun externalCobAdjustment_neverDropsBelowZero() {
+        val adjusted = AutomationRepository.adjustExternalCobForSyntheticUamStatic(
+            externalCobGrams = 6.0,
+            syntheticUamCobGrams = 12.0,
+            carbMaxGrams = 60.0
+        )
+
+        assertThat(adjusted).isWithin(0.001).of(0.0)
+    }
+
+    @Test
     fun iobBias_lowersForecasts() {
         val source = sampleForecasts()
         val adjusted = AutomationRepository.applyCobIobForecastBiasStatic(
@@ -39,6 +75,244 @@ class AutomationRepositoryForecastBiasTest {
         assertThat(adjusted[0].valueMmol).isLessThan(source[0].valueMmol)
         assertThat(adjusted[1].valueMmol).isLessThan(source[1].valueMmol)
         assertThat(adjusted[2].valueMmol).isLessThan(source[2].valueMmol)
+    }
+
+    @Test
+    fun circadianPrior_biasesForecastsAndMarksModelVersion() {
+        val source = sampleForecasts()
+        val adjusted = AutomationRepository.applyCircadianPatternForecastBiasStatic(
+            forecasts = source,
+            prior = sampleCircadianPrior(
+                delta15 = 0.6,
+                delta30 = 1.4,
+                delta60 = 2.1,
+                confidence = 0.9,
+                acuteAttenuation = 1.0,
+                staleBlocked = false
+            ),
+            latestGlucoseMmol = 6.0,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+
+        assertThat(adjusted.first { it.horizonMinutes == 30 }.valueMmol)
+            .isGreaterThan(source.first { it.horizonMinutes == 30 }.valueMmol)
+        assertThat(adjusted.first { it.horizonMinutes == 60 }.valueMmol)
+            .isGreaterThan(source.first { it.horizonMinutes == 60 }.valueMmol)
+        assertThat(adjusted.all { it.modelVersion.contains("circadian_v2") }).isTrue()
+    }
+
+    @Test
+    fun circadianPrior_acuteAttenuationReducesBiasMagnitude() {
+        val source = sampleForecasts()
+        val calm = AutomationRepository.applyCircadianPatternForecastBiasStatic(
+            forecasts = source,
+            prior = sampleCircadianPrior(
+                delta15 = 0.3,
+                delta30 = 1.0,
+                delta60 = 1.8,
+                confidence = 1.0,
+                acuteAttenuation = 1.0,
+                staleBlocked = false
+            ),
+            latestGlucoseMmol = 6.0,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+        val acute = AutomationRepository.applyCircadianPatternForecastBiasStatic(
+            forecasts = source,
+            prior = sampleCircadianPrior(
+                delta15 = 0.3,
+                delta30 = 1.0,
+                delta60 = 1.8,
+                confidence = 1.0,
+                acuteAttenuation = 0.4,
+                staleBlocked = false
+            ),
+            latestGlucoseMmol = 6.0,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+
+        val calm60Shift = calm.first { it.horizonMinutes == 60 }.valueMmol - source.first { it.horizonMinutes == 60 }.valueMmol
+        val acute60Shift = acute.first { it.horizonMinutes == 60 }.valueMmol - source.first { it.horizonMinutes == 60 }.valueMmol
+        assertThat(acute60Shift).isLessThan(calm60Shift)
+        assertThat(acute60Shift).isGreaterThan(0.0)
+    }
+
+    @Test
+    fun circadianPrior_helpfulLowAcuteBucketsGetStrongerLongHorizonWeight() {
+        val prior = sampleCircadianPrior(
+            delta15 = 0.3,
+            delta30 = 1.0,
+            delta60 = 1.8,
+            confidence = 1.0,
+            acuteAttenuation = 1.0,
+            staleBlocked = false
+        ).copy(
+            replaySampleCount30 = 16,
+            replaySampleCount60 = 18,
+            replayWinRate30 = 0.62,
+            replayWinRate60 = 0.64,
+            replayMaeImprovement30 = -0.11,
+            replayMaeImprovement60 = -0.18,
+            replayBucketStatus30 = CircadianReplayBucketStatus.HELPFUL,
+            replayBucketStatus60 = CircadianReplayBucketStatus.HELPFUL
+        )
+        val boosted30 = AutomationRepository.patternPriorWeightForHorizonStatic(
+            horizonMinutes = 30,
+            prior = prior,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+        val boosted60 = AutomationRepository.patternPriorWeightForHorizonStatic(
+            horizonMinutes = 60,
+            prior = prior,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+        val acutePrior = prior.copy(acuteAttenuation = 0.4)
+        val acute30 = AutomationRepository.patternPriorWeightForHorizonStatic(
+            horizonMinutes = 30,
+            prior = acutePrior,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+        val acute60 = AutomationRepository.patternPriorWeightForHorizonStatic(
+            horizonMinutes = 60,
+            prior = acutePrior,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+
+        assertThat(boosted30).isGreaterThan(acute30)
+        assertThat(boosted60).isGreaterThan(acute60)
+    }
+
+    @Test
+    fun circadianPrior_skipsWhenStaleBlocked() {
+        val source = sampleForecasts()
+        val adjusted = AutomationRepository.applyCircadianPatternForecastBiasStatic(
+            forecasts = source,
+            prior = sampleCircadianPrior(
+                delta15 = 0.8,
+                delta30 = 1.6,
+                delta60 = 2.4,
+                confidence = 0.9,
+                acuteAttenuation = 1.0,
+                staleBlocked = true
+            ),
+            latestGlucoseMmol = 6.0,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+
+        assertThat(adjusted).isEqualTo(source)
+    }
+
+    @Test
+    fun circadianPrior_medianReversionPullsLongHorizonsBackTowardSlotMedian() {
+        val source = sampleForecasts()
+        val withoutReversion = AutomationRepository.applyCircadianPatternForecastBiasStatic(
+            forecasts = source,
+            prior = sampleCircadianPrior(
+                delta15 = 0.2,
+                delta30 = 0.4,
+                delta60 = 0.6,
+                confidence = 0.95,
+                acuteAttenuation = 1.0,
+                staleBlocked = false
+            ),
+            latestGlucoseMmol = 7.0,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+        val withReversion = AutomationRepository.applyCircadianPatternForecastBiasStatic(
+            forecasts = source,
+            prior = sampleCircadianPrior(
+                delta15 = 0.2,
+                delta30 = 0.4,
+                delta60 = 0.6,
+                confidence = 0.95,
+                acuteAttenuation = 1.0,
+                staleBlocked = false
+            ).copy(
+                medianReversion30 = -0.12,
+                medianReversion60 = -0.28
+            ),
+            latestGlucoseMmol = 7.0,
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+
+        assertThat(
+            AutomationRepository.priorDeltaForHorizonStatic(
+                prior = sampleCircadianPrior(
+                    delta15 = 0.2,
+                    delta30 = 0.4,
+                    delta60 = 0.6,
+                    confidence = 0.95,
+                    acuteAttenuation = 1.0,
+                    staleBlocked = false
+                ).copy(
+                    medianReversion30 = -0.12,
+                    medianReversion60 = -0.28
+                ),
+                horizonMinutes = 30
+            )
+        ).isLessThan(
+            AutomationRepository.priorDeltaForHorizonStatic(
+                prior = sampleCircadianPrior(
+                    delta15 = 0.2,
+                    delta30 = 0.4,
+                    delta60 = 0.6,
+                    confidence = 0.95,
+                    acuteAttenuation = 1.0,
+                    staleBlocked = false
+                ),
+                horizonMinutes = 30
+            )
+        )
+        assertThat(withReversion.first { it.horizonMinutes == 60 }.valueMmol)
+            .isLessThan(withoutReversion.first { it.horizonMinutes == 60 }.valueMmol)
+    }
+
+    @Test
+    fun circadianTelemetryRows_includeReplayWeightsAndBiases() {
+        val nowTs = 1_773_104_160_000L
+        val rows = AutomationRepository.buildCircadianPriorTelemetryRowsStatic(
+            nowTs = nowTs,
+            prior = sampleCircadianPrior(
+                delta15 = 0.1,
+                delta30 = 0.8,
+                delta60 = 1.2,
+                confidence = 0.9,
+                acuteAttenuation = 0.4,
+                staleBlocked = false
+            ).copy(
+                replayBias30 = 0.12,
+                replayBias60 = -0.18,
+                stabilityScore = 0.82,
+                horizonQuality30 = 0.74,
+                horizonQuality60 = 0.68,
+                replayBucketStatus30 = CircadianReplayBucketStatus.HELPFUL,
+                replayBucketStatus60 = CircadianReplayBucketStatus.HARMFUL
+            ),
+            weight30 = 0.25,
+            weight60 = 0.35
+        )
+
+        fun row(key: String): TelemetrySampleEntity = rows.first { it.key == key }
+
+        assertThat(row("pattern_prior_replay_weight_30").valueDouble).isGreaterThan(0.0)
+        assertThat(row("pattern_prior_replay_weight_60").valueDouble).isGreaterThan(0.0)
+        assertThat(row("pattern_prior_replay_bias_30").valueDouble).isWithin(1e-6).of(0.12)
+        assertThat(row("pattern_prior_replay_bias_60").valueDouble).isWithin(1e-6).of(-0.18)
+        assertThat(row("pattern_prior_horizon_quality_30").valueDouble).isWithin(1e-6).of(0.74)
+        assertThat(row("pattern_prior_horizon_quality_60").valueDouble).isWithin(1e-6).of(0.68)
+        assertThat(row("pattern_prior_stability_score").valueDouble).isWithin(1e-6).of(0.82)
+        assertThat(row("pattern_prior_replay_status_30").valueText).isEqualTo("HELPFUL")
+        assertThat(row("pattern_prior_replay_status_60").valueText).isEqualTo("HARMFUL")
     }
 
     @Test
@@ -209,6 +483,223 @@ class AutomationRepositoryForecastBiasTest {
     }
 
     @Test
+    fun runtimeDia_ignoresRawTelemetryWithoutProfileDerivedRefinement() {
+        val resolution = AutomationRepository.resolveEffectiveDiaHoursStatic(
+            profileDurationHours = 4.67,
+            profileBaseOnsetMinutes = 8.0,
+            realProfileOnsetMinutes = null,
+            realProfileShapeScale = null,
+            realProfileConfidence = null,
+            realProfileStatus = null,
+            realProfileSourceId = null,
+            selectedProfileId = "APIDRA"
+        )
+
+        assertThat(resolution.profileHours).isWithin(0.001).of(4.67)
+        assertThat(resolution.effectiveHours).isWithin(0.001).of(4.67)
+        assertThat(resolution.source).isEqualTo("profile_default")
+    }
+
+    @Test
+    fun runtimeDia_usesRealProfileScaleWhenConfident() {
+        val resolution = AutomationRepository.resolveEffectiveDiaHoursStatic(
+            profileDurationHours = 5.0,
+            profileBaseOnsetMinutes = 10.0,
+            realProfileOnsetMinutes = 18.0,
+            realProfileShapeScale = 0.82,
+            realProfileConfidence = 0.74,
+            realProfileStatus = "estimated_daily",
+            realProfileSourceId = "NOVORAPID",
+            selectedProfileId = "NOVORAPID"
+        )
+
+        val rawEstimated = ((5.0 * 60.0 * 0.82) + (18.0 - 10.0)) / 60.0
+        val expected = 5.0 + (rawEstimated - 5.0) * 0.74
+        assertThat(resolution.rawEstimatedHours).isWithin(0.001).of(rawEstimated)
+        assertThat(resolution.effectiveHours).isWithin(0.001).of(expected)
+        assertThat(resolution.source).isEqualTo("profile_real_blended")
+    }
+
+    @Test
+    fun runtimeDia_isHardClampedToFiftyPercentOfProfile() {
+        val resolution = AutomationRepository.resolveEffectiveDiaHoursStatic(
+            profileDurationHours = 5.0,
+            profileBaseOnsetMinutes = 10.0,
+            realProfileOnsetMinutes = 95.0,
+            realProfileShapeScale = 1.80,
+            realProfileConfidence = 0.95,
+            realProfileStatus = "estimated_daily",
+            realProfileSourceId = "NOVORAPID",
+            selectedProfileId = "NOVORAPID"
+        )
+
+        assertThat(resolution.rawEstimatedHours).isWithin(0.001).of(7.5)
+        assertThat(resolution.effectiveHours).isAtMost(7.5)
+        assertThat(resolution.effectiveHours).isAtLeast(2.5)
+    }
+
+    @Test
+    fun realProfileRecompute_waitsUntilSeventyTwoHoursForStableEstimate() {
+        val nowTs = 10L * 24 * 60 * 60 * 1000
+
+        val shouldRecompute = AutomationRepository.shouldRecomputeRealInsulinProfileStatic(
+            existingUpdatedTs = nowTs - (48L * 60 * 60 * 1000),
+            nowTs = nowTs,
+            existingAlgoVersion = "v2",
+            existingStatus = "estimated_daily",
+            existingSampleCount = 4
+        )
+
+        assertThat(shouldRecompute).isFalse()
+    }
+
+    @Test
+    fun realProfileRecompute_runsAfterSeventyTwoHours() {
+        val nowTs = 10L * 24 * 60 * 60 * 1000
+
+        val shouldRecompute = AutomationRepository.shouldRecomputeRealInsulinProfileStatic(
+            existingUpdatedTs = nowTs - (73L * 60 * 60 * 1000),
+            nowTs = nowTs,
+            existingAlgoVersion = "v2",
+            existingStatus = "estimated_daily",
+            existingSampleCount = 4
+        )
+
+        assertThat(shouldRecompute).isTrue()
+    }
+
+    @Test
+    fun adaptiveCooldownBypass_allowsMaterialRetarget() {
+        val bypass = AutomationRepository.shouldBypassAdaptiveCooldownStatic(
+            decision = RuleDecision(
+                ruleId = "AdaptiveTargetController.v1",
+                state = RuleState.TRIGGERED,
+                reasons = listOf("reason=control_pi"),
+                actionProposal = ActionProposal(
+                    type = "temp_target",
+                    targetMmol = 4.1,
+                    durationMinutes = 30,
+                    reason = "adaptive_pi_ci_v2|mode=control_pi"
+                )
+            ),
+            activeTempTargetMmol = 5.0
+        )
+
+        assertThat(bypass).isTrue()
+    }
+
+    @Test
+    fun adaptiveCooldownBypass_rejectsSameTargetResend() {
+        val bypass = AutomationRepository.shouldBypassAdaptiveCooldownStatic(
+            decision = RuleDecision(
+                ruleId = "AdaptiveTargetController.v1",
+                state = RuleState.TRIGGERED,
+                reasons = listOf("reason=control_pi"),
+                actionProposal = ActionProposal(
+                    type = "temp_target",
+                    targetMmol = 4.1,
+                    durationMinutes = 30,
+                    reason = "adaptive_pi_ci_v2|mode=control_pi"
+                )
+            ),
+            activeTempTargetMmol = 4.1
+        )
+
+        assertThat(bypass).isFalse()
+    }
+
+    @Test
+    fun adaptiveCooldownBypass_allowsSingleStepRetarget() {
+        val bypass = AutomationRepository.shouldBypassAdaptiveCooldownStatic(
+            decision = RuleDecision(
+                ruleId = "AdaptiveTargetController.v1",
+                state = RuleState.TRIGGERED,
+                reasons = listOf("reason=control_pi"),
+                actionProposal = ActionProposal(
+                    type = "temp_target",
+                    targetMmol = 4.95,
+                    durationMinutes = 30,
+                    reason = "adaptive_pi_ci_v2|mode=control_pi"
+                )
+            ),
+            activeTempTargetMmol = 5.0
+        )
+
+        assertThat(bypass).isTrue()
+    }
+
+    @Test
+    fun resolveActiveTempTarget_convertsMgdlPayloadToMmol() {
+        val now = 1_000_000L
+        val resolved = AutomationRepository.resolveActiveTempTargetStatic(
+            now = now,
+            recentTargets = listOf(
+                TherapyEventEntity(
+                    id = "tt-1",
+                    timestamp = now - 5 * 60_000L,
+                    type = "temp_target",
+                    payloadJson = """
+                        {"targetBottom":"74.0","targetTop":"74.0","duration":"30"}
+                    """.trimIndent()
+                )
+            ),
+            gson = gson
+        )
+
+        assertThat(resolved).isWithin(0.01).of(4.1069)
+    }
+
+    @Test
+    fun resolveActiveTempTarget_prefersExplicitMmolOverMgdlFields() {
+        val now = 2_000_000L
+        val resolved = AutomationRepository.resolveActiveTempTargetStatic(
+            now = now,
+            recentTargets = listOf(
+                TherapyEventEntity(
+                    id = "tt-2",
+                    timestamp = now - 2 * 60_000L,
+                    type = "temp_target",
+                    payloadJson = """
+                        {"targetBottom":"74.0","targetTop":"74.0","targetBottomMmol":"4.20","targetTopMmol":"4.20","duration":"30"}
+                    """.trimIndent()
+                )
+            ),
+            gson = gson
+        )
+
+        assertThat(resolved).isWithin(0.0001).of(4.20)
+    }
+
+    @Test
+    fun resolveActiveTempTarget_returnsNullWhenLatestTempTargetExpired() {
+        val now = 3_000_000L
+        val resolved = AutomationRepository.resolveActiveTempTargetStatic(
+            now = now,
+            recentTargets = listOf(
+                TherapyEventEntity(
+                    id = "tt-old",
+                    timestamp = now - 40 * 60_000L,
+                    type = "temp_target",
+                    payloadJson = """
+                        {"targetBottom":"74.0","targetTop":"74.0","duration":"30"}
+                    """.trimIndent()
+                ),
+                TherapyEventEntity(
+                    id = "tt-new-expired",
+                    timestamp = now - 10 * 60_000L,
+                    type = "temp_target",
+                    payloadJson = """
+                        {"targetBottom":"85.0","targetTop":"85.0","duration":"5"}
+                    """.trimIndent()
+                )
+            ),
+            gson = gson
+        )
+
+        assertThat(resolved).isNull()
+    }
+
+    @Test
     fun calibrationBias_raisesWhenHistoryUnderpredicts() {
         val source = sampleForecasts()
         val history = buildList {
@@ -315,6 +806,67 @@ class AutomationRepositoryForecastBiasTest {
         val tuned60 = tuned.first { it.horizonMinutes == 60 }.valueMmol
         assertThat(baseline60).isGreaterThan(src60)
         assertThat(tuned60).isGreaterThan(baseline60)
+    }
+
+    @Test
+    fun calibrationBias_expandsCiWhenRecentResidualsAreWide() {
+        val source = sampleForecasts()
+        val history = buildList {
+            repeat(36) { idx ->
+                add(
+                    AutomationRepository.ForecastCalibrationPoint(
+                        horizonMinutes = 60,
+                        errorMmol = if (idx % 2 == 0) 2.2 else -2.0,
+                        ageMs = (idx + 1) * 5 * 60_000L,
+                        predictedMmol = 8.6
+                    )
+                )
+            }
+        }
+
+        val adjusted = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history
+        )
+
+        val src60 = source.first { it.horizonMinutes == 60 }
+        val adj60 = adjusted.first { it.horizonMinutes == 60 }
+        val srcWidth = src60.ciHigh - src60.ciLow
+        val adjWidth = adj60.ciHigh - adj60.ciLow
+
+        assertThat(adjWidth).isGreaterThan(srcWidth)
+        assertThat(adj60.modelVersion).contains("ci_calib_v1")
+    }
+
+    @Test
+    fun calibrationBias_canModestlyShrinkCiWhenResidualsAreTight() {
+        val source = sampleForecasts()
+        val history = buildList {
+            repeat(36) { idx ->
+                add(
+                    AutomationRepository.ForecastCalibrationPoint(
+                        horizonMinutes = 30,
+                        errorMmol = if (idx % 2 == 0) 0.08 else -0.10,
+                        ageMs = (idx + 1) * 5 * 60_000L,
+                        predictedMmol = 6.3
+                    )
+                )
+            }
+        }
+
+        val adjusted = AutomationRepository.applyRecentForecastCalibrationBiasStatic(
+            forecasts = source,
+            history = history
+        )
+
+        val src30 = source.first { it.horizonMinutes == 30 }
+        val adj30 = adjusted.first { it.horizonMinutes == 30 }
+        val srcWidth = src30.ciHigh - src30.ciLow
+        val adjWidth = adj30.ciHigh - adj30.ciLow
+
+        assertThat(adjWidth).isLessThan(srcWidth)
+        assertThat(adjWidth).isAtLeast(srcWidth * 0.80)
+        assertThat(adj30.modelVersion).contains("ci_calib_v1")
     }
 
     @Test
@@ -454,6 +1006,27 @@ class AutomationRepositoryForecastBiasTest {
 
         assertThat(assessment.blocked).isFalse()
         assertThat(assessment.score).isGreaterThan(0.70)
+    }
+
+    @Test
+    fun sensorQuality_deduplicatesMixedSourceTimestampsBeforeDeltaGate() {
+        val now = System.currentTimeMillis()
+        val sameTs = now - 5 * 60_000L
+        val glucose = listOf(
+            GlucosePoint(now - 10 * 60_000L, 6.2, "nightscout"),
+            GlucosePoint(sameTs, 9.5, "local_broadcast"),
+            GlucosePoint(sameTs, 6.1, "nightscout"),
+            GlucosePoint(now, 6.0, "nightscout")
+        )
+
+        val assessment = AutomationRepository.evaluateSensorQualityStatic(
+            glucose = glucose,
+            nowTs = now,
+            staleMaxMinutes = 15
+        )
+
+        assertThat(assessment.blocked).isFalse()
+        assertThat(assessment.delta5Mmol).isWithin(0.01).of(-0.1)
     }
 
     @Test
@@ -1398,6 +1971,366 @@ class AutomationRepositoryForecastBiasTest {
         assertThat(source).isEqualTo("missing_or_unknown")
     }
 
+    @Test
+    fun sensorLagShadowRuleChanged_detectsRuleOrActionDrift() {
+        val baseline = listOf(
+            triggeredDecision(ruleId = "adaptive_target", type = "temp_target", targetMmol = 5.6)
+        )
+        val changedRule = listOf(
+            triggeredDecision(ruleId = "pattern_target", type = "temp_target", targetMmol = 5.6)
+        )
+        val changedTarget = listOf(
+            triggeredDecision(ruleId = "adaptive_target", type = "temp_target", targetMmol = 5.68)
+        )
+        val unchanged = listOf(
+            triggeredDecision(ruleId = "adaptive_target", type = "temp_target", targetMmol = 5.62)
+        )
+
+        assertThat(
+            AutomationRepository.hasSensorLagShadowRuleChangedStatic(
+                baseline = baseline,
+                candidate = changedRule
+            )
+        ).isTrue()
+        assertThat(
+            AutomationRepository.hasSensorLagShadowRuleChangedStatic(
+                baseline = baseline,
+                candidate = changedTarget
+            )
+        ).isTrue()
+        assertThat(
+            AutomationRepository.hasSensorLagShadowRuleChangedStatic(
+                baseline = baseline,
+                candidate = unchanged
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun sensorLagShadowTargetDelta_returnsSignedTargetShift() {
+        val baseline = listOf(
+            triggeredDecision(ruleId = "adaptive_target", type = "temp_target", targetMmol = 5.5)
+        )
+        val higherCandidate = listOf(
+            triggeredDecision(ruleId = "adaptive_target", type = "temp_target", targetMmol = 5.9)
+        )
+        val noCandidate = emptyList<RuleDecision>()
+
+        assertThat(
+            AutomationRepository.resolveSensorLagShadowTargetDeltaMmolStatic(
+                baseline = baseline,
+                candidate = higherCandidate
+            )
+        ).isWithin(0.001).of(0.4)
+        assertThat(
+            AutomationRepository.resolveSensorLagShadowTargetDeltaMmolStatic(
+                baseline = baseline,
+                candidate = noCandidate
+            )
+        ).isWithin(0.001).of(-5.5)
+        assertThat(
+            AutomationRepository.resolveSensorLagShadowTargetDeltaMmolStatic(
+                baseline = emptyList(),
+                candidate = emptyList()
+            )
+        ).isNull()
+    }
+
+    @Test
+    fun sensorLagControlPlan_offModeKeepsRawControlPath() {
+        val merged = sampleForecasts()
+        val lagCorrected = merged.map {
+            it.copy(valueMmol = it.valueMmol + 0.3, modelVersion = "${it.modelVersion}|lag")
+        }
+
+        val plan = AutomationRepository.resolveSensorLagControlPlanStatic(
+            requestedMode = SensorLagCorrectionMode.OFF,
+            estimate = sampleSensorLagEstimate(mode = SensorLagCorrectionMode.OFF),
+            rawCurrentGlucoseMmol = 6.0,
+            mergedForecasts = merged,
+            lagCorrectedForecasts = lagCorrected
+        )
+
+        assertThat(plan.effectiveCurrentGlucoseMmol).isWithin(0.001).of(6.0)
+        assertThat(plan.controlForecasts).containsExactlyElementsIn(merged).inOrder()
+        assertThat(plan.shouldEvaluateShadow).isFalse()
+        assertThat(plan.shadowCurrentGlucoseMmol).isNull()
+        assertThat(plan.shadowForecasts).isNull()
+    }
+
+    @Test
+    fun sensorLagControlPlan_shadowFallbackKeepsLiveRawButRunsShadowPath() {
+        val merged = sampleForecasts()
+        val lagCorrected = merged.map {
+            it.copy(valueMmol = it.valueMmol + 0.4, modelVersion = "${it.modelVersion}|lag")
+        }
+
+        val plan = AutomationRepository.resolveSensorLagControlPlanStatic(
+            requestedMode = SensorLagCorrectionMode.ACTIVE,
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.SHADOW,
+                rawGlucoseMmol = 6.0,
+                correctedGlucoseMmol = 6.6
+            ),
+            rawCurrentGlucoseMmol = 6.0,
+            mergedForecasts = merged,
+            lagCorrectedForecasts = lagCorrected
+        )
+
+        assertThat(plan.effectiveCurrentGlucoseMmol).isWithin(0.001).of(6.0)
+        assertThat(plan.controlForecasts).containsExactlyElementsIn(merged).inOrder()
+        assertThat(plan.shouldEvaluateShadow).isTrue()
+        assertThat(plan.shadowCurrentGlucoseMmol).isWithin(0.001).of(6.6)
+        assertThat(plan.shadowForecasts).containsExactlyElementsIn(lagCorrected).inOrder()
+    }
+
+    @Test
+    fun sensorLagControlPlan_activeModeUsesCorrectedControlPath() {
+        val merged = sampleForecasts()
+        val lagCorrected = merged.map {
+            it.copy(valueMmol = it.valueMmol + 0.5, modelVersion = "${it.modelVersion}|lag")
+        }
+
+        val plan = AutomationRepository.resolveSensorLagControlPlanStatic(
+            requestedMode = SensorLagCorrectionMode.ACTIVE,
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.ACTIVE,
+                rawGlucoseMmol = 6.0,
+                correctedGlucoseMmol = 6.7
+            ),
+            rawCurrentGlucoseMmol = 6.0,
+            mergedForecasts = merged,
+            lagCorrectedForecasts = lagCorrected
+        )
+
+        assertThat(plan.effectiveCurrentGlucoseMmol).isWithin(0.001).of(6.7)
+        assertThat(plan.controlForecasts).containsExactlyElementsIn(lagCorrected).inOrder()
+        assertThat(plan.shouldEvaluateShadow).isFalse()
+        assertThat(plan.shadowCurrentGlucoseMmol).isNull()
+        assertThat(plan.shadowForecasts).isNull()
+    }
+
+    @Test
+    fun sensorLagTelemetryRows_includeExpectedKeysAndForecastHorizons() {
+        val nowTs = 1_736_000_000_000L
+        val rows = AutomationRepository.buildSensorLagTelemetryRowsStatic(
+            nowTs = nowTs,
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.ACTIVE,
+                rawGlucoseMmol = 6.1,
+                correctedGlucoseMmol = 6.6
+            ),
+            latestGlucoseInput = GlucoseInputMetadata(
+                key = "raw_sgv",
+                kind = "raw"
+            ),
+            controlForecasts = listOf(
+                Forecast(nowTs + 5 * 60_000L, 5, 6.6, 6.2, 7.0, "control"),
+                Forecast(nowTs + 15 * 60_000L, 15, 6.8, 6.1, 7.5, "control"),
+                Forecast(nowTs + 30 * 60_000L, 30, 7.0, 6.3, 7.7, "control"),
+                Forecast(nowTs + 60 * 60_000L, 60, 7.3, 6.4, 8.2, "control")
+            ),
+            candidateForecasts = listOf(
+                Forecast(nowTs + 5 * 60_000L, 5, 6.7, 6.3, 7.1, "lag"),
+                Forecast(nowTs + 15 * 60_000L, 15, 6.9, 6.2, 7.6, "lag"),
+                Forecast(nowTs + 30 * 60_000L, 30, 7.1, 6.4, 7.8, "lag"),
+                Forecast(nowTs + 60 * 60_000L, 60, 7.4, 6.5, 8.3, "lag")
+            ),
+            shadowRuleChanged = true,
+            shadowTargetDeltaMmol = 0.25
+        )
+
+        val byKey = rows.associateBy { it.key }
+        assertThat(byKey.keys).containsAtLeast(
+            "sensor_lag_age_hours",
+            "sensor_lag_age_source",
+            "sensor_lag_minutes",
+            "sensor_lag_correction_mmol",
+            "sensor_lag_corrected_glucose_mmol",
+            "sensor_lag_confidence",
+            "sensor_lag_active",
+            "sensor_lag_mode",
+            "sensor_lag_disable_reason",
+            "sensor_lag_shadow_rule_changed",
+            "sensor_lag_shadow_target_delta_mmol",
+            "sensor_lag_control_forecast_5m",
+            "sensor_lag_control_forecast_30m",
+            "sensor_lag_control_forecast_60m",
+            "sensor_lag_candidate_forecast_5m",
+            "sensor_lag_candidate_forecast_30m",
+            "sensor_lag_candidate_forecast_60m",
+            "glucose_input_key",
+            "glucose_input_kind"
+        )
+        assertThat(byKey.keys).doesNotContain("sensor_lag_control_forecast_15m")
+        assertThat(byKey.keys).doesNotContain("sensor_lag_candidate_forecast_15m")
+        assertThat(byKey["sensor_lag_active"]?.valueDouble).isWithin(0.001).of(1.0)
+        assertThat(byKey["sensor_lag_mode"]?.valueText).isEqualTo("ACTIVE")
+        assertThat(byKey["sensor_lag_age_source"]?.valueText).isEqualTo("explicit")
+        assertThat(byKey["sensor_lag_shadow_rule_changed"]?.valueDouble).isWithin(0.001).of(1.0)
+        assertThat(byKey["sensor_lag_shadow_target_delta_mmol"]?.valueDouble).isWithin(0.001).of(0.25)
+        assertThat(byKey["sensor_lag_control_forecast_30m"]?.valueDouble).isWithin(0.001).of(7.0)
+        assertThat(byKey["sensor_lag_candidate_forecast_30m"]?.valueDouble).isWithin(0.001).of(7.1)
+        assertThat(byKey["glucose_input_key"]?.valueText).isEqualTo("raw_sgv")
+        assertThat(byKey["glucose_input_kind"]?.valueText).isEqualTo("raw")
+        assertThat(rows.all { it.timestamp == nowTs }).isTrue()
+        assertThat(rows.all { it.source == "copilot_sensor_lag" }).isTrue()
+    }
+
+    @Test
+    fun sensorLagTelemetryRows_markMissingOptionalValuesAsStale() {
+        val rows = AutomationRepository.buildSensorLagTelemetryRowsStatic(
+            nowTs = 42L,
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.SHADOW,
+                rawGlucoseMmol = 5.8,
+                correctedGlucoseMmol = 6.0
+            ).copy(
+                ageHours = null,
+                ageSource = SensorLagAgeSource.MISSING,
+                disableReason = "missing_sensor_age"
+            ),
+            latestGlucoseInput = GlucoseInputMetadata(
+                key = " ",
+                kind = " "
+            ),
+            controlForecasts = emptyList(),
+            candidateForecasts = emptyList(),
+            shadowRuleChanged = null,
+            shadowTargetDeltaMmol = null
+        )
+
+        val byKey = rows.associateBy { it.key }
+        assertThat(byKey["sensor_lag_age_hours"]?.quality).isEqualTo("STALE")
+        assertThat(byKey["sensor_lag_age_source"]?.valueText).isEqualTo("missing")
+        assertThat(byKey["sensor_lag_active"]?.valueDouble).isWithin(0.001).of(0.0)
+        assertThat(byKey["sensor_lag_mode"]?.valueText).isEqualTo("SHADOW")
+        assertThat(byKey["sensor_lag_disable_reason"]?.valueText).isEqualTo("missing_sensor_age")
+        assertThat(byKey["sensor_lag_shadow_rule_changed"]?.quality).isEqualTo("STALE")
+        assertThat(byKey["sensor_lag_shadow_target_delta_mmol"]?.quality).isEqualTo("STALE")
+        assertThat(byKey["glucose_input_key"]?.quality).isEqualTo("STALE")
+        assertThat(byKey["glucose_input_kind"]?.quality).isEqualTo("STALE")
+    }
+
+    @Test
+    fun sensorLagTelemetryRows_offModeOmitsCandidateForecasts() {
+        val nowTs = 1_736_000_000_000L
+        val rows = AutomationRepository.buildSensorLagTelemetryRowsStatic(
+            nowTs = nowTs,
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.OFF,
+                rawGlucoseMmol = 6.1,
+                correctedGlucoseMmol = 6.1
+            ).copy(
+                lagMinutes = 0.0,
+                correctionMmol = 0.0,
+                confidence = 0.0,
+                disableReason = "mode_off"
+            ),
+            latestGlucoseInput = GlucoseInputMetadata(
+                key = "sgv",
+                kind = "sgv"
+            ),
+            controlForecasts = listOf(
+                Forecast(nowTs + 5 * 60_000L, 5, 6.1, 5.8, 6.4, "control"),
+                Forecast(nowTs + 30 * 60_000L, 30, 6.4, 5.9, 6.9, "control"),
+                Forecast(nowTs + 60 * 60_000L, 60, 6.8, 6.0, 7.4, "control")
+            ),
+            candidateForecasts = listOf(
+                Forecast(nowTs + 5 * 60_000L, 5, 6.2, 5.9, 6.5, "lag"),
+                Forecast(nowTs + 30 * 60_000L, 30, 6.5, 6.0, 7.0, "lag"),
+                Forecast(nowTs + 60 * 60_000L, 60, 6.9, 6.1, 7.5, "lag")
+            ),
+            shadowRuleChanged = null,
+            shadowTargetDeltaMmol = null
+        )
+
+        val byKey = rows.associateBy { it.key }
+        assertThat(byKey["sensor_lag_mode"]?.valueText).isEqualTo("OFF")
+        assertThat(byKey.keys).containsAtLeast(
+            "sensor_lag_control_forecast_5m",
+            "sensor_lag_control_forecast_30m",
+            "sensor_lag_control_forecast_60m"
+        )
+        assertThat(byKey.keys).doesNotContain("sensor_lag_candidate_forecast_5m")
+        assertThat(byKey.keys).doesNotContain("sensor_lag_candidate_forecast_30m")
+        assertThat(byKey.keys).doesNotContain("sensor_lag_candidate_forecast_60m")
+    }
+
+    @Test
+    fun resolveLatestGlucoseInputMetadata_prefersMatchingSourceRows() {
+        val ts = 1_736_000_000_000L
+        val resolved = AutomationRepository.resolveLatestGlucoseInputMetadataStatic(
+            rows = listOf(
+                telemetryText(ts = ts, source = "nightscout", key = "glucose_input_key", value = "sgv"),
+                telemetryText(ts = ts, source = "nightscout", key = "glucose_input_kind", value = "sgv"),
+                telemetryText(ts = ts, source = "aaps_broadcast", key = "glucose_input_key", value = "raw_sgv"),
+                telemetryText(ts = ts, source = "aaps_broadcast", key = "glucose_input_kind", value = "raw")
+            ),
+            latestGlucoseTs = ts,
+            latestGlucoseSource = "aaps_broadcast"
+        )
+
+        assertThat(resolved).isEqualTo(GlucoseInputMetadata(key = "raw_sgv", kind = "raw"))
+    }
+
+    @Test
+    fun resolveLatestGlucoseInputMetadata_fallsBackToTimestampWhenSourceDoesNotMatch() {
+        val ts = 1_736_000_000_000L
+        val resolved = AutomationRepository.resolveLatestGlucoseInputMetadataStatic(
+            rows = listOf(
+                telemetryText(ts = ts, source = "nightscout", key = "glucose_input_key", value = "sgv"),
+                telemetryText(ts = ts, source = "nightscout", key = "glucose_input_kind", value = "estimate"),
+                telemetryText(ts = ts - 5_000L, source = "nightscout", key = "glucose_input_key", value = "older")
+            ),
+            latestGlucoseTs = ts,
+            latestGlucoseSource = "xdrip_broadcast"
+        )
+
+        assertThat(resolved).isEqualTo(GlucoseInputMetadata(key = "sgv", kind = "estimate"))
+    }
+
+    @Test
+    fun sensorLagTelemetryMapUpdates_encodeAgeSourceAndInputKind() {
+        val updates = AutomationRepository.buildSensorLagTelemetryMapUpdatesStatic(
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.ACTIVE,
+                rawGlucoseMmol = 6.0,
+                correctedGlucoseMmol = 6.5
+            ).copy(ageSource = SensorLagAgeSource.INFERRED),
+            latestGlucoseInput = GlucoseInputMetadata(
+                key = "raw_sgv",
+                kind = "raw"
+            )
+        )
+
+        assertThat(updates["sensor_lag_age_hours"]).isWithin(0.001).of(280.0)
+        assertThat(updates["sensor_lag_minutes"]).isWithin(0.001).of(12.0)
+        assertThat(updates["sensor_lag_correction_mmol"]).isWithin(0.001).of(0.5)
+        assertThat(updates["sensor_lag_corrected_glucose_mmol"]).isWithin(0.001).of(6.5)
+        assertThat(updates["sensor_lag_confidence"]).isWithin(0.001).of(0.82)
+        assertThat(updates["sensor_lag_active"]).isWithin(0.001).of(1.0)
+        assertThat(updates["sensor_lag_age_source"]).isWithin(0.001).of(0.5)
+        assertThat(updates["glucose_input_kind"]).isWithin(0.001).of(1.0)
+    }
+
+    @Test
+    fun sensorLagTelemetryMapUpdates_defaultUnknownInputKindToZero() {
+        val updates = AutomationRepository.buildSensorLagTelemetryMapUpdatesStatic(
+            estimate = sampleSensorLagEstimate(
+                mode = SensorLagCorrectionMode.SHADOW
+            ).copy(ageSource = SensorLagAgeSource.MISSING),
+            latestGlucoseInput = GlucoseInputMetadata(
+                key = "sgv",
+                kind = "sgv"
+            )
+        )
+
+        assertThat(updates["sensor_lag_active"]).isWithin(0.001).of(0.0)
+        assertThat(updates["sensor_lag_age_source"]).isWithin(0.001).of(0.0)
+        assertThat(updates["glucose_input_kind"]).isWithin(0.001).of(0.0)
+    }
+
     private fun sampleForecasts(): List<Forecast> {
         val now = System.currentTimeMillis()
         return listOf(
@@ -1430,6 +2363,104 @@ class AutomationRepositoryForecastBiasTest {
             isfEvidenceCount = 4,
             crEvidenceCount = 5,
             reasons = emptyList()
+        )
+    }
+
+    private fun triggeredDecision(
+        ruleId: String,
+        type: String,
+        targetMmol: Double
+    ): RuleDecision {
+        return RuleDecision(
+            ruleId = ruleId,
+            state = RuleState.TRIGGERED,
+            reasons = listOf("test"),
+            actionProposal = ActionProposal(
+                type = type,
+                targetMmol = targetMmol,
+                durationMinutes = 30,
+                reason = "test"
+            )
+        )
+    }
+
+    private fun sampleSensorLagEstimate(
+        mode: SensorLagCorrectionMode,
+        rawGlucoseMmol: Double = 6.0,
+        correctedGlucoseMmol: Double = 6.4
+    ): SensorLagEstimate {
+        return SensorLagEstimate(
+            rawGlucoseMmol = rawGlucoseMmol,
+            correctedGlucoseMmol = correctedGlucoseMmol,
+            lagMinutes = 12.0,
+            correctionMmol = correctedGlucoseMmol - rawGlucoseMmol,
+            ageHours = 280.0,
+            ageSource = SensorLagAgeSource.EXPLICIT,
+            confidence = 0.82,
+            mode = mode,
+            disableReason = null
+        )
+    }
+
+    private fun telemetryText(
+        ts: Long,
+        source: String,
+        key: String,
+        value: String
+    ): TelemetrySampleEntity {
+        return TelemetrySampleEntity(
+            id = "tm-$key-$ts-$source",
+            timestamp = ts,
+            source = source,
+            key = key,
+            valueDouble = null,
+            valueText = value,
+            unit = null,
+            quality = "OK"
+        )
+    }
+
+    private fun sampleCircadianPrior(
+        delta15: Double,
+        delta30: Double,
+        delta60: Double,
+        confidence: Double,
+        acuteAttenuation: Double,
+        staleBlocked: Boolean
+    ): CircadianForecastPrior {
+        return CircadianForecastPrior(
+            requestedDayType = CircadianDayType.WEEKDAY,
+            segmentSource = CircadianDayType.WEEKDAY,
+            slotIndex = 48,
+            bgMedian = 6.4,
+            slotP10 = 5.7,
+            slotP25 = 6.0,
+            slotP75 = 6.8,
+            slotP90 = 7.1,
+            delta15 = delta15,
+            delta30 = delta30,
+            delta60 = delta60,
+            residualBias30 = 0.0,
+            residualBias60 = 0.0,
+            medianReversion30 = 0.0,
+            medianReversion60 = 0.0,
+            replayBias30 = 0.0,
+            replayBias60 = 0.0,
+            replaySampleCount30 = 12,
+            replaySampleCount60 = 12,
+            replayWinRate30 = 0.60,
+            replayWinRate60 = 0.60,
+            replayMaeImprovement30 = -0.08,
+            replayMaeImprovement60 = -0.10,
+            replayBucketStatus30 = CircadianReplayBucketStatus.HELPFUL,
+            replayBucketStatus60 = CircadianReplayBucketStatus.HELPFUL,
+            confidence = confidence,
+            qualityScore = 0.8,
+            stabilityScore = 0.85,
+            horizonQuality30 = 0.90,
+            horizonQuality60 = 0.92,
+            acuteAttenuation = acuteAttenuation,
+            staleBlocked = staleBlocked
         )
     }
 

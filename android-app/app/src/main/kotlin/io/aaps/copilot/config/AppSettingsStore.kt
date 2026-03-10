@@ -21,10 +21,12 @@ class AppSettingsStore(context: Context) {
         produceFile = { context.preferencesDataStoreFile("copilot_settings.preferences_pb") }
     )
 
-    val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
+    val settings: Flow<AppSettings> = dataStore.data.map(::readSettings)
+
+    private fun readSettings(prefs: Preferences): AppSettings {
         val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
         val (safetyMinTargetMmol, safetyMaxTargetMmol) = resolveSafetyTargetBounds(prefs)
-        AppSettings(
+        return AppSettings(
             nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
             apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
             cloudBaseUrl = prefs[KEY_CLOUD_URL]
@@ -83,6 +85,7 @@ class AppSettingsStore(context: Context) {
                 ?: DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES).coerceIn(60, 180),
             carbComputationMaxGrams = (prefs[KEY_CARB_COMPUTATION_MAX_GRAMS]
                 ?: DEFAULT_CARB_COMPUTATION_MAX_GRAMS).coerceIn(20.0, 60.0),
+            sensorLagCorrectionMode = resolveSensorLagCorrectionMode(prefs[KEY_SENSOR_LAG_CORRECTION_MODE]),
             isfCrShadowMode = prefs[KEY_ISFCR_SHADOW_MODE] ?: DEFAULT_ISFCR_SHADOW_MODE,
             isfCrConfidenceThreshold = prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] ?: DEFAULT_ISFCR_CONFIDENCE_THRESHOLD,
             isfCrUseActivity = prefs[KEY_ISFCR_USE_ACTIVITY] ?: DEFAULT_ISFCR_USE_ACTIVITY,
@@ -197,6 +200,19 @@ class AppSettingsStore(context: Context) {
             patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
             patternHighRateTrigger = prefs[KEY_PATTERN_HIGH_RATE_TRIGGER] ?: DEFAULT_PATTERN_HIGH_RATE_TRIGGER,
             analyticsLookbackDays = prefs[KEY_ANALYTICS_LOOKBACK_DAYS] ?: DEFAULT_ANALYTICS_LOOKBACK_DAYS,
+            circadianPatternsEnabled = prefs[KEY_CIRCADIAN_PATTERNS_ENABLED] ?: DEFAULT_CIRCADIAN_PATTERNS_ENABLED,
+            circadianStableLookbackDays = prefs[KEY_CIRCADIAN_STABLE_LOOKBACK_DAYS]
+                ?: DEFAULT_CIRCADIAN_STABLE_LOOKBACK_DAYS,
+            circadianRecencyLookbackDays = prefs[KEY_CIRCADIAN_RECENCY_LOOKBACK_DAYS]
+                ?: DEFAULT_CIRCADIAN_RECENCY_LOOKBACK_DAYS,
+            circadianUseWeekendSplit = prefs[KEY_CIRCADIAN_USE_WEEKEND_SPLIT]
+                ?: DEFAULT_CIRCADIAN_USE_WEEKEND_SPLIT,
+            circadianUseReplayResidualBias = prefs[KEY_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS]
+                ?: DEFAULT_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS,
+            circadianForecastWeight30 = prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_30]
+                ?: DEFAULT_CIRCADIAN_FORECAST_WEIGHT_30,
+            circadianForecastWeight60 = prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_60]
+                ?: DEFAULT_CIRCADIAN_FORECAST_WEIGHT_60,
             maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
             staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
             exportFolderUri = prefs[KEY_EXPORT_URI]
@@ -205,185 +221,7 @@ class AppSettingsStore(context: Context) {
 
     suspend fun update(updater: (AppSettings) -> AppSettings) {
         dataStore.edit { prefs ->
-            val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
-            val (safetyMinTargetMmol, safetyMaxTargetMmol) = resolveSafetyTargetBounds(prefs)
-            val current = AppSettings(
-                nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
-                apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
-                cloudBaseUrl = prefs[KEY_CLOUD_URL]
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: DEFAULT_CLOUD_BASE_URL,
-                openAiApiKey = prefs[KEY_OPENAI_KEY]
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: DEFAULT_OPENAI_API_KEY,
-                uiStyle = resolveUiStyle(prefs[KEY_UI_STYLE]),
-                killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
-                rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
-                localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
-                strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
-                localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
-                    ?: prefs[KEY_NS_URL].orEmpty().isBlank(),
-                localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
-                localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
-                localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
-                localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
-                insulinProfileId = normalizeInsulinProfileId(prefs[KEY_INSULIN_PROFILE]),
-                enableUamInference = prefs[KEY_ENABLE_UAM_INFERENCE] ?: DEFAULT_ENABLE_UAM_INFERENCE,
-                enableUamBoost = prefs[KEY_ENABLE_UAM_BOOST] ?: DEFAULT_ENABLE_UAM_BOOST,
-                enableUamExportToAaps = prefs[KEY_ENABLE_UAM_EXPORT] ?: DEFAULT_ENABLE_UAM_EXPORT,
-                uamExportMode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE]),
-                dryRunExport = prefs[KEY_DRY_RUN_EXPORT] ?: DEFAULT_DRY_RUN_EXPORT,
-                uamLearnedMultiplier = (prefs[KEY_UAM_LEARNED_MULTIPLIER] ?: DEFAULT_UAM_LEARNED_MULTIPLIER)
-                    .coerceIn(0.8, 1.6),
-                uamMinSnackG = prefs[KEY_UAM_MIN_SNACK_G] ?: DEFAULT_UAM_MIN_SNACK_G,
-                uamMaxSnackG = prefs[KEY_UAM_MAX_SNACK_G] ?: DEFAULT_UAM_MAX_SNACK_G,
-                uamSnackStepG = prefs[KEY_UAM_SNACK_STEP_G] ?: DEFAULT_UAM_SNACK_STEP_G,
-                uamBackdateMinutesDefault = prefs[KEY_UAM_BACKDATE_MINUTES] ?: DEFAULT_UAM_BACKDATE_MINUTES,
-                uamDisableWhenManualCobActive = prefs[KEY_UAM_DISABLE_MANUAL_COB_ACTIVE] ?: DEFAULT_UAM_DISABLE_MANUAL_COB_ACTIVE,
-                uamManualCobThresholdG = prefs[KEY_UAM_MANUAL_COB_THRESHOLD_G] ?: DEFAULT_UAM_MANUAL_COB_THRESHOLD_G,
-                uamDisableIfManualCarbsNearby = prefs[KEY_UAM_DISABLE_MANUAL_CARBS_NEARBY] ?: DEFAULT_UAM_DISABLE_MANUAL_CARBS_NEARBY,
-                uamManualMergeWindowMinutes = prefs[KEY_UAM_MANUAL_MERGE_WINDOW_MINUTES] ?: DEFAULT_UAM_MANUAL_MERGE_WINDOW_MINUTES,
-                uamMaxAbsorbRateGphNormal = prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_NORMAL] ?: DEFAULT_UAM_MAX_ABSORB_RATE_GPH_NORMAL,
-                uamMaxAbsorbRateGphBoost = prefs[KEY_UAM_MAX_ABSORB_RATE_GPH_BOOST] ?: DEFAULT_UAM_MAX_ABSORB_RATE_GPH_BOOST,
-                uamMaxTotalG = prefs[KEY_UAM_MAX_TOTAL_G] ?: DEFAULT_UAM_MAX_TOTAL_G,
-                uamMaxActiveEvents = prefs[KEY_UAM_MAX_ACTIVE_EVENTS] ?: DEFAULT_UAM_MAX_ACTIVE_EVENTS,
-                uamCarbMultiplierNormal = prefs[KEY_UAM_CARB_MULTIPLIER_NORMAL] ?: DEFAULT_UAM_CARB_MULTIPLIER_NORMAL,
-                uamCarbMultiplierBoost = prefs[KEY_UAM_CARB_MULTIPLIER_BOOST] ?: DEFAULT_UAM_CARB_MULTIPLIER_BOOST,
-                uamGAbsThresholdNormal = prefs[KEY_UAM_GABS_THRESHOLD_NORMAL] ?: DEFAULT_UAM_GABS_THRESHOLD_NORMAL,
-                uamGAbsThresholdBoost = prefs[KEY_UAM_GABS_THRESHOLD_BOOST] ?: DEFAULT_UAM_GABS_THRESHOLD_BOOST,
-                uamMOfNNormalM = prefs[KEY_UAM_M_OF_N_NORMAL_M] ?: DEFAULT_UAM_M_OF_N_NORMAL_M,
-                uamMOfNNormalN = prefs[KEY_UAM_M_OF_N_NORMAL_N] ?: DEFAULT_UAM_M_OF_N_NORMAL_N,
-                uamMOfNBoostM = prefs[KEY_UAM_M_OF_N_BOOST_M] ?: DEFAULT_UAM_M_OF_N_BOOST_M,
-                uamMOfNBoostN = prefs[KEY_UAM_M_OF_N_BOOST_N] ?: DEFAULT_UAM_M_OF_N_BOOST_N,
-                uamConfirmConfNormal = prefs[KEY_UAM_CONFIRM_CONF_NORMAL] ?: DEFAULT_UAM_CONFIRM_CONF_NORMAL,
-                uamConfirmConfBoost = prefs[KEY_UAM_CONFIRM_CONF_BOOST] ?: DEFAULT_UAM_CONFIRM_CONF_BOOST,
-                uamMinConfirmAgeMin = prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] ?: DEFAULT_UAM_MIN_CONFIRM_AGE_MIN,
-                uamExportMinIntervalMin = prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] ?: DEFAULT_UAM_EXPORT_MIN_INTERVAL_MIN,
-                uamExportMaxBackdateMin = prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] ?: DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN,
-                carbAbsorptionMaxAgeMinutes = (prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES]
-                    ?: DEFAULT_CARB_ABSORPTION_MAX_AGE_MINUTES).coerceIn(60, 180),
-                carbComputationMaxGrams = (prefs[KEY_CARB_COMPUTATION_MAX_GRAMS]
-                    ?: DEFAULT_CARB_COMPUTATION_MAX_GRAMS).coerceIn(20.0, 60.0),
-                isfCrShadowMode = prefs[KEY_ISFCR_SHADOW_MODE] ?: DEFAULT_ISFCR_SHADOW_MODE,
-                isfCrConfidenceThreshold = prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] ?: DEFAULT_ISFCR_CONFIDENCE_THRESHOLD,
-                isfCrUseActivity = prefs[KEY_ISFCR_USE_ACTIVITY] ?: DEFAULT_ISFCR_USE_ACTIVITY,
-                isfCrUseManualTags = prefs[KEY_ISFCR_USE_MANUAL_TAGS] ?: DEFAULT_ISFCR_USE_MANUAL_TAGS,
-                isfCrMinIsfEvidencePerHour = prefs[KEY_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR]
-                    ?: DEFAULT_ISFCR_MIN_ISF_EVIDENCE_PER_HOUR,
-                isfCrMinCrEvidencePerHour = prefs[KEY_ISFCR_MIN_CR_EVIDENCE_PER_HOUR]
-                    ?: DEFAULT_ISFCR_MIN_CR_EVIDENCE_PER_HOUR,
-                isfCrCrMaxGapMinutes = prefs[KEY_ISFCR_CR_MAX_GAP_MINUTES]
-                    ?: DEFAULT_ISFCR_CR_MAX_GAP_MINUTES,
-                isfCrCrMaxSensorBlockedRatePct = prefs[KEY_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT]
-                    ?: DEFAULT_ISFCR_CR_MAX_SENSOR_BLOCKED_RATE_PCT,
-                isfCrCrMaxUamAmbiguityRatePct = prefs[KEY_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT]
-                    ?: DEFAULT_ISFCR_CR_MAX_UAM_AMBIGUITY_RATE_PCT,
-                isfCrSnapshotRetentionDays = prefs[KEY_ISFCR_SNAPSHOT_RETENTION_DAYS]
-                    ?: DEFAULT_ISFCR_SNAPSHOT_RETENTION_DAYS,
-                isfCrEvidenceRetentionDays = prefs[KEY_ISFCR_EVIDENCE_RETENTION_DAYS]
-                    ?: DEFAULT_ISFCR_EVIDENCE_RETENTION_DAYS,
-                isfCrAutoActivationEnabled = prefs[KEY_ISFCR_AUTO_ACTIVATION_ENABLED]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ENABLED,
-                isfCrAutoActivationLookbackHours = prefs[KEY_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_LOOKBACK_HOURS,
-                isfCrAutoActivationMinSamples = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SAMPLES,
-                isfCrAutoActivationMinMeanConfidence = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_MEAN_CONFIDENCE,
-                isfCrAutoActivationMaxMeanAbsIsfDeltaPct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_ISF_DELTA_PCT,
-                isfCrAutoActivationMaxMeanAbsCrDeltaPct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_MEAN_ABS_CR_DELTA_PCT,
-                isfCrAutoActivationMinSensorQualityScore = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_QUALITY_SCORE,
-                isfCrAutoActivationMinSensorFactor = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_SENSOR_FACTOR,
-                isfCrAutoActivationMaxWearConfidencePenalty = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_WEAR_CONFIDENCE_PENALTY,
-                isfCrAutoActivationMaxSensorAgeHighRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SENSOR_AGE_HIGH_RATE_PCT,
-                isfCrAutoActivationMaxSuspectFalseLowRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_SUSPECT_FALSE_LOW_RATE_PCT,
-                isfCrAutoActivationMinDayTypeRatio = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAY_TYPE_RATIO,
-                isfCrAutoActivationMaxDayTypeSparseRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAY_TYPE_SPARSE_RATE_PCT,
-                isfCrAutoActivationRequireDailyQualityGate = prefs[KEY_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_REQUIRE_DAILY_QUALITY_GATE,
-                isfCrAutoActivationDailyRiskBlockLevel =
-                    (prefs[KEY_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL]
-                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_DAILY_RISK_BLOCK_LEVEL).coerceIn(2, 3),
-                isfCrAutoActivationMinDailyMatchedSamples = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_MATCHED_SAMPLES,
-                isfCrAutoActivationMaxDailyMae30Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_30_MMOL,
-                isfCrAutoActivationMaxDailyMae60Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_MAE_60_MMOL,
-                isfCrAutoActivationMaxHypoRatePct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_HYPO_RATE_PCT,
-                isfCrAutoActivationMinDailyCiCoverage30Pct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_30_PCT,
-                isfCrAutoActivationMinDailyCiCoverage60Pct = prefs[KEY_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MIN_DAILY_CI_COVERAGE_60_PCT,
-                isfCrAutoActivationMaxDailyCiWidth30Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_30_MMOL,
-                isfCrAutoActivationMaxDailyCiWidth60Mmol = prefs[KEY_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL]
-                    ?: DEFAULT_ISFCR_AUTO_ACTIVATION_MAX_DAILY_CI_WIDTH_60_MMOL,
-                isfCrAutoActivationRollingMinRequiredWindows =
-                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS]
-                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MIN_REQUIRED_WINDOWS,
-                isfCrAutoActivationRollingMaeRelaxFactor =
-                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR]
-                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_MAE_RELAX_FACTOR,
-                isfCrAutoActivationRollingCiCoverageRelaxFactor =
-                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR]
-                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_COVERAGE_RELAX_FACTOR,
-                isfCrAutoActivationRollingCiWidthRelaxFactor =
-                    prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR]
-                        ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR,
-                safetyMinTargetMmol = safetyMinTargetMmol,
-                safetyMaxTargetMmol = safetyMaxTargetMmol,
-                baseTargetMmol = (prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL)
-                    .coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
-                postHypoThresholdMmol = (prefs[KEY_POST_HYPO_THRESHOLD_MMOL]
-                    ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
-                postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
-                postHypoTargetMmol = (prefs[KEY_POST_HYPO_TARGET_MMOL]
-                    ?: DEFAULT_POST_HYPO_TARGET_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
-                postHypoDurationMinutes = prefs[KEY_POST_HYPO_DURATION_MINUTES] ?: DEFAULT_POST_HYPO_DURATION_MINUTES,
-                postHypoLookbackMinutes = prefs[KEY_POST_HYPO_LOOKBACK_MINUTES] ?: DEFAULT_POST_HYPO_LOOKBACK_MINUTES,
-                rulePostHypoEnabled = prefs[KEY_RULE_POST_HYPO_ENABLED] ?: true,
-                rulePatternEnabled = prefs[KEY_RULE_PATTERN_ENABLED] ?: true,
-                ruleSegmentEnabled = prefs[KEY_RULE_SEGMENT_ENABLED] ?: true,
-                adaptiveControllerEnabled = adaptiveEnabled,
-                rulePostHypoPriority = prefs[KEY_RULE_POST_HYPO_PRIORITY] ?: DEFAULT_POST_HYPO_PRIORITY,
-                rulePatternPriority = prefs[KEY_RULE_PATTERN_PRIORITY] ?: DEFAULT_PATTERN_PRIORITY,
-                ruleSegmentPriority = prefs[KEY_RULE_SEGMENT_PRIORITY] ?: DEFAULT_SEGMENT_PRIORITY,
-                adaptiveControllerPriority = prefs[KEY_ADAPTIVE_CONTROLLER_PRIORITY] ?: DEFAULT_ADAPTIVE_CONTROLLER_PRIORITY,
-                rulePostHypoCooldownMinutes = prefs[KEY_RULE_POST_HYPO_COOLDOWN] ?: DEFAULT_POST_HYPO_COOLDOWN_MIN,
-                rulePatternCooldownMinutes = prefs[KEY_RULE_PATTERN_COOLDOWN] ?: DEFAULT_PATTERN_COOLDOWN_MIN,
-                ruleSegmentCooldownMinutes = prefs[KEY_RULE_SEGMENT_COOLDOWN] ?: DEFAULT_SEGMENT_COOLDOWN_MIN,
-                adaptiveControllerRetargetMinutes = prefs[KEY_ADAPTIVE_CONTROLLER_RETARGET_MINUTES]
-                    ?: DEFAULT_ADAPTIVE_CONTROLLER_RETARGET_MINUTES,
-                adaptiveControllerSafetyProfile = prefs[KEY_ADAPTIVE_CONTROLLER_SAFETY_PROFILE]
-                    ?: DEFAULT_ADAPTIVE_CONTROLLER_SAFETY_PROFILE,
-                adaptiveControllerStaleMaxMinutes = prefs[KEY_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES]
-                    ?: DEFAULT_ADAPTIVE_CONTROLLER_STALE_MAX_MINUTES,
-                adaptiveControllerMaxActions6h = prefs[KEY_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H]
-                    ?: DEFAULT_ADAPTIVE_CONTROLLER_MAX_ACTIONS_6H,
-                adaptiveControllerMaxStepMmol = prefs[KEY_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL]
-                    ?: DEFAULT_ADAPTIVE_CONTROLLER_MAX_STEP_MMOL,
-                patternMinSamplesPerWindow = prefs[KEY_PATTERN_MIN_SAMPLES] ?: DEFAULT_PATTERN_MIN_SAMPLES,
-                patternMinActiveDaysPerWindow = prefs[KEY_PATTERN_MIN_ACTIVE_DAYS] ?: DEFAULT_PATTERN_MIN_ACTIVE_DAYS,
-                patternLowRateTrigger = prefs[KEY_PATTERN_LOW_RATE_TRIGGER] ?: DEFAULT_PATTERN_LOW_RATE_TRIGGER,
-                patternHighRateTrigger = prefs[KEY_PATTERN_HIGH_RATE_TRIGGER] ?: DEFAULT_PATTERN_HIGH_RATE_TRIGGER,
-                analyticsLookbackDays = prefs[KEY_ANALYTICS_LOOKBACK_DAYS] ?: DEFAULT_ANALYTICS_LOOKBACK_DAYS,
-                maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
-                staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
-                exportFolderUri = prefs[KEY_EXPORT_URI]
-            )
+            val current = readSettings(prefs)
             val next = updater(current)
             prefs[KEY_NS_URL] = next.nightscoutUrl
             prefs[KEY_NS_SECRET] = next.apiSecret
@@ -433,6 +271,7 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] = next.uamExportMaxBackdateMin
             prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES] = next.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180)
             prefs[KEY_CARB_COMPUTATION_MAX_GRAMS] = next.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+            prefs[KEY_SENSOR_LAG_CORRECTION_MODE] = next.sensorLagCorrectionMode.name
             prefs[KEY_ISFCR_SHADOW_MODE] = next.isfCrShadowMode
             prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] = next.isfCrConfidenceThreshold.coerceIn(0.2, 0.95)
             prefs[KEY_ISFCR_USE_ACTIVITY] = next.isfCrUseActivity
@@ -534,6 +373,13 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_PATTERN_LOW_RATE_TRIGGER] = next.patternLowRateTrigger
             prefs[KEY_PATTERN_HIGH_RATE_TRIGGER] = next.patternHighRateTrigger
             prefs[KEY_ANALYTICS_LOOKBACK_DAYS] = next.analyticsLookbackDays
+            prefs[KEY_CIRCADIAN_PATTERNS_ENABLED] = next.circadianPatternsEnabled
+            prefs[KEY_CIRCADIAN_STABLE_LOOKBACK_DAYS] = next.circadianStableLookbackDays
+            prefs[KEY_CIRCADIAN_RECENCY_LOOKBACK_DAYS] = next.circadianRecencyLookbackDays
+            prefs[KEY_CIRCADIAN_USE_WEEKEND_SPLIT] = next.circadianUseWeekendSplit
+            prefs[KEY_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS] = next.circadianUseReplayResidualBias
+            prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_30] = next.circadianForecastWeight30
+            prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_60] = next.circadianForecastWeight60
             prefs[KEY_MAX_ACTIONS_6H] = next.maxActionsIn6Hours
             prefs[KEY_STALE_DATA_MAX_MINUTES] = next.staleDataMaxMinutes
             if (next.exportFolderUri.isNullOrBlank()) {
@@ -602,6 +448,10 @@ class AppSettingsStore(context: Context) {
         }.getOrDefault(UamExportMode.CONFIRMED_ONLY)
     }
 
+    private fun resolveSensorLagCorrectionMode(raw: String?): SensorLagCorrectionMode {
+        return SensorLagCorrectionMode.fromRaw(raw)
+    }
+
     private fun resolveUiStyle(raw: String?): UiStyle {
         return UiStyle.fromRaw(raw)
     }
@@ -657,6 +507,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_UAM_EXPORT_MAX_BACKDATE_MIN = intPreferencesKey("uam_export_max_backdate_min")
         private val KEY_CARB_ABSORPTION_MAX_AGE_MINUTES = intPreferencesKey("carb_absorption_max_age_minutes")
         private val KEY_CARB_COMPUTATION_MAX_GRAMS = doublePreferencesKey("carb_computation_max_grams")
+        private val KEY_SENSOR_LAG_CORRECTION_MODE = stringPreferencesKey("sensor_lag_correction_mode")
         private val KEY_ISFCR_SHADOW_MODE = booleanPreferencesKey("isfcr_shadow_mode")
         private val KEY_ISFCR_CONFIDENCE_THRESHOLD = doublePreferencesKey("isfcr_confidence_threshold")
         private val KEY_ISFCR_USE_ACTIVITY = booleanPreferencesKey("isfcr_use_activity")
@@ -756,6 +607,13 @@ class AppSettingsStore(context: Context) {
         private val KEY_PATTERN_LOW_RATE_TRIGGER = doublePreferencesKey("pattern_low_rate_trigger")
         private val KEY_PATTERN_HIGH_RATE_TRIGGER = doublePreferencesKey("pattern_high_rate_trigger")
         private val KEY_ANALYTICS_LOOKBACK_DAYS = intPreferencesKey("analytics_lookback_days")
+        private val KEY_CIRCADIAN_PATTERNS_ENABLED = booleanPreferencesKey("circadian_patterns_enabled")
+        private val KEY_CIRCADIAN_STABLE_LOOKBACK_DAYS = intPreferencesKey("circadian_stable_lookback_days")
+        private val KEY_CIRCADIAN_RECENCY_LOOKBACK_DAYS = intPreferencesKey("circadian_recency_lookback_days")
+        private val KEY_CIRCADIAN_USE_WEEKEND_SPLIT = booleanPreferencesKey("circadian_use_weekend_split")
+        private val KEY_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS = booleanPreferencesKey("circadian_use_replay_residual_bias")
+        private val KEY_CIRCADIAN_FORECAST_WEIGHT_30 = doublePreferencesKey("circadian_forecast_weight_30")
+        private val KEY_CIRCADIAN_FORECAST_WEIGHT_60 = doublePreferencesKey("circadian_forecast_weight_60")
         private val KEY_MAX_ACTIONS_6H = intPreferencesKey("max_actions_in_6h")
         private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
         private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
@@ -784,6 +642,13 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_PATTERN_LOW_RATE_TRIGGER = 0.12
         private const val DEFAULT_PATTERN_HIGH_RATE_TRIGGER = 0.18
         private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
+        private const val DEFAULT_CIRCADIAN_PATTERNS_ENABLED = true
+        private const val DEFAULT_CIRCADIAN_STABLE_LOOKBACK_DAYS = 14
+        private const val DEFAULT_CIRCADIAN_RECENCY_LOOKBACK_DAYS = 5
+        private const val DEFAULT_CIRCADIAN_USE_WEEKEND_SPLIT = true
+        private const val DEFAULT_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS = true
+        private const val DEFAULT_CIRCADIAN_FORECAST_WEIGHT_30 = 0.25
+        private const val DEFAULT_CIRCADIAN_FORECAST_WEIGHT_60 = 0.35
         private const val DEFAULT_MAX_ACTIONS_6H = 3
         private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
         private const val DEFAULT_SAFETY_MIN_TARGET_MMOL = 4.0
@@ -913,6 +778,7 @@ data class AppSettings(
     val uamExportMaxBackdateMin: Int = 180,
     val carbAbsorptionMaxAgeMinutes: Int = 180,
     val carbComputationMaxGrams: Double = 60.0,
+    val sensorLagCorrectionMode: SensorLagCorrectionMode = SensorLagCorrectionMode.OFF,
     val isfCrShadowMode: Boolean = true,
     val isfCrConfidenceThreshold: Double = 0.55,
     val isfCrUseActivity: Boolean = true,
@@ -980,6 +846,13 @@ data class AppSettings(
     val patternLowRateTrigger: Double,
     val patternHighRateTrigger: Double,
     val analyticsLookbackDays: Int,
+    val circadianPatternsEnabled: Boolean = true,
+    val circadianStableLookbackDays: Int = 14,
+    val circadianRecencyLookbackDays: Int = 5,
+    val circadianUseWeekendSplit: Boolean = true,
+    val circadianUseReplayResidualBias: Boolean = true,
+    val circadianForecastWeight30: Double = 0.25,
+    val circadianForecastWeight60: Double = 0.35,
     val maxActionsIn6Hours: Int,
     val staleDataMaxMinutes: Int,
     val exportFolderUri: String?

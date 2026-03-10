@@ -1,6 +1,7 @@
 package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
+import java.io.File
 import org.junit.Test
 
 class AiChatRepositoryOptimizerTest {
@@ -68,5 +69,102 @@ class AiChatRepositoryOptimizerTest {
         """.trimIndent()
         assertThat(AiChatRepository.parseResponsesOutputTextStatic(viaContent))
             .contains("\"status\":\"APPLY\"")
+    }
+
+    @Test
+    fun parseResponsesOutputTextStatic_supportsParsedStructuredObject() {
+        val response = """
+            {
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "parsed": {
+                        "status": "APPLY",
+                        "confidence": 0.74,
+                        "reason": "keep upward calibration slightly higher at 60m",
+                        "focus_horizon_min": 60,
+                        "notes": ["parsed branch"],
+                        "calibration": {
+                          "gain_scale_5m": 1.0,
+                          "gain_scale_30m": 1.1,
+                          "gain_scale_60m": 1.2,
+                          "max_up_scale_5m": 1.0,
+                          "max_up_scale_30m": 1.1,
+                          "max_up_scale_60m": 1.2,
+                          "max_down_scale_5m": 1.0,
+                          "max_down_scale_30m": 1.0,
+                          "max_down_scale_60m": 1.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = AiChatRepository.parseResponsesOutputTextStatic(response)
+        assertThat(parsed).contains("\"status\":\"APPLY\"")
+        assertThat(parsed).contains("\"calibration\"")
+    }
+
+    @Test
+    fun parseResponsesOutputTextStatic_supportsDirectOutputTextObjectValue() {
+        val response = """
+            {
+              "output": [
+                {
+                  "type": "output_text",
+                  "text": {
+                    "value": "{\"status\":\"NO_CHANGE\",\"confidence\":0.2,\"reason\":\"stable\",\"focus_horizon_min\":0,\"notes\":[],\"calibration\":{\"gain_scale_5m\":1.0,\"gain_scale_30m\":1.0,\"gain_scale_60m\":1.0,\"max_up_scale_5m\":1.0,\"max_up_scale_30m\":1.0,\"max_up_scale_60m\":1.0,\"max_down_scale_5m\":1.0,\"max_down_scale_30m\":1.0,\"max_down_scale_60m\":1.0}}"
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = AiChatRepository.parseResponsesOutputTextStatic(response)
+        assertThat(parsed).contains("\"status\":\"NO_CHANGE\"")
+        assertThat(parsed).contains("\"confidence\":0.2")
+    }
+
+    @Test
+    fun parseTranscriptionTextStatic_readsTextField() {
+        val parsed = AiChatRepository.parseTranscriptionTextStatic(
+            """
+            {
+              "text": "проверка голосового ввода"
+            }
+            """.trimIndent()
+        )
+
+        assertThat(parsed).isEqualTo("проверка голосового ввода")
+    }
+
+    @Test
+    fun extractTextAttachmentPreviewStatic_readsSupportedTextFile() {
+        val file = File.createTempFile("ai-chat-", ".txt")
+        file.writeText("line one\nline two")
+        try {
+            val preview = AiChatRepository.extractTextAttachmentPreviewStatic(file, "text/plain")
+            assertThat(preview).isEqualTo("line one\nline two")
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun extractTextAttachmentPreviewStatic_ignoresBinaryFile() {
+        val file = File.createTempFile("ai-chat-", ".bin")
+        file.writeBytes(byteArrayOf(1, 2, 3, 4))
+        try {
+            val preview = AiChatRepository.extractTextAttachmentPreviewStatic(file, "application/octet-stream")
+            assertThat(preview).isNull()
+        } finally {
+            file.delete()
+        }
     }
 }

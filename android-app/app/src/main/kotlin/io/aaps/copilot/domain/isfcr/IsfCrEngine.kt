@@ -144,6 +144,16 @@ class IsfCrEngine(
         val crHourWindowSameDayTypeCount = crHourWindowSamples.count { it.dayType == currentDayType }
         val isfHourEvidenceEnough = isfHourWindowEvidenceCount >= minIsfEvidencePerHour
         val crHourEvidenceEnough = crHourWindowEvidenceCount >= minCrEvidencePerHour
+        val isfStrongGlobalEvidence = hasStrongGlobalEvidence(
+            totalEvidenceCount = isfEvidence.size,
+            minEvidencePerHour = minIsfEvidencePerHour,
+            absoluteMin = 2
+        )
+        val crStrongGlobalEvidence = hasStrongGlobalEvidence(
+            totalEvidenceCount = crEvidence.size,
+            minEvidencePerHour = minCrEvidencePerHour,
+            absoluteMin = 4
+        )
         val isfDayTypeEvidenceSparse = isfHourWindowEvidenceCount > 0 && isfHourWindowSameDayTypeCount == 0
         val crDayTypeEvidenceSparse = crHourWindowEvidenceCount > 0 && crHourWindowSameDayTypeCount == 0
 
@@ -207,16 +217,18 @@ class IsfCrEngine(
         var ciCrLow = confidence.ciCrLow
         var ciCrHigh = confidence.ciCrHigh
         if (!isfHourEvidenceEnough) {
-            adjustedConfidence = min(
-                adjustedConfidence,
-                (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
-            )
-            adjustedQuality = (adjustedQuality * 0.92).coerceIn(0.0, 1.0)
+            if (!isfStrongGlobalEvidence) {
+                adjustedConfidence = min(
+                    adjustedConfidence,
+                    (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
+                )
+            }
+            adjustedQuality = (adjustedQuality * if (isfStrongGlobalEvidence) 0.96 else 0.92).coerceIn(0.0, 1.0)
             val bounds = inflateCiBounds(
                 center = context.isfEff,
                 low = ciIsfLow,
                 high = ciIsfHigh,
-                factor = 1.18,
+                factor = if (isfStrongGlobalEvidence) 1.12 else 1.18,
                 minBound = 0.8,
                 maxBound = 18.0
             )
@@ -224,16 +236,18 @@ class IsfCrEngine(
             ciIsfHigh = bounds.second
         }
         if (!crHourEvidenceEnough) {
-            adjustedConfidence = min(
-                adjustedConfidence,
-                (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
-            )
-            adjustedQuality = (adjustedQuality * 0.92).coerceIn(0.0, 1.0)
+            if (!crStrongGlobalEvidence) {
+                adjustedConfidence = min(
+                    adjustedConfidence,
+                    (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
+                )
+            }
+            adjustedQuality = (adjustedQuality * if (crStrongGlobalEvidence) 0.96 else 0.92).coerceIn(0.0, 1.0)
             val bounds = inflateCiBounds(
                 center = context.crEff,
                 low = ciCrLow,
                 high = ciCrHigh,
-                factor = 1.18,
+                factor = if (crStrongGlobalEvidence) 1.12 else 1.18,
                 minBound = 2.0,
                 maxBound = 60.0
             )
@@ -241,16 +255,18 @@ class IsfCrEngine(
             ciCrHigh = bounds.second
         }
         if (isfDayTypeEvidenceSparse) {
-            adjustedConfidence = min(
-                adjustedConfidence,
-                (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
-            )
-            adjustedQuality = (adjustedQuality * 0.96).coerceIn(0.0, 1.0)
+            if (!isfStrongGlobalEvidence) {
+                adjustedConfidence = min(
+                    adjustedConfidence,
+                    (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
+                )
+            }
+            adjustedQuality = (adjustedQuality * if (isfStrongGlobalEvidence) 0.98 else 0.96).coerceIn(0.0, 1.0)
             val bounds = inflateCiBounds(
                 center = context.isfEff,
                 low = ciIsfLow,
                 high = ciIsfHigh,
-                factor = 1.10,
+                factor = if (isfStrongGlobalEvidence) 1.06 else 1.10,
                 minBound = 0.8,
                 maxBound = 18.0
             )
@@ -258,16 +274,18 @@ class IsfCrEngine(
             ciIsfHigh = bounds.second
         }
         if (crDayTypeEvidenceSparse) {
-            adjustedConfidence = min(
-                adjustedConfidence,
-                (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
-            )
-            adjustedQuality = (adjustedQuality * 0.96).coerceIn(0.0, 1.0)
+            if (!crStrongGlobalEvidence) {
+                adjustedConfidence = min(
+                    adjustedConfidence,
+                    (settings.confidenceThreshold - 0.01).coerceAtLeast(0.0)
+                )
+            }
+            adjustedQuality = (adjustedQuality * if (crStrongGlobalEvidence) 0.98 else 0.96).coerceIn(0.0, 1.0)
             val bounds = inflateCiBounds(
                 center = context.crEff,
                 low = ciCrLow,
                 high = ciCrHigh,
-                factor = 1.10,
+                factor = if (crStrongGlobalEvidence) 1.06 else 1.10,
                 minBound = 2.0,
                 maxBound = 60.0
             )
@@ -342,6 +360,8 @@ class IsfCrEngine(
             "cr_hour_window_same_day_type_count" to crHourWindowSameDayTypeCount.toDouble(),
             "isf_hour_window_evidence_enough" to if (isfHourEvidenceEnough) 1.0 else 0.0,
             "cr_hour_window_evidence_enough" to if (crHourEvidenceEnough) 1.0 else 0.0,
+            "isf_global_evidence_strong" to if (isfStrongGlobalEvidence) 1.0 else 0.0,
+            "cr_global_evidence_strong" to if (crStrongGlobalEvidence) 1.0 else 0.0,
             "raw_isf_eff" to context.isfEff,
             "raw_cr_eff" to context.crEff,
             "raw_confidence" to adjustedConfidence,
@@ -483,6 +503,15 @@ class IsfCrEngine(
     private fun expDecay(distance: Double, halfLifeHours: Double): Double {
         if (distance <= 0.0) return 1.0
         return kotlin.math.exp(-ln(2.0) * distance / halfLifeHours)
+    }
+
+    private fun hasStrongGlobalEvidence(
+        totalEvidenceCount: Int,
+        minEvidencePerHour: Int,
+        absoluteMin: Int
+    ): Boolean {
+        val target = maxOf(absoluteMin, minEvidencePerHour.coerceAtLeast(0))
+        return totalEvidenceCount >= target
     }
 
     private fun inflateCiBounds(

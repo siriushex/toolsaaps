@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
@@ -35,11 +37,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,11 +57,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import io.aaps.copilot.R
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import io.aaps.copilot.ui.foundation.theme.LocalNumericTypography
+import java.util.Locale
+import kotlin.math.abs
 
 private val SectionShape = RoundedCornerShape(18.dp)
 private val InfoShape = RoundedCornerShape(12.dp)
@@ -68,9 +76,20 @@ fun OverviewScreen(
     state: OverviewUiState,
     onRunCycleNow: () -> Unit,
     onSetKillSwitch: (Boolean) -> Unit,
+    onOpenSensorLagAnalytics: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showKillSwitchConfirm by remember { mutableStateOf(false) }
+    var deferredSectionsReady by remember { mutableStateOf(false) }
+    var valueAnimationsReady by remember { mutableStateOf(false) }
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        deferredSectionsReady = true
+        withFrameNanos { }
+        valueAnimationsReady = true
+    }
 
     if (showKillSwitchConfirm) {
         AlertDialog(
@@ -114,33 +133,42 @@ fun OverviewScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             item {
-                OverviewHeader(state = state)
+                OverviewHeader(state = state, midnightGlass = midnightGlass)
             }
             item {
-                CurrentGlucoseSection(state = state)
-            }
-            item {
-                PredictionsSection(horizons = state.horizons)
-            }
-            item {
-                UamSection(
-                    active = state.uamActive,
-                    uci0Mmol5m = state.uci0Mmol5m,
-                    inferredCarbsLast60g = state.inferredCarbsLast60g,
-                    mode = state.uamModeLabel
+                CurrentGlucoseSection(
+                    state = state,
+                    animationsEnabled = valueAnimationsReady,
+                    midnightGlass = midnightGlass,
+                    onOpenSensorLagAnalytics = onOpenSensorLagAnalytics
                 )
             }
             item {
-                TelemetrySection(chips = state.telemetryChips)
+                PredictionsSection(horizons = state.horizons, midnightGlass = midnightGlass)
             }
-            item {
-                LastActionSection(action = state.lastAction)
+            if (deferredSectionsReady) {
+                item {
+                    UamSection(
+                        active = state.uamActive,
+                        uci0Mmol5m = state.uci0Mmol5m,
+                        inferredCarbsLast60g = state.inferredCarbsLast60g,
+                        mode = state.uamModeLabel,
+                        midnightGlass = midnightGlass
+                    )
+                }
+                item {
+                    TelemetrySection(chips = state.telemetryChips, midnightGlass = midnightGlass)
+                }
+                item {
+                    LastActionSection(action = state.lastAction, midnightGlass = midnightGlass)
+                }
             }
             item {
                 ActionButtonsRow(
                     canRunCycleNow = state.canRunCycleNow,
                     onRunCycleNow = onRunCycleNow,
-                    onKillSwitch = { showKillSwitchConfirm = true }
+                    onKillSwitch = { showKillSwitchConfirm = true },
+                    midnightGlass = midnightGlass
                 )
             }
         }
@@ -148,7 +176,7 @@ fun OverviewScreen(
 }
 
 @Composable
-private fun OverviewHeader(state: OverviewUiState) {
+private fun OverviewHeader(state: OverviewUiState, midnightGlass: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -167,7 +195,11 @@ private fun OverviewHeader(state: OverviewUiState) {
         }
         Surface(
             shape = PillShape,
-            color = if (state.isStale) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+            color = if (midnightGlass) {
+                if (state.isStale) Color(0x33FFB020) else Color(0x221D4ED8)
+            } else {
+                if (state.isStale) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
+            },
             modifier = Modifier.semantics {
                 contentDescription = staleChipText
             }
@@ -175,7 +207,11 @@ private fun OverviewHeader(state: OverviewUiState) {
             Text(
                 text = staleChipText,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (state.isStale) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                color = if (midnightGlass) {
+                    if (state.isStale) Color(0xFFFFD180) else Color(0xFF8DB6FF)
+                } else {
+                    if (state.isStale) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                },
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
             )
         }
@@ -183,7 +219,12 @@ private fun OverviewHeader(state: OverviewUiState) {
 }
 
 @Composable
-private fun CurrentGlucoseSection(state: OverviewUiState) {
+private fun CurrentGlucoseSection(
+    state: OverviewUiState,
+    animationsEnabled: Boolean,
+    midnightGlass: Boolean,
+    onOpenSensorLagAnalytics: (() -> Unit)?
+) {
     val risk = riskBadge(state.glucose, state.isStale)
     val warningHorizon = state.horizons
         .filter { it.warningWideCi }
@@ -196,21 +237,38 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
         )
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = if (midnightGlass) Color(0xAA101D38) else Color.Transparent,
+                    shape = RoundedCornerShape(22.dp)
+                )
+                .padding(horizontal = if (midnightGlass) 18.dp else 0.dp, vertical = if (midnightGlass) 18.dp else 0.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-                AnimatedContent(
-                    targetState = UiFormatters.formatMmol(state.glucose, 2),
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(220)) togetherWith
-                            fadeOut(animationSpec = tween(180))
-                    },
-                    label = "overviewGlucoseValue"
-                ) { glucoseValue ->
+                if (animationsEnabled) {
+                    AnimatedContent(
+                        targetState = UiFormatters.formatMmol(state.glucose, 2),
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(220)) togetherWith
+                                fadeOut(animationSpec = tween(180))
+                        },
+                        label = "overviewGlucoseValue"
+                    ) { glucoseValue ->
+                        Text(
+                            text = glucoseValue,
+                            style = LocalNumericTypography.current.valueLarge.copy(
+                                fontSize = 56.sp,
+                                lineHeight = 56.sp,
+                                letterSpacing = (-1.1).sp
+                            )
+                        )
+                    }
+                } else {
                     Text(
-                        text = glucoseValue,
+                        text = UiFormatters.formatMmol(state.glucose, 2),
                         style = LocalNumericTypography.current.valueLarge.copy(
                             fontSize = 56.sp,
                             lineHeight = 56.sp,
@@ -221,23 +279,91 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
                 Text(
                     text = stringResource(id = R.string.unit_mmol_l),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (state.correctedGlucose != null && abs((state.correctedGlucose ?: 0.0) - (state.glucose ?: 0.0)) >= 0.01) {
+                    Text(
+                        text = buildString {
+                            append(
+                                if (state.sensorLagMode?.equals("ACTIVE", ignoreCase = true) == true) {
+                                    "Control glucose "
+                                } else {
+                                    "Estimated now "
+                                }
+                            )
+                            append(UiFormatters.formatMmol(state.correctedGlucose, 2))
+                            append(" mmol/L")
+                            state.sensorLagMinutes?.let {
+                                append(" · lag ")
+                                append(UiFormatters.formatDecimalOrPlaceholder(it, decimals = 0))
+                                append("m")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (midnightGlass) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.primary
+                    )
+                }
+                state.sensorLagRolloutVerdict?.let { verdict ->
+                    val verdictText = stringResource(
+                        id = R.string.overview_sensor_lag_rollout_template,
+                        stringResource(id = overviewSensorLagRolloutStatusLabelResId(verdict.status)),
+                        stringResource(id = overviewSensorLagBucketLabelResId(verdict.bucket))
+                    )
+                    val verdictTone = overviewSensorLagRolloutTone(
+                        status = verdict.status,
+                        midnightGlass = midnightGlass
+                    )
+                    if (onOpenSensorLagAnalytics != null) {
+                        Surface(
+                            shape = InfoShape,
+                            color = if (midnightGlass) {
+                                Color(0x1A7FB3FF)
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            },
+                            border = BorderStroke(1.dp, verdictTone.copy(alpha = if (midnightGlass) 0.45f else 0.35f)),
+                            modifier = Modifier
+                                .clickable(onClick = onOpenSensorLagAnalytics)
+                                .semantics { contentDescription = verdictText }
+                        ) {
+                            Text(
+                                text = verdictText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = verdictTone,
+                                modifier = Modifier.padding(horizontal = Spacing.xs, vertical = Spacing.xxs)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = verdictText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = verdictTone
+                        )
+                    }
+                }
             }
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
             ) {
-                AnimatedContent(
-                    targetState = UiFormatters.formatSignedDelta(state.delta, 2),
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(220)) togetherWith
-                            fadeOut(animationSpec = tween(180))
-                    },
-                    label = "overviewDeltaValue"
-                ) { deltaValue ->
+                if (animationsEnabled) {
+                    AnimatedContent(
+                        targetState = UiFormatters.formatSignedDelta(state.delta, 2),
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(220)) togetherWith
+                                fadeOut(animationSpec = tween(180))
+                        },
+                        label = "overviewDeltaValue"
+                    ) { deltaValue ->
+                        Text(
+                            text = deltaValue,
+                            style = LocalNumericTypography.current.valueMedium.copy(fontSize = 28.sp),
+                            color = deltaTone(state.delta)
+                        )
+                    }
+                } else {
                     Text(
-                        text = deltaValue,
+                        text = UiFormatters.formatSignedDelta(state.delta, 2),
                         style = LocalNumericTypography.current.valueMedium.copy(fontSize = 28.sp),
                         color = deltaTone(state.delta)
                     )
@@ -245,8 +371,15 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
                 Text(
                     text = stringResource(id = R.string.overview_roc_label),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (!state.sensorLagDisableReason.isNullOrBlank()) {
+                    Text(
+                        text = state.sensorLagDisableReason.replace('_', ' '),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (midnightGlass) Color(0xFFFFD180) else MaterialTheme.colorScheme.tertiary
+                    )
+                }
             }
         }
 
@@ -261,12 +394,12 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
                     UiFormatters.formatMinutes(state.sampleAgeMinutes)
                 ),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Surface(
                 shape = PillShape,
                 color = risk.bgColor,
-                border = BorderStroke(1.dp, risk.tone.copy(alpha = 0.35f))
+                border = BorderStroke(1.dp, risk.tone.copy(alpha = if (midnightGlass) 0.25f else 0.35f))
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -291,8 +424,8 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
         if (warningHorizon != null) {
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                color = if (midnightGlass) Color(0x33FFB020) else MaterialTheme.colorScheme.tertiaryContainer,
+                border = BorderStroke(1.dp, if (midnightGlass) Color(0x33FFB020) else MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Row(
                     modifier = Modifier
@@ -312,7 +445,7 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
                             warningHorizon.horizonMinutes
                         ),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        color = if (midnightGlass) Color(0xFFFFD180) else MaterialTheme.colorScheme.onTertiaryContainer
                     )
                 }
             }
@@ -321,7 +454,10 @@ private fun CurrentGlucoseSection(state: OverviewUiState) {
 }
 
 @Composable
-private fun PredictionsSection(horizons: List<HorizonPredictionUi>) {
+private fun PredictionsSection(
+    horizons: List<HorizonPredictionUi>,
+    midnightGlass: Boolean
+) {
     val sorted = horizons.sortedBy { it.horizonMinutes }
     SectionCard {
         SectionLabel(
@@ -335,7 +471,8 @@ private fun PredictionsSection(horizons: List<HorizonPredictionUi>) {
             sorted.forEach { horizon ->
                 PredictionCell(
                     horizon = horizon,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    midnightGlass = midnightGlass
                 )
             }
         }
@@ -345,13 +482,31 @@ private fun PredictionsSection(horizons: List<HorizonPredictionUi>) {
 @Composable
 private fun PredictionCell(
     horizon: HorizonPredictionUi,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    midnightGlass: Boolean
 ) {
+    val (container, content, ciTone) = when {
+        !midnightGlass -> Triple(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onSurface,
+            MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        horizon.pred != null && horizon.pred < 4.4 -> Triple(
+            Color(0x55312735),
+            Color(0xFFF8FAFC),
+            Color(0xFFFFD180)
+        )
+        else -> Triple(
+            Color(0xFF10275A),
+            Color(0xFFF8FAFC),
+            Color(0xFFB5C0D8)
+        )
+    }
     Surface(
         modifier = modifier,
         shape = InfoShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = container,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
@@ -360,11 +515,12 @@ private fun PredictionCell(
             Text(
                 text = "${horizon.horizonMinutes}m",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = ciTone
             )
             Text(
                 text = UiFormatters.formatMmol(horizon.pred, 2),
-                style = LocalNumericTypography.current.valueMedium.copy(fontSize = 29.sp)
+                style = LocalNumericTypography.current.valueMedium.copy(fontSize = 29.sp),
+                color = content
             )
             Text(
                 text = stringResource(
@@ -373,7 +529,7 @@ private fun PredictionCell(
                     UiFormatters.formatMmol(horizon.ciHigh, 2)
                 ),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = ciTone
             )
         }
     }
@@ -384,7 +540,8 @@ private fun UamSection(
     active: Boolean?,
     uci0Mmol5m: Double?,
     inferredCarbsLast60g: Double?,
-    mode: String?
+    mode: String?,
+    midnightGlass: Boolean
 ) {
     SectionCard {
         SectionLabel(
@@ -403,13 +560,15 @@ private fun UamSection(
                         true -> stringResource(id = R.string.status_on_short)
                         false -> stringResource(id = R.string.status_off_short)
                         null -> stringResource(id = R.string.placeholder_missing)
-                    }
+                    },
+                    midnightGlass = midnightGlass
                 )
                 UamInfoCard(
                     modifier = Modifier.weight(1f),
                     title = stringResource(id = R.string.overview_uam_uci0),
                     value = uci0Mmol5m?.let { "${UiFormatters.formatMmol(it, 2)} mmol/5m" }
-                        ?: stringResource(id = R.string.placeholder_missing)
+                        ?: stringResource(id = R.string.placeholder_missing),
+                    midnightGlass = midnightGlass
                 )
             }
             Row(
@@ -420,12 +579,14 @@ private fun UamSection(
                     modifier = Modifier.weight(1f),
                     title = stringResource(id = R.string.overview_label_inferred_60m),
                     value = inferredCarbsLast60g?.let { UiFormatters.formatGrams(it, 0) + " g" }
-                        ?: stringResource(id = R.string.placeholder_missing)
+                        ?: stringResource(id = R.string.placeholder_missing),
+                    midnightGlass = midnightGlass
                 )
                 UamInfoCard(
                     modifier = Modifier.weight(1f),
                     title = stringResource(id = R.string.overview_label_mode),
-                    value = mode ?: stringResource(id = R.string.placeholder_missing)
+                    value = mode ?: stringResource(id = R.string.placeholder_missing),
+                    midnightGlass = midnightGlass
                 )
             }
         }
@@ -436,13 +597,14 @@ private fun UamSection(
 private fun UamInfoCard(
     title: String,
     value: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    midnightGlass: Boolean
 ) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp),
@@ -451,19 +613,19 @@ private fun UamInfoCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
 
 @Composable
-private fun TelemetrySection(chips: List<TelemetryChipUi>) {
+private fun TelemetrySection(chips: List<TelemetryChipUi>, midnightGlass: Boolean) {
     SectionCard {
         SectionLabel(
             text = stringResource(id = R.string.section_overview_telemetry),
@@ -486,8 +648,8 @@ private fun TelemetrySection(chips: List<TelemetryChipUi>) {
                 }
                 Surface(
                     shape = PillShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    color = if (midnightGlass) Color(0xFF162544) else MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.semantics {
                         contentDescription = line
                     }
@@ -495,7 +657,7 @@ private fun TelemetrySection(chips: List<TelemetryChipUi>) {
                     Text(
                         text = line,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
                     )
                 }
@@ -505,7 +667,7 @@ private fun TelemetrySection(chips: List<TelemetryChipUi>) {
 }
 
 @Composable
-private fun LastActionSection(action: LastActionUi?) {
+private fun LastActionSection(action: LastActionUi?, midnightGlass: Boolean) {
     SectionCard {
         SectionLabel(
             text = stringResource(id = R.string.section_overview_last_action),
@@ -527,25 +689,51 @@ private fun LastActionSection(action: LastActionUi?) {
             Text(
                 text = actionSummary(action = action),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
-            StatusPill(status = action.status)
+            StatusPill(status = action.status, midnightGlass = midnightGlass)
         }
 
         val idempotency = action.idempotencyKey ?: stringResource(id = R.string.placeholder_missing)
         Text(
             text = "${UiFormatters.formatTimestamp(action.timestamp)} · ${stringResource(id = R.string.overview_action_meta, idempotency)}",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
 @Composable
-private fun StatusPill(status: String) {
-    val sent = status.contains("SENT", ignoreCase = true)
-    val tone = if (sent) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.error
-    val bg = if (sent) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer
+private fun StatusPill(status: String, midnightGlass: Boolean) {
+    val normalized = status.uppercase(Locale.US)
+    val isSent = normalized.contains("SENT")
+    val isBlocked = normalized.contains("BLOCKED")
+    val tone = if (midnightGlass) {
+        when {
+            isSent -> Color(0xFF9FFFB0)
+            isBlocked -> Color(0xFFFFD37A)
+            else -> Color(0xFFFF8A80)
+        }
+    } else {
+        when {
+            isSent -> MaterialTheme.colorScheme.onSecondaryContainer
+            isBlocked -> MaterialTheme.colorScheme.onTertiaryContainer
+            else -> MaterialTheme.colorScheme.error
+        }
+    }
+    val bg = if (midnightGlass) {
+        when {
+            isSent -> Color(0x2200E676)
+            isBlocked -> Color(0x33F59E0B)
+            else -> Color(0x66B42318)
+        }
+    } else {
+        when {
+            isSent -> MaterialTheme.colorScheme.secondaryContainer
+            isBlocked -> MaterialTheme.colorScheme.tertiaryContainer
+            else -> MaterialTheme.colorScheme.errorContainer
+        }
+    }
 
     Surface(
         shape = PillShape,
@@ -564,7 +752,8 @@ private fun StatusPill(status: String) {
 private fun ActionButtonsRow(
     canRunCycleNow: Boolean,
     onRunCycleNow: () -> Unit,
-    onKillSwitch: () -> Unit
+    onKillSwitch: () -> Unit,
+    midnightGlass: Boolean
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -574,7 +763,7 @@ private fun ActionButtonsRow(
             onClick = onRunCycleNow,
             enabled = canRunCycleNow,
             modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(16.dp)
         ) {
             Icon(Icons.Default.Bolt, contentDescription = stringResource(id = R.string.overview_run_cycle_now))
             Text(
@@ -586,14 +775,18 @@ private fun ActionButtonsRow(
         OutlinedButton(
             onClick = onKillSwitch,
             modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x33FFB020) else MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Icon(Icons.Default.Warning, contentDescription = stringResource(id = R.string.overview_kill_switch_shortcut), tint = MaterialTheme.colorScheme.onErrorContainer)
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = stringResource(id = R.string.overview_kill_switch_shortcut),
+                tint = if (midnightGlass) Color(0xFFFFD180) else MaterialTheme.colorScheme.onErrorContainer
+            )
             Text(
                 text = stringResource(id = R.string.overview_kill_switch_shortcut),
                 modifier = Modifier.padding(start = Spacing.xxs),
-                color = MaterialTheme.colorScheme.onErrorContainer
+                color = if (midnightGlass) Color(0xFFFFD180) else MaterialTheme.colorScheme.onErrorContainer
             )
         }
     }
@@ -604,11 +797,12 @@ private fun SectionCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = SectionShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = if (midnightGlass) RoundedCornerShape(28.dp) else SectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -625,6 +819,7 @@ private fun SectionLabel(
     infoText: String? = null
 ) {
     var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -633,15 +828,20 @@ private fun SectionLabel(
         Text(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (!infoText.isNullOrBlank()) {
-            IconButton(onClick = { showInfo = true }) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
+            ) {
+                IconButton(onClick = { showInfo = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                        tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
@@ -745,6 +945,34 @@ private fun deltaTone(delta: Double?): Color {
     }
 }
 
+@Composable
+private fun overviewSensorLagRolloutTone(status: String, midnightGlass: Boolean): Color {
+    return when (status.uppercase(Locale.US)) {
+        "ACTIVE_CANDIDATE" -> if (midnightGlass) Color(0xFF9ED9B0) else MaterialTheme.colorScheme.secondary
+        "HOLD" -> if (midnightGlass) Color(0xFFFFD180) else MaterialTheme.colorScheme.tertiary
+        else -> if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+private fun overviewSensorLagRolloutStatusLabelResId(status: String): Int {
+    return when (status.uppercase(Locale.US)) {
+        "ACTIVE_CANDIDATE" -> R.string.analytics_daily_report_sensor_lag_rollout_active
+        "SHADOW_FIRST" -> R.string.analytics_daily_report_sensor_lag_rollout_shadow
+        "HOLD" -> R.string.analytics_daily_report_sensor_lag_rollout_hold
+        else -> R.string.analytics_daily_report_sensor_lag_rollout_insufficient
+    }
+}
+
+private fun overviewSensorLagBucketLabelResId(bucket: String): Int {
+    return when (bucket) {
+        "<24h" -> R.string.analytics_daily_report_sensor_lag_bucket_lt24h
+        "1-10d" -> R.string.analytics_daily_report_sensor_lag_bucket_1_10d
+        "10-12d" -> R.string.analytics_daily_report_sensor_lag_bucket_10_12d
+        "12-14d" -> R.string.analytics_daily_report_sensor_lag_bucket_12_14d
+        else -> R.string.analytics_daily_report_sensor_lag_bucket_gt14d
+    }
+}
+
 @Preview(showBackground = true)
 @Composable
 private fun OverviewScreenPreview() {
@@ -754,9 +982,14 @@ private fun OverviewScreenPreview() {
                 loadState = ScreenLoadState.READY,
                 isStale = true,
                 glucose = 8.7,
+                correctedGlucose = 9.0,
                 delta = 0.24,
                 sampleAgeMinutes = 7,
                 isProMode = true,
+                sensorLagRolloutVerdict = SensorLagRolloutVerdictUi(
+                    status = "SHADOW_FIRST",
+                    bucket = "10-12d"
+                ),
                 horizons = listOf(
                     HorizonPredictionUi(5, 8.92, 8.60, 9.22),
                     HorizonPredictionUi(30, 9.78, 8.10, 10.95),

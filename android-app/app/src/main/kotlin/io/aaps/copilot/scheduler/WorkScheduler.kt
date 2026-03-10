@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import io.aaps.copilot.service.LocalNightscoutForegroundService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -28,16 +29,22 @@ object WorkScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(SYNC_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, syncWork)
+            .enqueueUniquePeriodicWork(SYNC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, syncWork)
 
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(ANALYSIS_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, analysisWork)
+            .enqueueUniquePeriodicWork(ANALYSIS_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, analysisWork)
 
         // Remove legacy keepalive worker that relied on background FGS restarts.
         WorkManager.getInstance(context).cancelUniqueWork(LEGACY_RUNTIME_KEEPALIVE_WORK_NAME)
     }
 
     fun triggerReactiveAutomation(context: Context): Boolean {
+        // When the foreground runtime minute loop is active, it already runs automation each minute.
+        // Avoid enqueuing extra reactive jobs that overload JobScheduler and increase kill risk.
+        if (LocalNightscoutForegroundService.isMinuteLoopActive()) {
+            return false
+        }
+
         val now = System.currentTimeMillis()
         val last = lastReactiveEnqueueTsMs.get()
         if (now - last < REACTIVE_ENQUEUE_DEBOUNCE_MS) {

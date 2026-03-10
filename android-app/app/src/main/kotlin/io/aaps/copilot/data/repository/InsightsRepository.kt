@@ -266,7 +266,7 @@ class InsightsRepository(
             .asSequence()
             .filter { it.horizonMinutes in DAILY_FORECAST_HORIZONS }
             .toList()
-        val glucose = db.glucoseDao().since(glucoseSince)
+        val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(glucoseSince))
         val telemetry = db.telemetryDao().since(reportSince - 60L * 60L * 1000L)
 
         val forecasts = allForecasts
@@ -789,6 +789,8 @@ class InsightsRepository(
         addText("daily_report_replay_top_miss_json", serializeReplayTopMisses(payload.replayTopMisses))
         addText("daily_report_replay_error_cluster_json", serializeReplayErrorClusters(payload.replayErrorClusters))
         addText("daily_report_replay_daytype_gap_json", serializeReplayDayTypeGaps(payload.replayDayTypeGaps))
+        addText("daily_report_sensor_lag_bucket_json", serializeSensorLagReplayBuckets(payload.sensorLagReplayBuckets))
+        addText("daily_report_sensor_lag_shadow_json", serializeSensorLagShadowBuckets(payload.sensorLagShadowBuckets))
         rollingPayloads.forEach { (days, rollingPayload) ->
             val prefix = "rolling_report_${days}d"
             addNumeric("${prefix}_matched_samples", rollingPayload.matchedSamples.toDouble())
@@ -1019,6 +1021,28 @@ class InsightsRepository(
             }
         }
         lines += ""
+        lines += "## Sensor Lag Replay: Raw vs Lag-Corrected by Sensor Age"
+        if (payload.sensorLagReplayBuckets.isEmpty()) {
+            lines += "- Sensor-lag replay buckets unavailable."
+        } else {
+            lines += "| Horizon | Age bucket | n | Raw MAE | Lag MAE | Improvement | Raw bias | Lag bias |"
+            lines += "|---:|---|---:|---:|---:|---:|---:|---:|"
+            payload.sensorLagReplayBuckets.forEach { row ->
+                lines += "| ${row.horizonMinutes}m | ${row.bucket} | ${row.sampleCount} | ${fmt(row.rawMae)} | ${fmt(row.lagMae)} | ${fmt(row.maeImprovementMmol)} | ${fmt(row.rawBias)} | ${fmt(row.lagBias)} |"
+            }
+        }
+        lines += ""
+        lines += "## Sensor Lag Replay: SHADOW Rule Change Rate"
+        if (payload.sensorLagShadowBuckets.isEmpty()) {
+            lines += "- Sensor-lag SHADOW buckets unavailable."
+        } else {
+            lines += "| Age bucket | n | Rule changed (%) | Mean abs target delta (mmol/L) |"
+            lines += "|---|---:|---:|---:|"
+            payload.sensorLagShadowBuckets.forEach { row ->
+                lines += "| ${row.bucket} | ${row.sampleCount} | ${fmt(row.ruleChangedRatePct)} | ${fmt(row.meanAbsTargetDeltaMmol ?: 0.0)} |"
+            }
+        }
+        lines += ""
         lines += "## ISF/CR Data Quality"
         val qualityLines = buildIsfCrDroppedQualityLines(
             sourceMessage = isfCrDroppedSummary?.sourceMessage,
@@ -1094,6 +1118,12 @@ class InsightsRepository(
             val driver = row.dominantFactor?.let { "${it}${row.dominantScore?.let { s -> "(${fmt(s)})" } ?: ""}" } ?: ""
             rows += "replay_daytype_gap,${row.worseDayType},${row.horizonMinutes},,${row.hour},${row.weekdaySampleCount + row.weekendSampleCount},${fmt(row.maeGapMmol)},,${fmt(row.mardGapPct)},,,,,${fmt(row.weekdayMae)},${fmt(row.weekendMae)},${fmt(row.worseMeanCob)},${driver}"
         }
+        payload.sensorLagReplayBuckets.forEach { row ->
+            rows += "sensor_lag_replay,${row.bucket},${row.horizonMinutes},,,${row.sampleCount},${fmt(row.rawMae)},,${fmt(row.lagMae)},${fmt(row.maeImprovementMmol)},,,,${fmt(row.rawBias)},${fmt(row.lagBias)},,"
+        }
+        payload.sensorLagShadowBuckets.forEach { row ->
+            rows += "sensor_lag_shadow,${row.bucket},,,,${row.sampleCount},${fmt(row.ruleChangedRatePct)},,,${fmt(row.meanAbsTargetDeltaMmol ?: 0.0)},,,,,,,"
+        }
         return rows.joinToString(separator = "\n")
     }
 
@@ -1132,6 +1162,11 @@ class InsightsRepository(
         private const val REGIME_LOW = "LOW"
         private const val REGIME_MID = "MID"
         private const val REGIME_HIGH = "HIGH"
+        private const val SENSOR_AGE_BUCKET_LT_24H = "<24h"
+        private const val SENSOR_AGE_BUCKET_1_10D = "1-10d"
+        private const val SENSOR_AGE_BUCKET_10_12D = "10-12d"
+        private const val SENSOR_AGE_BUCKET_12_14D = "12-14d"
+        private const val SENSOR_AGE_BUCKET_GT_14D = ">14d"
         private val CORE_FACTOR_PAIRS = listOf(
             FactorSpec.COB to FactorSpec.IOB,
             FactorSpec.COB to FactorSpec.UAM,
@@ -1307,6 +1342,14 @@ class InsightsRepository(
             val replayDayTypeGaps = buildReplayDayTypeGaps(
                 replayErrorClusters = replayErrorClusters
             )
+            val sensorLagReplayBuckets = buildSensorLagReplayBuckets(
+                rawMatched = matched,
+                glucose = sortedGlucose,
+                telemetrySamples = telemetrySamples
+            )
+            val sensorLagShadowBuckets = buildSensorLagShadowBuckets(
+                telemetrySamples = telemetrySamples
+            )
 
             val recommendations = buildRecommendations(
                 horizonStats = horizonStats,
@@ -1318,7 +1361,9 @@ class InsightsRepository(
                 factorRegimes = factorRegimes,
                 factorPairs = factorPairs,
                 replayErrorClusters = replayErrorClusters,
-                replayDayTypeGaps = replayDayTypeGaps
+                replayDayTypeGaps = replayDayTypeGaps,
+                sensorLagReplayBuckets = sensorLagReplayBuckets,
+                sensorLagShadowBuckets = sensorLagShadowBuckets
             ).distinct()
 
             return DailyForecastReportPayload(
@@ -1338,6 +1383,8 @@ class InsightsRepository(
                 replayTopMisses = replayTopMisses,
                 replayErrorClusters = replayErrorClusters,
                 replayDayTypeGaps = replayDayTypeGaps,
+                sensorLagReplayBuckets = sensorLagReplayBuckets,
+                sensorLagShadowBuckets = sensorLagShadowBuckets,
                 recommendations = recommendations
             )
         }
@@ -1370,7 +1417,9 @@ class InsightsRepository(
             factorRegimes: List<ReplayFactorRegimeStats>,
             factorPairs: List<ReplayFactorPairRegimeStats>,
             replayErrorClusters: List<ReplayErrorClusterStats>,
-            replayDayTypeGaps: List<ReplayDayTypeGapStats>
+            replayDayTypeGaps: List<ReplayDayTypeGapStats>,
+            sensorLagReplayBuckets: List<SensorLagReplayBucketStats>,
+            sensorLagShadowBuckets: List<SensorLagShadowBucketStats>
         ): List<String> {
             val recommendations = mutableListOf<String>()
             val byHorizon = horizonStats.associateBy { it.horizonMinutes }
@@ -1547,6 +1596,47 @@ class InsightsRepository(
                         append("(worse=${top.worseDayType.lowercase(Locale.US)}, ")
                         append("ΔMAE=${fmtStatic(top.maeGapMmol)}, ")
                         append("weekday=${fmtStatic(top.weekdayMae)}, weekend=${fmtStatic(top.weekendMae)}).")
+                    }
+                }
+            val sensorLagLateLifeBest = sensorLagReplayBuckets
+                .asSequence()
+                .filter {
+                    it.bucket in setOf(SENSOR_AGE_BUCKET_10_12D, SENSOR_AGE_BUCKET_12_14D, SENSOR_AGE_BUCKET_GT_14D) &&
+                        it.sampleCount >= 4
+                }
+                .maxByOrNull { it.maeImprovementMmol }
+            sensorLagLateLifeBest
+                ?.takeIf { it.maeImprovementMmol >= 0.10 }
+                ?.let { row ->
+                    recommendations += buildString {
+                        append("Sensor-lag replay improves ${row.bucket} at ${row.horizonMinutes}m ")
+                        append("(raw MAE=${fmtStatic(row.rawMae)}, lag MAE=${fmtStatic(row.lagMae)}, ")
+                        append("gain=${fmtStatic(row.maeImprovementMmol)} mmol/L, n=${row.sampleCount}).")
+                    }
+                }
+            sensorLagReplayBuckets
+                .asSequence()
+                .filter { it.sampleCount >= 4 }
+                .minByOrNull { it.maeImprovementMmol }
+                ?.takeIf { it.maeImprovementMmol <= -0.10 }
+                ?.let { row ->
+                    recommendations += buildString {
+                        append("Sensor-lag path worsens ${row.bucket} at ${row.horizonMinutes}m ")
+                        append("(raw MAE=${fmtStatic(row.rawMae)}, lag MAE=${fmtStatic(row.lagMae)}, ")
+                        append("delta=${fmtStatic(row.maeImprovementMmol)} mmol/L). Re-check lag caps/attenuation.")
+                    }
+                }
+            sensorLagShadowBuckets
+                .maxByOrNull { it.ruleChangedRatePct }
+                ?.takeIf { it.sampleCount >= 4 && it.ruleChangedRatePct >= 15.0 }
+                ?.let { row ->
+                    recommendations += buildString {
+                        append("Sensor-lag SHADOW changes rules in ${row.bucket} ")
+                        append("${fmtStatic(row.ruleChangedRatePct)}% of cycles")
+                        row.meanAbsTargetDeltaMmol?.let {
+                            append(" (mean |Δtarget|=${fmtStatic(it)} mmol/L)")
+                        }
+                        append(". Review this wear-age bucket before enabling ACTIVE broadly.")
                     }
                 }
             return recommendations
@@ -1908,6 +1998,222 @@ class InsightsRepository(
             )
         }
 
+        private fun buildSensorLagReplayBuckets(
+            rawMatched: List<MatchedErrorSample>,
+            glucose: List<GlucoseSampleEntity>,
+            telemetrySamples: List<TelemetrySampleEntity>
+        ): List<SensorLagReplayBucketStats> {
+            if (rawMatched.isEmpty() || glucose.isEmpty() || telemetrySamples.isEmpty()) return emptyList()
+            val sortedGlucose = glucose.sortedBy { it.timestamp }
+            val telemetryByKey = telemetrySamples.groupBy { it.key.lowercase(Locale.US) }
+            val lagMatched = buildSensorLagMatchedSamples(
+                sortedGlucose = sortedGlucose,
+                telemetryByKey = telemetryByKey
+            )
+            if (lagMatched.isEmpty()) return emptyList()
+            val rawByKey = rawMatched.associateBy { it.generationTs to it.horizonMinutes }
+            val lagByKey = lagMatched.associateBy { it.generationTs to it.horizonMinutes }
+            data class Accumulator(
+                var sampleCount: Int = 0,
+                var rawAbsErrorSum: Double = 0.0,
+                var lagAbsErrorSum: Double = 0.0,
+                var rawBiasSum: Double = 0.0,
+                var lagBiasSum: Double = 0.0
+            )
+            val grouped = mutableMapOf<Pair<Int, String>, Accumulator>()
+            rawByKey.keys
+                .intersect(lagByKey.keys)
+                .forEach { key ->
+                    val raw = rawByKey[key] ?: return@forEach
+                    val lag = lagByKey[key] ?: return@forEach
+                    val mode = nearestTelemetryText(
+                        telemetryByKey = telemetryByKey,
+                        key = "sensor_lag_mode",
+                        ts = raw.generationTs,
+                        maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                    )
+                    if (!mode.equals("ACTIVE", ignoreCase = true) &&
+                        !mode.equals("SHADOW", ignoreCase = true)
+                    ) {
+                        return@forEach
+                    }
+                    val ageHours = nearestTelemetryValueMulti(
+                        telemetryByKey = telemetryByKey,
+                        keys = listOf("sensor_lag_age_hours", "isf_factor_sensor_age_hours"),
+                        ts = raw.generationTs,
+                        maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                    ) ?: return@forEach
+                    val bucket = sensorLagAgeBucket(ageHours)
+                    val acc = grouped.getOrPut(raw.horizonMinutes to bucket) { Accumulator() }
+                    acc.sampleCount += 1
+                    acc.rawAbsErrorSum += raw.absError
+                    acc.lagAbsErrorSum += lag.absError
+                    acc.rawBiasSum += raw.pred - raw.actual
+                    acc.lagBiasSum += lag.pred - lag.actual
+                }
+            return grouped.entries
+                .mapNotNull { (key, acc) ->
+                    if (acc.sampleCount < 4) return@mapNotNull null
+                    SensorLagReplayBucketStats(
+                        horizonMinutes = key.first,
+                        bucket = key.second,
+                        sampleCount = acc.sampleCount,
+                        rawMae = acc.rawAbsErrorSum / acc.sampleCount,
+                        lagMae = acc.lagAbsErrorSum / acc.sampleCount,
+                        maeImprovementMmol = (acc.rawAbsErrorSum - acc.lagAbsErrorSum) / acc.sampleCount,
+                        rawBias = acc.rawBiasSum / acc.sampleCount,
+                        lagBias = acc.lagBiasSum / acc.sampleCount
+                    )
+                }
+                .sortedWith(
+                    compareBy<SensorLagReplayBucketStats> { it.horizonMinutes }
+                        .thenBy { sensorLagBucketOrder(it.bucket) }
+                )
+        }
+
+        private fun buildSensorLagMatchedSamples(
+            sortedGlucose: List<GlucoseSampleEntity>,
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
+        ): List<MatchedErrorSample> {
+            val rows = mutableListOf<MatchedErrorSample>()
+            DAILY_FORECAST_HORIZONS.sorted().forEach { horizon ->
+                val selection = resolveSensorLagReplayForecastRowsStatic(
+                    telemetryByKey = telemetryByKey,
+                    horizonMinutes = horizon
+                ) ?: return@forEach
+                selection.rows
+                    .asSequence()
+                    .sortedBy { it.timestamp }
+                    .forEach { forecastRow ->
+                        val targetTs = forecastRow.timestamp + horizon * 60_000L
+                        val toleranceMs = if (horizon <= 10) 5 * 60 * 1000L else 15 * 60 * 1000L
+                        val actual = closestGlucose(sortedGlucose, targetTs, toleranceMs) ?: return@forEach
+                        val pred = forecastRow.valueDouble ?: return@forEach
+                        val absError = abs(actual.mmol - pred)
+                        val ardPct = if (actual.mmol > 0.0) absError / actual.mmol * 100.0 else 0.0
+                        rows += MatchedErrorSample(
+                            ts = targetTs,
+                            generationTs = forecastRow.timestamp,
+                            horizonMinutes = horizon,
+                            pred = pred,
+                            actual = actual.mmol,
+                            absError = absError,
+                            ardPct = ardPct,
+                            ciWidth = 0.0,
+                            modelFamily = selection.modelFamily
+                        )
+                    }
+            }
+            return rows
+        }
+
+        internal fun resolveSensorLagReplayForecastRowsStatic(
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>,
+            horizonMinutes: Int
+        ): SensorLagReplayForecastRows? {
+            val candidateRows = telemetryByKey["sensor_lag_candidate_forecast_${horizonMinutes}m"]
+                .orEmpty()
+                .filter { it.valueDouble != null }
+            if (candidateRows.isNotEmpty()) {
+                return SensorLagReplayForecastRows(
+                    rows = candidateRows,
+                    modelFamily = "sensor_lag_candidate"
+                )
+            }
+            val controlRows = telemetryByKey["sensor_lag_control_forecast_${horizonMinutes}m"]
+                .orEmpty()
+                .filter { it.valueDouble != null }
+            if (controlRows.isNotEmpty()) {
+                return SensorLagReplayForecastRows(
+                    rows = controlRows,
+                    modelFamily = "sensor_lag_control"
+                )
+            }
+            return null
+        }
+
+        private fun buildSensorLagShadowBuckets(
+            telemetrySamples: List<TelemetrySampleEntity>
+        ): List<SensorLagShadowBucketStats> {
+            if (telemetrySamples.isEmpty()) return emptyList()
+            val telemetryByKey = telemetrySamples.groupBy { it.key.lowercase(Locale.US) }
+            val ageRows = telemetryByKey["sensor_lag_age_hours"]
+                .orEmpty()
+                .filter { it.valueDouble != null }
+            if (ageRows.isEmpty()) return emptyList()
+            data class Accumulator(
+                var sampleCount: Int = 0,
+                var changedCount: Int = 0,
+                var absTargetDeltaSum: Double = 0.0,
+                var absTargetDeltaCount: Int = 0
+            )
+            val grouped = mutableMapOf<String, Accumulator>()
+            ageRows.forEach { row ->
+                val mode = nearestTelemetryText(
+                    telemetryByKey = telemetryByKey,
+                    key = "sensor_lag_mode",
+                    ts = row.timestamp,
+                    maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                )
+                if (!mode.equals("SHADOW", ignoreCase = true)) return@forEach
+                val ageHours = row.valueDouble ?: return@forEach
+                val changed = nearestTelemetryValue(
+                    telemetryByKey = telemetryByKey,
+                    key = "sensor_lag_shadow_rule_changed",
+                    ts = row.timestamp,
+                    maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                ) ?: return@forEach
+                val bucket = sensorLagAgeBucket(ageHours)
+                val acc = grouped.getOrPut(bucket) { Accumulator() }
+                acc.sampleCount += 1
+                if (changed >= 0.5) {
+                    acc.changedCount += 1
+                }
+                val targetDelta = nearestTelemetryValue(
+                    telemetryByKey = telemetryByKey,
+                    key = "sensor_lag_shadow_target_delta_mmol",
+                    ts = row.timestamp,
+                    maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                )
+                if (targetDelta != null && targetDelta.isFinite()) {
+                    acc.absTargetDeltaSum += abs(targetDelta)
+                    acc.absTargetDeltaCount += 1
+                }
+            }
+            return grouped.entries
+                .mapNotNull { (bucket, acc) ->
+                    if (acc.sampleCount < 4) return@mapNotNull null
+                    SensorLagShadowBucketStats(
+                        bucket = bucket,
+                        sampleCount = acc.sampleCount,
+                        ruleChangedRatePct = acc.changedCount * 100.0 / acc.sampleCount,
+                        meanAbsTargetDeltaMmol = if (acc.absTargetDeltaCount > 0) {
+                            acc.absTargetDeltaSum / acc.absTargetDeltaCount
+                        } else {
+                            null
+                        }
+                    )
+                }
+                .sortedBy { sensorLagBucketOrder(it.bucket) }
+        }
+
+        private fun sensorLagAgeBucket(ageHours: Double): String = when {
+            ageHours < 24.0 -> SENSOR_AGE_BUCKET_LT_24H
+            ageHours < 240.0 -> SENSOR_AGE_BUCKET_1_10D
+            ageHours < 288.0 -> SENSOR_AGE_BUCKET_10_12D
+            ageHours < 336.0 -> SENSOR_AGE_BUCKET_12_14D
+            else -> SENSOR_AGE_BUCKET_GT_14D
+        }
+
+        private fun sensorLagBucketOrder(bucket: String): Int = when (bucket) {
+            SENSOR_AGE_BUCKET_LT_24H -> 0
+            SENSOR_AGE_BUCKET_1_10D -> 1
+            SENSOR_AGE_BUCKET_10_12D -> 2
+            SENSOR_AGE_BUCKET_12_14D -> 3
+            SENSOR_AGE_BUCKET_GT_14D -> 4
+            else -> 5
+        }
+
         private fun factorRecommendationHint(
             factor: String,
             horizonMinutes: Int,
@@ -2187,6 +2493,33 @@ class InsightsRepository(
                 .firstOrNull()
         }
 
+        private fun nearestTelemetryText(
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>,
+            key: String,
+            ts: Long,
+            maxDistanceMs: Long
+        ): String? {
+            val rows = telemetryByKey[key] ?: return null
+            val bounded = rows.asSequence()
+                .filter { sample ->
+                    sample.timestamp >= ts - maxDistanceMs &&
+                        sample.timestamp <= ts + FACTOR_TELEMETRY_FUTURE_TOLERANCE_MS
+                }
+                .toList()
+            val causal = bounded
+                .asSequence()
+                .filter { it.timestamp <= ts + FACTOR_TELEMETRY_FUTURE_TOLERANCE_MS }
+                .maxByOrNull { it.timestamp }
+            if (causal != null) {
+                return causal.valueText?.trim()?.takeIf { it.isNotBlank() }
+            }
+            return rows.minByOrNull { abs(it.timestamp - ts) }
+                ?.takeIf { abs(it.timestamp - ts) <= maxDistanceMs }
+                ?.valueText
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }
+
         private fun uamFactorValue(
             telemetryByKey: Map<String, List<TelemetrySampleEntity>>,
             ts: Long
@@ -2229,7 +2562,7 @@ class InsightsRepository(
                 )
                 FactorSpec.DIA_HOURS -> nearestTelemetryValueMulti(
                     telemetryByKey = telemetryByKey,
-                    keys = listOf("dia_hours", "dia"),
+                    keys = listOf("dia_effective_hours", "dia_profile_hours", "dia_hours", "dia"),
                     ts = sample.generationTs,
                     maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
                 )
@@ -2263,9 +2596,9 @@ class InsightsRepository(
                     ts = sample.generationTs,
                     maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
                 )
-                FactorSpec.SENSOR_AGE_HOURS -> nearestTelemetryValue(
+                FactorSpec.SENSOR_AGE_HOURS -> nearestTelemetryValueMulti(
                     telemetryByKey = telemetryByKey,
-                    key = "isf_factor_sensor_age_hours",
+                    keys = listOf("sensor_lag_age_hours", "isf_factor_sensor_age_hours"),
                     ts = sample.generationTs,
                     maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
                 )
@@ -2520,6 +2853,40 @@ class InsightsRepository(
                         .put("worseMeanCiWidth", row.worseMeanCiWidth)
                         .put("dominantFactor", row.dominantFactor)
                         .put("dominantScore", row.dominantScore)
+                )
+            }
+            return array.toString()
+        }
+
+        private fun serializeSensorLagReplayBuckets(rows: List<SensorLagReplayBucketStats>): String? {
+            if (rows.isEmpty()) return null
+            val array = JSONArray()
+            rows.forEach { row ->
+                array.put(
+                    JSONObject()
+                        .put("horizonMinutes", row.horizonMinutes)
+                        .put("bucket", row.bucket)
+                        .put("sampleCount", row.sampleCount)
+                        .put("rawMae", row.rawMae)
+                        .put("lagMae", row.lagMae)
+                        .put("maeImprovementMmol", row.maeImprovementMmol)
+                        .put("rawBias", row.rawBias)
+                        .put("lagBias", row.lagBias)
+                )
+            }
+            return array.toString()
+        }
+
+        private fun serializeSensorLagShadowBuckets(rows: List<SensorLagShadowBucketStats>): String? {
+            if (rows.isEmpty()) return null
+            val array = JSONArray()
+            rows.forEach { row ->
+                array.put(
+                    JSONObject()
+                        .put("bucket", row.bucket)
+                        .put("sampleCount", row.sampleCount)
+                        .put("ruleChangedRatePct", row.ruleChangedRatePct)
+                        .put("meanAbsTargetDeltaMmol", row.meanAbsTargetDeltaMmol)
                 )
             }
             return array.toString()
@@ -2814,6 +3181,8 @@ data class DailyForecastReportPayload(
     val replayTopMisses: List<ReplayTopMissContextStats> = emptyList(),
     val replayErrorClusters: List<ReplayErrorClusterStats> = emptyList(),
     val replayDayTypeGaps: List<ReplayDayTypeGapStats> = emptyList(),
+    val sensorLagReplayBuckets: List<SensorLagReplayBucketStats> = emptyList(),
+    val sensorLagShadowBuckets: List<SensorLagShadowBucketStats> = emptyList(),
     val recommendations: List<String>
 )
 
@@ -2966,6 +3335,24 @@ data class ReplayDayTypeGapStats(
     val dominantScore: Double? = null
 )
 
+data class SensorLagReplayBucketStats(
+    val horizonMinutes: Int,
+    val bucket: String,
+    val sampleCount: Int,
+    val rawMae: Double,
+    val lagMae: Double,
+    val maeImprovementMmol: Double,
+    val rawBias: Double,
+    val lagBias: Double
+)
+
+data class SensorLagShadowBucketStats(
+    val bucket: String,
+    val sampleCount: Int,
+    val ruleChangedRatePct: Double,
+    val meanAbsTargetDeltaMmol: Double? = null
+)
+
 private data class MatchedErrorSample(
     val ts: Long,
     val generationTs: Long,
@@ -2975,5 +3362,10 @@ private data class MatchedErrorSample(
     val absError: Double,
     val ardPct: Double,
     val ciWidth: Double,
+    val modelFamily: String
+)
+
+internal data class SensorLagReplayForecastRows(
+    val rows: List<TelemetrySampleEntity>,
     val modelFamily: String
 )

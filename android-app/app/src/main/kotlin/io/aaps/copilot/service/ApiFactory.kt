@@ -31,6 +31,11 @@ class ApiFactory {
     fun nightscoutApi(baseUrl: String, apiSecret: String): NightscoutApi {
         val base = normalizeBaseUrl(baseUrl)
         val clientBuilder = baseClientBuilder()
+            .connectTimeout(NIGHTSCOUT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(NIGHTSCOUT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(NIGHTSCOUT_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(NIGHTSCOUT_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
             .addInterceptor(NightscoutAuthInterceptor { apiSecret })
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
@@ -103,5 +108,9 @@ class ApiFactory {
     private companion object {
         private const val COPILOT_CLIENT_HEADER = "X-AAPS-Copilot-Client"
         private const val COPILOT_CLIENT_VALUE = "io.aaps.predictivecopilot"
+        private const val NIGHTSCOUT_CONNECT_TIMEOUT_SECONDS = 5L
+        private const val NIGHTSCOUT_READ_TIMEOUT_SECONDS = 8L
+        private const val NIGHTSCOUT_WRITE_TIMEOUT_SECONDS = 8L
+        private const val NIGHTSCOUT_CALL_TIMEOUT_SECONDS = 10L
     }
 }

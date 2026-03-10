@@ -7,8 +7,11 @@ import io.aaps.copilot.ui.AnalysisTrendRowUi
 import io.aaps.copilot.ui.CloudJobRowUi
 import io.aaps.copilot.ui.GlucoseHistoryRowUi
 import io.aaps.copilot.ui.IsfCrHistoryPointUi
+import io.aaps.copilot.ui.IsfCrOverlayPointUi
 import io.aaps.copilot.ui.LastActionRowUi
 import io.aaps.copilot.ui.MainUiState
+import io.aaps.copilot.ui.foundation.screens.ChartPointUi
+import io.aaps.copilot.ui.foundation.screens.SensorLagTimelineSegmentUi
 import org.junit.Test
 
 class MainUiStateMappersTest {
@@ -18,6 +21,7 @@ class MainUiStateMappersTest {
     fun overviewMapping_mapsCoreMetricsTelemetryAndWarnings() {
         val state = state {
             latestGlucoseMmol = 8.7
+            correctedGlucoseMmol = 9.0
             glucoseDelta = 0.24
             latestDataAgeMinutes = 2
             staleDataMaxMinutes = 10
@@ -25,6 +29,37 @@ class MainUiStateMappersTest {
             latestCobGrams = 22.4
             latestActivityRatio = 1.16
             latestStepsCount = 1234.0
+            sensorAgeHours = 278.0
+            dailyReportSensorLagReplayBuckets = listOf(
+                io.aaps.copilot.ui.DailyReportSensorLagReplayUi(
+                    horizonMinutes = 30,
+                    bucket = "10-12d",
+                    sampleCount = 10,
+                    rawMae = 0.62,
+                    lagMae = 0.44,
+                    maeImprovementMmol = 0.18,
+                    rawBias = 0.05,
+                    lagBias = 0.01
+                ),
+                io.aaps.copilot.ui.DailyReportSensorLagReplayUi(
+                    horizonMinutes = 60,
+                    bucket = "10-12d",
+                    sampleCount = 12,
+                    rawMae = 0.88,
+                    lagMae = 0.70,
+                    maeImprovementMmol = 0.18,
+                    rawBias = -0.08,
+                    lagBias = -0.03
+                )
+            )
+            dailyReportSensorLagShadowBuckets = listOf(
+                io.aaps.copilot.ui.DailyReportSensorLagShadowUi(
+                    bucket = "10-12d",
+                    sampleCount = 14,
+                    ruleChangedRatePct = 12.0,
+                    meanAbsTargetDeltaMmol = 0.24
+                )
+            )
             forecast5m = 8.9
             forecast5mCiLow = 8.5
             forecast5mCiHigh = 9.2
@@ -51,6 +86,12 @@ class MainUiStateMappersTest {
         assertThat(ui.loadState).isEqualTo(ScreenLoadState.READY)
         assertThat(ui.isStale).isFalse()
         assertThat(ui.glucose).isEqualTo(8.7)
+        assertThat(ui.sensorLagRolloutVerdict).isEqualTo(
+            SensorLagRolloutVerdictUi(
+                status = "ACTIVE_CANDIDATE",
+                bucket = "10-12d"
+            )
+        )
         assertThat(ui.horizons).hasSize(3)
         assertThat(ui.horizons.first { it.horizonMinutes == 30 }.warningWideCi).isTrue()
         assertThat(ui.telemetryChips).hasSize(4)
@@ -190,6 +231,53 @@ class MainUiStateMappersTest {
             dailyReportPeriodStartUtc = "2026-03-02T00:00:00Z"
             dailyReportPeriodEndUtc = "2026-03-03T00:00:00Z"
             dailyReportMarkdownPath = "/storage/emulated/0/Documents/forecast-reports/forecast-report-2026-03-03.md"
+            sensorLagCorrectionMode = "SHADOW"
+            latestGlucoseMmol = 7.1
+            correctedGlucoseMmol = 7.4
+            sensorLagMinutes = 12.0
+            sensorAgeHours = 278.0
+            sensorAgeSource = "inferred"
+            sensorLagConfidence = 0.68
+            sensorLagMode = "SHADOW"
+            sensorLagDisableReason = "raw_input_detected"
+            sensorQualityScore = 0.74
+            sensorQualityBlocked = false
+            sensorQualitySuspectFalseLow = false
+            sensorLagTrendLagPoints = listOf(
+                ChartPointUi(ts = now - 24 * 60 * 60_000L, value = 10.0),
+                ChartPointUi(ts = now - 12 * 60 * 60_000L, value = 11.0),
+                ChartPointUi(ts = now, value = 12.0)
+            )
+            sensorLagTrendCorrectionPoints = listOf(
+                ChartPointUi(ts = now - 24 * 60 * 60_000L, value = 0.12),
+                ChartPointUi(ts = now, value = 0.30)
+            )
+            sensorLagModeSegments = listOf(
+                SensorLagTimelineSegmentUi(
+                    startTs = now - 24 * 60 * 60_000L,
+                    endTs = now - 8 * 60 * 60_000L,
+                    label = "SHADOW"
+                ),
+                SensorLagTimelineSegmentUi(
+                    startTs = now - 8 * 60 * 60_000L,
+                    endTs = now,
+                    label = "ACTIVE"
+                )
+            )
+            sensorLagBucketSegments = listOf(
+                SensorLagTimelineSegmentUi(
+                    startTs = now - 24 * 60 * 60_000L,
+                    endTs = now - 6 * 60 * 60_000L,
+                    label = "10-12d"
+                ),
+                SensorLagTimelineSegmentUi(
+                    startTs = now - 6 * 60 * 60_000L,
+                    endTs = now,
+                    label = "12-14d"
+                )
+            )
+            sensorLagTrendStartAgeHours = 254.0
+            sensorLagTrendEndAgeHours = 278.0
             dailyReportMetrics = listOf(
                 io.aaps.copilot.ui.DailyReportMetricUi(
                     horizonMinutes = 5,
@@ -404,18 +492,56 @@ class MainUiStateMappersTest {
                     isfMerged = 2.30,
                     crMerged = 11.3,
                     isfCalculated = 2.42,
-                    crCalculated = 10.9
+                    crCalculated = 10.9,
+                    isfAaps = 2.18,
+                    crAaps = 9.7
                 ),
                 IsfCrHistoryPointUi(
                     timestamp = now,
                     isfMerged = 2.31,
                     crMerged = 11.4,
                     isfCalculated = 2.45,
-                    crCalculated = 10.8
+                    crCalculated = 10.8,
+                    isfAaps = 2.16,
+                    crAaps = 9.6
+                )
+            )
+            isfCrHistoryOverlayPoints = listOf(
+                IsfCrOverlayPointUi(
+                    timestamp = now - 60 * 60_000L,
+                    cobGrams = 18.0,
+                    uamGrams = 6.0,
+                    activityRatio = 1.18
+                ),
+                IsfCrOverlayPointUi(
+                    timestamp = now,
+                    cobGrams = 8.0,
+                    uamGrams = 2.0,
+                    activityRatio = 0.96
                 )
             )
             isfCrHistoryLastUpdatedTs = now
             isfCrDeepLines = listOf("day/06:00-09:00 ISF=2.4 CR=10.9 conf=74%")
+            circadianSlotStatCount = 288
+            circadianTransitionStatCount = 864
+            circadianSnapshotCount = 3
+            circadianReplayStatCount = 576
+            circadianLatestSnapshotUpdatedTs = now - 15 * 60_000L
+            circadianLatestReplayUpdatedTs = now - 10 * 60_000L
+            circadianPatternSections = listOf(
+                CircadianPatternSectionUi(
+                    requestedDayType = "WEEKDAY",
+                    segmentSource = "WEEKDAY",
+                    stableWindowDays = 14,
+                    recencyWindowDays = 5,
+                    recencyWeight = 0.3,
+                    coverageDays = 10,
+                    sampleCount = 480,
+                    segmentFallback = false,
+                    confidence = 0.72,
+                    qualityScore = 0.81
+                )
+            )
             isfCrActivationGateLines = listOf(
                 "KPI gate (03 Mar 12:00): eligible=true, reason=ok, n=360, conf=72%",
                 "Daily gate (03 Mar 12:00): eligible=true, reason=ok, n=288"
@@ -470,13 +596,33 @@ class MainUiStateMappersTest {
         val ui = state.toAnalyticsUiState()
 
         assertThat(ui.loadState).isEqualTo(ScreenLoadState.READY)
+        assertThat(ui.sensorLagDiagnostics).isNotNull()
+        assertThat(ui.sensorLagDiagnostics!!.configuredMode).isEqualTo("SHADOW")
+        assertThat(ui.sensorLagDiagnostics!!.runtimeMode).isEqualTo("SHADOW")
+        assertThat(ui.sensorLagDiagnostics!!.correctionMmol).isWithin(1e-6).of(0.3)
+        assertThat(ui.sensorLagDiagnostics!!.ageSource).isEqualTo("inferred")
+        assertThat(ui.sensorLagDiagnostics!!.lagTrendPoints).hasSize(3)
+        assertThat(ui.sensorLagDiagnostics!!.modeSegments).hasSize(2)
+        assertThat(ui.sensorLagDiagnostics!!.bucketSegments).hasSize(2)
+        assertThat(ui.sensorLagDiagnostics!!.trendStartAgeHours).isEqualTo(254.0)
+        assertThat(ui.sensorLagDiagnostics!!.trendEndAgeHours).isEqualTo(278.0)
         assertThat(ui.currentIsfReal).isEqualTo(2.45)
         assertThat(ui.currentCrReal).isEqualTo(10.8)
         assertThat(ui.currentIsfMerged).isEqualTo(2.31)
         assertThat(ui.currentCrMerged).isEqualTo(11.4)
+        assertThat(ui.currentIsfAapsRaw).isEqualTo(2.16)
+        assertThat(ui.currentCrAapsRaw).isEqualTo(9.6)
         assertThat(ui.historyPoints).hasSize(2)
+        assertThat(ui.historyOverlayPoints).hasSize(2)
+        assertThat(ui.historyOverlayPoints.last().cobGrams).isEqualTo(8.0)
         assertThat(ui.historyLastUpdatedTs).isEqualTo(now)
         assertThat(ui.deepLines).containsExactly("day/06:00-09:00 ISF=2.4 CR=10.9 conf=74%")
+        assertThat(ui.circadianStateStatus).isNotNull()
+        assertThat(ui.circadianStateStatus?.state).isEqualTo("READY")
+        assertThat(ui.circadianStateStatus?.slotCount).isEqualTo(288)
+        assertThat(ui.circadianStateStatus?.replayCount).isEqualTo(576)
+        assertThat(ui.circadianStateStatus?.sectionCount).isEqualTo(1)
+        assertThat(ui.circadianStateStatus?.sourceSummary).contains("weekday→weekday:14d")
         assertThat(ui.qualityLines).hasSize(1)
         assertThat(ui.baselineDeltaLines).containsExactly("60m UAM: +0.09 mmol/L")
         assertThat(ui.dailyReportGeneratedAtTs).isEqualTo(now)
@@ -900,5 +1046,62 @@ class MainUiStateMappersTest {
 
         assertThat(ui.cloudConfigured).isFalse()
         assertThat(ui.localDailyMetrics).hasSize(1)
+    }
+
+    @Test
+    fun aiAnalysisMapping_includesChatComposerState() {
+        val now = System.currentTimeMillis()
+        val state = state {
+            latestDataAgeMinutes = 3
+            staleDataMaxMinutes = 10
+            aiAnalysisReady = true
+            aiDataCoverageHours = 28.0
+            aiMinDataHours = 24
+        }
+
+        val ui = state.toAiAnalysisUiState(
+            chatMessages = listOf(
+                AiChatMessageUi(
+                    id = "m1",
+                    role = "user",
+                    text = "Что видно по тренду?",
+                    ts = now,
+                    attachments = listOf(
+                        AiChatAttachmentUi(
+                            id = "a1",
+                            name = "trend.png",
+                            kind = "image",
+                            sizeLabel = "240 KB"
+                        )
+                    ),
+                    voiceTranscript = true
+                )
+            ),
+            chatInProgress = true,
+            chatDraft = "Черновик",
+            chatPendingAttachments = listOf(
+                AiChatAttachmentUi(
+                    id = "a2",
+                    name = "report.txt",
+                    kind = "file",
+                    previewLabel = "summary"
+                )
+            ),
+            chatVoiceRepliesEnabled = true,
+            chatRecording = true,
+            chatVoiceBusy = true,
+            chatSpeaking = true
+        )
+
+        assertThat(ui.chatMessages).hasSize(1)
+        assertThat(ui.chatMessages.first().voiceTranscript).isTrue()
+        assertThat(ui.chatMessages.first().attachments.first().name).isEqualTo("trend.png")
+        assertThat(ui.chatDraft).isEqualTo("Черновик")
+        assertThat(ui.chatPendingAttachments).hasSize(1)
+        assertThat(ui.chatVoiceRepliesEnabled).isTrue()
+        assertThat(ui.chatRecording).isTrue()
+        assertThat(ui.chatVoiceBusy).isTrue()
+        assertThat(ui.chatSpeaking).isTrue()
+        assertThat(ui.analysisReady).isTrue()
     }
 }

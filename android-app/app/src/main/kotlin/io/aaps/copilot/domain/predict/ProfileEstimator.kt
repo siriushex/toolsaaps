@@ -64,6 +64,14 @@ class ProfileEstimator(
     companion object {
         private val CAMEL_CASE_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
         private val NON_ALNUM_REGEX = Regex("[^a-z0-9]+")
+        private const val TELEMETRY_PRIOR_STRENGTH = 1.5
+        private const val GLOBAL_PRIOR_STRENGTH = 2.0
+        private const val GLOBAL_PRIOR_BLEND_WEIGHT = 0.7
+        private const val TELEMETRY_PRIOR_BLEND_WEIGHT = 0.3
+        private const val SHRINKAGE_MAD_GAIN = 2.0
+        private const val MIN_MAD_FOR_SHRINKAGE = 0.15
+        private const val TELEMETRY_ONLY_CONFIDENCE = 0.42
+        private const val PRIOR_ONLY_CONFIDENCE = 0.24
     }
 
     fun estimate(
@@ -82,23 +90,22 @@ class ProfileEstimator(
         val telemetryIsfSamples = buildTelemetryIsfSamples(sortedTelemetry)
         val telemetryCrSamples = buildTelemetryCrSamples(sortedTelemetry)
 
-        val selectedIsfSamples = selectSamples(
+        val resolvedIsf = resolveEstimate(
             history = isfBuild.samples,
             telemetry = telemetryIsfSamples,
-            minSamples = config.minIsfSamples
+            minSamples = config.minIsfSamples,
+            globalPrior = null
         )
-        val selectedCrSamples = selectSamples(
+        val resolvedCr = resolveEstimate(
             history = crTherapySamples,
             telemetry = telemetryCrSamples,
-            minSamples = config.minCrSamples
+            minSamples = config.minCrSamples,
+            globalPrior = null
         )
-        val isfSamples = selectedIsfSamples.map { it.value }
-        val crSamples = selectedCrSamples.map { it.value }
+        val isf = resolvedIsf.value
+        val cr = resolvedCr.value
 
-        if (isfSamples.size < config.minIsfSamples || crSamples.size < config.minCrSamples) return null
-
-        val isf = median(isfSamples)
-        val cr = median(crSamples)
+        if (isf == null || cr == null) return null
         val uamCarbEstimate = estimateUamCarbs(
             glucose = sortedGlucose,
             therapyEvents = sortedEvents,
@@ -106,11 +113,8 @@ class ProfileEstimator(
             isfMmolPerUnit = isf,
             crGramPerUnit = cr
         )
-        val sampleCount = isfSamples.size + crSamples.size
-        val rawConfidence = (
-            (isfSamples.size / (config.minIsfSamples * 4.0)) * 0.5 +
-                (crSamples.size / (config.minCrSamples * 4.0)) * 0.5
-            ).coerceIn(0.20, 0.99)
+        val sampleCount = resolvedIsf.effectiveSampleCount + resolvedCr.effectiveSampleCount
+        val rawConfidence = ((resolvedIsf.confidence + resolvedCr.confidence) / 2.0).coerceIn(0.20, 0.99)
         val uamPenalty = (uamPoints.size.coerceAtMost(40) / 200.0)
         val confidence = (rawConfidence - uamPenalty).coerceIn(0.20, 0.99)
 
@@ -119,11 +123,11 @@ class ProfileEstimator(
             crGramPerUnit = cr,
             confidence = confidence,
             sampleCount = sampleCount,
-            isfSampleCount = isfSamples.size,
-            crSampleCount = crSamples.size,
+            isfSampleCount = resolvedIsf.effectiveSampleCount,
+            crSampleCount = resolvedCr.effectiveSampleCount,
             lookbackDays = config.lookbackDays,
-            telemetryIsfSampleCount = selectedIsfSamples.count { it.source == SampleSource.TELEMETRY },
-            telemetryCrSampleCount = selectedCrSamples.count { it.source == SampleSource.TELEMETRY },
+            telemetryIsfSampleCount = resolvedIsf.telemetrySampleCount,
+            telemetryCrSampleCount = resolvedCr.telemetrySampleCount,
             uamObservedCount = uamPoints.size,
             uamFilteredIsfSamples = isfBuild.filteredByUam,
             uamEpisodeCount = uamCarbEstimate.episodeCount,
@@ -153,6 +157,18 @@ class ProfileEstimator(
         val crHistoryBySegment = crHistory.groupBy { segmentKey(it.ts) }
         val isfTelemetryBySegment = isfTelemetry.groupBy { segmentKey(it.ts) }
         val crTelemetryBySegment = crTelemetry.groupBy { segmentKey(it.ts) }
+        val globalIsfPrior = resolveEstimate(
+            history = isfHistory,
+            telemetry = isfTelemetry,
+            minSamples = config.minIsfSamples,
+            globalPrior = null
+        ).value
+        val globalCrPrior = resolveEstimate(
+            history = crHistory,
+            telemetry = crTelemetry,
+            minSamples = config.minCrSamples,
+            globalPrior = null
+        ).value
         val keys = (
             isfHistoryBySegment.keys +
                 crHistoryBySegment.keys +
@@ -161,31 +177,30 @@ class ProfileEstimator(
             ).distinct()
 
         return keys.mapNotNull { key ->
-            val isfValues = selectSamples(
+            val isfResolved = resolveEstimate(
                 history = isfHistoryBySegment[key].orEmpty(),
                 telemetry = isfTelemetryBySegment[key].orEmpty(),
-                minSamples = config.minSegmentSamples
-            ).map { it.value }
-            val crValues = selectSamples(
+                minSamples = config.minSegmentSamples,
+                globalPrior = globalIsfPrior
+            )
+            val crResolved = resolveEstimate(
                 history = crHistoryBySegment[key].orEmpty(),
                 telemetry = crTelemetryBySegment[key].orEmpty(),
-                minSamples = config.minSegmentSamples
-            ).map { it.value }
-            val isfCount = isfValues.size
-            val crCount = crValues.size
+                minSamples = config.minSegmentSamples,
+                globalPrior = globalCrPrior
+            )
+            val isfCount = isfResolved.effectiveSampleCount
+            val crCount = crResolved.effectiveSampleCount
             if (isfCount < config.minSegmentSamples && crCount < config.minSegmentSamples) {
                 return@mapNotNull null
             }
-            val confidence = (
-                (isfCount / (config.minSegmentSamples * 3.0)) * 0.5 +
-                    (crCount / (config.minSegmentSamples * 3.0)) * 0.5
-                ).coerceIn(0.15, 0.95)
+            val confidence = ((isfResolved.confidence + crResolved.confidence) / 2.0).coerceIn(0.15, 0.95)
 
             ProfileSegmentEstimate(
                 dayType = key.first,
                 timeSlot = key.second,
-                isfMmolPerUnit = isfValues.takeIf { it.size >= config.minSegmentSamples }?.let(::median),
-                crGramPerUnit = crValues.takeIf { it.size >= config.minSegmentSamples }?.let(::median),
+                isfMmolPerUnit = isfResolved.value,
+                crGramPerUnit = crResolved.value,
                 confidence = confidence,
                 isfSampleCount = isfCount,
                 crSampleCount = crCount,
@@ -238,31 +253,42 @@ class ProfileEstimator(
         val crHistoryByHour = crHistory.groupBy { hourOf(it.ts) }
         val isfTelemetryByHour = isfTelemetry.groupBy { hourOf(it.ts) }
         val crTelemetryByHour = crTelemetry.groupBy { hourOf(it.ts) }
+        val globalIsfPrior = resolveEstimate(
+            history = isfHistory,
+            telemetry = isfTelemetry,
+            minSamples = config.minIsfSamples,
+            globalPrior = null
+        ).value
+        val globalCrPrior = resolveEstimate(
+            history = crHistory,
+            telemetry = crTelemetry,
+            minSamples = config.minCrSamples,
+            globalPrior = null
+        ).value
 
         return (0..23).mapNotNull { hour ->
-            val isfValues = selectSamples(
+            val isfResolved = resolveEstimate(
                 history = isfHistoryByHour[hour].orEmpty(),
                 telemetry = isfTelemetryByHour[hour].orEmpty(),
-                minSamples = config.minSegmentSamples
-            ).map { it.value }
-            val crValues = selectSamples(
+                minSamples = config.minSegmentSamples,
+                globalPrior = globalIsfPrior
+            )
+            val crResolved = resolveEstimate(
                 history = crHistoryByHour[hour].orEmpty(),
                 telemetry = crTelemetryByHour[hour].orEmpty(),
-                minSamples = config.minSegmentSamples
-            ).map { it.value }
-            val isfCount = isfValues.size
-            val crCount = crValues.size
+                minSamples = config.minSegmentSamples,
+                globalPrior = globalCrPrior
+            )
+            val isfCount = isfResolved.effectiveSampleCount
+            val crCount = crResolved.effectiveSampleCount
             if (isfCount == 0 && crCount == 0) return@mapNotNull null
 
-            val confidence = (
-                (isfCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5 +
-                    (crCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5
-                ).coerceIn(0.10, 0.99)
+            val confidence = ((isfResolved.confidence + crResolved.confidence) / 2.0).coerceIn(0.10, 0.99)
 
             HourlyProfileEstimate(
                 hour = hour,
-                isfMmolPerUnit = isfValues.takeIf { it.isNotEmpty() }?.let(::median),
-                crGramPerUnit = crValues.takeIf { it.isNotEmpty() }?.let(::median),
+                isfMmolPerUnit = isfResolved.value,
+                crGramPerUnit = crResolved.value,
                 confidence = confidence,
                 isfSampleCount = isfCount,
                 crSampleCount = crCount
@@ -291,34 +317,49 @@ class ProfileEstimator(
         val crHistoryByHourDay = crHistory.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
         val isfTelemetryByHourDay = isfTelemetry.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
         val crTelemetryByHourDay = crTelemetry.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
+        val globalIsfByDayType = DayType.entries.associateWith { dayType ->
+            resolveEstimate(
+                history = isfHistory.filter { dayTypeOf(it.ts) == dayType },
+                telemetry = isfTelemetry.filter { dayTypeOf(it.ts) == dayType },
+                minSamples = config.minSegmentSamples,
+                globalPrior = null
+            ).value
+        }
+        val globalCrByDayType = DayType.entries.associateWith { dayType ->
+            resolveEstimate(
+                history = crHistory.filter { dayTypeOf(it.ts) == dayType },
+                telemetry = crTelemetry.filter { dayTypeOf(it.ts) == dayType },
+                minSamples = config.minSegmentSamples,
+                globalPrior = null
+            ).value
+        }
 
         return DayType.entries.flatMap { dayType ->
             (0..23).mapNotNull { hour ->
                 val key = dayType to hour
-                val isfValues = selectSamples(
+                val isfResolved = resolveEstimate(
                     history = isfHistoryByHourDay[key].orEmpty(),
                     telemetry = isfTelemetryByHourDay[key].orEmpty(),
-                    minSamples = config.minSegmentSamples
-                ).map { it.value }
-                val crValues = selectSamples(
+                    minSamples = config.minSegmentSamples,
+                    globalPrior = globalIsfByDayType[dayType]
+                )
+                val crResolved = resolveEstimate(
                     history = crHistoryByHourDay[key].orEmpty(),
                     telemetry = crTelemetryByHourDay[key].orEmpty(),
-                    minSamples = config.minSegmentSamples
-                ).map { it.value }
-                val isfCount = isfValues.size
-                val crCount = crValues.size
+                    minSamples = config.minSegmentSamples,
+                    globalPrior = globalCrByDayType[dayType]
+                )
+                val isfCount = isfResolved.effectiveSampleCount
+                val crCount = crResolved.effectiveSampleCount
                 if (isfCount == 0 && crCount == 0) return@mapNotNull null
 
-                val confidence = (
-                    (isfCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5 +
-                        (crCount / (config.minSegmentSamples * 2.0)).coerceIn(0.0, 1.0) * 0.5
-                    ).coerceIn(0.10, 0.99)
+                val confidence = ((isfResolved.confidence + crResolved.confidence) / 2.0).coerceIn(0.10, 0.99)
 
                 HourlyDayTypeProfileEstimate(
                     dayType = dayType,
                     hour = hour,
-                    isfMmolPerUnit = isfValues.takeIf { it.isNotEmpty() }?.let(::median),
-                    crGramPerUnit = crValues.takeIf { it.isNotEmpty() }?.let(::median),
+                    isfMmolPerUnit = isfResolved.value,
+                    crGramPerUnit = crResolved.value,
                     confidence = confidence,
                     isfSampleCount = isfCount,
                     crSampleCount = crCount
@@ -377,6 +418,7 @@ class ProfileEstimator(
 
     private fun buildCrSamples(events: List<TherapyEvent>): List<TimedSample> {
         val direct = events.mapNotNull { event ->
+            if (isSyntheticCarbEvent(event)) return@mapNotNull null
             if (!event.type.equals("meal_bolus", ignoreCase = true)) return@mapNotNull null
             val grams = extractCarbGrams(event) ?: return@mapNotNull null
             val units = extractBolusUnits(event) ?: return@mapNotNull null
@@ -385,7 +427,9 @@ class ProfileEstimator(
         }
 
         val carbOnlyEvents = events.filter { event ->
-            event.type.equals("carbs", ignoreCase = true) && extractBolusUnits(event) == null
+            event.type.equals("carbs", ignoreCase = true) &&
+                extractBolusUnits(event) == null &&
+                !isSyntheticCarbEvent(event)
         }
         val bolusCandidates = events.mapIndexedNotNull { index, event ->
             if (
@@ -480,6 +524,7 @@ class ProfileEstimator(
             .asSequence()
             .filter { event ->
                 event.ts in from..to &&
+                    !isSyntheticCarbEvent(event) &&
                     (
                         event.type.equals("meal_bolus", ignoreCase = true) ||
                             event.type.equals("carbs", ignoreCase = true)
@@ -585,12 +630,15 @@ class ProfileEstimator(
         val to = episodeStartTs + config.uamIgnoreAnnouncedCarbsAfterMinutes * 60_000L
         return events.any { event ->
             event.ts in from..to &&
+                !isSyntheticCarbEvent(event) &&
                 (
                     event.type.equals("meal_bolus", ignoreCase = true) ||
                         event.type.equals("carbs", ignoreCase = true)
-                    )
+                )
         }
     }
+
+    private fun isSyntheticCarbEvent(event: TherapyEvent): Boolean = isSyntheticUamCarbEvent(event)
 
     private fun buildUamEpisodes(sortedPoints: List<Long>): List<UamEpisode> {
         if (sortedPoints.isEmpty()) return emptyList()
@@ -617,19 +665,136 @@ class ProfileEstimator(
         return episodes
     }
 
-    private fun selectSamples(
+    private fun resolveEstimate(
         history: List<TimedSample>,
         telemetry: List<TimedSample>,
-        minSamples: Int
-    ): List<TimedSample> {
+        minSamples: Int,
+        globalPrior: Double?
+    ): EstimateResolution {
         val historyTrimmed = trimOutliers(history)
-        return when (config.telemetryMergeMode) {
-            TelemetryMergeMode.COMBINE -> trimOutliers(history + telemetry)
-            TelemetryMergeMode.FALLBACK_IF_NEEDED -> {
-                if (historyTrimmed.size >= minSamples) historyTrimmed else trimOutliers(history + telemetry)
-            }
-            TelemetryMergeMode.HISTORY_ONLY -> historyTrimmed
+        val localHistory = historyTrimmed.map { it.value }
+        val telemetryPrior = telemetry.maxByOrNull { it.ts }?.value
+        val combinedPrior = combinePrior(
+            globalPrior = globalPrior,
+            telemetryPrior = telemetryPrior,
+            allowTelemetry = config.telemetryMergeMode != TelemetryMergeMode.HISTORY_ONLY
+        )
+        val telemetryUsedAsPrior = telemetryPrior != null &&
+            config.telemetryMergeMode != TelemetryMergeMode.HISTORY_ONLY &&
+            (historyTrimmed.size < minSamples || config.telemetryMergeMode == TelemetryMergeMode.COMBINE)
+
+        if (localHistory.size >= minSamples) {
+            val prior = if (config.telemetryMergeMode == TelemetryMergeMode.COMBINE) combinedPrior else null
+            val value = shrinkTowardPrior(
+                localValues = localHistory,
+                prior = prior,
+                priorStrength = if (prior != null) GLOBAL_PRIOR_STRENGTH else 0.0
+            )
+            return EstimateResolution(
+                value = value,
+                effectiveSampleCount = localHistory.size,
+                telemetrySampleCount = if (config.telemetryMergeMode == TelemetryMergeMode.COMBINE && telemetryUsedAsPrior) 1 else 0,
+                confidence = confidenceFromCounts(
+                    historyCount = localHistory.size,
+                    minSamples = minSamples,
+                    telemetryUsed = config.telemetryMergeMode == TelemetryMergeMode.COMBINE && telemetryUsedAsPrior,
+                    fellBackToPrior = false
+                )
+            )
         }
+
+        if (localHistory.isNotEmpty()) {
+            val value = shrinkTowardPrior(
+                localValues = localHistory,
+                prior = combinedPrior,
+                priorStrength = when {
+                    telemetryUsedAsPrior -> TELEMETRY_PRIOR_STRENGTH
+                    combinedPrior != null -> GLOBAL_PRIOR_STRENGTH
+                    else -> 0.0
+                }
+            )
+            return EstimateResolution(
+                value = value ?: combinedPrior,
+                effectiveSampleCount = localHistory.size + if (telemetryUsedAsPrior) 1 else 0,
+                telemetrySampleCount = if (telemetryUsedAsPrior) 1 else 0,
+                confidence = confidenceFromCounts(
+                    historyCount = localHistory.size,
+                    minSamples = minSamples,
+                    telemetryUsed = telemetryUsedAsPrior,
+                    fellBackToPrior = combinedPrior != null
+                )
+            )
+        }
+
+        if (config.telemetryMergeMode != TelemetryMergeMode.HISTORY_ONLY && telemetryPrior != null) {
+            return EstimateResolution(
+                value = telemetryPrior,
+                effectiveSampleCount = 1,
+                telemetrySampleCount = 1,
+                confidence = TELEMETRY_ONLY_CONFIDENCE
+            )
+        }
+
+        return if (globalPrior != null) {
+            EstimateResolution(
+                value = globalPrior,
+                effectiveSampleCount = 0,
+                telemetrySampleCount = 0,
+                confidence = PRIOR_ONLY_CONFIDENCE
+            )
+        } else {
+            EstimateResolution(
+                value = null,
+                effectiveSampleCount = 0,
+                telemetrySampleCount = 0,
+                confidence = 0.0
+            )
+        }
+    }
+
+    private fun combinePrior(
+        globalPrior: Double?,
+        telemetryPrior: Double?,
+        allowTelemetry: Boolean
+    ): Double? {
+        if (!allowTelemetry) return globalPrior
+        return when {
+            globalPrior != null && telemetryPrior != null -> {
+                globalPrior * GLOBAL_PRIOR_BLEND_WEIGHT + telemetryPrior * TELEMETRY_PRIOR_BLEND_WEIGHT
+            }
+            telemetryPrior != null -> telemetryPrior
+            else -> globalPrior
+        }
+    }
+
+    private fun shrinkTowardPrior(
+        localValues: List<Double>,
+        prior: Double?,
+        priorStrength: Double
+    ): Double? {
+        if (localValues.isEmpty()) return prior
+        val localMedian = median(localValues)
+        if (prior == null || priorStrength <= 0.0) return localMedian
+        val localMad = mad(localValues).coerceAtLeast(MIN_MAD_FOR_SHRINKAGE)
+        val localCount = localValues.size.toDouble()
+        val shrinkWeight = (
+            localCount / (localCount + priorStrength + localMad * SHRINKAGE_MAD_GAIN)
+            ).coerceIn(0.15, 0.97)
+        return localMedian * shrinkWeight + prior * (1.0 - shrinkWeight)
+    }
+
+    private fun confidenceFromCounts(
+        historyCount: Int,
+        minSamples: Int,
+        telemetryUsed: Boolean,
+        fellBackToPrior: Boolean
+    ): Double {
+        if (historyCount <= 0 && telemetryUsed) return TELEMETRY_ONLY_CONFIDENCE
+        if (historyCount <= 0 && fellBackToPrior) return PRIOR_ONLY_CONFIDENCE
+        val historyFactor = (historyCount / (minSamples * 3.0)).coerceIn(0.0, 1.0)
+        val telemetryBoost = if (telemetryUsed) 0.08 else 0.0
+        val priorPenalty = if (fellBackToPrior && historyCount < minSamples) 0.08 else 0.0
+        return (0.20 + historyFactor * 0.65 + telemetryBoost - priorPenalty).coerceIn(0.15, 0.99)
     }
 
     private fun trimOutliers(samples: List<TimedSample>): List<TimedSample> {
@@ -638,6 +803,12 @@ class ProfileEstimator(
         val trim = floor(sorted.size * config.trimFraction).toInt().coerceAtMost(sorted.size / 4)
         if (trim == 0 || trim * 2 >= sorted.size) return sorted
         return sorted.subList(trim, sorted.size - trim)
+    }
+
+    private fun mad(values: List<Double>): Double {
+        if (values.size < 2) return 0.0
+        val med = median(values)
+        return median(values.map { abs(it - med) })
     }
 
     private fun segmentKey(ts: Long): Pair<DayType, ProfileTimeSlot> {
@@ -717,6 +888,13 @@ class ProfileEstimator(
         val source: SampleSource = SampleSource.HISTORY
     )
 
+    private data class EstimateResolution(
+        val value: Double?,
+        val effectiveSampleCount: Int,
+        val telemetrySampleCount: Int,
+        val confidence: Double
+    )
+
     private enum class SampleSource {
         HISTORY,
         TELEMETRY
@@ -746,4 +924,5 @@ class ProfileEstimator(
             )
         }
     }
+
 }

@@ -458,6 +458,165 @@ class AdaptiveTempTargetControllerTest {
     }
 
     @Test
+    fun testRapidRiseBias_makesControllerReactEarlierToNearTermUpswing() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 7.1,
+                pred5 = 10.8,
+                pred30 = 8.2,
+                pred60 = 6.7,
+                ciLow5 = 10.1,
+                ciHigh5 = 11.4,
+                ciLow30 = 7.6,
+                ciHigh30 = 8.8,
+                ciLow60 = 6.2,
+                ciHigh60 = 7.2,
+                prevTarget = 6.0,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("control_pi")
+        assertThat(out.debugFields["fastRiseSignal"]).isGreaterThan(0.0)
+        assertThat(out.debugFields["leadOvershoot"]).isGreaterThan(0.0)
+        assertThat(out.debugFields["rapidRiseBias"]).isGreaterThan(0.0)
+        assertThat(out.newTempTarget).isAtMost(4.3)
+    }
+
+    @Test
+    fun testNearTermSpike_pullsTargetDownBeforeLongHorizonsCatchUp() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 6.9,
+                observedDelta5 = 0.42,
+                pred5 = 8.7,
+                pred30 = 6.6,
+                pred60 = 6.0,
+                ciLow5 = 8.0,
+                ciHigh5 = 9.3,
+                ciLow30 = 6.0,
+                ciHigh30 = 7.2,
+                ciLow60 = 5.6,
+                ciHigh60 = 6.5,
+                prevTarget = 5.7,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("control_pi")
+        assertThat(out.debugFields["fastRiseSignal"]).isGreaterThan(0.0)
+        assertThat(out.newTempTarget).isLessThan(4.9)
+    }
+
+    @Test
+    fun testObservedTrendShock_reactsEvenWhenLongHorizonsLag() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 7.0,
+                observedDelta5 = 0.46,
+                pred5 = 7.35,
+                pred30 = 6.0,
+                pred60 = 5.8,
+                ciLow5 = 6.9,
+                ciHigh5 = 7.7,
+                ciLow30 = 5.6,
+                ciHigh30 = 6.4,
+                ciLow60 = 5.4,
+                ciHigh60 = 6.2,
+                prevTarget = 5.5,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("control_pi")
+        assertThat(out.debugFields["observedDelta5"]).isWithin(0.01).of(0.46)
+        assertThat(out.debugFields["trendShockBias"]).isGreaterThan(0.0)
+        assertThat(out.newTempTarget).isLessThan(5.1)
+    }
+
+    @Test
+    fun testFastRiseReducesDeadbandAndPreventsNeutralHold() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 7.0,
+                observedDelta5 = 0.34,
+                pred5 = 8.1,
+                pred30 = 5.9,
+                pred60 = 5.7,
+                ciLow5 = 7.6,
+                ciHigh5 = 8.6,
+                ciLow30 = 5.5,
+                ciHigh30 = 6.3,
+                ciLow60 = 5.3,
+                ciHigh60 = 6.1,
+                prevTarget = 5.5,
+                prevI = 0.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("control_pi")
+        assertThat(out.debugFields["effectiveDeadband"]).isLessThan(AdaptiveTempTargetController.M_DEAD)
+        assertThat(out.newTempTarget).isLessThan(5.5)
+    }
+
+    @Test
+    fun testStoppedTrend_relaxesLowTempTargetTowardBase() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 7.2,
+                observedDelta5 = 0.03,
+                pred5 = 6.0,
+                pred30 = 5.8,
+                pred60 = 5.6,
+                ciLow5 = 5.7,
+                ciHigh5 = 6.3,
+                ciLow30 = 5.5,
+                ciHigh30 = 6.1,
+                ciLow60 = 5.3,
+                ciHigh60 = 5.9,
+                prevTarget = 4.2,
+                prevI = 150.0
+            )
+        )
+
+        assertThat(out.reason).isEqualTo("control_pi")
+        assertThat(out.debugFields["targetRelaxed"]).isGreaterThan(out.debugFields["targetGuarded"])
+        assertThat(out.newTempTarget).isGreaterThan(4.2)
+        assertThat(out.newTempTarget).isLessThan(5.5)
+    }
+
+    @Test
+    fun testStoppedTrend_relaxesHighTempTargetTowardBase() {
+        val out = controller.evaluate(
+            input(
+                base = 5.5,
+                currentGlucose = 5.5,
+                observedDelta5 = -0.02,
+                pred5 = 5.4,
+                pred30 = 5.45,
+                pred60 = 5.5,
+                ciLow5 = 5.3,
+                ciHigh5 = 5.6,
+                ciLow30 = 5.35,
+                ciHigh30 = 5.65,
+                ciLow60 = 5.4,
+                ciHigh60 = 5.7,
+                prevTarget = 7.4,
+                prevI = -120.0
+            )
+        )
+
+        assertThat(out.reason).isAnyOf("control_pi", "control_deadband")
+        assertThat(out.newTempTarget).isLessThan(7.4)
+        assertThat(out.newTempTarget).isAtLeast(5.5)
+    }
+
+    @Test
     fun testSevereNearTermLowOverridesHighCurrentSuppression() {
         val out = controller.evaluate(
             input(
@@ -494,6 +653,7 @@ class AdaptiveTempTargetControllerTest {
         prevTarget: Double?,
         prevI: Double,
         currentGlucose: Double? = null,
+        observedDelta5: Double? = null,
         uamActive: Boolean = false,
         cobGrams: Double? = null,
         iobUnits: Double? = null,
@@ -505,6 +665,7 @@ class AdaptiveTempTargetControllerTest {
         targetMinMmol = targetMin,
         targetMaxMmol = targetMax,
         currentGlucoseMmol = currentGlucose,
+        observedDelta5Mmol = observedDelta5,
         pred5 = pred5,
         pred30 = pred30,
         pred60 = pred60,

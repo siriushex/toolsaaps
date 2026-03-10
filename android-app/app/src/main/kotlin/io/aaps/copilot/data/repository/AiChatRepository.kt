@@ -5,6 +5,9 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.config.isOpenAiApiEndpoint
+import java.io.File
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
@@ -12,8 +15,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,6 +27,18 @@ data class AiChatTurn(
     val role: String,
     val text: String
 )
+
+data class AiChatAttachmentRequest(
+    val name: String,
+    val mimeType: String?,
+    val localPath: String,
+    val kind: Kind
+) {
+    enum class Kind {
+        IMAGE,
+        FILE
+    }
+}
 
 data class AiForecastOptimizationResult(
     val model: String,
@@ -51,6 +68,10 @@ class AiChatRepository(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
+        .build()
+    private val optimizerHttpClient: OkHttpClient = httpClient.newBuilder()
+        .readTimeout(90, TimeUnit.SECONDS)
+        .callTimeout(120, TimeUnit.SECONDS)
         .build()
 
     suspend fun ask(
@@ -113,6 +134,147 @@ class AiChatRepository(
         }
     }
 
+    suspend fun askWithAttachments(
+        question: String,
+        contextSummary: String,
+        history: List<AiChatTurn> = emptyList(),
+        attachments: List<AiChatAttachmentRequest> = emptyList()
+    ): String = withContext(Dispatchers.IO) {
+        if (attachments.isEmpty()) {
+            return@withContext ask(question = question, contextSummary = contextSummary, history = history)
+        }
+        val settings = settingsStore.settings.first()
+        val apiKey = settings.openAiApiKey.trim()
+        if (apiKey.isBlank()) {
+            error("AI API key is empty. Set it in Settings -> AI API key.")
+        }
+        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "responses"
+        val start = System.currentTimeMillis()
+        val requestJson = buildResponsesRequestJson(
+            question = question,
+            contextSummary = contextSummary,
+            history = history,
+            attachments = attachments
+        )
+        val request = Request.Builder()
+            .url(endpoint)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    error("AI API error ${response.code}: ${responseBody.take(240)}")
+                }
+                val content = parseResponsesOutputTextStatic(responseBody)
+                if (content.isBlank()) {
+                    error("AI API returned empty response")
+                }
+                auditLogger.info(
+                    "ai_chat_multimodal_completed",
+                    mapOf(
+                        "latencyMs" to (System.currentTimeMillis() - start),
+                        "questionLength" to question.length,
+                        "attachments" to attachments.size
+                    )
+                )
+                content
+            }
+        }.getOrElse { error ->
+            auditLogger.warn(
+                "ai_chat_multimodal_failed",
+                mapOf(
+                    "latencyMs" to (System.currentTimeMillis() - start),
+                    "attachments" to attachments.size,
+                    "error" to (error.message ?: "unknown error")
+                )
+            )
+            throw error
+        }
+    }
+
+    suspend fun transcribeAudio(
+        audioFile: File,
+        promptHint: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val settings = settingsStore.settings.first()
+        val apiKey = settings.openAiApiKey.trim()
+        if (apiKey.isBlank()) {
+            error("AI API key is empty. Set it in Settings -> AI API key.")
+        }
+        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "audio/transcriptions"
+        val multipart = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("model", TRANSCRIBE_MODEL_NAME)
+            .addFormDataPart("response_format", "json")
+            .apply {
+                promptHint?.trim()?.takeIf { it.isNotBlank() }?.let {
+                    addFormDataPart("prompt", it.take(MAX_TRANSCRIBE_PROMPT_CHARS))
+                }
+                addFormDataPart(
+                    "file",
+                    audioFile.name,
+                    audioFile.asRequestBody("audio/mp4".toMediaType())
+                )
+            }
+            .build()
+        val request = Request.Builder()
+            .url(endpoint)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(multipart)
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                error("Audio transcription error ${response.code}: ${responseBody.take(240)}")
+            }
+            val text = parseTranscriptionTextStatic(responseBody)
+            if (text.isBlank()) {
+                error("Audio transcription returned empty text")
+            }
+            text
+        }
+    }
+
+    suspend fun synthesizeSpeech(
+        text: String,
+        outputDir: File
+    ): File = withContext(Dispatchers.IO) {
+        val settings = settingsStore.settings.first()
+        val apiKey = settings.openAiApiKey.trim()
+        if (apiKey.isBlank()) {
+            error("AI API key is empty. Set it in Settings -> AI key.")
+        }
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "audio/speech"
+        val requestJson = JSONObject()
+            .put("model", TTS_MODEL_NAME)
+            .put("voice", TTS_VOICE_NAME)
+            .put("input", text.take(MAX_TTS_INPUT_CHARS))
+            .put("instructions", "Speak clearly, calmly, and concisely. Keep the clinical tone neutral.")
+            .put("response_format", "mp3")
+        val request = Request.Builder()
+            .url(endpoint)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        val outputFile = File(outputDir, "ai-chat-tts-${System.currentTimeMillis()}.mp3")
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val responseBody = response.body?.string().orEmpty()
+                error("Audio speech error ${response.code}: ${responseBody.take(240)}")
+            }
+            val bytes = response.body?.bytes() ?: error("Audio speech returned empty body")
+            outputFile.writeBytes(bytes)
+        }
+        outputFile
+    }
+
     suspend fun requestDailyForecastOptimization(
         payload: DailyForecastReportPayload
     ): AiForecastOptimizationResult = withContext(Dispatchers.IO) {
@@ -142,14 +304,16 @@ class AiChatRepository(
         val initialResponse = postJson(
             url = responsesUrl,
             apiKey = apiKey,
-            body = requestJson
+            body = requestJson,
+            client = optimizerHttpClient
         )
         val responseId = initialResponse.optString("id").takeIf { it.isNotBlank() }
         val finalResponse = pollResponseIfNeeded(
             baseUrl = baseUrl,
             apiKey = apiKey,
             initial = initialResponse,
-            responseId = responseId
+            responseId = responseId,
+            client = optimizerHttpClient
         )
         val outputText = parseResponsesOutputTextStatic(finalResponse.toString())
         if (outputText.isBlank()) {
@@ -219,6 +383,59 @@ class AiChatRepository(
             .put("model", MODEL_NAME)
             .put("temperature", 0.2)
             .put("messages", messages)
+    }
+
+    private fun buildResponsesRequestJson(
+        question: String,
+        contextSummary: String,
+        history: List<AiChatTurn>,
+        attachments: List<AiChatAttachmentRequest>
+    ): JSONObject {
+        val input = JSONArray().apply {
+            put(
+                buildResponsesMessage(
+                    role = "system",
+                    textItems = listOf(
+                        "You are an assistant for AAPS Predictive Copilot. " +
+                            "Use only provided telemetry and analysis context. " +
+                            "Be concise, practical, and safety-aware. " +
+                            "Do not prescribe medication doses. " +
+                            "If data is insufficient, say exactly what is missing."
+                    )
+                )
+            )
+            put(
+                buildResponsesMessage(
+                    role = "system",
+                    textItems = listOf("Data context:\n$contextSummary")
+                )
+            )
+            history.takeLast(MAX_HISTORY_TURNS).forEach { turn ->
+                val role = turn.role.lowercase(Locale.US)
+                if (role == "user" || role == "assistant") {
+                    put(
+                        buildResponsesMessage(
+                            role = role,
+                            textItems = listOf(turn.text.take(MAX_CONTENT_CHARS))
+                        )
+                    )
+                }
+            }
+            val attachmentContent = buildAttachmentContent(attachments)
+            put(
+                buildResponsesMessage(
+                    role = "user",
+                    textItems = listOf(question.take(MAX_CONTENT_CHARS)),
+                    extraContent = attachmentContent
+                )
+            )
+        }
+
+        return JSONObject()
+            .put("model", RESPONSES_MODEL_NAME)
+            .put("reasoning", JSONObject().put("effort", "low"))
+            .put("text", JSONObject().put("verbosity", "medium"))
+            .put("input", input)
     }
 
     private fun buildOptimizerRequestJson(
@@ -401,7 +618,8 @@ class AiChatRepository(
     private fun postJson(
         url: String,
         apiKey: String,
-        body: JSONObject
+        body: JSONObject,
+        client: OkHttpClient = httpClient
     ): JSONObject {
         val request = Request.Builder()
             .url(url)
@@ -409,7 +627,7 @@ class AiChatRepository(
             .addHeader("Content-Type", "application/json")
             .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        return httpClient.newCall(request).execute().use { response ->
+        return client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 error("AI API error ${response.code}: ${responseBody.take(320)}")
@@ -420,13 +638,14 @@ class AiChatRepository(
 
     private fun getJson(
         url: String,
-        apiKey: String
+        apiKey: String,
+        client: OkHttpClient = httpClient
     ): JSONObject {
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $apiKey")
             .build()
-        return httpClient.newCall(request).execute().use { response ->
+        return client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 error("AI API polling error ${response.code}: ${responseBody.take(320)}")
@@ -439,7 +658,8 @@ class AiChatRepository(
         baseUrl: String,
         apiKey: String,
         initial: JSONObject,
-        responseId: String?
+        responseId: String?,
+        client: OkHttpClient = httpClient
     ): JSONObject {
         if (responseId.isNullOrBlank()) return initial
         var current = initial
@@ -452,7 +672,8 @@ class AiChatRepository(
             delay(OPTIMIZER_POLL_DELAY_MS)
             current = getJson(
                 url = "${baseUrl}responses/$responseId",
-                apiKey = apiKey
+                apiKey = apiKey,
+                client = client
             )
             status = current.optString("status").lowercase(Locale.US)
             attempts += 1
@@ -472,9 +693,17 @@ class AiChatRepository(
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val MODEL_NAME = "gpt-4.1-mini"
+        private const val RESPONSES_MODEL_NAME = "gpt-4.1-mini"
+        private const val TRANSCRIBE_MODEL_NAME = "gpt-4o-mini-transcribe"
+        private const val TTS_MODEL_NAME = "gpt-4o-mini-tts"
+        private const val TTS_VOICE_NAME = "alloy"
         private const val OPTIMIZER_FALLBACK_MODEL = "gpt-4.1-mini"
         private const val MAX_HISTORY_TURNS = 8
         private const val MAX_CONTENT_CHARS = 4_000
+        private const val MAX_ATTACHMENT_TEXT_CHARS = 12_000
+        private const val MAX_ATTACHMENT_IMAGE_BYTES = 4 * 1024 * 1024
+        private const val MAX_TTS_INPUT_CHARS = 1_600
+        private const val MAX_TRANSCRIBE_PROMPT_CHARS = 400
         private const val MAX_OPTIMIZER_PROMPT_CHARS = 24_000
         private const val MAX_OPTIMIZER_POLL_ATTEMPTS = 12
         private const val OPTIMIZER_POLL_DELAY_MS = 3_000L
@@ -519,18 +748,129 @@ class AiChatRepository(
             val root = runCatching { JsonParser.parseString(rootJson).asJsonObject }.getOrNull() ?: return ""
             val direct = root.get("output_text")?.asString?.trim().orEmpty()
             if (direct.isNotBlank()) return direct
-            val output = root.getAsJsonArray("output") ?: return ""
-            val chunks = mutableListOf<String>()
-            for (i in 0 until output.size()) {
-                val node = output.get(i)?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
-                val directText = node.get("text")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
-                if (directText.isNotBlank()) {
-                    chunks += directText
+            val candidates = linkedSetOf<String>()
+            collectStructuredOutputCandidates(root, candidates)
+            candidates.firstOrNull(::looksLikeOptimizerJson)?.let { return it.trim() }
+            candidates.firstOrNull { candidate ->
+                val trimmed = candidate.trim()
+                trimmed.startsWith("{") || trimmed.startsWith("[")
+            }?.let { return it.trim() }
+            return candidates.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+        }
+
+        internal fun parseTranscriptionTextStatic(rootJson: String): String {
+            val root = runCatching { JsonParser.parseString(rootJson).asJsonObject }.getOrNull() ?: return ""
+            return root.get("text")?.asString?.trim().orEmpty()
+        }
+
+        internal fun extractTextAttachmentPreviewStatic(
+            file: File,
+            mimeType: String?
+        ): String? {
+            val normalizedMime = mimeType.orEmpty().lowercase(Locale.US)
+            val normalizedName = file.name.lowercase(Locale.US)
+            val textLike = normalizedMime.startsWith("text/") ||
+                normalizedMime.contains("json") ||
+                normalizedMime.contains("xml") ||
+                normalizedMime.contains("csv") ||
+                normalizedMime.contains("yaml") ||
+                normalizedName.endsWith(".txt") ||
+                normalizedName.endsWith(".log") ||
+                normalizedName.endsWith(".md") ||
+                normalizedName.endsWith(".csv") ||
+                normalizedName.endsWith(".json") ||
+                normalizedName.endsWith(".xml") ||
+                normalizedName.endsWith(".yaml") ||
+                normalizedName.endsWith(".yml")
+            if (!textLike) return null
+            return runCatching {
+                file.readText(StandardCharsets.UTF_8)
+                    .replace("\u0000", "")
+                    .trim()
+                    .take(MAX_ATTACHMENT_TEXT_CHARS)
+            }.getOrNull()
+        }
+
+        private fun buildResponsesMessage(
+            role: String,
+            textItems: List<String>,
+            extraContent: JSONArray = JSONArray()
+        ): JSONObject {
+            val content = JSONArray()
+            textItems.forEach { text ->
+                if (text.isNotBlank()) {
+                    content.put(
+                        JSONObject()
+                            .put("type", "input_text")
+                            .put("text", text)
+                    )
                 }
-                val content = node.getAsJsonArray("content") ?: continue
-                chunks += parseContentTextChunks(content)
             }
-            return chunks.joinToString("\n").trim()
+            for (i in 0 until extraContent.length()) {
+                content.put(extraContent.get(i))
+            }
+            return JSONObject()
+                .put("role", role)
+                .put("content", content)
+        }
+
+        private fun buildAttachmentContent(
+            attachments: List<AiChatAttachmentRequest>
+        ): JSONArray {
+            val content = JSONArray()
+            attachments.forEach { attachment ->
+                val file = File(attachment.localPath)
+                if (!file.exists()) return@forEach
+                when (attachment.kind) {
+                    AiChatAttachmentRequest.Kind.IMAGE -> {
+                        val bytes = file.readBytes()
+                        require(bytes.size <= MAX_ATTACHMENT_IMAGE_BYTES) {
+                            "Attached image ${attachment.name} is too large"
+                        }
+                        val mime = attachment.mimeType?.takeIf { it.isNotBlank() } ?: "image/jpeg"
+                        val dataUrl = "data:$mime;base64," +
+                            Base64.getEncoder().encodeToString(bytes)
+                        content.put(
+                            JSONObject()
+                                .put("type", "input_image")
+                                .put("image_url", dataUrl)
+                        )
+                        content.put(
+                            JSONObject()
+                                .put("type", "input_text")
+                                .put("text", "Attached image: ${attachment.name}")
+                        )
+                    }
+                    AiChatAttachmentRequest.Kind.FILE -> {
+                        val preview = extractTextAttachmentPreviewStatic(
+                            file = file,
+                            mimeType = attachment.mimeType
+                        )
+                        if (preview.isNullOrBlank()) {
+                            content.put(
+                                JSONObject()
+                                    .put("type", "input_text")
+                                    .put(
+                                        "text",
+                                        "Attached file metadata only: ${attachment.name} " +
+                                            "(mime=${attachment.mimeType ?: "unknown"}, size=${file.length()} bytes). " +
+                                            "Binary content preview is unavailable on-device."
+                                    )
+                            )
+                        } else {
+                            content.put(
+                                JSONObject()
+                                    .put("type", "input_text")
+                                    .put(
+                                        "text",
+                                        "Attached file ${attachment.name}:\n$preview"
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+            return content
         }
 
         internal fun parseOptimizerOutputStatic(outputJson: String): AiForecastOptimizationResult {
@@ -604,6 +944,90 @@ class AiChatRepository(
                     }
                 }
             }
+        }
+
+        private fun collectStructuredOutputCandidates(
+            node: com.google.gson.JsonElement?,
+            out: MutableSet<String>
+        ) {
+            when {
+                node == null || node.isJsonNull -> return
+                node.isJsonPrimitive -> {
+                    val text = runCatching { node.asString }.getOrNull()?.trim().orEmpty()
+                    if (text.isNotBlank()) {
+                        out += text
+                    }
+                }
+                node.isJsonArray -> {
+                    val array = node.asJsonArray
+                    for (i in 0 until array.size()) {
+                        collectStructuredOutputCandidates(array.get(i), out)
+                    }
+                }
+                node.isJsonObject -> {
+                    val obj = node.asJsonObject
+                    if (looksLikeOptimizerObject(obj)) {
+                        out += obj.toString()
+                    }
+                    obj.get("output_text")
+                        ?.takeIf { it.isJsonPrimitive }
+                        ?.asString
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(out::add)
+                    obj.get("text")?.let { textNode ->
+                        when {
+                            textNode.isJsonPrimitive -> {
+                                textNode.asString.trim()
+                                    .takeIf { it.isNotBlank() }
+                                    ?.let(out::add)
+                            }
+                            textNode.isJsonObject -> {
+                                textNode.asJsonObject
+                                    .get("value")
+                                    ?.takeIf { it.isJsonPrimitive }
+                                    ?.asString
+                                    ?.trim()
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?.let(out::add)
+                            }
+                        }
+                    }
+                    obj.get("parsed")
+                        ?.takeIf { it.isJsonObject || it.isJsonArray }
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(out::add)
+                    obj.get("json")
+                        ?.takeIf { it.isJsonObject || it.isJsonArray }
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(out::add)
+                    obj.get("arguments")
+                        ?.takeIf { it.isJsonPrimitive }
+                        ?.asString
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(out::add)
+                    obj.entrySet().forEach { (_, value) ->
+                        collectStructuredOutputCandidates(value, out)
+                    }
+                }
+            }
+        }
+
+        private fun looksLikeOptimizerJson(text: String): Boolean {
+            val obj = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull() ?: return false
+            return looksLikeOptimizerObject(obj)
+        }
+
+        private fun looksLikeOptimizerObject(obj: JsonObject): Boolean {
+            return obj.has("status") &&
+                obj.has("confidence") &&
+                obj.has("reason") &&
+                obj.has("calibration")
         }
 
         private fun optimizerSchemaJson(): JSONObject {

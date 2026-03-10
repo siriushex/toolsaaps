@@ -1,6 +1,7 @@
 package io.aaps.copilot.ui.foundation.screens
 
 import io.aaps.copilot.ui.IsfCrHistoryPointUi
+import io.aaps.copilot.ui.IsfCrOverlayPointUi
 
 enum class ScreenLoadState {
     LOADING,
@@ -25,6 +26,12 @@ data class AppHealthUiState(
     val staleData: Boolean,
     val killSwitchEnabled: Boolean,
     val lastSyncText: String
+)
+
+data class BaseTargetBannerUiState(
+    val baseTargetMmol: Double,
+    val minTargetMmol: Double,
+    val maxTargetMmol: Double
 )
 
 data class ForecastLayerState(
@@ -70,14 +77,24 @@ data class LastActionUi(
     val payloadSummary: String? = null
 )
 
+data class SensorLagRolloutVerdictUi(
+    val status: String,
+    val bucket: String
+)
+
 data class OverviewUiState(
     val loadState: ScreenLoadState,
     val isStale: Boolean,
     val errorText: String? = null,
     val isProMode: Boolean = false,
     val glucose: Double? = null,
+    val correctedGlucose: Double? = null,
     val delta: Double? = null,
     val sampleAgeMinutes: Long? = null,
+    val sensorLagMode: String? = null,
+    val sensorLagMinutes: Double? = null,
+    val sensorLagDisableReason: String? = null,
+    val sensorLagRolloutVerdict: SensorLagRolloutVerdictUi? = null,
     val horizons: List<HorizonPredictionUi> = emptyList(),
     val uamActive: Boolean? = null,
     val uci0Mmol5m: Double? = null,
@@ -204,6 +221,8 @@ data class AnalyticsUiState(
     val loadState: ScreenLoadState,
     val isStale: Boolean,
     val errorText: String? = null,
+    val sensorLagDiagnostics: SensorLagDiagnosticsUi? = null,
+    val circadianStateStatus: CircadianStateStatusUi? = null,
     val qualityLines: List<String> = emptyList(),
     val baselineDeltaLines: List<String> = emptyList(),
     val dailyReportGeneratedAtTs: Long? = null,
@@ -224,11 +243,16 @@ data class AnalyticsUiState(
     val dailyReportReplayErrorClusters: List<DailyReportReplayErrorClusterUi> = emptyList(),
     val dailyReportReplayDayTypeGaps: List<DailyReportReplayDayTypeGapUi> = emptyList(),
     val dailyReportReplayTopFactorsOverall: String? = null,
+    val dailyReportSensorLagReplayBuckets: List<DailyReportSensorLagReplayUi> = emptyList(),
+    val dailyReportSensorLagShadowBuckets: List<DailyReportSensorLagShadowUi> = emptyList(),
+    val circadianReplaySummary: CircadianReplaySummaryUi? = null,
     val rollingReportLines: List<String> = emptyList(),
     val currentIsfReal: Double? = null,
     val currentCrReal: Double? = null,
     val currentIsfMerged: Double? = null,
     val currentCrMerged: Double? = null,
+    val currentIsfAapsRaw: Double? = null,
+    val currentCrAapsRaw: Double? = null,
     val realtimeMode: String? = null,
     val realtimeConfidence: Double? = null,
     val realtimeQualityScore: Double? = null,
@@ -249,7 +273,9 @@ data class AnalyticsUiState(
     val wearImpact7dLines: List<String> = emptyList(),
     val activeTagLines: List<String> = emptyList(),
     val historyPoints: List<IsfCrHistoryPointUi> = emptyList(),
+    val historyOverlayPoints: List<IsfCrOverlayPointUi> = emptyList(),
     val historyLastUpdatedTs: Long? = null,
+    val circadianSections: List<CircadianPatternSectionUi> = emptyList(),
     val deepLines: List<String> = emptyList(),
     val selectedInsulinProfileId: String = "NOVORAPID",
     val insulinProfileCurves: List<InsulinProfileCurveUi> = emptyList(),
@@ -262,6 +288,122 @@ data class AnalyticsUiState(
     val insulinRealProfilePeakMinutes: Double? = null,
     val insulinRealProfileScale: Double? = null,
     val insulinRealProfileStatus: String? = null
+)
+
+data class CircadianStateStatusUi(
+    val state: String,
+    val reason: String,
+    val slotCount: Int,
+    val transitionCount: Int,
+    val snapshotCount: Int,
+    val replayCount: Int,
+    val sectionCount: Int,
+    val latestSnapshotTs: Long? = null,
+    val latestReplayTs: Long? = null,
+    val sourceSummary: String? = null
+)
+
+data class SensorLagDiagnosticsUi(
+    val configuredMode: String = "OFF",
+    val runtimeMode: String? = null,
+    val rawGlucoseMmol: Double? = null,
+    val correctedGlucoseMmol: Double? = null,
+    val correctionMmol: Double? = null,
+    val lagMinutes: Double? = null,
+    val ageHours: Double? = null,
+    val ageSource: String? = null,
+    val confidence: Double? = null,
+    val disableReason: String? = null,
+    val sensorQualityScore: Double? = null,
+    val sensorQualityBlocked: Boolean? = null,
+    val sensorQualitySuspectFalseLow: Boolean? = null,
+    val sensorQualityReason: String? = null,
+    val lagTrendPoints: List<ChartPointUi> = emptyList(),
+    val correctionTrendPoints: List<ChartPointUi> = emptyList(),
+    val modeSegments: List<SensorLagTimelineSegmentUi> = emptyList(),
+    val bucketSegments: List<SensorLagTimelineSegmentUi> = emptyList(),
+    val trendStartAgeHours: Double? = null,
+    val trendEndAgeHours: Double? = null
+)
+
+data class SensorLagTimelineSegmentUi(
+    val startTs: Long,
+    val endTs: Long,
+    val label: String
+)
+
+enum class CircadianPatternWindowUi(
+    val days: Int,
+    val label: String
+) {
+    DAYS_5(5, "5d"),
+    DAYS_7(7, "7d"),
+    DAYS_10(10, "10d"),
+    DAYS_14(14, "14d")
+}
+
+data class CircadianCurvePointUi(
+    val slotIndex: Int,
+    val medianBg: Double,
+    val p10: Double,
+    val p25: Double,
+    val p75: Double,
+    val p90: Double,
+    val lowRate: Double,
+    val highRate: Double,
+    val recommendedTargetMmol: Double? = null
+)
+
+data class CircadianDeltaPointUi(
+    val slotIndex: Int,
+    val delta30: Double?,
+    val delta60: Double?,
+    val confidence30: Double? = null,
+    val confidence60: Double? = null
+)
+
+data class CircadianRiskWindowUi(
+    val hour: Int,
+    val lowRate: Double,
+    val highRate: Double,
+    val recommendedTargetMmol: Double
+)
+
+data class CircadianPatternWindowSeriesUi(
+    val windowDays: Int,
+    val coverageDays: Int,
+    val sampleCount: Int,
+    val confidence: Double,
+    val qualityScore: Double,
+    val points: List<CircadianCurvePointUi> = emptyList(),
+    val deltaPoints: List<CircadianDeltaPointUi> = emptyList(),
+    val topRiskWindows: List<CircadianRiskWindowUi> = emptyList(),
+    val replayDiagnostics: List<CircadianReplayDiagnosticUi> = emptyList()
+)
+
+data class CircadianReplayDiagnosticUi(
+    val horizonMinutes: Int,
+    val bucketStatus: String,
+    val winRate: Double,
+    val maeBaseline: Double,
+    val maeCircadian: Double,
+    val sampleCount: Int,
+    val fallbackToAll: Boolean
+)
+
+data class CircadianPatternSectionUi(
+    val requestedDayType: String,
+    val segmentSource: String,
+    val stableWindowDays: Int,
+    val recencyWindowDays: Int,
+    val recencyWeight: Double,
+    val coverageDays: Int,
+    val sampleCount: Int,
+    val segmentFallback: Boolean,
+    val fallbackReason: String? = null,
+    val confidence: Double,
+    val qualityScore: Double,
+    val windows: List<CircadianPatternWindowSeriesUi> = emptyList()
 )
 
 data class AiCloudJobUi(
@@ -389,7 +531,18 @@ data class AiChatMessageUi(
     val id: String,
     val role: String,
     val text: String,
-    val ts: Long
+    val ts: Long,
+    val attachments: List<AiChatAttachmentUi> = emptyList(),
+    val voiceTranscript: Boolean = false
+)
+
+data class AiChatAttachmentUi(
+    val id: String,
+    val name: String,
+    val kind: String,
+    val mimeType: String? = null,
+    val sizeLabel: String? = null,
+    val previewLabel: String? = null
 )
 
 data class AiAnalysisUiState(
@@ -400,6 +553,7 @@ data class AiAnalysisUiState(
     val dataCoverageHours: Double = 0.0,
     val analysisReady: Boolean = false,
     val cloudConfigured: Boolean = false,
+    val windowDays: Int = 7,
     val filterLabel: String = "",
     val jobs: List<AiCloudJobUi> = emptyList(),
     val historyItems: List<AiAnalysisHistoryItemUi> = emptyList(),
@@ -415,11 +569,49 @@ data class AiAnalysisUiState(
     val localHotspots: List<AiHotspotUi> = emptyList(),
     val localTopMisses: List<AiTopMissUi> = emptyList(),
     val localDayTypeGaps: List<AiDayTypeGapUi> = emptyList(),
+    val circadianReplaySummary: CircadianReplaySummaryUi? = null,
     val localRecommendations: List<String> = emptyList(),
     val rollingLines: List<String> = emptyList(),
     val aiTuningStatus: AiTuningStatusUi? = null,
     val chatMessages: List<AiChatMessageUi> = emptyList(),
-    val chatInProgress: Boolean = false
+    val chatInProgress: Boolean = false,
+    val chatDraft: String = "",
+    val chatPendingAttachments: List<AiChatAttachmentUi> = emptyList(),
+    val chatVoiceRepliesEnabled: Boolean = false,
+    val chatRecording: Boolean = false,
+    val chatVoiceBusy: Boolean = false,
+    val chatSpeaking: Boolean = false
+)
+
+data class CircadianReplayMetricUi(
+    val horizonMinutes: Int,
+    val sampleCount: Int,
+    val maeBaseline: Double,
+    val maeCircadian: Double,
+    val deltaMmol: Double,
+    val deltaPct: Double,
+    val winRate: Double,
+    val qualityScore: Double,
+    val bucketStatus: String
+)
+
+data class CircadianReplayBucketUi(
+    val bucket: String,
+    val metrics: List<CircadianReplayMetricUi> = emptyList()
+)
+
+data class CircadianReplayWindowUi(
+    val days: Int,
+    val appliedRows: Int,
+    val appliedPct: Double,
+    val meanShift30: Double? = null,
+    val meanShift60: Double? = null,
+    val buckets: List<CircadianReplayBucketUi> = emptyList()
+)
+
+data class CircadianReplaySummaryUi(
+    val generatedAtTs: Long,
+    val windows: List<CircadianReplayWindowUi> = emptyList()
 )
 
 data class IsfCrRuntimeDiagnosticsUi(
@@ -585,6 +777,24 @@ data class DailyReportReplayDayTypeGapUi(
     val dominantScore: Double? = null
 )
 
+data class DailyReportSensorLagReplayUi(
+    val horizonMinutes: Int,
+    val bucket: String,
+    val sampleCount: Int,
+    val rawMae: Double,
+    val lagMae: Double,
+    val maeImprovementMmol: Double,
+    val rawBias: Double,
+    val lagBias: Double
+)
+
+data class DailyReportSensorLagShadowUi(
+    val bucket: String,
+    val sampleCount: Int,
+    val ruleChangedRatePct: Double,
+    val meanAbsTargetDeltaMmol: Double? = null
+)
+
 data class SettingsUiState(
     val loadState: ScreenLoadState,
     val isStale: Boolean,
@@ -608,6 +818,14 @@ data class SettingsUiState(
     val uamMinSnackG: Int,
     val uamMaxSnackG: Int,
     val uamSnackStepG: Int,
+    val sensorLagCorrectionMode: String = "OFF",
+    val circadianPatternsEnabled: Boolean,
+    val circadianStableLookbackDays: Int,
+    val circadianRecencyLookbackDays: Int,
+    val circadianUseWeekendSplit: Boolean,
+    val circadianUseReplayResidualBias: Boolean,
+    val circadianForecastWeight30: Double,
+    val circadianForecastWeight60: Double,
     val isfCrShadowMode: Boolean,
     val isfCrConfidenceThreshold: Double,
     val isfCrUseActivity: Boolean,

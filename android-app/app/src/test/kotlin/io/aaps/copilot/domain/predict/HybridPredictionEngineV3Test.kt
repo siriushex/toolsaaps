@@ -170,6 +170,50 @@ class HybridPredictionEngineV3Test {
     }
 
     @Test
+    fun t7b_minuteLevelCgmIsCanonicalizedIntoResponsiveFiveMinuteTrend() = runBlocking {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
+        val start = 7_500_000_000L
+        val glucose = (0 until 21).map { minute ->
+            GlucosePoint(
+                ts = start + minute * 60_000L,
+                valueMmol = 6.0 + minute * 0.09,
+                source = "test",
+                quality = DataQuality.OK
+            )
+        }
+
+        val forecasts = engine.predict(glucose, emptyList()).associateBy { it.horizonMinutes }
+        val diagnostics = engine.lastDiagnosticsForTest()!!
+
+        assertThat(diagnostics.rocPer5Used).isGreaterThan(0.25)
+        assertThat(forecasts.getValue(30).valueMmol).isGreaterThan(glucose.last().valueMmol)
+    }
+
+    @Test
+    fun t7c_futureTherapyEventsAreIgnored() = runBlocking {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
+        val now = 7_600_000_000L
+        val glucose = listOf(7.2, 7.2, 7.2, 7.2, 7.2, 7.2, 7.2, 7.2).series(now)
+        val futureEvents = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts + 10 * 60_000L,
+                type = "carbs",
+                payload = mapOf("grams" to "45")
+            ),
+            TherapyEvent(
+                ts = glucose.last().ts + 15 * 60_000L,
+                type = "correction_bolus",
+                payload = mapOf("units" to "2.0")
+            )
+        )
+
+        val noEvents = engine.predict(glucose, emptyList())
+        val withFuture = engine.predict(glucose, futureEvents)
+
+        assertThat(withFuture).isEqualTo(noEvents)
+    }
+
+    @Test
     fun t8_announcedCarbsOnFlatProfilePushesForecastUpByHorizon() = runBlocking {
         val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true)
         val now = 8_000_000_000L
@@ -213,6 +257,28 @@ class HybridPredictionEngineV3Test {
         assertThat(f5).isAtMost(9.21)
         assertThat(f30).isLessThan(f5)
         assertThat(f60).isAtMost(f30)
+    }
+
+    @Test
+    fun t10_knownInputMovesAnnouncedCarbRiseOutOfResidualTrend() = runBlocking {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true)
+        val now = 9_500_000_000L
+        val glucose = listOf(6.0, 6.15, 6.32, 6.48, 6.63, 6.78, 6.91, 7.02).series(now)
+        val events = listOf(
+            TherapyEvent(
+                ts = glucose.last().ts - 30 * 60_000L,
+                type = "carbs",
+                payload = mapOf("grams" to "42")
+            )
+        )
+
+        engine.predict(glucose, events)
+        val diagnostics = engine.lastDiagnosticsForTest()!!
+
+        assertThat(diagnostics.knownInputTherapyStep1).isGreaterThan(0.0)
+        assertThat(diagnostics.knownInputUamStep1).isAtLeast(0.0)
+        assertThat(abs(diagnostics.residualRoc0)).isLessThan(diagnostics.knownInputTherapyStep1 + 0.25)
+        assertThat(abs(diagnostics.trendStep.getOrElse(1) { 0.0 })).isLessThan(0.35)
     }
 
     @Test
@@ -372,6 +438,20 @@ class HybridPredictionEngineV3Test {
     }
 
     @Test
+    fun t12a_defaultDiaTracksSelectedInsulinProfile() = runBlocking {
+        val novorapid = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        novorapid.setInsulinProfile(InsulinActionProfileId.NOVORAPID)
+
+        val apidra = HybridPredictionEngine(enableEnhancedPredictionV3 = false)
+        apidra.setInsulinProfile(InsulinActionProfileId.APIDRA)
+
+        assertThat(novorapid.currentInsulinDurationHoursForTest()).isWithin(1e-9).of(5.0)
+        assertThat(apidra.currentInsulinDurationHoursForTest()).isWithin(1e-9).of(280.0 / 60.0)
+        assertThat(apidra.currentInsulinDurationHoursForTest())
+            .isLessThan(novorapid.currentInsulinDurationHoursForTest())
+    }
+
+    @Test
     fun t12b_diaOverrideChangesInsulinImpact() = runBlocking {
         val now = 11_500_000_000L
         val glucose = listOf(9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0).series(now)
@@ -399,6 +479,30 @@ class HybridPredictionEngineV3Test {
 
         assertThat(shortPred.getValue(60).valueMmol).isLessThan(defaultPred.getValue(60).valueMmol)
         assertThat(defaultPred.getValue(60).valueMmol).isLessThan(longPred.getValue(60).valueMmol)
+    }
+
+    @Test
+    fun t13_runtimeUamHintAlignsForecastWithInferenceContour() = runBlocking {
+        val now = 11_800_000_000L
+        val glucose = listOf(6.4, 6.41, 6.42, 6.42, 6.41, 6.40, 6.39, 6.38).series(now)
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true)
+
+        engine.setUamRuntimeHint(
+            ingestionTs = glucose.last().ts - 25 * 60_000L,
+            carbsGrams = 30.0,
+            confidence = 0.72,
+            source = "uam_inference"
+        )
+
+        val forecasts = engine.predict(glucose, emptyList()).associateBy { it.horizonMinutes }
+        val diagnostics = engine.lastDiagnosticsForTest()!!
+
+        assertThat(diagnostics.usingVirtualMeal).isTrue()
+        assertThat(diagnostics.runtimeHintCarbs).isWithin(0.01).of(30.0)
+        assertThat(diagnostics.runtimeHintConfidence).isWithin(0.001).of(0.72)
+        assertThat(diagnostics.runtimeHintSource).isEqualTo("uam_inference")
+        assertThat(diagnostics.uamStep[1]).isGreaterThan(0.0)
+        assertThat(forecasts.getValue(60).valueMmol).isGreaterThan(glucose.last().valueMmol)
     }
 
     private fun List<Double>.series(startTs: Long): List<GlucosePoint> {

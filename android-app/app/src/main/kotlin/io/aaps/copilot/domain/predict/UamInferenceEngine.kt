@@ -104,11 +104,12 @@ class UamInferenceEngine {
                     CarbEvent(
                         event = event,
                         carbs = carbs,
-                        tag = parseUamTag(extractNote(event))
+                        tag = syntheticUamTag(event),
+                        syntheticUam = isSyntheticUamCarbEvent(event)
                     )
                 }
             }
-        val manualCarbEvents = taggedCarbEvents.filter { it.tag == null }
+        val manualCarbEvents = taggedCarbEvents.filterNot { it.syntheticUam }
         val manualCobNow = manualCarbEvents.sumOf { event ->
             val ageNow = ((input.nowTs - event.event.ts).coerceAtLeast(0L)) / 60_000.0
             val carbType = CarbAbsorptionProfiles.classifyCarbEvent(event.event, input.glucose, input.nowTs).type
@@ -141,7 +142,7 @@ class UamInferenceEngine {
             val hasManualNearby = input.userSettings.disableUamIfManualCarbsNearby &&
                 manualCarbEvents.any { abs(it.event.ts - ingestionCandidate) <= input.userSettings.manualMergeWindowMinutes * 60_000L }
             val hasTaggedNearby = taggedCarbEvents.any {
-                it.tag != null && abs(it.event.ts - ingestionCandidate) <= input.userSettings.manualMergeWindowMinutes * 60_000L
+                it.syntheticUam && abs(it.event.ts - ingestionCandidate) <= input.userSettings.manualMergeWindowMinutes * 60_000L
             }
             if (!hasManualNearby && !hasTaggedNearby) {
                 val startEstimate = quantizeSnack(
@@ -253,7 +254,12 @@ class UamInferenceEngine {
     }
 
     private data class SmoothedPoint(val ts: Long, val g: Double)
-    private data class CarbEvent(val event: TherapyEvent, val carbs: Double, val tag: UamTag?)
+    private data class CarbEvent(
+        val event: TherapyEvent,
+        val carbs: Double,
+        val tag: UamTag?,
+        val syntheticUam: Boolean
+    )
 
     private fun smoothGlucose(glucose: List<GlucosePoint>): List<SmoothedPoint> {
         val filter = KalmanGlucoseFilter()
@@ -484,10 +490,6 @@ class UamInferenceEngine {
     private fun eventCanCarryInsulin(event: TherapyEvent): Boolean {
         val type = normalize(event.type)
         return type.contains("bolus") || type.contains("correction") || type == "insulin"
-    }
-
-    private fun extractNote(event: TherapyEvent): String? {
-        return event.payload["note"] ?: event.payload["notes"] ?: event.payload["reason"]
     }
 
     private fun normalize(value: String): String {

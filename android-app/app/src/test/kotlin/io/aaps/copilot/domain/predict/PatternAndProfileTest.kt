@@ -155,6 +155,43 @@ class PatternAndProfileTest {
     }
 
     @Test
+    fun profileEstimator_ignoresSyntheticUamCarbsAroundCorrection() {
+        val now = System.currentTimeMillis()
+        val correctionTs = now - 8 * 60 * 60_000L
+        val glucose = listOf(
+            GlucosePoint(correctionTs, 9.8, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 90 * 60_000L, 7.6, "test", DataQuality.OK),
+            GlucosePoint(correctionTs + 180 * 60_000L, 7.0, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(
+                correctionTs + 10 * 60_000L,
+                "carbs",
+                mapOf(
+                    "grams" to "20",
+                    "synthetic" to "true",
+                    "source" to "uam_engine",
+                    "notes" to "UAM_ENGINE|id=test|seq=1|ver=1|mode=BOOST|"
+                )
+            )
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapy, telemetrySignals = listOf(
+            TelemetrySignal(correctionTs, "cr_value", 10.0)
+        ))
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.isfMmolPerUnit).isWithin(0.01).of(2.8)
+    }
+
+    @Test
     fun profileEstimator_treatsPlainBolusWithoutCarbs_asCorrectionForRealIsf() {
         val now = System.currentTimeMillis()
         val bolusTs = now - 7 * 60 * 60_000L
@@ -327,6 +364,36 @@ class PatternAndProfileTest {
         assertThat(estimate.crGramPerUnit).isWithin(0.01).of(11.0)
         assertThat(estimate.telemetryIsfSampleCount).isEqualTo(1)
         assertThat(estimate.telemetryCrSampleCount).isEqualTo(1)
+    }
+
+    @Test
+    fun profileEstimator_repeatedTelemetryActsAsSinglePrior_notMultipleSamples() {
+        val now = System.currentTimeMillis()
+        val glucose = listOf(
+            GlucosePoint(ts = now, valueMmol = 6.1, source = "test", quality = DataQuality.OK)
+        )
+        val telemetry = listOf(
+            TelemetrySignal(ts = now - 5 * 60_000, key = "isf_value", valueDouble = 48.0),
+            TelemetrySignal(ts = now - 3 * 60_000, key = "isf_value", valueDouble = 50.0),
+            TelemetrySignal(ts = now - 60_000, key = "isf_value", valueDouble = 54.0),
+            TelemetrySignal(ts = now - 4 * 60_000, key = "cr_value", valueDouble = 10.0),
+            TelemetrySignal(ts = now - 90_000, key = "cr_value", valueDouble = 11.0)
+        )
+
+        val estimate = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minIsfSamples = 1,
+                minCrSamples = 1,
+                trimFraction = 0.0
+            )
+        ).estimate(glucose, therapyEvents = emptyList(), telemetrySignals = telemetry)
+
+        assertThat(estimate).isNotNull()
+        assertThat(estimate!!.isfMmolPerUnit).isWithin(0.02).of(3.0)
+        assertThat(estimate.crGramPerUnit).isWithin(0.01).of(11.0)
+        assertThat(estimate.telemetryIsfSampleCount).isEqualTo(1)
+        assertThat(estimate.telemetryCrSampleCount).isEqualTo(1)
+        assertThat(estimate.sampleCount).isEqualTo(2)
     }
 
     @Test
@@ -544,6 +611,44 @@ class PatternAndProfileTest {
         val hour9 = hourly.firstOrNull { it.hour == 9 }
         assertThat(hour9).isNotNull()
         assertThat(hour9!!.isfMmolPerUnit).isWithin(0.01).of(2.0)
+    }
+
+    @Test
+    fun profileEstimator_hourlySparseWindowShrinksTowardGlobalPrior() {
+        val zone = ZoneId.systemDefault()
+        val day1 = LocalDateTime.of(2026, 3, 1, 0, 0).atZone(zone).toInstant().toEpochMilli()
+        val day2 = LocalDateTime.of(2026, 3, 2, 0, 0).atZone(zone).toInstant().toEpochMilli()
+        val day3 = LocalDateTime.of(2026, 3, 3, 0, 0).atZone(zone).toInstant().toEpochMilli()
+        val h8d1 = day1 + 8 * 60 * 60_000L
+        val h8d2 = day2 + 8 * 60 * 60_000L
+        val h20d3 = day3 + 20 * 60 * 60_000L
+
+        val glucose = listOf(
+            GlucosePoint(h8d1, 9.0, "test", DataQuality.OK),
+            GlucosePoint(h8d1 + 90 * 60_000L, 7.0, "test", DataQuality.OK),
+            GlucosePoint(h8d2, 10.0, "test", DataQuality.OK),
+            GlucosePoint(h8d2 + 90 * 60_000L, 8.0, "test", DataQuality.OK),
+            GlucosePoint(h20d3, 10.5, "test", DataQuality.OK),
+            GlucosePoint(h20d3 + 90 * 60_000L, 6.5, "test", DataQuality.OK)
+        )
+        val therapy = listOf(
+            TherapyEvent(h8d1, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(h8d2, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(h20d3, "correction_bolus", mapOf("units" to "1.0"))
+        )
+
+        val hourly = ProfileEstimator(
+            ProfileEstimatorConfig(
+                minSegmentSamples = 2,
+                trimFraction = 0.0
+            )
+        ).estimateHourly(glucose, therapy)
+
+        val hour20 = hourly.firstOrNull { it.hour == 20 }
+        assertThat(hour20).isNotNull()
+        assertThat(hour20!!.isfSampleCount).isEqualTo(1)
+        assertThat(hour20.isfMmolPerUnit).isGreaterThan(2.0)
+        assertThat(hour20.isfMmolPerUnit).isLessThan(4.0)
     }
 
     @Test

@@ -31,4 +31,28 @@ class ForecastQualityEvaluatorTest {
         assertThat(m60.sampleCount).isEqualTo(1)
         assertThat(m60.mae).isWithin(0.001).of(1.2)
     }
+
+    @Test
+    fun interpolatesActualInsteadOfPickingClosestSample() {
+        val t0 = 2_000_000L
+        val forecasts = listOf(
+            ForecastEntity(
+                timestamp = t0 + 10 * 60_000,
+                horizonMinutes = 5,
+                valueMmol = 7.0,
+                ciLow = 6.5,
+                ciHigh = 7.5,
+                modelVersion = "m"
+            )
+        )
+        val glucose = listOf(
+            GlucoseSampleEntity(timestamp = t0 + 5 * 60_000, mmol = 6.0, source = "test", quality = "OK"),
+            GlucoseSampleEntity(timestamp = t0 + 15 * 60_000, mmol = 8.0, source = "test", quality = "OK")
+        )
+
+        val metrics = ForecastQualityEvaluator().evaluate(forecasts, glucose)
+
+        assertThat(metrics).hasSize(1)
+        assertThat(metrics.single().mae).isWithin(0.001).of(0.0)
+    }
 }

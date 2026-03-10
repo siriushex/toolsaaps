@@ -12,6 +12,7 @@ internal class UamEstimator {
         val isfMmolPerUnit: Double,
         val csfMmolPerGram: Double,
         val enableVirtualMealFit: Boolean,
+        val externalMealHint: ExternalMealHint? = null,
         val carbCumulativeForEvent: (TherapyEvent, Double) -> Double,
         val insulinCumulative: (Double) -> Double,
         val extractCarbsGrams: (TherapyEvent) -> Double?,
@@ -45,6 +46,13 @@ internal class UamEstimator {
             }
         }
     }
+
+    data class ExternalMealHint(
+        val ingestionTs: Long,
+        val carbsGrams: Double,
+        val confidence: Double,
+        val source: String
+    )
 
     private val historyByBucket = LinkedHashMap<Long, Double>()
 
@@ -95,7 +103,18 @@ internal class UamEstimator {
         var virtualConfidence: Double? = null
         var usingVirtual = false
 
-        if (context.enableVirtualMealFit) {
+        val externalHint = context.externalMealHint
+            ?.takeIf { it.carbsGrams > 0.0 && it.confidence > 0.0 }
+        if (externalHint != null) {
+            virtualCarbs = externalHint.carbsGrams
+            virtualConfidence = externalHint.confidence
+            finalSteps = buildExternalMealSteps(
+                context = context,
+                ingestionTs = externalHint.ingestionTs,
+                carbsGrams = externalHint.carbsGrams
+            )
+            usingVirtual = true
+        } else if (context.enableVirtualMealFit) {
             val fit = fitVirtualMeal(context, nowBucket)
             if (fit != null) {
                 virtualCarbs = fit.carbsGrams
@@ -112,7 +131,7 @@ internal class UamEstimator {
             uciMax = uciMax,
             k = k,
             steps = finalSteps,
-            active = uci0 >= UAM_ACTIVE_THRESHOLD,
+            active = uci0 >= UAM_ACTIVE_THRESHOLD || externalHint != null,
             virtualMealCarbs = virtualCarbs,
             virtualMealConfidence = virtualConfidence,
             usingVirtualMeal = usingVirtual
@@ -266,17 +285,29 @@ internal class UamEstimator {
     }
 
     private fun buildVirtualMealSteps(context: Context, fit: VirtualMealFit): DoubleArray {
+        return buildExternalMealSteps(
+            context = context,
+            ingestionTs = fit.tStarTs,
+            carbsGrams = fit.carbsGrams
+        )
+    }
+
+    private fun buildExternalMealSteps(
+        context: Context,
+        ingestionTs: Long,
+        carbsGrams: Double
+    ): DoubleArray {
         val out = DoubleArray(STEPS_MAX + 1)
-        val age0 = maxOf(0.0, (context.nowTs - fit.tStarTs) / 60_000.0)
+        val age0 = maxOf(0.0, (context.nowTs - ingestionTs) / 60_000.0)
         val syntheticEvent = TherapyEvent(
-            ts = fit.tStarTs,
+            ts = ingestionTs,
             type = "carbs",
-            payload = mapOf("grams" to fit.carbsGrams.toString())
+            payload = mapOf("grams" to carbsGrams.toString())
         )
         for (j in 1..STEPS_MAX) {
             val ageA = age0 + (j - 1) * 5.0
             val ageB = age0 + j * 5.0
-            out[j] = fit.carbsGrams * context.csfMmolPerGram *
+            out[j] = carbsGrams * context.csfMmolPerGram *
                 maxOf(0.0, context.carbCumulativeForEvent(syntheticEvent, ageB) - context.carbCumulativeForEvent(syntheticEvent, ageA))
         }
         return out

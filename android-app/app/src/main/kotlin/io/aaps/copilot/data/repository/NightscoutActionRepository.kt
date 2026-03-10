@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.config.resolvedNightscoutUrl
@@ -24,9 +25,50 @@ class NightscoutActionRepository(
     private val settingsStore: AppSettingsStore,
     private val apiFactory: ApiFactory,
     private val carbsSendThrottle: CarbsSendThrottle,
+    private val tempTargetSendThrottle: TempTargetSendThrottle,
     private val gson: Gson,
     private val auditLogger: AuditLogger
 ) {
+
+    suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
+        val since = System.currentTimeMillis() - lookbackMs
+        val failedLogs = db.auditLogDao().recentByMessage(
+            message = "action_delivery_failed",
+            sinceTs = since,
+            limit = 500
+        )
+        if (failedLogs.isEmpty()) return 0
+        val metadataType = object : TypeToken<Map<String, String>>() {}.type
+        val blockedIds = failedLogs.mapNotNull { row ->
+            val meta = runCatching { gson.fromJson<Map<String, String>>(row.metadataJson, metadataType) }.getOrNull()
+                ?: return@mapNotNull null
+            val reason = meta["reason"].orEmpty()
+            val commandId = meta["commandId"].orEmpty()
+            if (commandId.isBlank()) return@mapNotNull null
+            if (reason == "temp_target_rate_limit_30m" || reason == "carbs_rate_limit_30m") {
+                commandId
+            } else {
+                null
+            }
+        }.distinct()
+        if (blockedIds.isEmpty()) return 0
+        val updated = db.actionCommandDao().updateStatusByIds(
+            ids = blockedIds,
+            currentStatus = STATUS_FAILED,
+            newStatus = STATUS_BLOCKED
+        )
+        if (updated > 0) {
+            auditLogger.info(
+                "action_status_normalized",
+                mapOf(
+                    "normalizedTo" to STATUS_BLOCKED,
+                    "updated" to updated,
+                    "reason" to "legacy_rate_limit_failed"
+                )
+            )
+        }
+        return updated
+    }
 
     suspend fun submitTempTarget(command: ActionCommand): Boolean {
         registerPendingCommand(command)?.let { return it }
@@ -41,6 +83,26 @@ class NightscoutActionRepository(
         }
 
         val nowMs = System.currentTimeMillis()
+        val throttle = tempTargetSendThrottle.evaluate(
+            nowMs = nowMs,
+            idempotencyKey = command.idempotencyKey,
+            targetMmol = target
+        )
+        if (!throttle.allowed) {
+            markBlocked(command, "temp_target_rate_limit_30m")
+            auditLogger.warn(
+                "temp_target_send_blocked_rate_limit",
+                mapOf(
+                    "reason" to throttle.reason,
+                    "waitMinutes" to throttle.waitMinutes,
+                    "lastSentTs" to (throttle.lastSentTs ?: 0L),
+                    "lastTargetMmol" to (throttle.lastTargetMmol ?: -1.0),
+                    "requestedTargetMmol" to target,
+                    "idempotencyKey" to command.idempotencyKey
+                )
+            )
+            return false
+        }
         val nowIso = Instant.now().toString()
         val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
         val request = NightscoutTreatmentRequest(
@@ -166,7 +228,7 @@ class NightscoutActionRepository(
         val nowIso = Instant.now().toString()
         val throttle = carbsSendThrottle.evaluate(nowMs)
         if (!throttle.allowed) {
-            markFailed(command, "carbs_rate_limit_30m")
+            markBlocked(command, "carbs_rate_limit_30m")
             auditLogger.warn(
                 "carbs_send_blocked_rate_limit",
                 mapOf(
@@ -305,6 +367,24 @@ class NightscoutActionRepository(
         )
         auditLogger.error(
             "action_delivery_failed",
+            mapOf("reason" to reason, "commandId" to command.id, "type" to command.type)
+        )
+    }
+
+    private suspend fun markBlocked(command: ActionCommand, reason: String) {
+        db.actionCommandDao().upsert(
+            ActionCommandEntity(
+                id = command.id,
+                timestamp = System.currentTimeMillis(),
+                type = command.type,
+                payloadJson = gson.toJson(command.params),
+                safetyJson = gson.toJson(command.safetySnapshot),
+                idempotencyKey = command.idempotencyKey,
+                status = STATUS_BLOCKED
+            )
+        )
+        auditLogger.warn(
+            "action_delivery_blocked",
             mapOf("reason" to reason, "commandId" to command.id, "type" to command.type)
         )
     }
@@ -491,6 +571,7 @@ class NightscoutActionRepository(
         const val KEEPALIVE_IDEMPOTENCY_PREFIX = "adaptive_keepalive:"
         const val STATUS_PENDING = "PENDING"
         const val STATUS_SENT = "SENT"
+        const val STATUS_BLOCKED = "BLOCKED"
         const val STATUS_FAILED = "FAILED"
         const val DEFAULT_LOCAL_TREATMENT_ACTION = "info.nightscout.client.NEW_TREATMENT"
         const val ACTION_LOCAL_TREATMENTS = "info.nightscout.androidaps.action.LOCAL_TREATMENTS"

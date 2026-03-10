@@ -21,15 +21,16 @@ class ForecastQualityEvaluator {
     ): List<ForecastQualityMetrics> {
         if (forecasts.isEmpty() || glucose.isEmpty()) return emptyList()
 
+        val sortedGlucose = glucose.sortedBy { it.timestamp }
         val byHorizon = forecasts.groupBy { it.horizonMinutes }
         return byHorizon.mapNotNull { (horizon, rows) ->
             val toleranceMs = if (horizon <= 10) 5 * 60 * 1000L else 15 * 60 * 1000L
 
             val errors = rows.mapNotNull { forecast ->
-                val actual = closestGlucose(glucose, forecast.timestamp, toleranceMs) ?: return@mapNotNull null
-                val absError = abs(actual.mmol - forecast.valueMmol)
+                val actualMmol = actualAt(sortedGlucose, forecast.timestamp, toleranceMs) ?: return@mapNotNull null
+                val absError = abs(actualMmol - forecast.valueMmol)
                 val sqError = absError * absError
-                val ard = if (actual.mmol > 0.0) absError / actual.mmol else 0.0
+                val ard = if (actualMmol > 0.0) absError / actualMmol else 0.0
                 Triple(absError, sqError, ard)
             }
 
@@ -49,12 +50,27 @@ class ForecastQualityEvaluator {
         }.sortedBy { it.horizonMinutes }
     }
 
-    private fun closestGlucose(
+    private fun actualAt(
         samples: List<GlucoseSampleEntity>,
         targetTs: Long,
         toleranceMs: Long
-    ): GlucoseSampleEntity? {
+    ): Double? {
+        val exact = samples.firstOrNull { it.timestamp == targetTs }
+        if (exact != null) return exact.mmol
+
+        val before = samples.lastOrNull { it.timestamp < targetTs }
+        val after = samples.firstOrNull { it.timestamp > targetTs }
+        if (before != null && after != null) {
+            val beforeDelta = targetTs - before.timestamp
+            val afterDelta = after.timestamp - targetTs
+            val totalGap = after.timestamp - before.timestamp
+            if (beforeDelta <= toleranceMs && afterDelta <= toleranceMs && totalGap in 1..(2 * toleranceMs)) {
+                val ratio = beforeDelta.toDouble() / totalGap.toDouble()
+                return before.mmol + (after.mmol - before.mmol) * ratio
+            }
+        }
+
         val candidate = samples.minByOrNull { abs(it.timestamp - targetTs) } ?: return null
-        return candidate.takeIf { abs(candidate.timestamp - targetTs) <= toleranceMs }
+        return candidate.mmol.takeIf { abs(candidate.timestamp - targetTs) <= toleranceMs }
     }
 }

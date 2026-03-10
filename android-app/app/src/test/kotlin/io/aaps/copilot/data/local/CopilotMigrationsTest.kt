@@ -27,4 +27,45 @@ class CopilotMigrationsTest {
     fun migrationPackage_contains9To10Migration() {
         assertThat(CopilotMigrations.ALL.toList()).contains(CopilotMigrations.MIGRATION_9_10)
     }
+
+    @Test
+    fun migration10To11_hasExpectedVersionRange() {
+        assertThat(CopilotMigrations.MIGRATION_10_11.startVersion).isEqualTo(10)
+        assertThat(CopilotMigrations.MIGRATION_10_11.endVersion).isEqualTo(11)
+    }
+
+    @Test
+    fun migration10To11_coversCircadianPatternTables() {
+        val statements = CopilotMigrations.MIGRATION_10_11_STATEMENTS.joinToString(separator = "\n")
+        assertThat(statements).contains("CREATE TABLE IF NOT EXISTS `circadian_slot_stats`")
+        assertThat(statements).contains("CREATE TABLE IF NOT EXISTS `circadian_transition_stats`")
+        assertThat(statements).contains("CREATE TABLE IF NOT EXISTS `circadian_pattern_snapshots`")
+        assertThat(statements).contains("index_circadian_slot_stats_dayType_windowDays")
+        assertThat(statements).contains("index_circadian_transition_stats_dayType_windowDays_horizonMinutes")
+        assertThat(statements).contains("index_circadian_pattern_snapshots_updatedAt")
+    }
+
+    @Test
+    fun migrationPackage_contains10To11Migration() {
+        assertThat(CopilotMigrations.ALL.toList()).contains(CopilotMigrations.MIGRATION_10_11)
+    }
+
+    @Test
+    fun migration11To12_hasExpectedVersionRange() {
+        assertThat(CopilotMigrations.MIGRATION_11_12.startVersion).isEqualTo(11)
+        assertThat(CopilotMigrations.MIGRATION_11_12.endVersion).isEqualTo(12)
+    }
+
+    @Test
+    fun migration11To12_coversCircadianReplayTables() {
+        val statements = CopilotMigrations.MIGRATION_11_12_STATEMENTS.joinToString(separator = "\n")
+        assertThat(statements).contains("CREATE TABLE IF NOT EXISTS `circadian_replay_slot_stats`")
+        assertThat(statements).contains("index_circadian_replay_slot_stats_dayType_windowDays")
+        assertThat(statements).contains("index_circadian_replay_slot_stats_dayType_slotIndex_horizonMinutes")
+    }
+
+    @Test
+    fun migrationPackage_contains11To12Migration() {
+        assertThat(CopilotMigrations.ALL.toList()).contains(CopilotMigrations.MIGRATION_11_12)
+    }
 }

@@ -2,6 +2,8 @@ package io.aaps.copilot.ui.foundation.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -22,7 +24,9 @@ import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,8 +35,10 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,16 +58,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.IsfCrHistoryPointUi
+import io.aaps.copilot.ui.IsfCrOverlayPointUi
 import io.aaps.copilot.ui.IsfCrHistoryResolver
 import io.aaps.copilot.ui.IsfCrHistoryWindow
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import io.aaps.copilot.ui.foundation.theme.LocalNumericTypography
 import java.time.Instant
 import java.time.ZoneId
@@ -83,10 +93,29 @@ private enum class IsfCrChartScale(val rangeMultiplier: Double) {
     ZOOM_OUT(1.6)
 }
 
+private enum class SensorLagTimelineKind {
+    MODE,
+    BUCKET
+}
+
 private data class IsfCrSeriesPoint(
     val ts: Long,
-    val real: Double?,
+    val evidence: Double?,
+    val fallback: Double?,
     val aaps: Double?
+)
+
+private data class IsfCrOverlaySeriesPoint(
+    val ts: Long,
+    val cob: Double?,
+    val uam: Double?,
+    val activity: Double?
+)
+
+private data class AnalyticsOverlayScale(
+    val min: Double,
+    val max: Double,
+    val latest: Double?
 )
 
 private data class InsulinProfileActivityPoint(
@@ -103,15 +132,24 @@ fun AnalyticsScreen(
     state: AnalyticsUiState,
     onRunDailyAnalysis: () -> Unit = {},
     onInsulinProfileActivate: (String) -> Unit = {},
+    onSensorLagCorrectionModeChange: (String) -> Unit = {},
+    openSensorLagTrendDetailRequest: Boolean = false,
+    onSensorLagTrendDetailHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTabRaw by rememberSaveable { mutableStateOf(AnalyticsTab.ISF_CR.name) }
     var selectedWindowRaw by rememberSaveable { mutableStateOf(IsfCrHistoryWindow.LAST_24H.name) }
+    var selectedCircadianWindowRaw by rememberSaveable { mutableStateOf(CircadianPatternWindowUi.DAYS_14.name) }
+    var showSensorLagTrendDialog by rememberSaveable { mutableStateOf(false) }
     val selectedTab = remember(selectedTabRaw) {
         runCatching { AnalyticsTab.valueOf(selectedTabRaw) }.getOrDefault(AnalyticsTab.ISF_CR)
     }
     val selectedWindow = remember(selectedWindowRaw) {
         runCatching { IsfCrHistoryWindow.valueOf(selectedWindowRaw) }.getOrDefault(IsfCrHistoryWindow.LAST_24H)
+    }
+    val selectedCircadianWindow = remember(selectedCircadianWindowRaw) {
+        runCatching { CircadianPatternWindowUi.valueOf(selectedCircadianWindowRaw) }
+            .getOrDefault(CircadianPatternWindowUi.DAYS_14)
     }
     val anchorTs = state.historyLastUpdatedTs ?: System.currentTimeMillis()
     val historyPoints = remember(
@@ -125,6 +163,23 @@ fun AnalyticsScreen(
             window = selectedWindow,
             maxPoints = 420
         )
+    }
+    val historyOverlayPoints = remember(
+        state.historyOverlayPoints,
+        historyPoints
+    ) {
+        alignOverlayPoints(
+            source = state.historyOverlayPoints,
+            visiblePoints = historyPoints
+        )
+    }
+
+    LaunchedEffect(openSensorLagTrendDetailRequest) {
+        if (openSensorLagTrendDetailRequest) {
+            selectedTabRaw = AnalyticsTab.QUALITY.name
+            showSensorLagTrendDialog = true
+            onSensorLagTrendDetailHandled()
+        }
     }
 
     ScreenStateLayout(
@@ -153,6 +208,18 @@ fun AnalyticsScreen(
                             }
                         }
                     }
+                    state.sensorLagDiagnostics?.let { diagnostics ->
+                        item {
+                            SensorLagDiagnosticsCard(
+                                diagnostics = diagnostics,
+                                replayBuckets = state.dailyReportSensorLagReplayBuckets,
+                                shadowBuckets = state.dailyReportSensorLagShadowBuckets,
+                                showTrendDialog = showSensorLagTrendDialog,
+                                onShowTrendDialogChange = { showSensorLagTrendDialog = it },
+                                onSensorLagCorrectionModeChange = onSensorLagCorrectionModeChange
+                            )
+                        }
+                    }
                     if (
                         state.dailyReportGeneratedAtTs != null ||
                         state.dailyReportHorizonStats.isNotEmpty() ||
@@ -160,6 +227,22 @@ fun AnalyticsScreen(
                     ) {
                         item {
                             DailyForecastReportCard(state = state)
+                        }
+                    }
+                    state.circadianReplaySummary?.let { summary ->
+                        item {
+                            AnalyticsSectionCard {
+                                AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_replay_title))
+                                Text(
+                                    text = stringResource(id = R.string.analytics_circadian_replay_info),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                CircadianReplaySummaryContent(
+                                    summary = summary,
+                                    emptyText = stringResource(id = R.string.analytics_empty)
+                                )
+                            }
                         }
                     }
                     item {
@@ -240,9 +323,15 @@ fun AnalyticsScreen(
                             title = stringResource(id = R.string.analytics_chart_isf),
                             unit = stringResource(id = R.string.unit_mmol_l) + "/U",
                             points = historyPoints,
-                            realColor = Color(0xFF0A5FBF),
+                            overlayPoints = historyOverlayPoints,
+                            evidenceColor = Color(0xFF0A5FBF),
+                            fallbackColor = Color(0xFF8B5CF6),
                             aapsColor = Color(0xFFCC6A00),
-                            realSelector = { it.isfRealStrict },
+                            cobColor = Color(0xFF0F766E),
+                            uamColor = Color(0xFFD946EF),
+                            activityColor = Color(0xFF2563EB),
+                            evidenceSelector = { it.isfEvidenceStrict },
+                            fallbackSelector = { it.isfFallbackRuntimeStrict },
                             aapsSelector = { it.isfAapsStrict }
                         )
                     }
@@ -252,10 +341,23 @@ fun AnalyticsScreen(
                             title = stringResource(id = R.string.analytics_chart_cr),
                             unit = stringResource(id = R.string.unit_g) + "/U",
                             points = historyPoints,
-                            realColor = Color(0xFF00796B),
+                            overlayPoints = historyOverlayPoints,
+                            evidenceColor = Color(0xFF00796B),
+                            fallbackColor = Color(0xFF8B5CF6),
                             aapsColor = Color(0xFFCC6A00),
-                            realSelector = { it.crRealStrict },
+                            cobColor = Color(0xFF0F766E),
+                            uamColor = Color(0xFFD946EF),
+                            activityColor = Color(0xFF2563EB),
+                            evidenceSelector = { it.crEvidenceStrict },
+                            fallbackSelector = { it.crFallbackRuntimeStrict },
                             aapsSelector = { it.crAapsStrict }
+                        )
+                    }
+                    item {
+                        CircadianPatternsCard(
+                            state = state,
+                            selectedWindow = selectedCircadianWindow,
+                            onWindowSelected = { selectedCircadianWindowRaw = it.name }
                         )
                     }
                     if (state.deepLines.isNotEmpty()) {
@@ -1183,6 +1285,7 @@ private fun AnalyticsTabCard(
     selectedTab: AnalyticsTab,
     onTabSelected: (AnalyticsTab) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     AnalyticsSectionCard {
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             val tabs = listOf(AnalyticsTab.ISF_CR, AnalyticsTab.QUALITY)
@@ -1191,6 +1294,18 @@ private fun AnalyticsTabCard(
                     selected = selectedTab == tab,
                     onClick = { onTabSelected(tab) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = tabs.size),
+                    colors = if (midnightGlass) {
+                        SegmentedButtonDefaults.colors(
+                            activeContainerColor = Color(0xFF1D4ED8),
+                            activeContentColor = Color(0xFFF8FAFC),
+                            inactiveContainerColor = Color(0xAA101D38),
+                            inactiveContentColor = Color(0xFFB5C0D8),
+                            activeBorderColor = Color(0x332563EB),
+                            inactiveBorderColor = Color(0x1FFFFFFF)
+                        )
+                    } else {
+                        SegmentedButtonDefaults.colors()
+                    },
                     label = {
                         Text(
                             text = when (tab) {
@@ -1215,6 +1330,7 @@ private fun IsfCrOverviewCard(
     visibleEndTs: Long?,
     onWindowSelected: (IsfCrHistoryWindow) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val selectedWindowHours = selectedWindow.durationMs?.div(60L * 60L * 1000L)?.toInt()
     val visibleCoverageHours = if (visibleStartTs != null && visibleEndTs != null && visibleEndTs >= visibleStartTs) {
         ((visibleEndTs - visibleStartTs).toDouble() / (60.0 * 60.0 * 1000.0))
@@ -1263,11 +1379,36 @@ private fun IsfCrOverviewCard(
                 modifier = Modifier.weight(1f)
             )
         }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            AnalyticsMetricTile(
+                title = stringResource(id = R.string.analytics_isf_aaps_raw),
+                value = state.currentIsfAapsRaw,
+                unit = stringResource(id = R.string.unit_mmol_l) + "/U",
+                iconColor = Color(0xFFCC6A00),
+                modifier = Modifier.weight(1f)
+            )
+            AnalyticsMetricTile(
+                title = stringResource(id = R.string.analytics_cr_aaps_raw),
+                value = state.currentCrAapsRaw,
+                unit = stringResource(id = R.string.unit_g) + "/U",
+                iconColor = Color(0xFFCC6A00),
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            text = stringResource(id = R.string.analytics_series_priority_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             items(IsfCrHistoryWindow.entries.toList()) { candidate ->
                 FilterChip(
                     selected = candidate == selectedWindow,
                     onClick = { onWindowSelected(candidate) },
+                    colors = if (midnightGlass) analyticsFilterChipColors() else FilterChipDefaults.filterChipColors(),
                     label = { Text(text = candidate.label) }
                 )
             }
@@ -1315,6 +1456,7 @@ private fun AnalyticsMetricTile(
     iconColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val resolvedIconColor = iconColor ?: MaterialTheme.colorScheme.primary
     val valueText = UiFormatters.formatMmol(value, decimals = 2)
     Surface(
@@ -1322,8 +1464,8 @@ private fun AnalyticsMetricTile(
             contentDescription = "$title $valueText $unit"
         },
         shape = AnalyticsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -1342,17 +1484,19 @@ private fun AnalyticsMetricTile(
                 )
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                 )
             }
             Text(
                 text = valueText,
-                style = LocalNumericTypography.current.valueMedium
+                style = LocalNumericTypography.current.valueMedium,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = unit,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -1364,12 +1508,24 @@ private fun IsfCrSeriesCard(
     title: String,
     unit: String,
     points: List<IsfCrHistoryPointUi>,
-    realColor: Color,
+    overlayPoints: List<IsfCrOverlayPointUi>,
+    evidenceColor: Color,
+    fallbackColor: Color,
     aapsColor: Color,
-    realSelector: (IsfCrHistoryPointUi) -> Double?,
+    cobColor: Color,
+    uamColor: Color,
+    activityColor: Color,
+    evidenceSelector: (IsfCrHistoryPointUi) -> Double?,
+    fallbackSelector: (IsfCrHistoryPointUi) -> Double?,
     aapsSelector: (IsfCrHistoryPointUi) -> Double?
 ) {
     var selectedScaleRaw by rememberSaveable(chartKey) { mutableStateOf(IsfCrChartScale.AUTO.name) }
+    var showEvidence by rememberSaveable("${chartKey}_evidence") { mutableStateOf(true) }
+    var showFallback by rememberSaveable("${chartKey}_fallback") { mutableStateOf(true) }
+    var showAaps by rememberSaveable("${chartKey}_aaps") { mutableStateOf(true) }
+    var showCob by rememberSaveable("${chartKey}_cob") { mutableStateOf(false) }
+    var showUam by rememberSaveable("${chartKey}_uam") { mutableStateOf(false) }
+    var showActivity by rememberSaveable("${chartKey}_activity") { mutableStateOf(false) }
     val selectedScale = remember(selectedScaleRaw) {
         runCatching { IsfCrChartScale.valueOf(selectedScaleRaw) }.getOrDefault(IsfCrChartScale.AUTO)
     }
@@ -1378,39 +1534,78 @@ private fun IsfCrSeriesCard(
             .map {
                 IsfCrSeriesPoint(
                     ts = it.timestamp,
-                    real = realSelector(it),
+                    evidence = evidenceSelector(it),
+                    fallback = fallbackSelector(it),
                     aaps = aapsSelector(it)
                 )
             }
             .sortedBy { it.ts }
     }
-    val realValues = series.mapNotNull { it.real?.takeIf { value -> value.isFinite() } }
+    val overlaySeries = remember(overlayPoints) {
+        overlayPoints
+            .map {
+                IsfCrOverlaySeriesPoint(
+                    ts = it.timestamp,
+                    cob = it.cobGrams,
+                    uam = it.uamGrams,
+                    activity = it.activityRatio
+                )
+            }
+            .sortedBy { it.ts }
+    }
+    val evidenceValues = series.mapNotNull { it.evidence?.takeIf { value -> value.isFinite() } }
+    val fallbackValues = series.mapNotNull { it.fallback?.takeIf { value -> value.isFinite() } }
     val aapsValues = series.mapNotNull { it.aaps?.takeIf { value -> value.isFinite() } }
-    val statsValues = if (realValues.isNotEmpty()) realValues else aapsValues
+    val selectedPrimaryValues = buildList {
+        if (showEvidence) addAll(evidenceValues)
+        if (showFallback) addAll(fallbackValues)
+        if (showAaps) addAll(aapsValues)
+    }
+    val statsValues = when {
+        selectedPrimaryValues.isNotEmpty() -> selectedPrimaryValues
+        evidenceValues.isNotEmpty() -> evidenceValues
+        fallbackValues.isNotEmpty() -> fallbackValues
+        else -> aapsValues
+    }
     val min = statsValues.minOrNull()
     val max = statsValues.maxOrNull()
-    val lastReal = realValues.lastOrNull()
+    val lastEvidence = evidenceValues.lastOrNull()
+    val lastFallback = fallbackValues.lastOrNull()
     val lastAaps = aapsValues.lastOrNull()
-    val lastPair = series.lastOrNull { it.real != null && it.aaps != null }
-    val lastDelta = if (lastPair?.real != null && lastPair.aaps != null) {
-        lastPair.real - lastPair.aaps
+    val overlayCobScale = overlayScaleOrNull(
+        overlaySeries.mapNotNull { it.cob?.takeIf { value -> value.isFinite() } }.takeIf { showCob }.orEmpty()
+    )
+    val overlayUamScale = overlayScaleOrNull(
+        overlaySeries.mapNotNull { it.uam?.takeIf { value -> value.isFinite() } }.takeIf { showUam }.orEmpty()
+    )
+    val overlayActivityScale = overlayScaleOrNull(
+        overlaySeries.mapNotNull { it.activity?.takeIf { value -> value.isFinite() } }.takeIf { showActivity }.orEmpty()
+    )
+    val lastEvidenceFallbackPair = series.lastOrNull { it.evidence != null && it.fallback != null }
+    val lastDelta = if (lastEvidenceFallbackPair?.evidence != null && lastEvidenceFallbackPair.fallback != null) {
+        lastEvidenceFallbackPair.evidence - lastEvidenceFallbackPair.fallback
     } else {
         null
     }
     val startTs = series.firstOrNull()?.ts
     val endTs = series.lastOrNull()?.ts
-    val hasRealSeparation = series.any { point ->
-        val real = point.real ?: return@any false
-        val aaps = point.aaps ?: return@any false
-        abs(real - aaps) >= 0.02
+    val hasEvidenceSeparation = series.any { point ->
+        val evidence = point.evidence ?: return@any false
+        val fallback = point.fallback ?: return@any false
+        abs(evidence - fallback) >= 0.02
+    }
+    val fallbackCoveragePct = if (series.isNotEmpty()) {
+        (series.count { it.fallback != null }.toDouble() / series.size.toDouble() * 100.0).coerceIn(0.0, 100.0)
+    } else {
+        0.0
     }
     val aapsCoveragePct = if (series.isNotEmpty()) {
         (series.count { it.aaps != null }.toDouble() / series.size.toDouble() * 100.0).coerceIn(0.0, 100.0)
     } else {
         0.0
     }
-    val realCoveragePct = if (series.isNotEmpty()) {
-        (series.count { it.real != null }.toDouble() / series.size.toDouble() * 100.0).coerceIn(0.0, 100.0)
+    val evidenceCoveragePct = if (series.isNotEmpty()) {
+        (series.count { it.evidence != null }.toDouble() / series.size.toDouble() * 100.0).coerceIn(0.0, 100.0)
     } else {
         0.0
     }
@@ -1443,6 +1638,7 @@ private fun IsfCrSeriesCard(
                 FilterChip(
                     selected = selectedScale == candidate,
                     onClick = { selectedScaleRaw = candidate.name },
+                    colors = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) analyticsFilterChipColors() else FilterChipDefaults.filterChipColors(),
                     label = {
                         Text(
                             text = when (candidate) {
@@ -1458,13 +1654,15 @@ private fun IsfCrSeriesCard(
 
         val allValues = series.flatMap { point ->
             buildList {
-                point.real?.let { add(it) }
-                point.aaps?.let { add(it) }
+                if (showEvidence) point.evidence?.let { add(it) }
+                if (showFallback) point.fallback?.let { add(it) }
+                if (showAaps) point.aaps?.let { add(it) }
             }
         }.filter { it.isFinite() }.sorted()
-        val trimmedCount = (allValues.size * 0.02).toInt().coerceAtMost((allValues.size - 1).coerceAtLeast(0) / 2)
-        val yMinRaw = allValues.getOrNull(trimmedCount) ?: 0.0
-        val yMaxRaw = allValues.getOrNull(allValues.lastIndex - trimmedCount) ?: 1.0
+        val ySource = if (allValues.isNotEmpty()) allValues else statsValues.sorted()
+        val trimmedCount = (ySource.size * 0.02).toInt().coerceAtMost((ySource.size - 1).coerceAtLeast(0) / 2)
+        val yMinRaw = ySource.getOrNull(trimmedCount) ?: 0.0
+        val yMaxRaw = ySource.getOrNull(ySource.lastIndex - trimmedCount) ?: 1.0
         val baseRange = (yMaxRaw - yMinRaw).coerceAtLeast(0.05)
         val yCenter = yMinRaw + baseRange * 0.5
         val yPadding = max(0.1, baseRange * 0.15)
@@ -1479,8 +1677,9 @@ private fun IsfCrSeriesCard(
         val chartDescription = stringResource(
             id = R.string.analytics_chart_accessibility_template,
             title,
-            UiFormatters.formatMmol(lastReal, 2),
+            UiFormatters.formatMmol(lastEvidence, 2),
             unit,
+            UiFormatters.formatMmol(lastFallback, 2),
             UiFormatters.formatMmol(lastAaps, 2)
         )
         val gridMajor = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f)
@@ -1549,6 +1748,11 @@ private fun IsfCrSeriesCard(
                     return (top + chartHeight - ratio * chartHeight).toFloat()
                 }
 
+                fun yOverlayOf(value: Double, scale: AnalyticsOverlayScale): Float {
+                    val ratio = ((value - scale.min) / (scale.max - scale.min)).coerceIn(0.0, 1.0)
+                    return (top + chartHeight - ratio * chartHeight).toFloat()
+                }
+
                 repeat(5) { index ->
                     val y = top + chartHeight * index / 4f
                     drawLine(
@@ -1581,28 +1785,55 @@ private fun IsfCrSeriesCard(
                     strokeWidth = 1.2f
                 )
 
-                val realPath = Path()
+                val evidencePath = Path()
+                val fallbackPath = Path()
                 val aapsPath = Path()
-                var hasRealPath = false
-                var pendingMoveReal = true
+                val cobPath = Path()
+                val uamPath = Path()
+                val activityPath = Path()
+
+                var hasEvidencePath = false
+                var pendingMoveEvidence = true
                 series.forEach { point ->
-                    val realValue = point.real ?: run {
-                        pendingMoveReal = true
+                    if (!showEvidence) return@forEach
+                    val evidenceValue = point.evidence ?: run {
+                        pendingMoveEvidence = true
                         return@forEach
                     }
                     val x = xOf(point.ts)
-                    val yReal = yOf(realValue)
-                    if (pendingMoveReal) {
-                        realPath.moveTo(x, yReal)
-                        pendingMoveReal = false
+                    val yEvidence = yOf(evidenceValue)
+                    if (pendingMoveEvidence) {
+                        evidencePath.moveTo(x, yEvidence)
+                        pendingMoveEvidence = false
                     } else {
-                        realPath.lineTo(x, yReal)
+                        evidencePath.lineTo(x, yEvidence)
                     }
-                    hasRealPath = true
+                    hasEvidencePath = true
                 }
+
+                var hasFallbackPath = false
+                var pendingMoveFallback = true
+                series.forEach { point ->
+                    if (!showFallback) return@forEach
+                    val fallbackValue = point.fallback ?: run {
+                        pendingMoveFallback = true
+                        return@forEach
+                    }
+                    val x = xOf(point.ts)
+                    val y = yOf(fallbackValue)
+                    if (pendingMoveFallback) {
+                        fallbackPath.moveTo(x, y)
+                        pendingMoveFallback = false
+                    } else {
+                        fallbackPath.lineTo(x, y)
+                    }
+                    hasFallbackPath = true
+                }
+
                 var hasAapsPath = false
                 var pendingMoveAaps = true
                 series.forEach { point ->
+                    if (!showAaps) return@forEach
                     val aapsValue = point.aaps ?: run {
                         pendingMoveAaps = true
                         return@forEach
@@ -1617,41 +1848,153 @@ private fun IsfCrSeriesCard(
                     }
                     hasAapsPath = true
                 }
+
+                var hasCobPath = false
+                var pendingMoveCob = true
+                overlaySeries.forEach { point ->
+                    if (!showCob || overlayCobScale == null) return@forEach
+                    val value = point.cob ?: run {
+                        pendingMoveCob = true
+                        return@forEach
+                    }
+                    val x = xOf(point.ts)
+                    val y = yOverlayOf(value, overlayCobScale)
+                    if (pendingMoveCob) {
+                        cobPath.moveTo(x, y)
+                        pendingMoveCob = false
+                    } else {
+                        cobPath.lineTo(x, y)
+                    }
+                    hasCobPath = true
+                }
+
+                var hasUamPath = false
+                var pendingMoveUam = true
+                overlaySeries.forEach { point ->
+                    if (!showUam || overlayUamScale == null) return@forEach
+                    val value = point.uam ?: run {
+                        pendingMoveUam = true
+                        return@forEach
+                    }
+                    val x = xOf(point.ts)
+                    val y = yOverlayOf(value, overlayUamScale)
+                    if (pendingMoveUam) {
+                        uamPath.moveTo(x, y)
+                        pendingMoveUam = false
+                    } else {
+                        uamPath.lineTo(x, y)
+                    }
+                    hasUamPath = true
+                }
+
+                var hasActivityPath = false
+                var pendingMoveActivity = true
+                overlaySeries.forEach { point ->
+                    if (!showActivity || overlayActivityScale == null) return@forEach
+                    val value = point.activity ?: run {
+                        pendingMoveActivity = true
+                        return@forEach
+                    }
+                    val x = xOf(point.ts)
+                    val y = yOverlayOf(value, overlayActivityScale)
+                    if (pendingMoveActivity) {
+                        activityPath.moveTo(x, y)
+                        pendingMoveActivity = false
+                    } else {
+                        activityPath.lineTo(x, y)
+                    }
+                    hasActivityPath = true
+                }
+
                 if (hasAapsPath) {
                     drawPath(
                         path = aapsPath,
                         color = aapsColor,
                         style = Stroke(
-                            width = 2.5f,
+                            width = 2.2f,
                             cap = StrokeCap.Round,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 9f), 0f)
                         )
                     )
                 }
-                if (hasRealPath) {
+                if (hasFallbackPath) {
                     drawPath(
-                        path = realPath,
-                        color = realColor,
+                        path = fallbackPath,
+                        color = fallbackColor,
+                        style = Stroke(
+                            width = 2.4f,
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f), 0f)
+                        )
+                    )
+                }
+                if (hasEvidencePath) {
+                    drawPath(
+                        path = evidencePath,
+                        color = evidenceColor,
                         style = Stroke(width = 3.5f, cap = StrokeCap.Round)
                     )
                 }
-
-                lastAaps?.let {
-                    val lastAapsPoint = series.lastOrNull { seriesPoint -> seriesPoint.aaps != null }
-                    if (lastAapsPoint != null) {
-                        drawCircle(
-                            color = aapsColor,
-                            radius = 4.5f,
-                            center = Offset(xOf(lastAapsPoint.ts), yOf(lastAapsPoint.aaps ?: it))
+                if (hasCobPath) {
+                    drawPath(
+                        path = cobPath,
+                        color = cobColor,
+                        style = Stroke(
+                            width = 2.0f,
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
                         )
+                    )
+                }
+                if (hasUamPath) {
+                    drawPath(
+                        path = uamPath,
+                        color = uamColor,
+                        style = Stroke(
+                            width = 2.0f,
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 8f), 0f)
+                        )
+                    )
+                }
+                if (hasActivityPath) {
+                    drawPath(
+                        path = activityPath,
+                        color = activityColor,
+                        style = Stroke(
+                            width = 2.0f,
+                            cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 6f), 0f)
+                        )
+                    )
+                }
+
+                if (showAaps) {
+                    lastAaps?.let {
+                        val lastAapsPoint = series.lastOrNull { seriesPoint -> seriesPoint.aaps != null }
+                        if (lastAapsPoint != null) {
+                            drawCircle(
+                                color = aapsColor,
+                                radius = 4.5f,
+                                center = Offset(xOf(lastAapsPoint.ts), yOf(lastAapsPoint.aaps ?: it))
+                            )
+                        }
                     }
                 }
-                val lastRealPoint = series.lastOrNull { it.real != null }
-                if (lastRealPoint?.real != null) {
+                val lastFallbackPoint = series.lastOrNull { it.fallback != null }
+                if (showFallback && lastFallbackPoint?.fallback != null) {
                     drawCircle(
-                        color = realColor,
+                        color = fallbackColor,
+                        radius = 4.8f,
+                        center = Offset(xOf(lastFallbackPoint.ts), yOf(lastFallbackPoint.fallback))
+                    )
+                }
+                val lastEvidencePoint = series.lastOrNull { it.evidence != null }
+                if (showEvidence && lastEvidencePoint?.evidence != null) {
+                    drawCircle(
+                        color = evidenceColor,
                         radius = 5.2f,
-                        center = Offset(xOf(lastRealPoint.ts), yOf(lastRealPoint.real))
+                        center = Offset(xOf(lastEvidencePoint.ts), yOf(lastEvidencePoint.evidence))
                     )
                 }
             }
@@ -1682,25 +2025,150 @@ private fun IsfCrSeriesCard(
             )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+        Text(
+            text = stringResource(id = R.string.analytics_lines_visible),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
         ) {
-            AnalyticsLegendItem(
-                text = stringResource(id = R.string.analytics_legend_real),
-                color = realColor,
-                icon = Icons.Default.ShowChart
+            AnalyticsLineToggle(
+                text = stringResource(id = R.string.analytics_toggle_evidence),
+                color = evidenceColor,
+                checked = showEvidence,
+                onCheckedChange = { showEvidence = it }
             )
-            AnalyticsLegendItem(
-                text = stringResource(id = R.string.analytics_legend_merged),
+            AnalyticsLineToggle(
+                text = stringResource(id = R.string.analytics_toggle_fallback),
+                color = fallbackColor,
+                checked = showFallback,
+                onCheckedChange = { showFallback = it }
+            )
+            AnalyticsLineToggle(
+                text = stringResource(id = R.string.analytics_toggle_aaps_raw),
                 color = aapsColor,
-                icon = Icons.Default.Info
+                checked = showAaps,
+                onCheckedChange = { showAaps = it }
             )
+        }
+        Text(
+            text = stringResource(id = R.string.analytics_overlay_visible),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            AnalyticsLineToggle(
+                text = stringResource(id = R.string.analytics_toggle_cob),
+                color = cobColor,
+                checked = showCob,
+                onCheckedChange = { showCob = it }
+            )
+            AnalyticsLineToggle(
+                text = stringResource(id = R.string.analytics_toggle_uam),
+                color = uamColor,
+                checked = showUam,
+                onCheckedChange = { showUam = it }
+            )
+            AnalyticsLineToggle(
+                text = stringResource(id = R.string.analytics_toggle_activity),
+                color = activityColor,
+                checked = showActivity,
+                onCheckedChange = { showActivity = it }
+            )
+        }
+        if (showCob || showUam || showActivity) {
+            Text(
+                text = stringResource(id = R.string.analytics_overlay_scale_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            if (showEvidence) {
+                AnalyticsLegendItem(
+                    text = stringResource(id = R.string.analytics_legend_real),
+                    color = evidenceColor,
+                    icon = Icons.Default.ShowChart
+                )
+            }
+            if (showFallback) {
+                AnalyticsLegendItem(
+                    text = stringResource(id = R.string.analytics_legend_merged),
+                    color = fallbackColor,
+                    icon = Icons.Default.Info
+                )
+            }
+            if (showAaps) {
+                AnalyticsLegendItem(
+                    text = stringResource(id = R.string.analytics_legend_aaps_raw),
+                    color = aapsColor,
+                    icon = Icons.Default.Info
+                )
+            }
+            if (showCob && overlayCobScale != null) {
+                AnalyticsLegendItem(
+                    text = stringResource(
+                        id = R.string.analytics_overlay_legend_template,
+                        stringResource(id = R.string.analytics_toggle_cob),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayCobScale.latest, 1),
+                        stringResource(id = R.string.unit_g),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayCobScale.min, 1),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayCobScale.max, 1)
+                    ),
+                    color = cobColor,
+                    icon = Icons.Default.ShowChart
+                )
+            }
+            if (showUam && overlayUamScale != null) {
+                AnalyticsLegendItem(
+                    text = stringResource(
+                        id = R.string.analytics_overlay_legend_template,
+                        stringResource(id = R.string.analytics_toggle_uam),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayUamScale.latest, 1),
+                        stringResource(id = R.string.unit_g),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayUamScale.min, 1),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayUamScale.max, 1)
+                    ),
+                    color = uamColor,
+                    icon = Icons.Default.ShowChart
+                )
+            }
+            if (showActivity && overlayActivityScale != null) {
+                AnalyticsLegendItem(
+                    text = stringResource(
+                        id = R.string.analytics_overlay_legend_template,
+                        stringResource(id = R.string.analytics_toggle_activity),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayActivityScale.latest, 2),
+                        stringResource(id = R.string.analytics_overlay_activity_unit),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayActivityScale.min, 2),
+                        UiFormatters.formatDecimalOrPlaceholder(overlayActivityScale.max, 2)
+                    ),
+                    color = activityColor,
+                    icon = Icons.Default.ShowChart
+                )
+            }
         }
         Text(
             text = stringResource(
                 id = R.string.analytics_real_coverage_template,
-                UiFormatters.formatDecimalOrPlaceholder(realCoveragePct, 0)
+                UiFormatters.formatDecimalOrPlaceholder(evidenceCoveragePct, 0)
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = stringResource(
+                id = R.string.analytics_fallback_coverage_template,
+                UiFormatters.formatDecimalOrPlaceholder(fallbackCoveragePct, 0)
             ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1713,9 +2181,16 @@ private fun IsfCrSeriesCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        if (realCoveragePct <= 0.0) {
+        if (evidenceCoveragePct <= 0.0) {
             Text(
                 text = stringResource(id = R.string.analytics_real_series_empty_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (fallbackCoveragePct <= 0.0) {
+            Text(
+                text = stringResource(id = R.string.analytics_fallback_series_empty_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1726,7 +2201,7 @@ private fun IsfCrSeriesCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        } else if (!hasRealSeparation) {
+        } else if (!hasEvidenceSeparation) {
             Text(
                 text = stringResource(id = R.string.analytics_series_realtime_matches_base_hint),
                 style = MaterialTheme.typography.bodySmall,
@@ -1739,7 +2214,7 @@ private fun IsfCrSeriesCard(
                 id = R.string.analytics_stats_template,
                 UiFormatters.formatDecimalOrPlaceholder(min, 2),
                 UiFormatters.formatDecimalOrPlaceholder(max, 2),
-                UiFormatters.formatDecimalOrPlaceholder(lastReal, 2),
+                UiFormatters.formatDecimalOrPlaceholder(lastEvidence ?: lastFallback ?: lastAaps, 2),
                 unit
             ),
             style = MaterialTheme.typography.bodySmall,
@@ -1766,6 +2241,57 @@ private fun IsfCrSeriesCard(
             )
         }
     }
+}
+
+@Composable
+private fun AnalyticsLineToggle(
+    text: String,
+    color: Color,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            Icon(
+                imageVector = Icons.Default.ShowChart,
+                contentDescription = null,
+                tint = color
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange
+            )
+        }
+    }
+}
+
+private fun overlayScaleOrNull(values: List<Double>): AnalyticsOverlayScale? {
+    if (values.isEmpty()) return null
+    val sorted = values.filter { it.isFinite() }.sorted()
+    if (sorted.isEmpty()) return null
+    val trimmedCount = (sorted.size * 0.05).toInt().coerceAtMost((sorted.size - 1).coerceAtLeast(0) / 2)
+    val minRaw = sorted.getOrNull(trimmedCount) ?: sorted.first()
+    val maxRaw = sorted.getOrNull(sorted.lastIndex - trimmedCount) ?: sorted.last()
+    val range = (maxRaw - minRaw).coerceAtLeast(0.01)
+    val padding = max(0.02, range * 0.12)
+    return AnalyticsOverlayScale(
+        min = minRaw - padding,
+        max = maxRaw + padding,
+        latest = sorted.lastOrNull()
+    )
 }
 
 @Composable
@@ -1811,6 +2337,718 @@ private fun AnalyticsLineCard(line: String) {
                 modifier = Modifier.padding(Spacing.sm)
             )
         }
+    }
+}
+
+@Composable
+private fun SensorLagDiagnosticsCard(
+    diagnostics: SensorLagDiagnosticsUi,
+    replayBuckets: List<DailyReportSensorLagReplayUi>,
+    shadowBuckets: List<DailyReportSensorLagShadowUi>,
+    showTrendDialog: Boolean,
+    onShowTrendDialogChange: (Boolean) -> Unit,
+    onSensorLagCorrectionModeChange: (String) -> Unit
+) {
+    val rolloutGuidance = buildSensorLagRolloutGuidance(
+        replayBuckets = replayBuckets,
+        shadowBuckets = shadowBuckets
+    )
+    val currentBucket = diagnostics.ageHours?.let(::sensorLagAgeBucket)
+    val currentGuidance = currentBucket
+        ?.let { bucket -> rolloutGuidance.firstOrNull { guidance -> guidance.bucket == bucket } }
+    val stateSummary = when {
+        diagnostics.configuredMode.equals("OFF", ignoreCase = true) ->
+            stringResource(id = R.string.analytics_sensor_lag_state_disabled)
+        diagnostics.runtimeMode.equals("ACTIVE", ignoreCase = true) ->
+            stringResource(id = R.string.analytics_sensor_lag_state_active)
+        diagnostics.runtimeMode.equals("SHADOW", ignoreCase = true) ->
+            stringResource(id = R.string.analytics_sensor_lag_state_shadow)
+        !diagnostics.disableReason.isNullOrBlank() ->
+            stringResource(
+                id = R.string.analytics_sensor_lag_state_blocked,
+                diagnostics.disableReason.replace('_', ' ')
+            )
+        else -> stringResource(id = R.string.analytics_sensor_lag_state_waiting)
+    }
+    val runtimeModeValue = diagnostics.runtimeMode ?: diagnostics.configuredMode
+    val runtimeTone = when {
+        diagnostics.runtimeMode.equals("ACTIVE", ignoreCase = true) -> AnalyticsMetricTone.POSITIVE
+        diagnostics.runtimeMode.equals("SHADOW", ignoreCase = true) -> AnalyticsMetricTone.DEFAULT
+        diagnostics.configuredMode.equals("OFF", ignoreCase = true) -> AnalyticsMetricTone.DEFAULT
+        !diagnostics.disableReason.isNullOrBlank() -> AnalyticsMetricTone.NEGATIVE
+        else -> AnalyticsMetricTone.DEFAULT
+    }
+
+    AnalyticsSectionCard {
+        AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_sensor_lag))
+        Text(
+            text = stringResource(id = R.string.analytics_sensor_lag_subtitle),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SensorLagSummaryCard(text = stateSummary)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_config_mode),
+                value = diagnostics.configuredMode.uppercase(Locale.US)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_runtime_mode),
+                value = runtimeModeValue.uppercase(Locale.US),
+                tone = runtimeTone
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_bucket),
+                value = currentBucket?.let { sensorLagBucketDisplayName(it) } ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_lag),
+                value = diagnostics.lagMinutes?.let { "${UiFormatters.formatDecimalOrPlaceholder(it, 0)}m" } ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_age),
+                value = diagnostics.ageHours?.let { "${UiFormatters.formatDecimalOrPlaceholder(it, 0)}h" } ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_confidence),
+                value = UiFormatters.formatPercent(diagnostics.confidence, decimals = 0)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_raw_glucose),
+                value = UiFormatters.formatMmol(diagnostics.rawGlucoseMmol, decimals = 2)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_corrected_glucose),
+                value = UiFormatters.formatMmol(diagnostics.correctedGlucoseMmol, decimals = 2)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_correction),
+                value = UiFormatters.formatSignedDelta(diagnostics.correctionMmol),
+                tone = when {
+                    (diagnostics.correctionMmol ?: 0.0) > 0.0 -> AnalyticsMetricTone.POSITIVE
+                    (diagnostics.correctionMmol ?: 0.0) < 0.0 -> AnalyticsMetricTone.NEGATIVE
+                    else -> AnalyticsMetricTone.DEFAULT
+                }
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_sensor_quality),
+                value = UiFormatters.formatDecimalOrPlaceholder(diagnostics.sensorQualityScore, 2),
+                tone = when {
+                    diagnostics.sensorQualityBlocked == true || diagnostics.sensorQualitySuspectFalseLow == true ->
+                        AnalyticsMetricTone.NEGATIVE
+                    else -> AnalyticsMetricTone.DEFAULT
+                }
+            )
+        }
+        diagnostics.ageSource?.let { source ->
+            Text(
+                text = stringResource(
+                    id = R.string.analytics_sensor_lag_source_line,
+                    sensorLagAgeSourceDisplayName(source)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (diagnostics.lagTrendPoints.size >= 2 || diagnostics.correctionTrendPoints.size >= 2) {
+            val trendWindowLine = if (
+                diagnostics.trendStartAgeHours != null &&
+                diagnostics.trendEndAgeHours != null
+            ) {
+                stringResource(
+                    id = R.string.analytics_sensor_lag_trend_window_line,
+                    "${UiFormatters.formatDecimalOrPlaceholder(diagnostics.trendStartAgeHours, 0)}h",
+                    "${UiFormatters.formatDecimalOrPlaceholder(diagnostics.trendEndAgeHours, 0)}h"
+                )
+            } else {
+                stringResource(id = R.string.analytics_sensor_lag_trend_window_line_fallback)
+            }
+            Text(
+                text = trendWindowLine,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (diagnostics.lagTrendPoints.size >= 2) {
+                SensorLagTrendSparkline(
+                    title = stringResource(id = R.string.analytics_sensor_lag_trend_lag_title),
+                    points = diagnostics.lagTrendPoints,
+                    lineColor = MaterialTheme.colorScheme.primary,
+                    valueFormatter = { value ->
+                        "${UiFormatters.formatDecimalOrPlaceholder(value, 0)}m"
+                    }
+                )
+            }
+            if (diagnostics.correctionTrendPoints.size >= 2) {
+                SensorLagTrendSparkline(
+                    title = stringResource(id = R.string.analytics_sensor_lag_trend_correction_title),
+                    points = diagnostics.correctionTrendPoints,
+                    lineColor = MaterialTheme.colorScheme.tertiary,
+                    includeZeroBaseline = true,
+                    valueFormatter = { value ->
+                        UiFormatters.formatSignedDelta(value)
+                    }
+                )
+            }
+            OutlinedButton(onClick = { onShowTrendDialogChange(true) }) {
+                Text(text = stringResource(id = R.string.analytics_sensor_lag_trend_open_button))
+            }
+        }
+        if (!diagnostics.disableReason.isNullOrBlank()) {
+            Text(
+                text = stringResource(
+                    id = R.string.analytics_sensor_lag_gate_line,
+                    diagnostics.disableReason.replace('_', ' ')
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
+        if (
+            diagnostics.sensorQualityBlocked == true ||
+            diagnostics.sensorQualitySuspectFalseLow == true ||
+            !diagnostics.sensorQualityReason.isNullOrBlank()
+        ) {
+            Text(
+                text = buildString {
+                    append(stringResource(id = R.string.analytics_sensor_lag_quality_prefix))
+                    append(": ")
+                    append(
+                        diagnostics.sensorQualityReason
+                            ?.replace('_', ' ')
+                            ?.takeIf { it.isNotBlank() }
+                            ?: stringResource(id = R.string.analytics_sensor_lag_quality_ok)
+                    )
+                    if (diagnostics.sensorQualityBlocked == true) {
+                        append(" • ")
+                        append(stringResource(id = R.string.analytics_sensor_lag_quality_blocked))
+                    }
+                    if (diagnostics.sensorQualitySuspectFalseLow == true) {
+                        append(" • ")
+                        append(stringResource(id = R.string.analytics_sensor_lag_quality_false_low))
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = stringResource(id = R.string.analytics_sensor_lag_replay_guidance_title),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (currentGuidance != null) {
+            SensorLagRolloutGuidanceCard(guidance = currentGuidance)
+        } else {
+            SensorLagSummaryCard(
+                text = if (currentBucket != null) {
+                    stringResource(
+                        id = R.string.analytics_sensor_lag_replay_guidance_missing_bucket,
+                        sensorLagBucketDisplayName(currentBucket)
+                    )
+                } else {
+                    stringResource(id = R.string.analytics_sensor_lag_replay_guidance_missing)
+                }
+            )
+        }
+    }
+    if (showTrendDialog) {
+        SensorLagTrendDetailDialog(
+            diagnostics = diagnostics,
+            currentBucket = currentBucket,
+            currentGuidance = currentGuidance,
+            rolloutGuidance = rolloutGuidance,
+            onSensorLagCorrectionModeChange = onSensorLagCorrectionModeChange,
+            onDismiss = { onShowTrendDialogChange(false) }
+        )
+    }
+}
+
+@Composable
+private fun SensorLagRelativeSummaryCard(
+    currentBucket: String?,
+    currentGuidance: SensorLagRolloutGuidance?,
+    adjacentGuidance: List<SensorLagRolloutGuidance>
+) {
+    val comparableAdjacent = adjacentGuidance.filter { it.weightedGainMmol != null || it.shadowRatePct != null }
+    val summaryText = if (
+        currentBucket == null ||
+        currentGuidance == null ||
+        comparableAdjacent.isEmpty()
+    ) {
+        stringResource(id = R.string.analytics_sensor_lag_comparison_missing)
+    } else {
+        val currentRank = sensorLagRolloutStatusRank(currentGuidance.status)
+        val adjacentRanks = comparableAdjacent.map { sensorLagRolloutStatusRank(it.status) }
+        val currentGain = currentGuidance.weightedGainMmol
+        val adjacentGains = comparableAdjacent.mapNotNull { it.weightedGainMmol }
+        val adjacentGainAvg = adjacentGains.takeIf { it.isNotEmpty() }?.average()
+        val currentShadow = currentGuidance.shadowRatePct
+        val adjacentShadows = comparableAdjacent.mapNotNull { it.shadowRatePct }
+        val adjacentShadowAvg = adjacentShadows.takeIf { it.isNotEmpty() }?.average()
+        val gainDelta = if (currentGain != null && adjacentGainAvg != null) currentGain - adjacentGainAvg else null
+        val shadowDelta = if (currentShadow != null && adjacentShadowAvg != null) currentShadow - adjacentShadowAvg else null
+        val relationTextId = when {
+            currentRank > (adjacentRanks.maxOrNull() ?: currentRank) ||
+                (gainDelta != null && gainDelta >= 0.05 && (shadowDelta == null || shadowDelta >= -2.0)) ->
+                R.string.analytics_sensor_lag_comparison_stronger
+            currentRank < (adjacentRanks.minOrNull() ?: currentRank) ||
+                (gainDelta != null && gainDelta <= -0.05 && (shadowDelta == null || shadowDelta <= 2.0)) ->
+                R.string.analytics_sensor_lag_comparison_weaker
+            else -> R.string.analytics_sensor_lag_comparison_similar
+        }
+        stringResource(
+            id = relationTextId,
+            sensorLagBucketDisplayName(currentBucket),
+            UiFormatters.formatSignedDelta(currentGain),
+            adjacentGainAvg?.let { UiFormatters.formatSignedDelta(it) } ?: "--",
+            currentShadow?.let { String.format(Locale.US, "%.1f%%", it) } ?: "--",
+            adjacentShadowAvg?.let { String.format(Locale.US, "%.1f%%", it) } ?: "--"
+        )
+    }
+    SensorLagSummaryCard(text = summaryText)
+}
+
+@Composable
+private fun SensorLagTrendSparkline(
+    title: String,
+    points: List<ChartPointUi>,
+    lineColor: Color,
+    valueFormatter: (Double) -> String,
+    includeZeroBaseline: Boolean = false,
+    chartHeightDp: Dp = 88.dp
+) {
+    AnalyticsSectionCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium
+            )
+            val startValue = points.firstOrNull()?.value
+            val latestValue = points.lastOrNull()?.value
+            Text(
+                text = if (startValue != null && latestValue != null) {
+                    stringResource(
+                        id = R.string.analytics_sensor_lag_trend_range_line,
+                        valueFormatter(startValue),
+                        valueFormatter(latestValue)
+                    )
+                } else {
+                    stringResource(id = R.string.analytics_sensor_lag_trend_empty)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (points.size < 2) {
+            Text(
+                text = stringResource(id = R.string.analytics_sensor_lag_trend_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@AnalyticsSectionCard
+        }
+
+        val values = points.map { it.value.toFloat() }
+        val minTs = points.first().ts
+        val maxTs = max(minTs + 1L, points.last().ts)
+        val rawMin = values.minOrNull() ?: 0f
+        val rawMax = values.maxOrNull() ?: 0f
+        val anchoredMin = if (includeZeroBaseline) min(rawMin, 0f) else rawMin
+        val anchoredMax = if (includeZeroBaseline) max(rawMax, 0f) else rawMax
+        val rawSpan = max(0.0001f, anchoredMax - anchoredMin)
+        val minValue = anchoredMin - rawSpan * 0.1f
+        val maxValue = anchoredMax + rawSpan * 0.1f
+        val span = max(0.0001f, maxValue - minValue)
+        val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+        val zeroLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+        val latestFormatted = points.lastOrNull()?.value?.let(valueFormatter) ?: "--"
+        val contentDescription = stringResource(
+            id = R.string.analytics_sensor_lag_trend_accessibility,
+            title,
+            points.size,
+            latestFormatted
+        )
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(chartHeightDp)
+                .semantics { this.contentDescription = contentDescription }
+        ) {
+            val chartWidth = size.width
+            val chartHeight = size.height
+            repeat(3) { index ->
+                val y = chartHeight * index / 2f
+                drawLine(
+                    color = gridColor,
+                    start = Offset(0f, y),
+                    end = Offset(chartWidth, y),
+                    strokeWidth = 1f
+                )
+            }
+            if (includeZeroBaseline && minValue <= 0f && maxValue >= 0f) {
+                val zeroRatio = (0f - minValue) / span
+                val zeroY = chartHeight - zeroRatio * chartHeight
+                drawLine(
+                    color = zeroLineColor,
+                    start = Offset(0f, zeroY),
+                    end = Offset(chartWidth, zeroY),
+                    strokeWidth = 1f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+                )
+            }
+            fun xFor(ts: Long): Float {
+                val ratio = (ts - minTs).toFloat() / (maxTs - minTs).toFloat()
+                return ratio.coerceIn(0f, 1f) * chartWidth
+            }
+            fun yFor(value: Float): Float {
+                val ratio = (value - minValue) / span
+                return chartHeight - ratio * chartHeight
+            }
+            val path = Path()
+            points.forEachIndexed { index, point ->
+                val x = xFor(point.ts)
+                val y = yFor(point.value.toFloat())
+                if (index == 0) {
+                    path.moveTo(x, y)
+                } else {
+                    path.lineTo(x, y)
+                }
+            }
+            drawPath(
+                path = path,
+                color = lineColor,
+                style = Stroke(width = 4f, cap = StrokeCap.Round)
+            )
+            points.lastOrNull()?.let { point ->
+                drawCircle(
+                    color = lineColor,
+                    radius = 5f,
+                    center = Offset(xFor(point.ts), yFor(point.value.toFloat()))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SensorLagTrendDetailDialog(
+    diagnostics: SensorLagDiagnosticsUi,
+    currentBucket: String?,
+    currentGuidance: SensorLagRolloutGuidance?,
+    rolloutGuidance: List<SensorLagRolloutGuidance>,
+    onSensorLagCorrectionModeChange: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val adjacentGuidance = remember(currentBucket, rolloutGuidance) {
+        if (currentBucket == null) {
+            emptyList()
+        } else {
+            val currentOrder = sensorLagBucketOrder(currentBucket)
+            rolloutGuidance
+                .filter { guidance ->
+                    guidance.bucket != currentBucket &&
+                        kotlin.math.abs(sensorLagBucketOrder(guidance.bucket) - currentOrder) == 1
+                }
+                .sortedBy { sensorLagBucketOrder(it.bucket) }
+        }
+    }
+    val trendWindowLine = if (
+        diagnostics.trendStartAgeHours != null &&
+        diagnostics.trendEndAgeHours != null
+    ) {
+        stringResource(
+            id = R.string.analytics_sensor_lag_trend_window_line,
+            "${UiFormatters.formatDecimalOrPlaceholder(diagnostics.trendStartAgeHours, 0)}h",
+            "${UiFormatters.formatDecimalOrPlaceholder(diagnostics.trendEndAgeHours, 0)}h"
+        )
+    } else {
+        stringResource(id = R.string.analytics_sensor_lag_trend_window_line_fallback)
+    }
+    val shadowActionEnabled = diagnostics.configuredMode.equals("SHADOW", ignoreCase = true).not()
+    val activeActionEnabled = diagnostics.configuredMode.equals("ACTIVE", ignoreCase = true).not() &&
+        currentGuidance?.status == SensorLagRolloutStatus.ACTIVE_CANDIDATE &&
+        diagnostics.disableReason.isNullOrBlank()
+    val rolloutActionHint = when {
+        diagnostics.configuredMode.equals("ACTIVE", ignoreCase = true) ->
+            stringResource(id = R.string.analytics_sensor_lag_action_active_already)
+        activeActionEnabled ->
+            stringResource(id = R.string.analytics_sensor_lag_action_active_ready)
+        !diagnostics.disableReason.isNullOrBlank() ->
+            stringResource(
+                id = R.string.analytics_sensor_lag_action_active_blocked_gate,
+                diagnostics.disableReason.replace('_', ' ')
+            )
+        currentGuidance?.status != SensorLagRolloutStatus.ACTIVE_CANDIDATE ->
+            stringResource(id = R.string.analytics_sensor_lag_action_active_blocked_guidance)
+        else ->
+            stringResource(id = R.string.analytics_sensor_lag_action_shadow_hint)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = stringResource(id = R.string.analytics_sensor_lag_detail_title)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.analytics_sensor_lag_action_title),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    OutlinedButton(
+                        enabled = shadowActionEnabled,
+                        onClick = {
+                            onSensorLagCorrectionModeChange("SHADOW")
+                            onDismiss()
+                        }
+                    ) {
+                        Text(text = stringResource(id = R.string.analytics_sensor_lag_action_shadow))
+                    }
+                    FilledTonalButton(
+                        enabled = activeActionEnabled,
+                        onClick = {
+                            onSensorLagCorrectionModeChange("ACTIVE")
+                            onDismiss()
+                        }
+                    ) {
+                        Text(text = stringResource(id = R.string.analytics_sensor_lag_action_active))
+                    }
+                }
+                SensorLagSummaryCard(text = rolloutActionHint)
+                Text(
+                    text = stringResource(id = R.string.analytics_sensor_lag_replay_guidance_title),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (currentGuidance != null) {
+                    SensorLagRolloutGuidanceCard(guidance = currentGuidance)
+                } else {
+                    SensorLagSummaryCard(
+                        text = if (currentBucket != null) {
+                            stringResource(
+                                id = R.string.analytics_sensor_lag_replay_guidance_missing_bucket,
+                                sensorLagBucketDisplayName(currentBucket)
+                            )
+                        } else {
+                            stringResource(id = R.string.analytics_sensor_lag_replay_guidance_missing)
+                        }
+                    )
+                }
+                SensorLagRelativeSummaryCard(
+                    currentBucket = currentBucket,
+                    currentGuidance = currentGuidance,
+                    adjacentGuidance = adjacentGuidance
+                )
+                Text(
+                    text = stringResource(id = R.string.analytics_sensor_lag_adjacent_guidance_title),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (adjacentGuidance.isNotEmpty()) {
+                    adjacentGuidance.forEach { guidance ->
+                        SensorLagRolloutGuidanceCard(guidance = guidance)
+                    }
+                } else {
+                    SensorLagSummaryCard(
+                        text = if (currentBucket != null) {
+                            stringResource(
+                                id = R.string.analytics_sensor_lag_adjacent_guidance_missing_bucket,
+                                sensorLagBucketDisplayName(currentBucket)
+                            )
+                        } else {
+                            stringResource(id = R.string.analytics_sensor_lag_adjacent_guidance_missing)
+                        }
+                    )
+                }
+                Text(
+                    text = trendWindowLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (diagnostics.lagTrendPoints.size >= 2) {
+                    SensorLagTrendSparkline(
+                        title = stringResource(id = R.string.analytics_sensor_lag_trend_lag_title),
+                        points = diagnostics.lagTrendPoints,
+                        lineColor = MaterialTheme.colorScheme.primary,
+                        valueFormatter = { value ->
+                            "${UiFormatters.formatDecimalOrPlaceholder(value, 0)}m"
+                        },
+                        chartHeightDp = 184.dp
+                    )
+                }
+                if (diagnostics.correctionTrendPoints.size >= 2) {
+                    SensorLagTrendSparkline(
+                        title = stringResource(id = R.string.analytics_sensor_lag_trend_correction_title),
+                        points = diagnostics.correctionTrendPoints,
+                        lineColor = MaterialTheme.colorScheme.tertiary,
+                        valueFormatter = { value ->
+                            UiFormatters.formatSignedDelta(value)
+                        },
+                        includeZeroBaseline = true,
+                        chartHeightDp = 184.dp
+                    )
+                }
+                if (diagnostics.modeSegments.isNotEmpty()) {
+                    SensorLagTimelineBand(
+                        title = stringResource(id = R.string.analytics_sensor_lag_timeline_mode_title),
+                        segments = diagnostics.modeSegments,
+                        kind = SensorLagTimelineKind.MODE
+                    )
+                }
+                if (diagnostics.bucketSegments.isNotEmpty()) {
+                    SensorLagTimelineBand(
+                        title = stringResource(id = R.string.analytics_sensor_lag_timeline_bucket_title),
+                        segments = diagnostics.bucketSegments,
+                        kind = SensorLagTimelineKind.BUCKET
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(id = R.string.action_close))
+            }
+        }
+    )
+}
+
+@Composable
+private fun SensorLagTimelineBand(
+    title: String,
+    segments: List<SensorLagTimelineSegmentUi>,
+    kind: SensorLagTimelineKind
+) {
+    if (segments.isEmpty()) return
+    val sortedSegments = segments
+        .filter { it.endTs > it.startTs }
+        .sortedBy { it.startTs }
+    if (sortedSegments.isEmpty()) return
+    val bandStartTs = sortedSegments.minOf { it.startTs }
+    val bandEndTs = max(bandStartTs + 1L, sortedSegments.maxOf { it.endTs })
+    val totalDuration = sortedSegments.sumOf { (it.endTs - it.startTs).coerceAtLeast(0L) }.coerceAtLeast(1L)
+    val outlineTone = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+    val fallbackTone = MaterialTheme.colorScheme.tertiary
+    val secondaryTone = MaterialTheme.colorScheme.secondary
+    fun colorForLabel(raw: String): Color {
+        return when (kind) {
+            SensorLagTimelineKind.MODE -> when (raw.uppercase(Locale.US)) {
+                "ACTIVE" -> Color(0xFF2E7D32)
+                "SHADOW" -> Color(0xFF1565C0)
+                "OFF" -> outlineTone
+                else -> fallbackTone
+            }
+            SensorLagTimelineKind.BUCKET -> when (raw) {
+                "<24h" -> Color(0xFF4C78A8)
+                "1-10d" -> Color(0xFF72B7B2)
+                "10-12d" -> Color(0xFFF2CF5B)
+                "12-14d" -> Color(0xFFF58518)
+                ">14d" -> Color(0xFFE45756)
+                else -> secondaryTone
+            }
+        }
+    }
+    val aggregatedDurations = linkedMapOf<String, Long>()
+    sortedSegments.forEach { segment ->
+        aggregatedDurations[segment.label] =
+            aggregatedDurations.getOrDefault(segment.label, 0L) + (segment.endTs - segment.startTs).coerceAtLeast(0L)
+    }
+    AnalyticsSectionCard {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium
+        )
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+        ) {
+            val chartWidth = size.width.coerceAtLeast(1f)
+            val chartHeight = size.height.coerceAtLeast(1f)
+            sortedSegments.forEach { segment ->
+                val startRatio = ((segment.startTs - bandStartTs).toDouble() / (bandEndTs - bandStartTs).toDouble())
+                    .coerceIn(0.0, 1.0)
+                val endRatio = ((segment.endTs - bandStartTs).toDouble() / (bandEndTs - bandStartTs).toDouble())
+                    .coerceIn(0.0, 1.0)
+                val left = (chartWidth * startRatio).toFloat()
+                val right = (chartWidth * endRatio).toFloat().coerceAtLeast(left + 2f)
+                drawRect(
+                    color = colorForLabel(segment.label),
+                    topLeft = Offset(left, 0f),
+                    size = Size(right - left, chartHeight)
+                )
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            aggregatedDurations.forEach { (label, duration) ->
+                val sharePct = duration.toDouble() / totalDuration.toDouble() * 100.0
+                SensorLagTimelineLegendChip(
+                    text = stringResource(
+                        id = R.string.analytics_sensor_lag_timeline_legend_share,
+                        sensorLagTimelineDisplayName(label, kind),
+                        String.format(Locale.US, "%.0f%%", sharePct)
+                    ),
+                    color = colorForLabel(label)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SensorLagTimelineLegendChip(
+    text: String,
+    color: Color
+) {
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier
+                    .width(10.dp)
+                    .height(10.dp),
+                shape = RoundedCornerShape(999.dp),
+                color = color,
+                content = {}
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun sensorLagTimelineDisplayName(
+    raw: String,
+    kind: SensorLagTimelineKind
+): String {
+    return when (kind) {
+        SensorLagTimelineKind.MODE -> raw.uppercase(Locale.US)
+        SensorLagTimelineKind.BUCKET -> sensorLagBucketDisplayName(raw)
     }
 }
 
@@ -2192,8 +3430,99 @@ private fun DailyForecastReportCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(Spacing.sm)
                             )
-                        }
                     }
+                }
+            }
+        }
+        if (
+            state.dailyReportSensorLagReplayBuckets.isNotEmpty() ||
+            state.dailyReportSensorLagShadowBuckets.isNotEmpty()
+        ) {
+            Text(
+                text = stringResource(id = R.string.analytics_daily_report_sensor_lag_title),
+                style = MaterialTheme.typography.labelMedium
+            )
+            val bestReplayBucket = state.dailyReportSensorLagReplayBuckets
+                .filter { it.sampleCount > 0 && it.maeImprovementMmol > 0.0 }
+                .maxWithOrNull(
+                    compareBy<DailyReportSensorLagReplayUi> { it.maeImprovementMmol }
+                        .thenBy { it.sampleCount }
+                )
+            if (state.dailyReportSensorLagReplayBuckets.isNotEmpty()) {
+                SensorLagSummaryCard(
+                    text = if (bestReplayBucket != null) {
+                        stringResource(
+                            id = R.string.analytics_daily_report_sensor_lag_best_gain,
+                            bestReplayBucket.horizonMinutes,
+                            sensorLagBucketDisplayName(bestReplayBucket.bucket),
+                            UiFormatters.formatMmol(bestReplayBucket.rawMae, decimals = 2),
+                            UiFormatters.formatMmol(bestReplayBucket.lagMae, decimals = 2),
+                            UiFormatters.formatSignedDelta(bestReplayBucket.maeImprovementMmol),
+                            bestReplayBucket.sampleCount.toString()
+                        )
+                    } else {
+                        stringResource(id = R.string.analytics_daily_report_sensor_lag_no_gain)
+                    }
+                )
+            }
+            val topShadowBucket = state.dailyReportSensorLagShadowBuckets
+                .filter { it.sampleCount > 0 }
+                .maxWithOrNull(
+                    compareBy<DailyReportSensorLagShadowUi> { it.ruleChangedRatePct }
+                        .thenBy { it.meanAbsTargetDeltaMmol ?: 0.0 }
+                        .thenBy { it.sampleCount }
+                )
+            if (topShadowBucket != null) {
+                SensorLagSummaryCard(
+                    text = stringResource(
+                        id = R.string.analytics_daily_report_sensor_lag_top_shadow,
+                        sensorLagBucketDisplayName(topShadowBucket.bucket),
+                        String.format(Locale.US, "%.1f%%", topShadowBucket.ruleChangedRatePct),
+                        UiFormatters.formatMmol(topShadowBucket.meanAbsTargetDeltaMmol, decimals = 2),
+                        topShadowBucket.sampleCount.toString()
+                    )
+                )
+            }
+            if (state.dailyReportSensorLagReplayBuckets.isNotEmpty()) {
+                Text(
+                    text = stringResource(id = R.string.analytics_daily_report_sensor_lag_replay_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                state.dailyReportSensorLagReplayBuckets
+                    .sortedWith(
+                        compareBy<DailyReportSensorLagReplayUi> { it.horizonMinutes }
+                            .thenBy { sensorLagBucketOrder(it.bucket) }
+                    )
+                    .forEach { bucket ->
+                        SensorLagReplayBucketCard(bucket = bucket)
+                    }
+            }
+            if (state.dailyReportSensorLagShadowBuckets.isNotEmpty()) {
+                Text(
+                    text = stringResource(id = R.string.analytics_daily_report_sensor_lag_shadow_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                state.dailyReportSensorLagShadowBuckets
+                    .sortedBy { sensorLagBucketOrder(it.bucket) }
+                    .forEach { bucket ->
+                        SensorLagShadowBucketCard(bucket = bucket)
+                    }
+            }
+            val rolloutGuidance = buildSensorLagRolloutGuidance(
+                replayBuckets = state.dailyReportSensorLagReplayBuckets,
+                shadowBuckets = state.dailyReportSensorLagShadowBuckets
+            )
+            if (rolloutGuidance.isNotEmpty()) {
+                Text(
+                    text = stringResource(id = R.string.analytics_daily_report_sensor_lag_rollout_title),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                rolloutGuidance.forEach { guidance ->
+                    SensorLagRolloutGuidanceCard(guidance = guidance)
+                }
             }
         }
         state.dailyReportMarkdownPath
@@ -2246,6 +3575,328 @@ private fun DailyForecastReportCard(
     }
 }
 
+private enum class AnalyticsMetricTone {
+    DEFAULT,
+    POSITIVE,
+    NEGATIVE
+}
+
+internal enum class SensorLagRolloutStatus {
+    ACTIVE_CANDIDATE,
+    SHADOW_FIRST,
+    HOLD,
+    INSUFFICIENT_DATA
+}
+
+internal data class SensorLagRolloutGuidance(
+    val bucket: String,
+    val status: SensorLagRolloutStatus,
+    val weightedGainMmol: Double?,
+    val replaySamples: Int,
+    val shadowRatePct: Double?,
+    val meanAbsTargetDeltaMmol: Double?
+)
+
+@Composable
+private fun SensorLagSummaryCard(
+    text: String
+) {
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(Spacing.sm)
+        )
+    }
+}
+
+@Composable
+private fun SensorLagReplayBucketCard(
+    bucket: DailyReportSensorLagReplayUi
+) {
+    val gainTone = when {
+        bucket.maeImprovementMmol > 0.03 -> AnalyticsMetricTone.POSITIVE
+        bucket.maeImprovementMmol < -0.03 -> AnalyticsMetricTone.NEGATIVE
+        else -> AnalyticsMetricTone.DEFAULT
+    }
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            Text(
+                text = stringResource(
+                    id = R.string.analytics_daily_report_sensor_lag_bucket_header,
+                    bucket.horizonMinutes,
+                    sensorLagBucketDisplayName(bucket.bucket)
+                ),
+                style = MaterialTheme.typography.labelMedium
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_raw_mae),
+                    value = UiFormatters.formatMmol(bucket.rawMae, decimals = 2)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_lag_mae),
+                    value = UiFormatters.formatMmol(bucket.lagMae, decimals = 2)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_gain),
+                    value = UiFormatters.formatSignedDelta(bucket.maeImprovementMmol),
+                    tone = gainTone
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_raw_bias),
+                    value = UiFormatters.formatSignedDelta(bucket.rawBias)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_lag_bias),
+                    value = UiFormatters.formatSignedDelta(bucket.lagBias)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_samples),
+                    value = bucket.sampleCount.toString()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SensorLagShadowBucketCard(
+    bucket: DailyReportSensorLagShadowUi
+) {
+    val shadowTone = when {
+        bucket.ruleChangedRatePct >= 20.0 -> AnalyticsMetricTone.POSITIVE
+        bucket.ruleChangedRatePct <= 5.0 -> AnalyticsMetricTone.DEFAULT
+        else -> AnalyticsMetricTone.POSITIVE
+    }
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            Text(
+                text = sensorLagBucketDisplayName(bucket.bucket),
+                style = MaterialTheme.typography.labelMedium
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_rule_change),
+                    value = String.format(Locale.US, "%.1f%%", bucket.ruleChangedRatePct),
+                    tone = shadowTone
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_target_delta),
+                    value = UiFormatters.formatMmol(bucket.meanAbsTargetDeltaMmol, decimals = 2)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_samples),
+                    value = bucket.sampleCount.toString()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnalyticsMetricChip(
+    label: String,
+    value: String,
+    tone: AnalyticsMetricTone = AnalyticsMetricTone.DEFAULT
+) {
+    val background = when (tone) {
+        AnalyticsMetricTone.DEFAULT -> MaterialTheme.colorScheme.surface
+        AnalyticsMetricTone.POSITIVE -> MaterialTheme.colorScheme.tertiaryContainer
+        AnalyticsMetricTone.NEGATIVE -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (tone) {
+        AnalyticsMetricTone.DEFAULT -> MaterialTheme.colorScheme.onSurface
+        AnalyticsMetricTone.POSITIVE -> MaterialTheme.colorScheme.onTertiaryContainer
+        AnalyticsMetricTone.NEGATIVE -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    val borderColor = when (tone) {
+        AnalyticsMetricTone.DEFAULT -> MaterialTheme.colorScheme.outlineVariant
+        AnalyticsMetricTone.POSITIVE -> MaterialTheme.colorScheme.tertiary
+        AnalyticsMetricTone.NEGATIVE -> MaterialTheme.colorScheme.error
+    }
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = background,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor.copy(alpha = 0.78f)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor
+            )
+        }
+    }
+}
+
+internal fun buildSensorLagRolloutGuidance(
+    replayBuckets: List<DailyReportSensorLagReplayUi>,
+    shadowBuckets: List<DailyReportSensorLagShadowUi>
+): List<SensorLagRolloutGuidance> {
+    val buckets = (replayBuckets.map { it.bucket } + shadowBuckets.map { it.bucket })
+        .distinct()
+        .sortedBy(::sensorLagBucketOrder)
+    return buckets.mapNotNull { bucket ->
+        val prioritizedReplay = replayBuckets.filter {
+            it.bucket == bucket && it.horizonMinutes in setOf(30, 60)
+        }
+        val relevantReplay = if (prioritizedReplay.isNotEmpty()) {
+            prioritizedReplay
+        } else {
+            replayBuckets.filter { it.bucket == bucket }
+        }
+        val replaySamples = relevantReplay.sumOf { it.sampleCount }
+        val weightedGain = if (replaySamples > 0) {
+            relevantReplay.sumOf { it.maeImprovementMmol * it.sampleCount } / replaySamples.toDouble()
+        } else {
+            null
+        }
+        val positiveReplayCount = relevantReplay.count { it.maeImprovementMmol >= 0.05 }
+        val negativeReplayCount = relevantReplay.count { it.maeImprovementMmol <= -0.05 }
+        val shadow = shadowBuckets.firstOrNull { it.bucket == bucket }
+        val shadowRate = shadow?.ruleChangedRatePct
+        val status = when {
+            replaySamples < 8 -> SensorLagRolloutStatus.INSUFFICIENT_DATA
+            weightedGain == null -> SensorLagRolloutStatus.INSUFFICIENT_DATA
+            weightedGain >= 0.10 &&
+                positiveReplayCount >= max(1, relevantReplay.size - negativeReplayCount) &&
+                (shadowRate ?: 0.0) >= 8.0 -> SensorLagRolloutStatus.ACTIVE_CANDIDATE
+            weightedGain > 0.03 ||
+                ((shadowRate ?: 0.0) >= 8.0 && (weightedGain ?: 0.0) > -0.02) -> SensorLagRolloutStatus.SHADOW_FIRST
+            else -> SensorLagRolloutStatus.HOLD
+        }
+        SensorLagRolloutGuidance(
+            bucket = bucket,
+            status = status,
+            weightedGainMmol = weightedGain,
+            replaySamples = replaySamples,
+            shadowRatePct = shadowRate,
+            meanAbsTargetDeltaMmol = shadow?.meanAbsTargetDeltaMmol
+        )
+    }
+}
+
+internal fun sensorLagAgeBucket(ageHours: Double): String = when {
+    ageHours < 24.0 -> "<24h"
+    ageHours < 240.0 -> "1-10d"
+    ageHours < 288.0 -> "10-12d"
+    ageHours < 336.0 -> "12-14d"
+    else -> ">14d"
+}
+
+private fun sensorLagRolloutStatusRank(status: SensorLagRolloutStatus): Int {
+    return when (status) {
+        SensorLagRolloutStatus.ACTIVE_CANDIDATE -> 3
+        SensorLagRolloutStatus.SHADOW_FIRST -> 2
+        SensorLagRolloutStatus.HOLD -> 1
+        SensorLagRolloutStatus.INSUFFICIENT_DATA -> 0
+    }
+}
+
+@Composable
+private fun SensorLagRolloutGuidanceCard(
+    guidance: SensorLagRolloutGuidance
+) {
+    val statusTone = when (guidance.status) {
+        SensorLagRolloutStatus.ACTIVE_CANDIDATE -> AnalyticsMetricTone.POSITIVE
+        SensorLagRolloutStatus.SHADOW_FIRST -> AnalyticsMetricTone.DEFAULT
+        SensorLagRolloutStatus.HOLD -> AnalyticsMetricTone.NEGATIVE
+        SensorLagRolloutStatus.INSUFFICIENT_DATA -> AnalyticsMetricTone.DEFAULT
+    }
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = sensorLagBucketDisplayName(guidance.bucket),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_rollout),
+                    value = sensorLagRolloutStatusLabel(guidance.status),
+                    tone = statusTone
+                )
+            }
+            Text(
+                text = sensorLagRolloutReasonText(guidance),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_weighted_gain),
+                    value = UiFormatters.formatSignedDelta(guidance.weightedGainMmol),
+                    tone = when {
+                        (guidance.weightedGainMmol ?: 0.0) >= 0.10 -> AnalyticsMetricTone.POSITIVE
+                        (guidance.weightedGainMmol ?: 0.0) <= 0.0 -> AnalyticsMetricTone.NEGATIVE
+                        else -> AnalyticsMetricTone.DEFAULT
+                    }
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_rule_change),
+                    value = guidance.shadowRatePct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "--"
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_target_delta),
+                    value = UiFormatters.formatMmol(guidance.meanAbsTargetDeltaMmol, decimals = 2)
+                )
+                AnalyticsMetricChip(
+                    label = stringResource(id = R.string.analytics_daily_report_sensor_lag_metric_samples),
+                    value = guidance.replaySamples.toString()
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun replayFactorDisplayName(raw: String): String {
     return when (raw.uppercase(Locale.US)) {
@@ -2276,6 +3927,79 @@ private fun replayRegimeDisplayName(raw: String): String {
         "MID" -> stringResource(id = R.string.analytics_replay_regime_mid)
         "HIGH" -> stringResource(id = R.string.analytics_replay_regime_high)
         else -> raw
+    }
+}
+
+private fun sensorLagBucketOrder(raw: String): Int {
+    return when (raw) {
+        "<24h" -> 0
+        "1-10d" -> 1
+        "10-12d" -> 2
+        "12-14d" -> 3
+        ">14d" -> 4
+        else -> 5
+    }
+}
+
+@Composable
+private fun sensorLagBucketDisplayName(raw: String): String {
+    return when (raw) {
+        "<24h" -> stringResource(id = R.string.analytics_daily_report_sensor_lag_bucket_lt24h)
+        "1-10d" -> stringResource(id = R.string.analytics_daily_report_sensor_lag_bucket_1_10d)
+        "10-12d" -> stringResource(id = R.string.analytics_daily_report_sensor_lag_bucket_10_12d)
+        "12-14d" -> stringResource(id = R.string.analytics_daily_report_sensor_lag_bucket_12_14d)
+        ">14d" -> stringResource(id = R.string.analytics_daily_report_sensor_lag_bucket_gt14d)
+        else -> raw
+    }
+}
+
+@Composable
+private fun sensorLagAgeSourceDisplayName(raw: String): String {
+    return when (raw.lowercase(Locale.US)) {
+        "explicit" -> stringResource(id = R.string.analytics_sensor_lag_age_source_explicit)
+        "inferred" -> stringResource(id = R.string.analytics_sensor_lag_age_source_inferred)
+        "unknown" -> stringResource(id = R.string.analytics_sensor_lag_age_source_unknown)
+        else -> raw
+    }
+}
+
+@Composable
+private fun sensorLagRolloutStatusLabel(status: SensorLagRolloutStatus): String {
+    return when (status) {
+        SensorLagRolloutStatus.ACTIVE_CANDIDATE -> stringResource(id = R.string.analytics_daily_report_sensor_lag_rollout_active)
+        SensorLagRolloutStatus.SHADOW_FIRST -> stringResource(id = R.string.analytics_daily_report_sensor_lag_rollout_shadow)
+        SensorLagRolloutStatus.HOLD -> stringResource(id = R.string.analytics_daily_report_sensor_lag_rollout_hold)
+        SensorLagRolloutStatus.INSUFFICIENT_DATA -> stringResource(id = R.string.analytics_daily_report_sensor_lag_rollout_insufficient)
+    }
+}
+
+@Composable
+private fun sensorLagRolloutReasonText(guidance: SensorLagRolloutGuidance): String {
+    val gain = UiFormatters.formatSignedDelta(guidance.weightedGainMmol)
+    val shadow = guidance.shadowRatePct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "--"
+    return when (guidance.status) {
+        SensorLagRolloutStatus.ACTIVE_CANDIDATE -> stringResource(
+            id = R.string.analytics_daily_report_sensor_lag_rollout_reason_active,
+            gain,
+            shadow,
+            guidance.replaySamples.toString()
+        )
+        SensorLagRolloutStatus.SHADOW_FIRST -> stringResource(
+            id = R.string.analytics_daily_report_sensor_lag_rollout_reason_shadow,
+            gain,
+            shadow,
+            guidance.replaySamples.toString()
+        )
+        SensorLagRolloutStatus.HOLD -> stringResource(
+            id = R.string.analytics_daily_report_sensor_lag_rollout_reason_hold,
+            gain,
+            shadow,
+            guidance.replaySamples.toString()
+        )
+        SensorLagRolloutStatus.INSUFFICIENT_DATA -> stringResource(
+            id = R.string.analytics_daily_report_sensor_lag_rollout_reason_insufficient,
+            guidance.replaySamples.toString()
+        )
     }
 }
 
@@ -2322,11 +4046,12 @@ private fun ActivationGateCard(
 private fun AnalyticsSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AnalyticsSectionShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = if (midnightGlass) RoundedCornerShape(28.dp) else AnalyticsSectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -2339,6 +4064,7 @@ private fun AnalyticsSectionCard(
 
 @Composable
 private fun AnalyticsSectionLabel(text: String) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     var showInfo by rememberSaveable(text) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2348,14 +4074,19 @@ private fun AnalyticsSectionLabel(text: String) {
         Text(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
-        IconButton(onClick = { showInfo = true }) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
-                tint = MaterialTheme.colorScheme.primary
-            )
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
+        ) {
+            IconButton(onClick = { showInfo = true }) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
+                    tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
     if (showInfo) {
@@ -2377,6 +4108,521 @@ private fun AnalyticsSectionLabel(text: String) {
             }
         )
     }
+}
+
+@Composable
+private fun CircadianPatternsCard(
+    state: AnalyticsUiState,
+    selectedWindow: CircadianPatternWindowUi,
+    onWindowSelected: (CircadianPatternWindowUi) -> Unit
+) {
+    AnalyticsSectionCard {
+        AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_circadian_patterns))
+        state.circadianStateStatus?.let { status ->
+            CircadianStateStatusCard(status = status)
+        }
+        if (state.circadianSections.isEmpty()) {
+            Text(
+                text = stringResource(id = R.string.analytics_circadian_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@AnalyticsSectionCard
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            items(CircadianPatternWindowUi.entries.toList()) { candidate ->
+                FilterChip(
+                    selected = candidate == selectedWindow,
+                    onClick = { onWindowSelected(candidate) },
+                    colors = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) analyticsFilterChipColors() else FilterChipDefaults.filterChipColors(),
+                    label = { Text(text = candidate.label) }
+                )
+            }
+        }
+        Text(
+            text = stringResource(id = R.string.analytics_circadian_window_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            state.circadianSections.forEach { section ->
+                CircadianPatternSectionCard(
+                    section = section,
+                    selectedWindow = selectedWindow
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CircadianStateStatusCard(
+    status: CircadianStateStatusUi
+) {
+    val statusColor = when (status.state) {
+        "READY" -> MaterialTheme.colorScheme.primary
+        "STALE" -> MaterialTheme.colorScheme.tertiary
+        "PARTIAL" -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.error
+    }
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_state_title))
+                Text(
+                    text = status.state,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = statusColor
+                )
+            }
+            Text(
+                text = status.reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                CircadianStateMetricChip(
+                    label = stringResource(id = R.string.analytics_circadian_state_slots),
+                    value = status.slotCount.toString()
+                )
+                CircadianStateMetricChip(
+                    label = stringResource(id = R.string.analytics_circadian_state_transitions),
+                    value = status.transitionCount.toString()
+                )
+                CircadianStateMetricChip(
+                    label = stringResource(id = R.string.analytics_circadian_state_snapshots),
+                    value = status.snapshotCount.toString()
+                )
+                CircadianStateMetricChip(
+                    label = stringResource(id = R.string.analytics_circadian_state_replay),
+                    value = status.replayCount.toString()
+                )
+                CircadianStateMetricChip(
+                    label = stringResource(id = R.string.analytics_circadian_state_sections),
+                    value = status.sectionCount.toString()
+                )
+            }
+            Text(
+                text = stringResource(
+                    id = R.string.analytics_circadian_state_updated_template,
+                    formatHistoryTs(status.latestSnapshotTs),
+                    formatHistoryTs(status.latestReplayTs)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            status.sourceSummary?.let { sourceSummary ->
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_circadian_state_sources_template,
+                        sourceSummary
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CircadianStateMetricChip(
+    label: String,
+    value: String
+) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) 0.35f else 1f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun CircadianPatternSectionCard(
+    section: CircadianPatternSectionUi,
+    selectedWindow: CircadianPatternWindowUi
+) {
+    val windowData = section.windows.firstOrNull { it.windowDays == selectedWindow.days }
+        ?: section.windows.maxByOrNull { it.windowDays }
+    Surface(
+        shape = AnalyticsInfoShape,
+        color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = circadianDayTypeLabel(section.requestedDayType),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_circadian_source_template,
+                        circadianDayTypeLabel(section.segmentSource)
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = stringResource(
+                    id = if (section.segmentFallback) {
+                        R.string.analytics_circadian_fallback_template
+                    } else {
+                        R.string.analytics_circadian_quality_template
+                    },
+                    section.stableWindowDays,
+                    section.coverageDays,
+                    UiFormatters.formatPercent(section.confidence),
+                    UiFormatters.formatPercent(section.qualityScore)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (windowData == null) {
+                Text(
+                    text = stringResource(id = R.string.analytics_circadian_window_empty, selectedWindow.label),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_circadian_window_stats,
+                        selectedWindow.label,
+                        windowData.coverageDays,
+                        windowData.sampleCount
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (windowData.replayDiagnostics.isNotEmpty()) {
+                    AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_replay_diagnostics))
+                    windowData.replayDiagnostics.forEach { diag ->
+                        Text(
+                            text = stringResource(
+                                id = R.string.analytics_circadian_replay_diag_line,
+                                diag.horizonMinutes,
+                                diag.bucketStatus,
+                                UiFormatters.formatPercent(diag.winRate),
+                                UiFormatters.formatMmol(diag.maeBaseline),
+                                UiFormatters.formatMmol(diag.maeCircadian),
+                                diag.sampleCount,
+                                if (diag.fallbackToAll) {
+                                    stringResource(id = R.string.analytics_circadian_replay_diag_fallback)
+                                } else {
+                                    ""
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                CircadianMedianBandChart(points = windowData.points)
+                CircadianDeltaChart(points = windowData.deltaPoints)
+                AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_top_risky_windows))
+                if (windowData.topRiskWindows.isEmpty()) {
+                    Text(
+                        text = stringResource(id = R.string.analytics_circadian_risky_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    windowData.topRiskWindows.forEach { risk ->
+                        Text(
+                            text = stringResource(
+                                id = R.string.analytics_circadian_risky_window_line,
+                                formatHourRange(risk.hour),
+                                UiFormatters.formatPercent(risk.lowRate),
+                                UiFormatters.formatPercent(risk.highRate),
+                                UiFormatters.formatMmol(risk.recommendedTargetMmol, 2)
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CircadianMedianBandChart(
+    points: List<CircadianCurvePointUi>
+) {
+    if (points.size < 4) {
+        Text(
+            text = stringResource(id = R.string.analytics_chart_not_enough_points),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    val sorted = points.sortedBy { it.slotIndex }
+    val minY = (sorted.minOf { it.p10 } - 0.6).coerceAtLeast(2.2)
+    val maxY = (sorted.maxOf { it.p90 } + 0.6).coerceAtMost(22.0)
+    val range = (maxY - minY).coerceAtLeast(0.5)
+    val accessibilityLabel = stringResource(
+        id = R.string.analytics_circadian_curve_accessibility,
+        UiFormatters.formatMmol(sorted.lastOrNull()?.medianBg, 2)
+    )
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_median_curve))
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .semantics {
+                contentDescription = accessibilityLabel
+            }
+    ) {
+        val width = size.width
+        val height = size.height
+        val leftPad = 28f
+        val topPad = 10f
+        val bottomPad = 22f
+        val plotWidth = (width - leftPad).coerceAtLeast(1f)
+        val plotHeight = (height - topPad - bottomPad).coerceAtLeast(1f)
+        fun xOf(slotIndex: Int): Float = leftPad + (slotIndex / 95f) * plotWidth
+        fun yOf(value: Double): Float = topPad + ((maxY - value) / range).toFloat() * plotHeight
+
+        repeat(4) { idx ->
+            val y = topPad + plotHeight * (idx / 3f)
+            drawLine(
+                color = gridColor,
+                start = Offset(leftPad, y),
+                end = Offset(width, y),
+                strokeWidth = 1f
+            )
+        }
+
+        val bandPath = Path().apply {
+            sorted.forEachIndexed { index, point ->
+                val x = xOf(point.slotIndex)
+                val y = yOf(point.p25)
+                if (index == 0) moveTo(x, y) else lineTo(x, y)
+            }
+            sorted.asReversed().forEach { point ->
+                lineTo(xOf(point.slotIndex), yOf(point.p75))
+            }
+            close()
+        }
+        drawPath(path = bandPath, color = Color(0xFF2563EB).copy(alpha = 0.16f))
+
+        val p10Path = Path()
+        val p90Path = Path()
+        val medianPath = Path()
+        sorted.forEachIndexed { index, point ->
+            val x = xOf(point.slotIndex)
+            val p10y = yOf(point.p10)
+            val p90y = yOf(point.p90)
+            val medianY = yOf(point.medianBg)
+            if (index == 0) {
+                p10Path.moveTo(x, p10y)
+                p90Path.moveTo(x, p90y)
+                medianPath.moveTo(x, medianY)
+            } else {
+                p10Path.lineTo(x, p10y)
+                p90Path.lineTo(x, p90y)
+                medianPath.lineTo(x, medianY)
+            }
+        }
+        drawPath(
+            path = p10Path,
+            color = Color(0xFF93C5FD),
+            style = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f))
+        )
+        drawPath(
+            path = p90Path,
+            color = Color(0xFF93C5FD),
+            style = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f))
+        )
+        drawPath(
+            path = medianPath,
+            color = Color(0xFF1D4ED8),
+            style = Stroke(width = 3f, cap = StrokeCap.Round)
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        listOf("00:00", "06:00", "12:00", "18:00", "24:00").forEach { tick ->
+            Text(
+                text = tick,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun CircadianDeltaChart(
+    points: List<CircadianDeltaPointUi>
+) {
+    if (points.size < 4) return
+    val sorted = points.sortedBy { it.slotIndex }
+    val values = sorted.flatMap { listOfNotNull(it.delta30, it.delta60) }
+    if (values.isEmpty()) return
+    val maxAbs = max(0.4, values.maxOf { abs(it) } + 0.2)
+    val zeroLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
+    AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_expected_delta))
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(140.dp)
+    ) {
+        val width = size.width
+        val height = size.height
+        val leftPad = 28f
+        val topPad = 10f
+        val bottomPad = 22f
+        val plotWidth = (width - leftPad).coerceAtLeast(1f)
+        val plotHeight = (height - topPad - bottomPad).coerceAtLeast(1f)
+        fun xOf(slotIndex: Int): Float = leftPad + (slotIndex / 95f) * plotWidth
+        fun yOf(value: Double): Float = topPad + (((maxAbs - value) / (maxAbs * 2.0)).toFloat() * plotHeight)
+
+        val zeroY = yOf(0.0)
+        drawLine(
+            color = zeroLineColor,
+            start = Offset(leftPad, zeroY),
+            end = Offset(width, zeroY),
+            strokeWidth = 1.5f
+        )
+        val delta30Path = Path()
+        val delta60Path = Path()
+        var has30 = false
+        var has60 = false
+        sorted.forEach { point ->
+            point.delta30?.let { value ->
+                val x = xOf(point.slotIndex)
+                val y = yOf(value)
+                if (!has30) {
+                    delta30Path.moveTo(x, y)
+                    has30 = true
+                } else {
+                    delta30Path.lineTo(x, y)
+                }
+            }
+            point.delta60?.let { value ->
+                val x = xOf(point.slotIndex)
+                val y = yOf(value)
+                if (!has60) {
+                    delta60Path.moveTo(x, y)
+                    has60 = true
+                } else {
+                    delta60Path.lineTo(x, y)
+                }
+            }
+        }
+        if (has30) {
+            drawPath(
+                path = delta30Path,
+                color = Color(0xFF9333EA),
+                style = Stroke(width = 2.5f, cap = StrokeCap.Round)
+            )
+        }
+        if (has60) {
+            drawPath(
+                path = delta60Path,
+                color = Color(0xFF0F766E),
+                style = Stroke(width = 2.5f, cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 7f), 0f))
+            )
+        }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+    ) {
+        AnalyticsLegendItem(
+            text = stringResource(id = R.string.analytics_circadian_delta_30),
+            color = Color(0xFF9333EA),
+            icon = Icons.Default.ShowChart
+        )
+        AnalyticsLegendItem(
+            text = stringResource(id = R.string.analytics_circadian_delta_60),
+            color = Color(0xFF0F766E),
+            icon = Icons.Default.ShowChart
+        )
+    }
+}
+
+@Composable
+private fun circadianDayTypeLabel(raw: String): String = when (raw.uppercase(Locale.US)) {
+    "WEEKDAY" -> stringResource(id = R.string.analytics_replay_day_type_weekday)
+    "WEEKEND" -> stringResource(id = R.string.analytics_replay_day_type_weekend)
+    else -> stringResource(id = R.string.analytics_circadian_day_type_all)
+}
+
+private fun formatHourRange(hour: Int): String {
+    val start = hour.coerceIn(0, 23)
+    val end = (start + 1) % 24
+    return String.format(Locale.US, "%02d:00-%02d:00", start, end)
+}
+
+@Composable
+private fun analyticsFilterChipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = Color(0x221D4ED8),
+    selectedLabelColor = Color(0xFF8DB6FF),
+    selectedLeadingIconColor = Color(0xFF8DB6FF),
+    containerColor = Color(0xAA101D38),
+    labelColor = Color(0xFFB5C0D8),
+    iconColor = Color(0xFFB5C0D8)
+)
+
+private fun alignOverlayPoints(
+    source: List<IsfCrOverlayPointUi>,
+    visiblePoints: List<IsfCrHistoryPointUi>
+): List<IsfCrOverlayPointUi> {
+    if (source.isEmpty() || visiblePoints.isEmpty()) return emptyList()
+    val byTimestamp = source.associateBy { it.timestamp }
+    return visiblePoints.mapNotNull { point -> byTimestamp[point.timestamp] }
 }
 
 private fun formatHistoryTs(ts: Long?): String {
@@ -2420,55 +4666,97 @@ private fun AnalyticsScreenPreview() {
                 currentCrReal = 10.8,
                 currentIsfMerged = 2.31,
                 currentCrMerged = 11.2,
+                currentIsfAapsRaw = 2.18,
+                currentCrAapsRaw = 9.7,
                 historyPoints = listOf(
                     IsfCrHistoryPointUi(
                         timestamp = now - 7 * 60 * 60_000L,
                         isfMerged = 2.2,
                         crMerged = 11.5,
                         isfCalculated = 2.3,
-                        crCalculated = 11.0
+                        crCalculated = 11.0,
+                        isfAaps = 2.1,
+                        crAaps = 9.8
                     ),
                     IsfCrHistoryPointUi(
                         timestamp = now - 6 * 60 * 60_000L,
                         isfMerged = 2.25,
                         crMerged = 11.4,
                         isfCalculated = 2.35,
-                        crCalculated = 10.9
+                        crCalculated = 10.9,
+                        isfAaps = 2.12,
+                        crAaps = 9.7
                     ),
                     IsfCrHistoryPointUi(
                         timestamp = now - 5 * 60 * 60_000L,
                         isfMerged = 2.3,
                         crMerged = 11.2,
                         isfCalculated = 2.4,
-                        crCalculated = 10.8
+                        crCalculated = 10.8,
+                        isfAaps = 2.15,
+                        crAaps = 9.6
                     ),
                     IsfCrHistoryPointUi(
                         timestamp = now - 4 * 60 * 60_000L,
                         isfMerged = 2.32,
                         crMerged = 11.1,
                         isfCalculated = 2.45,
-                        crCalculated = 10.7
+                        crCalculated = 10.7,
+                        isfAaps = 2.18,
+                        crAaps = 9.5
                     ),
                     IsfCrHistoryPointUi(
                         timestamp = now - 3 * 60 * 60_000L,
                         isfMerged = 2.28,
                         crMerged = 11.3,
                         isfCalculated = 2.42,
-                        crCalculated = 10.9
+                        crCalculated = 10.9,
+                        isfAaps = 2.17,
+                        crAaps = 9.6
                     ),
                     IsfCrHistoryPointUi(
                         timestamp = now - 2 * 60 * 60_000L,
                         isfMerged = 2.27,
                         crMerged = 11.4,
                         isfCalculated = 2.4,
-                        crCalculated = 11.0
+                        crCalculated = 11.0,
+                        isfAaps = 2.16,
+                        crAaps = 9.7
                     ),
                     IsfCrHistoryPointUi(
                         timestamp = now - 60 * 60_000L,
                         isfMerged = 2.3,
                         crMerged = 11.2,
                         isfCalculated = 2.46,
-                        crCalculated = 10.8
+                        crCalculated = 10.8,
+                        isfAaps = 2.18,
+                        crAaps = 9.7
+                    )
+                ),
+                historyOverlayPoints = listOf(
+                    IsfCrOverlayPointUi(
+                        timestamp = now - 7 * 60 * 60_000L,
+                        cobGrams = 28.0,
+                        uamGrams = 8.0,
+                        activityRatio = 1.02
+                    ),
+                    IsfCrOverlayPointUi(
+                        timestamp = now - 5 * 60 * 60_000L,
+                        cobGrams = 22.0,
+                        uamGrams = 12.0,
+                        activityRatio = 1.08
+                    ),
+                    IsfCrOverlayPointUi(
+                        timestamp = now - 3 * 60 * 60_000L,
+                        cobGrams = 14.0,
+                        uamGrams = 9.0,
+                        activityRatio = 1.26
+                    ),
+                    IsfCrOverlayPointUi(
+                        timestamp = now - 60 * 60_000L,
+                        cobGrams = 6.0,
+                        uamGrams = 2.0,
+                        activityRatio = 0.98
                     )
                 ),
                 historyLastUpdatedTs = now,

@@ -15,6 +15,7 @@ AAPS Predictive Copilot is a two-part system:
 - `data/local`: Room DB entities/dao for glucose, therapy, telemetry, forecasts, audit.
 - `data/repository`: sync, ingestion, automation loop, action dispatch, analytics.
 - `domain/predict`: prediction engines (legacy/v3), UAM estimator, profile estimators.
+- `domain/predict`: prediction engines (legacy/v3), UAM estimator, profile estimators, circadian pattern engine (`weekday/weekend/all`, `15m` slots, `5/7/10/14d` templates).
 - `domain/isfcr`: physiology-aware ISF/CR extraction, base hourly fit, realtime multipliers, confidence/fallback.
 - `domain/rules`: adaptive/post-hypo/pattern/segment rules + arbitration.
 - `domain/safety`: global policy guardrails.
@@ -37,9 +38,26 @@ AAPS Predictive Copilot is a two-part system:
 ## Integration contracts
 - Forecast horizons required in app loop: 5m, 30m, 60m.
 - Telemetry units in app domain: mmol/L for glucose and derived glucose deltas.
+- Enhanced local forecasting operates on a canonical 5-minute CGM series derived from raw `1..5` minute sensor input before trend/UAM/Kalman calculations.
+- Circadian pattern fitting operates on deduplicated canonical glucose history and stores a separate `15-minute` pattern layer for `WEEKDAY`, `WEEKEND`, and `ALL`.
+- On-device circadian verification must not depend on copying the live WAL-backed SQLite database; the app surfaces circadian state directly in `Analytics` (`READY / PARTIAL / STALE / EMPTY`, row counts, latest snapshot/replay timestamps, active segment sources).
+- Enhanced V3 Kalman filtering consumes deterministic known-input from therapy and bounded historical UAM on each canonical 5-minute interval, so residual AR sees only unexplained dynamics.
+- Circadian prior is a bounded secondary forecast prior:
+  - it is blended after physiology/path simulation,
+  - weights are horizon-aware (`5m/30m/60m`) and confidence-gated,
+  - prior is attenuated during acute state (`rapid delta`, `COB`, `UAM`, `IOB`) and disabled on stale/suspect sensor states,
+  - `30m/60m` may additionally apply bounded reversion toward historical slot median when current glucose sits outside the slot `p25..p75` band and replay quality does not mark the bucket harmful.
+- Forecast post-processing may apply recent empirical calibration:
+  - center bias from rolling residual mean by horizon/value-bucket,
+  - CI half-width calibration from rolling weighted quantiles of absolute residuals,
+  - calibration stays causal and uses only past forecast-vs-actual pairs inside the lookback window.
 - Action channel priority: Nightscout API primary; local fallback optional.
 - UAM carbs export channel: Nightscout treatments (`Carb Correction`) with backdated timestamp and deterministic note tag (`UAM_ENGINE|id=...|seq=...|...`).
 - Temp target command must stay in hard range and pass policy checks before sending.
+- Automatic temp target writes must also pass an outbound duplicate-throttle at action-repository level:
+  - repeated or near-identical targets are blocked for `30 minutes`,
+  - materially changed targets may pass immediately,
+  - manual commands may bypass the throttle only via explicit manual idempotency prefix.
 - Activity-protection override in adaptive rule:
   - if `activity_ratio`/`steps_count` spike indicates active load, temp target is overridden to `7.7..8.7 mmol/L` (load-scaled),
   - after sustained low-load period (`~30 min`) the rule sends recovery back to pre-activity base target.
@@ -47,7 +65,11 @@ AAPS Predictive Copilot is a two-part system:
 - `cob_grams` and `iob_units` telemetry are allowed to bias local runtime forecasts before rule arbitration.
 - Runtime context factors from physiology-aware ISF/CR snapshot (`set/sensor/activity/dawn/stress/hormone/steroid`) are exported to telemetry and applied as bounded forecast context-bias + CI widening before rule arbitration.
 - Runtime `cob_grams/iob_units` are resolved with local fallback from therapy history (`insulin profile + carb absorption`) and confidence-weighted merge with external telemetry when both are available.
-- `dia_hours` telemetry (if present) is applied to prediction engine insulin action curve by scaling insulin age progression relative to active insulin profile; missing/invalid DIA falls back to profile default.
+- External/AAPS raw `COB` remains observable as reference telemetry, but runtime `effective COB` used by forecast/controller must subtract residual synthetic `UAM_ENGINE` carb export before merge to avoid double-counting `UAM + COB`.
+- Runtime insulin duration source of truth is profile-derived:
+  - selected insulin profile defines base DIA from its action curve,
+  - optional daily real-insulin-profile estimate may refine effective DIA via profile-based onset/shape scaling,
+  - external/raw `dia_hours` telemetry is observational only and must not override runtime insulin action by itself.
 - Activity telemetry is stored in canonical keys when available:
   - `steps_count`,
   - `activity_ratio`,
@@ -61,6 +83,16 @@ AAPS Predictive Copilot is a two-part system:
 
 ## Architectural decisions
 - Keep prediction engine strategy switchable via flags (legacy vs enhanced versions).
+- Keep prediction inputs causally correct:
+  - local forecast/runtime may use only therapy events with `ts <= prediction_now`,
+  - future therapy events are invalid for both runtime and offline replay.
+- Keep latent UAM separated from exported synthetic carb treatments:
+  - `synthetic=true` / `source=uam_engine` / `UAM_ENGINE|...` tagged carbs are excluded from announced-carb prediction and ISF/CR training paths,
+  - duplicate guards may still treat them as existing UAM coverage to prevent re-creation of the same meal episode.
+- Keep UAM runtime contour unified:
+  - `UamInferenceEngine` remains the source of active meal-event hypotheses (`ingestionTs/carbs/confidence`),
+  - `HybridPredictionEngine` consumes the active inferred event as the preferred virtual-meal hint for forecast UAM steps,
+  - runtime telemetry publishes a single resolved UAM state (`uam_runtime_*` and `uam_value`) so controller/UI do not reconcile independent inference and forecast branches.
 - Keep insulin action profile configurable and persisted in settings; default profile is NOVORAPID.
 - Keep controller/rule execution idempotent by time buckets and command keys.
 - Keep ISF/CR controlled activation auditable:
@@ -107,10 +139,43 @@ AAPS Predictive Copilot is a two-part system:
 - Keep per-cycle observability of forecast inputs:
   - audit event `forecast_factor_coverage` reports availability/usage of ISF/CR, DIA, COB/IOB, UAM, sensor/activity/context factors, pattern/history, and whether bias stages were applied.
 - Keep forecast history long enough for month/year analysis (`~400 days` retention in app DB).
+- Analytics ISF/CR history must render three independent layers instead of a merged line:
+  - `Compensation-derived evidence` from history/runtime evidence path,
+  - `Copilot fallback runtime` from the app fallback/base path,
+  - `AAPS raw` from telemetry,
+  so users can see which value is inferred, which one is fallback, and which one came directly from AAPS.
+- Analytics ISF/CR charts must allow per-line visibility control in UI and may overlay normalized support traces (`COB`, `UAM`, `activity_ratio`) on the same time axis:
+  - primary ISF/CR axis remains in native ISF/CR units,
+  - overlay lines are auto-scaled independently inside the visible window for readability,
+  - overlay series are diagnostic only and do not replace primary ISF/CR values.
+- Circadian analytics persist a separate pattern store:
+  - `circadian_slot_stats` for `15m` slot percentiles and telemetry overlays,
+  - `circadian_transition_stats` for `+15/+30/+60` deltas and residual forecast bias,
+  - `circadian_pattern_snapshots` for requested day-type resolution (`weekday/weekend/all`, fallback reason, stable/recency windows),
+  - `circadian_replay_slot_stats` for replay-aware forecast quality by `dayType × windowDays × slotIndex × horizon`.
+- Replay quality fit for `circadian_replay_slot_stats` is bootstrap-evaluated:
+  - it measures the circadian template itself without runtime replay gating,
+  - it uses only `low-acute` rows where circadian actually produced a non-zero shift,
+  - runtime replay buckets are later allowed to downweight or disable harmful slots, but that gating must not poison the stored replay-quality estimates.
+- Runtime `circadian_v2` may apply a small positive boost only for high-quality `HELPFUL` replay buckets:
+  - the boost is allowed only in near-low-acute conditions,
+  - it requires minimum replay sample count and strong `winRate/maeImprovement`,
+  - harmful and insufficient buckets never receive this boost,
+  - all forecast displacement clamps remain unchanged.
+- Circadian analytics state is self-healed independently from profile analytics:
+  - `Analytics`/`AI Analysis` route entry first checks whether circadian tables are missing or stale,
+  - replay tables are also considered unhealthy when qualified buckets still look like legacy zero-quality rows (`maeImprovementMmol == 0` and `winRate == 0`),
+  - if so, a bounded circadian-only rebuild runs with capped lookback (`<= 21d`) and refreshes both circadian tables and derived `pattern_windows`,
+  - circadian self-heal reads only a bounded whitelist of circadian-relevant telemetry keys rather than the full telemetry history,
+  - the same bounded entity lists are reused for both pattern fit and replay fit,
+  - self-heal must fail safe and emit audit instead of crashing the app process,
+  - this path does not force a full profile/ISF-CR rebuild,
+  - `Overview` cold-start must not pay the circadian repair cost.
+- Existing `pattern_windows` remain a derived compatibility layer for rule-engine consumers; they are rebuilt from the selected circadian stable snapshot rather than acting as the primary pattern source.
 - Keep analytics snapshots historically:
   - `pattern_windows` append snapshots and query latest per (`dayType`,`hour`) for runtime.
-  - `profile_segment_estimates` append snapshots and query latest per (`dayType`,`timeSlot`) for runtime.
-  - `profile_estimates` stores both `active` record and timestamped snapshots (`snapshot-*`).
+  - `profile_segment_estimates` is rebuilt atomically on each analytics recalculation and keeps only the latest clean segment rows used by runtime.
+  - `profile_estimates` stores `active` record and timestamped snapshots (`snapshot-*`), but analytics rebuild must remove legacy telemetry-polluted rows before publishing new profile values.
   - `isf_cr_snapshots` stores realtime effective ISF/CR with CI/confidence/factor trace.
   - `isf_cr_evidence` stores extracted ISF/CR evidence windows and quality weights.
   - `isf_cr_model_state` stores active hourly base model.
@@ -122,6 +187,14 @@ AAPS Predictive Copilot is a two-part system:
   - `ACTIVE` confident mode applies full override (`blendWeight=1.0`),
   - `SHADOW` confident mode applies conservative soft-blend (`~0.25..0.65`) to improve forecast sensitivity without full controller promotion,
   - low-confidence snapshots remain blocked by fallback chain.
+- Local forecast sensitivity inside `HybridPredictionEngine` should prefer `ProfileEstimator` as the single history-based ISF/CR source; legacy inline heuristic is retained only as safe fallback when estimator cannot resolve values.
+- `ProfileEstimator` must treat telemetry ISF/CR as latest prior/fallback rather than as repeated observation stream:
+  - only the newest telemetry value per family (`ISF` / `CR`) participates in estimator blending,
+  - sufficiently populated local history is not overwritten in `FALLBACK_IF_NEEDED`,
+  - sparse hour/segment windows may shrink toward global prior for stability.
+- Nightscout treatment ingest must be payload-aware on both remote sync and local Nightscout server paths:
+  - `eventType` labels such as `Bolus`, `Bolus Wizard`, `Meal Bolus`, `Correction Bolus`, `Carb Correction`, and partial/blank rows are normalized using both label and payload (`insulin`, `carbs`, `enteredInsulin`, `enteredCarbs`),
+  - imported treatment payloads persist `eventType` and `source`, so later repair/reclassification can recover real insulin/carbs therapy rows without relying on future events.
 - Shadow auto-activation (optional) may promote ISF/CR mode from `SHADOW` to `ACTIVE` only when KPI thresholds pass on recent `isfcr_shadow_diff_logged` audit history.
 - Optional shadow auto-activation can additionally enforce daily quality gate (24h):
   - requires latest daily report metrics (`daily_report_mae_30m`, `daily_report_mae_60m`, `daily_report_matched_samples`),
@@ -184,6 +257,49 @@ AAPS Predictive Copilot is a two-part system:
     - `daily_report_replay_daytype_gap_{5|30|60}m`,
     - `daily_report_replay_daytype_gap_hint_{5|30|60}m`,
   enabling direct triage of hour windows where one day-type systematically underperforms.
+- Android analytics also builds an on-device circadian replay summary:
+  - it compares `baseline` versus `baseline + circadian prior` for `24h` and `7d`,
+  - it uses deduplicated glucose, stored forecasts, telemetry, and persisted circadian tables,
+  - if a stored forecast row already contains `|circadian_v1` or `|circadian_v2`, replay reconstructs the baseline by inverting the circadian blend before scoring,
+  - the resulting `MAE30/MAE60` summary is surfaced in both `Analytics` and `AI Analysis`.
+- Circadian runtime bias is replay-aware in `circadian_v2`:
+  - `30m/60m` weights are additionally modulated by persisted replay bucket quality (`HELPFUL/NEUTRAL/HARMFUL/INSUFFICIENT`),
+  - if the exact replay bucket for the active `15-minute` slot is `INSUFFICIENT`, runtime may resolve replay quality from bounded neighbouring replay buckets within `±2` slots (`±30 minutes`) using distance weights, while keeping the glucose-template slot itself unchanged,
+  - horizon weight also depends on slot stability and horizon-specific transition quality,
+  - current out-of-band glucose may add bounded `median reversion` toward slot median for `30m/60m`,
+  - replay residual bias is applied only on `30m/60m` and is hard-clamped,
+  - analytics exposes current-slot replay diagnostics (`bucket status`, `win rate`, `MAE baseline -> circadian`, fallback-to-`ALL`).
+- `AI Analysis` intentionally exposes only operator windows `3d / 5d / 7d / 30d`:
+  - screen-level source/status/week filters are removed from UI,
+  - history/trend fetches still use the existing repository APIs internally with fixed `source=all`, `status=all`, and derived trend window.
+- OpenAI daily optimizer parsing is tolerant to multiple `Responses API` structured-output shapes:
+  - raw `output_text`,
+  - nested `output[].content[].text`,
+  - `text.value`,
+  - `parsed` / `json`,
+  - function-style `arguments`.
+- OpenAI daily optimizer transport uses a longer timeout budget than normal chat:
+  - chat remains on the short client,
+  - optimizer request/polling uses dedicated extended read/call timeout because background `responses` jobs are slower and should not be misclassified as local `BLOCKED` solely due to transport timing.
+- `AI Analysis` keeps the AI chat composer pinned at the top of the screen as the primary interaction surface:
+  - text turns use the standard chat path,
+  - image attachments are sent to the OpenAI `Responses API` as `input_image`,
+  - text-like file attachments are reduced to bounded local previews and injected as attachment context,
+  - voice mode is a chained OpenAI flow: `audio/transcriptions` (`gpt-4o-mini-transcribe`) -> normal AI chat answer -> optional `audio/speech` (`gpt-4o-mini-tts`) playback.
+- `AI Analysis` warm-up is route-lazy:
+  - `cloud jobs`, `analysis history/trend`, and `local daily report generation` are not started from `MainViewModel.init`,
+  - they are triggered when the user opens the `AI Analysis` route,
+  - this keeps cold-start on `Overview` lighter and avoids paying AI refresh cost on every app launch.
+- Primary bottom navigation is intentionally kept lean:
+  - `Overview / Forecast / Analytics / Safety`,
+  - `Analytics` stays in the primary bar because it is used as an operational screen, not a rare overflow tool.
+- `UAM` is no longer a primary destination:
+  - `UAM` summary and event actions live inside `Audit Log` under a dedicated `Log / UAM` switch,
+  - this keeps UAM event review attached to audit context instead of occupying a separate main tab.
+- `Overview` replaces the app-health banner with a quick `Base target` banner:
+  - operator can adjust the base target in `0.1 mmol/L` steps without leaving the screen,
+  - stale-data / kill-switch state is still visible in the same banner,
+  - full app-health banner remains available on non-Overview routes.
 - ISF/CR runtime diagnostics must include dropped evidence reason counters (per extractor reason code) and expose them in both audit payload (`droppedReasons`) and Analytics diagnostics UI.
 - Realtime ISF/CR sensor-quality false-low telemetry (`sensor_quality_suspect_false_low`) is treated as ambiguity signal:
   - adds explicit reason-code in snapshot diagnostics,
@@ -199,6 +315,53 @@ AAPS Predictive Copilot is a two-part system:
   - same-day-type ratio in hour-window evidence,
   - frequency of day-type sparsity flags,
   alongside wear-impact diagnostics.
+- `glucose_samples` are treated as a timestamp-canonical signal:
+  - runtime readers in UI, analytics, local Nightscout responses, calibration, replay, and daily quality gates must deduplicate by `timestamp` using the shared source/quality winner policy from `GlucoseSanitizer`,
+  - background maintenance may physically delete losing duplicate rows, but logical readers must still apply sanitizer so historical mixed-source datasets remain stable.
+- Nightscout treatment import is payload-first for therapy reconstruction:
+  - DTO parsing must preserve `enteredInsulin/enteredCarbs` aliases (`bolusUnits`, `insulinUnits`, `mealCarbs`, `grams`),
+  - treatment type normalization may upgrade generic labels (`Bolus`, `Bolus Wizard`, `Carb Correction`) into `correction_bolus` / `meal_bolus` / `carbs` only from the imported treatment payload itself,
+  - local Nightscout server and remote Nightscout sync must use the same payload builder and normalizer so replay/runtime see identical therapy semantics.
+- Nightscout therapy repair is incremental and idempotent:
+  - after each treatment sync, recent Nightscout/local-Nightscout rows may be re-normalized from persisted payload,
+  - repair may only change therapy `type`; it must not mutate timestamps, ids, or payload provenance.
+- If real insulin-like Nightscout history is still missing, treatment sync must enter recovery mode:
+  - `created_at` backfill widens to the bootstrap lookback window,
+  - fetch count is elevated to bootstrap scale even outside the initial bootstrap attempt,
+  - recovery remains causal and read-only; it only increases history visibility so real boluses can be imported and reclassified.
+- Profile analytics rebuild is reset-based:
+  - `profile_segment_estimates` are cleared before each recomputation and repopulated from current evidence only,
+  - `profile_estimates` legacy telemetry-polluted snapshots are deleted before publishing rebuilt estimates, so runtime ISF/CR never mixes stale telemetry-inflated rows with fresh history.
+  - profile-state self-heal is route-lazy:
+    - rebuild triggers when active profile is missing, telemetry-polluted, older than `12h`, or when profile segments are missing/stale,
+    - opening `Analytics` / `AI Analysis` runs a profile-only rebuild (no pattern recomputation) capped to `90d`,
+    - ordinary `Overview` launch does not block on this repair path.
+- Runtime DIA is profile-anchored and slow-moving:
+  - selected insulin profile remains the base duration source of truth,
+  - a real-profile insulin fit may publish `dia_real_raw_hours` from historical onset/shape evidence,
+  - effective DIA is a confidence-weighted blend of profile DIA and raw real-profile DIA, clamped to `50%..150%` of the selected profile duration.
+- Realtime ISF/CR fallback is metric-aware:
+  - low-confidence snapshots may keep `CR` or `ISF` from compensation-derived runtime candidate if that metric has strong global evidence and acceptable quality,
+  - missing/weak metrics still fall back independently,
+  - overall snapshot may remain `FALLBACK` while preserving the stronger metric to avoid collapsing both values to AAPS/default fallback.
+  - realtime extraction must ignore control-noise therapy rows such as `temp_target`; only insulin-like, carb-like, and set/sensor marker events are allowed into the fast evidence path.
+- Compensation-derived ISF confidence is evidence-structure aware:
+  - confidence saturates from separate `ISF` and `CR` evidence counts rather than a single slow total-count ramp,
+  - strong hour-window/global evidence and same-day-type support can raise runtime confidence,
+  - missing one metric (`ISF` or `CR`) still applies a cross-metric penalty so `CR-only` or `ISF-only` windows do not masquerade as a full operational snapshot.
+- Synthetic `UAM_ENGINE` carbs must not poison correction-window ISF evidence:
+  - `extractIsfSample()` ignores synthetic UAM carbs when checking `carbsAround` contamination,
+  - this preserves real correction evidence even when the UAM contour exported tagged carb entries nearby.
+- Low-confidence realtime ISF/CR may promote to `SHADOW` without going `ACTIVE`:
+  - only when both metrics have keepable compensation-derived candidates, sensor false-low gate is clear, and quality/confidence exceed the soft-shadow floor,
+  - runtime application still remains blocked in `SHADOW`; this is a visibility/diagnostics mode, not a dosing-control override.
+- Realtime ISF/CR evidence extraction is not allowed to starve on `temp_target` noise:
+  - the cheap realtime path now scans a `72h` glucose/therapy horizon,
+  - if the raw therapy query is saturated but too few relevant insulin/carb/set/sensor rows survive filtering, the repository widens the therapy scan before extracting evidence,
+  - this keeps compensation-derived evidence based on real therapy density rather than on how many `temp_target` rows were written recently.
+- Real-profile insulin fit is not recomputed every cycle:
+  - a stable estimate is recomputed on a `72h` cadence (or earlier on version mismatch / empty fallback),
+  - telemetry keepalive may still republish the latest estimate hourly so UI/runtime diagnostics stay fresh without re-running the expensive fit.
 
 ## Open architecture questions
 - Formal plugin contract for adding new prediction engines without touching automation repository.

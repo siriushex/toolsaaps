@@ -11,6 +11,8 @@ import androidx.core.app.NotificationCompat
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.MainActivity
 import io.aaps.copilot.R
+import io.aaps.copilot.config.AppSettings
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -22,7 +24,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.runBlocking
 
 class LocalNightscoutForegroundService : Service() {
 
@@ -30,6 +31,8 @@ class LocalNightscoutForegroundService : Service() {
     private var settingsMonitorJob: Job? = null
     private var minuteCycleJob: Job? = null
     private val lastMinuteBucket = AtomicLong(-1L)
+    @Volatile
+    private var latestSettingsSnapshot: AppSettings? = null
 
     @Volatile
     private var foregroundStarted = false
@@ -45,32 +48,43 @@ class LocalNightscoutForegroundService : Service() {
             return START_NOT_STICKY
         }
         val app = application as? CopilotApp ?: return START_NOT_STICKY
-        val settings = runBlocking {
-            app.container.settingsStore.settings.first()
-        }
-        if (!isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)) {
-            stopSelfSafely()
-            return START_NOT_STICKY
-        }
+        // Android requires calling startForeground almost immediately after startForegroundService.
         ensureForeground(
-            port = settings.localNightscoutPort,
-            localNightscoutEnabled = settings.localNightscoutEnabled
+            port = DEFAULT_NOTIFICATION_PORT,
+            localNightscoutEnabled = true
         )
-        if (settingsMonitorJob == null) {
-            settingsMonitorJob = serviceScope.launch {
-                app.container.settingsStore.settings.collectLatest { latest ->
-                    if (!isRuntimeNeeded(latest.localNightscoutEnabled, latest.localBroadcastIngestEnabled)) {
-                        stopSelfSafely()
-                        return@collectLatest
+        serviceScope.launch {
+            val settings = app.container.settingsStore.settings.first()
+            latestSettingsSnapshot = settings
+            if (!isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)) {
+                app.container.stopRuntimeControllers()
+                stopSelfSafely()
+                return@launch
+            }
+            app.container.startRuntimeControllers()
+            ensureForeground(
+                port = settings.localNightscoutPort,
+                localNightscoutEnabled = settings.localNightscoutEnabled
+            )
+            if (settingsMonitorJob == null) {
+                settingsMonitorJob = serviceScope.launch {
+                    app.container.settingsStore.settings.collectLatest { latest ->
+                        latestSettingsSnapshot = latest
+                        if (!isRuntimeNeeded(latest.localNightscoutEnabled, latest.localBroadcastIngestEnabled)) {
+                            app.container.stopRuntimeControllers()
+                            stopSelfSafely()
+                            return@collectLatest
+                        }
+                        app.container.startRuntimeControllers()
+                        ensureForeground(
+                            port = latest.localNightscoutPort,
+                            localNightscoutEnabled = latest.localNightscoutEnabled
+                        )
                     }
-                    ensureForeground(
-                        port = latest.localNightscoutPort,
-                        localNightscoutEnabled = latest.localNightscoutEnabled
-                    )
                 }
             }
+            ensureMinuteCycle(app)
         }
-        ensureMinuteCycle(app)
         // Keep process alive for local loopback and high-frequency local broadcast ingest.
         return START_STICKY
     }
@@ -82,6 +96,8 @@ class LocalNightscoutForegroundService : Service() {
         settingsMonitorJob = null
         minuteCycleJob?.cancel()
         minuteCycleJob = null
+        (application as? CopilotApp)?.container?.stopRuntimeControllers()
+        minuteLoopActive.set(false)
         stopForegroundIfNeeded()
         serviceScope.cancel()
         super.onDestroy()
@@ -174,45 +190,50 @@ class LocalNightscoutForegroundService : Service() {
     private fun ensureMinuteCycle(app: CopilotApp) {
         if (minuteCycleJob != null) return
         minuteCycleJob = serviceScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val settings = runCatching {
-                    app.container.settingsStore.settings.first()
-                }.getOrNull()
+            minuteLoopActive.set(true)
+            try {
+                while (isActive) {
+                    val settings = latestSettingsSnapshot ?: runCatching {
+                        app.container.settingsStore.settings.first()
+                    }.getOrNull()?.also { latestSettingsSnapshot = it }
 
-                if (
-                    settings == null ||
-                    !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
-                ) {
-                    delay(10_000L)
-                    continue
-                }
-
-                val now = System.currentTimeMillis()
-                val minuteBucket = now / MINUTE_MS
-                if (lastMinuteBucket.get() != minuteBucket && lastMinuteBucket.compareAndSet(minuteBucket - 1, minuteBucket)) {
-                    runCatching {
-                        app.container.automationRepository.runAutomationCycle()
-                    }.onFailure {
-                        app.container.auditLogger.warn(
-                            "minute_cycle_failed",
-                            mapOf("error" to (it.message ?: "unknown"))
-                        )
+                    if (
+                        settings == null ||
+                        !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
+                    ) {
+                        delay(10_000L)
+                        continue
                     }
-                } else if (lastMinuteBucket.get() < minuteBucket) {
-                    // Recover CAS state if process resumed after long sleep.
-                    lastMinuteBucket.set(minuteBucket)
-                    runCatching {
-                        app.container.automationRepository.runAutomationCycle()
-                    }.onFailure {
-                        app.container.auditLogger.warn(
-                            "minute_cycle_failed",
-                            mapOf("error" to (it.message ?: "unknown"))
-                        )
-                    }
-                }
 
-                val waitMs = (MINUTE_MS - (System.currentTimeMillis() % MINUTE_MS)).coerceIn(1_000L, MINUTE_MS)
-                delay(waitMs)
+                    val now = System.currentTimeMillis()
+                    val minuteBucket = now / MINUTE_MS
+                    if (lastMinuteBucket.get() != minuteBucket && lastMinuteBucket.compareAndSet(minuteBucket - 1, minuteBucket)) {
+                        runCatching {
+                            app.container.automationRepository.runAutomationCycle()
+                        }.onFailure {
+                            app.container.auditLogger.warn(
+                                "minute_cycle_failed",
+                                mapOf("error" to (it.message ?: "unknown"))
+                            )
+                        }
+                    } else if (lastMinuteBucket.get() < minuteBucket) {
+                        // Recover CAS state if process resumed after long sleep.
+                        lastMinuteBucket.set(minuteBucket)
+                        runCatching {
+                            app.container.automationRepository.runAutomationCycle()
+                        }.onFailure {
+                            app.container.auditLogger.warn(
+                                "minute_cycle_failed",
+                                mapOf("error" to (it.message ?: "unknown"))
+                            )
+                        }
+                    }
+
+                    val waitMs = (MINUTE_MS - (System.currentTimeMillis() % MINUTE_MS)).coerceIn(1_000L, MINUTE_MS)
+                    delay(waitMs)
+                }
+            } finally {
+                minuteLoopActive.set(false)
             }
         }
     }
@@ -224,5 +245,9 @@ class LocalNightscoutForegroundService : Service() {
         private const val CHANNEL_ID = "local_nightscout_runtime"
         private const val NOTIFICATION_ID = 17580
         private const val MINUTE_MS = 60_000L
+        private const val DEFAULT_NOTIFICATION_PORT = 17582
+        private val minuteLoopActive = AtomicBoolean(false)
+
+        fun isMinuteLoopActive(): Boolean = minuteLoopActive.get()
     }
 }

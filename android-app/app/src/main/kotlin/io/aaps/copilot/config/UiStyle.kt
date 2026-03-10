@@ -2,7 +2,8 @@ package io.aaps.copilot.config
 
 enum class UiStyle {
     CLASSIC,
-    DYNAMIC_GRADIENT;
+    DYNAMIC_GRADIENT,
+    MIDNIGHT_GLASS;
 
     companion object {
         fun fromRaw(raw: String?): UiStyle {

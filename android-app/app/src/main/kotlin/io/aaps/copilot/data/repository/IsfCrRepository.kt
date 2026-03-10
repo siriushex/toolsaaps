@@ -8,6 +8,7 @@ import io.aaps.copilot.data.local.entity.IsfCrEvidenceEntity
 import io.aaps.copilot.data.local.entity.IsfCrModelStateEntity
 import io.aaps.copilot.data.local.entity.IsfCrSnapshotEntity
 import io.aaps.copilot.data.local.entity.PhysioContextTagEntity
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.domain.isfcr.IsfCrEngine
 import io.aaps.copilot.domain.isfcr.IsfCrEvidenceSample
 import io.aaps.copilot.domain.isfcr.IsfCrHistoryBundle
@@ -17,10 +18,65 @@ import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
 import io.aaps.copilot.domain.isfcr.IsfCrSampleType
 import io.aaps.copilot.domain.isfcr.IsfCrSettings
 import io.aaps.copilot.domain.isfcr.PhysioContextTag
+import io.aaps.copilot.domain.model.TherapyEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+
+private val REALTIME_ISFCR_SET_CHANGE_TYPES = setOf(
+    "infusion_set_change",
+    "site_change",
+    "set_change",
+    "cannula_change"
+)
+
+private val REALTIME_ISFCR_SENSOR_CHANGE_TYPES = setOf(
+    "sensor_change",
+    "cgm_sensor_change",
+    "sensor_start",
+    "sensor_started"
+)
+
+internal fun shouldWidenRealtimeTherapyScan(
+    rawRowCount: Int,
+    relevantRowCount: Int,
+    currentLimit: Int
+): Boolean {
+    if (currentLimit <= 0) return false
+    if (rawRowCount < currentLimit) return false
+    return relevantRowCount < 24
+}
+
+internal fun isRelevantRealtimeIsfCrTherapyEvent(event: TherapyEvent): Boolean {
+    val type = event.type.trim().lowercase()
+    if (type in REALTIME_ISFCR_SET_CHANGE_TYPES || type in REALTIME_ISFCR_SENSOR_CHANGE_TYPES) {
+        return true
+    }
+    if (type == "meal_bolus" || type == "correction_bolus" || type == "carbs") {
+        return true
+    }
+    if (realtimePayloadDouble(event, "units", "insulin", "enteredInsulin", "bolusUnits", "insulinUnits", "amount") > 0.0) {
+        return true
+    }
+    if (realtimePayloadDouble(event, "grams", "carbs", "enteredCarbs", "mealCarbs") > 0.0) {
+        return true
+    }
+    return false
+}
+
+private fun realtimePayloadDouble(event: TherapyEvent, vararg keys: String): Double {
+    val payload = event.payload
+    keys.forEach { key ->
+        payload.entries.firstOrNull { entry -> entry.key.equals(key, ignoreCase = true) }
+            ?.value
+            ?.trim()
+            ?.replace(',', '.')
+            ?.toDoubleOrNull()
+            ?.let { return it }
+    }
+    return 0.0
+}
 
 class IsfCrRepository(
     private val db: CopilotDatabase,
@@ -28,6 +84,8 @@ class IsfCrRepository(
     private val auditLogger: AuditLogger,
     private val engine: IsfCrEngine = IsfCrEngine()
 ) {
+
+    private val realtimeDispatcher = Dispatchers.IO.limitedParallelism(1)
 
     suspend fun fitBaseModel(
         settings: AppSettings,
@@ -99,16 +157,38 @@ class IsfCrRepository(
     suspend fun computeRealtimeSnapshot(
         settings: AppSettings,
         nowTs: Long = System.currentTimeMillis()
-    ): IsfCrRealtimeSnapshot = withContext(Dispatchers.Default) {
+    ): IsfCrRealtimeSnapshot = withContext(realtimeDispatcher) {
         val config = settings.toIsfCrSettings()
-        // Realtime path must stay cheap and deterministic; use a bounded recent window.
-        val realtimeLookbackDays = config.lookbackDays.coerceIn(3, 5)
-        val recentStart = nowTs - realtimeLookbackDays * DAY_MS
-        val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(recentStart)).map { it.toDomain() }
-        val therapy = TherapySanitizer.filterEntities(db.therapyDao().since(recentStart)).map { it.toDomain(gson) }
-        val telemetryRows = db.telemetryDao().sinceByKeys(
-            since = recentStart,
-            keys = ISFCR_REALTIME_TELEMETRY_KEYS
+        // Realtime path must stay cheap and deterministic; bound each input stream explicitly.
+        val recentStart = nowTs - ISFCR_REALTIME_LOOKBACK_HOURS * HOUR_MS
+        val glucoseRows = db.glucoseDao()
+            .sinceDescLimit(recentStart, ISFCR_REALTIME_MAX_GLUCOSE_ROWS)
+            .asReversed()
+        val glucose = GlucoseSanitizer.filterEntities(glucoseRows).map { it.toDomain() }
+        var therapyRows = db.therapyDao()
+            .sinceDescLimit(recentStart, ISFCR_REALTIME_MAX_THERAPY_ROWS)
+            .asReversed()
+        var therapy = TherapySanitizer.filterEntities(therapyRows)
+            .map { it.toDomain(gson) }
+            .filter(::isRelevantRealtimeIsfCrTherapyEvent)
+        if (shouldWidenRealtimeTherapyScan(therapyRows.size, therapy.size, ISFCR_REALTIME_MAX_THERAPY_ROWS)) {
+            therapyRows = db.therapyDao()
+                .sinceDescLimit(recentStart, ISFCR_REALTIME_MAX_THERAPY_ROWS_WIDE)
+                .asReversed()
+            therapy = TherapySanitizer.filterEntities(therapyRows)
+                .map { it.toDomain(gson) }
+                .filter(::isRelevantRealtimeIsfCrTherapyEvent)
+        }
+        val telemetryRowsRaw = db.telemetryDao()
+            .sinceByKeysDescLimit(
+                since = recentStart,
+                keys = ISFCR_REALTIME_TELEMETRY_KEYS,
+                limit = ISFCR_REALTIME_TELEMETRY_QUERY_LIMIT
+            )
+            .asReversed()
+        val telemetryRows = trimRealtimeTelemetryRows(
+            rows = telemetryRowsRaw,
+            nowTs = nowTs
         )
         val telemetry = telemetryRows.map { entity ->
             io.aaps.copilot.domain.predict.TelemetrySignal(
@@ -169,9 +249,11 @@ class IsfCrRepository(
         }
         cleanupRetention(settings = config, nowTs = nowTs)
 
-        auditLogger.info(
-            "isfcr_evidence_extracted",
-            mapOf(
+        auditLogger.infoThrottled(
+            throttleKey = "isfcr_evidence_extracted:realtime",
+            intervalMs = ISFCR_REALTIME_EVIDENCE_LOG_INTERVAL_MS,
+            message = "isfcr_evidence_extracted",
+            metadata = mapOf(
                 "phase" to "realtime",
                 "isfEvidence" to result.diagnostics.isfEvidenceCount,
                 "crEvidence" to result.diagnostics.crEvidenceCount,
@@ -180,9 +262,11 @@ class IsfCrRepository(
             )
         )
 
-        auditLogger.info(
-            "isfcr_realtime_computed",
-            mapOf(
+        auditLogger.infoThrottled(
+            throttleKey = "isfcr_realtime_computed:${result.snapshot.mode.name}",
+            intervalMs = ISFCR_REALTIME_COMPUTED_LOG_INTERVAL_MS,
+            message = "isfcr_realtime_computed",
+            metadata = mapOf(
                 "mode" to result.snapshot.mode.name,
                 "confidence" to result.snapshot.confidence,
                 "confidenceThreshold" to config.confidenceThreshold,
@@ -197,17 +281,8 @@ class IsfCrRepository(
                 "currentDayType" to result.diagnostics.currentDayType,
                 "isfBaseSource" to result.diagnostics.isfBaseSource,
                 "crBaseSource" to result.diagnostics.crBaseSource,
-                "isfDayTypeBaseAvailable" to result.diagnostics.isfDayTypeBaseAvailable,
-                "crDayTypeBaseAvailable" to result.diagnostics.crDayTypeBaseAvailable,
                 "hourWindowIsfEvidence" to result.diagnostics.hourWindowIsfEvidenceCount,
                 "hourWindowCrEvidence" to result.diagnostics.hourWindowCrEvidenceCount,
-                "hourWindowIsfSameDayType" to result.diagnostics.hourWindowIsfSameDayTypeCount,
-                "hourWindowCrSameDayType" to result.diagnostics.hourWindowCrSameDayTypeCount,
-                "minIsfEvidencePerHour" to result.diagnostics.minIsfEvidencePerHour,
-                "minCrEvidencePerHour" to result.diagnostics.minCrEvidencePerHour,
-                "crMaxGapMinutes" to result.diagnostics.crMaxGapMinutes,
-                "crMaxSensorBlockedRatePct" to (result.diagnostics.crMaxSensorBlockedRate * 100.0),
-                "crMaxUamAmbiguityRatePct" to (result.diagnostics.crMaxUamAmbiguityRate * 100.0),
                 "setAgeHours" to setAgeHours,
                 "sensorAgeHours" to sensorAgeHours,
                 "setFactor" to setFactor,
@@ -224,9 +299,11 @@ class IsfCrRepository(
             )
         )
         if (result.diagnostics.lowConfidence) {
-            auditLogger.warn(
-                "isfcr_low_confidence",
-                mapOf(
+            auditLogger.warnThrottled(
+                throttleKey = "isfcr_low_confidence:${result.diagnostics.currentDayType}",
+                intervalMs = ISFCR_REALTIME_LOW_CONFIDENCE_LOG_INTERVAL_MS,
+                message = "isfcr_low_confidence",
+                metadata = mapOf(
                     "confidence" to result.snapshot.confidence,
                     "confidenceThreshold" to config.confidenceThreshold,
                     "qualityScore" to result.diagnostics.qualityScore,
@@ -423,6 +500,30 @@ class IsfCrRepository(
         return List(24) { index -> input.getOrNull(index) }
     }
 
+    private fun trimRealtimeTelemetryRows(
+        rows: List<TelemetrySampleEntity>,
+        nowTs: Long
+    ): List<TelemetrySampleEntity> {
+        if (rows.isEmpty()) return emptyList()
+        val minTs = nowTs - ISFCR_REALTIME_TELEMETRY_MAX_AGE_MS
+        val recentRows = rows
+            .asSequence()
+            .filter { it.timestamp >= minTs }
+            .toList()
+        if (recentRows.isEmpty()) return emptyList()
+        val perKeyTrimmed = recentRows
+            .groupBy { it.key }
+            .values
+            .flatMap { keyRows ->
+                keyRows
+                    .sortedBy { it.timestamp }
+                    .takeLast(ISFCR_REALTIME_TELEMETRY_MAX_ROWS_PER_KEY)
+            }
+        return perKeyTrimmed
+            .sortedBy { it.timestamp }
+            .takeLast(ISFCR_REALTIME_TELEMETRY_HARD_LIMIT)
+    }
+
     private fun encodeDroppedReasons(reasons: Map<String, Int>): String {
         if (reasons.isEmpty()) return ""
         return reasons.entries
@@ -455,9 +556,21 @@ class IsfCrRepository(
     }
 
     private companion object {
+        private const val HOUR_MS = 60L * 60 * 1000
         private const val DAY_MS = 24L * 60 * 60 * 1000
         private const val DEFAULT_ISF = 2.5
         private const val DEFAULT_CR = 12.0
+        private const val ISFCR_REALTIME_EVIDENCE_LOG_INTERVAL_MS = 10L * 60 * 1000
+        private const val ISFCR_REALTIME_COMPUTED_LOG_INTERVAL_MS = 5L * 60 * 1000
+        private const val ISFCR_REALTIME_LOW_CONFIDENCE_LOG_INTERVAL_MS = 15L * 60 * 1000
+        private const val ISFCR_REALTIME_LOOKBACK_HOURS = 72L
+        private const val ISFCR_REALTIME_MAX_GLUCOSE_ROWS = 5_000
+        private const val ISFCR_REALTIME_MAX_THERAPY_ROWS = 720
+        private const val ISFCR_REALTIME_MAX_THERAPY_ROWS_WIDE = 4_000
+        private const val ISFCR_REALTIME_TELEMETRY_MAX_AGE_MS = 18L * HOUR_MS
+        private const val ISFCR_REALTIME_TELEMETRY_MAX_ROWS_PER_KEY = 180
+        private const val ISFCR_REALTIME_TELEMETRY_HARD_LIMIT = 2_400
+        private const val ISFCR_REALTIME_TELEMETRY_QUERY_LIMIT = 3_000
         private val ISFCR_REALTIME_TELEMETRY_KEYS = listOf(
             "activity_ratio",
             "steps_count",
@@ -493,5 +606,6 @@ class IsfCrRepository(
             "iob_iob",
             "iob_basaliob"
         )
+
     }
 }

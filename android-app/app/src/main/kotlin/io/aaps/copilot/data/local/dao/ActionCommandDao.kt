@@ -53,6 +53,18 @@ interface ActionCommandDao {
         excludedPrefix: String
     ): Long?
 
+    @Query(
+        "SELECT * FROM action_commands " +
+            "WHERE status = :status AND type = :type " +
+            "AND idempotencyKey NOT LIKE :excludedPrefix " +
+            "ORDER BY timestamp DESC LIMIT 1"
+    )
+    suspend fun latestByTypeAndStatusExcludingPrefix(
+        type: String,
+        status: String,
+        excludedPrefix: String
+    ): ActionCommandEntity?
+
     @Query("SELECT MAX(timestamp) FROM action_commands WHERE status = :status AND type = :type")
     suspend fun latestTimestampByTypeAndStatus(
         type: String,
@@ -61,6 +73,16 @@ interface ActionCommandDao {
 
     @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<ActionCommandEntity>
+
+    @Query(
+        "UPDATE action_commands SET status = :newStatus " +
+            "WHERE status = :currentStatus AND id IN (:ids)"
+    )
+    suspend fun updateStatusByIds(
+        ids: List<String>,
+        currentStatus: String,
+        newStatus: String
+    ): Int
 
     @Query("SELECT * FROM action_commands ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<ActionCommandEntity>>

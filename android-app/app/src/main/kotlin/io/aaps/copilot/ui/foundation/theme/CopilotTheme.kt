@@ -19,6 +19,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -88,6 +89,60 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
 )
 
+private val MidnightGlassLightColors = lightColorScheme(
+    primary = Color(0xFF2563EB),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFDCEBFF),
+    onPrimaryContainer = Color(0xFF102A43),
+    secondary = Color(0xFF334155),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE9EEF8),
+    onSecondaryContainer = Color(0xFF111827),
+    tertiary = Color(0xFF0EA5E9),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFD8F0FF),
+    onTertiaryContainer = Color(0xFF0C4A6E),
+    background = Color(0xFFF5F5F7),
+    onBackground = Color(0xFF1E293B),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF1E293B),
+    surfaceVariant = Color(0xFFECECF0),
+    onSurfaceVariant = Color(0xFF64748B),
+    outline = Color(0x1A000000),
+    outlineVariant = Color(0x14000000),
+    error = Color(0xFFDC2626),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFE2E2),
+    onErrorContainer = Color(0xFF7F1D1D)
+)
+
+private val MidnightGlassDarkColors = darkColorScheme(
+    primary = Color(0xFF5CA9FF),
+    onPrimary = Color(0xFF071327),
+    primaryContainer = Color(0xFF123A7A),
+    onPrimaryContainer = Color(0xFFDCEBFF),
+    secondary = Color(0xFF183459),
+    onSecondary = Color(0xFFF8FAFC),
+    secondaryContainer = Color(0xFF102848),
+    onSecondaryContainer = Color(0xFFF8FAFC),
+    tertiary = Color(0xFFFFC94A),
+    onTertiary = Color(0xFF352200),
+    tertiaryContainer = Color(0xFF4F2D00),
+    onTertiaryContainer = Color(0xFFFFE1A3),
+    background = Color(0xFF040D1E),
+    onBackground = Color(0xFFF8FAFC),
+    surface = Color(0xFF0C1730),
+    onSurface = Color(0xFFF8FAFC),
+    surfaceVariant = Color(0xFF162544),
+    onSurfaceVariant = Color(0xFF93A5C3),
+    outline = Color(0x26FFFFFF),
+    outlineVariant = Color(0x1AFFFFFF),
+    error = Color(0xFFFF6B74),
+    onError = Color(0xFFF8FAFC),
+    errorContainer = Color(0xFF5A1E25),
+    onErrorContainer = Color(0xFFFFD0D3)
+)
+
 private val AppTypography = Typography(
     headlineMedium = TextStyle(
         fontSize = 28.sp,
@@ -142,14 +197,20 @@ val LocalNumericTypography = staticCompositionLocalOf {
     )
 }
 
+val LocalUiStyle = compositionLocalOf { UiStyle.CLASSIC }
+
 @Composable
 fun AapsCopilotTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    uiStyle: UiStyle = UiStyle.CLASSIC,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val colorScheme = when {
+        uiStyle == UiStyle.MIDNIGHT_GLASS -> {
+            MidnightGlassDarkColors
+        }
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
@@ -163,7 +224,10 @@ fun AapsCopilotTheme(
         valueSmall = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp, fontWeight = FontWeight.Medium)
     )
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalNumericTypography provides numericTypography) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalNumericTypography provides numericTypography,
+        LocalUiStyle provides uiStyle
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = AppTypography,
@@ -257,6 +321,75 @@ fun CopilotStyledBackground(
                                     x = w * (0.2f + 0.6f * shift),
                                     y = h * (0.2f + 0.3f * (1f - shift))
                                 ),
+                                radius = max(w, h) * 0.95f
+                            )
+                        )
+                    }
+            ) {
+                content()
+            }
+        }
+
+        UiStyle.MIDNIGHT_GLASS -> {
+            val base = if (darkTheme) {
+                listOf(
+                    Color(0xFF020817),
+                    Color(0xFF07152E),
+                    Color(0xFF081A35)
+                )
+            } else {
+                listOf(
+                    Color(0xFFF8FAFC),
+                    Color(0xFFF5F5F7),
+                    Color(0xFFEFF6FF)
+                )
+            }
+            val accentA = if (darkTheme) {
+                listOf(Color(0x331D4ED8), Color.Transparent)
+            } else {
+                listOf(Color(0x332563EB), Color.Transparent)
+            }
+            val accentB = if (darkTheme) {
+                listOf(Color(0x2218BFFF), Color.Transparent)
+            } else {
+                listOf(Color(0x2214B8A6), Color.Transparent)
+            }
+            val accentC = if (darkTheme) {
+                listOf(Color(0x1400E5FF), Color.Transparent)
+            } else {
+                listOf(Color(0x141D4ED8), Color.Transparent)
+            }
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        val w = size.width
+                        val h = size.height
+                        drawRect(
+                            brush = Brush.linearGradient(
+                                colors = base,
+                                start = Offset(0f, 0f),
+                                end = Offset(w, h)
+                            )
+                        )
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = accentA,
+                                center = Offset(w * 0.15f, h * 0.18f),
+                                radius = max(w, h) * 0.85f
+                            )
+                        )
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = accentB,
+                                center = Offset(w * 0.85f, h * 0.10f),
+                                radius = max(w, h) * 0.70f
+                            )
+                        )
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = accentC,
+                                center = Offset(w * 0.50f, h * 1.02f),
                                 radius = max(w, h) * 0.95f
                             )
                         )

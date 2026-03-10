@@ -18,6 +18,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="com.eveningoutpost.dexdrip.permissions.RECEIVE_BG_ESTIMATE" />
     <uses-permission android:name="com.microtechmd.cgms.aidex.permissions.RECEIVE_BG_ESTIMATE" />
@@ -87,6 +88,8 @@
                 <action android:name="info.nightscout.androidaps.status" />
                 <action android:name="app.aaps.status" />
                 <action android:name="io.aaps.copilot.BROADCAST_TEST_INGEST" />
+                <action android:name="io.aaps.copilot.BROADCAST_TEST_SEND_TEMP_TARGET" />
+                <action android:name="io.aaps.copilot.BROADCAST_TEST_SEND_CARBS" />
             </intent-filter>
         </receiver>
     </application>

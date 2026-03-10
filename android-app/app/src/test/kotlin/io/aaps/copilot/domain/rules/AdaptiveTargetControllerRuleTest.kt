@@ -257,6 +257,30 @@ class AdaptiveTargetControllerRuleTest {
         assertThat(decision.reasons.any { it.startsWith("targetMax=") }).isTrue()
     }
 
+    @Test
+    fun returnsNoMatch_whenComputedTargetAlreadyMatchesActiveTempTarget() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = System.currentTimeMillis()
+        val decision = rule.evaluate(
+            context(
+                now = now,
+                glucose = listOf(
+                    GlucosePoint(now - 5 * 60_000, 5.7, "test", DataQuality.OK),
+                    GlucosePoint(now, 5.8, "test", DataQuality.OK)
+                ),
+                forecasts = listOf(
+                    Forecast(now + 5 * 60_000, 5, 9.2, 8.6, 9.8, "test"),
+                    Forecast(now + 30 * 60_000, 30, 9.0, 8.1, 9.9, "test"),
+                    Forecast(now + 60 * 60_000, 60, 8.2, 7.4, 9.0, "test")
+                ),
+                activeTempTargetMmol = 4.0
+            )
+        )
+
+        assertThat(decision.state).isEqualTo(RuleState.NO_MATCH)
+        assertThat(decision.reasons).contains("target_equals_active")
+    }
+
     private fun defaultGlucose(now: Long): List<GlucosePoint> = listOf(
         GlucosePoint(now - 5 * 60_000, 5.5, "test", DataQuality.OK),
         GlucosePoint(now, 5.5, "test", DataQuality.OK)

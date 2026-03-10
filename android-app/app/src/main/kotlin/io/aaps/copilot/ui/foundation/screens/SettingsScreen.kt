@@ -23,18 +23,21 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -58,6 +62,7 @@ import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import kotlin.math.roundToInt
 
 private val SettingsSectionShape = RoundedCornerShape(18.dp)
@@ -87,6 +92,12 @@ fun SettingsScreen(
     onUamExportModeChange: (String) -> Unit = {},
     onUamSnackConfigChange: (Int, Int, Int) -> Unit = { _, _, _ -> },
     onUamDryRunToggle: (Boolean) -> Unit = {},
+    onCircadianPatternsEnabledToggle: (Boolean) -> Unit = {},
+    onCircadianLookbackChange: (Int, Int) -> Unit = { _, _ -> },
+    onCircadianWeekendSplitToggle: (Boolean) -> Unit = {},
+    onCircadianReplayResidualBiasToggle: (Boolean) -> Unit = {},
+    onCircadianForecastWeightsChange: (Double, Double) -> Unit = { _, _ -> },
+    onSensorLagCorrectionModeChange: (String) -> Unit = {},
     onIsfCrShadowModeToggle: (Boolean) -> Unit = {},
     onIsfCrConfidenceThresholdChange: (Double) -> Unit = {},
     onIsfCrUseActivityToggle: (Boolean) -> Unit = {},
@@ -182,6 +193,22 @@ fun SettingsScreen(
 
                 SettingsTab.ADVANCED -> {
                     item {
+                        CircadianSettingsCard(
+                            state = state,
+                            onCircadianPatternsEnabledToggle = onCircadianPatternsEnabledToggle,
+                            onCircadianLookbackChange = onCircadianLookbackChange,
+                            onCircadianWeekendSplitToggle = onCircadianWeekendSplitToggle,
+                            onCircadianReplayResidualBiasToggle = onCircadianReplayResidualBiasToggle,
+                            onCircadianForecastWeightsChange = onCircadianForecastWeightsChange
+                        )
+                    }
+                    item {
+                        SensorLagSettingsCard(
+                            state = state,
+                            onModeChange = onSensorLagCorrectionModeChange
+                        )
+                    }
+                    item {
                         IsfCrSettingsCard(
                             state = state,
                             onShadowModeToggle = onIsfCrShadowModeToggle,
@@ -232,6 +259,7 @@ private fun SettingsTabCard(
     selectedTab: SettingsTab,
     onTabSelected: (SettingsTab) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     SettingsSectionCard {
         SettingsSectionLabel(text = stringResource(id = R.string.section_settings_mode))
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -246,7 +274,19 @@ private fun SettingsTabCard(
                     shape = SegmentedButtonDefaults.itemShape(
                         index = index,
                         count = options.size
-                    )
+                    ),
+                    colors = if (midnightGlass) {
+                        SegmentedButtonDefaults.colors(
+                            activeContainerColor = Color(0xFF1D4ED8),
+                            activeContentColor = Color(0xFFF8FAFC),
+                            inactiveContainerColor = Color(0xAA101D38),
+                            inactiveContentColor = Color(0xFFB5C0D8),
+                            activeBorderColor = Color(0x332563EB),
+                            inactiveBorderColor = Color(0x1FFFFFFF)
+                        )
+                    } else {
+                        SegmentedButtonDefaults.colors()
+                    }
                 ) {
                     Text(text = label)
                 }
@@ -260,6 +300,142 @@ private fun SettingsTabCard(
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun CircadianSettingsCard(
+    state: SettingsUiState,
+    onCircadianPatternsEnabledToggle: (Boolean) -> Unit,
+    onCircadianLookbackChange: (Int, Int) -> Unit,
+    onCircadianWeekendSplitToggle: (Boolean) -> Unit,
+    onCircadianReplayResidualBiasToggle: (Boolean) -> Unit,
+    onCircadianForecastWeightsChange: (Double, Double) -> Unit
+) {
+    SettingsSectionCard {
+        SettingsSectionLabel(text = stringResource(id = R.string.section_settings_circadian))
+        SettingToggleRow(
+            title = stringResource(id = R.string.settings_circadian_enabled),
+            subtitle = stringResource(id = R.string.settings_circadian_enabled_subtitle),
+            infoText = stringResource(id = R.string.settings_info_circadian_enabled),
+            value = state.circadianPatternsEnabled,
+            onToggle = onCircadianPatternsEnabledToggle
+        )
+        AnimatedVisibility(visible = state.circadianPatternsEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                OptionChipsRow(
+                    title = stringResource(id = R.string.settings_circadian_stable_lookback),
+                    options = listOf("7d", "10d", "14d"),
+                    selected = "${state.circadianStableLookbackDays}d",
+                    infoText = stringResource(id = R.string.settings_info_circadian_stable_lookback),
+                    onSelect = { raw ->
+                        val days = raw.removeSuffix("d").toIntOrNull() ?: state.circadianStableLookbackDays
+                        onCircadianLookbackChange(days, state.circadianRecencyLookbackDays)
+                    }
+                )
+                SettingIntStepperRow(
+                    title = stringResource(id = R.string.settings_circadian_recency_lookback),
+                    subtitle = stringResource(id = R.string.settings_circadian_recency_lookback_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_circadian_recency_lookback),
+                    value = state.circadianRecencyLookbackDays,
+                    min = 3,
+                    max = 7,
+                    step = 1,
+                    onValueChange = { next ->
+                        onCircadianLookbackChange(state.circadianStableLookbackDays, next)
+                    }
+                )
+                SettingToggleRow(
+                    title = stringResource(id = R.string.settings_circadian_weekend_split),
+                    subtitle = stringResource(id = R.string.settings_circadian_weekend_split_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_circadian_weekend_split),
+                    value = state.circadianUseWeekendSplit,
+                    onToggle = onCircadianWeekendSplitToggle
+                )
+                SettingToggleRow(
+                    title = stringResource(id = R.string.settings_circadian_replay_bias),
+                    subtitle = stringResource(id = R.string.settings_circadian_replay_bias_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_circadian_replay_bias),
+                    value = state.circadianUseReplayResidualBias,
+                    onToggle = onCircadianReplayResidualBiasToggle
+                )
+                SettingIntStepperRow(
+                    title = stringResource(id = R.string.settings_circadian_weight_30),
+                    subtitle = stringResource(id = R.string.settings_circadian_weight_30_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_circadian_weight_30),
+                    value = (state.circadianForecastWeight30 * 100).roundToInt(),
+                    min = 0,
+                    max = 45,
+                    step = 5,
+                    onValueChange = { next ->
+                        onCircadianForecastWeightsChange(next / 100.0, state.circadianForecastWeight60)
+                    }
+                )
+                SettingIntStepperRow(
+                    title = stringResource(id = R.string.settings_circadian_weight_60),
+                    subtitle = stringResource(id = R.string.settings_circadian_weight_60_subtitle),
+                    infoText = stringResource(id = R.string.settings_info_circadian_weight_60),
+                    value = (state.circadianForecastWeight60 * 100).roundToInt(),
+                    min = 0,
+                    max = 55,
+                    step = 5,
+                    onValueChange = { next ->
+                        onCircadianForecastWeightsChange(state.circadianForecastWeight30, next / 100.0)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SensorLagSettingsCard(
+    state: SettingsUiState,
+    onModeChange: (String) -> Unit
+) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val modes = listOf("OFF", "SHADOW", "ACTIVE")
+    SettingsSectionCard {
+        SettingsSectionLabel(text = "Sensor Lag")
+        Text(
+            text = "Estimate current blood glucose from sensor age + ROC. SHADOW computes advisory values only; ACTIVE feeds corrected glucose into Copilot rules.",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            modes.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = state.sensorLagCorrectionMode.equals(mode, ignoreCase = true),
+                    onClick = { onModeChange(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                    colors = if (midnightGlass) {
+                        SegmentedButtonDefaults.colors(
+                            activeContainerColor = Color(0xFF1D4ED8),
+                            activeContentColor = Color(0xFFF8FAFC),
+                            inactiveContainerColor = Color(0xAA101D38),
+                            inactiveContentColor = Color(0xFFB5C0D8),
+                            activeBorderColor = Color(0x332563EB),
+                            inactiveBorderColor = Color(0x1FFFFFFF)
+                        )
+                    } else {
+                        SegmentedButtonDefaults.colors()
+                    },
+                    label = { Text(text = mode) }
+                )
+            }
+        }
+        Text(
+            text = when {
+                state.sensorLagCorrectionMode.equals("ACTIVE", ignoreCase = true) ->
+                    "ACTIVE is gated by data freshness, sensor quality, age resolution and glucose input source."
+                state.sensorLagCorrectionMode.equals("SHADOW", ignoreCase = true) ->
+                    "SHADOW keeps raw forecasts/actions unchanged and logs the corrected path for comparison."
+                else ->
+                    "OFF leaves forecasts and rules on raw sensor glucose."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -1011,14 +1187,16 @@ private fun SettingUiStyleRow(
     selectedStyle: String,
     onSelect: (String) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val options = listOf(
         UiStyle.CLASSIC to stringResource(id = R.string.settings_ui_style_classic),
-        UiStyle.DYNAMIC_GRADIENT to stringResource(id = R.string.settings_ui_style_dynamic_gradient)
+        UiStyle.DYNAMIC_GRADIENT to stringResource(id = R.string.settings_ui_style_dynamic_gradient),
+        UiStyle.MIDNIGHT_GLASS to stringResource(id = R.string.settings_ui_style_midnight_glass)
     )
     Surface(
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -1034,7 +1212,7 @@ private fun SettingUiStyleRow(
             Text(
                 text = stringResource(id = R.string.settings_ui_style_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1044,6 +1222,7 @@ private fun SettingUiStyleRow(
                     FilterChip(
                         selected = selectedStyle == style.name,
                         onClick = { onSelect(style.name) },
+                        colors = if (midnightGlass) settingsFilterChipColors() else FilterChipDefaults.filterChipColors(),
                         label = {
                             Text(
                                 text = label,
@@ -1516,11 +1695,12 @@ private fun SettingTextInputRow(
     onApply: () -> Unit,
     secret: Boolean = false
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     var secretVisible by rememberSaveable(title) { mutableStateOf(false) }
     Surface(
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -1536,7 +1716,7 @@ private fun SettingTextInputRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             OutlinedTextField(
                 value = value,
@@ -1568,7 +1748,24 @@ private fun SettingTextInputRow(
                 } else {
                     null
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = if (midnightGlass) {
+                    OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFFF8FAFC),
+                        unfocusedTextColor = Color(0xFFF8FAFC),
+                        focusedBorderColor = Color(0xFF4A82BF),
+                        unfocusedBorderColor = Color(0x33FFFFFF),
+                        focusedContainerColor = Color(0x33182947),
+                        unfocusedContainerColor = Color(0x33182947),
+                        cursorColor = Color(0xFF8DB6FF),
+                        focusedLabelColor = Color(0xFF8DB6FF),
+                        unfocusedLabelColor = Color(0xFFB5C0D8),
+                        focusedPlaceholderColor = Color(0x8093A5C3),
+                        unfocusedPlaceholderColor = Color(0x8093A5C3)
+                    )
+                } else {
+                    OutlinedTextFieldDefaults.colors()
+                }
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1590,10 +1787,11 @@ private fun OptionChipsRow(
     infoText: String = "",
     onSelect: (String) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Surface(
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -1614,6 +1812,7 @@ private fun OptionChipsRow(
                     FilterChip(
                         selected = selected == option,
                         onClick = { onSelect(option) },
+                        colors = if (midnightGlass) settingsFilterChipColors() else FilterChipDefaults.filterChipColors(),
                         label = {
                             Text(
                                 text = option,
@@ -1638,10 +1837,11 @@ private fun SettingIntStepperRow(
     step: Int,
     onValueChange: (Int) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Surface(
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -1662,7 +1862,7 @@ private fun SettingIntStepperRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             OutlinedButton(
@@ -1674,6 +1874,7 @@ private fun SettingIntStepperRow(
             Text(
                 text = value.toString(),
                 style = MaterialTheme.typography.titleMedium,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 6.dp)
             )
             OutlinedButton(
@@ -1698,13 +1899,14 @@ private fun SettingDoubleStepperRow(
     unitLabel: String,
     onValueChange: (Double) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     fun normalized(next: Double): Double {
         return (next.coerceIn(min, max) * 10.0).roundToInt() / 10.0
     }
     Surface(
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -1725,7 +1927,7 @@ private fun SettingDoubleStepperRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             OutlinedButton(
@@ -1737,6 +1939,7 @@ private fun SettingDoubleStepperRow(
             Text(
                 text = "${UiFormatters.formatMmol(value, 2)} $unitLabel",
                 style = MaterialTheme.typography.titleMedium,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 6.dp)
             )
             OutlinedButton(
@@ -1757,10 +1960,11 @@ private fun SettingToggleRow(
     value: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Surface(
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -1783,12 +1987,24 @@ private fun SettingToggleRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Switch(
                 checked = value,
-                onCheckedChange = onToggle
+                onCheckedChange = onToggle,
+                colors = if (midnightGlass) {
+                    SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFFF8FAFC),
+                        checkedTrackColor = Color(0xFF1D4ED8),
+                        checkedBorderColor = Color.Transparent,
+                        uncheckedThumbColor = Color(0xFFDCEBFF),
+                        uncheckedTrackColor = Color(0xFF334155),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                } else {
+                    SwitchDefaults.colors()
+                }
             )
         }
     }
@@ -1802,6 +2018,7 @@ private fun SettingTitleWithInfo(
     titleColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
     modifier: Modifier = Modifier
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     var showInfoDialog by rememberSaveable(title, subtitle) { mutableStateOf(false) }
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -1814,17 +2031,22 @@ private fun SettingTitleWithInfo(
             color = titleColor,
             modifier = Modifier.weight(1f)
         )
-        IconButton(
-            onClick = { showInfoDialog = true }
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
         ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = stringResource(
-                    id = R.string.settings_info_button_cd,
-                    title
-                ),
-                tint = MaterialTheme.colorScheme.primary
-            )
+            IconButton(
+                onClick = { showInfoDialog = true }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = stringResource(
+                        id = R.string.settings_info_button_cd,
+                        title
+                    ),
+                    tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
     if (showInfoDialog) {
@@ -1856,11 +2078,16 @@ private fun SourceStatusPill(
     subtitle: String,
     modifier: Modifier = Modifier
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val tone = when {
+        midnightGlass && active -> Color(0xFF9FFFB0)
+        midnightGlass -> Color(0xFFFFA7AE)
         active -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onErrorContainer
     }
     val bg = when {
+        midnightGlass && active -> Color(0x55103A35)
+        midnightGlass -> Color(0x665A1E25)
         active -> MaterialTheme.colorScheme.secondaryContainer
         else -> MaterialTheme.colorScheme.errorContainer
     }
@@ -1887,7 +2114,8 @@ private fun SourceStatusPill(
                 )
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                 )
             }
             Text(
@@ -1905,11 +2133,12 @@ private fun AdaptiveSummaryTile(
     value: String,
     modifier: Modifier = Modifier
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Surface(
         modifier = modifier,
         shape = SettingsInfoShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (midnightGlass) Color(0xFF10275A) else MaterialTheme.colorScheme.primaryContainer,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x334A82BF) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -1929,12 +2158,13 @@ private fun AdaptiveSummaryTile(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -1944,11 +2174,12 @@ private fun AdaptiveSummaryTile(
 private fun SettingsSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = SettingsSectionShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = if (midnightGlass) RoundedCornerShape(28.dp) else SettingsSectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -1961,12 +2192,23 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun SettingsSectionLabel(text: String) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Text(
         text = text.uppercase(),
         style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant
+        color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
+
+@Composable
+private fun settingsFilterChipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = Color(0x221D4ED8),
+    selectedLabelColor = Color(0xFF8DB6FF),
+    selectedLeadingIconColor = Color(0xFF8DB6FF),
+    containerColor = Color(0xAA101D38),
+    labelColor = Color(0xFFB5C0D8),
+    iconColor = Color(0xFFB5C0D8)
+)
 
 @Preview(showBackground = true)
 @Composable
@@ -2028,6 +2270,13 @@ private fun SettingsScreenPreview() {
                 isfCrAutoActivationMinDailyCiCoverage60Pct = 55.0,
                 isfCrAutoActivationMaxDailyCiWidth30Mmol = 1.80,
                 isfCrAutoActivationMaxDailyCiWidth60Mmol = 2.60,
+                circadianPatternsEnabled = true,
+                circadianStableLookbackDays = 14,
+                circadianRecencyLookbackDays = 5,
+                circadianUseWeekendSplit = true,
+                circadianUseReplayResidualBias = true,
+                circadianForecastWeight30 = 0.25,
+                circadianForecastWeight60 = 0.35,
                 isfCrActiveTags = listOf("stress"),
                 adaptiveControllerEnabled = true,
                 safetyMinTargetMmol = 4.0,

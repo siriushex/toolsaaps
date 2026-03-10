@@ -79,7 +79,124 @@ object CopilotMigrations {
         }
     }
 
+    internal val MIGRATION_10_11_STATEMENTS = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `circadian_slot_stats` (
+            `dayType` TEXT NOT NULL,
+            `windowDays` INTEGER NOT NULL,
+            `slotIndex` INTEGER NOT NULL,
+            `sampleCount` INTEGER NOT NULL,
+            `activeDays` INTEGER NOT NULL,
+            `medianBg` REAL NOT NULL,
+            `p10` REAL NOT NULL,
+            `p25` REAL NOT NULL,
+            `p75` REAL NOT NULL,
+            `p90` REAL NOT NULL,
+            `pLow` REAL NOT NULL,
+            `pHigh` REAL NOT NULL,
+            `pInRange` REAL NOT NULL,
+            `fastRiseRate` REAL NOT NULL,
+            `fastDropRate` REAL NOT NULL,
+            `meanCob` REAL,
+            `meanIob` REAL,
+            `meanUam` REAL,
+            `meanActivity` REAL,
+            `confidence` REAL NOT NULL,
+            `qualityScore` REAL NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            PRIMARY KEY(`dayType`, `windowDays`, `slotIndex`)
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_circadian_slot_stats_dayType` ON `circadian_slot_stats` (`dayType`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_slot_stats_windowDays` ON `circadian_slot_stats` (`windowDays`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_slot_stats_slotIndex` ON `circadian_slot_stats` (`slotIndex`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_slot_stats_dayType_windowDays` ON `circadian_slot_stats` (`dayType`, `windowDays`)",
+        """
+        CREATE TABLE IF NOT EXISTS `circadian_transition_stats` (
+            `dayType` TEXT NOT NULL,
+            `windowDays` INTEGER NOT NULL,
+            `slotIndex` INTEGER NOT NULL,
+            `horizonMinutes` INTEGER NOT NULL,
+            `sampleCount` INTEGER NOT NULL,
+            `deltaMedian` REAL NOT NULL,
+            `deltaP25` REAL NOT NULL,
+            `deltaP75` REAL NOT NULL,
+            `residualBiasMmol` REAL NOT NULL,
+            `confidence` REAL NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            PRIMARY KEY(`dayType`, `windowDays`, `slotIndex`, `horizonMinutes`)
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_circadian_transition_stats_dayType` ON `circadian_transition_stats` (`dayType`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_transition_stats_windowDays` ON `circadian_transition_stats` (`windowDays`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_transition_stats_slotIndex` ON `circadian_transition_stats` (`slotIndex`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_transition_stats_horizonMinutes` ON `circadian_transition_stats` (`horizonMinutes`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_transition_stats_dayType_windowDays_horizonMinutes` ON `circadian_transition_stats` (`dayType`, `windowDays`, `horizonMinutes`)",
+        """
+        CREATE TABLE IF NOT EXISTS `circadian_pattern_snapshots` (
+            `dayType` TEXT NOT NULL,
+            `segmentSource` TEXT NOT NULL,
+            `stableWindowDays` INTEGER NOT NULL,
+            `recencyWindowDays` INTEGER NOT NULL,
+            `recencyWeight` REAL NOT NULL,
+            `coverageDays` INTEGER NOT NULL,
+            `sampleCount` INTEGER NOT NULL,
+            `segmentFallback` INTEGER NOT NULL,
+            `fallbackReason` TEXT,
+            `confidence` REAL NOT NULL,
+            `qualityScore` REAL NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            PRIMARY KEY(`dayType`)
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_circadian_pattern_snapshots_segmentSource` ON `circadian_pattern_snapshots` (`segmentSource`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_pattern_snapshots_stableWindowDays` ON `circadian_pattern_snapshots` (`stableWindowDays`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_pattern_snapshots_updatedAt` ON `circadian_pattern_snapshots` (`updatedAt`)"
+    )
+
+    val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_10_11_STATEMENTS.forEach(db::execSQL)
+        }
+    }
+
+    internal val MIGRATION_11_12_STATEMENTS = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `circadian_replay_slot_stats` (
+            `dayType` TEXT NOT NULL,
+            `windowDays` INTEGER NOT NULL,
+            `slotIndex` INTEGER NOT NULL,
+            `horizonMinutes` INTEGER NOT NULL,
+            `sampleCount` INTEGER NOT NULL,
+            `coverageDays` INTEGER NOT NULL,
+            `maeBaseline` REAL NOT NULL,
+            `maeCircadian` REAL NOT NULL,
+            `maeImprovementMmol` REAL NOT NULL,
+            `medianSignedErrorBaseline` REAL NOT NULL,
+            `medianSignedErrorCircadian` REAL NOT NULL,
+            `winRate` REAL NOT NULL,
+            `qualityScore` REAL NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            PRIMARY KEY(`dayType`, `windowDays`, `slotIndex`, `horizonMinutes`)
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_circadian_replay_slot_stats_dayType` ON `circadian_replay_slot_stats` (`dayType`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_replay_slot_stats_windowDays` ON `circadian_replay_slot_stats` (`windowDays`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_replay_slot_stats_slotIndex` ON `circadian_replay_slot_stats` (`slotIndex`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_replay_slot_stats_horizonMinutes` ON `circadian_replay_slot_stats` (`horizonMinutes`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_replay_slot_stats_dayType_windowDays` ON `circadian_replay_slot_stats` (`dayType`, `windowDays`)",
+        "CREATE INDEX IF NOT EXISTS `index_circadian_replay_slot_stats_dayType_slotIndex_horizonMinutes` ON `circadian_replay_slot_stats` (`dayType`, `slotIndex`, `horizonMinutes`)"
+    )
+
+    val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_11_12_STATEMENTS.forEach(db::execSQL)
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
-        MIGRATION_9_10
+        MIGRATION_9_10,
+        MIGRATION_10_11,
+        MIGRATION_11_12
     )
 }

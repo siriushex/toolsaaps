@@ -32,13 +32,17 @@ class BroadcastIngestRepository(
         val source = resolveSource(action)
         val glucose = parseGlucose(action, extras)
         val therapy = parseTherapy(action, extras)
-        val telemetry = parseTelemetry(action, source, extras)
+        val telemetry = buildList {
+            addAll(parseTelemetry(action, source, extras))
+            glucose?.let { addAll(buildGlucoseInputTelemetry(it)) }
+        }
 
         var importedGlucose = 0
         var importedTherapy = 0
         var importedTelemetry = 0
 
-        glucose?.let { sample ->
+        glucose?.let { parsed ->
+            val sample = parsed.sample
             val outlier = isGlucoseOutlier(sample)
             if (outlier) {
                 auditLogger.warn(
@@ -198,7 +202,7 @@ class BroadcastIngestRepository(
         }
     }
 
-    private fun parseGlucose(action: String, extras: Map<String, String>): GlucoseSampleEntity? {
+    private fun parseGlucose(action: String, extras: Map<String, String>): ParsedGlucose? {
         if (!isSupportedGlucoseAction(action)) return null
         if (action.endsWith("BgEstimateNoData")) return null
         if (action == ACTION_NS_EMULATOR && !isNsEmulatorGlucoseCollection(extras)) return null
@@ -255,12 +259,50 @@ class BroadcastIngestRepository(
 
         val source = resolveSource(action)
 
-        return GlucoseSampleEntity(
-            timestamp = ts,
-            mmol = mmol,
-            source = source,
-            quality = "OK"
+        return ParsedGlucose(
+            sample = GlucoseSampleEntity(
+                timestamp = ts,
+                mmol = mmol,
+                source = source,
+                quality = "OK"
+            ),
+            inputKey = glucose.key,
+            inputKind = resolveGlucoseInputKind(glucose.key)
         )
+    }
+
+    private fun buildGlucoseInputTelemetry(parsed: ParsedGlucose): List<TelemetrySampleEntity> {
+        return listOf(
+            TelemetrySampleEntity(
+                id = "tm-${parsed.sample.source}-glucose_input_key-${parsed.sample.timestamp}",
+                timestamp = parsed.sample.timestamp,
+                source = parsed.sample.source,
+                key = "glucose_input_key",
+                valueDouble = null,
+                valueText = parsed.inputKey,
+                unit = null,
+                quality = "OK"
+            ),
+            TelemetrySampleEntity(
+                id = "tm-${parsed.sample.source}-glucose_input_kind-${parsed.sample.timestamp}",
+                timestamp = parsed.sample.timestamp,
+                source = parsed.sample.source,
+                key = "glucose_input_kind",
+                valueDouble = null,
+                valueText = parsed.inputKind,
+                unit = null,
+                quality = "OK"
+            )
+        )
+    }
+
+    private fun resolveGlucoseInputKind(key: String): String {
+        val normalized = key.trim().lowercase(Locale.US)
+        return when {
+            normalized.contains("raw_") || normalized.startsWith("raw") -> "raw"
+            normalized.contains("bgestimate") -> "estimate"
+            else -> "sgv"
+        }
     }
 
     private fun parseTherapy(action: String, extras: Map<String, String>): List<TherapyEventEntity> {
@@ -516,6 +558,12 @@ class BroadcastIngestRepository(
         }
     }
 
+    private data class ParsedGlucose(
+        val sample: GlucoseSampleEntity,
+        val inputKey: String,
+        val inputKind: String
+    )
+
     private suspend fun pruneLegacyBroadcastArtifacts() {
         val removedTherapy = db.therapyDao().deleteLegacyBroadcastArtifacts()
         val removedInvalidTimestamp = db.telemetryDao().deleteByTimestampAtOrBelow(0L)
@@ -556,6 +604,7 @@ class BroadcastIngestRepository(
         val dedupNightscout = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "nightscout")
         val dedupAaps = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "aaps_broadcast")
         val dedupLocal = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "local_broadcast")
+        val dedupByTimestamp = deduplicateGlucoseByTimestamp()
         if (
             removedTherapy > 0 ||
             removedInvalidTimestamp > 0 ||
@@ -568,7 +617,8 @@ class BroadcastIngestRepository(
             removedTempTargetHighOutsideRange > 0 ||
             dedupNightscout > 0 ||
             dedupAaps > 0 ||
-            dedupLocal > 0
+            dedupLocal > 0 ||
+            dedupByTimestamp > 0
         ) {
             auditLogger.info(
                 "broadcast_legacy_cleanup",
@@ -584,10 +634,20 @@ class BroadcastIngestRepository(
                     "tempTargetHighOutsideRangeRemoved" to removedTempTargetHighOutsideRange,
                     "glucoseDedupNightscout" to dedupNightscout,
                     "glucoseDedupAaps" to dedupAaps,
-                    "glucoseDedupLocal" to dedupLocal
+                    "glucoseDedupLocal" to dedupLocal,
+                    "glucoseDedupByTimestamp" to dedupByTimestamp
                 )
             )
         }
+    }
+
+    private suspend fun deduplicateGlucoseByTimestamp(): Int {
+        val allRows = db.glucoseDao().since(0L)
+        val idsToDelete = GlucoseSanitizer.duplicateEntityIdsToDelete(allRows)
+        if (idsToDelete.isEmpty()) return 0
+        return idsToDelete
+            .chunked(250)
+            .sumOf { ids -> db.glucoseDao().deleteByIds(ids) }
     }
 
     private suspend fun runPeriodicMaintenanceIfNeeded() {
