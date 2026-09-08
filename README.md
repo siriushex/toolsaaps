@@ -6,19 +6,19 @@ A research companion for [AndroidAPS](https://androidaps.readthedocs.io/) (AAPS)
 
 ## Screens
 
-The following are illustrative static UI captures. They do not represent a person, a treatment session, or a clinical recommendation.
+The following screens contain historical glucose and therapy data. The project owner explicitly authorized their public publication. They are individual examples, not medical advice, a treatment recommendation, or evidence of clinical effectiveness.
 
 ### Overview
 
-![Illustrative overview screen](docs/media/overview-demo.png)
+![Overview screen with historical glucose and therapy data](docs/media/overview-personal-data.png)
 
 ### Forecast
 
-![Illustrative forecast screen](docs/media/forecast-demo.png)
+![Forecast screen with historical glucose and therapy data](docs/media/forecast-personal-data.png)
 
-### Safety controls
+### ISF/CR analytics
 
-![Illustrative safety screen](docs/media/safety-demo.png)
+![ISF and CR analytics with historical therapy data](docs/media/analytics-personal-data.png)
 
 ## What the project explores
 
