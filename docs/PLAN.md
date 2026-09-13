@@ -1,5 +1,13 @@
 # PLAN
 
+## Gentle Alerts and Telegram Integration (2026-09-13)
+
+- Integrate the isolated alert/Telegram candidate on the published September source.
+- Preserve server-AI settings, secret namespaces, activation flow and backup exclusions.
+- Verify the full Android unit suite, lint and debug build before updating local main.
+- Keep phone installation, bot credentials and real recipient verification separate.
+- Design and setup: [soft alerts and Telegram](2026-09-13-soft-alerts-telegram.md).
+
 ## Stage map
 
 ### Stage 1: Governance baseline (completed)

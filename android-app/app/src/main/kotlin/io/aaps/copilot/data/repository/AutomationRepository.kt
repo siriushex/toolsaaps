@@ -1927,6 +1927,8 @@ class AutomationRepository(
                 settings = settings,
                 currentGlucoseMmol = currentGlucoseMmol,
                 currentGlucoseAgeMinutes = currentAgeMinutes,
+                currentGlucoseTimestamp = latestGlucose.ts,
+                pred10 = controlForecasts.firstOrNull { it.horizonMinutes == 10 }?.valueMmol,
                 pred5 = pred5,
                 pred30 = pred30,
                 pred60 = pred60,

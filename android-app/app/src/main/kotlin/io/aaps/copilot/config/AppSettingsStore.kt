@@ -389,7 +389,8 @@ class AppSettingsStore internal constructor(
             softAlertUseConfidenceBand = prefs[KEY_SOFT_ALERT_USE_CONFIDENCE_BAND]
                 ?: DEFAULT_SOFT_ALERT_USE_CONFIDENCE_BAND,
             softAlertAudioStartMs = prefs[KEY_SOFT_ALERT_AUDIO_START_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_START_MS,
-            softAlertAudioDurationMs = prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS,
+            softAlertAudioDurationMs = (prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS)
+                .takeIf { it in 1_000..5_000 } ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS,
             softAlertAudioUri = prefs[KEY_SOFT_ALERT_AUDIO_URI],
             softAlertAudioDisplayName = prefs[KEY_SOFT_ALERT_AUDIO_DISPLAY_NAME],
             criticalAlertAudio1StartMs = prefs[KEY_CRITICAL_ALERT_AUDIO1_START_MS] ?: DEFAULT_CRITICAL_ALERT_AUDIO1_START_MS,
@@ -628,7 +629,7 @@ class AppSettingsStore internal constructor(
             prefs[KEY_STRONG_LOW_REPEAT_MINUTES] = next.strongLowRepeatMinutes.coerceIn(1, 10)
             prefs[KEY_SOFT_ALERT_USE_CONFIDENCE_BAND] = next.softAlertUseConfidenceBand
             prefs[KEY_SOFT_ALERT_AUDIO_START_MS] = next.softAlertAudioStartMs.coerceAtLeast(0)
-            prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] = next.softAlertAudioDurationMs.coerceIn(15_000, 30_000)
+            prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] = next.softAlertAudioDurationMs.coerceIn(1_000, 5_000)
             if (next.softAlertAudioUri.isNullOrBlank()) {
                 prefs.remove(KEY_SOFT_ALERT_AUDIO_URI)
             } else {
@@ -1722,7 +1723,7 @@ class AppSettingsStore internal constructor(
         private const val DEFAULT_STRONG_LOW_REPEAT_MINUTES = 2
         private const val DEFAULT_SOFT_ALERT_USE_CONFIDENCE_BAND = true
         private const val DEFAULT_SOFT_ALERT_AUDIO_START_MS = 32_000
-        private const val DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS = 18_000
+        private const val DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS = 2_000
         private const val DEFAULT_CRITICAL_ALERT_AUDIO1_START_MS = 42_000
         private const val DEFAULT_CRITICAL_ALERT_AUDIO1_DURATION_MS = 20_000
         private const val DEFAULT_CRITICAL_ALERT_AUDIO2_START_MS = 36_000
@@ -1966,7 +1967,7 @@ data class AppSettings(
     val strongLowRepeatMinutes: Int = 2,
     val softAlertUseConfidenceBand: Boolean = true,
     val softAlertAudioStartMs: Int = 32_000,
-    val softAlertAudioDurationMs: Int = 18_000,
+    val softAlertAudioDurationMs: Int = 2_000,
     val softAlertAudioUri: String? = null,
     val softAlertAudioDisplayName: String? = null,
     val criticalAlertAudio1StartMs: Int = 42_000,

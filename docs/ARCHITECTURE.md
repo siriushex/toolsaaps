@@ -16,6 +16,13 @@ validity is independent of inference readiness. The identity factory does not
 yet run live Codex jobs, and AI output must never become a therapy command.
 
 ## Context
+Trusted Telegram delivery is an optional, outbound-only Android observer of locally
+delivered alert episodes and completed local report summaries. It never delays local
+alerts or calls therapy repositories. Its independent Keystore namespace preserves
+the server-AI connection identity and has separate backup exclusions. See
+[gentle alerts and Telegram](2026-09-13-soft-alerts-telegram.md) for the pairing,
+mute, deduplication and delivery-limit contracts.
+
 AAPS Predictive Copilot is a two-part system:
 - Android app (`android-app`) for ingest, local forecasting, safety/rules, automation, and UI.
 - Backend (`backend`) for optional cloud prediction override, analysis, replay, and scheduled insights.

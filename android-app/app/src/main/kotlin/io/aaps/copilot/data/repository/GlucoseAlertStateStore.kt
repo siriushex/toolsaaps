@@ -28,6 +28,8 @@ class GlucoseAlertStateStore(context: Context) {
             prefs[KEY_LAST_NOTIFIED_RISK_KEY] = next.lastNotifiedRiskKey.orEmpty()
             prefs[KEY_PENDING_RISK_KEY] = next.pendingRiskKey.orEmpty()
             prefs[KEY_PENDING_RISK_COUNT] = next.pendingRiskCount.toLong()
+            if (next.pendingEvidenceTimestamp == null) prefs.remove(KEY_PENDING_EVIDENCE_TS)
+            else prefs[KEY_PENDING_EVIDENCE_TS] = next.pendingEvidenceTimestamp
             prefs[KEY_SAFE_SAMPLES_COUNT] = next.safeSamplesCount.toLong()
             prefs[KEY_SAFE_SINCE_TS] = next.safeSinceTs
             prefs[KEY_LAST_STAGE_CHANGE_TS] = next.lastStageChangeTs
@@ -46,6 +48,7 @@ class GlucoseAlertStateStore(context: Context) {
             lastNotifiedRiskKey = prefs[KEY_LAST_NOTIFIED_RISK_KEY]?.takeIf { it.isNotBlank() },
             pendingRiskKey = prefs[KEY_PENDING_RISK_KEY]?.takeIf { it.isNotBlank() },
             pendingRiskCount = (prefs[KEY_PENDING_RISK_COUNT] ?: 0L).toInt().coerceAtLeast(0),
+            pendingEvidenceTimestamp = prefs[KEY_PENDING_EVIDENCE_TS],
             safeSamplesCount = (prefs[KEY_SAFE_SAMPLES_COUNT] ?: 0L).toInt().coerceAtLeast(0),
             safeSinceTs = prefs[KEY_SAFE_SINCE_TS] ?: 0L,
             lastStageChangeTs = prefs[KEY_LAST_STAGE_CHANGE_TS] ?: 0L,
@@ -63,6 +66,7 @@ class GlucoseAlertStateStore(context: Context) {
         private val KEY_LAST_NOTIFIED_RISK_KEY = stringPreferencesKey("last_notified_risk_key")
         private val KEY_PENDING_RISK_KEY = stringPreferencesKey("pending_risk_key")
         private val KEY_PENDING_RISK_COUNT = longPreferencesKey("pending_risk_count")
+        private val KEY_PENDING_EVIDENCE_TS = longPreferencesKey("pending_evidence_timestamp")
         private val KEY_SAFE_SAMPLES_COUNT = longPreferencesKey("safe_samples_count")
         private val KEY_SAFE_SINCE_TS = longPreferencesKey("safe_since_ts")
         private val KEY_LAST_STAGE_CHANGE_TS = longPreferencesKey("last_stage_change_ts")
@@ -85,7 +89,8 @@ data class GlucoseAlertRuntimeState(
     val lastStageChangeTs: Long = 0L,
     val mutedUntilTs: Long = 0L,
     val activeEpisodeId: String = "",
-    val strongAlertSequence: Int = 0
+    val strongAlertSequence: Int = 0,
+    val pendingEvidenceTimestamp: Long? = null
 )
 
 enum class GlucoseAlertBellAction {

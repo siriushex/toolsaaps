@@ -1,3 +1,38 @@
+# Gentle Alerts and Trusted Telegram Integration - 2026-09-13
+
+- Integrated the isolated soft-alert/Telegram feature onto September main source
+  b1cda13e, without copying unrelated private development history or medical data.
+- Soft audio defaults to 2 seconds (1-5 adjustable); WATCH is silent. Soft-risk
+  confirmation uses distinct CGM timestamps and crossing-time estimation includes
+  the +10-minute forecast. Urgent thresholds, exact local OFF and therapy actions
+  are unchanged.
+- Added optional encrypted bot configuration, expiring private recipient pairing,
+  per-recipient alerts/reports, fresh episode forwarding and canonical 7/30-day
+  text summaries. No live token, recipient, message or phone operation was used.
+- Merged secret-storage, Settings navigation and backup conflicts while preserving
+  server-AI activation and identity. Added deletion-quarantine isolation and backup
+  exclusion coverage for both namespaces. No permanent polling or worker added.
+- Final integration verification passed with JDK 17:
+  `cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --console=plain --max-workers=2`.
+  Result: BUILD SUCCESSFUL in 5m 45s; 4365 tests in 357 suites, zero failures/errors,
+  three conditional phone-database checks skipped. Lint: zero errors, 295 warnings,
+  four hints, with no added findings against the main-release lint report.
+- The first full run exposed the architecture test's old two-store assumption.
+  Updated it for the independent Telegram store while retaining all clinical-provider
+  checks. The full rerun passed. Three new summary-text lint warnings were then fixed
+  without suppressions; the final full test/lint/build rerun also passed.
+- Phone-copy skips cover real TLS history, accepted runtime tuple read-back and
+  a disposable phone DB migration. Synthetic regression tests still run normally.
+- Debug APK SHA-256:
+  `1f0241f1a13e1524046aa6703589e608d624b6adbb58d7f14a1c46e7d10175e6`.
+  Signature verification passed; signer SHA-256:
+  `bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db`.
+- Staged changes contain no APK/database/key containers. A bounded literal scan
+  found no OpenAI tokens, Telegram tokens or private-key delimiters in additions.
+  No remote push or phone operation is part of this local-main integration.
+- Live Telegram delivery, UI/device checks and resource measurements remain unverified.
+  Telegram is supplemental, not guaranteed delivery; uncertain sends are not retried.
+
 # Source Publication and Phone Verification - 2026-09-13
 
 - Prepared an isolated software snapshot for main without merging private

@@ -699,6 +699,17 @@ class AppContainer(context: Context) {
         episodeDelivery = episodeAlertDelivery
     )
 
+    val telegramRepository = io.aaps.copilot.telegram.TelegramRepository(
+        io.aaps.copilot.telegram.EncryptedTelegramPersistence(
+            io.aaps.copilot.security.KeystoreSecretStorage(appContext,
+                io.aaps.copilot.security.RuntimeSecretStorageNamespaces.TELEGRAM)
+        ),
+        io.aaps.copilot.telegram.TelegramHttpApi()
+    )
+    val telegramDeliveryController = io.aaps.copilot.telegram.TelegramDeliveryController(
+        appContext, telegramRepository, db.alertEventDao(), episodeAlertDelivery, clinicalReportRepository
+    )
+
     private val pumpLinkNotifier = PumpLinkNotifier(appContext)
     private val deliveryDiagnosticNotifier = io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier(appContext)
     private val deliveryDiagnostic = io.aaps.copilot.data.repository.DeliveryDiagnosticRepository(
@@ -1416,6 +1427,7 @@ class AppContainer(context: Context) {
 
     init {
         clinicalReportRepository.initialize()
+        telegramDeliveryController.start(appScope)
 
         appScope.launch {
             try {

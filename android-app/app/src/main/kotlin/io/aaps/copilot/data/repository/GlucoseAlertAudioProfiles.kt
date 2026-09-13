@@ -37,7 +37,7 @@ object GlucoseAlertAudioProfiles {
             label = "Elk Creek.mp3",
             totalDurationMs = ELK_DURATION_MS,
             startMs = 32_000,
-            durationMs = 18_000
+            durationMs = 2_000
         ),
         GlucoseAlertAudioSlot.CRITICAL_PRIMARY to RecommendedClip(
             resId = R.raw.night_waltz,
@@ -63,7 +63,7 @@ object GlucoseAlertAudioProfiles {
         val customLabel = requestedDisplayName(settings, slot)?.takeIf { it.isNotBlank() }
 
         if (customUri != null) {
-            val customTimingValid = requestedStart >= 0 && requestedDuration in MIN_DURATION_MS..MAX_DURATION_MS
+            val customTimingValid = requestedStart >= 0 && requestedDuration in durationRange(slot)
             return if (customTimingValid) {
                 GlucoseAlertAudioClipSpec(
                     slot = slot,
@@ -82,6 +82,7 @@ object GlucoseAlertAudioProfiles {
         }
 
         val requestedValid = isValid(
+            slot = slot,
             startMs = requestedStart,
             durationMs = requestedDuration,
             totalDurationMs = recommended.totalDurationMs
@@ -140,7 +141,7 @@ object GlucoseAlertAudioProfiles {
 
     fun isValid(slot: GlucoseAlertAudioSlot, startMs: Int, durationMs: Int): Boolean {
         val recommended = RECOMMENDED.getValue(slot)
-        return isValid(startMs, durationMs, recommended.totalDurationMs)
+        return isValid(slot, startMs, durationMs, recommended.totalDurationMs)
     }
 
     fun displayLabel(settings: AppSettings, slot: GlucoseAlertAudioSlot): String {
@@ -159,10 +160,13 @@ object GlucoseAlertAudioProfiles {
         GlucoseAlertAudioSlot.CRITICAL_SECONDARY -> settings.criticalAlertAudio2DurationMs
     }
 
-    private fun isValid(startMs: Int, durationMs: Int, totalDurationMs: Int): Boolean {
-        if (durationMs !in MIN_DURATION_MS..MAX_DURATION_MS) return false
+    private fun durationRange(slot: GlucoseAlertAudioSlot): IntRange =
+        if (slot == GlucoseAlertAudioSlot.SOFT) 1_000..5_000 else MIN_DURATION_MS..MAX_DURATION_MS
+
+    private fun isValid(slot: GlucoseAlertAudioSlot, startMs: Int, durationMs: Int, totalDurationMs: Int): Boolean {
+        if (durationMs !in durationRange(slot)) return false
         if (startMs < 0) return false
-        return startMs + durationMs <= totalDurationMs
+        return startMs <= totalDurationMs - durationMs
     }
 
     private data class RecommendedClip(

@@ -226,6 +226,7 @@ fun SettingsScreen(
     onPlannedActivityDelete: (String) -> Unit = {},
     onEnergyGoalSettingsSave: (EnergyGoalSettingsUi) -> Unit = {},
     openPlannedActivityRequest: Int = 0,
+    telegramSettingsContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedTabRaw by rememberSaveable { mutableStateOf(SettingsTab.BASIC.name) }
@@ -429,6 +430,9 @@ fun SettingsScreen(
                             onStopPreviewGlucoseAlertAudio = onStopPreviewGlucoseAlertAudio,
                             onResetGlucoseAlertAudio = onResetGlucoseAlertAudio
                         )
+                    }
+                    if (telegramSettingsContent != null) {
+                        item { telegramSettingsContent() }
                     }
                     item {
                         DisclaimerCard(text = state.warningText)
@@ -2804,6 +2808,7 @@ private fun GlucoseAlertsCard(
                             clipLabel = state.softAlertClipLabel,
                             startSeconds = state.softAlertAudioStartSeconds,
                             durationSeconds = state.softAlertAudioDurationSeconds,
+                            durationRangeSeconds = 1..5,
                             valid = state.softAlertAudioValid,
                             onStartSecondsChange = { next ->
                                 onSoftAlertAudioSettingsChange(next, state.softAlertAudioDurationSeconds)
@@ -2886,7 +2891,8 @@ private fun AlertAudioClipEditor(
     onDurationSecondsChange: (Int) -> Unit,
     onReplace: () -> Unit,
     onPreview: () -> Unit,
-    onStopPreview: () -> Unit
+    onStopPreview: () -> Unit,
+    durationRangeSeconds: IntRange = 15..30
 ) {
     Surface(
         shape = SettingsInfoShape,
@@ -2932,8 +2938,8 @@ private fun AlertAudioClipEditor(
                 title = stringResource(id = R.string.settings_glucose_alerts_audio_duration),
                 subtitle = clipLabel,
                 value = durationSeconds,
-                min = 15,
-                max = 30,
+                min = durationRangeSeconds.first,
+                max = durationRangeSeconds.last,
                 step = 1,
                 onValueChange = onDurationSecondsChange
             )
@@ -3821,7 +3827,7 @@ private fun SettingsScreenPreview() {
                 criticalAlertClip1Label = "Night Waltz.mp3",
                 criticalAlertClip2Label = "Snowbirds.mp3",
                 softAlertAudioStartSeconds = 32,
-                softAlertAudioDurationSeconds = 18,
+                softAlertAudioDurationSeconds = 2,
                 criticalAlertAudio1StartSeconds = 42,
                 criticalAlertAudio1DurationSeconds = 20,
                 criticalAlertAudio2StartSeconds = 36,

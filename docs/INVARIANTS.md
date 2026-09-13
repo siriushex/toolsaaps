@@ -15,6 +15,12 @@ its numeric controller thresholds require current-code verification before use.
   a real therapy endpoint.
 
 ## Safety invariants
+Telegram forwarding starts disabled and needs explicit trusted-private-chat enrollment.
+Recipients are addressed by verified numeric chat ID, never an unverified username.
+There are no incoming Telegram therapy commands. Global alert mute suppresses new
+automatic Telegram sends; cancellation cannot recall an already accepted message.
+A durable pre-send claim prevents automatic retry after an uncertain HTTP outcome.
+
 1. Kill switch blocks automatic actions only; manual actions remain available.
 2. No automatic action is sent when data freshness/sensor policy blocks execution.
 3. Every outbound action must have idempotency semantics.

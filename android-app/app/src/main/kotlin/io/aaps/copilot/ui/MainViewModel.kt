@@ -4741,7 +4741,7 @@ class MainViewModel(application: Application) :
                 criticalAlertClip1Label = "Night Waltz.mp3",
                 criticalAlertClip2Label = "Snowbirds.mp3",
                 softAlertAudioStartSeconds = 32,
-                softAlertAudioDurationSeconds = 18,
+                softAlertAudioDurationSeconds = 2,
                 criticalAlertAudio1StartSeconds = 42,
                 criticalAlertAudio1DurationSeconds = 20,
                 criticalAlertAudio2StartSeconds = 36,
@@ -4894,6 +4894,10 @@ class MainViewModel(application: Application) :
 
     fun claimClinicalReportPdfExportTicket(ticketId: Long): Boolean =
         clinicalReportPdfExportCoordinator.claimReadyTicket(ticketId)
+
+    val telegramRepository get() = container.telegramRepository
+
+    suspend fun sendTelegramSummary() = container.telegramDeliveryController.sendCurrentSummary()
 
     fun shareClinicalReportPdf() {
         clinicalReportPdfExportCoordinator.beginShare { payload ->
@@ -5462,7 +5466,7 @@ class MainViewModel(application: Application) :
         viewModelScope.launch {
             val nextSettings = container.settingsStore.settings.first().copy(
                 softAlertAudioStartMs = (startSeconds.coerceIn(0, 180) * 1_000),
-                softAlertAudioDurationMs = (durationSeconds.coerceIn(15, 30) * 1_000)
+                softAlertAudioDurationMs = (durationSeconds.coerceIn(1, 5) * 1_000)
             )
             container.settingsStore.update { current ->
                 nextSettings
@@ -12827,7 +12831,7 @@ class MainUiState {
     var softAlertAudioUri: String? = null
     var softAlertAudioDisplayName: String? = null
     var softAlertAudioStartMs: Int = 32_000
-    var softAlertAudioDurationMs: Int = 18_000
+    var softAlertAudioDurationMs: Int = 2_000
     var criticalAlertAudio1Uri: String? = null
     var criticalAlertAudio1DisplayName: String? = null
     var criticalAlertAudio1StartMs: Int = 42_000

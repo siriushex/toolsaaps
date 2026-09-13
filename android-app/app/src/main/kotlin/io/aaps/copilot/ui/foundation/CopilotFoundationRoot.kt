@@ -505,6 +505,11 @@ fun CopilotFoundationRoot(
                                     viewModel.loadServerAiConnection()
                                 }
                                 SettingsScreen(
+                                    telegramSettingsContent = {
+                                        io.aaps.copilot.ui.foundation.screens.TelegramSettingsSection(
+                                            viewModel.telegramRepository, viewModel::sendTelegramSummary
+                                        )
+                                    },
                                     state = settings,
                                     serverAiConnectionState = serverAiConnection,
                                     onServerAiActivate = viewModel::activateServerAiConnection,
