@@ -93,5 +93,12 @@ with AAPS but no Copilot package. No installation was attempted there; target
 confirmation is required. The earlier baseline and denial belong only to the
 first phone, not to this replacement device.
 
+The original Copilot phone was subsequently reconnected after user confirmation.
+The candidate debug APK was installed over the existing package with `adb install
+-r`; the read-back APK hash matched the candidate, the data directory and signer
+were preserved, and `MainActivity` cold-started successfully. This device had no
+local glucose data at the time, so the launch check does not establish forecast,
+calibration, AAPS bridge, or live server-AI behavior.
+
 The public unauthenticated status probe returned HTTP 503 with valid TLS. No
 real code activation, medical upload or live Codex request was performed.

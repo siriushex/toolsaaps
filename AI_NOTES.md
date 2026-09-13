@@ -45,6 +45,16 @@
 - During verification the USB target changed. The replacement device has AAPS
   but no Copilot package; no installation attempted, user target confirmation
   requested. Earlier baseline evidence is not attributed to that phone.
+- User then reconnected the original Copilot phone `J7EYCEEE7TK74XAQ` and
+  authorized the update. Installed the debug APK over the existing package with
+  `adb install -r`; no uninstall or data reset. Read-back APK SHA-256 matches
+  the candidate: `d95da44c114786960854684b02e03a41b4b72852528a6b4cc297614b481fbfa8`.
+  Package dataDir remained `/data/user/0/io.aaps.predictivecopilot`, signature
+  remained `bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db`,
+  and `MainActivity` cold-started successfully in 2031 ms. The Overview had no
+  local glucose data on this device; no therapy controls were used. Foreground
+  service was present and no FATAL/AndroidRuntime entries appeared in the
+  bounded post-launch log. Evidence: private `device-install-20260913/`.
 - Bounded resource samples and system cleanup exit records retained privately.
   Different foreground/background states are not an optimization comparison.
 - No server mutation, medical upload, real authorization code or AI call.

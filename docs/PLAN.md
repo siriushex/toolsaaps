@@ -12,6 +12,10 @@
   the system; device tests require installer approval, without bypassing it.
 - The connected phone later changed to a device without Copilot. Confirm the
   target before any installation; do not reuse the previous phone's baseline.
+- The confirmed original Copilot phone was updated with `adb install -r`, with
+  matching read-back APK hash, preserved package data directory and successful
+  cold start. Device data-flow and live-AI checks remain pending because no
+  glucose data was present and the server was not authorized for a real request.
 - No existing clinical callers, photo inference, server deployment or therapy
   behavior changed. [Client scope and gates](2026-09-13-android-ai-jobs.md).
 
