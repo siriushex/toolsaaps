@@ -1,6 +1,9 @@
 package io.aaps.copilot.data.repository
 
+import com.google.gson.Gson
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
+import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.domain.model.resolveTherapyComponents
 import java.util.Locale
 
 object TherapySanitizer {
@@ -8,37 +11,39 @@ object TherapySanitizer {
     fun filterEntities(events: List<TherapyEventEntity>): List<TherapyEventEntity> =
         events.filter(::isUsable)
 
+    fun toDomainEvents(events: List<TherapyEventEntity>, gson: Gson): List<TherapyEvent> =
+        filterEntities(events).map { it.toDomain(gson) }
+
     private fun isUsable(event: TherapyEventEntity): Boolean {
         val type = event.type.lowercase(Locale.US)
 
-        if (isBroadcastArtifact(event, type)) return false
+        if (isLocalBroadcastArtifact(event.id, type)) return false
 
-        val payload = parsePayload(event.payloadJson)
+        val payload = BoundedClinicalPayloadParser.parse(event.payloadJson) ?: return false
         return when (type) {
-            "correction_bolus" -> {
-                val units = payload.doubleOf("units", "bolusUnits", "insulin", "enteredInsulin")
-                    ?: return false
-                units in 0.05..15.0
+            "correction_bolus", "bolus", "insulin" -> {
+                val components = resolvedComponents(type, payload)
+                if (!components.wholeEventValid && !components.canonicalCarbAuthoritative) return false
+                val maxUnits = if (type == "correction_bolus") 15.0 else 25.0
+                components.insulinU?.let { it in 0.05..maxUnits } == true
             }
             "meal_bolus" -> {
-                val grams = payload.doubleOf("grams", "carbs", "enteredCarbs", "mealCarbs")
-                    ?: return false
-                val units = payload.doubleOf("bolusUnits", "units", "insulin", "enteredInsulin")
-                    ?: return false
-                if (grams !in 1.0..300.0) return false
-                if (units !in 0.05..25.0) return false
-                val ratio = grams / units
-                ratio in 1.5..80.0
+                val components = resolvedComponents(type, payload)
+                if (!components.wholeEventValid && !components.canonicalCarbAuthoritative) return false
+                val grams = components.carbsG?.takeIf { it in 1.0..300.0 }
+                val units = components.insulinU?.takeIf { it in 0.05..25.0 }
+                when {
+                    grams != null && units != null -> grams / units in 1.5..80.0
+                    else -> grams != null || units != null
+                }
             }
             "carbs" -> {
-                val grams = payload.doubleOf("grams", "carbs", "enteredCarbs", "mealCarbs")
-                    ?: return false
-                grams in 1.0..300.0
+                resolvedComponents(type, payload).carbsG?.let { it in 1.0..300.0 } == true
             }
             "temp_target" -> {
-                val duration = payload.intOf("duration", "durationInMinutes")
-                val low = payload.doubleOf("targetBottom", "target_bottom", "targetLow")
-                val high = payload.doubleOf("targetTop", "target_top", "targetHigh")
+                val duration = payload.number("duration", "durationInMinutes")?.toInt()
+                val low = payload.number("targetBottom", "target_bottom", "targetLow")
+                val high = payload.number("targetTop", "target_top", "targetHigh")
                 val durationOk = duration == null || duration in 5..720
                 val lowOk = low == null || isTargetInKnownRange(low)
                 val highOk = high == null || isTargetInKnownRange(high)
@@ -48,39 +53,21 @@ object TherapySanitizer {
         }
     }
 
-    private fun isBroadcastArtifact(event: TherapyEventEntity, type: String): Boolean {
-        val isBroadcastId = event.id.startsWith("br-local_broadcast-")
+    private fun resolvedComponents(type: String, payload: ParsedClinicalPayload) =
+        resolveTherapyComponents(
+            type = type,
+            payload = payload.scalarValues(),
+            componentTrust = payload.componentTrust()
+        )
+
+    internal fun isLocalBroadcastArtifact(id: String, type: String): Boolean {
+        val isBroadcastId = id.startsWith("br-local_broadcast-")
         if (!isBroadcastId) return false
-        return type == "correction_bolus" || type == "meal_bolus" || type == "carbs" || type == "temp_target"
-    }
-
-    private fun parsePayload(payloadJson: String): Map<String, String> {
-        val text = payloadJson.trim()
-        if (!text.startsWith("{") || !text.endsWith("}")) return emptyMap()
-        val out = linkedMapOf<String, String>()
-        val regex = Regex("\"([^\"]+)\"\\s*:\\s*(?:\"([^\"]*)\"|([-0-9.,]+)|true|false|null)")
-        regex.findAll(text).forEach { match ->
-            val key = match.groupValues[1]
-            val quotedValue = match.groupValues[2]
-            val numericValue = match.groupValues[3]
-            val value = quotedValue.ifBlank { numericValue }
-            if (key.isNotBlank() && value.isNotBlank()) {
-                out[key] = value
-            }
-        }
-        return out
-    }
-
-    private fun Map<String, String>.doubleOf(vararg keys: String): Double? {
-        return keys.firstNotNullOfOrNull { key ->
-            this[key]?.replace(",", ".")?.toDoubleOrNull()
-        }
-    }
-
-    private fun Map<String, String>.intOf(vararg keys: String): Int? {
-        return keys.firstNotNullOfOrNull { key ->
-            this[key]?.toIntOrNull() ?: this[key]?.replace(",", ".")?.toDoubleOrNull()?.toInt()
-        }
+        val normalizedType = type.lowercase(Locale.US)
+        return normalizedType == "correction_bolus" ||
+            normalizedType == "meal_bolus" ||
+            normalizedType == "carbs" ||
+            normalizedType == "temp_target"
     }
 
     private fun isTargetInKnownRange(value: Double): Boolean {

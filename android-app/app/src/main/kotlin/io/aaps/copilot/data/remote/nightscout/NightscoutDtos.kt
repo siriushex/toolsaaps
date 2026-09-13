@@ -38,7 +38,9 @@ data class NightscoutDeviceStatus(
     @SerializedName("created_at") val createdAt: String? = null,
     @SerializedName("date") val date: Long? = null,
     @SerializedName("openaps") val openaps: Map<String, Any?>? = null,
+    @SerializedName("loop") val loop: Map<String, Any?>? = null,
     @SerializedName("pump") val pump: Map<String, Any?>? = null,
+    @SerializedName("cgm") val cgm: Map<String, Any?>? = null,
     @SerializedName("uploader") val uploader: Map<String, Any?>? = null
 )
 

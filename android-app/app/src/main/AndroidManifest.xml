@@ -17,11 +17,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="com.eveningoutpost.dexdrip.permissions.RECEIVE_BG_ESTIMATE" />
-    <uses-permission android:name="com.microtechmd.cgms.aidex.permissions.RECEIVE_BG_ESTIMATE" />
+    <uses-permission android:name="info.nightscout.androidaps.permission.OPEN_BOLUS_DIALOG" />
+    <uses-permission android:name="info.nightscout.androidaps.permission.RELAY_COPILOT_DATA" />
+    <uses-permission
+        android:name="info.nightscout.androidaps.permission.READ_COPILOT_CLINICAL_SUMMARY" />
+    <uses-permission android:name="info.nightscout.androidaps.permission.WRITE_COPILOT_CONTEXT_NOTE" />
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
@@ -29,6 +34,8 @@
     <application
         android:name=".CopilotApp"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="@string/app_name"
         android:roundIcon="@android:drawable/sym_def_app_icon"
@@ -45,6 +52,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".AlertNotificationEntryActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -53,6 +67,16 @@
             <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
                 tools:node="remove" />
+        </provider>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.clinical-pdf"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/clinical_pdf_file_paths" />
         </provider>
 
         <service
@@ -74,22 +98,52 @@
         <receiver
             android:name=".receiver.LocalDataBroadcastReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="true"
+            android:permission="info.nightscout.androidaps.permission.RELAY_COPILOT_DATA">
             <intent-filter>
-                <action android:name="com.eveningoutpost.dexdrip.BgEstimate" />
-                <action android:name="com.microtechmd.cgms.aidex.action.BgEstimate" />
-                <action android:name="com.fanqies.tomatofn.BgEstimate" />
-                <action android:name="com.eveningoutpost.dexdrip.BgEstimateNoData" />
-                <action android:name="com.eveningoutpost.dexdrip.NS_EMULATOR" />
-                <action android:name="info.nightscout.client.NEW_SGV" />
-                <action android:name="info.nightscout.client.NEW_TREATMENT" />
-                <action android:name="info.nightscout.client.NEW_DEVICESTATUS" />
-                <action android:name="info.nightscout.client.NEW_PROFILE" />
                 <action android:name="info.nightscout.androidaps.status" />
-                <action android:name="app.aaps.status" />
-                <action android:name="io.aaps.copilot.BROADCAST_TEST_INGEST" />
-                <action android:name="io.aaps.copilot.BROADCAST_TEST_SEND_TEMP_TARGET" />
-                <action android:name="io.aaps.copilot.BROADCAST_TEST_SEND_CARBS" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.PumpLinkHealthReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="info.nightscout.androidaps.permission.RELAY_COPILOT_DATA">
+            <intent-filter>
+                <action android:name="info.nightscout.androidaps.PUMP_LINK_HEALTH" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.GlucoseAlertActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
+            android:name=".widget.CopilotGlucoseWidgetProvider"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/copilot_glucose_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".receiver.DebugActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.aaps.copilot.DEBUG_RUN_AUTOMATION_CYCLE" />
+                <action android:name="io.aaps.copilot.DEBUG_RUN_DB_MAINTENANCE" />
+                <action android:name="io.aaps.copilot.DEBUG_RUN_DB_VACUUM" />
+                <action android:name="io.aaps.copilot.DEBUG_RUN_DB_DIAGNOSTICS" />
+                <action android:name="io.aaps.copilot.DEBUG_EVAL_FORECAST_VIRTUAL_MEAL_GATE" />
+                <action android:name="io.aaps.copilot.DEBUG_RUN_DAILY_ANALYSIS" />
+                <action android:name="io.aaps.copilot.DEBUG_ADD_BLOOD_CHECK" />
             </intent-filter>
         </receiver>
     </application>

@@ -14,7 +14,8 @@ class SafetyPolicyTest {
             proposal = proposal(target = 5.5, duration = 30),
             config = SafetyPolicyConfig(killSwitch = true),
             dataFresh = true,
-            actionsLast6h = 0
+            actionsLast6h = 0,
+            sensorBlocked = false
         )
 
         assertThat(decision.allowed).isFalse()
@@ -27,7 +28,8 @@ class SafetyPolicyTest {
             proposal = proposal(target = 5.5, duration = 30, type = "temp_target"),
             config = SafetyPolicyConfig(killSwitch = false, maxActionsIn6Hours = 3),
             dataFresh = false,
-            actionsLast6h = 3
+            actionsLast6h = 3,
+            sensorBlocked = false
         )
 
         assertThat(decision.allowed).isFalse()
@@ -41,7 +43,8 @@ class SafetyPolicyTest {
             proposal = proposal(target = 5.5, duration = 30, type = "carbs"),
             config = SafetyPolicyConfig(killSwitch = false, maxActionsIn6Hours = 3),
             dataFresh = true,
-            actionsLast6h = 3
+            actionsLast6h = 3,
+            sensorBlocked = false
         )
 
         assertThat(decision.allowed).isFalse()
@@ -54,7 +57,8 @@ class SafetyPolicyTest {
             proposal = proposal(target = 3.2, duration = 150),
             config = SafetyPolicyConfig(killSwitch = false),
             dataFresh = true,
-            actionsLast6h = 0
+            actionsLast6h = 0,
+            sensorBlocked = false
         )
 
         assertThat(decision.allowed).isFalse()
@@ -63,12 +67,27 @@ class SafetyPolicyTest {
     }
 
     @Test
+    fun blocks_whenSensorBlocked() {
+        val decision = policy.evaluate(
+            proposal = proposal(target = 5.5, duration = 30),
+            config = SafetyPolicyConfig(killSwitch = false),
+            dataFresh = true,
+            actionsLast6h = 0,
+            sensorBlocked = true
+        )
+
+        assertThat(decision.allowed).isFalse()
+        assertThat(decision.reasons).containsExactly("sensor_blocked")
+    }
+
+    @Test
     fun allows_whenAllChecksPass() {
         val decision = policy.evaluate(
             proposal = proposal(target = 5.6, duration = 60),
             config = SafetyPolicyConfig(killSwitch = false),
             dataFresh = true,
-            actionsLast6h = 1
+            actionsLast6h = 1,
+            sensorBlocked = false
         )
 
         assertThat(decision.allowed).isTrue()

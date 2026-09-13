@@ -4,6 +4,7 @@ import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.TelemetrySignal
+import io.aaps.copilot.domain.events.CompensationEvent
 import java.time.Instant
 import java.time.ZoneId
 import kotlin.math.abs
@@ -18,6 +19,11 @@ class IsfCrEngine(
     private val confidenceModel: IsfCrConfidenceModel = IsfCrConfidenceModel(),
     private val fallbackResolver: IsfCrFallbackResolver = IsfCrFallbackResolver()
 ) {
+
+    private companion object {
+        private const val SPARSE_REAL_FETCHED_MIN_COUNT = 4
+        private const val SPARSE_REAL_FETCHED_MAX_COUNT = 9
+    }
 
     data class FitResult(
         val state: IsfCrModelState,
@@ -76,11 +82,13 @@ class IsfCrEngine(
         therapy: List<TherapyEvent>,
         telemetry: List<TelemetrySignal>,
         tags: List<PhysioContextTag>,
+        events: List<CompensationEvent> = emptyList(),
         activeModel: IsfCrModelState?,
         previousSnapshot: IsfCrRealtimeSnapshot?,
         settings: IsfCrSettings,
         fallbackIsf: Double,
-        fallbackCr: Double
+        fallbackCr: Double,
+        resetPreviousIsfRateLimit: Boolean = false
     ): RealtimeResult {
         val nowZoned = Instant.ofEpochMilli(nowTs).atZone(zoneId)
         val localHour = nowZoned.hour
@@ -122,6 +130,7 @@ class IsfCrEngine(
                 therapy = therapy,
                 telemetry = telemetry,
                 tags = tags,
+                events = events,
                 zoneId = zoneId
             ),
             settings = settings,
@@ -194,15 +203,38 @@ class IsfCrEngine(
             telemetry = telemetry,
             tags = tags,
             previous = previousSnapshot,
-            settings = settings
+            settings = settings,
+            applyPreviousIsfRateLimit = !resetPreviousIsfRateLimit
         )
         val latestTelemetry = telemetry
             .groupBy { normalizeTelemetryKey(it.key) }
             .mapValues { (_, rows) -> rows.maxByOrNull { it.ts }?.valueDouble }
+        val latestTelemetryText = telemetry
+            .groupBy { normalizeTelemetryKey(it.key) }
+            .mapValues { (_, rows) ->
+                rows.maxByOrNull { it.ts }
+                    ?.valueText
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+            }
         val sensorSuspectFalseLowFlag = (latestTelemetry["sensor_quality_suspect_false_low"] ?: 0.0)
             .coerceIn(0.0, 1.0)
         val sensorQualityScore = (latestTelemetry["sensor_quality_score"] ?: 1.0)
             .coerceIn(0.0, 1.0)
+        val therapyHistoryRealFetchedCount =
+            (latestTelemetry["therapy_history_real_fetched_insulin_30d"] ?: 0.0).toInt().coerceAtLeast(0)
+        val therapyHistoryRecoveredCount =
+            (latestTelemetry["therapy_history_recovered_insulin_30d"] ?: 0.0).toInt().coerceAtLeast(0)
+        val therapyHistoryUsableCount =
+            (latestTelemetry["therapy_history_usable_insulin_30d"] ?: 0.0).toInt().coerceAtLeast(0)
+        val therapyHistoryBootstrapNeeded =
+            (latestTelemetry["therapy_history_bootstrap_needed"] ?: 0.0) >= 0.5
+        val therapyHistorySourceMode = latestTelemetryText["therapy_history_source_mode"]
+        val sparseRealFetchedHistory =
+            therapyHistorySourceMode.equals("SPARSE_REAL_FETCHED", ignoreCase = true) ||
+                (
+                    therapyHistoryRealFetchedCount in SPARSE_REAL_FETCHED_MIN_COUNT..SPARSE_REAL_FETCHED_MAX_COUNT
+                    )
         val confidence = confidenceModel.evaluate(
             isfEff = context.isfEff,
             crEff = context.crEff,
@@ -367,6 +399,11 @@ class IsfCrEngine(
             "raw_confidence" to adjustedConfidence,
             "sensor_quality_score" to sensorQualityScore,
             "sensor_quality_suspect_false_low" to sensorSuspectFalseLowFlag,
+            "therapy_history_real_fetched_insulin_30d" to therapyHistoryRealFetchedCount.toDouble(),
+            "therapy_history_recovered_insulin_30d" to therapyHistoryRecoveredCount.toDouble(),
+            "therapy_history_usable_insulin_30d" to therapyHistoryUsableCount.toDouble(),
+            "therapy_history_bootstrap_needed" to if (therapyHistoryBootstrapNeeded) 1.0 else 0.0,
+            "therapy_history_sparse_real_fetched" to if (sparseRealFetchedHistory) 1.0 else 0.0,
             "isf_hour_window_same_day_type_ratio" to if (isfHourWindowEvidenceCount == 0) 0.0 else {
                 isfHourWindowSameDayTypeCount.toDouble() / isfHourWindowEvidenceCount
             },
@@ -402,6 +439,8 @@ class IsfCrEngine(
                 if (!crHourEvidenceEnough) add("cr_hourly_evidence_below_min")
                 if (isfDayTypeEvidenceSparse) add("isf_day_type_evidence_sparse")
                 if (crDayTypeEvidenceSparse) add("cr_day_type_evidence_sparse")
+                if (sparseRealFetchedHistory) add("therapy_history_sparse_real_fetched")
+                if (therapyHistoryBootstrapNeeded) add("therapy_history_bootstrap_needed")
                 if (sensorQualityScore < 0.50) add("sensor_quality_low")
                 if (sensorSuspectFalseLowFlag >= 0.50) add("sensor_quality_suspect_false_low")
                 if ((context.factors["set_age_hours"] ?: 0.0) > 72.0) add("set_age_high")

@@ -8,14 +8,6 @@ class IsfCrFallbackResolver {
         fallbackIsf: Double?,
         fallbackCr: Double?
     ): IsfCrRealtimeSnapshot {
-        if (snapshot.confidence >= settings.confidenceThreshold) {
-            return if (settings.shadowMode) {
-                snapshot.copy(mode = IsfCrRuntimeMode.SHADOW)
-            } else {
-                snapshot.copy(mode = IsfCrRuntimeMode.ACTIVE)
-            }
-        }
-
         val keepIsfCandidate = shouldKeepMetricCandidate(
             snapshot = snapshot,
             metric = Metric.ISF,
@@ -28,6 +20,21 @@ class IsfCrFallbackResolver {
             minEvidencePerHour = settings.minCrEvidencePerHour,
             absoluteMinEvidence = 4
         )
+        if (shouldAllowSparseRealFetched(snapshot, settings, keepIsfCandidate, keepCrCandidate)) {
+            return snapshot.copy(
+                confidence = snapshot.confidence.coerceAtMost(SPARSE_REAL_FETCHED_MAX_CONFIDENCE),
+                qualityScore = snapshot.qualityScore.coerceAtMost(SPARSE_REAL_FETCHED_MAX_QUALITY),
+                mode = IsfCrRuntimeMode.SPARSE_REAL_FETCHED,
+                reasons = (snapshot.reasons + "sparse_real_fetched_keep").distinct()
+            )
+        }
+        if (snapshot.confidence >= settings.confidenceThreshold) {
+            return if (settings.shadowMode) {
+                snapshot.copy(mode = IsfCrRuntimeMode.SHADOW)
+            } else {
+                snapshot.copy(mode = IsfCrRuntimeMode.ACTIVE)
+            }
+        }
         if (shouldAllowSoftShadow(snapshot, settings, keepIsfCandidate, keepCrCandidate)) {
             return snapshot.copy(
                 mode = IsfCrRuntimeMode.SHADOW,
@@ -104,6 +111,37 @@ class IsfCrFallbackResolver {
         val crSupport = (snapshot.factors["cr_hour_window_evidence_enough"] ?: 0.0) >= 0.5 ||
             (snapshot.factors["cr_global_evidence_strong"] ?: 0.0) >= 0.5
         return isfSupport && crSupport
+    }
+
+    private fun shouldAllowSparseRealFetched(
+        snapshot: IsfCrRealtimeSnapshot,
+        settings: IsfCrSettings,
+        keepIsfCandidate: Boolean,
+        keepCrCandidate: Boolean
+    ): Boolean {
+        if (!(keepIsfCandidate || keepCrCandidate)) return false
+        if ((snapshot.factors["sensor_quality_suspect_false_low"] ?: 0.0) >= 0.5) return false
+
+        val realFetchedCount =
+            (snapshot.factors["therapy_history_real_fetched_insulin_30d"] ?: 0.0).toInt().coerceAtLeast(0)
+        val sparseHistoryFlag = (snapshot.factors["therapy_history_sparse_real_fetched"] ?: 0.0) >= 0.5
+        if (!sparseHistoryFlag && realFetchedCount !in SPARSE_REAL_FETCHED_MIN_COUNT..SPARSE_REAL_FETCHED_MAX_COUNT) {
+            return false
+        }
+
+        if (snapshot.qualityScore < SPARSE_REAL_FETCHED_MIN_QUALITY) return false
+        val threshold = settings.confidenceThreshold.coerceIn(0.2, 0.95)
+        val sparseThreshold = maxOf(SPARSE_REAL_FETCHED_MIN_CONFIDENCE, threshold - 0.22)
+        return snapshot.confidence >= sparseThreshold
+    }
+
+    private companion object {
+        private const val SPARSE_REAL_FETCHED_MIN_COUNT = 4
+        private const val SPARSE_REAL_FETCHED_MAX_COUNT = 9
+        private const val SPARSE_REAL_FETCHED_MIN_CONFIDENCE = 0.30
+        private const val SPARSE_REAL_FETCHED_MAX_CONFIDENCE = 0.49
+        private const val SPARSE_REAL_FETCHED_MIN_QUALITY = 0.35
+        private const val SPARSE_REAL_FETCHED_MAX_QUALITY = 0.58
     }
 
     private enum class Metric {

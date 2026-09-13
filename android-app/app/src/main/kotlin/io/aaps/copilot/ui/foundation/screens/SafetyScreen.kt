@@ -74,6 +74,9 @@ fun SafetyScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             item {
+                SafetyHeroHeader(state = state)
+            }
+            item {
                 KillSwitchCard(
                     enabled = state.killSwitchEnabled,
                     onToggle = onKillSwitchToggle
@@ -84,6 +87,12 @@ fun SafetyScreen(
                     state = state,
                     onSafetyBoundsChange = onSafetyBoundsChange
                 )
+            }
+            item {
+                GlucoseAlertsDiagnosticsCard(state = state)
+            }
+            item {
+                TherapyHistoryDiagnosticsCard(state = state)
             }
             state.aiTuningStatus?.let { tuning ->
                 item {
@@ -103,6 +112,35 @@ fun SafetyScreen(
                     killSwitchEnabled = state.killSwitchEnabled,
                     checksPassed = state.checklist.count { it.ok },
                     checksTotal = state.checklist.size
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafetyHeroHeader(state: SafetyUiState) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = stringResource(id = R.string.safety_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (midnightGlass) Color(0xFF44536B) else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (state.killSwitchEnabled) {
+            Surface(
+                shape = SafetyPillShape,
+                color = if (midnightGlass) Color(0x55312735) else MaterialTheme.colorScheme.errorContainer,
+                border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.safety_kill_switch_on),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (midnightGlass) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onErrorContainer
                 )
             }
         }
@@ -257,7 +295,8 @@ private fun KillSwitchCard(
         ) {
             Text(
                 text = stringResource(id = R.string.label_kill_switch),
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
             Switch(
                 checked = localEnabled,
@@ -294,7 +333,6 @@ private fun LimitsCard(
             infoText = stringResource(id = R.string.safety_info_limits_section)
         )
         val unitMinutes = stringResource(id = R.string.unit_minutes)
-        val unitMmol = stringResource(id = R.string.unit_mmol_l)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -312,21 +350,11 @@ private fun LimitsCard(
             )
         }
 
-        Row(
+        StatCell(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-        ) {
-            StatCell(
-                modifier = Modifier.weight(1f),
-                title = stringResource(id = R.string.metric_base_target),
-                value = "${"%.1f".format(state.baseTarget)} $unitMmol"
-            )
-            StatCell(
-                modifier = Modifier.weight(1f),
-                title = stringResource(id = R.string.safety_hard_bounds),
-                value = state.hardBounds
-            )
-        }
+            title = stringResource(id = R.string.safety_hard_bounds),
+            value = state.hardBounds
+        )
 
         Surface(
             shape = SafetyInfoShape,
@@ -345,7 +373,8 @@ private fun LimitsCard(
                 Text(
                     text = "${stringResource(id = R.string.safety_local_ns_status)}: ${
                         if (state.localNightscoutEnabled) {
-                            "${stringResource(id = R.string.status_on_short)}:${state.localNightscoutPort}"
+                            "${state.localNightscoutRuntimeStatus}:${state.localNightscoutPort}" +
+                                state.localNightscoutRuntimeReason?.let { " (reason=$it)" }.orEmpty()
                         } else {
                             stringResource(id = R.string.status_off_short)
                         }
@@ -381,6 +410,180 @@ private fun LimitsCard(
 }
 
 @Composable
+private fun GlucoseAlertsDiagnosticsCard(state: SafetyUiState) {
+    SafetySectionCard {
+        SafetySectionLabel(
+            text = stringResource(id = R.string.section_safety_glucose_alerts),
+            infoText = stringResource(id = R.string.safety_info_glucose_alerts)
+        )
+        val statusText = when (state.glucoseAlertState?.uppercase(Locale.US)) {
+            "LOW_NOW" -> stringResource(id = R.string.glucose_alert_state_low_now)
+            "CRITICAL_5" -> stringResource(id = R.string.glucose_alert_state_critical_5)
+            "WARNING_30" -> stringResource(id = R.string.glucose_alert_state_warning_30)
+            "WATCH_60" -> stringResource(id = R.string.glucose_alert_state_watch_60)
+            "SOFT_HIGH_RISK" -> stringResource(id = R.string.glucose_alert_state_soft_high)
+            else -> stringResource(id = R.string.glucose_alert_state_none)
+        }
+        val directionText = when (state.glucoseAlertDirection?.uppercase(Locale.US)) {
+            "LOW" -> stringResource(id = R.string.glucose_alert_direction_low)
+            "HIGH" -> stringResource(id = R.string.glucose_alert_direction_high)
+            else -> stringResource(id = R.string.placeholder_missing)
+        }
+        val disableReasonText = state.glucoseAlertDisableReason?.let { reason ->
+            when (reason.lowercase(Locale.US)) {
+                "stale_data" -> stringResource(id = R.string.glucose_alert_disable_stale)
+                "sensor_blocked" -> stringResource(id = R.string.glucose_alert_disable_sensor_blocked)
+                "suspect_false_low" -> stringResource(id = R.string.glucose_alert_disable_false_low)
+                "missing_forecast30" -> stringResource(id = R.string.glucose_alert_disable_missing_forecast)
+                "soft_alerts_disabled" -> stringResource(id = R.string.glucose_alert_disable_disabled)
+                "glucose_alert_muted" -> stringResource(id = R.string.glucose_alert_disable_muted)
+                else -> reason.replace('_', ' ')
+            }
+        } ?: stringResource(id = R.string.placeholder_missing)
+
+        SafetyInfoCard {
+            SafetyInfoLine(stringResource(id = R.string.glucose_alert_summary_state), statusText)
+            SafetyInfoLine(stringResource(id = R.string.glucose_alert_summary_direction), directionText)
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_low),
+                state.glucoseAlertLowThreshold?.let { "${String.format(Locale.US, "%.1f", it)} mmol/L" }
+                    ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_high),
+                state.glucoseAlertHighThreshold?.let { "${String.format(Locale.US, "%.1f", it)} mmol/L" }
+                    ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_urgent_low),
+                state.glucoseAlertUrgentLowThreshold?.let { "${String.format(Locale.US, "%.1f", it)} mmol/L" }
+                    ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_last_soft),
+                state.glucoseAlertSoftLastTs?.let(::formatSafetyTs) ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_last_strong),
+                state.glucoseAlertStrongLastTs?.let(::formatSafetyTs) ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_soft_clip),
+                "${state.glucoseAlertSoftClipLabel} · " + if (state.glucoseAlertSoftClipValid) {
+                    stringResource(id = R.string.settings_glucose_alerts_audio_valid)
+                } else {
+                    stringResource(id = R.string.settings_glucose_alerts_audio_fallback)
+                }
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_critical_clip_1),
+                "${state.glucoseAlertCriticalClip1Label} · " + if (state.glucoseAlertCriticalClip1Valid) {
+                    stringResource(id = R.string.settings_glucose_alerts_audio_valid)
+                } else {
+                    stringResource(id = R.string.settings_glucose_alerts_audio_fallback)
+                }
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.glucose_alert_summary_critical_clip_2),
+                "${state.glucoseAlertCriticalClip2Label} · " + if (state.glucoseAlertCriticalClip2Valid) {
+                    stringResource(id = R.string.settings_glucose_alerts_audio_valid)
+                } else {
+                    stringResource(id = R.string.settings_glucose_alerts_audio_fallback)
+                }
+            )
+            SafetyInfoLine(stringResource(id = R.string.glucose_alert_summary_disable_reason), disableReasonText)
+        }
+    }
+}
+
+@Composable
+private fun TherapyHistoryDiagnosticsCard(state: SafetyUiState) {
+    SafetySectionCard {
+        SafetySectionLabel(
+            text = stringResource(id = R.string.section_safety_therapy_history),
+            infoText = stringResource(id = R.string.safety_info_therapy_history)
+        )
+        val modeText = when (state.therapyHistorySourceMode?.uppercase(Locale.US)) {
+            "SPARSE_REAL_FETCHED" -> stringResource(id = R.string.therapy_history_mode_sparse_real_fetched)
+            "REAL_FETCHED" -> stringResource(id = R.string.therapy_history_mode_real_fetched)
+            "RECOVERED_PLATEAU_ONLY" -> stringResource(id = R.string.therapy_history_mode_recovered_plateau)
+            "SYNTHETIC_ONLY" -> stringResource(id = R.string.therapy_history_mode_synthetic_only)
+            "MIXED_NO_REAL" -> stringResource(id = R.string.therapy_history_mode_mixed_no_real)
+            "EMPTY" -> stringResource(id = R.string.therapy_history_mode_empty)
+            else -> stringResource(id = R.string.placeholder_missing)
+        }
+        SafetyInfoCard {
+            SafetyInfoLine(stringResource(id = R.string.therapy_history_summary_mode), modeText)
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_real),
+                state.therapyHistoryRealFetchedInsulin30d?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_recovered),
+                state.therapyHistoryRecoveredInsulin30d?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_inferred),
+                state.therapyHistoryInferredInsulin30d?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_usable),
+                state.therapyHistoryUsableInsulin30d?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_raw),
+                state.therapyHistoryRawInsulin30d?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_synthetic_ratio),
+                state.therapyHistorySyntheticRatioPct?.let { "${String.format(Locale.US, "%.0f", it)}%" }
+                    ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_last_sync_treatments),
+                state.therapyHistoryLastSyncTreatmentCount?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_last_sync_insulin_like),
+                state.therapyHistoryLastSyncInsulinLikeCount?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_last_sync_carb_like),
+                state.therapyHistoryLastSyncCarbLikeCount?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_last_sync_local_actions),
+                state.therapyHistoryLastSyncLocalActionCount?.toString() ?: stringResource(id = R.string.placeholder_missing)
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_upstream_temp_target_only),
+                if (state.therapyHistoryUpstreamTempTargetOnly == true) {
+                    stringResource(id = R.string.yes)
+                } else {
+                    stringResource(id = R.string.no)
+                }
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_bootstrap),
+                if (state.therapyHistoryBootstrapNeeded == true) {
+                    stringResource(id = R.string.therapy_history_bootstrap_needed_yes)
+                } else {
+                    stringResource(id = R.string.therapy_history_bootstrap_needed_no)
+                }
+            )
+            SafetyInfoLine(
+                stringResource(id = R.string.therapy_history_summary_plateau_only),
+                if (state.therapyHistoryPlateauOnly == true) {
+                    stringResource(id = R.string.yes)
+                } else {
+                    stringResource(id = R.string.no)
+                }
+            )
+        }
+    }
+}
+
+@Composable
 private fun BoundAdjustRow(
     title: String,
     subtitle: String,
@@ -390,6 +593,9 @@ private fun BoundAdjustRow(
     onChange: (Double) -> Unit
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val primaryTextColor = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
+    val controlColor = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onSurface
+    val disabledControlColor = if (midnightGlass) Color(0x665D6B84) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     Surface(
         shape = SafetyInfoShape,
         color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
@@ -403,7 +609,8 @@ private fun BoundAdjustRow(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelMedium
+                style = MaterialTheme.typography.labelMedium,
+                color = primaryTextColor
             )
             Text(
                 text = subtitle,
@@ -419,22 +626,27 @@ private fun BoundAdjustRow(
                     enabled = value > min + 0.0001,
                     onClick = { onChange((value - 0.1).coerceAtLeast(min)) }
                 ) {
+                    val enabled = value > min + 0.0001
                     Icon(
                         imageVector = Icons.Default.Remove,
-                        contentDescription = null
+                        contentDescription = null,
+                        tint = if (enabled) controlColor else disabledControlColor
                     )
                 }
                 Text(
                     text = "${"%.1f".format(value)} ${stringResource(id = R.string.unit_mmol_l)}",
-                    style = MaterialTheme.typography.titleSmall
+                    style = MaterialTheme.typography.titleSmall,
+                    color = primaryTextColor
                 )
                 IconButton(
                     enabled = value < max - 0.0001,
                     onClick = { onChange((value + 0.1).coerceAtMost(max)) }
                 ) {
+                    val enabled = value < max - 0.0001
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = null
+                        contentDescription = null,
+                        tint = if (enabled) controlColor else disabledControlColor
                     )
                 }
             }
@@ -470,6 +682,49 @@ private fun StatCell(
                 color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
         }
+    }
+}
+
+@Composable
+private fun SafetyInfoCard(
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    Surface(
+        shape = SafetyInfoShape,
+        color = if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun SafetyInfoLine(
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
@@ -604,13 +859,13 @@ private fun SafetySectionCard(
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = if (midnightGlass) RoundedCornerShape(28.dp) else SafetySectionShape,
-        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
+        shape = SafetySectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.md),
+            modifier = Modifier.padding(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             content = content
         )

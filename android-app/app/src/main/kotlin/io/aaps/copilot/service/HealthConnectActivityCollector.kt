@@ -13,7 +13,7 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.TelemetryMetricMapper
 import io.aaps.copilot.domain.activity.ActivityIntensity
-import io.aaps.copilot.scheduler.WorkScheduler
+import io.aaps.copilot.domain.activity.PhysicalActivityTelemetryPolicy
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -29,7 +29,8 @@ import kotlinx.coroutines.launch
 class HealthConnectActivityCollector(
     context: Context,
     private val db: CopilotDatabase,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val onClinicalInputPersisted: suspend () -> Unit = {}
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -39,6 +40,8 @@ class HealthConnectActivityCollector(
     private var started = false
     private var syncJob: Job? = null
     private var lastState: String? = null
+    private var lastPersistAtMs: Long = 0L
+    private var lastPayloadSignature: String? = null
 
     fun start() {
         synchronized(lock) {
@@ -141,15 +144,37 @@ class HealthConnectActivityCollector(
             "activityRatio" to format(activityRatio),
             "activityType" to activityLabel
         )
-        val telemetry = TelemetryMetricMapper.fromKeyValueMap(
+        val telemetry = TelemetryMetricMapper.fromPhysicalActivityKeyValueMap(
             timestamp = nowTs,
             source = SOURCE,
             values = payload
         )
-        if (telemetry.isEmpty()) return
+        if (telemetry.persistedMetrics.isEmpty()) return
 
-        db.telemetryDao().upsertAll(telemetry)
-        WorkScheduler.triggerReactiveAutomation(appContext)
+        val signature = payload.entries.joinToString(separator = "|") { "${it.key}=${it.value}" }
+        val shouldPersist = synchronized(lock) {
+            val unchanged = signature == lastPayloadSignature
+            val heartbeatDue = nowTs - lastPersistAtMs >= UNCHANGED_HEARTBEAT_INTERVAL_MS
+            if (!unchanged || heartbeatDue) {
+                lastPayloadSignature = signature
+                lastPersistAtMs = nowTs
+                true
+            } else {
+                false
+            }
+        }
+        val persisted = persistHealthConnectActivityClinicalInput(
+            shouldPersist = shouldPersist,
+            persist = {
+                db.telemetryDao().upsertPhysicalActivityMinute(telemetry.persistedMetrics)
+                if (telemetry.labels.isNotEmpty()) {
+                    db.telemetryDao().upsertAll(telemetry.labels)
+                }
+                true
+            },
+            onClinicalInputPersisted = onClinicalInputPersisted
+        )
+        if (!persisted) return
         reportState(
             state = "ok",
             metadata = mapOf(
@@ -214,9 +239,10 @@ class HealthConnectActivityCollector(
     private fun format(value: Double): String = String.format(Locale.US, "%.2f", value)
 
     companion object {
-        private const val SOURCE = "health_connect"
+        private const val SOURCE = PhysicalActivityTelemetryPolicy.HEALTH_CONNECT_SOURCE
         private const val PROVIDER_PACKAGE_NAME = "com.google.android.apps.healthdata"
         private const val SYNC_INTERVAL_MS = 5 * 60_000L
+        private const val UNCHANGED_HEARTBEAT_INTERVAL_MS = 15 * 60_000L
         private const val RECENT_WINDOW_MINUTES = 15L
         private const val ACTIVE_PACE_THRESHOLD_STEPS_PER_MIN = 20.0
 
@@ -227,4 +253,3 @@ class HealthConnectActivityCollector(
         )
     }
 }
-

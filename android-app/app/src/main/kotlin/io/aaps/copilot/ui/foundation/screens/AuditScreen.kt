@@ -63,7 +63,6 @@ fun AuditScreen(
     onMarkUamCorrect: (String) -> Unit,
     onMarkUamWrong: (String) -> Unit,
     onMergeUamWithManual: (String) -> Unit,
-    onExportUamToAaps: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val expanded = remember { mutableStateListOf<String>() }
@@ -128,8 +127,7 @@ fun AuditScreen(
                         state = uamState,
                         onMarkCorrect = onMarkUamCorrect,
                         onMarkWrong = onMarkUamWrong,
-                        onMergeWithManual = onMergeUamWithManual,
-                        onExportToAaps = onExportUamToAaps
+                        onMergeWithManual = onMergeUamWithManual
                     )
                 }
             }
@@ -511,8 +509,7 @@ private fun AuditScreenPreview() {
             onOnlyErrorsChange = {},
             onMarkUamCorrect = {},
             onMarkUamWrong = {},
-            onMergeUamWithManual = {},
-            onExportUamToAaps = {}
+            onMergeUamWithManual = {}
         )
     }
 }

@@ -134,12 +134,12 @@ class IsfCrEngineTest {
         }
         val therapy = listOf(
             TherapyEvent(
-                ts = t0 + 60 * 60_000L,
+                ts = t0,
                 type = "correction_bolus",
                 payload = mapOf("units" to "0.05")
             ),
             TherapyEvent(
-                ts = t0 + 120 * 60_000L,
+                ts = t0 + 250 * 60_000L,
                 type = "correction_bolus",
                 payload = mapOf("units" to "1.0")
             ),
@@ -149,7 +149,7 @@ class IsfCrEngineTest {
                 payload = mapOf("carbs" to "20")
             ),
             TherapyEvent(
-                ts = t0 + 180 * 60_000L,
+                ts = t0 + 240 * 60_000L,
                 type = "meal",
                 payload = mapOf("carbs" to "30")
             )
@@ -311,6 +311,154 @@ class IsfCrEngineTest {
         assertThat(resolved.crEff).isWithin(0.001).of(15.8)
         assertThat(resolved.reasons).contains("soft_shadow_keep")
         assertThat(resolved.reasons).doesNotContain("low_confidence_fallback")
+    }
+
+    @Test
+    fun fallbackResolver_usesSparseRealFetchedModeWhenHistoryIsThinButUsable() {
+        val resolver = IsfCrFallbackResolver()
+        val snapshot = IsfCrRealtimeSnapshot(
+            id = "snapshot-sparse-real",
+            ts = 1_700_902_000_000L,
+            isfEff = 2.74,
+            crEff = 13.8,
+            isfBase = 3.1,
+            crBase = 10.4,
+            ciIsfLow = 2.1,
+            ciIsfHigh = 3.3,
+            ciCrLow = 11.4,
+            ciCrHigh = 16.2,
+            confidence = 0.41,
+            qualityScore = 0.52,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 1.0,
+                "cr_hour_window_evidence_enough" to 0.0,
+                "isf_global_evidence_strong" to 1.0,
+                "cr_global_evidence_strong" to 1.0,
+                "sensor_quality_suspect_false_low" to 0.0,
+                "therapy_history_sparse_real_fetched" to 1.0,
+                "therapy_history_real_fetched_insulin_30d" to 4.0,
+                "therapy_history_usable_insulin_30d" to 4.0
+            ),
+            mode = IsfCrRuntimeMode.SHADOW,
+            isfEvidenceCount = 4,
+            crEvidenceCount = 5,
+            reasons = listOf("candidate_ready", "therapy_history_sparse_real_fetched")
+        )
+
+        val resolved = resolver.resolve(
+            snapshot = snapshot,
+            settings = IsfCrSettings(
+                confidenceThreshold = 0.55,
+                shadowMode = true,
+                minIsfEvidencePerHour = 2,
+                minCrEvidencePerHour = 2
+            ),
+            fallbackIsf = 3.1,
+            fallbackCr = 10.0
+        )
+
+        assertThat(resolved.mode).isEqualTo(IsfCrRuntimeMode.SPARSE_REAL_FETCHED)
+        assertThat(resolved.reasons).contains("sparse_real_fetched_keep")
+        assertThat(resolved.confidence).isAtMost(0.49)
+        assertThat(resolved.isfEff).isWithin(0.001).of(2.74)
+        assertThat(resolved.crEff).isWithin(0.001).of(13.8)
+    }
+
+    @Test
+    fun fallbackResolver_usesSparseRealFetchedModeWhenRecoveredRowsInflateUsableCount() {
+        val resolver = IsfCrFallbackResolver()
+        val snapshot = IsfCrRealtimeSnapshot(
+            id = "snapshot-sparse-inflated-usable",
+            ts = 1_700_902_500_000L,
+            isfEff = 2.74,
+            crEff = 13.8,
+            isfBase = 3.1,
+            crBase = 10.4,
+            ciIsfLow = 2.1,
+            ciIsfHigh = 3.3,
+            ciCrLow = 11.4,
+            ciCrHigh = 16.2,
+            confidence = 0.41,
+            qualityScore = 0.52,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 1.0,
+                "cr_hour_window_evidence_enough" to 0.0,
+                "isf_global_evidence_strong" to 1.0,
+                "cr_global_evidence_strong" to 1.0,
+                "sensor_quality_suspect_false_low" to 0.0,
+                "therapy_history_real_fetched_insulin_30d" to 6.0,
+                "therapy_history_recovered_insulin_30d" to 12.0,
+                "therapy_history_usable_insulin_30d" to 18.0
+            ),
+            mode = IsfCrRuntimeMode.SHADOW,
+            isfEvidenceCount = 4,
+            crEvidenceCount = 5,
+            reasons = listOf("candidate_ready")
+        )
+
+        val resolved = resolver.resolve(
+            snapshot = snapshot,
+            settings = IsfCrSettings(
+                confidenceThreshold = 0.55,
+                shadowMode = true,
+                minIsfEvidencePerHour = 2,
+                minCrEvidencePerHour = 2
+            ),
+            fallbackIsf = 3.1,
+            fallbackCr = 10.0
+        )
+
+        assertThat(resolved.mode).isEqualTo(IsfCrRuntimeMode.SPARSE_REAL_FETCHED)
+        assertThat(resolved.reasons).contains("sparse_real_fetched_keep")
+    }
+
+    @Test
+    fun fallbackResolver_keepsSparseModeEvenWhenConfidenceWouldNormallyAllowShadow() {
+        val resolver = IsfCrFallbackResolver()
+        val snapshot = IsfCrRealtimeSnapshot(
+            id = "snapshot-sparse-high-confidence",
+            ts = 1_700_903_000_000L,
+            isfEff = 2.74,
+            crEff = 13.8,
+            isfBase = 3.1,
+            crBase = 10.4,
+            ciIsfLow = 2.1,
+            ciIsfHigh = 3.3,
+            ciCrLow = 11.4,
+            ciCrHigh = 16.2,
+            confidence = 0.67,
+            qualityScore = 0.66,
+            factors = mapOf(
+                "isf_hour_window_evidence_enough" to 1.0,
+                "cr_hour_window_evidence_enough" to 1.0,
+                "isf_global_evidence_strong" to 1.0,
+                "cr_global_evidence_strong" to 1.0,
+                "sensor_quality_suspect_false_low" to 0.0,
+                "therapy_history_real_fetched_insulin_30d" to 6.0,
+                "therapy_history_recovered_insulin_30d" to 12.0,
+                "therapy_history_usable_insulin_30d" to 18.0
+            ),
+            mode = IsfCrRuntimeMode.SHADOW,
+            isfEvidenceCount = 6,
+            crEvidenceCount = 6,
+            reasons = listOf("candidate_ready")
+        )
+
+        val resolved = resolver.resolve(
+            snapshot = snapshot,
+            settings = IsfCrSettings(
+                confidenceThreshold = 0.55,
+                shadowMode = true,
+                minIsfEvidencePerHour = 2,
+                minCrEvidencePerHour = 2
+            ),
+            fallbackIsf = 3.1,
+            fallbackCr = 10.0
+        )
+
+        assertThat(resolved.mode).isEqualTo(IsfCrRuntimeMode.SPARSE_REAL_FETCHED)
+        assertThat(resolved.confidence).isAtMost(0.49)
+        assertThat(resolved.reasons).contains("sparse_real_fetched_keep")
     }
 
     @Test
@@ -676,7 +824,7 @@ class IsfCrEngineTest {
             )
             value += when {
                 ts in (t0 + 60 * 60_000L)..(t0 + 110 * 60_000L) -> -0.10
-                ts in (t0 + 180 * 60_000L)..(t0 + 220 * 60_000L) -> 0.12
+                ts in (t0 + 300 * 60_000L)..(t0 + 340 * 60_000L) -> 0.12
                 else -> -0.01
             }
             ts += 5 * 60_000L
@@ -689,12 +837,12 @@ class IsfCrEngineTest {
                 payload = mapOf("units" to "1.0")
             ),
             TherapyEvent(
-                ts = t0 + 180 * 60_000L,
+                ts = t0 + 300 * 60_000L,
                 type = "meal",
                 payload = mapOf("carbs" to "40")
             ),
             TherapyEvent(
-                ts = t0 + 178 * 60_000L,
+                ts = t0 + 298 * 60_000L,
                 type = "bolus",
                 payload = mapOf("units" to "4.0")
             ),

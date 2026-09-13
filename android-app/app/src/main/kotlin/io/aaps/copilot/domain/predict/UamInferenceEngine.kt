@@ -163,6 +163,13 @@ class UamInferenceEngine {
             }
         }
 
+        val lowManualCobNow = manualCobNow < maxOf(2.0, input.userSettings.manualCobThresholdG * 0.5)
+        val recentTail = intervals.takeLast(4)
+        val weakTailNow = recentTail.isNotEmpty() && recentTail.all { it.gAbs < threshold * 0.25 }
+        val calmTailNow = recentTail.isNotEmpty() &&
+            recentTail.maxOf { it.gAbs } < threshold * 0.18 &&
+            recentTail.sumOf { it.residualPos } < threshold * 0.35
+
         val updated = activeEvents.map { event ->
             val ageMinutes = ((input.nowTs - event.createdAt).coerceAtLeast(0L) / 60_000L).toInt()
             val fit = fitDiscrete(
@@ -172,11 +179,30 @@ class UamInferenceEngine {
                 settings = input.userSettings
             )
             if (fit == null) {
+                val shouldFinalizeConfirmed =
+                    event.state == UamInferenceState.CONFIRMED &&
+                        lowManualCobNow &&
+                        calmTailNow &&
+                        ageMinutes >= CONFIRMED_CALM_TAIL_FINALIZE_MINUTES
                 val shouldCloseStaleSuspected = event.state == UamInferenceState.SUSPECTED &&
-                    ageMinutes >= SUSPECTED_EVENT_FORCE_CLOSE_MINUTES
+                    (
+                        ageMinutes >= SUSPECTED_EVENT_FORCE_CLOSE_MINUTES ||
+                            (
+                                lowManualCobNow &&
+                                    calmTailNow &&
+                                    ageMinutes >= SUSPECTED_CALM_TAIL_CLOSE_MINUTES
+                                )
+                        )
                 return@map if (shouldCloseStaleSuspected) {
                     event.copy(
                         state = UamInferenceState.MERGED,
+                        updatedAt = input.nowTs,
+                        confidence = 0.0,
+                        learnedEligible = false
+                    )
+                } else if (shouldFinalizeConfirmed) {
+                    event.copy(
+                        state = UamInferenceState.FINAL,
                         updatedAt = input.nowTs,
                         confidence = 0.0,
                         learnedEligible = false
@@ -196,8 +222,19 @@ class UamInferenceEngine {
                 fit.confidence >= confirmConf && ageMinutes >= input.userSettings.minConfirmAgeMin -> UamInferenceState.CONFIRMED
                 else -> UamInferenceState.SUSPECTED
             }
-            val weakTail = intervals.takeLast(4).all { it.gAbs < threshold * 0.25 }
-            val finalState = if (nextState == UamInferenceState.CONFIRMED && weakTail && ageMinutes >= 90) {
+            val staleConfirmedShouldFinalize =
+                event.state == UamInferenceState.CONFIRMED &&
+                    lowManualCobNow &&
+                    (weakTailNow || calmTailNow) &&
+                    ageMinutes >= CONFIRMED_WEAK_TAIL_FINALIZE_MINUTES &&
+                    fit.confidence < CONFIRMED_STALE_CONFIDENCE_MAX
+            val finalState = if (
+                nextState == UamInferenceState.CONFIRMED &&
+                (
+                    (weakTailNow && ageMinutes >= 90) ||
+                        staleConfirmedShouldFinalize
+                    )
+            ) {
                 UamInferenceState.FINAL
             } else {
                 nextState
@@ -208,7 +245,13 @@ class UamInferenceEngine {
                         ageMinutes >= SUSPECTED_EVENT_FORCE_CLOSE_MINUTES ||
                             (
                                 ageMinutes >= SUSPECTED_WEAK_TAIL_CLOSE_MINUTES &&
-                                    weakTail &&
+                                    weakTailNow &&
+                                    fit.confidence < confirmConf * SUSPECTED_STALE_CONFIDENCE_FACTOR
+                                ) ||
+                            (
+                                ageMinutes >= SUSPECTED_CALM_TAIL_CLOSE_MINUTES &&
+                                    lowManualCobNow &&
+                                    calmTailNow &&
                                     fit.confidence < confirmConf * SUSPECTED_STALE_CONFIDENCE_FACTOR
                                 )
                         )
@@ -547,8 +590,12 @@ class UamInferenceEngine {
         const val FIVE_MIN_MS = 5 * 60_000L
         const val EVENT_LOOKBACK_MS = 8 * 60 * 60_000L
         const val DEFAULT_ISF = 2.3
+        const val CONFIRMED_CALM_TAIL_FINALIZE_MINUTES = 60
+        const val CONFIRMED_WEAK_TAIL_FINALIZE_MINUTES = 75
         const val SUSPECTED_WEAK_TAIL_CLOSE_MINUTES = 90
+        const val SUSPECTED_CALM_TAIL_CLOSE_MINUTES = 60
         const val SUSPECTED_EVENT_FORCE_CLOSE_MINUTES = 150
         const val SUSPECTED_STALE_CONFIDENCE_FACTOR = 0.85
+        const val CONFIRMED_STALE_CONFIDENCE_MAX = 0.55
     }
 }

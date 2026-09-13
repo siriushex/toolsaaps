@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Source Release Check (2026-09-13)
+
+- The full candidate test suite detected an obsolete shared TLS `.p12` asset
+  inherited from the old public branch. Removed that file from the release;
+  current runtime identity storage is per installation. No old key was printed
+  or reused. Historical revisions and older APKs are not erased by this change.
+- Packaging verification scans main assets for credential containers and checks
+  three legacy asset-loading references in `LocalNightscoutTls.kt`. It now also
+  works in a fresh checkout with no assets directory.
+- The server identity implementation is not a deployed inference service.
+  Production trust roots, signer policy, fresh revocations, private receipt key
+  provisioning and live job transport remain unverified release gates.
+
 ## Scope
 - Android app ingestion, sync, automation, outbound action delivery.
 - Backend API endpoints and scheduler jobs.

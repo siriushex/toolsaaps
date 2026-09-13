@@ -4,6 +4,7 @@ import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.TelemetrySignal
+import io.aaps.copilot.domain.events.CompensationEvent
 import java.time.ZoneId
 
 enum class IsfCrSampleType {
@@ -13,6 +14,7 @@ enum class IsfCrSampleType {
 
 enum class IsfCrRuntimeMode {
     ACTIVE,
+    SPARSE_REAL_FETCHED,
     SHADOW,
     FALLBACK
 }
@@ -60,7 +62,12 @@ data class PhysioContextTag(
     val tagType: String,
     val severity: Double,
     val source: String,
-    val note: String
+    val note: String,
+    val subtype: String = "",
+    val title: String = "",
+    val attributesJson: String = "{}",
+    val revision: Long = 1L,
+    val status: String = "ACTIVE"
 )
 
 data class IsfCrRealtimeSnapshot(
@@ -88,5 +95,6 @@ data class IsfCrHistoryBundle(
     val therapy: List<TherapyEvent>,
     val telemetry: List<TelemetrySignal>,
     val tags: List<PhysioContextTag>,
+    val events: List<CompensationEvent> = emptyList(),
     val zoneId: ZoneId = ZoneId.systemDefault()
 )

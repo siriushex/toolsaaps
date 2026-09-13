@@ -1,25 +1,295 @@
 package io.aaps.copilot.data.repository
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
+import androidx.room.withTransaction
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
+import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
+import io.aaps.copilot.service.PowerSaveRuntimeState
+import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.CopilotDatabaseIntegrityManager
+import io.aaps.copilot.service.CopilotDatabaseSnapshotManager
+import io.aaps.copilot.service.CopilotStorageCleanupManager
+import io.aaps.copilot.scheduler.ClinicalInputInvalidationSource
 import io.aaps.copilot.util.GlucoseUnitNormalizer
+import io.aaps.copilot.widget.CopilotGlucoseWidgetUpdater
 import kotlin.math.abs
 import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
-class BroadcastIngestRepository(
-    private val db: CopilotDatabase,
-    private val auditLogger: AuditLogger
+internal const val BROADCAST_INVALIDATION_OUTBOX_SOURCE =
+    "broadcast_ingest_invalidation_pending"
+private const val BROADCAST_INVALIDATION_OUTBOX_MARKER = 1L
+
+internal fun selectBroadcastGlucoseTimestamp(
+    action: String,
+    extras: Map<String, String>,
+    fallbackNowMs: Long
+): Long? {
+    val isStatus = (
+        action == "info.nightscout.androidaps.status" ||
+            action == "app.aaps.status"
+        )
+    if (isStatus) {
+        // AAPS timestamp is relay creation time; date is the actual CGM sample time.
+        val sampleDate = extras.entries
+            .firstOrNull { it.key.equals("date", ignoreCase = true) }
+            ?.value
+        return parseBroadcastTimestamp(sampleDate)
+    }
+    val preferredKeys = listOf("timestamp", "time", "date", "mills", "created_at")
+    preferredKeys.forEach { preferredKey ->
+        val raw = extras.entries
+            .firstOrNull { it.key.equals(preferredKey, ignoreCase = true) }
+            ?.value
+        parseBroadcastTimestamp(raw)?.let { return it }
+    }
+    return fallbackNowMs
+}
+
+private fun parseBroadcastTimestamp(raw: String?): Long? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+    val numeric = trimmed.toLongOrNull()
+        ?: trimmed.toDoubleOrNull()?.toLong()
+    if (numeric != null) {
+        return (if (numeric < 10_000_000_000L) numeric * 1_000L else numeric)
+            .takeIf { it > 0L }
+    }
+    return runCatching { Instant.parse(trimmed).toEpochMilli() }.getOrNull()
+}
+
+internal data class AapsCarbStatusSignal(
+    val revisionId: Long?,
+    val hasExplicitTherapyPayload: Boolean
+)
+
+internal fun parseAapsCarbStatusSignal(
+    action: String,
+    extras: Map<String, String>
+): AapsCarbStatusSignal {
+    val isAapsStatus = action == "info.nightscout.androidaps.status" ||
+        action == "app.aaps.status"
+    val revisionId = if (isAapsStatus) {
+        extras["aapsCarbRevisionId"]
+            ?.trim()
+            ?.toLongOrNull()
+            ?.takeIf { it >= 0L }
+    } else {
+        null
+    }
+    val hasExplicitTherapyPayload = action.startsWith("info.nightscout.androidaps.") &&
+        (
+            exactBroadcastValue(extras, "eventType", "event_type", "type") != null ||
+                exactBroadcastValue(extras, "enteredCarbs", "mealCarbs", "grams") != null ||
+                exactBroadcastValue(
+                    extras,
+                    "enteredInsulin",
+                    "bolusUnits",
+                    "insulinUnits",
+                    "units"
+                ) != null ||
+                exactBroadcastValue(extras, "duration", "durationInMinutes") != null ||
+                exactBroadcastValue(
+                    extras,
+                    "targetBottom",
+                    "target_bottom",
+                    "targetLow"
+                ) != null ||
+                exactBroadcastValue(
+                    extras,
+                    "targetTop",
+                    "target_top",
+                    "targetHigh"
+                ) != null ||
+                exactBroadcastValue(extras, "reason", "notes", "enteredBy")
+                    ?.contains("uam_engine", ignoreCase = true) == true
+            )
+    return AapsCarbStatusSignal(
+        revisionId = revisionId,
+        hasExplicitTherapyPayload = hasExplicitTherapyPayload
+    )
+}
+
+private fun exactBroadcastValue(
+    extras: Map<String, String>,
+    vararg keys: String
+): String? = keys.firstNotNullOfOrNull { key ->
+    extras.entries
+        .firstOrNull { it.key.equals(key, ignoreCase = true) }
+        ?.value
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
+internal class BroadcastReactiveInvalidationPolicy(
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val glucoseIntervalMs: Long = 4 * 60_000L,
+    private val telemetryIntervalMs: Long = 5 * 60_000L
 ) {
+    private val lastGlucoseReactiveAtMs = AtomicLong(UNCLAIMED)
+    private val lastTelemetryOnlyReactiveAtMs = AtomicLong(UNCLAIMED)
+
+    fun shouldInvalidate(
+        result: BroadcastIngestRepository.IngestResult,
+        telemetryOnlyCoalescedAction: Boolean
+    ): Boolean {
+        if (!shouldPersistOutbox(result, telemetryOnlyCoalescedAction)) return false
+        recordSuccessfulInvalidation(result, telemetryOnlyCoalescedAction)
+        return true
+    }
+
+    fun shouldPersistOutbox(
+        result: BroadcastIngestRepository.IngestResult,
+        telemetryOnlyCoalescedAction: Boolean
+    ): Boolean {
+        if (result.therapyImported > 0) return true
+        if (result.glucoseImported > 0) {
+            val glucose = result.latestGlucoseMmol
+            if (glucose != null && (glucose <= 4.0 || glucose >= 13.0)) return true
+            return slotAvailable(lastGlucoseReactiveAtMs, glucoseIntervalMs)
+        }
+        if (result.telemetryImported <= 0) return false
+        if (!telemetryOnlyCoalescedAction) return true
+        return slotAvailable(lastTelemetryOnlyReactiveAtMs, telemetryIntervalMs)
+    }
+
+    fun recordSuccessfulInvalidation(
+        result: BroadcastIngestRepository.IngestResult,
+        telemetryOnlyCoalescedAction: Boolean
+    ) {
+        if (result.therapyImported > 0) return
+        if (result.glucoseImported > 0) {
+            val glucose = result.latestGlucoseMmol
+            if (glucose == null || (glucose > 4.0 && glucose < 13.0)) {
+                lastGlucoseReactiveAtMs.set(nowMs())
+            }
+            return
+        }
+        if (result.telemetryImported > 0 && telemetryOnlyCoalescedAction) {
+            lastTelemetryOnlyReactiveAtMs.set(nowMs())
+        }
+    }
+
+    private fun slotAvailable(slot: AtomicLong, intervalMs: Long): Boolean {
+        val now = nowMs()
+        val previous = slot.get()
+        return previous == UNCLAIMED || now - previous >= intervalMs
+    }
+
+    private companion object {
+        const val UNCLAIMED = -1L
+    }
+}
+
+internal suspend fun completeBroadcastIngestAfterPersistence(
+    result: BroadcastIngestRepository.IngestResult,
+    shouldInvalidate: Boolean,
+    onClinicalInputPersisted: suspend () -> Unit
+): BroadcastIngestRepository.IngestResult {
+    val hasDurableMutation = result.glucoseImported > 0 ||
+        result.therapyImported > 0 ||
+        result.telemetryImported > 0
+    if (!hasDurableMutation || !shouldInvalidate) return result
+    onClinicalInputPersisted()
+    return result.copy(reactiveInvalidationRequested = true)
+}
+
+internal suspend fun persistBroadcastIngestAndComplete(
+    persistence: suspend () -> BroadcastIngestRepository.IngestResult,
+    shouldInvalidate: (BroadcastIngestRepository.IngestResult) -> Boolean,
+    onClinicalInputPersisted: suspend () -> Unit
+): BroadcastIngestRepository.IngestResult {
+    val persisted = persistence()
+    return completeBroadcastIngestAfterPersistence(
+        result = persisted,
+        shouldInvalidate = shouldInvalidate(persisted),
+        onClinicalInputPersisted = onClinicalInputPersisted
+    )
+}
+
+class BroadcastIngestRepository internal constructor(
+    private val context: Context,
+    private val db: CopilotDatabase,
+    private val auditLogger: AuditLogger,
+    private val aapsCarbHistorySyncRepository: AapsCarbHistorySyncRepository? = null,
+    private val onClinicalInputPersisted: suspend (ClinicalInputInvalidationSource) -> Boolean = { true },
+    private val beforeOutboxPersist: suspend () -> Unit = {}
+) {
+    private val logTag = "BroadcastIngestDb"
+    private val ingestScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ingestQueue = Channel<Intent>(
+        capacity = INGEST_QUEUE_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    private val reactiveInvalidationPolicy = BroadcastReactiveInvalidationPolicy()
+    private val aapsCarbRevisionSignals = AapsCarbRevisionSignalCoordinator()
+    private val ingestMutex = Mutex()
+
+    init {
+        ingestScope.launch {
+            ingestMutex.withLock {
+                runCatching { dispatchPendingInvalidation(null, false) }
+                    .onFailure { error ->
+                        auditLogger.warn(
+                            "broadcast_invalidation_recovery_failed",
+                            mapOf("error" to (error.message ?: error::class.java.simpleName))
+                        )
+                    }
+            }
+        }
+        ingestScope.launch {
+            for (intent in ingestQueue) {
+                processQueuedIngest(intent)
+            }
+        }
+    }
+
+    fun enqueue(intent: Intent): Boolean {
+        val queuedIntent = Intent(intent)
+        val queued = ingestQueue.trySend(queuedIntent).isSuccess
+        if (!queued) {
+            Log.w(logTag, "enqueue:rejected action=${intent.action.orEmpty()}")
+            ingestScope.launch {
+                auditLogger.warn(
+                    "broadcast_ingest_queue_failed",
+                    mapOf("action" to intent.action.orEmpty(), "reason" to "queue_rejected")
+                )
+            }
+        }
+        return queued
+    }
 
     suspend fun ingest(intent: Intent): IngestResult {
+        return ingestMutex.withLock {
+            val action = intent.action.orEmpty()
+            val telemetryOnlyCoalescedAction = isTelemetryOnlyCoalescedAction(action)
+            val persisted = persistIngest(intent, telemetryOnlyCoalescedAction)
+            val dispatched = dispatchPendingInvalidation(persisted, telemetryOnlyCoalescedAction)
+            persisted.copy(reactiveInvalidationRequested = dispatched)
+        }
+    }
+
+    private suspend fun persistIngest(
+        intent: Intent,
+        telemetryOnlyCoalescedAction: Boolean
+    ): IngestResult {
         val action = intent.action.orEmpty()
         if (action.isBlank()) {
             auditLogger.warn("broadcast_ingest_skipped", mapOf("reason" to "missing_action"))
@@ -30,72 +300,185 @@ class BroadcastIngestRepository(
 
         val extras = flattenExtras(intent)
         val source = resolveSource(action)
+        val aapsCarbStatusSignal = parseAapsCarbStatusSignal(action, extras)
         val glucose = parseGlucose(action, extras)
         val therapy = parseTherapy(action, extras)
-        val telemetry = buildList {
-            addAll(parseTelemetry(action, source, extras))
-            glucose?.let { addAll(buildGlucoseInputTelemetry(it)) }
-        }
+        val parsedTelemetry = parseTelemetry(action, source, extras) +
+            buildAapsCarbRevisionTelemetry(
+                action = action,
+                source = source,
+                revisionId = aapsCarbStatusSignal.revisionId
+            )
+        val glucoseInputTelemetry = mutableListOf<TelemetrySampleEntity>()
 
-        var importedGlucose = 0
-        var importedTherapy = 0
-        var importedTelemetry = 0
+        val result = db.withTransaction {
+            var importedGlucose = 0
+            var importedGlucoseMmol: Double? = null
+            var importedTherapy = 0
+            var importedTelemetry = 0
 
-        glucose?.let { parsed ->
-            val sample = parsed.sample
-            val outlier = isGlucoseOutlier(sample)
-            if (outlier) {
-                auditLogger.warn(
-                    "broadcast_glucose_outlier_skipped",
-                    mapOf(
-                        "action" to action,
-                        "source" to sample.source,
-                        "timestamp" to sample.timestamp,
-                        "mmol" to sample.mmol
+            glucose?.let { parsed ->
+                val sample = parsed.sample
+                val outlier = isGlucoseOutlier(sample)
+                if (outlier) {
+                    auditLogger.warn(
+                        "broadcast_glucose_outlier_skipped",
+                        mapOf(
+                            "action" to action,
+                            "source" to sample.source,
+                            "timestamp" to sample.timestamp,
+                            "mmol" to sample.mmol
+                        )
                     )
-                )
-            } else {
-                val existing = db.glucoseDao().bySourceAndTimestamp(sample.source, sample.timestamp)
-                if (existing != null) {
-                    val differs = abs(existing.mmol - sample.mmol) > GLUCOSE_REPLACE_EPSILON
-                    if (differs || existing.quality != sample.quality) {
-                        db.glucoseDao().deleteBySourceAndTimestamp(sample.source, sample.timestamp)
+                } else {
+                    val existing = db.glucoseDao()
+                        .bySourceAndTimestamp(sample.source, sample.timestamp)
+                    if (existing != null) {
+                        val differs = abs(existing.mmol - sample.mmol) > GLUCOSE_REPLACE_EPSILON
+                        if (differs || existing.quality != sample.quality) {
+                            db.glucoseDao()
+                                .deleteBySourceAndTimestamp(sample.source, sample.timestamp)
+                            db.glucoseDao().upsertAll(listOf(sample))
+                            importedGlucose = 1
+                            importedGlucoseMmol = sample.mmol
+                            glucoseInputTelemetry += buildGlucoseInputTelemetry(parsed)
+                        }
+                    } else {
                         db.glucoseDao().upsertAll(listOf(sample))
                         importedGlucose = 1
+                        importedGlucoseMmol = sample.mmol
+                        glucoseInputTelemetry += buildGlucoseInputTelemetry(parsed)
                     }
-                } else {
-                    db.glucoseDao().upsertAll(listOf(sample))
-                    importedGlucose = 1
                 }
             }
-        }
-        if (therapy.isNotEmpty()) {
-            db.therapyDao().upsertAll(therapy)
-            importedTherapy = therapy.size
-        }
-        if (telemetry.isNotEmpty()) {
-            db.telemetryDao().upsertAll(telemetry)
-            importedTelemetry = telemetry.size
-        }
+            if (therapy.isNotEmpty()) {
+                val distinctTherapy = therapy.distinctBy { it.id }
+                val existingById = db.therapyDao().byIds(distinctTherapy.map { it.id })
+                    .associateBy { it.id }
+                val changedTherapy = distinctTherapy.filter { existingById[it.id] != it }
+                if (changedTherapy.isNotEmpty()) {
+                    db.therapyDao().upsertAll(changedTherapy)
+                    importedTherapy = changedTherapy.size
+                }
+            }
+            val telemetry = if (glucoseInputTelemetry.isEmpty()) {
+                parsedTelemetry
+            } else {
+                parsedTelemetry + glucoseInputTelemetry
+            }
+            if (telemetry.isNotEmpty()) {
+                val distinctTelemetry = telemetry.distinctBy { it.id }
+                val existingById = db.telemetryDao().byIds(distinctTelemetry.map { it.id })
+                    .associateBy { it.id }
+                val changedTelemetry = distinctTelemetry.filter { existingById[it.id] != it }
+                if (changedTelemetry.isNotEmpty()) {
+                    db.telemetryDao().upsertAll(changedTelemetry)
+                    importedTelemetry = changedTelemetry.size
+                }
+            }
 
-        if (importedGlucose == 0 && importedTherapy == 0 && importedTelemetry == 0) {
+            val persisted = if (
+                importedGlucose == 0 && importedTherapy == 0 && importedTelemetry == 0
+            ) {
+                IngestResult(0, 0, 0, "no_supported_payload")
+            } else {
+                IngestResult(
+                    importedGlucose,
+                    importedTherapy,
+                    importedTelemetry,
+                    null,
+                    importedGlucoseMmol
+                )
+            }
+            if (importedGlucose > 0 || importedTherapy > 0 || importedTelemetry > 0) {
+                beforeOutboxPersist()
+                if (
+                    reactiveInvalidationPolicy.shouldPersistOutbox(
+                        result = persisted,
+                        telemetryOnlyCoalescedAction = telemetryOnlyCoalescedAction
+                    )
+                ) {
+                    db.syncStateDao().upsert(
+                        SyncStateEntity(
+                            source = BROADCAST_INVALIDATION_OUTBOX_SOURCE,
+                            lastSyncedTimestamp = BROADCAST_INVALIDATION_OUTBOX_MARKER
+                        )
+                    )
+                }
+            }
+            persisted
+        }
+        aapsCarbStatusSignal.revisionId?.let(::signalAapsCarbRevision)
+
+        if (
+            result.glucoseImported == 0 &&
+            result.therapyImported == 0 &&
+            result.telemetryImported == 0
+        ) {
             auditLogger.warn(
                 "broadcast_ingest_no_data",
                 mapOf("action" to action, "keys" to extras.keys.take(20))
             )
-            return IngestResult(0, 0, 0, "no_supported_payload")
+            return result
         }
 
-        auditLogger.info(
-            "broadcast_ingest_completed",
-            mapOf(
-                "action" to action,
-                "glucose" to importedGlucose,
-                "therapy" to importedTherapy,
-                "telemetry" to importedTelemetry
-            )
+        logIngestCompleted(
+            action = action,
+            glucoseImported = result.glucoseImported,
+            therapyImported = result.therapyImported,
+            telemetryImported = result.telemetryImported
         )
-        return IngestResult(importedGlucose, importedTherapy, importedTelemetry, null)
+        return result
+    }
+
+    private suspend fun dispatchPendingInvalidation(
+        persisted: IngestResult?,
+        telemetryOnlyCoalescedAction: Boolean
+    ): Boolean {
+        if (db.syncStateDao().bySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE) == null) {
+            return false
+        }
+        val accepted = onClinicalInputPersisted(ClinicalInputInvalidationSource.BROADCAST_INGEST)
+        if (!accepted) return false
+        db.withTransaction {
+            db.syncStateDao().deleteBySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE)
+        }
+        persisted?.let {
+            reactiveInvalidationPolicy.recordSuccessfulInvalidation(
+                result = it,
+                telemetryOnlyCoalescedAction = telemetryOnlyCoalescedAction
+            )
+        }
+        return true
+    }
+
+    private suspend fun processQueuedIngest(intent: Intent) {
+        runCatching {
+            val result = ingest(intent)
+            if (result.glucoseImported > 0 || result.therapyImported > 0 || result.telemetryImported > 0) {
+                val action = intent.action.orEmpty()
+                val shouldRunReactiveAutomation = result.reactiveInvalidationRequested
+                if (
+                    TherapyActionRuntimeState.isArmed() &&
+                    !PowerSaveRuntimeState.isActive() &&
+                    (
+                        result.glucoseImported > 0 ||
+                            result.therapyImported > 0 ||
+                            shouldRunReactiveAutomation
+                        )
+                ) {
+                    CopilotGlucoseWidgetUpdater.requestUpdate(context.applicationContext)
+                }
+            }
+        }.onFailure { error ->
+            auditLogger.warn(
+                "broadcast_ingest_async_failed",
+                mapOf(
+                    "action" to intent.action.orEmpty(),
+                    "message" to (error.message ?: error::class.java.simpleName)
+                )
+            )
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -229,8 +612,7 @@ class BroadcastIngestRepository(
         )
         if (mmol !in 1.0..33.0) return null
 
-        val ts = normalizeTimestamp(
-            when (action) {
+        val rawTimestamp = when (action) {
                 ACTION_NS_EMULATOR -> parseNsEmulatorTimestampFallback(action, extras)
                     ?: findTimestamp(
                         extras,
@@ -243,19 +625,27 @@ class BroadcastIngestRepository(
                             "created_at"
                         )
                     )
-                else -> findTimestamp(
-                    extras,
-                    listOf(
-                        "com.eveningoutpost.dexdrip.Extras.Time",
-                        "timestamp",
-                        "time",
-                        "date",
-                        "mills",
-                        "created_at"
-                    )
-                ) ?: parseNsEmulatorTimestampFallback(action, extras)
-            } ?: System.currentTimeMillis()
-        )
+                else -> if (isHighFrequencyStatusAction(action)) {
+                    selectBroadcastGlucoseTimestamp(
+                        action = action,
+                        extras = extras,
+                        fallbackNowMs = System.currentTimeMillis()
+                    ) ?: return null
+                } else {
+                    findTimestamp(
+                        extras,
+                        listOf(
+                            "com.eveningoutpost.dexdrip.Extras.Time",
+                            "timestamp",
+                            "time",
+                            "date",
+                            "mills",
+                            "created_at"
+                        )
+                    ) ?: parseNsEmulatorTimestampFallback(action, extras)
+                }
+            }
+        val ts = normalizeTimestamp(rawTimestamp ?: System.currentTimeMillis())
 
         val source = resolveSource(action)
 
@@ -341,18 +731,7 @@ class BroadcastIngestRepository(
         val eventType = normalizeTherapyEventType(eventTypeRaw)
 
         if (isAapsStatusAction) {
-            val explicitCarbInput = findDoubleExact(extras, listOf("enteredCarbs", "mealCarbs", "grams"))
-            val explicitInsulinInput = findDoubleExact(extras, listOf("enteredInsulin", "bolusUnits", "insulinUnits", "units"))
-            val explicitReason = findStringExact(extras, listOf("reason", "notes", "enteredBy"))
-            val hasExplicitTherapyHints =
-                eventTypeRaw != null ||
-                    explicitCarbInput != null ||
-                    explicitInsulinInput != null ||
-                    duration != null ||
-                    targetBottom != null ||
-                    targetTop != null ||
-                    explicitReason?.contains("uam_engine", ignoreCase = true) == true
-            if (!hasExplicitTherapyHints) {
+            if (!parseAapsCarbStatusSignal(action, extras).hasExplicitTherapyPayload) {
                 // Most androidaps.* status broadcasts are telemetry-only; avoid synthetic therapy noise.
                 return emptyList()
             }
@@ -498,20 +877,57 @@ class BroadcastIngestRepository(
         extras: Map<String, String>
     ): List<TelemetrySampleEntity> {
         val isStatusAction = isHighFrequencyStatusAction(action)
-        val telemetryTs = if (isStatusAction) {
-            // Status packets may carry glucose/event timestamps that are older than actual receive time.
-            // For coverage/freshness and analysis cadence we persist by ingest wall-clock timestamp.
-            System.currentTimeMillis()
-        } else {
-            extractTimestamp(extras)
+        val receivedAtMs = System.currentTimeMillis()
+        if (isStatusAction) {
+            return mapHighFrequencyStatusTelemetry(
+                source = source,
+                extras = extras,
+                receivedAtMs = receivedAtMs
+            )
         }
-        val mapped = TelemetryMetricMapper.fromKeyValueMap(
-            timestamp = telemetryTs,
+        return TelemetryMetricMapper.fromKeyValueMap(
+            timestamp = extractTimestamp(extras),
             source = source,
-            values = extras
+            values = extras,
+            observedAtTimestamp = receivedAtMs
         )
-        if (!isStatusAction) return mapped
-        return normalizeStatusTelemetry(mapped)
+    }
+
+    private fun buildAapsCarbRevisionTelemetry(
+        action: String,
+        source: String,
+        revisionId: Long?
+    ): List<TelemetrySampleEntity> {
+        if (revisionId == null || !isHighFrequencyStatusAction(action)) return emptyList()
+        val timestamp = normalizeHighFrequencyStatusTimestamp(System.currentTimeMillis())
+        return listOf(
+            TelemetrySampleEntity(
+                id = "tm-$source-$AAPS_CARB_REVISION_TELEMETRY_KEY-$timestamp",
+                timestamp = timestamp,
+                source = source,
+                key = AAPS_CARB_REVISION_TELEMETRY_KEY,
+                valueDouble = null,
+                valueText = revisionId.toString(),
+                unit = null,
+                quality = "OK"
+            )
+        )
+    }
+
+    private fun signalAapsCarbRevision(revisionId: Long) {
+        val repository = aapsCarbHistorySyncRepository ?: return
+        if (!aapsCarbRevisionSignals.tryStart(revisionId)) return
+        launchAapsCarbRevisionWorker(repository)
+    }
+
+    private fun launchAapsCarbRevisionWorker(repository: AapsCarbHistorySyncRepository) {
+        ingestScope.launch {
+            runAapsCarbRevisionSignalWorker(
+                coordinator = aapsCarbRevisionSignals,
+                syncForRevision = repository::syncForRevision,
+                relaunch = { launchAapsCarbRevisionWorker(repository) }
+            )
+        }
     }
 
     private fun extractTimestamp(extras: Map<String, String>): Long = normalizeTimestamp(
@@ -604,7 +1020,7 @@ class BroadcastIngestRepository(
         val dedupNightscout = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "nightscout")
         val dedupAaps = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "aaps_broadcast")
         val dedupLocal = db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source = "local_broadcast")
-        val dedupByTimestamp = deduplicateGlucoseByTimestamp()
+        val dedupByTimestamp = db.glucoseDao().deleteDuplicateByTimestampWithPriority()
         if (
             removedTherapy > 0 ||
             removedInvalidTimestamp > 0 ||
@@ -641,22 +1057,34 @@ class BroadcastIngestRepository(
         }
     }
 
-    private suspend fun deduplicateGlucoseByTimestamp(): Int {
-        val allRows = db.glucoseDao().since(0L)
-        val idsToDelete = GlucoseSanitizer.duplicateEntityIdsToDelete(allRows)
-        if (idsToDelete.isEmpty()) return 0
-        return idsToDelete
-            .chunked(250)
-            .sumOf { ids -> db.glucoseDao().deleteByIds(ids) }
+    suspend fun runPeriodicMaintenanceNowForDebug() {
+        runPeriodicMaintenance(force = true)
     }
 
     private suspend fun runPeriodicMaintenanceIfNeeded() {
+        runPeriodicMaintenance(force = false)
+    }
+
+    private suspend fun runPeriodicMaintenance(force: Boolean) {
         val now = System.currentTimeMillis()
-        val last = lastMaintenanceAtMs.get()
-        if (now - last < MAINTENANCE_INTERVAL_MS) return
-        if (!lastMaintenanceAtMs.compareAndSet(last, now)) return
+        val lastAtomic = lastMaintenanceAtMs.get()
+        val last = maxOf(
+            lastAtomic,
+            CopilotDatabaseSnapshotManager.latestRollingCopyTimestamp(context)
+        )
+        if (!force && now - last < MAINTENANCE_INTERVAL_MS) return
+        if (!lastMaintenanceAtMs.compareAndSet(lastAtomic, now)) return
         runCatching {
-            checkDatabaseIntegrity()
+            if (!checkDatabaseIntegrity()) return@runCatching
+            val snapshotResult = CopilotDatabaseSnapshotManager.refreshRollingCopies(
+                context = context,
+                db = db,
+                auditLogger = auditLogger
+            )
+            CopilotStorageCleanupManager.cleanupNonEssentialFiles(
+                context = context,
+                auditLogger = auditLogger
+            )
             pruneLegacyInvalidBroadcastGlucose()
             pruneLegacyBroadcastArtifacts()
         }.onFailure {
@@ -667,7 +1095,7 @@ class BroadcastIngestRepository(
         }
     }
 
-    private suspend fun checkDatabaseIntegrity() {
+    private suspend fun checkDatabaseIntegrity(): Boolean {
         val quickCheck = runCatching {
             db.openHelper.writableDatabase
                 .query("PRAGMA quick_check")
@@ -679,15 +1107,37 @@ class BroadcastIngestRepository(
                 "db_integrity_check_failed",
                 mapOf("reason" to (error.message ?: "unknown"))
             )
-            return
+            return false
         }
         if (quickCheck.equals("ok", ignoreCase = true)) {
             auditLogger.info("db_integrity_ok", emptyMap<String, Any>())
-            return
+            Log.i(logTag, "checkDatabaseIntegrity:ok")
+            return true
         }
+        val restoreSource = CopilotDatabaseIntegrityManager.bestRestoreSource(context)
+        val salvageSnapshot = CopilotDatabaseSnapshotManager.refreshRollingCopies(
+            context = context,
+            db = db,
+            auditLogger = auditLogger,
+            allowLargeSource = true
+        )
+        Log.w(
+            logTag,
+            "checkDatabaseIntegrity:issue quickCheck=$quickCheck restoreSource=${restoreSource?.sourceKind} salvage=${salvageSnapshot.success} salvageError=${salvageSnapshot.error}"
+        )
         auditLogger.warn(
             "db_integrity_issue_detected",
-            mapOf("quickCheck" to quickCheck)
+            buildMap<String, Any?> {
+                put("quickCheck", quickCheck)
+                put("restartRequired", restoreSource != null)
+                put("restoreSource", restoreSource?.sourceKind)
+                put("restoreSourceQuickCheck", restoreSource?.quickCheck)
+                put("restoreSourcePath", restoreSource?.path)
+                put("salvageSnapshotCreated", salvageSnapshot.success)
+                put("salvageSnapshotPath", salvageSnapshot.snapshotPath)
+                put("salvageSnapshotIntegrity", salvageSnapshot.snapshotIntegrity)
+                put("salvageSnapshotError", salvageSnapshot.error)
+            }
         )
         runCatching {
             db.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
@@ -697,10 +1147,39 @@ class BroadcastIngestRepository(
                 mapOf("reason" to (error.message ?: "unknown"))
             )
         }
+        return false
     }
 
     private fun isHighFrequencyStatusAction(action: String): Boolean {
         return action == "info.nightscout.androidaps.status" || action == "app.aaps.status"
+    }
+
+    private fun isTelemetryOnlyCoalescedAction(action: String): Boolean {
+        return isHighFrequencyStatusAction(action) || isSupportedGlucoseAction(action)
+    }
+
+    private suspend fun logIngestCompleted(
+        action: String,
+        glucoseImported: Int,
+        therapyImported: Int,
+        telemetryImported: Int
+    ) {
+        val metadata = mapOf(
+            "action" to action,
+            "glucose" to glucoseImported,
+            "therapy" to therapyImported,
+            "telemetry" to telemetryImported
+        )
+        if (isTelemetryOnlyCoalescedAction(action)) {
+            auditLogger.infoThrottled(
+                throttleKey = "broadcast_ingest_completed:$action",
+                intervalMs = HIGH_FREQUENCY_INGEST_AUDIT_INTERVAL_MS,
+                message = "broadcast_ingest_completed",
+                metadata = metadata
+            )
+        } else {
+            auditLogger.info("broadcast_ingest_completed", metadata)
+        }
     }
 
     private fun normalizeTimestamp(ts: Long): Long {
@@ -801,10 +1280,17 @@ class BroadcastIngestRepository(
         val glucoseImported: Int,
         val therapyImported: Int,
         val telemetryImported: Int,
-        val warning: String?
+        val warning: String?,
+        val latestGlucoseMmol: Double? = null,
+        val reactiveInvalidationRequested: Boolean = false
     )
 
     companion object {
+        private const val AAPS_CARB_REVISION_TELEMETRY_KEY =
+            "aaps_carb_history_revision_id"
+        private const val INGEST_QUEUE_CAPACITY = 256
+        private const val HIGH_FREQUENCY_INGEST_AUDIT_INTERVAL_MS = 5 * 60_000L
+        private const val HIGH_FREQUENCY_STATUS_TELEMETRY_BUCKET_MS = 5 * 60_000L
         private const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
         private val NS_EMULATOR_JSON_GLUCOSE_KEYS = listOf("sgv", "glucose", "mgdl", "bgestimate", "bg")
         private val NS_EMULATOR_JSON_TS_KEYS = listOf("date", "mills", "timestamp", "time")
@@ -841,6 +1327,28 @@ class BroadcastIngestRepository(
                 }
             val raw = mapped.filter { it.key.startsWith("raw_") || it.key.startsWith("ns_") }
             return (canonical + statusProjected + raw).distinctBy { it.id }
+        }
+
+        internal fun normalizeHighFrequencyStatusTimestamp(nowMs: Long): Long {
+            if (nowMs <= 0L) return 0L
+            return (nowMs / HIGH_FREQUENCY_STATUS_TELEMETRY_BUCKET_MS) *
+                HIGH_FREQUENCY_STATUS_TELEMETRY_BUCKET_MS
+        }
+
+        internal fun mapHighFrequencyStatusTelemetry(
+            source: String,
+            extras: Map<String, String>,
+            receivedAtMs: Long
+        ): List<TelemetrySampleEntity> {
+            // The row timestamp is an ingest bucket. iob_relay_timestamp_ms remains the
+            // independent AAPS calculation-cycle timestamp carried by the relay.
+            val mapped = TelemetryMetricMapper.fromKeyValueMap(
+                timestamp = normalizeHighFrequencyStatusTimestamp(receivedAtMs),
+                source = source,
+                values = extras,
+                observedAtTimestamp = receivedAtMs
+            )
+            return normalizeStatusTelemetry(mapped)
         }
 
         internal fun parseNsEmulatorGlucoseRaw(rawData: String): Double? {

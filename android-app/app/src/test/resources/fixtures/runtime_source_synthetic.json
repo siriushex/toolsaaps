@@ -1,0 +1,22 @@
+{
+  "timestamp": 1700000000000,
+  "aaps": {
+    "isf": 2.0,
+    "cr": 10.0,
+    "netIob": -0.25
+  },
+  "evidence": {
+    "isf": 3.0,
+    "cr": 12.0,
+    "confidence": 0.75,
+    "usable": true
+  },
+  "copilot": {
+    "isf": 4.0,
+    "cr": 11.0
+  },
+  "legacySettings": {
+    "isf": "COPILOT",
+    "cr": "AUTO"
+  }
+}

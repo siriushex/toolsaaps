@@ -3,21 +3,47 @@ package io.aaps.copilot.domain.isfcr
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.domain.model.TherapyComponentResolutionSession
+import io.aaps.copilot.domain.model.TherapyComponentSemantics
+import io.aaps.copilot.domain.model.resolveTherapyComponents
 import io.aaps.copilot.domain.predict.CarbAbsorptionProfiles
 import io.aaps.copilot.domain.predict.CarbAbsorptionType
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.InsulinActionProfiles
-import io.aaps.copilot.domain.predict.isSyntheticUamCarbEvent
+import io.aaps.copilot.domain.events.CompensationEvent
+import io.aaps.copilot.domain.events.CompensationEventType
+import io.aaps.copilot.domain.events.LocalEventImpactAnalyzer
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-class IsfCrWindowExtractor(
+private fun interface IsfCrComponentResolver {
+    fun resolve(event: TherapyEvent): TherapyComponentSemantics
+}
+
+class IsfCrWindowExtractor private constructor(
     private val qualityScorer: IsfCrQualityScorer = IsfCrQualityScorer(),
-    private val zoneId: ZoneId = ZoneId.systemDefault()
+    private val zoneId: ZoneId = ZoneId.systemDefault(),
+    private val componentResolver: IsfCrComponentResolver
 ) {
+    private val eventImpactAnalyzer = LocalEventImpactAnalyzer()
+
+    constructor(
+        qualityScorer: IsfCrQualityScorer = IsfCrQualityScorer(),
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ) : this(qualityScorer, zoneId, IsfCrComponentResolver(::resolveTherapyComponents))
+
+    internal constructor(
+        qualityScorer: IsfCrQualityScorer = IsfCrQualityScorer(),
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        componentResolver: (String, Map<String, String>) -> TherapyComponentSemantics
+    ) : this(
+        qualityScorer,
+        zoneId,
+        IsfCrComponentResolver { event -> componentResolver(event.type, event.payload) }
+    )
 
     data class ExtractionResult(
         val evidence: List<IsfCrEvidenceSample>,
@@ -42,13 +68,21 @@ class IsfCrWindowExtractor(
         settings: IsfCrSettings,
         isfReference: Double
     ): ExtractionResult {
+        val components = TherapyComponentResolutionSession(componentResolver::resolve)
         val glucose = history.glucose.sortedBy { it.ts }
-        val therapy = history.therapy.sortedBy { it.ts }
-        val therapyWithImplicitCorrections = mergeWithImplicitCorrections(
-            therapy = therapy,
-            telemetry = history.telemetry
-        )
-        if (glucose.size < 8 || therapyWithImplicitCorrections.isEmpty()) {
+        val telemetryForLearning = history.telemetry.map { sample ->
+            val canonicalKey = canonicalizeIsfCrExtractionKey(sample.key)
+            if (canonicalKey == sample.key) sample else sample.copy(key = canonicalKey)
+        }
+        val canonicalTherapy = history.therapy
+            .mapNotNull { canonicalizeTherapyEvent(it, components) }
+            .sortedBy { it.ts }
+            .let { deduplicateCanonicalLearningCarbs(it, components) }
+        val therapyForLearning = mergeWithImplicitCorrections(
+            therapy = canonicalTherapy,
+            telemetry = telemetryForLearning
+        ).mapNotNull { canonicalizeTherapyEvent(it, components) }
+        if (glucose.size < 8 || therapyForLearning.isEmpty()) {
             return ExtractionResult(
                 evidence = emptyList(),
                 droppedCount = 0,
@@ -58,9 +92,8 @@ class IsfCrWindowExtractor(
 
         val isfSamples = mutableListOf<IsfCrEvidenceSample>()
         val crSamples = mutableListOf<IsfCrEvidenceSample>()
-        val seenUamMealCandidates = mutableSetOf<String>()
-        val correctionCandidates = therapyWithImplicitCorrections.filter(::isCorrectionEvent)
-        val mealCandidates = therapyWithImplicitCorrections.filter(::isMealEvent)
+        val correctionCandidates = therapyForLearning.filter { isCorrectionEvent(it, components) }
+        val mealCandidates = therapyForLearning.filter(::isMealEvent)
         var dropped = 0
         val droppedReasonCounts = linkedMapOf<String, Int>()
 
@@ -74,25 +107,23 @@ class IsfCrWindowExtractor(
             val sample = extractIsfSample(
                 event = event,
                 glucose = glucose,
-                therapy = therapyWithImplicitCorrections,
+                therapy = therapyForLearning,
                 settings = settings,
-                isfReference = isfReference
+                isfReference = isfReference,
+                events = history.events
             )
             sample.sample?.let { isfSamples += it } ?: markDropped(sample.dropReason)
         }
 
         mealCandidates.forEach { event ->
-            val mealDedupKey = uamMealDedupKey(event)
-            if (mealDedupKey != null && !seenUamMealCandidates.add(mealDedupKey)) {
-                return@forEach
-            }
             val sample = extractCrSample(
                 mealEvent = event,
                 glucose = glucose,
-                therapy = therapyWithImplicitCorrections,
-                telemetry = history.telemetry,
+                therapy = therapyForLearning,
+                telemetry = telemetryForLearning,
                 settings = settings,
-                isfReference = isfReference
+                isfReference = isfReference,
+                events = history.events
             )
             sample.sample?.let { crSamples += it } ?: markDropped(sample.dropReason)
         }
@@ -110,15 +141,18 @@ class IsfCrWindowExtractor(
         therapy: List<TherapyEvent>,
         settings: IsfCrSettings,
         isfReference: Double
+        ,events: List<CompensationEvent>
     ): SampleExtractionResult {
         val units = extractInsulinUnits(event)
             ?: return droppedExtraction(DROP_REASON_ISF_MISSING_UNITS)
         if (units < 0.1) return droppedExtraction(DROP_REASON_ISF_SMALL_UNITS)
+        if (hasCompetingInsulinEvent(therapy, event)) {
+            return droppedExtraction(DROP_REASON_ISF_COMPETING_INSULIN)
+        }
 
         val carbsAround = therapy
             .eventsInRange(event.ts - 60 * MINUTE_MS, event.ts + 60 * MINUTE_MS)
             .asSequence()
-            .filterNot(::isSyntheticUamCarbEvent)
             .mapNotNull(::extractCarbsGrams)
             .sum()
         if (carbsAround > 5.0) return droppedExtraction(DROP_REASON_ISF_CARBS_AROUND)
@@ -190,7 +224,9 @@ class IsfCrWindowExtractor(
         val wearWeight = (setAgeWeight * sensorAgeWeight).coerceIn(0.35, 1.0)
         val onsetPenalty = if (onsetMinutes == null) ISF_NO_ONSET_WEIGHT_PENALTY else 1.0
         val outlierPenalty = if (outlier) ISF_OUTLIER_WEIGHT_PENALTY else 1.0
-        val weight = (quality.score * wearWeight * onsetPenalty * outlierPenalty).coerceIn(0.0, 1.0)
+        val eventContext = eventContext(events, event.ts, windowEnd)
+        if (eventContext.sensorBlocked || eventContext.infusionBlocked) return droppedExtraction(DROP_REASON_ISF_LOW_QUALITY)
+        val weight = (quality.score * wearWeight * onsetPenalty * outlierPenalty * eventContext.weight).coerceIn(0.0, 1.0)
         if (weight <= 0.0) return droppedExtraction(DROP_REASON_ISF_LOW_QUALITY)
 
         val zoned = Instant.ofEpochMilli(event.ts).atZone(zoneId)
@@ -221,6 +257,8 @@ class IsfCrWindowExtractor(
                 "sensorAgeWeight" to sensorAgeWeight.toString(),
                 "onsetPenalty" to onsetPenalty.toString(),
                 "outlierPenalty" to outlierPenalty.toString()
+                ,"eventContext" to eventContext.label,
+                "eventWeight" to eventContext.weight.toString()
             ),
             window = mapOf(
                 "startTs" to windowStart.toDouble(),
@@ -239,6 +277,7 @@ class IsfCrWindowExtractor(
         telemetry: List<io.aaps.copilot.domain.predict.TelemetrySignal>,
         settings: IsfCrSettings,
         isfReference: Double
+        ,events: List<CompensationEvent>
     ): SampleExtractionResult {
         val carbs = extractCarbsGrams(mealEvent) ?: return droppedExtraction(DROP_REASON_CR_MISSING_CARBS)
         if (carbs < 10.0) return droppedExtraction(DROP_REASON_CR_SMALL_CARBS)
@@ -271,14 +310,11 @@ class IsfCrWindowExtractor(
             fromTs = effectiveMealTs - 30L * MINUTE_MS,
             toTs = effectiveMealTs + 45L * MINUTE_MS
         )
-        val uamTaggedMeal = isUamEngineMealEvent(mealEvent)
         val hasIobContext = iobContextCount >= MIN_IOB_CONTEXT_POINTS
-        val allowCarbsOnlyMeal = uamTaggedMeal
         if (
             explicitBolusNearby == null &&
             implicitBolusNearby == null &&
-            !hasIobContext &&
-            !allowCarbsOnlyMeal
+            !hasIobContext
         ) {
             return droppedExtraction(DROP_REASON_CR_NO_BOLUS_NEARBY)
         }
@@ -288,7 +324,6 @@ class IsfCrWindowExtractor(
         val bolusSource = when {
             explicitBolusNearby != null -> "explicit_therapy"
             implicitBolusNearby != null -> "implicit_iob"
-            uamTaggedMeal -> "carbs_only_uam_tag"
             else -> "carbs_only_iob_context"
         }
         val therapyForFit = if (explicitBolusNearby != null || implicitBolusNearby == null) {
@@ -313,8 +348,7 @@ class IsfCrWindowExtractor(
         if (quality.maxGapMinutes > settings.crGrossGapMinutes.coerceIn(10.0, 60.0)) {
             return droppedExtraction(DROP_REASON_CR_GROSS_GAP)
         }
-        val minQualityScore = if (uamTaggedMeal) 0.08 else 0.20
-        if (quality.score < minQualityScore) return droppedExtraction(DROP_REASON_CR_LOW_QUALITY)
+        if (quality.score < 0.20) return droppedExtraction(DROP_REASON_CR_LOW_QUALITY)
         val telemetryStats = evaluateCrTelemetryWindow(
             telemetry = telemetry,
             windowStart = windowStart,
@@ -324,12 +358,7 @@ class IsfCrWindowExtractor(
             return droppedExtraction(DROP_REASON_CR_SENSOR_BLOCKED)
         }
         val ambiguityThreshold = settings.crUamAmbiguityRateThreshold.coerceIn(0.0, 1.0)
-        val uamAmbiguityPenalty = if (telemetryStats.uamAmbiguityRate < ambiguityThreshold) {
-            1.0
-        } else if (uamTaggedMeal) {
-            val over = (telemetryStats.uamAmbiguityRate - ambiguityThreshold).coerceIn(0.0, 1.0)
-            (1.0 - over * 0.45).coerceIn(0.55, 1.0)
-        } else {
+        if (telemetryStats.uamAmbiguityRate >= ambiguityThreshold) {
             return droppedExtraction(DROP_REASON_CR_UAM_AMBIGUITY)
         }
         val setAgeHours = ageHoursAt(
@@ -359,8 +388,6 @@ class IsfCrWindowExtractor(
             explicitBolusNearby != null -> 1.0
             implicitBolusNearby != null -> 0.72
             hasIobContext -> 0.55
-            uamTaggedMeal -> 0.38
-            allowCarbsOnlyMeal -> 0.32
             else -> 0.45
         }
 
@@ -376,17 +403,18 @@ class IsfCrWindowExtractor(
                 val dt = (b.ts - a.ts) / 60_000.0
                 dt in 1.0..15.0
             }
-        val minIntervalsRequired = if (uamTaggedMeal || allowCarbsOnlyMeal) 2 else 4
-        if (intervals.size < minIntervalsRequired) return droppedExtraction(DROP_REASON_CR_SPARSE_INTERVALS)
+        if (intervals.size < 4) return droppedExtraction(DROP_REASON_CR_SPARSE_INTERVALS)
         val intervalCoveragePenalty = (intervals.size / 8.0)
-            .coerceIn(if (uamTaggedMeal || allowCarbsOnlyMeal) 0.45 else 0.65, 1.0)
+            .coerceIn(0.65, 1.0)
         val alignmentPenalty = when {
             abs(mealAlignmentShiftMinutes) >= 24.0 -> 0.85
             abs(mealAlignmentShiftMinutes) >= 12.0 -> 0.92
             abs(mealAlignmentShiftMinutes) >= 5.0 -> 0.97
             else -> 1.0
         }
-        val sampleWeight = (quality.score * wearWeight * sourcePenalty * intervalCoveragePenalty * uamAmbiguityPenalty)
+        val eventContext = eventContext(events, effectiveMealTs, windowEnd)
+        if (eventContext.sensorBlocked || eventContext.infusionBlocked) return droppedExtraction(DROP_REASON_CR_SENSOR_BLOCKED)
+        val sampleWeight = (quality.score * wearWeight * sourcePenalty * intervalCoveragePenalty * eventContext.weight)
             .times(alignmentPenalty)
             .coerceIn(0.0, 1.0)
         val insulinProfile = InsulinActionProfiles.profile(InsulinActionProfileId.NOVORAPID)
@@ -442,7 +470,6 @@ class IsfCrWindowExtractor(
                 "mealBolusUnits" to bolusUnits.toString(),
                 "mealBolusSource" to bolusSource,
                 "iobContextPoints" to iobContextCount.toString(),
-                "mealFromUamEngine" to if (uamTaggedMeal) "1" else "0",
                 "mealAligned" to if (alignedMealTs != null) "1" else "0",
                 "mealAlignmentShiftMin" to mealAlignmentShiftMinutes.toString(),
                 "mealOriginalTs" to mealEvent.ts.toString(),
@@ -455,6 +482,8 @@ class IsfCrWindowExtractor(
                 "setAgeWeight" to setAgeWeight.toString(),
                 "sensorAgeWeight" to sensorAgeWeight.toString(),
                 "alignmentPenalty" to alignmentPenalty.toString()
+                ,"eventContext" to eventContext.label,
+                "eventWeight" to eventContext.weight.toString()
             ),
             window = mapOf(
                 "startTs" to windowStart.toDouble(),
@@ -468,6 +497,37 @@ class IsfCrWindowExtractor(
 
     private fun extractedSample(sample: IsfCrEvidenceSample): SampleExtractionResult {
         return SampleExtractionResult(sample = sample, dropReason = null)
+    }
+
+    private data class EventContext(val label: String, val weight: Double, val sensorBlocked: Boolean, val infusionBlocked: Boolean)
+
+    private fun eventContext(events: List<CompensationEvent>, startTs: Long, endTs: Long): EventContext {
+        val relevant = events.filter { it.startTs < endTs && it.endTs > startTs }
+        val sensor = relevant
+            .filter { it.type == CompensationEventType.SENSOR_CALIBRATION }
+            .any { eventImpactAnalyzer.impact(it, startTs).sensorTrustPenalty > 0.0 }
+        val infusion = relevant
+            .filter { it.type == CompensationEventType.INFUSION_PUMP_INSULIN }
+            .any { eventImpactAnalyzer.impact(it, startTs).infusionGateBlocked }
+        val nonHormonalPenalty = relevant.filterNot {
+            it.type == CompensationEventType.SENSOR_CALIBRATION ||
+                it.type == CompensationEventType.INFUSION_PUMP_INSULIN ||
+                it.type == CompensationEventType.HORMONAL ||
+                it.type == CompensationEventType.MENSTRUAL_CYCLE
+        }
+            .fold(1.0) { acc, event ->
+                val impact = eventImpactAnalyzer.impact(event, startTs)
+                val contextPenalty = when (event.type) {
+                    CompensationEventType.STRESS, CompensationEventType.ILLNESS, CompensationEventType.ALCOHOL,
+                    CompensationEventType.MEDICATION_STEROID -> 0.05
+                    CompensationEventType.ACTIVITY -> (impact.activityCurrentFactor + impact.activityTailFactor) * 0.05
+                    else -> impact.hormoneFactor * 0.15
+                }
+                acc * (1.0 - contextPenalty.coerceIn(0.0, 0.15))
+            }
+        val hormonalPenalty = eventImpactAnalyzer.maximumHormonalFactor(relevant) * 0.15
+        val penalty = nonHormonalPenalty * (1.0 - hormonalPenalty.coerceIn(0.0, 0.15))
+        return EventContext(relevant.joinToString(",") { it.type.name }, penalty.coerceIn(0.65, 1.0), sensor, infusion)
     }
 
     private fun droppedExtraction(reason: String): SampleExtractionResult {
@@ -523,9 +583,17 @@ class IsfCrWindowExtractor(
         }
     }
 
-    private fun isCorrectionEvent(event: TherapyEvent): Boolean {
-        val type = normalize(event.type)
+    private fun isCorrectionEvent(
+        event: TherapyEvent,
+        components: TherapyComponentResolutionSession
+    ): Boolean {
+        val type = event.type
         if (type == "correction_bolus") return true
+        if (type == "meal_bolus") {
+            val resolved = components.resolve(event)
+            return extractInsulinUnits(event) != null &&
+                resolved.canonicalMealInsulinCanBeCorrection
+        }
         if (type != "bolus" && type != "insulin") return false
         val reason = event.payload["reason"]?.lowercase(Locale.US).orEmpty()
         val flag = event.payload["isCorrection"]?.lowercase(Locale.US).orEmpty()
@@ -536,31 +604,31 @@ class IsfCrWindowExtractor(
         return extractCarbsGrams(event)?.let { it >= 10.0 } == true
     }
 
-    private fun isUamEngineMealEvent(event: TherapyEvent): Boolean {
-        return isSyntheticUamCarbEvent(event)
-    }
-
-    private fun uamMealDedupKey(event: TherapyEvent): String? {
-        if (!isUamEngineMealEvent(event)) return null
-        val carbs = extractCarbsGrams(event) ?: return null
-        val bucket = event.ts / (5L * MINUTE_MS)
-        val carbsBucket = (carbs * 10.0).roundToInt()
-        return "uam:$bucket:$carbsBucket"
-    }
-
     private fun canCarryInsulin(event: TherapyEvent): Boolean {
-        val type = normalize(event.type)
+        val type = event.type
         return type.contains("bolus") || type.contains("correction") || type == "insulin"
     }
 
     private fun extractCarbsGrams(event: TherapyEvent): Double? {
-        return payloadDouble(event, "grams", "carbs", "enteredCarbs", "mealCarbs")
+        return payloadDouble(event, INTERNAL_CARBS_KEY)
             ?.takeIf { it in 0.5..400.0 }
     }
 
     private fun extractInsulinUnits(event: TherapyEvent): Double? {
-        return payloadDouble(event, "units", "bolusUnits", "insulin", "enteredInsulin")
+        return payloadDouble(event, INTERNAL_INSULIN_KEY)
             ?.takeIf { it in 0.02..30.0 }
+    }
+
+    private fun hasCompetingInsulinEvent(
+        therapy: List<TherapyEvent>,
+        anchor: TherapyEvent
+    ): Boolean {
+        val from = anchor.ts - ISF_INSULIN_ISOLATION_BEFORE_MINUTES * MINUTE_MS
+        val to = anchor.ts + ISF_INSULIN_ISOLATION_AFTER_MINUTES * MINUTE_MS
+        return therapy.eventsInRange(from, to).any { candidate ->
+            candidate !== anchor &&
+                (extractInsulinUnits(candidate) ?: 0.0) > 0.0
+        }
     }
 
     private fun ageHoursAt(
@@ -572,7 +640,7 @@ class IsfCrWindowExtractor(
         for (index in therapy.indices.reversed()) {
             val event = therapy[index]
             if (event.ts > ts) continue
-            if (markerTypes.contains(normalize(event.type))) {
+            if (markerTypes.contains(event.type)) {
                 markerTs = event.ts
                 break
             }
@@ -593,24 +661,59 @@ class IsfCrWindowExtractor(
         return (1.0 - progress * (1.0 - minWeight)).coerceIn(minWeight, 1.0)
     }
 
-    private fun payloadDouble(event: TherapyEvent, vararg keys: String): Double? {
-        val normalizedKeys = keys.asSequence()
-            .map(::normalize)
-            .toSet()
-        event.payload.entries.forEach { (rawKey, rawValue) ->
-            if (normalizedKeys.contains(normalize(rawKey))) {
-                return rawValue.replace(",", ".").toDoubleOrNull()
-            }
+    private fun payloadDouble(event: TherapyEvent, key: String): Double? =
+        event.payload[key]?.toDoubleOrNull()
+
+    private fun canonicalizeTherapyEvent(
+        event: TherapyEvent,
+        session: TherapyComponentResolutionSession
+    ): TherapyEvent? {
+        val canonicalType = canonicalizeIsfCrExtractionKey(event.type)
+        val canonicalPayload = LinkedHashMap(event.payload)
+        val typedEvent = if (canonicalType == event.type) event else event.copy(type = canonicalType)
+        val components = session.resolve(typedEvent)
+        session.remember(event, components)
+        if (!components.wholeEventValid && !components.canonicalCarbAuthoritative) return null
+        components.learningCarbsG?.let { carbs ->
+            canonicalPayload[INTERNAL_CARBS_KEY] = carbs.toString()
         }
-        return null
+        components.insulinU?.let { insulin ->
+            canonicalPayload[INTERNAL_INSULIN_KEY] = insulin.toString()
+        }
+        if (!components.keepEvent && canonicalType !in SET_CHANGE_TYPES && canonicalType !in SENSOR_CHANGE_TYPES) {
+            return null
+        }
+        val canonicalEvent = if (canonicalType == event.type && canonicalPayload == event.payload) {
+            event
+        } else {
+            event.copy(type = canonicalType, payload = canonicalPayload)
+        }
+        session.remember(canonicalEvent, components)
+        return canonicalEvent
     }
 
-    private fun normalize(value: String): String {
-        return value
-            .replace(CAMEL_BOUNDARY_REGEX, "$1_$2")
-            .lowercase(Locale.US)
-            .replace(NON_ALNUM_REGEX, "_")
-            .trim('_')
+    private fun deduplicateCanonicalLearningCarbs(
+        events: List<TherapyEvent>,
+        session: TherapyComponentResolutionSession
+    ): List<TherapyEvent> {
+        val seenCarbIds = mutableSetOf<Long>()
+        return events.map { event ->
+            val components = session.resolve(event)
+            val carbId = components.canonicalCarbId
+            if (components.learningCarbsG == null || carbId == null || seenCarbIds.add(carbId)) {
+                event
+            } else {
+                event.copy(
+                    payload = (event.payload - INTERNAL_CARBS_KEY) +
+                        (INTERNAL_CARBS_SUPPRESSED_KEY to "true")
+                ).also { suppressed ->
+                    session.remember(
+                        suppressed,
+                        components.copy(learningCarbsSuppressed = true)
+                    )
+                }
+            }
+        }
     }
 
     private fun mergeWithImplicitCorrections(
@@ -629,7 +732,7 @@ class IsfCrWindowExtractor(
     ): List<TherapyEvent> {
         val iobSeries = telemetry.asSequence()
             .mapNotNull { sample ->
-                if (!CR_IOB_KEYS.contains(normalize(sample.key))) return@mapNotNull null
+                if (!CR_IOB_KEYS.contains(sample.key)) return@mapNotNull null
                 val value = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
                 val numeric = value ?: return@mapNotNull null
                 sample.ts to numeric
@@ -715,8 +818,7 @@ class IsfCrWindowExtractor(
         var total = 0
         var hit = 0
         samples.forEach { sample ->
-            val key = normalize(sample.key)
-            if (!normalizedKeys.contains(key)) return@forEach
+            if (!normalizedKeys.contains(sample.key)) return@forEach
             val value = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
             total += 1
             if ((value ?: 0.0) >= threshold) {
@@ -736,8 +838,7 @@ class IsfCrWindowExtractor(
         val iobSeries = telemetry.asSequence()
             .filter { it.ts in startTs..endTs }
             .mapNotNull { sample ->
-                val key = normalize(sample.key)
-                if (!CR_IOB_KEYS.contains(key)) return@mapNotNull null
+                if (!CR_IOB_KEYS.contains(sample.key)) return@mapNotNull null
                 val value = sample.valueDouble ?: sample.valueText?.replace(",", ".")?.toDoubleOrNull()
                 val numeric = value ?: return@mapNotNull null
                 sample.ts to numeric
@@ -775,7 +876,7 @@ class IsfCrWindowExtractor(
         toTs: Long
     ): Int {
         return telemetry.count { sample ->
-            sample.ts in fromTs..toTs && CR_IOB_KEYS.contains(normalize(sample.key))
+            sample.ts in fromTs..toTs && CR_IOB_KEYS.contains(sample.key)
         }
     }
 
@@ -979,9 +1080,25 @@ class IsfCrWindowExtractor(
             "sensor_start",
             "sensor_started"
         )
+        private val CARB_PAYLOAD_KEYS = setOf(
+            "grams",
+            "carbs",
+            "entered_carbs",
+            "meal_carbs"
+        )
+        private val INSULIN_PAYLOAD_KEYS = setOf(
+            "units",
+            "bolus_units",
+            "insulin",
+            "entered_insulin"
+        )
+        private const val INTERNAL_CARBS_KEY = "isfcr_internal_carbs"
+        private const val INTERNAL_INSULIN_KEY = "isfcr_internal_insulin"
+        private const val INTERNAL_CARBS_SUPPRESSED_KEY = "copilotLearningCarbsSuppressed"
         private const val DROP_REASON_UNKNOWN = "unknown"
         private const val DROP_REASON_ISF_MISSING_UNITS = "isf_missing_units"
         private const val DROP_REASON_ISF_SMALL_UNITS = "isf_small_units"
+        private const val DROP_REASON_ISF_COMPETING_INSULIN = "isf_competing_insulin"
         private const val DROP_REASON_ISF_CARBS_AROUND = "isf_carbs_around"
         private const val DROP_REASON_ISF_MISSING_BASELINE = "isf_missing_baseline"
         private const val DROP_REASON_ISF_MISSING_FUTURE = "isf_missing_future"
@@ -999,6 +1116,8 @@ class IsfCrWindowExtractor(
         private const val DROP_REASON_CR_UAM_AMBIGUITY = "cr_uam_ambiguity"
         private const val DROP_REASON_CR_GROSS_GAP = "cr_gross_gap"
         private const val ISF_OUTLIER_MIN_RATIO = 0.5
+        private const val ISF_INSULIN_ISOLATION_BEFORE_MINUTES = 240L
+        private const val ISF_INSULIN_ISOLATION_AFTER_MINUTES = 240L
         private const val ISF_OUTLIER_MAX_RATIO = 2.0
         private const val ISF_OUTLIER_BLEND_ALPHA_BASE = 0.55
         private const val ISF_OUTLIER_WEIGHT_PENALTY = 0.65
@@ -1050,7 +1169,45 @@ class IsfCrWindowExtractor(
             "has_uam",
             "is_uam"
         )
-        private val CAMEL_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
-        private val NON_ALNUM_REGEX = Regex("[^a-z0-9]+")
     }
+}
+
+internal fun canonicalizeIsfCrExtractionKey(value: String): String {
+    if (value.isEmpty()) return value
+    val canonical = StringBuilder(value.length + 4)
+    var separatorPending = false
+    var previousWasLowerOrDigit = false
+    value.forEach { char ->
+        val isLower = char in 'a'..'z'
+        val isUpper = char in 'A'..'Z'
+        val isDigit = char in '0'..'9'
+        if (!isLower && !isUpper && !isDigit) {
+            separatorPending = canonical.isNotEmpty()
+            previousWasLowerOrDigit = false
+            return@forEach
+        }
+        if (
+            canonical.isNotEmpty() &&
+            canonical.last() != '_' &&
+            (separatorPending || (isUpper && previousWasLowerOrDigit))
+        ) {
+            canonical.append('_')
+        }
+        canonical.append(if (isUpper) char.lowercaseChar() else char)
+        separatorPending = false
+        previousWasLowerOrDigit = isLower || isDigit
+    }
+    return canonical.toString()
+}
+
+internal fun firstCanonicalIsfCrPayloadDouble(
+    payload: Map<String, String>,
+    acceptedKeys: Set<String>
+): Double? {
+    payload.forEach { (rawKey, rawValue) ->
+        if (canonicalizeIsfCrExtractionKey(rawKey) in acceptedKeys) {
+            return rawValue.replace(",", ".").toDoubleOrNull()
+        }
+    }
+    return null
 }

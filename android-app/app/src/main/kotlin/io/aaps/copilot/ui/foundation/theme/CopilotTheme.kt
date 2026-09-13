@@ -331,34 +331,11 @@ fun CopilotStyledBackground(
         }
 
         UiStyle.MIDNIGHT_GLASS -> {
-            val base = if (darkTheme) {
-                listOf(
-                    Color(0xFF020817),
-                    Color(0xFF07152E),
-                    Color(0xFF081A35)
-                )
-            } else {
-                listOf(
-                    Color(0xFFF8FAFC),
-                    Color(0xFFF5F5F7),
-                    Color(0xFFEFF6FF)
-                )
-            }
-            val accentA = if (darkTheme) {
-                listOf(Color(0x331D4ED8), Color.Transparent)
-            } else {
-                listOf(Color(0x332563EB), Color.Transparent)
-            }
-            val accentB = if (darkTheme) {
-                listOf(Color(0x2218BFFF), Color.Transparent)
-            } else {
-                listOf(Color(0x2214B8A6), Color.Transparent)
-            }
-            val accentC = if (darkTheme) {
-                listOf(Color(0x1400E5FF), Color.Transparent)
-            } else {
-                listOf(Color(0x141D4ED8), Color.Transparent)
-            }
+            val base = listOf(
+                Color(0xFFF4F8FC),
+                Color(0xFFEAF2F7),
+                Color(0xFFE7EEF6)
+            )
             Box(
                 modifier = modifier
                     .fillMaxSize()
@@ -370,27 +347,6 @@ fun CopilotStyledBackground(
                                 colors = base,
                                 start = Offset(0f, 0f),
                                 end = Offset(w, h)
-                            )
-                        )
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = accentA,
-                                center = Offset(w * 0.15f, h * 0.18f),
-                                radius = max(w, h) * 0.85f
-                            )
-                        )
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = accentB,
-                                center = Offset(w * 0.85f, h * 0.10f),
-                                radius = max(w, h) * 0.70f
-                            )
-                        )
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = accentC,
-                                center = Offset(w * 0.50f, h * 1.02f),
-                                radius = max(w, h) * 0.95f
                             )
                         )
                     }

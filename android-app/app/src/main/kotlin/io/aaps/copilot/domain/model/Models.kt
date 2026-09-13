@@ -20,8 +20,41 @@ data class GlucosePoint(
 data class TherapyEvent(
     val ts: Long,
     val type: String,
-    val payload: Map<String, String>
+    val payload: Map<String, String>,
+    @kotlin.jvm.Transient
+    @kotlinx.serialization.Transient
+    internal val componentTrust: TherapyEventComponentTrust = TherapyEventComponentTrust.NONE,
+    @kotlin.jvm.Transient
+    @kotlinx.serialization.Transient
+    internal val sourceRowId: String? = null
 )
+
+class TherapyEventComponentTrust internal constructor(
+    internal val canonicalCarbId: Long? = null,
+    internal val canonicalCarbRevision: String? = null,
+    internal val canonicalSemanticConflict: Boolean = false,
+    internal val canonicalReferenceConflict: Boolean = false,
+    internal val legacyValidityConflict: Boolean = false
+) {
+    override fun equals(other: Any?): Boolean = other is TherapyEventComponentTrust &&
+        canonicalCarbId == other.canonicalCarbId &&
+        canonicalCarbRevision == other.canonicalCarbRevision &&
+        canonicalSemanticConflict == other.canonicalSemanticConflict &&
+        canonicalReferenceConflict == other.canonicalReferenceConflict &&
+        legacyValidityConflict == other.legacyValidityConflict
+
+    override fun hashCode(): Int {
+        var result = canonicalCarbId?.hashCode() ?: 0
+        result = 31 * result + (canonicalCarbRevision?.hashCode() ?: 0)
+        result = 31 * result + canonicalSemanticConflict.hashCode()
+        result = 31 * result + canonicalReferenceConflict.hashCode()
+        return 31 * result + legacyValidityConflict.hashCode()
+    }
+
+    internal companion object {
+        val NONE = TherapyEventComponentTrust()
+    }
+}
 
 @Serializable
 data class Forecast(

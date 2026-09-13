@@ -32,6 +32,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -42,15 +43,9 @@ class InsightsRepository(
     private val settingsStore: AppSettingsStore,
     private val apiFactory: ApiFactory,
     private val auditLogger: AuditLogger,
-    private val aiChatRepository: AiChatRepository? = null
+    private val aiChatRepository: AiChatRepository,
+    private val glucoseCalibrationRepository: GlucoseCalibrationRepository
 ) {
-    private val aiOptimizerRepository: AiChatRepository by lazy {
-        aiChatRepository ?: AiChatRepository(
-            settingsStore = settingsStore,
-            auditLogger = auditLogger
-        )
-    }
-
     private data class IsfCrDroppedReasonSummary(
         val eventCount: Int,
         val droppedTotal: Int,
@@ -157,19 +152,8 @@ class InsightsRepository(
             )
             return reason
         }
-        if (settings.openAiApiKey.isBlank()) {
-            val reason = "OpenAI optimizer skipped: API key is empty"
-            auditLogger.warn("ai_daily_optimizer_skipped", mapOf("reason" to "missing_api_key"))
-            persistDailyAiOptimizerTelemetry(
-                nowTs = nowTs,
-                result = null,
-                error = reason
-            )
-            return reason
-        }
-
-        return runCatching {
-            val result = aiOptimizerRepository.requestDailyForecastOptimization(reportPayload)
+        return runSanitizedOpenAiOperation {
+            val result = aiChatRepository.requestDailyForecastOptimization(reportPayload)
             persistDailyAiOptimizerTelemetry(
                 nowTs = nowTs,
                 result = result,
@@ -178,17 +162,17 @@ class InsightsRepository(
             val focusLabel = result.focusHorizonMinutes?.let { "${it}m" } ?: "all"
             "OpenAI optimizer ${result.status}: conf=${fmt(result.confidence)} model=${result.model} focus=$focusLabel"
         }.getOrElse { error ->
-            val message = error.message ?: "optimizer failed"
+            val message = error.message ?: "OpenAI request failed"
             auditLogger.warn(
                 "ai_daily_optimizer_failed",
-                mapOf("error" to message.take(320))
+                mapOf("error" to message)
             )
             persistDailyAiOptimizerTelemetry(
                 nowTs = nowTs,
                 result = null,
                 error = message
             )
-            "OpenAI optimizer failed: ${message.take(240)}"
+            "OpenAI optimizer failed: $message"
         }
     }
 
@@ -266,8 +250,24 @@ class InsightsRepository(
             .asSequence()
             .filter { it.horizonMinutes in DAILY_FORECAST_HORIZONS }
             .toList()
-        val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(glucoseSince))
-        val telemetry = db.telemetryDao().since(reportSince - 60L * 60L * 1000L)
+        val glucose = glucoseCalibrationRepository.resolveGlucoseHistory(
+            rawGlucose = db.glucoseDao().since(glucoseSince),
+            nowTs = now
+        ).map { point ->
+            GlucoseSampleEntity(
+                timestamp = point.ts,
+                mmol = point.calibratedMmol,
+                source = point.source,
+                quality = point.quality.name
+            )
+        }
+        val (telemetry, _) = collectTelemetryEntitiesByKeysPaged(
+            telemetryDao = db.telemetryDao(),
+            since = reportSince - 60L * 60L * 1000L,
+            keys = DAILY_FORECAST_REPORT_TELEMETRY_KEYS,
+            callerTag = "insights_daily_forecast_report",
+            auditLogger = auditLogger
+        )
 
         val forecasts = allForecasts
             .asSequence()
@@ -1140,6 +1140,7 @@ class InsightsRepository(
         private val DAILY_FORECAST_HORIZONS = setOf(5, 30, 60)
         private const val FACTOR_TELEMETRY_MAX_DISTANCE_MS = 10L * 60L * 1000L
         private const val FACTOR_TELEMETRY_FUTURE_TOLERANCE_MS = 2L * 60L * 1000L
+        private const val SENSOR_LAG_REPLAY_FORECAST_MATCH_MAX_DISTANCE_MS = 2L * 60L * 1000L
         private val FACTOR_SPECS = listOf(
             FactorSpec.COB,
             FactorSpec.IOB,
@@ -1174,6 +1175,18 @@ class InsightsRepository(
             FactorSpec.IOB to FactorSpec.CI_WIDTH,
             FactorSpec.UAM to FactorSpec.CI_WIDTH
         )
+
+        internal suspend fun <T> runSanitizedOpenAiOperation(
+            block: suspend () -> T
+        ): Result<T> = try {
+            Result.success(block())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (fatal: Error) {
+            throw fatal
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("OpenAI request failed"))
+        }
 
         internal fun buildDailyForecastReportPayloadStatic(
             forecasts: List<ForecastEntity>,
@@ -1317,27 +1330,28 @@ class InsightsRepository(
                 }
 
             val replayHotspots = buildReplayHotspots(hourlyStats)
+            val telemetryByKey = indexTelemetrySamplesByKey(telemetrySamples)
             val factorAttribution = buildFactorContributions(
                 matched = matched,
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
             val factorContributions = factorAttribution.contributions
             val factorCoverage = factorAttribution.coverage
             val factorRegimes = buildReplayFactorRegimes(
                 matched = matched,
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
             val factorPairs = buildReplayFactorPairRegimes(
                 matched = matched,
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
             val replayTopMisses = buildReplayTopMissContexts(
                 matched = matched,
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
             val replayErrorClusters = buildReplayErrorClusters(
                 matched = matched,
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
             val replayDayTypeGaps = buildReplayDayTypeGaps(
                 replayErrorClusters = replayErrorClusters
@@ -1345,10 +1359,10 @@ class InsightsRepository(
             val sensorLagReplayBuckets = buildSensorLagReplayBuckets(
                 rawMatched = matched,
                 glucose = sortedGlucose,
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
             val sensorLagShadowBuckets = buildSensorLagShadowBuckets(
-                telemetrySamples = telemetrySamples
+                telemetryByKey = telemetryByKey
             )
 
             val recommendations = buildRecommendations(
@@ -1644,13 +1658,9 @@ class InsightsRepository(
 
         private fun buildReplayTopMissContexts(
             matched: List<MatchedErrorSample>,
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): List<ReplayTopMissContextStats> {
             if (matched.isEmpty()) return emptyList()
-            val telemetryByKey = telemetrySamples
-                .asSequence()
-                .filter { it.valueDouble != null }
-                .groupBy { it.key.lowercase(Locale.US) }
             val factorCache = mutableMapOf<Pair<FactorSpec, Long>, Double>()
 
             fun factor(
@@ -1697,13 +1707,9 @@ class InsightsRepository(
 
         private fun buildReplayErrorClusters(
             matched: List<MatchedErrorSample>,
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): List<ReplayErrorClusterStats> {
             if (matched.isEmpty()) return emptyList()
-            val telemetryByKey = telemetrySamples
-                .asSequence()
-                .filter { it.valueDouble != null }
-                .groupBy { it.key.lowercase(Locale.US) }
             val factorCache = mutableMapOf<Pair<FactorSpec, Long>, Double>()
 
             fun factorValue(spec: FactorSpec, sample: MatchedErrorSample): Double? {
@@ -1858,13 +1864,9 @@ class InsightsRepository(
 
         private fun buildReplayFactorRegimes(
             matched: List<MatchedErrorSample>,
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): List<ReplayFactorRegimeStats> {
             if (matched.isEmpty()) return emptyList()
-            val telemetryByKey = telemetrySamples
-                .asSequence()
-                .filter { it.valueDouble != null }
-                .groupBy { it.key.lowercase(Locale.US) }
             val factorCache = mutableMapOf<Pair<FactorSpec, Long>, Double>()
 
             fun factorValue(spec: FactorSpec, sample: MatchedErrorSample): Double? {
@@ -1926,13 +1928,9 @@ class InsightsRepository(
 
         private fun buildReplayFactorPairRegimes(
             matched: List<MatchedErrorSample>,
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): List<ReplayFactorPairRegimeStats> {
             if (matched.isEmpty()) return emptyList()
-            val telemetryByKey = telemetrySamples
-                .asSequence()
-                .filter { it.valueDouble != null }
-                .groupBy { it.key.lowercase(Locale.US) }
             val factorCache = mutableMapOf<Pair<FactorSpec, Long>, Double>()
 
             fun factorValue(spec: FactorSpec, sample: MatchedErrorSample): Double? {
@@ -2001,18 +1999,18 @@ class InsightsRepository(
         private fun buildSensorLagReplayBuckets(
             rawMatched: List<MatchedErrorSample>,
             glucose: List<GlucoseSampleEntity>,
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): List<SensorLagReplayBucketStats> {
-            if (rawMatched.isEmpty() || glucose.isEmpty() || telemetrySamples.isEmpty()) return emptyList()
+            if (rawMatched.isEmpty() || glucose.isEmpty() || telemetryByKey.isEmpty()) return emptyList()
             val sortedGlucose = glucose.sortedBy { it.timestamp }
-            val telemetryByKey = telemetrySamples.groupBy { it.key.lowercase(Locale.US) }
             val lagMatched = buildSensorLagMatchedSamples(
                 sortedGlucose = sortedGlucose,
                 telemetryByKey = telemetryByKey
             )
             if (lagMatched.isEmpty()) return emptyList()
-            val rawByKey = rawMatched.associateBy { it.generationTs to it.horizonMinutes }
-            val lagByKey = lagMatched.associateBy { it.generationTs to it.horizonMinutes }
+            val lagByHorizon = lagMatched
+                .groupBy { it.horizonMinutes }
+                .mapValues { (_, rows) -> rows.sortedBy { it.generationTs } }
             data class Accumulator(
                 var sampleCount: Int = 0,
                 var rawAbsErrorSum: Double = 0.0,
@@ -2021,36 +2019,37 @@ class InsightsRepository(
                 var lagBiasSum: Double = 0.0
             )
             val grouped = mutableMapOf<Pair<Int, String>, Accumulator>()
-            rawByKey.keys
-                .intersect(lagByKey.keys)
-                .forEach { key ->
-                    val raw = rawByKey[key] ?: return@forEach
-                    val lag = lagByKey[key] ?: return@forEach
-                    val mode = nearestTelemetryText(
-                        telemetryByKey = telemetryByKey,
-                        key = "sensor_lag_mode",
-                        ts = raw.generationTs,
-                        maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
-                    )
-                    if (!mode.equals("ACTIVE", ignoreCase = true) &&
-                        !mode.equals("SHADOW", ignoreCase = true)
-                    ) {
-                        return@forEach
-                    }
-                    val ageHours = nearestTelemetryValueMulti(
-                        telemetryByKey = telemetryByKey,
-                        keys = listOf("sensor_lag_age_hours", "isf_factor_sensor_age_hours"),
-                        ts = raw.generationTs,
-                        maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
-                    ) ?: return@forEach
-                    val bucket = sensorLagAgeBucket(ageHours)
-                    val acc = grouped.getOrPut(raw.horizonMinutes to bucket) { Accumulator() }
-                    acc.sampleCount += 1
-                    acc.rawAbsErrorSum += raw.absError
-                    acc.lagAbsErrorSum += lag.absError
-                    acc.rawBiasSum += raw.pred - raw.actual
-                    acc.lagBiasSum += lag.pred - lag.actual
+            rawMatched.forEach { raw ->
+                val lag = nearestMatchedErrorSample(
+                    rows = lagByHorizon[raw.horizonMinutes].orEmpty(),
+                    targetTs = raw.generationTs,
+                    maxDistanceMs = SENSOR_LAG_REPLAY_FORECAST_MATCH_MAX_DISTANCE_MS
+                ) ?: return@forEach
+                val mode = nearestTelemetryText(
+                    telemetryByKey = telemetryByKey,
+                    key = "sensor_lag_mode",
+                    ts = lag.generationTs,
+                    maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                )
+                if (!mode.equals("ACTIVE", ignoreCase = true) &&
+                    !mode.equals("SHADOW", ignoreCase = true)
+                ) {
+                    return@forEach
                 }
+                val ageHours = nearestTelemetryValueMulti(
+                    telemetryByKey = telemetryByKey,
+                    keys = SENSOR_LAG_AGE_TELEMETRY_KEYS,
+                    ts = lag.generationTs,
+                    maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
+                ) ?: return@forEach
+                val bucket = sensorLagAgeBucket(ageHours)
+                val acc = grouped.getOrPut(raw.horizonMinutes to bucket) { Accumulator() }
+                acc.sampleCount += 1
+                acc.rawAbsErrorSum += raw.absError
+                acc.lagAbsErrorSum += lag.absError
+                acc.rawBiasSum += raw.pred - raw.actual
+                acc.lagBiasSum += lag.pred - lag.actual
+            }
             return grouped.entries
                 .mapNotNull { (key, acc) ->
                     if (acc.sampleCount < 4) return@mapNotNull null
@@ -2069,6 +2068,24 @@ class InsightsRepository(
                     compareBy<SensorLagReplayBucketStats> { it.horizonMinutes }
                         .thenBy { sensorLagBucketOrder(it.bucket) }
                 )
+        }
+
+        private fun nearestMatchedErrorSample(
+            rows: List<MatchedErrorSample>,
+            targetTs: Long,
+            maxDistanceMs: Long
+        ): MatchedErrorSample? {
+            if (rows.isEmpty()) return null
+            var best: MatchedErrorSample? = null
+            var bestDistance = Long.MAX_VALUE
+            rows.forEach { row ->
+                val distance = abs(row.generationTs - targetTs)
+                if (distance <= maxDistanceMs && distance < bestDistance) {
+                    best = row
+                    bestDistance = distance
+                }
+            }
+            return best
         }
 
         private fun buildSensorLagMatchedSamples(
@@ -2133,13 +2150,10 @@ class InsightsRepository(
         }
 
         private fun buildSensorLagShadowBuckets(
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): List<SensorLagShadowBucketStats> {
-            if (telemetrySamples.isEmpty()) return emptyList()
-            val telemetryByKey = telemetrySamples.groupBy { it.key.lowercase(Locale.US) }
-            val ageRows = telemetryByKey["sensor_lag_age_hours"]
-                .orEmpty()
-                .filter { it.valueDouble != null }
+            if (telemetryByKey.isEmpty()) return emptyList()
+            val ageRows = mergedSensorLagAgeRows(telemetryByKey)
             if (ageRows.isEmpty()) return emptyList()
             data class Accumulator(
                 var sampleCount: Int = 0,
@@ -2213,6 +2227,69 @@ class InsightsRepository(
             SENSOR_AGE_BUCKET_GT_14D -> 4
             else -> 5
         }
+
+        private fun mergedSensorLagAgeRows(
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
+        ): List<TelemetrySampleEntity> {
+            val priority = SENSOR_LAG_AGE_TELEMETRY_KEYS
+                .withIndex()
+                .associate { it.value to it.index }
+            return SENSOR_LAG_AGE_TELEMETRY_KEYS
+                .flatMap { key -> telemetryByKey[key].orEmpty() }
+                .filter { it.valueDouble != null }
+                .groupBy { it.timestamp }
+                .values
+                .mapNotNull { rowsAtTimestamp ->
+                    rowsAtTimestamp.minByOrNull { row ->
+                        priority[row.key.lowercase(Locale.US)] ?: Int.MAX_VALUE
+                    }
+                }
+                .sortedBy { it.timestamp }
+        }
+
+        private val SENSOR_LAG_AGE_TELEMETRY_KEYS = listOf(
+            "sensor_lag_age_hours",
+            "sensor_age_hours",
+            "isf_factor_sensor_age_hours"
+        )
+        private val DAILY_FORECAST_REPORT_TELEMETRY_KEYS = buildSet {
+            addAll(
+                listOf(
+                    "cob_grams",
+                    "iob_units",
+                    "uam_value",
+                    "uam_calculated_flag",
+                    "uam_inferred_flag",
+                    "uam_uci0_mmol5",
+                    "uam_calculated_delta5_mmol",
+                    "dia_effective_hours",
+                    "dia_profile_hours",
+                    "dia_hours",
+                    "dia",
+                    "activity_ratio",
+                    "activity",
+                    "sensitivity_ratio",
+                    "sensor_quality_score",
+                    "sensor_quality",
+                    "isf_realtime_confidence",
+                    "isf_realtime_quality_score",
+                    "isf_factor_set_age_hours",
+                    "isf_factor_context_ambiguity",
+                    "isf_factor_dawn_factor",
+                    "isf_factor_stress_factor",
+                    "isf_factor_steroid_factor",
+                    "isf_factor_hormone_factor",
+                    "sensor_lag_mode",
+                    "sensor_lag_shadow_rule_changed",
+                    "sensor_lag_shadow_target_delta_mmol"
+                )
+            )
+            addAll(SENSOR_LAG_AGE_TELEMETRY_KEYS)
+            DAILY_FORECAST_HORIZONS.sorted().forEach { horizon ->
+                add("sensor_lag_candidate_forecast_${horizon}m")
+                add("sensor_lag_control_forecast_${horizon}m")
+            }
+        }.toList()
 
         private fun factorRecommendationHint(
             factor: String,
@@ -2345,18 +2422,24 @@ class InsightsRepository(
                 }
         }
 
+        private fun indexTelemetrySamplesByKey(
+            telemetrySamples: List<TelemetrySampleEntity>
+        ): Map<String, List<TelemetrySampleEntity>> {
+            if (telemetrySamples.isEmpty()) return emptyMap()
+            return telemetrySamples
+                .asSequence()
+                .filter { it.valueDouble != null || !it.valueText.isNullOrBlank() }
+                .groupBy { it.key.lowercase(Locale.US) }
+        }
+
         private fun buildFactorContributions(
             matched: List<MatchedErrorSample>,
-            telemetrySamples: List<TelemetrySampleEntity>
+            telemetryByKey: Map<String, List<TelemetrySampleEntity>>
         ): FactorAttributionResult {
             if (matched.isEmpty()) return FactorAttributionResult(
                 contributions = emptyList(),
                 coverage = emptyList()
             )
-            val telemetryByKey = telemetrySamples
-                .asSequence()
-                .filter { it.valueDouble != null }
-                .groupBy { it.key.lowercase(Locale.US) }
             val factorCache = mutableMapOf<Pair<FactorSpec, Long>, Double>()
 
             fun factorValue(
@@ -2598,7 +2681,7 @@ class InsightsRepository(
                 )
                 FactorSpec.SENSOR_AGE_HOURS -> nearestTelemetryValueMulti(
                     telemetryByKey = telemetryByKey,
-                    keys = listOf("sensor_lag_age_hours", "isf_factor_sensor_age_hours"),
+                    keys = SENSOR_LAG_AGE_TELEMETRY_KEYS,
                     ts = sample.generationTs,
                     maxDistanceMs = FACTOR_TELEMETRY_MAX_DISTANCE_MS
                 )

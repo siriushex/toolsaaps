@@ -98,5 +98,11 @@ class AuditLoggerTest {
             rows.removeAll { it.timestamp < olderThan }
             return before - rows.size
         }
+
+        override suspend fun deleteOlderThanInfoMessages(olderThan: Long, messages: List<String>): Int {
+            val before = rows.size
+            rows.removeAll { it.timestamp < olderThan && it.level == "INFO" && it.message in messages }
+            return before - rows.size
+        }
     }
 }

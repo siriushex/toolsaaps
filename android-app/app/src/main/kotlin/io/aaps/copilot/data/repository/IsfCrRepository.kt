@@ -1,5 +1,6 @@
 package io.aaps.copilot.data.repository
 
+import androidx.room.withTransaction
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
@@ -9,6 +10,7 @@ import io.aaps.copilot.data.local.entity.IsfCrModelStateEntity
 import io.aaps.copilot.data.local.entity.IsfCrSnapshotEntity
 import io.aaps.copilot.data.local.entity.PhysioContextTagEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.domain.isfcr.IsfCrEngine
 import io.aaps.copilot.domain.isfcr.IsfCrEvidenceSample
 import io.aaps.copilot.domain.isfcr.IsfCrHistoryBundle
@@ -18,11 +20,77 @@ import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
 import io.aaps.copilot.domain.isfcr.IsfCrSampleType
 import io.aaps.copilot.domain.isfcr.IsfCrSettings
 import io.aaps.copilot.domain.isfcr.PhysioContextTag
+import io.aaps.copilot.domain.events.CompensationEventProfilePolicy
+import io.aaps.copilot.domain.events.CompensationEvent
+import io.aaps.copilot.domain.events.CompensationEventType
+import io.aaps.copilot.domain.profile.PhysiologicalSex
+import io.aaps.copilot.domain.target.DeliveryTrustStateWireCodec
 import io.aaps.copilot.domain.model.TherapyEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+
+internal const val ISFCR_BASE_MODEL_REVISION_FACTOR = "base_model_updated_at_ms"
+internal const val ISFCR_PROFILE_REVISION_FACTOR = "profile_estimate_timestamp_ms"
+
+internal data class IsfCrInputGeneration(
+    val modelRevision: Long,
+    val profileRevision: Long
+)
+
+internal fun isfCrInputGenerationOrNull(
+    modelUpdatedAt: Long?,
+    profileTimestamp: Long?
+): IsfCrInputGeneration? {
+    val modelRevision = modelUpdatedAt?.takeIf { it > 0L } ?: return null
+    val profileRevision = profileTimestamp?.takeIf { it > 0L } ?: return null
+    return IsfCrInputGeneration(modelRevision, profileRevision)
+}
+
+internal fun bindRealtimeSnapshotToInputGeneration(
+    snapshot: IsfCrRealtimeSnapshot,
+    modelUpdatedAt: Long?,
+    profileTimestamp: Long?
+): IsfCrRealtimeSnapshot {
+    val generation = requireNotNull(
+        isfCrInputGenerationOrNull(modelUpdatedAt, profileTimestamp)
+    ) {
+        "ISF/CR input generation requires active model and profile revisions"
+    }
+    return snapshot.copy(
+        factors = snapshot.factors + mapOf(
+            ISFCR_BASE_MODEL_REVISION_FACTOR to generation.modelRevision.toDouble(),
+            ISFCR_PROFILE_REVISION_FACTOR to generation.profileRevision.toDouble()
+        )
+    )
+}
+
+private fun exactPositiveRevision(raw: Double?): Long? {
+    raw ?: return null
+    if (!raw.isFinite() || raw <= 0.0) return null
+    val revision = raw.toLong()
+    return revision.takeIf { it.toDouble() == raw }
+}
+
+internal fun realtimeSnapshotInputGeneration(snapshot: IsfCrRealtimeSnapshot): IsfCrInputGeneration? {
+    val modelRevision = exactPositiveRevision(snapshot.factors[ISFCR_BASE_MODEL_REVISION_FACTOR])
+        ?: return null
+    val profileRevision = exactPositiveRevision(snapshot.factors[ISFCR_PROFILE_REVISION_FACTOR])
+        ?: return null
+    return IsfCrInputGeneration(modelRevision, profileRevision)
+}
+
+internal fun realtimeSnapshotMatchesInputGeneration(
+    snapshot: IsfCrRealtimeSnapshot,
+    modelUpdatedAt: Long?,
+    profileTimestamp: Long?
+): Boolean {
+    val currentGeneration = isfCrInputGenerationOrNull(modelUpdatedAt, profileTimestamp)
+        ?: return false
+    return realtimeSnapshotInputGeneration(snapshot) == currentGeneration
+}
 
 private val REALTIME_ISFCR_SET_CHANGE_TYPES = setOf(
     "infusion_set_change",
@@ -36,6 +104,16 @@ private val REALTIME_ISFCR_SENSOR_CHANGE_TYPES = setOf(
     "cgm_sensor_change",
     "sensor_start",
     "sensor_started"
+)
+
+internal fun deliveryDiagnosticEventsFromTelemetry(
+    rows: Iterable<TelemetrySampleEntity>
+): List<CompensationEvent> = EventTimelineRepository().deliveryDiagnosticEvents(
+    deliveryDiagnosticSamplesFromTelemetry(
+        rows.map { row ->
+            DeliveryTrustTelemetryValue(row.timestamp, row.source, row.key, row.valueDouble)
+        }
+    )
 )
 
 internal fun shouldWidenRealtimeTherapyScan(
@@ -65,6 +143,34 @@ internal fun isRelevantRealtimeIsfCrTherapyEvent(event: TherapyEvent): Boolean {
     return false
 }
 
+internal fun sanitizeRealtimeIsfCrTherapyRows(
+    rows: List<TherapyEventEntity>,
+    gson: Gson
+): List<TherapyEvent> = TherapySanitizer.toDomainEvents(rows, gson)
+    .filter(::isRelevantRealtimeIsfCrTherapyEvent)
+
+internal fun mergeIsfRevisionModelState(
+    refitted: IsfCrModelState,
+    existing: IsfCrModelState
+): IsfCrModelState = refitted.copy(
+    hourlyCr = existing.hourlyCr,
+    params = refitted.params.filterKeys { !it.contains("cr", ignoreCase = true) } +
+        existing.params.filterKeys { it.contains("cr", ignoreCase = true) },
+    fitMetrics = refitted.fitMetrics.filterKeys { !it.contains("cr", ignoreCase = true) } +
+        existing.fitMetrics.filterKeys { it.contains("cr", ignoreCase = true) }
+)
+
+internal fun mergeIsfRevisionRealtimeSnapshot(
+    refitted: IsfCrRealtimeSnapshot,
+    existing: IsfCrRealtimeSnapshot
+): IsfCrRealtimeSnapshot = refitted.copy(
+    crEff = existing.crEff,
+    crBase = existing.crBase,
+    ciCrLow = existing.ciCrLow,
+    ciCrHigh = existing.ciCrHigh,
+    crEvidenceCount = existing.crEvidenceCount
+)
+
 private fun realtimePayloadDouble(event: TherapyEvent, vararg keys: String): Double {
     val payload = event.payload
     keys.forEach { key ->
@@ -82,6 +188,7 @@ class IsfCrRepository(
     private val db: CopilotDatabase,
     private val gson: Gson,
     private val auditLogger: AuditLogger,
+    private val glucoseCalibrationRepository: GlucoseCalibrationRepository,
     private val engine: IsfCrEngine = IsfCrEngine()
 ) {
 
@@ -89,22 +196,69 @@ class IsfCrRepository(
 
     suspend fun fitBaseModel(
         settings: AppSettings,
-        nowTs: Long = System.currentTimeMillis()
+        nowTs: Long = System.currentTimeMillis(),
+        resetExistingState: Boolean = false
     ): IsfCrModelState = withContext(Dispatchers.Default) {
         val config = settings.toIsfCrSettings()
         val historyStart = nowTs - config.lookbackDays * DAY_MS
-        val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)).map { it.toDomain() }
-        val therapy = TherapySanitizer.filterEntities(db.therapyDao().since(historyStart)).map { it.toDomain(gson) }
-        val telemetry = db.telemetryDao().since(historyStart).map { entity ->
-            io.aaps.copilot.domain.predict.TelemetrySignal(
-                ts = entity.timestamp,
-                key = entity.key,
-                valueDouble = entity.valueDouble,
-                valueText = entity.valueText
-            )
+        val glucose = glucoseCalibrationRepository.resolveDomainGlucoseHistory(
+            rawGlucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)),
+            nowTs = nowTs
+        )
+        val therapy = TherapySanitizer.toDomainEvents(db.therapyDao().since(historyStart), gson)
+        val telemetry = mutableListOf<io.aaps.copilot.domain.predict.TelemetrySignal>()
+        val deliveryTelemetry = mutableListOf<DeliveryTrustTelemetryValue>()
+        val deliveryHistoryStart = deliveryDiagnosticLookbackFrom(historyStart)
+        if (deliveryHistoryStart < historyStart) {
+            scanTelemetryByKeysPaged(
+                telemetryDao = db.telemetryDao(),
+                since = deliveryHistoryStart,
+                through = historyStart,
+                keys = DELIVERY_DIAGNOSTIC_TELEMETRY_KEYS,
+                callerTag = "isfcr_fit_base_delivery_lookback",
+                auditLogger = auditLogger
+            ) { page ->
+                deliveryTelemetry += page.map { row ->
+                    DeliveryTrustTelemetryValue(row.timestamp, row.source, row.key, row.valueDouble)
+                }
+            }
         }
-        val tags = db.physioContextTagDao().activeAt(nowTs).map { it.toDomain() }
-        val activeState = db.isfCrModelStateDao().active()?.toDomain()
+        scanTelemetryByKeysPaged(
+            telemetryDao = db.telemetryDao(),
+            since = historyStart,
+            keys = ISFCR_BASE_FIT_TELEMETRY_KEYS,
+            callerTag = "isfcr_fit_base_model",
+            auditLogger = auditLogger
+        ) { page ->
+            deliveryTelemetry += page.map { row ->
+                DeliveryTrustTelemetryValue(row.timestamp, row.source, row.key, row.valueDouble)
+            }
+            telemetry += page.map { entity ->
+                io.aaps.copilot.domain.predict.TelemetrySignal(
+                    ts = entity.timestamp,
+                    key = entity.key,
+                    valueDouble = entity.valueDouble,
+                    valueText = entity.valueText,
+                    source = entity.source,
+                    quality = entity.quality
+                )
+            }
+        }
+        val tags = db.physioContextTagDao().between(historyStart, nowTs).map { it.toDomain() }
+        val eventTimeline = EventTimelineRepository().aggregate(
+            EventTimelineSources(
+                therapyEvents = therapy,
+                contextTags = db.physioContextTagDao().between(historyStart, nowTs),
+                deliveryDiagnostics = deliveryDiagnosticEventsForWindow(
+                    rows = deliveryTelemetry,
+                    fromTs = historyStart,
+                    throughTs = nowTs
+                )
+            ),
+            nowTs
+        )
+        val storedActiveState = db.isfCrModelStateDao().active()?.toDomain()
+        val activeState = storedActiveState.takeUnless { resetExistingState }
         val fallbackProfile = db.profileEstimateDao().active()
         val fallbackIsf = (fallbackProfile?.calculatedIsfMmolPerUnit ?: fallbackProfile?.isfMmolPerUnit ?: DEFAULT_ISF)
             .coerceIn(0.8, 18.0)
@@ -116,7 +270,8 @@ class IsfCrRepository(
                 glucose = glucose,
                 therapy = therapy,
                 telemetry = telemetry,
-                tags = tags
+                tags = tags,
+                events = eventTimeline
             ),
             settings = config,
             existingState = activeState,
@@ -124,18 +279,41 @@ class IsfCrRepository(
             fallbackCr = fallbackCr
         )
 
-        db.isfCrModelStateDao().upsert(fit.state.toEntity())
-        if (fit.evidence.isNotEmpty()) {
-            db.isfCrEvidenceDao().upsertAll(fit.evidence.map { it.toEntity(gson) })
+        val persistedState = if (resetExistingState && storedActiveState != null) {
+            mergeIsfRevisionModelState(refitted = fit.state, existing = storedActiveState)
+        } else {
+            fit.state
         }
-        cleanupRetention(settings = config, nowTs = nowTs)
+        val persistedEvidence = if (resetExistingState && storedActiveState != null) {
+            fit.evidence.filter { it.sampleType == IsfCrSampleType.ISF }
+        } else {
+            fit.evidence
+        }
+        val publishedState = db.withTransaction {
+            val publicationRevision = nextStrictlyMonotonicPublicationRevision(
+                requestedRevision = persistedState.updatedAt,
+                currentRevisions = listOfNotNull(db.isfCrModelStateDao().active()?.updatedAt)
+            )
+            val versionedState = persistedState.copy(updatedAt = publicationRevision)
+            if (resetExistingState) {
+                db.isfCrEvidenceDao().deleteBySampleType(IsfCrSampleType.ISF.name)
+            }
+            db.isfCrModelStateDao().upsert(versionedState.toEntity())
+            if (persistedEvidence.isNotEmpty()) {
+                db.isfCrEvidenceDao().upsertAll(persistedEvidence.map { it.toEntity(gson) })
+            }
+            versionedState
+        }
+        if (!resetExistingState) {
+            cleanupRetention(settings = config, nowTs = nowTs)
+        }
 
         auditLogger.info(
             "isfcr_evidence_extracted",
             mapOf(
                 "phase" to "base_fit",
-                "isfEvidence" to fit.evidence.count { it.sampleType == IsfCrSampleType.ISF },
-                "crEvidence" to fit.evidence.count { it.sampleType == IsfCrSampleType.CR },
+                "isfEvidence" to persistedEvidence.count { it.sampleType == IsfCrSampleType.ISF },
+                "crEvidence" to persistedEvidence.count { it.sampleType == IsfCrSampleType.CR },
                 "droppedEvidence" to fit.droppedEvidenceCount,
                 "droppedReasons" to encodeDroppedReasons(fit.droppedReasonCounts)
             )
@@ -144,19 +322,20 @@ class IsfCrRepository(
         auditLogger.info(
             "isfcr_base_fit_completed",
             mapOf(
-                "isfEvidence" to fit.evidence.count { it.sampleType == IsfCrSampleType.ISF },
-                "crEvidence" to fit.evidence.count { it.sampleType == IsfCrSampleType.CR },
+                "isfEvidence" to persistedEvidence.count { it.sampleType == IsfCrSampleType.ISF },
+                "crEvidence" to persistedEvidence.count { it.sampleType == IsfCrSampleType.CR },
                 "droppedEvidence" to fit.droppedEvidenceCount,
                 "droppedReasons" to encodeDroppedReasons(fit.droppedReasonCounts)
             )
         )
 
-        fit.state
+        publishedState
     }
 
     suspend fun computeRealtimeSnapshot(
         settings: AppSettings,
-        nowTs: Long = System.currentTimeMillis()
+        nowTs: Long = System.currentTimeMillis(),
+        resetIsfRevisionState: Boolean = false
     ): IsfCrRealtimeSnapshot = withContext(realtimeDispatcher) {
         val config = settings.toIsfCrSettings()
         // Realtime path must stay cheap and deterministic; bound each input stream explicitly.
@@ -164,20 +343,19 @@ class IsfCrRepository(
         val glucoseRows = db.glucoseDao()
             .sinceDescLimit(recentStart, ISFCR_REALTIME_MAX_GLUCOSE_ROWS)
             .asReversed()
-        val glucose = GlucoseSanitizer.filterEntities(glucoseRows).map { it.toDomain() }
+        val glucose = glucoseCalibrationRepository.resolveDomainGlucoseHistory(
+            rawGlucose = glucoseRows,
+            nowTs = nowTs
+        )
         var therapyRows = db.therapyDao()
             .sinceDescLimit(recentStart, ISFCR_REALTIME_MAX_THERAPY_ROWS)
             .asReversed()
-        var therapy = TherapySanitizer.filterEntities(therapyRows)
-            .map { it.toDomain(gson) }
-            .filter(::isRelevantRealtimeIsfCrTherapyEvent)
+        var therapy = sanitizeRealtimeIsfCrTherapyRows(therapyRows, gson)
         if (shouldWidenRealtimeTherapyScan(therapyRows.size, therapy.size, ISFCR_REALTIME_MAX_THERAPY_ROWS)) {
             therapyRows = db.therapyDao()
                 .sinceDescLimit(recentStart, ISFCR_REALTIME_MAX_THERAPY_ROWS_WIDE)
                 .asReversed()
-            therapy = TherapySanitizer.filterEntities(therapyRows)
-                .map { it.toDomain(gson) }
-                .filter(::isRelevantRealtimeIsfCrTherapyEvent)
+            therapy = sanitizeRealtimeIsfCrTherapyRows(therapyRows, gson)
         }
         val telemetryRowsRaw = db.telemetryDao()
             .sinceByKeysDescLimit(
@@ -190,18 +368,58 @@ class IsfCrRepository(
             rows = telemetryRowsRaw,
             nowTs = nowTs
         )
+        val deliveryTelemetry = db.telemetryDao().betweenForClinicalReport(
+            fromTs = deliveryDiagnosticLookbackFrom(recentStart),
+            toTs = nowTs,
+            keys = DELIVERY_DIAGNOSTIC_TELEMETRY_KEYS
+        ).map { row ->
+            DeliveryTrustTelemetryValue(row.ts, row.source, row.key, row.value)
+        }
         val telemetry = telemetryRows.map { entity ->
             io.aaps.copilot.domain.predict.TelemetrySignal(
                 ts = entity.timestamp,
                 key = entity.key,
                 valueDouble = entity.valueDouble,
-                valueText = entity.valueText
+                valueText = entity.valueText,
+                source = entity.source,
+                quality = entity.quality
             )
         }
         val activeTags = db.physioContextTagDao().activeAt(nowTs).map { it.toDomain() }
-        val activeState = db.isfCrModelStateDao().active()?.toDomain()
-        val previousSnapshot = db.isfCrSnapshotDao().latest()?.toDomain(gson)
-        val fallbackProfile = db.profileEstimateDao().active()
+        val eventTimeline = EventTimelineRepository().aggregate(
+            EventTimelineSources(
+                therapyEvents = therapy,
+                contextTags = db.physioContextTagDao().activeAt(nowTs),
+                deliveryDiagnostics = deliveryDiagnosticEventsForWindow(
+                    rows = deliveryTelemetry,
+                    fromTs = recentStart,
+                    throughTs = nowTs
+                )
+            ),
+            nowTs
+        )
+        val realtimeInputs = db.withTransaction {
+            Triple(
+                db.isfCrModelStateDao().active(),
+                db.isfCrSnapshotDao().latest(),
+                db.profileEstimateDao().active()
+            )
+        }
+        val activeStateEntity = realtimeInputs.first
+        val previousSnapshotEntity = realtimeInputs.second
+        val fallbackProfile = realtimeInputs.third
+        val activeModelRevision = activeStateEntity?.updatedAt
+        val activeProfileRevision = fallbackProfile?.timestamp
+        val activeState = activeStateEntity?.toDomain()
+        val previousSnapshot = previousSnapshotEntity
+            ?.toDomain(gson)
+            ?.takeIf {
+                realtimeSnapshotMatchesInputGeneration(
+                    snapshot = it,
+                    modelUpdatedAt = activeModelRevision,
+                    profileTimestamp = activeProfileRevision
+                )
+            }
         val fallbackIsf = (fallbackProfile?.calculatedIsfMmolPerUnit ?: fallbackProfile?.isfMmolPerUnit ?: DEFAULT_ISF)
             .coerceIn(0.8, 18.0)
         val fallbackCr = (fallbackProfile?.calculatedCrGramPerUnit ?: fallbackProfile?.crGramPerUnit ?: DEFAULT_CR)
@@ -213,11 +431,13 @@ class IsfCrRepository(
             therapy = therapy,
             telemetry = telemetry,
             tags = activeTags,
+            events = eventTimeline,
             activeModel = activeState,
             previousSnapshot = previousSnapshot,
             settings = config,
             fallbackIsf = fallbackIsf,
-            fallbackCr = fallbackCr
+            fallbackCr = fallbackCr,
+            resetPreviousIsfRateLimit = resetIsfRevisionState
         )
         val factors = result.snapshot.factors
         val setAgeHours = factors["set_age_hours"]
@@ -243,11 +463,36 @@ class IsfCrRepository(
             )
             .coerceIn(0.0, 0.16)
 
-        db.isfCrSnapshotDao().upsert(result.snapshot.toEntity(gson))
-        if (result.evidence.isNotEmpty()) {
-            db.isfCrEvidenceDao().upsertAll(result.evidence.map { it.toEntity(gson) })
+        val mergedSnapshot = if (resetIsfRevisionState && previousSnapshot != null) {
+            mergeIsfRevisionRealtimeSnapshot(refitted = result.snapshot, existing = previousSnapshot)
+        } else {
+            result.snapshot
         }
-        cleanupRetention(settings = config, nowTs = nowTs)
+        val persistedSnapshot = bindRealtimeSnapshotToInputGeneration(
+            snapshot = mergedSnapshot,
+            modelUpdatedAt = activeModelRevision,
+            profileTimestamp = activeProfileRevision
+        )
+        val persistedEvidence = if (resetIsfRevisionState && previousSnapshot != null) {
+            result.evidence.filter { it.sampleType == IsfCrSampleType.ISF }
+        } else {
+            result.evidence
+        }
+        db.withTransaction {
+            require(db.isfCrModelStateDao().active()?.updatedAt == activeModelRevision) {
+                "ISF/CR base model revision changed during realtime calculation"
+            }
+            require(db.profileEstimateDao().active()?.timestamp == activeProfileRevision) {
+                "ISF/CR profile revision changed during realtime calculation"
+            }
+            db.isfCrSnapshotDao().upsert(persistedSnapshot.toEntity(gson))
+            if (persistedEvidence.isNotEmpty()) {
+                db.isfCrEvidenceDao().upsertAll(persistedEvidence.map { it.toEntity(gson) })
+            }
+        }
+        if (!resetIsfRevisionState) {
+            cleanupRetention(settings = config, nowTs = nowTs)
+        }
 
         auditLogger.infoThrottled(
             throttleKey = "isfcr_evidence_extracted:realtime",
@@ -271,10 +516,10 @@ class IsfCrRepository(
                 "confidence" to result.snapshot.confidence,
                 "confidenceThreshold" to config.confidenceThreshold,
                 "qualityScore" to result.diagnostics.qualityScore,
-                "isfEff" to result.snapshot.isfEff,
-                "crEff" to result.snapshot.crEff,
-                "isfEvidence" to result.snapshot.isfEvidenceCount,
-                "crEvidence" to result.snapshot.crEvidenceCount,
+                "isfEff" to persistedSnapshot.isfEff,
+                "crEff" to persistedSnapshot.crEff,
+                "isfEvidence" to persistedSnapshot.isfEvidenceCount,
+                "crEvidence" to persistedSnapshot.crEvidenceCount,
                 "usedEvidence" to result.diagnostics.usedEvidenceCount,
                 "droppedEvidence" to result.diagnostics.droppedEvidenceCount,
                 "droppedReasons" to encodeDroppedReasons(result.diagnostics.droppedReasonCounts),
@@ -333,16 +578,54 @@ class IsfCrRepository(
                 "isfcr_fallback_applied",
                 mapOf("reasons" to result.snapshot.reasons.joinToString(","))
             )
+        } else if (result.snapshot.mode == IsfCrRuntimeMode.SPARSE_REAL_FETCHED) {
+            auditLogger.info(
+                "isfcr_sparse_real_fetched_applied",
+                mapOf(
+                    "confidence" to result.snapshot.confidence,
+                    "qualityScore" to result.snapshot.qualityScore,
+                    "reasons" to result.snapshot.reasons.joinToString(","),
+                    "realFetchedCount30d" to (result.snapshot.factors["therapy_history_real_fetched_insulin_30d"] ?: 0.0),
+                    "usableCount30d" to (result.snapshot.factors["therapy_history_usable_insulin_30d"] ?: 0.0)
+                )
+            )
         }
-        result.snapshot
+        persistedSnapshot
     }
 
     suspend fun latestSnapshot(): IsfCrRealtimeSnapshot? {
-        return db.isfCrSnapshotDao().latest()?.toDomain(gson)
+        return db.withTransaction {
+            val modelRevision = db.isfCrModelStateDao().active()?.updatedAt
+            val profileRevision = db.profileEstimateDao().active()?.timestamp
+            db.isfCrSnapshotDao()
+                .latest()
+                ?.toDomain(gson)
+                ?.takeIf {
+                    realtimeSnapshotMatchesInputGeneration(
+                        snapshot = it,
+                        modelUpdatedAt = modelRevision,
+                        profileTimestamp = profileRevision
+                    )
+                }
+        }
     }
 
     fun observeLatestSnapshot(): Flow<IsfCrRealtimeSnapshot?> {
-        return db.isfCrSnapshotDao().observeLatest().map { it?.toDomain(gson) }
+        return combine(
+            db.isfCrSnapshotDao().observeLatest(),
+            db.isfCrModelStateDao().observeActive(),
+            db.profileEstimateDao().observeActive()
+        ) { snapshotEntity, modelEntity, profileEntity ->
+            snapshotEntity
+                ?.toDomain(gson)
+                ?.takeIf {
+                    realtimeSnapshotMatchesInputGeneration(
+                        snapshot = it,
+                        modelUpdatedAt = modelEntity?.updatedAt,
+                        profileTimestamp = profileEntity?.timestamp
+                    )
+                }
+        }
     }
 
     fun observeSnapshotHistory(limit: Int = 20_000): Flow<List<IsfCrRealtimeSnapshot>> {
@@ -356,7 +639,10 @@ class IsfCrRepository(
             }
     }
 
-    suspend fun addOrUpdateTag(tag: PhysioContextTag) {
+    suspend fun addOrUpdateTag(tag: PhysioContextTag, sex: PhysiologicalSex = PhysiologicalSex.UNSPECIFIED) {
+        val type = runCatching { CompensationEventType.valueOf(tag.tagType.uppercase()) }
+            .getOrDefault(CompensationEventType.CUSTOM)
+        require(CompensationEventProfilePolicy.canCreate(type, sex)) { "Event type is not allowed for this profile" }
         db.physioContextTagDao().upsert(tag.toEntity())
     }
 
@@ -375,6 +661,8 @@ class IsfCrRepository(
         return updatedRows > 0
     }
 
+    suspend fun deleteTag(tagId: String): Boolean = db.physioContextTagDao().deleteById(tagId) > 0
+
     fun observeRecentTags(sinceTs: Long): Flow<List<PhysioContextTag>> {
         return db.physioContextTagDao().observeRecent(sinceTs).map { rows -> rows.map { it.toDomain() } }
     }
@@ -384,7 +672,7 @@ class IsfCrRepository(
         val evidenceCutoff = nowTs - settings.evidenceRetentionDays.coerceAtLeast(30) * DAY_MS
         db.isfCrSnapshotDao().deleteOlderThan(snapshotCutoff)
         db.isfCrEvidenceDao().deleteOlderThan(evidenceCutoff)
-        db.physioContextTagDao().deleteOlderThan(evidenceCutoff)
+        db.physioContextTagDao().deleteOlderThanWithoutPendingSync(evidenceCutoff)
     }
 
     private fun AppSettings.toIsfCrSettings(): IsfCrSettings {
@@ -539,7 +827,12 @@ class IsfCrRepository(
             tagType = tagType,
             severity = severity,
             source = source,
-            note = note
+            note = note,
+            subtype = subtype,
+            title = title,
+            attributesJson = attributesJson,
+            revision = revision,
+            status = status
         )
     }
 
@@ -551,7 +844,12 @@ class IsfCrRepository(
             tagType = tagType,
             severity = severity,
             source = source,
-            note = note
+            note = note,
+            subtype = subtype,
+            title = title,
+            attributesJson = attributesJson,
+            revision = revision,
+            status = status
         )
     }
 
@@ -573,10 +871,20 @@ class IsfCrRepository(
         private const val ISFCR_REALTIME_TELEMETRY_QUERY_LIMIT = 3_000
         private val ISFCR_REALTIME_TELEMETRY_KEYS = listOf(
             "activity_ratio",
+            "activity",
+            "sensitivity_ratio",
+            "autosens_ratio",
+            "raw_activityratio",
             "steps_count",
+            "raw_steps_count",
             "steps_rate_15m",
             "set_age_hours",
+            "set_age_days",
             "sensor_age_hours",
+            "sensor_age_days",
+            "sensor_age_source_raw",
+            "sage_days",
+            "cage_days",
             "sensor_quality_score",
             "sensor_quality_noise_std5",
             "sensor_quality_blocked",
@@ -604,8 +912,17 @@ class IsfCrRepository(
             "openaps_iob_basaliob",
             "openaps_iob_activity",
             "iob_iob",
-            "iob_basaliob"
+            "iob_basaliob",
+            "iob_real_units",
+            "therapy_history_source_mode",
+            "therapy_history_real_fetched_insulin_30d",
+            "therapy_history_recovered_insulin_30d",
+            "therapy_history_usable_insulin_30d",
+            "therapy_history_bootstrap_needed",
+            DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY,
+            DeliveryTrustStateWireCodec.LEGACY_TELEMETRY_KEY
         )
+        private val ISFCR_BASE_FIT_TELEMETRY_KEYS = ISFCR_REALTIME_TELEMETRY_KEYS
 
     }
 }

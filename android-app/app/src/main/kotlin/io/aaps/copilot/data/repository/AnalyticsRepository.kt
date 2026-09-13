@@ -8,9 +8,13 @@ import io.aaps.copilot.data.local.entity.CircadianPatternSnapshotEntity
 import io.aaps.copilot.data.local.entity.CircadianReplaySlotStatEntity
 import io.aaps.copilot.data.local.entity.CircadianSlotStatEntity
 import io.aaps.copilot.data.local.entity.CircadianTransitionStatEntity
+import io.aaps.copilot.data.local.entity.ForecastEntity
+import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
 import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
+import io.aaps.copilot.data.local.entity.SyncStateEntity
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.domain.model.CircadianDayType
 import io.aaps.copilot.domain.model.CircadianForecastPrior
 import io.aaps.copilot.domain.model.CircadianPatternSnapshot
@@ -33,32 +37,80 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+internal class ProfileStateMutationCoordinator {
+    private val mutex = Mutex()
+
+    suspend fun <T> runExclusive(block: suspend () -> T): T = mutex.withLock { block() }
+}
+
+internal fun nextStrictlyMonotonicPublicationRevision(
+    requestedRevision: Long,
+    currentRevisions: Iterable<Long>
+): Long {
+    require(requestedRevision > 0L) { "requested publication revision must be positive" }
+    val current = currentRevisions.maxOrNull() ?: return requestedRevision
+    require(current > 0L) { "current publication revision must be positive" }
+    return if (requestedRevision > current) requestedRevision else Math.addExact(current, 1L)
+}
+
 class AnalyticsRepository(
     private val db: CopilotDatabase,
     private val patternAnalyzer: PatternAnalyzer,
     private val gson: Gson,
     private val auditLogger: AuditLogger,
-    val isfCrRepository: IsfCrRepository
+    val isfCrRepository: IsfCrRepository,
+    private val glucoseCalibrationRepository: GlucoseCalibrationRepository
 ) {
 
-    private val profileStateHealMutex = Mutex()
+    private val profileStateMutations = ProfileStateMutationCoordinator()
     private val circadianStateHealMutex = Mutex()
+    @Volatile
+    private var profileEstimatorRevisionKnownApplied = false
     private val circadianPatternEngine = CircadianPatternEngine()
     private val circadianReplayEvaluator = CircadianReplaySummaryEvaluator()
+
+    private data class ReplaySummaryInputs(
+        val glucose: List<GlucoseSampleEntity>,
+        val forecasts: List<ForecastEntity>,
+        val telemetry: List<TelemetrySampleEntity>,
+        val snapshots: List<CircadianPatternSnapshotEntity>,
+        val slotStats: List<CircadianSlotStatEntity>,
+        val transitionStats: List<CircadianTransitionStatEntity>,
+        val replaySlotStats: List<CircadianReplaySlotStatEntity>
+    )
+
+    private data class ProfileStateRebuildResult(
+        val segmentCount: Int,
+        val profileRevision: Long?
+    )
 
     suspend fun recalculate(settings: AppSettings) = withContext(Dispatchers.Default) {
         val lookbackDays = settings.analyticsLookbackDays.coerceIn(30, 730)
         val nowTs = System.currentTimeMillis()
         val historyStart = nowTs - lookbackDays * 24L * 60 * 60 * 1000
-        val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)).map { it.toDomain() }
-        val therapy = TherapySanitizer.filterEntities(db.therapyDao().since(historyStart)).map { it.toDomain(gson) }
-        val telemetry = db.telemetryDao().since(historyStart).map { sample ->
-            TelemetrySignal(
-                ts = sample.timestamp,
-                key = sample.key,
-                valueDouble = sample.valueDouble,
-                valueText = sample.valueText
-            )
+        val glucoseRows = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart))
+        val glucose = glucoseCalibrationRepository.resolveDomainGlucoseHistory(glucoseRows, nowTs)
+        val therapy = TherapySanitizer.toDomainEvents(db.therapyDao().since(historyStart), gson)
+        val telemetryEntities = mutableListOf<TelemetrySampleEntity>()
+        val telemetry = mutableListOf<TelemetrySignal>()
+        scanTelemetryByKeysPaged(
+            telemetryDao = db.telemetryDao(),
+            since = historyStart,
+            keys = ANALYTICS_RECALC_TELEMETRY_KEYS,
+            callerTag = "analytics_recalculate",
+            auditLogger = auditLogger
+        ) { page ->
+            telemetryEntities += page.map { it.toEntity() }
+            telemetry += page.map { sample ->
+                TelemetrySignal(
+                    ts = sample.timestamp,
+                    key = sample.key,
+                    valueDouble = sample.valueDouble,
+                    valueText = sample.valueText,
+                    source = sample.source,
+                    quality = sample.quality
+                )
+            }
         }
         val forecastHistory = db.forecastDao().since(historyStart).map { it.toDomain() }
 
@@ -80,9 +132,16 @@ class AnalyticsRepository(
             nowTs = nowTs
         )
         val circadianReplayStats = fitCircadianReplayStats(
-            glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)),
+            glucose = glucoseCalibrationRepository.resolveGlucoseHistory(glucoseRows, nowTs).map { point ->
+                GlucoseSampleEntity(
+                    timestamp = point.ts,
+                    mmol = point.calibratedMmol,
+                    source = point.source,
+                    quality = point.quality.name
+                )
+            },
             forecasts = db.forecastDao().since(historyStart),
-            telemetry = db.telemetryDao().since(historyStart),
+            telemetry = telemetryEntities,
             circadianResult = circadianResult,
             settings = settings,
             nowTs = nowTs
@@ -127,14 +186,33 @@ class AnalyticsRepository(
                 }
             )
         }
-        val rebuiltSegmentCount = rebuildProfileState(
-            lookbackDays = lookbackDays,
-            nowTs = nowTs,
-            historyStart = historyStart,
-            glucose = glucose,
-            therapy = therapy,
-            telemetry = telemetry
-        )
+        val rebuiltSegmentCount = profileStateMutations.runExclusive {
+            val storedEstimatorRevision = db.syncStateDao()
+                .bySource(PROFILE_ESTIMATOR_REVISION_SOURCE)
+                ?.lastSyncedTimestamp
+            if (!profileRecalculationPublicationAllowedStatic(storedEstimatorRevision)) {
+                auditLogger.infoThrottled(
+                    throttleKey = "profile_recalculation_revision_pending",
+                    intervalMs = PROFILE_REBUILD_MAX_AGE_MS,
+                    message = "profile_recalculation_revision_pending",
+                    metadata = mapOf("storedRevision" to storedEstimatorRevision)
+                )
+                return@runExclusive db.profileSegmentEstimateDao().countAll()
+            }
+            val rebuilt = rebuildProfileState(
+                lookbackDays = lookbackDays,
+                nowTs = nowTs,
+                historyStart = historyStart,
+                glucose = glucose,
+                therapy = therapy,
+                telemetry = telemetry
+            )
+            val activeModel = db.isfCrModelStateDao().active()
+            if (activeModel == null || nowTs - activeModel.updatedAt >= ISFCR_BASE_REFIT_INTERVAL_MS) {
+                isfCrRepository.fitBaseModel(settings = settings, nowTs = nowTs)
+            }
+            rebuilt.segmentCount
+        }
 
         val riskWindows = windows.count { it.isRiskWindow }
         val lowRisk = windows.count { it.isRiskWindow && it.lowRate >= settings.patternLowRateTrigger }
@@ -182,27 +260,31 @@ class AnalyticsRepository(
             )
         }
 
-        val activeModel = db.isfCrModelStateDao().active()
-        if (activeModel == null || nowTs - activeModel.updatedAt >= ISFCR_BASE_REFIT_INTERVAL_MS) {
-            isfCrRepository.fitBaseModel(settings = settings, nowTs = nowTs)
-        }
     }
 
     suspend fun ensureProfileStateHealthy(
         settings: AppSettings,
         reasonHint: String
-    ): Boolean = profileStateHealMutex.withLock {
+    ): Boolean = profileStateMutations.runExclusive {
         val nowTs = System.currentTimeMillis()
+        val lookbackDays = settings.analyticsLookbackDays
+            .coerceIn(30, 730)
+            .coerceAtMost(PROFILE_SELF_HEAL_LOOKBACK_DAYS_MAX)
+        val historyStart = nowTs - lookbackDays * 24L * 60 * 60 * 1000
         val active = db.profileEstimateDao().active()
         val segmentCount = db.profileSegmentEstimateDao().countAll()
         val latestSegmentUpdatedAt = db.profileSegmentEstimateDao().latestUpdatedAt()
+        val storedEstimatorRevision = db.syncStateDao()
+            .bySource(PROFILE_ESTIMATOR_REVISION_SOURCE)
+            ?.lastSyncedTimestamp
         val rebuildReason = determineProfileStateRebuildReason(
             active = active,
             segmentCount = segmentCount,
             latestSegmentUpdatedAt = latestSegmentUpdatedAt,
-            nowTs = nowTs
-        ) ?: return@withLock false
-
+            nowTs = nowTs,
+            storedEstimatorRevision = storedEstimatorRevision
+        ) ?: return@runExclusive false
+        val revisionChanged = storedEstimatorRevision != PROFILE_ESTIMATOR_ALGORITHM_REVISION
         auditLogger.info(
             "profile_estimate_self_heal_requested",
             mapOf(
@@ -214,31 +296,95 @@ class AnalyticsRepository(
                 "latestSegmentUpdatedAt" to (latestSegmentUpdatedAt ?: 0L)
             )
         )
-        withContext(Dispatchers.Default) {
-            val lookbackDays = settings.analyticsLookbackDays
-                .coerceIn(30, 730)
-                .coerceAtMost(PROFILE_SELF_HEAL_LOOKBACK_DAYS_MAX)
-            val historyStart = nowTs - lookbackDays * 24L * 60 * 60 * 1000
-            val glucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)).map { it.toDomain() }
-            val therapy = TherapySanitizer.filterEntities(db.therapyDao().since(historyStart)).map { it.toDomain(gson) }
-            val telemetry = db.telemetryDao().since(historyStart).map { sample ->
-                TelemetrySignal(
-                    ts = sample.timestamp,
-                    key = sample.key,
-                    valueDouble = sample.valueDouble,
-                    valueText = sample.valueText
+        try {
+            val glucoseRows = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart))
+            val therapyRows = db.therapyDao().since(historyStart)
+            val glucose = glucoseCalibrationRepository.resolveDomainGlucoseHistory(glucoseRows, nowTs)
+            val therapy = withContext(Dispatchers.Default) {
+                TherapySanitizer.toDomainEvents(therapyRows, gson)
+            }
+            val telemetry = mutableListOf<TelemetrySignal>()
+            scanTelemetryByKeysPaged(
+                telemetryDao = db.telemetryDao(),
+                since = historyStart,
+                keys = PROFILE_REBUILD_TELEMETRY_KEYS,
+                callerTag = "analytics_profile_rebuild",
+                auditLogger = auditLogger
+            ) { page ->
+                telemetry += page.map { sample ->
+                    TelemetrySignal(
+                        ts = sample.timestamp,
+                        key = sample.key,
+                        valueDouble = sample.valueDouble,
+                        valueText = sample.valueText,
+                        source = sample.source,
+                        quality = sample.quality
+                    )
+                }
+            }
+            val rebuilt = withContext(Dispatchers.Default) {
+                rebuildProfileState(
+                    lookbackDays = lookbackDays,
+                    nowTs = nowTs,
+                    historyStart = historyStart,
+                    glucose = glucose,
+                    therapy = therapy,
+                    telemetry = telemetry
                 )
             }
-            rebuildProfileState(
-                lookbackDays = lookbackDays,
-                nowTs = nowTs,
-                historyStart = historyStart,
-                glucose = glucose,
-                therapy = therapy,
-                telemetry = telemetry
-            )
+            val updated = rebuilt.profileRevision?.let { expectedRevision ->
+                db.profileEstimateDao().active()?.timestamp == expectedRevision
+            } == true
+            if (updated && revisionChanged) {
+                isfCrRepository.fitBaseModel(
+                    settings = settings,
+                    nowTs = nowTs,
+                    resetExistingState = true
+                )
+                isfCrRepository.computeRealtimeSnapshot(
+                    settings = settings,
+                    nowTs = nowTs,
+                    resetIsfRevisionState = true
+                )
+            }
+            updated
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            throw failure
         }
-        true
+    }
+
+    suspend fun isProfileEstimatorRevisionPending(): Boolean {
+        if (profileEstimatorRevisionKnownApplied) return false
+        val storedRevision = db.syncStateDao()
+            .bySource(PROFILE_ESTIMATOR_REVISION_SOURCE)
+            ?.lastSyncedTimestamp
+        if (storedRevision == PROFILE_ESTIMATOR_ALGORITHM_REVISION) {
+            profileEstimatorRevisionKnownApplied = true
+            return false
+        }
+        val hasLegacyDerivedState = hasLegacyProfileDerivedStateStatic(
+            hasProfile = db.profileEstimateDao().active() != null,
+            hasModel = db.isfCrModelStateDao().active() != null,
+            hasRealtimeSnapshot = db.isfCrSnapshotDao().latest() != null,
+            segmentCount = db.profileSegmentEstimateDao().countAll()
+        )
+        if (!hasLegacyDerivedState) {
+            markProfileEstimatorRevisionApplied()
+            return false
+        }
+        return true
+    }
+
+    suspend fun markProfileEstimatorRevisionApplied() {
+        db.syncStateDao().upsert(
+            SyncStateEntity(
+                source = PROFILE_ESTIMATOR_REVISION_SOURCE,
+                lastSyncedTimestamp = PROFILE_ESTIMATOR_ALGORITHM_REVISION
+            )
+        )
+        profileEstimatorRevisionKnownApplied = true
     }
 
     suspend fun ensureCircadianStateHealthy(
@@ -281,8 +427,22 @@ class AnalyticsRepository(
                     .coerceIn(14, 730)
                     .coerceAtMost(CIRCADIAN_SELF_HEAL_LOOKBACK_DAYS_MAX)
                 val historyStart = nowTs - lookbackDays * 24L * 60 * 60 * 1000
-                val glucoseEntities = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart))
-                val telemetryEntities = db.telemetryDao().sinceByKeys(historyStart, CIRCADIAN_SELF_HEAL_TELEMETRY_KEYS)
+                val rawGlucoseEntities = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart))
+                val glucoseEntities = glucoseCalibrationRepository.resolveGlucoseHistory(rawGlucoseEntities, nowTs).map { point ->
+                    GlucoseSampleEntity(
+                        timestamp = point.ts,
+                        mmol = point.calibratedMmol,
+                        source = point.source,
+                        quality = point.quality.name
+                    )
+                }
+                val (telemetryEntities, _) = collectTelemetryEntitiesByKeysPaged(
+                    telemetryDao = db.telemetryDao(),
+                    since = historyStart,
+                    keys = CIRCADIAN_SELF_HEAL_TELEMETRY_KEYS,
+                    callerTag = "analytics_circadian_self_heal",
+                    auditLogger = auditLogger
+                )
                 val forecastEntities = db.forecastDao().since(historyStart)
                 val glucose = glucoseEntities.map { it.toDomain() }
                 val telemetry = telemetryEntities.map { sample ->
@@ -290,7 +450,9 @@ class AnalyticsRepository(
                         ts = sample.timestamp,
                         key = sample.key,
                         valueDouble = sample.valueDouble,
-                        valueText = sample.valueText
+                        valueText = sample.valueText,
+                        source = sample.source,
+                        quality = sample.quality
                     )
                 }
                 val forecastHistory = forecastEntities.map { it.toDomain() }
@@ -545,34 +707,64 @@ class AnalyticsRepository(
         settings: AppSettings,
         nowTs: Long = System.currentTimeMillis(),
         windowsDays: List<Int> = listOf(1, 7)
-    ): CircadianReplaySummary = withContext(Dispatchers.Default) {
+    ): CircadianReplaySummary {
         if (!settings.circadianPatternsEnabled) {
-            return@withContext CircadianReplaySummary(
+            return CircadianReplaySummary(
                 generatedAtTs = nowTs,
                 windows = emptyList()
             )
         }
         val maxDays = windowsDays.maxOrNull()?.coerceAtLeast(1) ?: 7
         val sinceTs = nowTs - maxDays * 24L * 60L * 60L * 1000L
-        val glucose = db.glucoseDao().since(sinceTs - 2L * 60L * 60L * 1000L)
-        val forecasts = db.forecastDao().since(sinceTs - 60L * 60L * 1000L)
-        val telemetry = db.telemetryDao().since(sinceTs - 2L * 60L * 60L * 1000L)
-        val snapshots = db.circadianPatternDao().allSnapshots()
-        val slotStats = db.circadianPatternDao().allSlotStats()
-        val transitionStats = db.circadianPatternDao().allTransitionStats()
-        val replaySlotStats = db.circadianPatternDao().allReplaySlotStats()
-        circadianReplayEvaluator.evaluate(
-            forecasts = forecasts,
-            glucose = glucose,
-            telemetry = telemetry,
-            snapshots = snapshots,
-            slotStats = slotStats,
-            transitionStats = transitionStats,
-            replaySlotStats = replaySlotStats,
-            settings = settings,
-            nowTs = nowTs,
-            windowsDays = windowsDays
-        )
+        val inputs = withContext(Dispatchers.IO) {
+                val glucoseRows = db.glucoseDao().since(sinceTs - 2L * 60L * 60L * 1000L)
+                val glucose = glucoseCalibrationRepository.resolveGlucoseHistory(
+                    rawGlucose = glucoseRows,
+                    nowTs = nowTs
+                ).map { point ->
+                    GlucoseSampleEntity(
+                        timestamp = point.ts,
+                        mmol = point.calibratedMmol,
+                        source = point.source,
+                        quality = point.quality.name
+                    )
+                }
+                val forecasts = db.forecastDao().since(sinceTs - 60L * 60L * 1000L)
+                val (telemetry, _) = collectTelemetryEntitiesByKeysPaged(
+                    telemetryDao = db.telemetryDao(),
+                    since = sinceTs - 2L * 60L * 60L * 1000L,
+                    keys = CircadianReplaySummaryEvaluator.requiredTelemetryKeys(),
+                    callerTag = "analytics_circadian_replay_summary",
+                    auditLogger = auditLogger
+                )
+                val snapshots = db.circadianPatternDao().allSnapshots()
+                val slotStats = db.circadianPatternDao().allSlotStats()
+                val transitionStats = db.circadianPatternDao().allTransitionStats()
+                val replaySlotStats = db.circadianPatternDao().allReplaySlotStats()
+                ReplaySummaryInputs(
+                    glucose,
+                    forecasts,
+                    telemetry,
+                    snapshots,
+                    slotStats,
+                    transitionStats,
+                    replaySlotStats
+                )
+            }
+        return withContext(Dispatchers.Default) {
+            circadianReplayEvaluator.evaluate(
+                forecasts = inputs.forecasts,
+                glucose = inputs.glucose,
+                telemetry = inputs.telemetry,
+                snapshots = inputs.snapshots,
+                slotStats = inputs.slotStats,
+                transitionStats = inputs.transitionStats,
+                replaySlotStats = inputs.replaySlotStats,
+                settings = settings,
+                nowTs = nowTs,
+                windowsDays = windowsDays
+            )
+        }
     }
 
     private suspend fun rebuildProfileState(
@@ -582,39 +774,64 @@ class AnalyticsRepository(
         glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
         therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
         telemetry: List<TelemetrySignal>
-    ): Int {
+    ): ProfileStateRebuildResult {
         val profileEstimator = ProfileEstimator(
             ProfileEstimatorConfig(lookbackDays = lookbackDays)
         )
-        val profileEstimate = profileEstimator.estimate(glucose, therapy, telemetry)
-        val calculatedEstimate = profileEstimator.estimate(glucose, therapy, emptyList())
-        val segmentEstimates = profileEstimator.estimateSegments(glucose, therapy, telemetry)
-        val segmentRows = segmentEstimates.map {
-            ProfileSegmentEstimateEntity(
-                id = "${it.dayType}:${it.timeSlot}:$nowTs",
-                dayType = it.dayType.name,
-                timeSlot = it.timeSlot.name,
-                isfMmolPerUnit = it.isfMmolPerUnit,
-                crGramPerUnit = it.crGramPerUnit,
-                confidence = it.confidence,
-                isfSampleCount = it.isfSampleCount,
-                crSampleCount = it.crSampleCount,
-                lookbackDays = it.lookbackDays,
-                updatedAt = nowTs
-            )
-        }
+        val profileEstimate = profileEstimator.estimate(
+            glucoseHistory = glucose,
+            therapyEvents = therapy,
+            telemetrySignals = telemetry,
+            telemetryReferenceTs = nowTs
+        )
+        val calculatedEstimate = profileEstimator.estimate(
+            glucoseHistory = glucose,
+            therapyEvents = therapy,
+            telemetrySignals = emptyList(),
+            telemetryReferenceTs = nowTs
+        )
+        val segmentEstimates = profileEstimator.estimateSegments(
+            glucoseHistory = glucose,
+            therapyEvents = therapy,
+            telemetrySignals = telemetry,
+            telemetryReferenceTs = nowTs
+        )
         var legacyProfileRowsRemoved = 0
         var clearedSegmentRows = 0
+        var publicationRevision = 0L
+        var publishedSegmentCount = 0
         db.withTransaction {
+            publicationRevision = nextStrictlyMonotonicPublicationRevision(
+                requestedRevision = nowTs,
+                currentRevisions = listOfNotNull(
+                    db.profileEstimateDao().active()?.timestamp,
+                    db.profileSegmentEstimateDao().latestUpdatedAt()
+                )
+            )
+            val segmentRows = segmentEstimates.map {
+                ProfileSegmentEstimateEntity(
+                    id = "${it.dayType}:${it.timeSlot}:$publicationRevision",
+                    dayType = it.dayType.name,
+                    timeSlot = it.timeSlot.name,
+                    isfMmolPerUnit = it.isfMmolPerUnit,
+                    crGramPerUnit = it.crGramPerUnit,
+                    confidence = it.confidence,
+                    isfSampleCount = it.isfSampleCount,
+                    crSampleCount = it.crSampleCount,
+                    lookbackDays = it.lookbackDays,
+                    updatedAt = publicationRevision
+                )
+            }
             legacyProfileRowsRemoved = db.profileEstimateDao().deleteLegacyTelemetryPollutedRows()
             clearedSegmentRows = db.profileSegmentEstimateDao().clear()
             if (segmentRows.isNotEmpty()) {
                 db.profileSegmentEstimateDao().upsertAll(segmentRows)
             }
+            publishedSegmentCount = segmentRows.size
             profileEstimate?.let { estimate ->
                 val snapshot = ProfileEstimateEntity(
-                    id = "snapshot-$nowTs",
-                    timestamp = nowTs,
+                    id = "snapshot-$publicationRevision",
+                    timestamp = publicationRevision,
                     isfMmolPerUnit = estimate.isfMmolPerUnit,
                     crGramPerUnit = estimate.crGramPerUnit,
                     confidence = estimate.confidence,
@@ -639,7 +856,7 @@ class AnalyticsRepository(
                 db.profileEstimateDao().upsert(snapshot)
                 db.profileEstimateDao().upsert(
                     ProfileEstimateEntity(
-                        timestamp = nowTs,
+                        timestamp = publicationRevision,
                         isfMmolPerUnit = estimate.isfMmolPerUnit,
                         crGramPerUnit = estimate.crGramPerUnit,
                         confidence = estimate.confidence,
@@ -672,7 +889,7 @@ class AnalyticsRepository(
                 mapOf(
                     "legacyProfileRowsRemoved" to legacyProfileRowsRemoved,
                     "clearedSegmentRows" to clearedSegmentRows,
-                    "reinsertedSegments" to segmentRows.size,
+                    "reinsertedSegments" to publishedSegmentCount,
                     "lookbackDays" to lookbackDays
                 )
             )
@@ -700,17 +917,22 @@ class AnalyticsRepository(
                     "calculatedCr" to calculatedEstimate?.crGramPerUnit,
                     "calculatedConfidence" to calculatedEstimate?.confidence,
                     "calculatedSamples" to (calculatedEstimate?.sampleCount ?: 0),
-                    "snapshotId" to "snapshot-$nowTs"
+                    "snapshotId" to "snapshot-$publicationRevision"
                 )
             )
         } ?: auditLogger.warn(
             "profile_estimate_skipped",
             mapOf("reason" to "insufficient_samples", "lookbackDays" to lookbackDays)
         )
-        return segmentRows.size
+        return ProfileStateRebuildResult(
+            segmentCount = publishedSegmentCount,
+            profileRevision = publicationRevision.takeIf { profileEstimate != null }
+        )
     }
 
     companion object {
+        internal const val PROFILE_ESTIMATOR_ALGORITHM_REVISION = 2L
+        private const val PROFILE_ESTIMATOR_REVISION_SOURCE = "profile_estimator_algorithm_revision"
         private const val ISFCR_BASE_REFIT_INTERVAL_MS = 6L * 60 * 60 * 1000
         private const val PROFILE_REBUILD_MAX_AGE_MS = 12L * 60 * 60 * 1000
         private const val PROFILE_SELF_HEAL_LOOKBACK_DAYS_MAX = 90
@@ -734,12 +956,31 @@ class AnalyticsRepository(
             "sensor_quality_blocked",
             "sensor_quality_suspect_false_low"
         )
+        private val PROFILE_REBUILD_TELEMETRY_KEYS = listOf(
+            "isf_value",
+            "raw_isf",
+            "aaps_isf",
+            "isf",
+            "sens",
+            "sensitivity",
+            "cr_value",
+            "raw_cr",
+            "aaps_cr",
+            "cr",
+            "carb_ratio",
+            "carbratio",
+            "ic_ratio",
+            "icratio"
+        )
+        private val ANALYTICS_RECALC_TELEMETRY_KEYS =
+            (CIRCADIAN_SELF_HEAL_TELEMETRY_KEYS + PROFILE_REBUILD_TELEMETRY_KEYS).distinct()
 
         internal fun determineProfileStateRebuildReason(
             active: ProfileEstimateEntity?,
             segmentCount: Int,
             latestSegmentUpdatedAt: Long?,
-            nowTs: Long
+            nowTs: Long,
+            storedEstimatorRevision: Long? = PROFILE_ESTIMATOR_ALGORITHM_REVISION
         ): String? {
             if (active == null) {
                 return "missing_active_profile"
@@ -749,6 +990,9 @@ class AnalyticsRepository(
             }
             if (active.telemetryIsfSampleCount > 1 || active.telemetryCrSampleCount > 1) {
                 return "legacy_telemetry_pollution"
+            }
+            if (storedEstimatorRevision != PROFILE_ESTIMATOR_ALGORITHM_REVISION) {
+                return "profile_estimator_revision_changed"
             }
             if (nowTs - active.timestamp >= PROFILE_REBUILD_MAX_AGE_MS) {
                 return "stale_active_profile"
@@ -768,6 +1012,18 @@ class AnalyticsRepository(
             }
             return null
         }
+
+        internal fun shouldDeferProfileRevisionRetryStatic(): Boolean = false
+
+        internal fun profileRecalculationPublicationAllowedStatic(storedRevision: Long?): Boolean =
+            storedRevision == PROFILE_ESTIMATOR_ALGORITHM_REVISION
+
+        internal fun hasLegacyProfileDerivedStateStatic(
+            hasProfile: Boolean,
+            hasModel: Boolean,
+            hasRealtimeSnapshot: Boolean,
+            segmentCount: Int
+        ): Boolean = hasProfile || hasModel || hasRealtimeSnapshot || segmentCount > 0
 
         internal fun determineCircadianStateRebuildReason(
             slotCount: Int,

@@ -23,17 +23,20 @@ class CounterfactualReplayToolTest {
 
     @Test
     fun generateCounterfactualReplayFromSqlite() = runBlocking {
-        val beforePath = System.getenv("COPILOT_REPLAY_BEFORE_DB")
-            ?: "/Users/mac/Andoidaps/tmp_live/copilot_before_importfix_20260305.db"
-        val afterPath = System.getenv("COPILOT_REPLAY_AFTER_DB")
-            ?: "/Users/mac/Andoidaps/tmp_live/copilot_post_install_20260305.db"
+        val beforePath = System.getenv("COPILOT_REPLAY_BEFORE_DB").orEmpty()
+        val afterPath = System.getenv("COPILOT_REPLAY_AFTER_DB").orEmpty()
         val outputPath = System.getenv("COPILOT_REPLAY_OUTPUT_MD")
-            ?: "/Users/mac/Andoidaps/AAPSPredictiveCopilot/artifacts/replay_24h_counterfactual_importfix_20260305.md"
+            ?: "build/reports/counterfactual-replay.md"
+
+        if (beforePath.isBlank() || afterPath.isBlank()) {
+            println("counterfactual_replay_skipped missing_required_environment")
+            return@runBlocking
+        }
 
         val beforeFile = File(beforePath)
         val afterFile = File(afterPath)
         if (!beforeFile.exists() || !afterFile.exists()) {
-            println("counterfactual_replay_skipped missing_db before=$beforePath after=$afterPath")
+            println("counterfactual_replay_skipped missing_configured_db")
             return@runBlocking
         }
 

@@ -6,6 +6,10 @@ import io.aaps.copilot.domain.model.ProfileEstimate
 import io.aaps.copilot.domain.model.ProfileSegmentEstimate
 import io.aaps.copilot.domain.model.ProfileTimeSlot
 import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.domain.model.TherapyCarbComponentKind
+import io.aaps.copilot.domain.model.TherapyComponentResolutionSession
+import io.aaps.copilot.domain.model.TherapyComponentSemantics
+import io.aaps.copilot.domain.model.resolveTherapyComponents
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
 import java.time.ZoneId
@@ -24,6 +28,8 @@ data class ProfileEstimatorConfig(
     val correctionBaselineSearchMinutes: Int = 20,
     val correctionDropWindowStartMinutes: Int = 60,
     val correctionDropWindowEndMinutes: Int = 240,
+    val correctionInsulinIsolationBeforeMinutes: Int = 240,
+    val correctionInsulinIsolationAfterMinutes: Int = 240,
     val correctionMinFutureSamples: Int = 1,
     val correctionMaxGapMinutes: Int = 120,
     val correctionMinDropMmol: Double = 0.20,
@@ -40,6 +46,8 @@ data class ProfileEstimatorConfig(
     val uamEpisodeMaxGrams: Double = 90.0,
     val uamTotalMaxGrams: Double = 240.0,
     val uamRecentMaxGrams: Double = 120.0,
+    val telemetryMaxAgeMinutes: Int = 60,
+    val telemetryFutureToleranceMinutes: Int = 10,
     val telemetryMergeMode: TelemetryMergeMode = TelemetryMergeMode.FALLBACK_IF_NEEDED
 )
 
@@ -49,17 +57,49 @@ enum class TelemetryMergeMode {
     HISTORY_ONLY
 }
 
+private fun TherapyEvent.isValidForAnalysis(
+    session: TherapyComponentResolutionSession
+): Boolean =
+    session.resolve(this).let { components ->
+        components.wholeEventValid || (components.canonicalCarbAuthoritative && components.keepEvent)
+    }
+
+private fun interface ProfileComponentResolver {
+    fun resolve(event: TherapyEvent): TherapyComponentSemantics
+}
+
 data class TelemetrySignal(
     val ts: Long,
     val key: String,
     val valueDouble: Double?,
-    val valueText: String? = null
+    val valueText: String? = null,
+    val source: String = AAPS_PROFILE_TELEMETRY_SOURCE,
+    val quality: String = "OK"
 )
 
-class ProfileEstimator(
+private const val AAPS_PROFILE_TELEMETRY_SOURCE = "aaps_broadcast"
+private val ACCEPTED_PROFILE_TELEMETRY_QUALITIES = setOf("TRUSTED", "GOOD", "OK")
+
+class ProfileEstimator private constructor(
     private val config: ProfileEstimatorConfig = ProfileEstimatorConfig(),
-    private val zoneId: ZoneId = ZoneId.systemDefault()
+    private val zoneId: ZoneId = ZoneId.systemDefault(),
+    private val componentResolver: ProfileComponentResolver
 ) {
+
+    constructor(
+        config: ProfileEstimatorConfig = ProfileEstimatorConfig(),
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ) : this(config, zoneId, ProfileComponentResolver(::resolveTherapyComponents))
+
+    internal constructor(
+        config: ProfileEstimatorConfig = ProfileEstimatorConfig(),
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        componentResolver: (String, Map<String, String>) -> TherapyComponentSemantics
+    ) : this(
+        config,
+        zoneId,
+        ProfileComponentResolver { event -> componentResolver(event.type, event.payload) }
+    )
 
     companion object {
         private val CAMEL_CASE_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
@@ -77,18 +117,21 @@ class ProfileEstimator(
     fun estimate(
         glucoseHistory: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,
-        telemetrySignals: List<TelemetrySignal> = emptyList()
+        telemetrySignals: List<TelemetrySignal> = emptyList(),
+        telemetryReferenceTs: Long? = null
     ): ProfileEstimate? {
         if (glucoseHistory.isEmpty()) return null
+        val components = TherapyComponentResolutionSession(componentResolver::resolve)
         val sortedGlucose = glucoseHistory.sortedBy { it.ts }
-        val sortedEvents = therapyEvents.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.filter { it.isValidForAnalysis(components) }.sortedBy { it.ts }
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
+        val resolvedTelemetryReferenceTs = telemetryReferenceTs ?: sortedGlucose.last().ts
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfBuild = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints)
-        val crTherapySamples = buildCrSamples(sortedEvents)
-        val telemetryIsfSamples = buildTelemetryIsfSamples(sortedTelemetry)
-        val telemetryCrSamples = buildTelemetryCrSamples(sortedTelemetry)
+        val isfBuild = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints, components)
+        val crTherapySamples = buildCrSamples(sortedEvents, components)
+        val telemetryIsfSamples = buildTelemetryIsfSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
+        val telemetryCrSamples = buildTelemetryCrSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
 
         val resolvedIsf = resolveEstimate(
             history = isfBuild.samples,
@@ -111,7 +154,8 @@ class ProfileEstimator(
             therapyEvents = sortedEvents,
             uamPoints = uamPoints,
             isfMmolPerUnit = isf,
-            crGramPerUnit = cr
+            crGramPerUnit = cr,
+            components = components
         )
         val sampleCount = resolvedIsf.effectiveSampleCount + resolvedCr.effectiveSampleCount
         val rawConfidence = ((resolvedIsf.confidence + resolvedCr.confidence) / 2.0).coerceIn(0.20, 0.99)
@@ -139,18 +183,21 @@ class ProfileEstimator(
     fun estimateSegments(
         glucoseHistory: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,
-        telemetrySignals: List<TelemetrySignal> = emptyList()
+        telemetrySignals: List<TelemetrySignal> = emptyList(),
+        telemetryReferenceTs: Long? = null
     ): List<ProfileSegmentEstimate> {
         if (glucoseHistory.isEmpty()) return emptyList()
+        val components = TherapyComponentResolutionSession(componentResolver::resolve)
         val sortedGlucose = glucoseHistory.sortedBy { it.ts }
-        val sortedEvents = therapyEvents.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.filter { it.isValidForAnalysis(components) }.sortedBy { it.ts }
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
+        val resolvedTelemetryReferenceTs = telemetryReferenceTs ?: sortedGlucose.last().ts
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples
-        val crHistory = buildCrSamples(sortedEvents)
-        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry)
-        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry)
+        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints, components).samples
+        val crHistory = buildCrSamples(sortedEvents, components)
+        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
+        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
         if (isfHistory.isEmpty() && crHistory.isEmpty() && isfTelemetry.isEmpty() && crTelemetry.isEmpty()) return emptyList()
 
         val isfHistoryBySegment = isfHistory.groupBy { segmentKey(it.ts) }
@@ -161,13 +208,15 @@ class ProfileEstimator(
             history = isfHistory,
             telemetry = isfTelemetry,
             minSamples = config.minIsfSamples,
-            globalPrior = null
+            globalPrior = null,
+            allowUnderqualifiedHistoryAsPrior = true
         ).value
         val globalCrPrior = resolveEstimate(
             history = crHistory,
             telemetry = crTelemetry,
             minSamples = config.minCrSamples,
-            globalPrior = null
+            globalPrior = null,
+            allowUnderqualifiedHistoryAsPrior = true
         ).value
         val keys = (
             isfHistoryBySegment.keys +
@@ -235,18 +284,21 @@ class ProfileEstimator(
     fun estimateHourly(
         glucoseHistory: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,
-        telemetrySignals: List<TelemetrySignal> = emptyList()
+        telemetrySignals: List<TelemetrySignal> = emptyList(),
+        telemetryReferenceTs: Long? = null
     ): List<HourlyProfileEstimate> {
         if (glucoseHistory.isEmpty()) return emptyList()
+        val components = TherapyComponentResolutionSession(componentResolver::resolve)
         val sortedGlucose = glucoseHistory.sortedBy { it.ts }
-        val sortedEvents = therapyEvents.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.filter { it.isValidForAnalysis(components) }.sortedBy { it.ts }
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
+        val resolvedTelemetryReferenceTs = telemetryReferenceTs ?: sortedGlucose.last().ts
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples
-        val crHistory = buildCrSamples(sortedEvents)
-        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry)
-        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry)
+        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints, components).samples
+        val crHistory = buildCrSamples(sortedEvents, components)
+        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
+        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
         if (isfHistory.isEmpty() && crHistory.isEmpty() && isfTelemetry.isEmpty() && crTelemetry.isEmpty()) return emptyList()
 
         val isfHistoryByHour = isfHistory.groupBy { hourOf(it.ts) }
@@ -257,13 +309,15 @@ class ProfileEstimator(
             history = isfHistory,
             telemetry = isfTelemetry,
             minSamples = config.minIsfSamples,
-            globalPrior = null
+            globalPrior = null,
+            allowUnderqualifiedHistoryAsPrior = true
         ).value
         val globalCrPrior = resolveEstimate(
             history = crHistory,
             telemetry = crTelemetry,
             minSamples = config.minCrSamples,
-            globalPrior = null
+            globalPrior = null,
+            allowUnderqualifiedHistoryAsPrior = true
         ).value
 
         return (0..23).mapNotNull { hour ->
@@ -299,18 +353,21 @@ class ProfileEstimator(
     fun estimateHourlyByDayType(
         glucoseHistory: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,
-        telemetrySignals: List<TelemetrySignal> = emptyList()
+        telemetrySignals: List<TelemetrySignal> = emptyList(),
+        telemetryReferenceTs: Long? = null
     ): List<HourlyDayTypeProfileEstimate> {
         if (glucoseHistory.isEmpty()) return emptyList()
+        val components = TherapyComponentResolutionSession(componentResolver::resolve)
         val sortedGlucose = glucoseHistory.sortedBy { it.ts }
-        val sortedEvents = therapyEvents.sortedBy { it.ts }
+        val sortedEvents = therapyEvents.filter { it.isValidForAnalysis(components) }.sortedBy { it.ts }
         val sortedTelemetry = telemetrySignals.sortedBy { it.ts }
+        val resolvedTelemetryReferenceTs = telemetryReferenceTs ?: sortedGlucose.last().ts
 
         val uamPoints = buildUamPoints(sortedGlucose, sortedEvents)
-        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints).samples
-        val crHistory = buildCrSamples(sortedEvents)
-        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry)
-        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry)
+        val isfHistory = buildIsfSamples(sortedGlucose, sortedEvents, uamPoints, components).samples
+        val crHistory = buildCrSamples(sortedEvents, components)
+        val isfTelemetry = buildTelemetryIsfSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
+        val crTelemetry = buildTelemetryCrSamples(sortedTelemetry, resolvedTelemetryReferenceTs)
         if (isfHistory.isEmpty() && crHistory.isEmpty() && isfTelemetry.isEmpty() && crTelemetry.isEmpty()) return emptyList()
 
         val isfHistoryByHourDay = isfHistory.groupBy { dayTypeOf(it.ts) to hourOf(it.ts) }
@@ -322,7 +379,8 @@ class ProfileEstimator(
                 history = isfHistory.filter { dayTypeOf(it.ts) == dayType },
                 telemetry = isfTelemetry.filter { dayTypeOf(it.ts) == dayType },
                 minSamples = config.minSegmentSamples,
-                globalPrior = null
+                globalPrior = null,
+                allowUnderqualifiedHistoryAsPrior = true
             ).value
         }
         val globalCrByDayType = DayType.entries.associateWith { dayType ->
@@ -330,7 +388,8 @@ class ProfileEstimator(
                 history = crHistory.filter { dayTypeOf(it.ts) == dayType },
                 telemetry = crTelemetry.filter { dayTypeOf(it.ts) == dayType },
                 minSamples = config.minSegmentSamples,
-                globalPrior = null
+                globalPrior = null,
+                allowUnderqualifiedHistoryAsPrior = true
             ).value
         }
 
@@ -371,23 +430,33 @@ class ProfileEstimator(
     private fun buildIsfSamples(
         glucose: List<GlucosePoint>,
         events: List<TherapyEvent>,
-        uamPoints: Set<Long>
+        uamPoints: Set<Long>,
+        session: TherapyComponentResolutionSession
     ): IsfBuildResult {
         val correctionEvents = events.filter { event ->
             if (!isBolusLikeEvent(event)) return@filter false
+            val components = session.resolve(event)
+            val isMealBolus = event.type.equals("meal_bolus", ignoreCase = true)
             val explicitCorrection =
                 event.type.equals("correction_bolus", ignoreCase = true) ||
-                    event.payload["isCorrection"]?.equals("true", ignoreCase = true) == true ||
-                    event.payload["reason"]?.contains("correction", ignoreCase = true) == true
-            explicitCorrection || event.type.equals("bolus", ignoreCase = true)
+                    (!isMealBolus && (
+                        event.payload["isCorrection"]?.equals("true", ignoreCase = true) == true ||
+                            event.payload["reason"]?.contains("correction", ignoreCase = true) == true
+                        ))
+            val canonicalInsulinOnlyMeal =
+                isMealBolus &&
+                    components.insulinU != null &&
+                    components.canonicalMealInsulinCanBeCorrection
+            explicitCorrection || event.type.equals("bolus", ignoreCase = true) || canonicalInsulinOnlyMeal
         }
 
         var filteredByUam = 0
         val samples = correctionEvents.mapNotNull { bolus ->
-            val units = extractBolusUnits(bolus) ?: return@mapNotNull null
+            val units = extractBolusUnits(bolus, session) ?: return@mapNotNull null
             if (units < config.correctionBolusMinUnits) return@mapNotNull null
+            if (hasCompetingInsulinEvent(events, bolus, session)) return@mapNotNull null
 
-            val carbsAround = announcedCarbsAroundCorrection(events, bolus.ts)
+            val carbsAround = announcedCarbsAroundCorrection(events, bolus.ts, session)
             if (carbsAround > config.correctionMaxCarbsAroundGrams) return@mapNotNull null
             if (hasUamNearCorrection(uamPoints, bolus.ts)) {
                 filteredByUam += 1
@@ -416,20 +485,35 @@ class ProfileEstimator(
         return IsfBuildResult(samples = samples, filteredByUam = filteredByUam)
     }
 
-    private fun buildCrSamples(events: List<TherapyEvent>): List<TimedSample> {
-        val direct = events.mapNotNull { event ->
-            if (isSyntheticCarbEvent(event)) return@mapNotNull null
-            if (!event.type.equals("meal_bolus", ignoreCase = true)) return@mapNotNull null
-            val grams = extractCarbGrams(event) ?: return@mapNotNull null
-            val units = extractBolusUnits(event) ?: return@mapNotNull null
-            if (grams <= 0.0 || units <= 0.0) return@mapNotNull null
+    private fun buildCrSamples(
+        events: List<TherapyEvent>,
+        session: TherapyComponentResolutionSession
+    ): List<TimedSample> {
+        val seenCanonicalCarbIds = mutableSetOf<Long>()
+        val learningCarbs = events.map { event ->
+            val components = session.resolve(event)
+            val carbId = components.canonicalCarbId
+            when {
+                components.learningCarbsG == null -> null
+                carbId == null || seenCanonicalCarbIds.add(carbId) -> components.learningCarbsG
+                else -> null
+            }
+        }
+        val direct = events.mapIndexedNotNull { index, event ->
+            if (isSyntheticCarbEvent(event, session)) return@mapIndexedNotNull null
+            if (!event.type.equals("meal_bolus", ignoreCase = true)) return@mapIndexedNotNull null
+            val grams = learningCarbs[index] ?: return@mapIndexedNotNull null
+            val units = extractBolusUnits(event, session) ?: return@mapIndexedNotNull null
+            if (grams <= 0.0 || units <= 0.0) return@mapIndexedNotNull null
             (grams / units).takeIf { it in 2.0..60.0 }?.let { TimedSample(event.ts, it) }
         }
 
-        val carbOnlyEvents = events.filter { event ->
-            event.type.equals("carbs", ignoreCase = true) &&
-                extractBolusUnits(event) == null &&
-                !isSyntheticCarbEvent(event)
+        val carbOnlyEvents = events.mapIndexedNotNull { index, event ->
+            if (event.type.equals("carbs", ignoreCase = true) &&
+                extractBolusUnits(event, session) == null &&
+                !isSyntheticCarbEvent(event, session) &&
+                learningCarbs[index] != null
+            ) index to event else null
         }
         val bolusCandidates = events.mapIndexedNotNull { index, event ->
             if (
@@ -439,15 +523,15 @@ class ProfileEstimator(
             ) {
                 return@mapIndexedNotNull null
             }
-            val units = extractBolusUnits(event) ?: return@mapIndexedNotNull null
+            val units = extractBolusUnits(event, session) ?: return@mapIndexedNotNull null
             if (units <= 0.0) return@mapIndexedNotNull null
             Triple(index, event.ts, units)
         }
 
         val paired = mutableListOf<TimedSample>()
         val usedBolusIndexes = mutableSetOf<Int>()
-        carbOnlyEvents.forEach { carbEvent ->
-            val grams = extractCarbGrams(carbEvent) ?: return@forEach
+        carbOnlyEvents.forEach { (carbIndex, carbEvent) ->
+            val grams = learningCarbs[carbIndex] ?: return@forEach
             if (grams <= 0.0) return@forEach
             val nearest = bolusCandidates
                 .asSequence()
@@ -463,8 +547,11 @@ class ProfileEstimator(
         return direct + paired
     }
 
-    private fun buildTelemetryIsfSamples(signals: List<TelemetrySignal>): List<TimedSample> {
-        return signals.mapNotNull { signal ->
+    private fun buildTelemetryIsfSamples(
+        signals: List<TelemetrySignal>,
+        referenceTs: Long
+    ): List<TimedSample> {
+        return signals.freshAt(referenceTs).mapNotNull { signal ->
             if (!isTelemetryIsfKey(signal.key)) return@mapNotNull null
             val raw = signal.numericValue() ?: return@mapNotNull null
             val mmolPerUnit = if (raw > 12.0) UnitConverter.mgdlToMmol(raw) else raw
@@ -474,8 +561,11 @@ class ProfileEstimator(
         }
     }
 
-    private fun buildTelemetryCrSamples(signals: List<TelemetrySignal>): List<TimedSample> {
-        return signals.mapNotNull { signal ->
+    private fun buildTelemetryCrSamples(
+        signals: List<TelemetrySignal>,
+        referenceTs: Long
+    ): List<TimedSample> {
+        return signals.freshAt(referenceTs).mapNotNull { signal ->
             if (!isTelemetryCrKey(signal.key)) return@mapNotNull null
             val gramsPerUnit = signal.numericValue() ?: return@mapNotNull null
             gramsPerUnit.takeIf { it in 2.0..60.0 }?.let {
@@ -494,14 +584,11 @@ class ProfileEstimator(
         ).map { it.ts }.toSet()
     }
 
-    private fun extractBolusUnits(event: TherapyEvent): Double? {
-        val keys = listOf("units", "bolusUnits", "insulin", "enteredInsulin")
-        return keys.firstNotNullOfOrNull { key -> event.payload[key]?.toDoubleOrNull() }
-    }
-
-    private fun extractCarbGrams(event: TherapyEvent): Double? {
-        val keys = listOf("grams", "carbs", "enteredCarbs", "mealCarbs")
-        return keys.firstNotNullOfOrNull { key -> event.payload[key]?.toDoubleOrNull() }
+    private fun extractBolusUnits(
+        event: TherapyEvent,
+        session: TherapyComponentResolutionSession
+    ): Double? {
+        return session.resolve(event).insulinU
     }
 
     private fun isBolusLikeEvent(event: TherapyEvent): Boolean {
@@ -510,13 +597,30 @@ class ProfileEstimator(
             event.type.equals("meal_bolus", ignoreCase = true)
     }
 
+    private fun hasCompetingInsulinEvent(
+        events: List<TherapyEvent>,
+        anchor: TherapyEvent,
+        session: TherapyComponentResolutionSession
+    ): Boolean {
+        val from = anchor.ts - config.correctionInsulinIsolationBeforeMinutes * 60_000L
+        val to = anchor.ts + config.correctionInsulinIsolationAfterMinutes * 60_000L
+        return events.eventsInRange(from, to).any { candidate ->
+            candidate !== anchor &&
+                (session.resolve(candidate).insulinU ?: 0.0) > 0.0
+        }
+    }
+
     private fun hasUamNearCorrection(uamPoints: Set<Long>, correctionTs: Long): Boolean {
         val from = correctionTs - config.uamWindowBeforeMinutes * 60_000L
         val to = correctionTs + config.uamWindowAfterMinutes * 60_000L
         return uamPoints.any { it in from..to }
     }
 
-    private fun announcedCarbsAroundCorrection(events: List<TherapyEvent>, correctionTs: Long): Double {
+    private fun announcedCarbsAroundCorrection(
+        events: List<TherapyEvent>,
+        correctionTs: Long,
+        session: TherapyComponentResolutionSession
+    ): Double {
         val windowMs = config.correctionCarbsAroundMinutes * 60_000L
         val from = correctionTs - windowMs
         val to = correctionTs + windowMs
@@ -524,17 +628,19 @@ class ProfileEstimator(
             .asSequence()
             .filter { event ->
                 event.ts in from..to &&
-                    !isSyntheticCarbEvent(event) &&
+                    !isSyntheticCarbEvent(event, session) &&
                     (
                         event.type.equals("meal_bolus", ignoreCase = true) ||
                             event.type.equals("carbs", ignoreCase = true)
                         )
             }
             .sumOf { event ->
-                val grams = extractCarbGrams(event)
+                val components = session.resolve(event)
+                val grams = components.learningCarbsG
                 when {
                     grams != null && grams > 0.0 -> grams
-                    event.type.equals("meal_bolus", ignoreCase = true) -> config.correctionMaxCarbsAroundGrams + 1.0
+                    event.type.equals("meal_bolus", ignoreCase = true) &&
+                        !components.canonicalCarbAuthoritative -> config.correctionMaxCarbsAroundGrams + 1.0
                     else -> 0.0
                 }
             }
@@ -555,7 +661,8 @@ class ProfileEstimator(
         therapyEvents: List<TherapyEvent>,
         uamPoints: Set<Long>,
         isfMmolPerUnit: Double,
-        crGramPerUnit: Double
+        crGramPerUnit: Double,
+        components: TherapyComponentResolutionSession
     ): UamCarbEstimate {
         if (glucose.isEmpty() || uamPoints.isEmpty()) return UamCarbEstimate.EMPTY
         if (isfMmolPerUnit <= 0.0 || crGramPerUnit <= 0.0) return UamCarbEstimate.EMPTY
@@ -572,7 +679,7 @@ class ProfileEstimator(
 
         episodes.forEach { episode ->
             if (episode.points < config.uamMinEpisodePoints) return@forEach
-            if (hasAnnouncedCarbsNearEpisode(therapyEvents, episode.startTs)) return@forEach
+            if (hasAnnouncedCarbsNearEpisode(therapyEvents, episode.startTs, components)) return@forEach
 
             val baseline = glucose.closestTo(
                 targetTs = episode.startTs - 10 * 60_000L,
@@ -625,12 +732,16 @@ class ProfileEstimator(
         )
     }
 
-    private fun hasAnnouncedCarbsNearEpisode(events: List<TherapyEvent>, episodeStartTs: Long): Boolean {
+    private fun hasAnnouncedCarbsNearEpisode(
+        events: List<TherapyEvent>,
+        episodeStartTs: Long,
+        components: TherapyComponentResolutionSession
+    ): Boolean {
         val from = episodeStartTs - config.uamIgnoreAnnouncedCarbsBeforeMinutes * 60_000L
         val to = episodeStartTs + config.uamIgnoreAnnouncedCarbsAfterMinutes * 60_000L
         return events.any { event ->
             event.ts in from..to &&
-                !isSyntheticCarbEvent(event) &&
+                !isSyntheticCarbEvent(event, components) &&
                 (
                     event.type.equals("meal_bolus", ignoreCase = true) ||
                         event.type.equals("carbs", ignoreCase = true)
@@ -638,7 +749,12 @@ class ProfileEstimator(
         }
     }
 
-    private fun isSyntheticCarbEvent(event: TherapyEvent): Boolean = isSyntheticUamCarbEvent(event)
+    private fun isSyntheticCarbEvent(
+        event: TherapyEvent,
+        components: TherapyComponentResolutionSession
+    ): Boolean =
+        components.resolve(event).carbKind ==
+            TherapyCarbComponentKind.UAM_SYNTHETIC || isSyntheticUamCarbEvent(event)
 
     private fun buildUamEpisodes(sortedPoints: List<Long>): List<UamEpisode> {
         if (sortedPoints.isEmpty()) return emptyList()
@@ -669,7 +785,8 @@ class ProfileEstimator(
         history: List<TimedSample>,
         telemetry: List<TimedSample>,
         minSamples: Int,
-        globalPrior: Double?
+        globalPrior: Double?,
+        allowUnderqualifiedHistoryAsPrior: Boolean = false
     ): EstimateResolution {
         val historyTrimmed = trimOutliers(history)
         val localHistory = historyTrimmed.map { it.value }
@@ -704,6 +821,19 @@ class ProfileEstimator(
         }
 
         if (localHistory.isNotEmpty()) {
+            if (combinedPrior == null && !allowUnderqualifiedHistoryAsPrior) {
+                return EstimateResolution(
+                    value = null,
+                    effectiveSampleCount = localHistory.size,
+                    telemetrySampleCount = 0,
+                    confidence = confidenceFromCounts(
+                        historyCount = localHistory.size,
+                        minSamples = minSamples,
+                        telemetryUsed = false,
+                        fellBackToPrior = false
+                    )
+                )
+            }
             val value = shrinkTowardPrior(
                 localValues = localHistory,
                 prior = combinedPrior,
@@ -851,8 +981,45 @@ class ProfileEstimator(
         return candidate.takeIf { abs(candidate.ts - targetTs) <= maxDistanceMs }
     }
 
+    private fun List<TherapyEvent>.eventsInRange(startTs: Long, endTs: Long): List<TherapyEvent> {
+        if (isEmpty() || endTs < startTs) return emptyList()
+        val fromIndex = lowerBoundTherapy(startTs)
+        val toIndex = upperBoundTherapy(endTs)
+        return if (fromIndex < toIndex) subList(fromIndex, toIndex) else emptyList()
+    }
+
+    private fun List<TherapyEvent>.lowerBoundTherapy(targetTs: Long): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (this[mid].ts < targetTs) low = mid + 1 else high = mid
+        }
+        return low
+    }
+
+    private fun List<TherapyEvent>.upperBoundTherapy(targetTs: Long): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (this[mid].ts <= targetTs) low = mid + 1 else high = mid
+        }
+        return low
+    }
+
     private fun TelemetrySignal.numericValue(): Double? {
         return valueDouble ?: valueText?.replace(",", ".")?.toDoubleOrNull()
+    }
+
+    private fun List<TelemetrySignal>.freshAt(referenceTs: Long): List<TelemetrySignal> {
+        val from = referenceTs - config.telemetryMaxAgeMinutes.coerceAtLeast(0) * 60_000L
+        val to = referenceTs + config.telemetryFutureToleranceMinutes.coerceAtLeast(0) * 60_000L
+        return filter { signal ->
+            signal.ts in from..to &&
+                signal.source.trim().equals(AAPS_PROFILE_TELEMETRY_SOURCE, ignoreCase = true) &&
+                signal.quality.trim().uppercase() in ACCEPTED_PROFILE_TELEMETRY_QUALITIES
+        }
     }
 
     private fun isTelemetryIsfKey(key: String): Boolean {

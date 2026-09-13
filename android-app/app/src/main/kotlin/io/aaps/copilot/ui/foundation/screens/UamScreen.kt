@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -53,6 +54,7 @@ import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
+import io.aaps.copilot.ui.foundation.theme.LocalNumericTypography
 import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 
 private val UamSectionShape = RoundedCornerShape(18.dp)
@@ -65,7 +67,6 @@ fun UamScreen(
     onMarkCorrect: (String) -> Unit,
     onMarkWrong: (String) -> Unit,
     onMergeWithManual: (String) -> Unit,
-    onExportToAaps: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedEvent by remember { mutableStateOf<UamEventUi?>(null) }
@@ -81,6 +82,9 @@ fun UamScreen(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
+            item {
+                UamHeroHeader(midnightGlass = midnightGlass)
+            }
             item {
                 UamSummaryCard(state = state, midnightGlass = midnightGlass)
             }
@@ -117,20 +121,18 @@ fun UamScreen(
                 item {
                     UamSectionLabel(
                         text = stringResource(id = R.string.section_uam_events),
-                        infoText = stringResource(id = R.string.uam_info_events_section)
+                        infoText = stringResource(id = R.string.uam_info_events_section),
+                        onContentBackground = true
                     )
                 }
                 items(state.events) { event ->
                     UamEventCard(
                         event = event,
                         midnightGlass = midnightGlass,
-                        exportEnabled = state.enableUamExportToAaps,
-                        dryRun = state.dryRunExport,
                         onOpenDetails = { selectedEvent = event },
                         onMarkCorrect = { onMarkCorrect(event.id) },
                         onMarkWrong = { onMarkWrong(event.id) },
-                        onMergeWithManual = { onMergeWithManual(event.id) },
-                        onExportToAaps = { onExportToAaps(event.id) }
+                        onMergeWithManual = { onMergeWithManual(event.id) }
                     )
                 }
                 item {
@@ -143,8 +145,6 @@ fun UamScreen(
         val eventId = selected.id
         UamEventBottomSheet(
             event = selected,
-            exportEnabled = state.enableUamExportToAaps,
-            dryRun = state.dryRunExport,
             onDismiss = { selectedEvent = null },
             onMarkCorrect = {
                 onMarkCorrect(eventId)
@@ -157,11 +157,21 @@ fun UamScreen(
             onMergeWithManual = {
                 onMergeWithManual(eventId)
                 selectedEvent = null
-            },
-            onExportToAaps = {
-                onExportToAaps(eventId)
-                selectedEvent = null
             }
+        )
+    }
+}
+
+@Composable
+private fun UamHeroHeader(midnightGlass: Boolean) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = stringResource(id = R.string.uam_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (midnightGlass) Color(0xFF44536B) else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -172,7 +182,6 @@ fun AuditUamPanel(
     onMarkCorrect: (String) -> Unit,
     onMarkWrong: (String) -> Unit,
     onMergeWithManual: (String) -> Unit,
-    onExportToAaps: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedEvent by remember { mutableStateOf<UamEventUi?>(null) }
@@ -218,13 +227,10 @@ fun AuditUamPanel(
                 UamEventCard(
                     event = event,
                     midnightGlass = midnightGlass,
-                    exportEnabled = state.enableUamExportToAaps,
-                    dryRun = state.dryRunExport,
                     onOpenDetails = { selectedEvent = event },
                     onMarkCorrect = { onMarkCorrect(event.id) },
                     onMarkWrong = { onMarkWrong(event.id) },
-                    onMergeWithManual = { onMergeWithManual(event.id) },
-                    onExportToAaps = { onExportToAaps(event.id) }
+                    onMergeWithManual = { onMergeWithManual(event.id) }
                 )
             }
             UamStatsRow(state = state, midnightGlass = midnightGlass)
@@ -235,8 +241,6 @@ fun AuditUamPanel(
         val eventId = selected.id
         UamEventBottomSheet(
             event = selected,
-            exportEnabled = state.enableUamExportToAaps,
-            dryRun = state.dryRunExport,
             onDismiss = { selectedEvent = null },
             onMarkCorrect = {
                 onMarkCorrect(eventId)
@@ -248,10 +252,6 @@ fun AuditUamPanel(
             },
             onMergeWithManual = {
                 onMergeWithManual(eventId)
-                selectedEvent = null
-            },
-            onExportToAaps = {
-                onExportToAaps(eventId)
                 selectedEvent = null
             }
         )
@@ -269,61 +269,106 @@ private fun UamSummaryCard(
             infoText = stringResource(id = R.string.uam_info_inferred_section)
         )
         val unitG = stringResource(id = R.string.unit_g)
+        val active = state.inferredActive == true || state.calculatedActive == true
+        val primaryCarbs = state.inferredCarbsGrams ?: state.calculatedCarbsGrams
+        val primaryConfidence = listOfNotNull(state.inferredConfidence, state.calculatedConfidence).maxOrNull()
 
-        Row(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            shape = UamInfoShape,
+            color = if (midnightGlass) Color(0xFF152641) else MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant)
         ) {
-            UamInfoCell(
-                midnightGlass = midnightGlass,
-                modifier = Modifier.weight(1f),
-                title = stringResource(id = R.string.label_uam_inferred),
-                lines = listOf(
-                    "${stringResource(id = R.string.label_active_state)}: ${boolText(state.inferredActive)}",
-                    "${stringResource(id = R.string.label_carbs)}: ${UiFormatters.formatGrams(state.inferredCarbsGrams, 1)} $unitG",
-                    "${stringResource(id = R.string.label_confidence)}: ${UiFormatters.formatPercent(state.inferredConfidence, 0)}"
-                )
-            )
-            UamInfoCell(
-                midnightGlass = midnightGlass,
-                modifier = Modifier.weight(1f),
-                title = stringResource(id = R.string.section_uam_calculated),
-                lines = listOf(
-                    "${stringResource(id = R.string.label_active_state)}: ${boolText(state.calculatedActive)}",
-                    "${stringResource(id = R.string.label_carbs)}: ${UiFormatters.formatGrams(state.calculatedCarbsGrams, 1)} $unitG",
-                    "${stringResource(id = R.string.label_confidence)}: ${UiFormatters.formatPercent(state.calculatedConfidence, 0)}"
-                )
-            )
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (active) stringResource(id = R.string.status_on_short) else stringResource(id = R.string.status_off_short),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (active) {
+                            if (midnightGlass) Color(0xFFFFD180) else MaterialTheme.colorScheme.tertiary
+                        } else {
+                            if (midnightGlass) Color(0xFFBFD0EA) else MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Text(
+                        text = "${UiFormatters.formatGrams(primaryCarbs, 1)} $unitG",
+                        style = LocalNumericTypography.current.valueMedium,
+                        color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    UamSummaryChip(
+                        label = stringResource(id = R.string.label_confidence),
+                        value = UiFormatters.formatPercent(primaryConfidence, 0),
+                        midnightGlass = midnightGlass
+                    )
+                    UamSummaryChip(
+                        label = stringResource(id = R.string.label_uam_inferred),
+                        value = "${boolText(state.inferredActive)} · ${UiFormatters.formatGrams(state.inferredCarbsGrams, 1)} $unitG",
+                        midnightGlass = midnightGlass
+                    )
+                    UamSummaryChip(
+                        label = stringResource(id = R.string.section_uam_calculated),
+                        value = "${boolText(state.calculatedActive)} · ${UiFormatters.formatGrams(state.calculatedCarbsGrams, 1)} $unitG",
+                        midnightGlass = midnightGlass
+                    )
+                }
+            }
         }
 
         Surface(
+            modifier = Modifier.testTag("uamReadOnlyModeStatus"),
             shape = UamPillShape,
-            color = when {
-                midnightGlass && state.enableUamExportToAaps && !state.dryRunExport -> Color(0x2200E676)
-                midnightGlass -> Color(0x221D4ED8)
-                state.enableUamExportToAaps && !state.dryRunExport -> MaterialTheme.colorScheme.secondaryContainer
-                else -> MaterialTheme.colorScheme.tertiaryContainer
-            }
+            color = if (midnightGlass) Color(0x221D4ED8) else MaterialTheme.colorScheme.surfaceVariant
         ) {
-            val text = if (state.enableUamExportToAaps) {
-                if (state.dryRunExport) {
-                    stringResource(id = R.string.uam_export_enabled_dry_run)
-                } else {
-                    stringResource(id = R.string.uam_export_enabled_live)
-                }
-            } else {
-                stringResource(id = R.string.uam_export_disabled)
-            }
             Text(
-                text = text,
+                text = stringResource(
+                    id = R.string.uam_mode_read_only,
+                    uamExportModeLabel(state.uamExport.mode)
+                ),
                 style = MaterialTheme.typography.labelMedium,
-                color = when {
-                    midnightGlass && state.enableUamExportToAaps && !state.dryRunExport -> Color(0xFF9FFFB0)
-                    midnightGlass -> Color(0xFF8DB6FF)
-                    state.enableUamExportToAaps && !state.dryRunExport -> MaterialTheme.colorScheme.onSecondaryContainer
-                    else -> MaterialTheme.colorScheme.onTertiaryContainer
-                },
+                color = if (midnightGlass) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun UamSummaryChip(
+    label: String,
+    value: String,
+    midnightGlass: Boolean
+) {
+    Surface(
+        shape = UamPillShape,
+        color = if (midnightGlass) Color(0xFF1F3558) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (midnightGlass) Color(0xFFBFD0EA) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -366,13 +411,10 @@ private fun UamInfoCell(
 private fun UamEventCard(
     event: UamEventUi,
     midnightGlass: Boolean,
-    exportEnabled: Boolean,
-    dryRun: Boolean,
     onOpenDetails: () -> Unit,
     onMarkCorrect: () -> Unit,
     onMarkWrong: () -> Unit,
-    onMergeWithManual: () -> Unit,
-    onExportToAaps: () -> Unit
+    onMergeWithManual: () -> Unit
 ) {
     val visual = eventVisuals(event = event, midnightGlass = midnightGlass)
     UamSectionCard(
@@ -473,20 +515,6 @@ private fun UamEventCard(
             color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        val antiDup = buildAntiDuplicateStatus(event = event, exportEnabled = exportEnabled, dryRun = dryRun)
-        Surface(
-            shape = UamInfoShape,
-            color = if (midnightGlass) Color(0x221D4ED8) else MaterialTheme.colorScheme.tertiaryContainer,
-            border = BorderStroke(1.dp, if (midnightGlass) Color(0x332563EB) else MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Text(
-                text = "${stringResource(id = R.string.uam_antidup_status)}: $antiDup",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (midnightGlass) Color(0xFFDCEBFF) else MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
-            )
-        }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -498,20 +526,11 @@ private fun UamEventCard(
                 Text(stringResource(id = R.string.uam_mark_wrong), fontSize = 12.sp)
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        OutlinedButton(
+            onClick = onMergeWithManual,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedButton(onClick = onMergeWithManual, modifier = Modifier.weight(1f)) {
-                Text(stringResource(id = R.string.uam_merge_manual), fontSize = 12.sp)
-            }
-            OutlinedButton(
-                onClick = onExportToAaps,
-                enabled = event.exportBlockedReason.isNullOrBlank() && exportEnabled && !dryRun,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(stringResource(id = R.string.uam_export_to_aaps), fontSize = 12.sp)
-            }
+            Text(stringResource(id = R.string.uam_merge_manual), fontSize = 12.sp)
         }
     }
 }
@@ -520,13 +539,10 @@ private fun UamEventCard(
 @Composable
 private fun UamEventBottomSheet(
     event: UamEventUi,
-    exportEnabled: Boolean,
-    dryRun: Boolean,
     onDismiss: () -> Unit,
     onMarkCorrect: () -> Unit,
     onMarkWrong: () -> Unit,
-    onMergeWithManual: () -> Unit,
-    onExportToAaps: () -> Unit
+    onMergeWithManual: () -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss
@@ -546,22 +562,6 @@ private fun UamEventBottomSheet(
             InfoPill("${stringResource(id = R.string.label_confidence)}: ${UiFormatters.formatPercent(event.confidence, 0)}")
             InfoPill("${stringResource(id = R.string.label_mode)}: ${event.mode}")
             InfoPill("${stringResource(id = R.string.label_status)}: ${event.state}")
-            if (!event.exportBlockedReason.isNullOrBlank()) {
-                InfoPill("${stringResource(id = R.string.uam_antidup_status)}: ${event.exportBlockedReason}")
-            }
-            val antiDup = buildAntiDuplicateStatus(event = event, exportEnabled = exportEnabled, dryRun = dryRun)
-            Surface(
-                shape = UamInfoShape,
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Text(
-                    text = "${stringResource(id = R.string.uam_antidup_status)}: $antiDup",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                )
-            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -573,20 +573,11 @@ private fun UamEventBottomSheet(
                     Text(stringResource(id = R.string.uam_mark_wrong), fontSize = 12.sp)
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            OutlinedButton(
+                onClick = onMergeWithManual,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedButton(onClick = onMergeWithManual, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(id = R.string.uam_merge_manual), fontSize = 12.sp)
-                }
-                OutlinedButton(
-                    onClick = onExportToAaps,
-                    enabled = event.exportBlockedReason.isNullOrBlank() && exportEnabled && !dryRun,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(stringResource(id = R.string.uam_export_to_aaps), fontSize = 12.sp)
-                }
+                Text(stringResource(id = R.string.uam_merge_manual), fontSize = 12.sp)
             }
         }
     }
@@ -628,22 +619,6 @@ private fun StatusChip(
 }
 
 @Composable
-private fun buildAntiDuplicateStatus(
-    event: UamEventUi,
-    exportEnabled: Boolean,
-    dryRun: Boolean
-): String {
-    return when {
-        !exportEnabled -> stringResource(id = R.string.uam_antidup_export_disabled)
-        dryRun -> stringResource(id = R.string.uam_antidup_dry_run)
-        event.manualCarbsNearby -> stringResource(id = R.string.uam_antidup_manual_carbs_nearby)
-        event.manualCobActive -> stringResource(id = R.string.uam_antidup_manual_cob_active)
-        !event.exportBlockedReason.isNullOrBlank() -> event.exportBlockedReason
-        else -> stringResource(id = R.string.uam_antidup_ready)
-    }
-}
-
-@Composable
 private fun UamSectionCard(
     modifier: Modifier = Modifier,
     borderColor: Color? = null,
@@ -651,17 +626,17 @@ private fun UamSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
-    val resolvedBorderColor = borderColor ?: if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant
-    val resolvedContainerColor = containerColor ?: if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface
+    val resolvedBorderColor = borderColor ?: if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant
+    val resolvedContainerColor = containerColor ?: if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = if (midnightGlass) RoundedCornerShape(28.dp) else UamSectionShape,
+        shape = UamSectionShape,
         border = BorderStroke(1.dp, resolvedBorderColor),
         colors = CardDefaults.cardColors(containerColor = resolvedContainerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.md),
+            modifier = Modifier.padding(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             content = content
         )
@@ -671,10 +646,26 @@ private fun UamSectionCard(
 @Composable
 private fun UamSectionLabel(
     text: String,
-    infoText: String? = null
+    infoText: String? = null,
+    onContentBackground: Boolean = false
 ) {
     var showInfo by rememberSaveable(text, infoText) { mutableStateOf(false) }
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val labelColor = when {
+        midnightGlass && onContentBackground -> Color(0xFF44536B)
+        midnightGlass -> Color(0xFFD0D7E8)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val infoContainer = when {
+        midnightGlass && onContentBackground -> Color(0xFFE2EBF8)
+        midnightGlass -> Color(0x221D4ED8)
+        else -> Color.Transparent
+    }
+    val infoTint = when {
+        midnightGlass && onContentBackground -> Color(0xFF0F4FA8)
+        midnightGlass -> Color(0xFF5CA9FF)
+        else -> MaterialTheme.colorScheme.primary
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -683,18 +674,18 @@ private fun UamSectionLabel(
         Text(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.7.sp),
-            color = if (midnightGlass) Color(0xFFD0D7E8) else MaterialTheme.colorScheme.onSurfaceVariant
+            color = labelColor
         )
         if (!infoText.isNullOrBlank()) {
             Surface(
                 shape = UamPillShape,
-                color = if (midnightGlass) Color(0x221D4ED8) else Color.Transparent
+                color = infoContainer
             ) {
                 IconButton(onClick = { showInfo = true }) {
                     Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = stringResource(id = R.string.settings_info_button_cd, text),
-                        tint = if (midnightGlass) Color(0xFF5CA9FF) else MaterialTheme.colorScheme.primary
+                        tint = infoTint
                     )
                 }
             }
@@ -782,7 +773,7 @@ private fun eventVisuals(event: UamEventUi, midnightGlass: Boolean): UamEventVis
             icon = Icons.Default.CheckCircle,
             iconTint = if (midnightGlass) Color(0xFF00E676) else MaterialTheme.colorScheme.secondary,
             iconBg = if (midnightGlass) Color(0x2200E676) else MaterialTheme.colorScheme.secondaryContainer,
-            containerColor = if (midnightGlass) Color(0x55103A35) else MaterialTheme.colorScheme.surface,
+            containerColor = if (midnightGlass) Color(0xF51C3A34) else MaterialTheme.colorScheme.surface,
             borderColor = if (midnightGlass) Color(0x3325C685) else MaterialTheme.colorScheme.outlineVariant,
             primaryChipBg = if (midnightGlass) Color(0x221D4ED8) else MaterialTheme.colorScheme.secondaryContainer,
             primaryChipFg = if (midnightGlass) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.onSecondaryContainer,
@@ -794,7 +785,7 @@ private fun eventVisuals(event: UamEventUi, midnightGlass: Boolean): UamEventVis
             icon = Icons.Default.WarningAmber,
             iconTint = if (midnightGlass) Color(0xFFFFC107) else MaterialTheme.colorScheme.tertiary,
             iconBg = if (midnightGlass) Color(0x22FFC107) else MaterialTheme.colorScheme.tertiaryContainer,
-            containerColor = if (midnightGlass) Color(0x55312735) else MaterialTheme.colorScheme.surface,
+            containerColor = if (midnightGlass) Color(0xF53A2B31) else MaterialTheme.colorScheme.surface,
             borderColor = if (midnightGlass) Color(0x33FFB020) else MaterialTheme.colorScheme.tertiary,
             primaryChipBg = if (midnightGlass) Color(0x221D4ED8) else MaterialTheme.colorScheme.tertiaryContainer,
             primaryChipFg = if (midnightGlass) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.onTertiaryContainer,
@@ -806,7 +797,7 @@ private fun eventVisuals(event: UamEventUi, midnightGlass: Boolean): UamEventVis
             icon = Icons.Default.Info,
             iconTint = if (midnightGlass) Color(0xFF4DA3FF) else MaterialTheme.colorScheme.primary,
             iconBg = if (midnightGlass) Color(0x221D4ED8) else MaterialTheme.colorScheme.primaryContainer,
-            containerColor = if (midnightGlass) Color(0x5512275A) else MaterialTheme.colorScheme.surface,
+            containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface,
             borderColor = if (midnightGlass) Color(0x332563EB) else MaterialTheme.colorScheme.outlineVariant,
             primaryChipBg = if (midnightGlass) Color(0x664F2D00) else MaterialTheme.colorScheme.tertiaryContainer,
             primaryChipFg = if (midnightGlass) Color(0xFFFFC94A) else MaterialTheme.colorScheme.onTertiaryContainer,
@@ -896,8 +887,7 @@ private fun UamScreenPreview() {
                 calculatedActive = true,
                 calculatedCarbsGrams = 19.0,
                 calculatedConfidence = 0.66,
-                enableUamExportToAaps = true,
-                dryRunExport = false,
+                uamExport = UamExportControlUi(mode = "AUTO"),
                 events = listOf(
                     UamEventUi(
                         id = "evt-1",
@@ -919,8 +909,7 @@ private fun UamScreenPreview() {
             ),
             onMarkCorrect = {},
             onMarkWrong = {},
-            onMergeWithManual = {},
-            onExportToAaps = {}
+            onMergeWithManual = {}
         )
     }
 }

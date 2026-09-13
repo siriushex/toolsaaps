@@ -18,4 +18,7 @@ interface RuleExecutionDao {
 
     @Query("SELECT * FROM rule_executions ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<RuleExecutionEntity>>
+
+    @Query("DELETE FROM rule_executions WHERE timestamp < :olderThan")
+    suspend fun deleteOlderThan(olderThan: Long): Int
 }

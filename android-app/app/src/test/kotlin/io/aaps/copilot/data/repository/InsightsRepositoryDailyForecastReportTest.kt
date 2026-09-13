@@ -408,6 +408,39 @@ class InsightsRepositoryDailyForecastReportTest {
     }
 
     @Test
+    fun buildDailyForecastReportPayload_matchesSensorLagReplayRowsByNearestGenerationTime() {
+        val now = 1_800_000_000_000L
+        val since = now - 16L * 24L * 60L * 60L * 1000L
+        val glucose = buildGlucose(since, now)
+        val forecasts = buildReplayForecasts(glucose)
+        val telemetry = buildSensorLagReplayTelemetry(
+            since = since,
+            until = now,
+            glucose = glucose,
+            modeResolver = { "ACTIVE" },
+            includeCandidateForecasts = true,
+            includeControlForecasts = false,
+            candidateErrorMultiplier = 0.55,
+            forecastTimestampOffsetMs = 3_500L
+        )
+
+        val payload = InsightsRepository.buildDailyForecastReportPayloadStatic(
+            forecasts = forecasts,
+            glucose = glucose,
+            telemetrySamples = telemetry,
+            sinceTs = since,
+            untilTs = now
+        )
+
+        val replay30 = payload.sensorLagReplayBuckets.firstOrNull { it.horizonMinutes == 30 && it.bucket == "12-14d" }
+        val replay60 = payload.sensorLagReplayBuckets.firstOrNull { it.horizonMinutes == 60 && it.bucket == "12-14d" }
+        assertThat(replay30).isNotNull()
+        assertThat(replay60).isNotNull()
+        assertThat(replay30!!.sampleCount).isGreaterThan(0)
+        assertThat(replay60!!.sampleCount).isGreaterThan(0)
+    }
+
+    @Test
     fun resolveSensorLagReplayForecastRows_prefersCandidateRowsForHorizon() {
         val ts = 1_800_000_000_000L
         val telemetryByKey = listOf(
@@ -637,7 +670,8 @@ class InsightsRepositoryDailyForecastReportTest {
         includeCandidateForecasts: Boolean = false,
         includeControlForecasts: Boolean = true,
         controlErrorMultiplier: Double = 1.0,
-        candidateErrorMultiplier: Double = 1.0
+        candidateErrorMultiplier: Double = 1.0,
+        forecastTimestampOffsetMs: Long = 0L
     ): List<TelemetrySampleEntity> {
         val rows = mutableListOf<TelemetrySampleEntity>()
         val glucoseByTs = glucose.associateBy { it.timestamp }
@@ -701,7 +735,7 @@ class InsightsRepositoryDailyForecastReportTest {
                 if (includeControlForecasts) {
                     rows += TelemetrySampleEntity(
                         id = "tm-sensor-lag-control-$horizon-$ts",
-                        timestamp = ts,
+                        timestamp = ts + forecastTimestampOffsetMs,
                         source = "sensor-lag-test",
                         key = "sensor_lag_control_forecast_${horizon}m",
                         valueDouble = target.mmol + adjustedError * controlErrorMultiplier,
@@ -713,7 +747,7 @@ class InsightsRepositoryDailyForecastReportTest {
                 if (includeCandidateForecasts) {
                     rows += TelemetrySampleEntity(
                         id = "tm-sensor-lag-candidate-$horizon-$ts",
-                        timestamp = ts,
+                        timestamp = ts + forecastTimestampOffsetMs,
                         source = "sensor-lag-test",
                         key = "sensor_lag_candidate_forecast_${horizon}m",
                         valueDouble = target.mmol + adjustedError * candidateErrorMultiplier,

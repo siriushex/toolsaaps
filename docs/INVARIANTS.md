@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## September 2026 Publication Contract
+
+See [RELEASE_2026-09-13.md](RELEASE_2026-09-13.md) for the current release
+scope and deployment gates. The older baseline below is retained as history;
+its numeric controller thresholds require current-code verification before use.
+
+- Accepted NORMAL and SENSITIVITY_SOURCE_CHANGE cycles invoke the widget callback; LOCAL_READ_ONLY does not.
+- A published runtime tuple must use the same settings identity, snapshot cycle
+  and forecast generation, not independently selected latest rows.
+- A valid server subscription does not imply live AI analysis is available.
+- Refresh and recovery cannot extend the fixed subscription expiry.
+- No release test may submit insulin, carbohydrates, targets or calibration to
+  a real therapy endpoint.
+
 ## Safety invariants
 1. Kill switch blocks automatic actions only; manual actions remain available.
 2. No automatic action is sent when data freshness/sensor policy blocks execution.

@@ -34,7 +34,9 @@ class RuleEngine(
                     proposal = decision.actionProposal,
                     config = config,
                     dataFresh = context.dataFresh,
-                    actionsLast6h = context.actionsLast6h
+                    actionsLast6h = context.actionsLast6h,
+                    actionChronologyResolved = context.actionChronologyResolved,
+                    sensorBlocked = context.sensorBlocked
                 )
 
                 if (safety.allowed) {

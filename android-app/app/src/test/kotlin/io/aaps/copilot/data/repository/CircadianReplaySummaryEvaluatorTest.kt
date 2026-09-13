@@ -978,7 +978,6 @@ class CircadianReplaySummaryEvaluatorTest {
             nightscoutUrl = "",
             apiSecret = "",
             cloudBaseUrl = "",
-            openAiApiKey = "",
             killSwitch = false,
             rootExperimentalEnabled = false,
             localBroadcastIngestEnabled = true,

@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.config.isOpenAiApiEndpoint
+import io.aaps.copilot.security.OpenAiCredentialProvider
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.Base64
@@ -61,14 +62,22 @@ data class AiForecastOptimizationResult(
     val outputJson: String
 )
 
-class AiChatRepository(
-    private val settingsStore: AppSettingsStore,
-    private val auditLogger: AuditLogger
+class AiChatRepository internal constructor(
+    private val baseUrlProvider: suspend () -> String,
+    private val credentialReader: suspend () -> String,
+    private val auditLogger: AuditLogger,
+    private val httpClient: OkHttpClient = defaultHttpClient()
 ) {
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .build()
+    constructor(
+        settingsStore: AppSettingsStore,
+        credentialProvider: OpenAiCredentialProvider,
+        auditLogger: AuditLogger
+    ) : this(
+        baseUrlProvider = { settingsStore.settings.first().cloudBaseUrl },
+        credentialReader = { credentialProvider.requireCredential() },
+        auditLogger = auditLogger
+    )
+
     private val optimizerHttpClient: OkHttpClient = httpClient.newBuilder()
         .readTimeout(90, TimeUnit.SECONDS)
         .callTimeout(120, TimeUnit.SECONDS)
@@ -79,13 +88,10 @@ class AiChatRepository(
         contextSummary: String,
         history: List<AiChatTurn> = emptyList()
     ): String = withContext(Dispatchers.IO) {
-        val settings = settingsStore.settings.first()
-        val apiKey = settings.openAiApiKey.trim()
-        if (apiKey.isBlank()) {
-            error("AI API key is empty. Set it in Settings -> AI API key.")
-        }
+        val baseUrl = baseUrlProvider()
+        val apiKey = credentialReader()
 
-        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "chat/completions"
+        val endpoint = normalizeBaseUrl(baseUrl) + "chat/completions"
         val start = System.currentTimeMillis()
         val requestJson = buildRequestJson(
             question = question,
@@ -103,7 +109,7 @@ class AiChatRepository(
             httpClient.newCall(request).execute().use { response ->
                 val responseBody = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    error("AI API error ${response.code}: ${responseBody.take(240)}")
+                    error("AI API request failed with HTTP ${response.code}")
                 }
                 val content = parseAssistantContent(responseBody)
                 if (content.isBlank()) {
@@ -143,12 +149,9 @@ class AiChatRepository(
         if (attachments.isEmpty()) {
             return@withContext ask(question = question, contextSummary = contextSummary, history = history)
         }
-        val settings = settingsStore.settings.first()
-        val apiKey = settings.openAiApiKey.trim()
-        if (apiKey.isBlank()) {
-            error("AI API key is empty. Set it in Settings -> AI API key.")
-        }
-        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "responses"
+        val baseUrl = baseUrlProvider()
+        val apiKey = credentialReader()
+        val endpoint = normalizeBaseUrl(baseUrl) + "responses"
         val start = System.currentTimeMillis()
         val requestJson = buildResponsesRequestJson(
             question = question,
@@ -166,7 +169,7 @@ class AiChatRepository(
             httpClient.newCall(request).execute().use { response ->
                 val responseBody = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    error("AI API error ${response.code}: ${responseBody.take(240)}")
+                    error("AI API request failed with HTTP ${response.code}")
                 }
                 val content = parseResponsesOutputTextStatic(responseBody)
                 if (content.isBlank()) {
@@ -199,12 +202,9 @@ class AiChatRepository(
         audioFile: File,
         promptHint: String? = null
     ): String = withContext(Dispatchers.IO) {
-        val settings = settingsStore.settings.first()
-        val apiKey = settings.openAiApiKey.trim()
-        if (apiKey.isBlank()) {
-            error("AI API key is empty. Set it in Settings -> AI API key.")
-        }
-        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "audio/transcriptions"
+        val baseUrl = baseUrlProvider()
+        val apiKey = credentialReader()
+        val endpoint = normalizeBaseUrl(baseUrl) + "audio/transcriptions"
         val multipart = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("model", TRANSCRIBE_MODEL_NAME)
@@ -228,7 +228,7 @@ class AiChatRepository(
         httpClient.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                error("Audio transcription error ${response.code}: ${responseBody.take(240)}")
+                error("Audio transcription failed with HTTP ${response.code}")
             }
             val text = parseTranscriptionTextStatic(responseBody)
             if (text.isBlank()) {
@@ -242,15 +242,12 @@ class AiChatRepository(
         text: String,
         outputDir: File
     ): File = withContext(Dispatchers.IO) {
-        val settings = settingsStore.settings.first()
-        val apiKey = settings.openAiApiKey.trim()
-        if (apiKey.isBlank()) {
-            error("AI API key is empty. Set it in Settings -> AI key.")
-        }
+        val baseUrl = baseUrlProvider()
+        val apiKey = credentialReader()
         if (!outputDir.exists()) {
             outputDir.mkdirs()
         }
-        val endpoint = normalizeBaseUrl(settings.cloudBaseUrl) + "audio/speech"
+        val endpoint = normalizeBaseUrl(baseUrl) + "audio/speech"
         val requestJson = JSONObject()
             .put("model", TTS_MODEL_NAME)
             .put("voice", TTS_VOICE_NAME)
@@ -266,8 +263,7 @@ class AiChatRepository(
         val outputFile = File(outputDir, "ai-chat-tts-${System.currentTimeMillis()}.mp3")
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                val responseBody = response.body?.string().orEmpty()
-                error("Audio speech error ${response.code}: ${responseBody.take(240)}")
+                error("Audio speech failed with HTTP ${response.code}")
             }
             val bytes = response.body?.bytes() ?: error("Audio speech returned empty body")
             outputFile.writeBytes(bytes)
@@ -278,16 +274,13 @@ class AiChatRepository(
     suspend fun requestDailyForecastOptimization(
         payload: DailyForecastReportPayload
     ): AiForecastOptimizationResult = withContext(Dispatchers.IO) {
-        val settings = settingsStore.settings.first()
-        val apiKey = settings.openAiApiKey.trim()
-        if (apiKey.isBlank()) {
-            error("AI API key is empty. Set it in Settings -> AI API key.")
-        }
-        if (!isOpenAiApiEndpoint(settings.cloudBaseUrl)) {
+        val baseUrlSetting = baseUrlProvider()
+        val apiKey = credentialReader()
+        if (!isOpenAiApiEndpoint(baseUrlSetting)) {
             error("AI optimizer supports OpenAI API endpoint only.")
         }
 
-        val baseUrl = normalizeBaseUrl(settings.cloudBaseUrl)
+        val baseUrl = normalizeBaseUrl(baseUrlSetting)
         val modelsUrl = "${baseUrl}models"
         val responsesUrl = "${baseUrl}responses"
         val model = resolvePreferredOptimizerModel(
@@ -595,7 +588,7 @@ class AiChatRepository(
             httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    error("models endpoint failed ${response.code}: ${body.take(240)}")
+                    error("Models endpoint failed with HTTP ${response.code}")
                 }
                 val root = JSONObject(body)
                 val data = root.optJSONArray("data") ?: return@use emptyList()
@@ -630,7 +623,7 @@ class AiChatRepository(
         return client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                error("AI API error ${response.code}: ${responseBody.take(320)}")
+                error("AI API request failed with HTTP ${response.code}")
             }
             JSONObject(responseBody)
         }
@@ -648,7 +641,7 @@ class AiChatRepository(
         return client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                error("AI API polling error ${response.code}: ${responseBody.take(320)}")
+                error("AI API polling failed with HTTP ${response.code}")
             }
             JSONObject(responseBody)
         }
@@ -691,6 +684,11 @@ class AiChatRepository(
     }
 
     companion object {
+        private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .build()
+
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val MODEL_NAME = "gpt-4.1-mini"
         private const val RESPONSES_MODEL_NAME = "gpt-4.1-mini"

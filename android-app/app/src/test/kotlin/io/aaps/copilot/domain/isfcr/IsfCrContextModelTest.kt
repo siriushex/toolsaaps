@@ -14,6 +14,45 @@ class IsfCrContextModelTest {
     private val model = IsfCrContextModel(zoneId = zone)
 
     @Test
+    fun isfRevisionReset_skipsOnlyIsfRateLimiter() {
+        val nowTs = ZonedDateTime.of(2026, 3, 3, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val previous = IsfCrRealtimeSnapshot(
+            id = "previous",
+            ts = nowTs - 5 * 60_000L,
+            isfEff = 6.0,
+            crEff = 10.0,
+            isfBase = 6.0,
+            crBase = 10.0,
+            ciIsfLow = 5.0,
+            ciIsfHigh = 7.0,
+            ciCrLow = 9.0,
+            ciCrHigh = 11.0,
+            confidence = 0.6,
+            qualityScore = 0.8,
+            factors = emptyMap(),
+            mode = IsfCrRuntimeMode.ACTIVE,
+            isfEvidenceCount = 20,
+            crEvidenceCount = 20,
+            reasons = emptyList()
+        )
+
+        val output = model.apply(
+            nowTs = nowTs,
+            isfBase = 2.0,
+            crBase = 20.0,
+            therapy = emptyList(),
+            telemetry = emptyList(),
+            tags = emptyList(),
+            previous = previous,
+            settings = IsfCrSettings(),
+            applyPreviousIsfRateLimit = false
+        )
+
+        assertEquals(2.0, output.isfEff, 1e-9)
+        assertEquals(10.5, output.crEff, 1e-9)
+    }
+
+    @Test
     fun manualTagsToggle_controlsManualTagInfluence() {
         val nowTs = ZonedDateTime.of(2026, 3, 3, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
         val tags = listOf(

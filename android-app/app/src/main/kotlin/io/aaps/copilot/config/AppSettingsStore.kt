@@ -1,31 +1,164 @@
 package io.aaps.copilot.config
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
+import io.aaps.copilot.domain.profile.ActivityProfile
+import io.aaps.copilot.domain.profile.ActivityProfileMode
+import io.aaps.copilot.domain.profile.CalorieGoalMode
+import io.aaps.copilot.domain.profile.EnergyProfileSettings
+import io.aaps.copilot.domain.profile.FoodProfileMode
+import io.aaps.copilot.domain.profile.MealAbsorptionProfile
+import io.aaps.copilot.domain.profile.PhysiologicalSex
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
+import io.aaps.copilot.domain.predict.SensitivityRuntimeSettingsIdentity
+import io.aaps.copilot.domain.predict.SensitivitySourcePreference
 import io.aaps.copilot.domain.predict.UamExportMode
 import io.aaps.copilot.domain.predict.UamUserSettings
+import io.aaps.copilot.domain.target.BaseTargetInterval
+import io.aaps.copilot.domain.target.BaseTargetSchedule
+import io.aaps.copilot.domain.target.BaseTargetScheduleCodec
+import io.aaps.copilot.domain.target.BaseTargetScheduleDecodeResult
+import io.aaps.copilot.domain.target.BaseTargetSchedulePolicy
+import io.aaps.copilot.domain.target.TargetManagerMode
+import io.aaps.copilot.security.TherapyActionInstallIdentity
+import io.aaps.copilot.security.TherapyActionTransportGate
+import java.math.BigDecimal
+import java.math.RoundingMode
+import kotlin.math.round
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-class AppSettingsStore(context: Context) {
+internal data class UamExportMigrationDecision(
+    val enabled: Boolean,
+    val mode: UamExportMode,
+    val dryRun: Boolean,
+    val maxBackdateMinutes: Int,
+    val changed: Boolean
+)
 
-    private val dataStore = PreferenceDataStoreFactory.create(
-        produceFile = { context.preferencesDataStoreFile("copilot_settings.preferences_pb") }
+internal data class UamExportMigrationResult(
+    val oldMode: UamExportMode,
+    val newMode: UamExportMode,
+    val oldDryRun: Boolean,
+    val newDryRun: Boolean,
+    val oldMaxBackdateMinutes: Int,
+    val newMaxBackdateMinutes: Int
+)
+
+internal data class UamThreeModeConsentMigrationResult(
+    val oldMode: UamExportMode,
+    val newMode: UamExportMode,
+    val oldDryRun: Boolean,
+    val newDryRun: Boolean
+)
+
+internal data class SensitivitySettingsMutation(
+    val before: AppSettings,
+    val applied: AppSettings,
+    val beforeFingerprint: List<Any?>,
+    val appliedFingerprint: List<Any?>,
+    val changed: Boolean
+)
+
+enum class TherapyActionBootstrapMigrationResult {
+    ARMED,
+    ALREADY_DECIDED,
+    FAILED
+}
+
+internal fun decideBoundedUamExportV2Migration(
+    enabled: Boolean,
+    mode: UamExportMode,
+    dryRun: Boolean,
+    maxBackdateMinutes: Int
+): UamExportMigrationDecision {
+    if (!enabled || mode == UamExportMode.OFF) {
+        return UamExportMigrationDecision(
+            enabled = enabled,
+            mode = mode,
+            dryRun = dryRun,
+            maxBackdateMinutes = maxBackdateMinutes,
+            changed = false
+        )
+    }
+
+    val migratedMode = UamExportMode.INCREMENTAL
+    val migratedDryRun = true
+    val migratedMaxBackdateMinutes = 5
+    return UamExportMigrationDecision(
+        enabled = true,
+        mode = migratedMode,
+        dryRun = migratedDryRun,
+        maxBackdateMinutes = migratedMaxBackdateMinutes,
+        changed = mode != migratedMode ||
+            dryRun != migratedDryRun ||
+            maxBackdateMinutes != migratedMaxBackdateMinutes
+    )
+}
+
+class AppSettingsStore internal constructor(
+    private val dataStore: DataStore<Preferences>,
+    private val currentInstallId: String? = TEST_INSTALL_ID
+) {
+    @Volatile
+    private var threeModeConsentMigrationChecked = false
+
+    constructor(context: Context) : this(
+        dataStore = PreferenceDataStoreFactory.create(
+            produceFile = { context.preferencesDataStoreFile("copilot_settings.preferences_pb") }
+        ),
+        currentInstallId = TherapyActionInstallIdentity(context.noBackupFilesDir).loadOrCreate()
     )
 
+    private val baseTargetScheduleCodec = BaseTargetScheduleCodec()
+
     val settings: Flow<AppSettings> = dataStore.data.map(::readSettings)
+
+    internal suspend fun readLegacyOpenAiCredential(): String? =
+        dataStore.data.first()[KEY_LEGACY_OPENAI_CREDENTIAL]
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    internal suspend fun clearLegacyOpenAiCredentialIfMatches(expected: String): Boolean {
+        val normalizedExpected = expected.trim().takeIf { it.isNotBlank() } ?: return false
+        var cleared = false
+        dataStore.edit { preferences ->
+            val current = preferences[KEY_LEGACY_OPENAI_CREDENTIAL]
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+            if (current == normalizedExpected) {
+                preferences.remove(KEY_LEGACY_OPENAI_CREDENTIAL)
+                cleared = true
+            }
+        }
+        return cleared
+    }
 
     private fun readSettings(prefs: Preferences): AppSettings {
         val adaptiveEnabled = resolveAdaptiveControllerEnabled(prefs)
         val (safetyMinTargetMmol, safetyMaxTargetMmol) = resolveSafetyTargetBounds(prefs)
+        val isfSource = SensitivitySourcePreference.fromPersisted(prefs[KEY_ISF_RUNTIME_SOURCE])
+        val crSource = SensitivitySourcePreference.fromPersisted(prefs[KEY_CR_RUNTIME_SOURCE])
+        val sensitivityRevision = (prefs[KEY_SENSITIVITY_SETTINGS_REVISION] ?: 0L)
+            .coerceAtLeast(0L)
+        val resolvedBaseTargetSchedule = resolveBaseTargetSchedule(
+            prefs = prefs,
+            minTarget = safetyMinTargetMmol,
+            maxTarget = safetyMaxTargetMmol
+        )
+        val localNightscoutLegacyMigrationAcknowledged =
+            prefs[KEY_LOCAL_NIGHTSCOUT_LEGACY_MIGRATION_ACKNOWLEDGED] ?: false
         return AppSettings(
             nightscoutUrl = prefs[KEY_NS_URL].orEmpty(),
             apiSecret = prefs[KEY_NS_SECRET].orEmpty(),
@@ -33,18 +166,27 @@ class AppSettingsStore(context: Context) {
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_CLOUD_BASE_URL,
-            openAiApiKey = prefs[KEY_OPENAI_KEY]
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-                ?: DEFAULT_OPENAI_API_KEY,
+            clinicalAiConfigState = resolveClinicalAiConfigState(prefs),
+            automaticEventAiAnalysisEnabled =
+                prefs[KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED] ?: true,
             uiStyle = resolveUiStyle(prefs[KEY_UI_STYLE]),
+            showEventsOnGraph = prefs[KEY_SHOW_EVENTS_ON_GRAPH] ?: true,
             killSwitch = prefs[KEY_KILL_SWITCH] ?: false,
+            therapyActionsArmed = therapyActionsArmedForInstallStatic(
+                storedInstallId = prefs[KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID],
+                currentInstallId = currentInstallId
+            ),
+            powerSaveUntilMs = prefs[KEY_POWER_SAVE_UNTIL_MS] ?: 0L,
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
             strictBroadcastSenderValidation = prefs[KEY_STRICT_BROADCAST_VALIDATION] ?: false,
-            localNightscoutEnabled = prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
-                ?: prefs[KEY_NS_URL].orEmpty().isBlank(),
+            localNightscoutEnabled = (
+                prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED]
+                    ?: prefs[KEY_NS_URL].orEmpty().isBlank()
+                ) && localNightscoutLegacyMigrationAcknowledged,
             localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
+            localNightscoutLegacyMigrationAcknowledged =
+                localNightscoutLegacyMigrationAcknowledged,
             localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
             localCommandPackage = prefs[KEY_LOCAL_COMMAND_PACKAGE] ?: DEFAULT_LOCAL_COMMAND_PACKAGE,
             localCommandAction = prefs[KEY_LOCAL_COMMAND_ACTION] ?: DEFAULT_LOCAL_COMMAND_ACTION,
@@ -54,6 +196,13 @@ class AppSettingsStore(context: Context) {
             enableUamExportToAaps = prefs[KEY_ENABLE_UAM_EXPORT] ?: DEFAULT_ENABLE_UAM_EXPORT,
             uamExportMode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE]),
             dryRunExport = prefs[KEY_DRY_RUN_EXPORT] ?: DEFAULT_DRY_RUN_EXPORT,
+            enableUamAutoExportCap = prefs[KEY_UAM_AUTO_EXPORT_CAP_ENABLED]
+                ?: DEFAULT_UAM_AUTO_EXPORT_CAP_ENABLED,
+            uamAutoExportCapGrams = (prefs[KEY_UAM_AUTO_EXPORT_CAP_GRAMS]
+                ?: DEFAULT_UAM_AUTO_EXPORT_CAP_GRAMS).coerceIn(
+                MIN_UAM_AUTO_EXPORT_CAP_GRAMS,
+                MAX_UAM_AUTO_EXPORT_CAP_GRAMS
+            ),
             uamLearnedMultiplier = (prefs[KEY_UAM_LEARNED_MULTIPLIER] ?: DEFAULT_UAM_LEARNED_MULTIPLIER)
                 .coerceIn(0.8, 1.6),
             uamMinSnackG = prefs[KEY_UAM_MIN_SNACK_G] ?: DEFAULT_UAM_MIN_SNACK_G,
@@ -86,6 +235,13 @@ class AppSettingsStore(context: Context) {
             carbComputationMaxGrams = (prefs[KEY_CARB_COMPUTATION_MAX_GRAMS]
                 ?: DEFAULT_CARB_COMPUTATION_MAX_GRAMS).coerceIn(20.0, 60.0),
             sensorLagCorrectionMode = resolveSensorLagCorrectionMode(prefs[KEY_SENSOR_LAG_CORRECTION_MODE]),
+            targetManagerMode = resolveTargetManagerMode(prefs[KEY_TARGET_MANAGER_MODE]),
+            targetManagerModeManualOverride = prefs[KEY_TARGET_MANAGER_MANUAL_OVERRIDE] ?: false,
+            targetManagerCopilotPriorityEnabled = prefs[KEY_TARGET_MANAGER_COPILOT_PRIORITY] ?: false,
+            targetManagerPolicyRevision = prefs[KEY_TARGET_MANAGER_POLICY_REVISION] ?: 0L,
+            isfSourcePreference = isfSource,
+            crSourcePreference = crSource,
+            sensitivitySettingsRevision = sensitivityRevision,
             isfCrShadowMode = prefs[KEY_ISFCR_SHADOW_MODE] ?: DEFAULT_ISFCR_SHADOW_MODE,
             isfCrConfidenceThreshold = prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] ?: DEFAULT_ISFCR_CONFIDENCE_THRESHOLD,
             isfCrUseActivity = prefs[KEY_ISFCR_USE_ACTIVITY] ?: DEFAULT_ISFCR_USE_ACTIVITY,
@@ -165,8 +321,9 @@ class AppSettingsStore(context: Context) {
                     ?: DEFAULT_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR,
             safetyMinTargetMmol = safetyMinTargetMmol,
             safetyMaxTargetMmol = safetyMaxTargetMmol,
-            baseTargetMmol = (prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL)
-                .coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
+            baseTargetMmol = resolvedBaseTargetSchedule.schedule.defaultTargetMmol,
+            baseTargetSchedule = resolvedBaseTargetSchedule.schedule,
+            baseTargetScheduleRecoveryReason = resolvedBaseTargetSchedule.recoveryReason,
             postHypoThresholdMmol = (prefs[KEY_POST_HYPO_THRESHOLD_MMOL]
                 ?: DEFAULT_POST_HYPO_THRESHOLD_MMOL).coerceIn(safetyMinTargetMmol, safetyMaxTargetMmol),
             postHypoDeltaThresholdMmol5m = prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] ?: DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M,
@@ -213,27 +370,92 @@ class AppSettingsStore(context: Context) {
                 ?: DEFAULT_CIRCADIAN_FORECAST_WEIGHT_30,
             circadianForecastWeight60 = prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_60]
                 ?: DEFAULT_CIRCADIAN_FORECAST_WEIGHT_60,
+            softAlertEnabled = prefs[KEY_SOFT_ALERT_ENABLED] ?: DEFAULT_SOFT_ALERT_ENABLED,
+            watch60AlertEnabled = prefs[KEY_WATCH_60_ALERT_ENABLED] ?: DEFAULT_WATCH_60_ALERT_ENABLED,
+            warning30AlertEnabled = prefs[KEY_WARNING_30_ALERT_ENABLED] ?: DEFAULT_WARNING_30_ALERT_ENABLED,
+            softHighAlertEnabled = prefs[KEY_SOFT_HIGH_ALERT_ENABLED] ?: DEFAULT_SOFT_HIGH_ALERT_ENABLED,
+            critical5AlertEnabled = prefs[KEY_CRITICAL_5_ALERT_ENABLED] ?: DEFAULT_CRITICAL_5_ALERT_ENABLED,
+            lowNowAlertEnabled = prefs[KEY_LOW_NOW_ALERT_ENABLED] ?: DEFAULT_LOW_NOW_ALERT_ENABLED,
+            softAlertLowMmol = (prefs[KEY_SOFT_ALERT_LOW_MMOL] ?: DEFAULT_SOFT_ALERT_LOW_MMOL)
+                .coerceIn(3.6, 6.0),
+            softAlertHighMmol = (prefs[KEY_SOFT_ALERT_HIGH_MMOL] ?: DEFAULT_SOFT_ALERT_HIGH_MMOL)
+                .coerceIn(7.0, 13.9),
+            urgentLowMmol = (prefs[KEY_URGENT_LOW_MMOL] ?: DEFAULT_URGENT_LOW_MMOL)
+                .coerceIn(3.0, 4.4),
+            softAlertRepeatMinutes = (prefs[KEY_SOFT_ALERT_REPEAT_MINUTES] ?: DEFAULT_SOFT_ALERT_REPEAT_MINUTES)
+                .coerceIn(5, 30),
+            strongLowRepeatMinutes = (prefs[KEY_STRONG_LOW_REPEAT_MINUTES] ?: DEFAULT_STRONG_LOW_REPEAT_MINUTES)
+                .coerceIn(1, 10),
+            softAlertUseConfidenceBand = prefs[KEY_SOFT_ALERT_USE_CONFIDENCE_BAND]
+                ?: DEFAULT_SOFT_ALERT_USE_CONFIDENCE_BAND,
+            softAlertAudioStartMs = prefs[KEY_SOFT_ALERT_AUDIO_START_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_START_MS,
+            softAlertAudioDurationMs = prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS,
+            softAlertAudioUri = prefs[KEY_SOFT_ALERT_AUDIO_URI],
+            softAlertAudioDisplayName = prefs[KEY_SOFT_ALERT_AUDIO_DISPLAY_NAME],
+            criticalAlertAudio1StartMs = prefs[KEY_CRITICAL_ALERT_AUDIO1_START_MS] ?: DEFAULT_CRITICAL_ALERT_AUDIO1_START_MS,
+            criticalAlertAudio1DurationMs = prefs[KEY_CRITICAL_ALERT_AUDIO1_DURATION_MS] ?: DEFAULT_CRITICAL_ALERT_AUDIO1_DURATION_MS,
+            criticalAlertAudio1Uri = prefs[KEY_CRITICAL_ALERT_AUDIO1_URI],
+            criticalAlertAudio1DisplayName = prefs[KEY_CRITICAL_ALERT_AUDIO1_DISPLAY_NAME],
+            criticalAlertAudio2StartMs = prefs[KEY_CRITICAL_ALERT_AUDIO2_START_MS] ?: DEFAULT_CRITICAL_ALERT_AUDIO2_START_MS,
+            criticalAlertAudio2DurationMs = prefs[KEY_CRITICAL_ALERT_AUDIO2_DURATION_MS] ?: DEFAULT_CRITICAL_ALERT_AUDIO2_DURATION_MS,
+            criticalAlertAudio2Uri = prefs[KEY_CRITICAL_ALERT_AUDIO2_URI],
+            criticalAlertAudio2DisplayName = prefs[KEY_CRITICAL_ALERT_AUDIO2_DISPLAY_NAME],
             maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
             staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
-            exportFolderUri = prefs[KEY_EXPORT_URI]
+            exportFolderUri = prefs[KEY_EXPORT_URI],
+            energyProfile = resolveEnergyProfileSettings(prefs)
         )
     }
 
     suspend fun update(updater: (AppSettings) -> AppSettings) {
+        updateInternal(allowSensitivityRuntimeChange = false, updater = updater)
+    }
+
+    private suspend fun updateInternal(
+        allowSensitivityRuntimeChange: Boolean,
+        updater: (AppSettings) -> AppSettings
+    ): Pair<AppSettings, AppSettings> {
+        lateinit var before: AppSettings
+        lateinit var applied: AppSettings
         dataStore.edit { prefs ->
+            requireCurrentSafetyTargetBounds(prefs)
             val current = readSettings(prefs)
             val next = updater(current)
+            val sensitivityRuntimeChanged =
+                current.sensitivityRuntimeFingerprint() != next.sensitivityRuntimeFingerprint()
+            require(allowSensitivityRuntimeChange || !sensitivityRuntimeChanged) {
+                "sensitivity runtime settings require the leased automation command"
+            }
+            val nextSensitivitySettingsRevision = if (sensitivityRuntimeChanged) {
+                incrementRevision(current.sensitivitySettingsRevision)
+            } else {
+                current.sensitivitySettingsRevision
+            }
+            writeClinicalAiConfigState(
+                preferences = prefs,
+                currentState = current.clinicalAiConfigState,
+                nextState = next.clinicalAiConfigState
+            )
             prefs[KEY_NS_URL] = next.nightscoutUrl
             prefs[KEY_NS_SECRET] = next.apiSecret
             prefs[KEY_CLOUD_URL] = next.cloudBaseUrl
-            prefs[KEY_OPENAI_KEY] = next.openAiApiKey
+            prefs[KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED] =
+                next.automaticEventAiAnalysisEnabled
             prefs[KEY_UI_STYLE] = next.uiStyle.name
+            prefs[KEY_SHOW_EVENTS_ON_GRAPH] = next.showEventsOnGraph
             prefs[KEY_KILL_SWITCH] = next.killSwitch
+            if (next.powerSaveUntilMs <= 0L) {
+                prefs.remove(KEY_POWER_SAVE_UNTIL_MS)
+            } else {
+                prefs[KEY_POWER_SAVE_UNTIL_MS] = next.powerSaveUntilMs
+            }
             prefs[KEY_ROOT_EXPERIMENTAL] = next.rootExperimentalEnabled
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
             prefs[KEY_STRICT_BROADCAST_VALIDATION] = next.strictBroadcastSenderValidation
             prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] = next.localNightscoutEnabled
             prefs[KEY_LOCAL_NIGHTSCOUT_PORT] = next.localNightscoutPort
+            prefs[KEY_LOCAL_NIGHTSCOUT_LEGACY_MIGRATION_ACKNOWLEDGED] =
+                next.localNightscoutLegacyMigrationAcknowledged
             prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] = next.localCommandFallbackEnabled
             prefs[KEY_LOCAL_COMMAND_PACKAGE] = next.localCommandPackage
             prefs[KEY_LOCAL_COMMAND_ACTION] = next.localCommandAction
@@ -243,6 +465,11 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_ENABLE_UAM_EXPORT] = next.enableUamExportToAaps
             prefs[KEY_UAM_EXPORT_MODE] = next.uamExportMode.name
             prefs[KEY_DRY_RUN_EXPORT] = next.dryRunExport
+            prefs[KEY_UAM_AUTO_EXPORT_CAP_ENABLED] = next.enableUamAutoExportCap
+            prefs[KEY_UAM_AUTO_EXPORT_CAP_GRAMS] = next.uamAutoExportCapGrams.coerceIn(
+                MIN_UAM_AUTO_EXPORT_CAP_GRAMS,
+                MAX_UAM_AUTO_EXPORT_CAP_GRAMS
+            )
             prefs[KEY_UAM_LEARNED_MULTIPLIER] = next.uamLearnedMultiplier.coerceIn(0.8, 1.6)
             prefs[KEY_UAM_MIN_SNACK_G] = next.uamMinSnackG
             prefs[KEY_UAM_MAX_SNACK_G] = next.uamMaxSnackG
@@ -269,9 +496,10 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_UAM_MIN_CONFIRM_AGE_MIN] = next.uamMinConfirmAgeMin
             prefs[KEY_UAM_EXPORT_MIN_INTERVAL_MIN] = next.uamExportMinIntervalMin
             prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] = next.uamExportMaxBackdateMin
-            prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES] = next.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180)
-            prefs[KEY_CARB_COMPUTATION_MAX_GRAMS] = next.carbComputationMaxGrams.coerceIn(20.0, 60.0)
             prefs[KEY_SENSOR_LAG_CORRECTION_MODE] = next.sensorLagCorrectionMode.name
+            prefs[KEY_ISF_RUNTIME_SOURCE] = next.isfSourcePreference.name
+            prefs[KEY_CR_RUNTIME_SOURCE] = next.crSourcePreference.name
+            prefs[KEY_SENSITIVITY_SETTINGS_REVISION] = nextSensitivitySettingsRevision
             prefs[KEY_ISFCR_SHADOW_MODE] = next.isfCrShadowMode
             prefs[KEY_ISFCR_CONFIDENCE_THRESHOLD] = next.isfCrConfidenceThreshold.coerceIn(0.2, 0.95)
             prefs[KEY_ISFCR_USE_ACTIVITY] = next.isfCrUseActivity
@@ -337,13 +565,15 @@ class AppSettingsStore(context: Context) {
                 next.isfCrAutoActivationRollingCiCoverageRelaxFactor.coerceIn(0.70, 1.0)
             prefs[KEY_ISFCR_AUTO_ACTIVATION_ROLLING_CI_WIDTH_RELAX_FACTOR] =
                 next.isfCrAutoActivationRollingCiWidthRelaxFactor.coerceIn(1.0, 1.5)
-            val normalizedSafetyMax = next.safetyMaxTargetMmol.coerceIn(4.2, 10.0)
-            val normalizedSafetyMin = next.safetyMinTargetMmol
-                .coerceIn(4.0, 9.8)
-                .coerceAtMost(normalizedSafetyMax - 0.2)
+            val normalizedSafetyMin = current.safetyMinTargetMmol
+            val normalizedSafetyMax = current.safetyMaxTargetMmol
             prefs[KEY_SAFETY_MIN_TARGET_MMOL] = normalizedSafetyMin
             prefs[KEY_SAFETY_MAX_TARGET_MMOL] = normalizedSafetyMax
-            prefs[KEY_BASE_TARGET_MMOL] = next.baseTargetMmol.coerceIn(normalizedSafetyMin, normalizedSafetyMax)
+            prefs[KEY_BASE_TARGET_MMOL] = clampTargetToBounds(
+                current.baseTargetSchedule.defaultTargetMmol,
+                normalizedSafetyMin,
+                normalizedSafetyMax
+            )
             prefs[KEY_POST_HYPO_THRESHOLD_MMOL] =
                 next.postHypoThresholdMmol.coerceIn(normalizedSafetyMin, normalizedSafetyMax)
             prefs[KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M] = next.postHypoDeltaThresholdMmol5m
@@ -380,13 +610,501 @@ class AppSettingsStore(context: Context) {
             prefs[KEY_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS] = next.circadianUseReplayResidualBias
             prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_30] = next.circadianForecastWeight30
             prefs[KEY_CIRCADIAN_FORECAST_WEIGHT_60] = next.circadianForecastWeight60
-            prefs[KEY_MAX_ACTIONS_6H] = next.maxActionsIn6Hours
-            prefs[KEY_STALE_DATA_MAX_MINUTES] = next.staleDataMaxMinutes
+            val normalizedSoftLow = next.softAlertLowMmol.coerceIn(3.6, 6.0)
+            val normalizedUrgentLow = next.urgentLowMmol.coerceIn(3.0, 4.4).coerceAtMost(normalizedSoftLow)
+            val normalizedSoftHigh = next.softAlertHighMmol
+                .coerceIn(7.0, 13.9)
+                .coerceAtLeast(normalizedSoftLow + 0.1)
+            prefs[KEY_SOFT_ALERT_ENABLED] = next.softAlertEnabled
+            prefs[KEY_WATCH_60_ALERT_ENABLED] = next.watch60AlertEnabled
+            prefs[KEY_WARNING_30_ALERT_ENABLED] = next.warning30AlertEnabled
+            prefs[KEY_SOFT_HIGH_ALERT_ENABLED] = next.softHighAlertEnabled
+            prefs[KEY_CRITICAL_5_ALERT_ENABLED] = next.critical5AlertEnabled
+            prefs[KEY_LOW_NOW_ALERT_ENABLED] = next.lowNowAlertEnabled
+            prefs[KEY_SOFT_ALERT_LOW_MMOL] = normalizedSoftLow
+            prefs[KEY_SOFT_ALERT_HIGH_MMOL] = normalizedSoftHigh
+            prefs[KEY_URGENT_LOW_MMOL] = normalizedUrgentLow
+            prefs[KEY_SOFT_ALERT_REPEAT_MINUTES] = next.softAlertRepeatMinutes.coerceIn(5, 30)
+            prefs[KEY_STRONG_LOW_REPEAT_MINUTES] = next.strongLowRepeatMinutes.coerceIn(1, 10)
+            prefs[KEY_SOFT_ALERT_USE_CONFIDENCE_BAND] = next.softAlertUseConfidenceBand
+            prefs[KEY_SOFT_ALERT_AUDIO_START_MS] = next.softAlertAudioStartMs.coerceAtLeast(0)
+            prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] = next.softAlertAudioDurationMs.coerceIn(15_000, 30_000)
+            if (next.softAlertAudioUri.isNullOrBlank()) {
+                prefs.remove(KEY_SOFT_ALERT_AUDIO_URI)
+            } else {
+                prefs[KEY_SOFT_ALERT_AUDIO_URI] = next.softAlertAudioUri
+            }
+            if (next.softAlertAudioDisplayName.isNullOrBlank()) {
+                prefs.remove(KEY_SOFT_ALERT_AUDIO_DISPLAY_NAME)
+            } else {
+                prefs[KEY_SOFT_ALERT_AUDIO_DISPLAY_NAME] = next.softAlertAudioDisplayName
+            }
+            prefs[KEY_CRITICAL_ALERT_AUDIO1_START_MS] = next.criticalAlertAudio1StartMs.coerceAtLeast(0)
+            prefs[KEY_CRITICAL_ALERT_AUDIO1_DURATION_MS] = next.criticalAlertAudio1DurationMs.coerceIn(15_000, 30_000)
+            if (next.criticalAlertAudio1Uri.isNullOrBlank()) {
+                prefs.remove(KEY_CRITICAL_ALERT_AUDIO1_URI)
+            } else {
+                prefs[KEY_CRITICAL_ALERT_AUDIO1_URI] = next.criticalAlertAudio1Uri
+            }
+            if (next.criticalAlertAudio1DisplayName.isNullOrBlank()) {
+                prefs.remove(KEY_CRITICAL_ALERT_AUDIO1_DISPLAY_NAME)
+            } else {
+                prefs[KEY_CRITICAL_ALERT_AUDIO1_DISPLAY_NAME] = next.criticalAlertAudio1DisplayName
+            }
+            prefs[KEY_CRITICAL_ALERT_AUDIO2_START_MS] = next.criticalAlertAudio2StartMs.coerceAtLeast(0)
+            prefs[KEY_CRITICAL_ALERT_AUDIO2_DURATION_MS] = next.criticalAlertAudio2DurationMs.coerceIn(15_000, 30_000)
+            if (next.criticalAlertAudio2Uri.isNullOrBlank()) {
+                prefs.remove(KEY_CRITICAL_ALERT_AUDIO2_URI)
+            } else {
+                prefs[KEY_CRITICAL_ALERT_AUDIO2_URI] = next.criticalAlertAudio2Uri
+            }
+            if (next.criticalAlertAudio2DisplayName.isNullOrBlank()) {
+                prefs.remove(KEY_CRITICAL_ALERT_AUDIO2_DISPLAY_NAME)
+            } else {
+                prefs[KEY_CRITICAL_ALERT_AUDIO2_DISPLAY_NAME] = next.criticalAlertAudio2DisplayName
+            }
+            writeRequestedSafetyFields(
+                prefs = prefs,
+                mutation = SafetyLimitsMutation(
+                    maxActionsIn6Hours = next.maxActionsIn6Hours,
+                    staleDataMaxMinutes = next.staleDataMaxMinutes,
+                    carbAbsorptionMaxAgeMinutes = next.carbAbsorptionMaxAgeMinutes,
+                    carbComputationMaxGrams = next.carbComputationMaxGrams
+                )
+            )
             if (next.exportFolderUri.isNullOrBlank()) {
                 prefs.remove(KEY_EXPORT_URI)
             } else {
                 prefs[KEY_EXPORT_URI] = next.exportFolderUri
             }
+            writeEnergyProfileSettings(prefs, next.energyProfile)
+            before = current
+            applied = readSettings(prefs)
+        }
+        return before to applied
+    }
+
+    internal suspend fun beginSensitivitySettingsMutation(
+        updater: (AppSettings) -> AppSettings
+    ): SensitivitySettingsMutation {
+        val (before, applied) = updateInternal(allowSensitivityRuntimeChange = true) { current ->
+            val requested = updater(current)
+            require(requested.withSensitivityRuntimeSettingsFrom(current) == current) {
+                "leased sensitivity mutation may change sensitivity runtime settings only"
+            }
+            requested
+        }
+        return SensitivitySettingsMutation(
+            before = before,
+            applied = applied,
+            beforeFingerprint = before.sensitivityRuntimeFingerprint(),
+            appliedFingerprint = applied.sensitivityRuntimeFingerprint(),
+            changed = before.sensitivityRuntimeFingerprint() != applied.sensitivityRuntimeFingerprint()
+        )
+    }
+
+    suspend fun setClinicalAiConfig(config: ClinicalAiProviderConfig) {
+        dataStore.edit { preferences ->
+            writeClinicalAiConfig(preferences, config)
+        }
+    }
+
+    suspend fun setEnergyProfileSettings(value: EnergyProfileSettings) {
+        update { current -> current.copy(energyProfile = value) }
+    }
+
+    private fun writeEnergyProfileSettings(prefs: MutablePreferences, value: EnergyProfileSettings) {
+        prefs[KEY_ENERGY_PROFILE_ENABLED] = value.enabled
+        prefs[KEY_ENERGY_PROFILE_FORECAST_ACTIVITY_INFLUENCE_ENABLED] =
+            value.forecastActivityInfluenceEnabled
+        value.birthDateEpochDay?.let { prefs[KEY_BIRTH_DATE_EPOCH_DAY] = it }
+            ?: prefs.remove(KEY_BIRTH_DATE_EPOCH_DAY)
+        prefs[KEY_PHYSIOLOGICAL_SEX] = value.physiologicalSex.name
+        value.heightCm?.let { prefs[KEY_HEIGHT_CM] = it } ?: prefs.remove(KEY_HEIGHT_CM)
+        value.weightKg?.let { prefs[KEY_WEIGHT_KG] = it } ?: prefs.remove(KEY_WEIGHT_KG)
+        prefs[KEY_FOOD_PROFILE_MODE] = value.foodProfileMode.name
+        prefs[KEY_MANUAL_FOOD_PROFILE] = value.manualFoodProfile.name
+        prefs[KEY_ACTIVITY_PROFILE_MODE] = value.activityProfileMode.name
+        prefs[KEY_MANUAL_ACTIVITY_PROFILE] = value.manualActivityProfile.name
+        prefs[KEY_CALORIE_GOAL_MODE] = value.calorieGoalMode.name
+        value.manualCalorieTargetKcal?.let { prefs[KEY_MANUAL_CALORIE_TARGET] = it }
+            ?: prefs.remove(KEY_MANUAL_CALORIE_TARGET)
+        prefs[KEY_SHARE_PROFILE_WITH_AI] = value.shareProfileWithAi
+    }
+
+    private fun resolveEnergyProfileSettings(prefs: Preferences): EnergyProfileSettings =
+        EnergyProfileSettings(
+            enabled = prefs[KEY_ENERGY_PROFILE_ENABLED] ?: false,
+            forecastActivityInfluenceEnabled =
+                prefs[KEY_ENERGY_PROFILE_FORECAST_ACTIVITY_INFLUENCE_ENABLED] ?: false,
+            birthDateEpochDay = prefs[KEY_BIRTH_DATE_EPOCH_DAY],
+            physiologicalSex = resolveProfileEnum(
+                prefs[KEY_PHYSIOLOGICAL_SEX],
+                PhysiologicalSex.UNSPECIFIED
+            ),
+            heightCm = prefs[KEY_HEIGHT_CM],
+            weightKg = prefs[KEY_WEIGHT_KG],
+            foodProfileMode = resolveProfileEnum(prefs[KEY_FOOD_PROFILE_MODE], FoodProfileMode.AUTO),
+            manualFoodProfile = resolveProfileEnum(
+                prefs[KEY_MANUAL_FOOD_PROFILE],
+                MealAbsorptionProfile.MIXED
+            ),
+            activityProfileMode = resolveProfileEnum(
+                prefs[KEY_ACTIVITY_PROFILE_MODE],
+                ActivityProfileMode.AUTO
+            ),
+            manualActivityProfile = resolveProfileEnum(
+                prefs[KEY_MANUAL_ACTIVITY_PROFILE],
+                ActivityProfile.MODERATE
+            ),
+            calorieGoalMode = resolveProfileEnum(prefs[KEY_CALORIE_GOAL_MODE], CalorieGoalMode.OFF),
+            manualCalorieTargetKcal = prefs[KEY_MANUAL_CALORIE_TARGET],
+            shareProfileWithAi = prefs[KEY_SHARE_PROFILE_WITH_AI] ?: true
+        )
+
+    private inline fun <reified T : Enum<T>> resolveProfileEnum(
+        raw: String?,
+        default: T
+    ): T = runCatching {
+        enumValueOf<T>(raw?.trim().orEmpty().uppercase())
+    }.getOrDefault(default)
+
+    private fun resolveClinicalAiConfigState(preferences: Preferences): ClinicalAiConfigState =
+        ClinicalAiConfigState.fromStored(
+            providerId = preferences[KEY_CLINICAL_AI_PROVIDER],
+            modelId = preferences[KEY_CLINICAL_AI_MODEL],
+            endpoint = preferences[KEY_CLINICAL_AI_ENDPOINT],
+            compatibleProtocol = preferences[KEY_CLINICAL_AI_PROTOCOL]
+        )
+
+    private fun writeClinicalAiConfig(
+        preferences: MutablePreferences,
+        config: ClinicalAiProviderConfig
+    ) {
+        preferences[KEY_CLINICAL_AI_PROVIDER] = config.providerId.name
+        preferences[KEY_CLINICAL_AI_MODEL] = config.modelId
+        config.endpoint?.let { preferences[KEY_CLINICAL_AI_ENDPOINT] = it }
+            ?: preferences.remove(KEY_CLINICAL_AI_ENDPOINT)
+        config.compatibleProtocol?.let { preferences[KEY_CLINICAL_AI_PROTOCOL] = it.name }
+            ?: preferences.remove(KEY_CLINICAL_AI_PROTOCOL)
+    }
+
+    private fun writeClinicalAiConfigState(
+        preferences: MutablePreferences,
+        currentState: ClinicalAiConfigState,
+        nextState: ClinicalAiConfigState
+    ) {
+        when (nextState) {
+            is ClinicalAiConfigState.Valid -> writeClinicalAiConfig(preferences, nextState.config)
+            is ClinicalAiConfigState.Invalid -> require(nextState == currentState) {
+                "New or changed invalid clinical AI configuration cannot be persisted: " +
+                    nextState.reason
+            }
+
+            is ClinicalAiConfigState.UnconfiguredDefault -> {
+                require(nextState.config == ClinicalAiProviderConfig.defaultOpenAi()) {
+                    "Unconfigured clinical AI state must use the default configuration"
+                }
+                preferences.remove(KEY_CLINICAL_AI_PROVIDER)
+                preferences.remove(KEY_CLINICAL_AI_MODEL)
+                preferences.remove(KEY_CLINICAL_AI_ENDPOINT)
+                preferences.remove(KEY_CLINICAL_AI_PROTOCOL)
+            }
+        }
+    }
+
+    suspend fun setTherapyActionsArmed(armed: Boolean): Boolean {
+        return TherapyActionTransportGate.updateState(requestedArmed = armed) {
+            val installId = currentInstallId ?: return@updateState false
+            dataStore.edit { prefs ->
+                prefs[KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID] = installId
+                if (armed) {
+                    prefs[KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID] = installId
+                } else {
+                    prefs.remove(KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID)
+                }
+            }
+            true
+        }
+    }
+
+    suspend fun isTherapyActionBootstrapEvaluated(): Boolean {
+        val installId = currentInstallId ?: return false
+        return dataStore.data.first()[KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID] == installId
+    }
+
+    suspend fun tryAutoArmTherapyActionsMigration(): TherapyActionBootstrapMigrationResult {
+        val installId = currentInstallId ?: return TherapyActionBootstrapMigrationResult.FAILED
+        var result = TherapyActionBootstrapMigrationResult.FAILED
+        TherapyActionTransportGate.resolveState {
+            var actualArmed = false
+            dataStore.edit { prefs ->
+                actualArmed = prefs[KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID] == installId
+                if (prefs[KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID] == installId) {
+                    result = TherapyActionBootstrapMigrationResult.ALREADY_DECIDED
+                    return@edit
+                }
+                prefs[KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID] = installId
+                prefs[KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID] = installId
+                actualArmed = true
+                result = TherapyActionBootstrapMigrationResult.ARMED
+            }
+            actualArmed
+        }
+        return result
+    }
+
+    suspend fun saveBaseTargetSchedule(
+        candidate: BaseTargetSchedule
+    ): BaseTargetSchedule {
+        var savedSchedule: BaseTargetSchedule? = null
+        dataStore.edit { prefs ->
+            val (minTarget, maxTarget) = requireCurrentSafetyTargetBounds(prefs)
+            val currentSchedule = resolveBaseTargetSchedule(
+                prefs = prefs,
+                minTarget = minTarget,
+                maxTarget = maxTarget
+            ).schedule
+            require(candidate.revision == currentSchedule.revision) {
+                "Base target schedule revision changed; reload before saving"
+            }
+            val nextSchedule = BaseTargetSchedule(
+                schemaVersion = candidate.schemaVersion,
+                revision = incrementRevision(currentSchedule.revision),
+                defaultTargetMmol = candidate.defaultTargetMmol,
+                autoEnabled = candidate.autoEnabled,
+                intervals = candidate.intervals.toList()
+            )
+            requireValidSchedule(nextSchedule, minTarget, maxTarget)
+            val encoded = baseTargetScheduleCodec.encode(nextSchedule)
+
+            prefs[KEY_BASE_TARGET_SCHEDULE_JSON] = encoded
+            prefs[KEY_BASE_TARGET_MMOL] = nextSchedule.defaultTargetMmol
+            savedSchedule = nextSchedule
+        }
+        return checkNotNull(savedSchedule)
+    }
+
+    suspend fun promoteTargetManagerToActive(scheduleRevision: Long): Boolean {
+        var promoted = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_TARGET_MANAGER_MANUAL_OVERRIDE] == true) return@edit
+            val rawMode = prefs[KEY_TARGET_MANAGER_MODE]
+            val currentMode = when {
+                rawMode == null -> TargetManagerMode.SHADOW
+                rawMode == TargetManagerMode.SHADOW.name -> TargetManagerMode.SHADOW
+                rawMode == TargetManagerMode.ACTIVE.name -> TargetManagerMode.ACTIVE
+                rawMode == TargetManagerMode.OFF.name -> TargetManagerMode.OFF
+                else -> return@edit
+            }
+            if (currentMode != TargetManagerMode.SHADOW) return@edit
+
+            val (minTarget, maxTarget) = requireCurrentSafetyTargetBounds(prefs)
+            val resolved = resolveBaseTargetSchedule(prefs, minTarget, maxTarget)
+            val schedule = resolved.schedule
+            if (
+                resolved.recoveryReason != null ||
+                !schedule.autoEnabled ||
+                schedule.revision != scheduleRevision
+            ) {
+                return@edit
+            }
+
+            prefs[KEY_TARGET_MANAGER_MODE] = TargetManagerMode.ACTIVE.name
+            prefs[KEY_TARGET_MANAGER_POLICY_REVISION] = nextTargetManagerPolicyRevision(prefs)
+            promoted = true
+        }
+        return promoted
+    }
+
+    suspend fun setTargetManagerModeManually(mode: TargetManagerMode) {
+        dataStore.edit { prefs ->
+            prefs[KEY_TARGET_MANAGER_POLICY_REVISION] = nextTargetManagerPolicyRevision(prefs)
+            prefs[KEY_TARGET_MANAGER_MODE] = mode.name
+            prefs[KEY_TARGET_MANAGER_MANUAL_OVERRIDE] = true
+        }
+    }
+
+    suspend fun setTargetManagerCopilotPriorityEnabled(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_TARGET_MANAGER_POLICY_REVISION] = nextTargetManagerPolicyRevision(prefs)
+            prefs[KEY_TARGET_MANAGER_COPILOT_PRIORITY] = enabled
+        }
+    }
+
+    private fun nextTargetManagerPolicyRevision(prefs: Preferences): Long {
+        val current = prefs[KEY_TARGET_MANAGER_POLICY_REVISION] ?: 0L
+        check(current >= 0L) { "Invalid target policy revision" }
+        return Math.addExact(current, 1L)
+    }
+
+    suspend fun enableAutomaticTargetManagerMode() {
+        dataStore.edit { prefs ->
+            prefs[KEY_TARGET_MANAGER_POLICY_REVISION] = nextTargetManagerPolicyRevision(prefs)
+            prefs[KEY_TARGET_MANAGER_MODE] = TargetManagerMode.SHADOW.name
+            prefs[KEY_TARGET_MANAGER_MANUAL_OVERRIDE] = false
+        }
+    }
+
+    suspend fun updateBaseTargetDefault(targetMmol: Double): BaseTargetSchedule {
+        require(targetMmol.isFinite()) {
+            "Base target must be finite"
+        }
+        var savedSchedule: BaseTargetSchedule? = null
+        dataStore.edit { prefs ->
+            val (minTarget, maxTarget) = requireCurrentSafetyTargetBounds(prefs)
+            val currentSchedule = resolveBaseTargetSchedule(
+                prefs = prefs,
+                minTarget = minTarget,
+                maxTarget = maxTarget
+            ).schedule
+            val nextSchedule = currentSchedule.copy(
+                revision = incrementRevision(currentSchedule.revision),
+                defaultTargetMmol = clampTargetToBounds(targetMmol, minTarget, maxTarget)
+            )
+            requireValidSchedule(nextSchedule, minTarget, maxTarget)
+            val encoded = baseTargetScheduleCodec.encode(nextSchedule)
+
+            prefs[KEY_BASE_TARGET_SCHEDULE_JSON] = encoded
+            prefs[KEY_BASE_TARGET_MMOL] = nextSchedule.defaultTargetMmol
+            savedSchedule = nextSchedule
+        }
+        return checkNotNull(savedSchedule)
+    }
+
+    suspend fun updateSafetyLimits(
+        maxActionsIn6Hours: Int,
+        staleDataMaxMinutes: Int,
+        safetyMinTargetMmol: Double? = null,
+        safetyMaxTargetMmol: Double? = null,
+        carbAbsorptionMaxAgeMinutes: Int? = null,
+        carbComputationMaxGrams: Double? = null
+    ) {
+        applySafetyLimitsMutation(
+            SafetyLimitsMutation(
+                maxActionsIn6Hours = maxActionsIn6Hours,
+                staleDataMaxMinutes = staleDataMaxMinutes,
+                minTarget = safetyMinTargetMmol,
+                maxTarget = safetyMaxTargetMmol,
+                carbAbsorptionMaxAgeMinutes = carbAbsorptionMaxAgeMinutes,
+                carbComputationMaxGrams = carbComputationMaxGrams
+            )
+        )
+    }
+
+    suspend fun updateBaseTargetScheduleForBounds(
+        minTarget: Double,
+        maxTarget: Double
+    ): BaseTargetSchedule {
+        return checkNotNull(
+            applySafetyLimitsMutation(
+                SafetyLimitsMutation(
+                    minTarget = minTarget,
+                    maxTarget = maxTarget
+                )
+            )
+        )
+    }
+
+    private suspend fun applySafetyLimitsMutation(
+        mutation: SafetyLimitsMutation
+    ): BaseTargetSchedule? {
+        var resolvedSchedule: BaseTargetSchedule? = null
+        dataStore.edit { prefs ->
+            val (currentMin, currentMax) = requireCurrentSafetyTargetBounds(prefs)
+            if (!mutation.hasBoundUpdate) {
+                writeRequestedSafetyFields(prefs, mutation)
+                return@edit
+            }
+
+            val (normalizedMin, normalizedMax) = normalizeSuppliedSafetyTargetBounds(
+                minTarget = mutation.minTarget ?: currentMin,
+                maxTarget = mutation.maxTarget ?: currentMax
+            )
+            if (normalizedMin == currentMin && normalizedMax == currentMax) {
+                resolvedSchedule = resolveBaseTargetSchedule(
+                    prefs = prefs,
+                    minTarget = currentMin,
+                    maxTarget = currentMax
+                ).schedule
+                writeRequestedSafetyFields(prefs, mutation)
+                return@edit
+            }
+
+            val currentScheduleResult = resolveBaseTargetSchedule(
+                prefs = prefs,
+                minTarget = currentMin,
+                maxTarget = currentMax
+            )
+            val rawSchedule = prefs[KEY_BASE_TARGET_SCHEDULE_JSON]
+            require(rawSchedule.isNullOrBlank() || currentScheduleResult.recoveryReason == null) {
+                "Cannot change safety target bounds while the base target schedule requires recovery"
+            }
+            val currentSchedule = currentScheduleResult.schedule
+            val nextSchedule = BaseTargetSchedule(
+                schemaVersion = currentSchedule.schemaVersion,
+                revision = incrementRevision(currentSchedule.revision),
+                defaultTargetMmol = clampTargetToBounds(
+                    currentSchedule.defaultTargetMmol,
+                    normalizedMin,
+                    normalizedMax
+                ),
+                autoEnabled = currentSchedule.autoEnabled,
+                intervals = currentSchedule.intervals.map { interval ->
+                    BaseTargetInterval(
+                        id = interval.id,
+                        startMinuteOfDay = interval.startMinuteOfDay,
+                        endMinuteOfDay = interval.endMinuteOfDay,
+                        targetMmol = clampTargetToBounds(
+                            interval.targetMmol,
+                            normalizedMin,
+                            normalizedMax
+                        )
+                    )
+                }
+            )
+            requireValidSchedule(nextSchedule, normalizedMin, normalizedMax)
+            val encoded = baseTargetScheduleCodec.encode(nextSchedule)
+            val postHypoThreshold = clampPostHypoToBounds(
+                value = prefs[KEY_POST_HYPO_THRESHOLD_MMOL],
+                defaultValue = DEFAULT_POST_HYPO_THRESHOLD_MMOL,
+                minTarget = normalizedMin,
+                maxTarget = normalizedMax
+            )
+            val postHypoTarget = clampPostHypoToBounds(
+                value = prefs[KEY_POST_HYPO_TARGET_MMOL],
+                defaultValue = DEFAULT_POST_HYPO_TARGET_MMOL,
+                minTarget = normalizedMin,
+                maxTarget = normalizedMax
+            )
+
+            writeRequestedSafetyFields(prefs, mutation)
+            prefs[KEY_SAFETY_MIN_TARGET_MMOL] = normalizedMin
+            prefs[KEY_SAFETY_MAX_TARGET_MMOL] = normalizedMax
+            prefs[KEY_POST_HYPO_THRESHOLD_MMOL] = postHypoThreshold
+            prefs[KEY_POST_HYPO_TARGET_MMOL] = postHypoTarget
+            prefs[KEY_BASE_TARGET_SCHEDULE_JSON] = encoded
+            prefs[KEY_BASE_TARGET_MMOL] = nextSchedule.defaultTargetMmol
+            resolvedSchedule = nextSchedule
+        }
+        return resolvedSchedule
+    }
+
+    private fun writeRequestedSafetyFields(
+        prefs: MutablePreferences,
+        mutation: SafetyLimitsMutation
+    ) {
+        mutation.maxActionsIn6Hours?.let { value ->
+            prefs[KEY_MAX_ACTIONS_6H] = value.coerceIn(1, 10)
+        }
+        mutation.staleDataMaxMinutes?.let { value ->
+            prefs[KEY_STALE_DATA_MAX_MINUTES] = value.coerceIn(5, 60)
+        }
+        mutation.carbAbsorptionMaxAgeMinutes?.let { value ->
+            prefs[KEY_CARB_ABSORPTION_MAX_AGE_MINUTES] = value.coerceIn(60, 180)
+        }
+        mutation.carbComputationMaxGrams?.let { value ->
+            prefs[KEY_CARB_COMPUTATION_MAX_GRAMS] = value.coerceIn(20.0, 60.0)
         }
     }
 
@@ -401,28 +1119,116 @@ class AppSettingsStore(context: Context) {
         return enabledNow
     }
 
-    suspend fun ensureUamExportDefaultsEnabled(): Boolean {
-        var enabledNow = false
+    internal suspend fun ensureBoundedUamExportV2(): UamExportMigrationResult? {
+        var migrationResult: UamExportMigrationResult? = null
         dataStore.edit { prefs ->
-            if (prefs[KEY_UAM_EXPORT_DEFAULT_MIGRATION_DONE] == true) return@edit
-            var changed = false
-            if (prefs[KEY_ENABLE_UAM_EXPORT] != true) {
-                prefs[KEY_ENABLE_UAM_EXPORT] = true
-                changed = true
+            if (prefs[KEY_UAM_EXPORT_V2_BOUNDED_MIGRATION_DONE] == true) return@edit
+
+            val enabled = prefs[KEY_ENABLE_UAM_EXPORT] == true
+            val oldMode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE])
+            val oldDryRun = prefs[KEY_DRY_RUN_EXPORT] ?: LEGACY_DEFAULT_DRY_RUN_EXPORT
+            val oldMaxBackdateMinutes = prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN]
+                ?: DEFAULT_UAM_EXPORT_MAX_BACKDATE_MIN
+            val decision = decideBoundedUamExportV2Migration(
+                enabled = enabled,
+                mode = oldMode,
+                dryRun = oldDryRun,
+                maxBackdateMinutes = oldMaxBackdateMinutes
+            )
+
+            if (decision.changed) {
+                prefs[KEY_UAM_EXPORT_MODE] = decision.mode.name
+                prefs[KEY_DRY_RUN_EXPORT] = decision.dryRun
+                prefs[KEY_UAM_EXPORT_MAX_BACKDATE_MIN] = decision.maxBackdateMinutes
+                migrationResult = UamExportMigrationResult(
+                    oldMode = oldMode,
+                    newMode = decision.mode,
+                    oldDryRun = oldDryRun,
+                    newDryRun = decision.dryRun,
+                    oldMaxBackdateMinutes = oldMaxBackdateMinutes,
+                    newMaxBackdateMinutes = decision.maxBackdateMinutes
+                )
             }
-            val mode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE])
-            if (mode == UamExportMode.OFF) {
-                prefs[KEY_UAM_EXPORT_MODE] = UamExportMode.CONFIRMED_ONLY.name
-                changed = true
-            }
-            if (prefs[KEY_DRY_RUN_EXPORT] != false) {
-                prefs[KEY_DRY_RUN_EXPORT] = false
-                changed = true
-            }
-            prefs[KEY_UAM_EXPORT_DEFAULT_MIGRATION_DONE] = true
-            enabledNow = changed
+            prefs[KEY_UAM_EXPORT_V2_BOUNDED_MIGRATION_DONE] = true
         }
-        return enabledNow
+        return migrationResult
+    }
+
+    internal suspend fun ensureUamThreeModeConsentV1(): UamThreeModeConsentMigrationResult? {
+        if (threeModeConsentMigrationChecked) return null
+        var migrationResult: UamThreeModeConsentMigrationResult? = null
+        dataStore.edit { prefs ->
+            if (prefs[KEY_UAM_EXPORT_THREE_MODE_CONSENT_V1_MIGRATION_DONE] == true) {
+                return@edit
+            }
+
+            val enabled = prefs[KEY_ENABLE_UAM_EXPORT] == true
+            val oldMode = resolveUamExportMode(prefs[KEY_UAM_EXPORT_MODE])
+            val oldDryRun = prefs[KEY_DRY_RUN_EXPORT] ?: LEGACY_DEFAULT_DRY_RUN_EXPORT
+            if (enabled && oldMode == UamExportMode.INCREMENTAL && !oldDryRun) {
+                prefs[KEY_ENABLE_UAM_EXPORT] = true
+                prefs[KEY_UAM_EXPORT_MODE] = UamExportMode.INCREMENTAL.name
+                prefs[KEY_DRY_RUN_EXPORT] = true
+                migrationResult = UamThreeModeConsentMigrationResult(
+                    oldMode = oldMode,
+                    newMode = UamExportMode.INCREMENTAL,
+                    oldDryRun = false,
+                    newDryRun = true
+                )
+            }
+            prefs[KEY_UAM_EXPORT_THREE_MODE_CONSENT_V1_MIGRATION_DONE] = true
+        }
+        threeModeConsentMigrationChecked = true
+        return migrationResult
+    }
+
+    suspend fun ensureAnalyticsRetentionDefault30Days(): Boolean {
+        var leasedMigrationRequired = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_ANALYTICS_RETENTION_DEFAULT_MIGRATION_DONE] == true) return@edit
+            val stored = prefs[KEY_ANALYTICS_LOOKBACK_DAYS]
+            if (stored == null || stored == LEGACY_DEFAULT_ANALYTICS_LOOKBACK_DAYS) {
+                leasedMigrationRequired = true
+            } else {
+                prefs[KEY_ANALYTICS_RETENTION_DEFAULT_MIGRATION_DONE] = true
+            }
+        }
+        return leasedMigrationRequired
+    }
+
+    internal suspend fun markAnalyticsRetentionDefaultMigrationComplete() {
+        dataStore.edit { prefs ->
+            prefs[KEY_ANALYTICS_RETENTION_DEFAULT_MIGRATION_DONE] = true
+        }
+    }
+
+    suspend fun ensureUiStyleDefaultMidnightGlass(): Boolean {
+        var migrated = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_UI_STYLE_DEFAULT_MIGRATION_DONE] == true) return@edit
+            val stored = resolveUiStyle(prefs[KEY_UI_STYLE])
+            if (prefs[KEY_UI_STYLE] == null || stored == UiStyle.CLASSIC) {
+                prefs[KEY_UI_STYLE] = UiStyle.MIDNIGHT_GLASS.name
+                migrated = true
+            }
+            prefs[KEY_UI_STYLE_DEFAULT_MIGRATION_DONE] = true
+        }
+        return migrated
+    }
+
+    suspend fun ensureLegacyUiStylesPromotedToMidnightGlass(): String? {
+        var previousStyle: String? = null
+        dataStore.edit { prefs ->
+            if (prefs[KEY_UI_STYLE_REDESIGN_MIGRATION_DONE] == true) return@edit
+            val storedRaw = prefs[KEY_UI_STYLE]
+            val stored = resolveUiStyle(storedRaw)
+            if (storedRaw == null || stored == UiStyle.CLASSIC || stored == UiStyle.DYNAMIC_GRADIENT) {
+                previousStyle = storedRaw ?: "UNSET"
+                prefs[KEY_UI_STYLE] = UiStyle.MIDNIGHT_GLASS.name
+            }
+            prefs[KEY_UI_STYLE_REDESIGN_MIGRATION_DONE] = true
+        }
+        return previousStyle
     }
 
     private fun resolveAdaptiveControllerEnabled(prefs: Preferences): Boolean {
@@ -430,12 +1236,178 @@ class AppSettingsStore(context: Context) {
     }
 
     private fun resolveSafetyTargetBounds(prefs: Preferences): Pair<Double, Double> {
-        val maxBound = (prefs[KEY_SAFETY_MAX_TARGET_MMOL] ?: DEFAULT_SAFETY_MAX_TARGET_MMOL)
-            .coerceIn(4.2, 10.0)
-        val minBound = (prefs[KEY_SAFETY_MIN_TARGET_MMOL] ?: DEFAULT_SAFETY_MIN_TARGET_MMOL)
-            .coerceIn(4.0, 9.8)
-            .coerceAtMost(maxBound - 0.2)
-        return minBound to maxBound
+        val storedMin = prefs[KEY_SAFETY_MIN_TARGET_MMOL] ?: DEFAULT_SAFETY_MIN_TARGET_MMOL
+        val storedMax = prefs[KEY_SAFETY_MAX_TARGET_MMOL] ?: DEFAULT_SAFETY_MAX_TARGET_MMOL
+        return normalizeSafetyTargetBoundsOrNull(storedMin, storedMax)
+            ?: (DEFAULT_SAFETY_MIN_TARGET_MMOL to DEFAULT_SAFETY_MAX_TARGET_MMOL)
+    }
+
+    private fun requireCurrentSafetyTargetBounds(
+        prefs: Preferences
+    ): Pair<Double, Double> {
+        val storedMin = prefs[KEY_SAFETY_MIN_TARGET_MMOL] ?: DEFAULT_SAFETY_MIN_TARGET_MMOL
+        val storedMax = prefs[KEY_SAFETY_MAX_TARGET_MMOL] ?: DEFAULT_SAFETY_MAX_TARGET_MMOL
+        require(storedMin.isFinite() && storedMax.isFinite() && storedMin <= storedMax) {
+            "Current safety target bounds must be finite and ordered"
+        }
+        return normalizeSafetyTargetBounds(storedMin, storedMax)
+    }
+
+    private fun normalizeSuppliedSafetyTargetBounds(
+        minTarget: Double,
+        maxTarget: Double
+    ): Pair<Double, Double> {
+        require(minTarget.isFinite() && maxTarget.isFinite() && minTarget <= maxTarget) {
+            "Safety target bounds must be finite and ordered"
+        }
+        return normalizeSafetyTargetBounds(minTarget, maxTarget)
+    }
+
+    private fun normalizeSafetyTargetBounds(
+        minTarget: Double,
+        maxTarget: Double
+    ): Pair<Double, Double> {
+        return requireNotNull(normalizeSafetyTargetBoundsOrNull(minTarget, maxTarget)) {
+            "Safety target bounds must overlap the supported range, keep a 0.2 mmol/L gap, " +
+                "and contain a 0.1 mmol/L value"
+        }
+    }
+
+    private fun normalizeSafetyTargetBoundsOrNull(
+        minTarget: Double,
+        maxTarget: Double
+    ): Pair<Double, Double>? {
+        if (!minTarget.isFinite() || !maxTarget.isFinite() || minTarget > maxTarget) return null
+
+        val normalizedMin = minTarget.coerceAtLeast(DEFAULT_SAFETY_MIN_TARGET_MMOL)
+        val normalizedMax = maxTarget.coerceAtMost(DEFAULT_SAFETY_MAX_TARGET_MMOL)
+        if (normalizedMin > normalizedMax) return null
+
+        val normalizedGap = BigDecimal.valueOf(normalizedMax)
+            .subtract(BigDecimal.valueOf(normalizedMin))
+        if (normalizedGap < BigDecimal.valueOf(0.2)) return null
+
+        val lowerTenth = BigDecimal.valueOf(normalizedMin).setScale(1, RoundingMode.CEILING)
+        val upperTenth = BigDecimal.valueOf(normalizedMax).setScale(1, RoundingMode.FLOOR)
+        if (lowerTenth > upperTenth) return null
+
+        return normalizedMin to normalizedMax
+    }
+
+    private fun resolveBaseTargetSchedule(
+        prefs: Preferences,
+        minTarget: Double,
+        maxTarget: Double
+    ): ResolvedBaseTargetSchedule {
+        val legacyTarget = clampTargetToBounds(
+            target = prefs[KEY_BASE_TARGET_MMOL] ?: DEFAULT_BASE_TARGET_MMOL,
+            minTarget = minTarget,
+            maxTarget = maxTarget
+        )
+        return when (
+            val decoded = baseTargetScheduleCodec.decode(
+                raw = prefs[KEY_BASE_TARGET_SCHEDULE_JSON],
+                legacyTarget = legacyTarget
+            )
+        ) {
+            is BaseTargetScheduleDecodeResult.Fallback -> ResolvedBaseTargetSchedule(
+                schedule = decoded.schedule,
+                recoveryReason = decoded.reason
+            )
+            is BaseTargetScheduleDecodeResult.Valid -> {
+                val (lowestTarget, highestTarget) = targetTenthBounds(minTarget, maxTarget)
+                if (BaseTargetSchedulePolicy.validate(
+                        schedule = decoded.schedule,
+                        minTarget = lowestTarget,
+                        maxTarget = highestTarget
+                    ).isEmpty()
+                ) {
+                    ResolvedBaseTargetSchedule(
+                        schedule = decoded.schedule,
+                        recoveryReason = null
+                    )
+                } else {
+                    ResolvedBaseTargetSchedule(
+                        schedule = BaseTargetSchedule.legacy(legacyTarget),
+                        recoveryReason = INVALID_SCHEDULE_PAYLOAD
+                    )
+                }
+            }
+        }
+    }
+
+    private fun clampTargetToBounds(
+        target: Double,
+        minTarget: Double,
+        maxTarget: Double
+    ): Double {
+        val (lowerTenth, upperTenth) = targetTenthBounds(minTarget, maxTarget)
+        val finiteTarget = target.takeIf(Double::isFinite) ?: DEFAULT_BASE_TARGET_MMOL
+        return (round(finiteTarget * 10.0) / 10.0).coerceIn(lowerTenth, upperTenth)
+    }
+
+    private fun targetTenthBounds(
+        minTarget: Double,
+        maxTarget: Double
+    ): Pair<Double, Double> {
+        require(minTarget.isFinite() && maxTarget.isFinite() && minTarget <= maxTarget) {
+            "Safety target bounds must be finite and ordered"
+        }
+        val lowerTenth = BigDecimal.valueOf(minTarget)
+            .setScale(1, RoundingMode.CEILING)
+            .toDouble()
+        val upperTenth = BigDecimal.valueOf(maxTarget)
+            .setScale(1, RoundingMode.FLOOR)
+            .toDouble()
+        require(lowerTenth <= upperTenth) {
+            "Safety target bounds do not contain a 0.1 mmol/L value"
+        }
+        return lowerTenth to upperTenth
+    }
+
+    private fun clampPostHypoToBounds(
+        value: Double?,
+        defaultValue: Double,
+        minTarget: Double,
+        maxTarget: Double
+    ): Double {
+        return (value?.takeIf(Double::isFinite) ?: defaultValue).coerceIn(minTarget, maxTarget)
+    }
+
+    private fun requireValidSchedule(
+        schedule: BaseTargetSchedule,
+        minTarget: Double,
+        maxTarget: Double
+    ) {
+        val (lowestTarget, highestTarget) = targetTenthBounds(minTarget, maxTarget)
+        val errors = BaseTargetSchedulePolicy.validate(schedule, lowestTarget, highestTarget)
+        require(errors.isEmpty()) {
+            "Invalid base target schedule: ${errors.joinToString { it.code }}"
+        }
+    }
+
+    private fun incrementRevision(currentRevision: Long): Long {
+        require(currentRevision < Long.MAX_VALUE) {
+            "Base target schedule revision is exhausted"
+        }
+        return currentRevision + 1L
+    }
+
+    private data class ResolvedBaseTargetSchedule(
+        val schedule: BaseTargetSchedule,
+        val recoveryReason: String?
+    )
+
+    private data class SafetyLimitsMutation(
+        val maxActionsIn6Hours: Int? = null,
+        val staleDataMaxMinutes: Int? = null,
+        val minTarget: Double? = null,
+        val maxTarget: Double? = null,
+        val carbAbsorptionMaxAgeMinutes: Int? = null,
+        val carbComputationMaxGrams: Double? = null
+    ) {
+        val hasBoundUpdate: Boolean
+            get() = minTarget != null || maxTarget != null
     }
 
     private fun normalizeInsulinProfileId(raw: String?): String {
@@ -452,6 +1424,12 @@ class AppSettingsStore(context: Context) {
         return SensorLagCorrectionMode.fromRaw(raw)
     }
 
+    private fun resolveTargetManagerMode(raw: String?): TargetManagerMode {
+        return raw?.let { value ->
+            runCatching { TargetManagerMode.valueOf(value) }.getOrNull()
+        } ?: TargetManagerMode.SHADOW
+    }
+
     private fun resolveUiStyle(raw: String?): UiStyle {
         return UiStyle.fromRaw(raw)
     }
@@ -460,14 +1438,48 @@ class AppSettingsStore(context: Context) {
         private val KEY_NS_URL = stringPreferencesKey("nightscout_url")
         private val KEY_NS_SECRET = stringPreferencesKey("nightscout_secret")
         private val KEY_CLOUD_URL = stringPreferencesKey("cloud_base_url")
-        private val KEY_OPENAI_KEY = stringPreferencesKey("openai_api_key")
+        private val KEY_LEGACY_OPENAI_CREDENTIAL = stringPreferencesKey("openai_api_key")
+        private val KEY_ENERGY_PROFILE_ENABLED = booleanPreferencesKey("energy_profile_enabled")
+        private val KEY_ENERGY_PROFILE_FORECAST_ACTIVITY_INFLUENCE_ENABLED =
+            booleanPreferencesKey("energy_profile_forecast_activity_influence_enabled")
+        private val KEY_BIRTH_DATE_EPOCH_DAY = longPreferencesKey("birth_date_epoch_day")
+        private val KEY_PHYSIOLOGICAL_SEX = stringPreferencesKey("physiological_sex")
+        private val KEY_HEIGHT_CM = doublePreferencesKey("height_cm")
+        private val KEY_WEIGHT_KG = doublePreferencesKey("weight_kg")
+        private val KEY_FOOD_PROFILE_MODE = stringPreferencesKey("food_profile_mode")
+        private val KEY_MANUAL_FOOD_PROFILE = stringPreferencesKey("manual_food_profile")
+        private val KEY_ACTIVITY_PROFILE_MODE = stringPreferencesKey("activity_profile_mode")
+        private val KEY_MANUAL_ACTIVITY_PROFILE = stringPreferencesKey("manual_activity_profile")
+        private val KEY_CALORIE_GOAL_MODE = stringPreferencesKey("calorie_goal_mode")
+        private val KEY_MANUAL_CALORIE_TARGET = intPreferencesKey("manual_calorie_target")
+        private val KEY_SHARE_PROFILE_WITH_AI = booleanPreferencesKey("share_profile_with_ai")
+        private val KEY_CLINICAL_AI_PROVIDER = stringPreferencesKey("clinical_ai_provider_id")
+        private val KEY_CLINICAL_AI_MODEL = stringPreferencesKey("clinical_ai_model_id")
+        private val KEY_CLINICAL_AI_ENDPOINT = stringPreferencesKey("clinical_ai_endpoint")
+        private val KEY_CLINICAL_AI_PROTOCOL =
+            stringPreferencesKey("clinical_ai_compatible_protocol")
+        private val KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED =
+            booleanPreferencesKey("automatic_event_ai_analysis_enabled")
         private val KEY_UI_STYLE = stringPreferencesKey("ui_style")
         private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
+        private val KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID =
+            stringPreferencesKey("therapy_actions_armed_install_id_v1")
+        private val KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID =
+            stringPreferencesKey("therapy_action_bootstrap_evaluated_install_id_v1")
+        private val KEY_POWER_SAVE_UNTIL_MS = longPreferencesKey("power_save_until_ms")
         private val KEY_ROOT_EXPERIMENTAL = booleanPreferencesKey("root_experimental")
         private val KEY_LOCAL_BROADCAST_INGEST = booleanPreferencesKey("local_broadcast_ingest_enabled")
+        private const val TEST_INSTALL_ID = "test-install-id-v1"
+
+        internal fun therapyActionsArmedForInstallStatic(
+            storedInstallId: String?,
+            currentInstallId: String?
+        ): Boolean = currentInstallId != null && storedInstallId == currentInstallId
         private val KEY_STRICT_BROADCAST_VALIDATION = booleanPreferencesKey("strict_broadcast_sender_validation")
         private val KEY_LOCAL_NIGHTSCOUT_ENABLED = booleanPreferencesKey("local_nightscout_enabled")
         private val KEY_LOCAL_NIGHTSCOUT_PORT = intPreferencesKey("local_nightscout_port")
+        private val KEY_LOCAL_NIGHTSCOUT_LEGACY_MIGRATION_ACKNOWLEDGED =
+            booleanPreferencesKey("local_nightscout_legacy_migration_acknowledged_v1")
         private val KEY_LOCAL_COMMAND_FALLBACK_ENABLED = booleanPreferencesKey("local_command_fallback_enabled")
         private val KEY_LOCAL_COMMAND_PACKAGE = stringPreferencesKey("local_command_package")
         private val KEY_LOCAL_COMMAND_ACTION = stringPreferencesKey("local_command_action")
@@ -477,8 +1489,21 @@ class AppSettingsStore(context: Context) {
         private val KEY_ENABLE_UAM_EXPORT = booleanPreferencesKey("enable_uam_export_to_aaps")
         private val KEY_UAM_EXPORT_MODE = stringPreferencesKey("uam_export_mode")
         private val KEY_DRY_RUN_EXPORT = booleanPreferencesKey("uam_dry_run_export")
-        private val KEY_UAM_EXPORT_DEFAULT_MIGRATION_DONE =
-            booleanPreferencesKey("uam_export_default_migration_done")
+        private val KEY_UAM_AUTO_EXPORT_CAP_ENABLED =
+            booleanPreferencesKey("uam_auto_export_cap_enabled")
+        private val KEY_UAM_AUTO_EXPORT_CAP_GRAMS =
+            intPreferencesKey("uam_auto_export_cap_grams")
+        private val KEY_UAM_EXPORT_V2_BOUNDED_MIGRATION_DONE =
+            booleanPreferencesKey("uam_export_v2_bounded_migration_done")
+        private val KEY_UAM_EXPORT_THREE_MODE_CONSENT_V1_MIGRATION_DONE =
+            booleanPreferencesKey("uam_export_three_mode_consent_v1_migration_done")
+        private val KEY_ANALYTICS_RETENTION_DEFAULT_MIGRATION_DONE =
+            booleanPreferencesKey("analytics_retention_default_migration_done")
+        private val KEY_UI_STYLE_DEFAULT_MIGRATION_DONE =
+            booleanPreferencesKey("ui_style_default_migration_done")
+        private val KEY_UI_STYLE_REDESIGN_MIGRATION_DONE =
+            booleanPreferencesKey("ui_style_redesign_migration_done")
+        private val KEY_SHOW_EVENTS_ON_GRAPH = booleanPreferencesKey("show_events_on_graph")
         private val KEY_UAM_LEARNED_MULTIPLIER = doublePreferencesKey("uam_learned_multiplier")
         private val KEY_UAM_MIN_SNACK_G = intPreferencesKey("uam_min_snack_g")
         private val KEY_UAM_MAX_SNACK_G = intPreferencesKey("uam_max_snack_g")
@@ -508,6 +1533,16 @@ class AppSettingsStore(context: Context) {
         private val KEY_CARB_ABSORPTION_MAX_AGE_MINUTES = intPreferencesKey("carb_absorption_max_age_minutes")
         private val KEY_CARB_COMPUTATION_MAX_GRAMS = doublePreferencesKey("carb_computation_max_grams")
         private val KEY_SENSOR_LAG_CORRECTION_MODE = stringPreferencesKey("sensor_lag_correction_mode")
+        private val KEY_TARGET_MANAGER_MODE = stringPreferencesKey("target_manager_mode")
+        private val KEY_TARGET_MANAGER_COPILOT_PRIORITY =
+            booleanPreferencesKey("target_manager_copilot_priority_enabled")
+        private val KEY_TARGET_MANAGER_POLICY_REVISION = longPreferencesKey("target_manager_policy_revision")
+        private val KEY_TARGET_MANAGER_MANUAL_OVERRIDE =
+            booleanPreferencesKey("target_manager_mode_manual_override")
+        private val KEY_ISF_RUNTIME_SOURCE = stringPreferencesKey("isf_runtime_source")
+        private val KEY_CR_RUNTIME_SOURCE = stringPreferencesKey("cr_runtime_source")
+        private val KEY_SENSITIVITY_SETTINGS_REVISION =
+            longPreferencesKey("sensitivity_settings_revision")
         private val KEY_ISFCR_SHADOW_MODE = booleanPreferencesKey("isfcr_shadow_mode")
         private val KEY_ISFCR_CONFIDENCE_THRESHOLD = doublePreferencesKey("isfcr_confidence_threshold")
         private val KEY_ISFCR_USE_ACTIVITY = booleanPreferencesKey("isfcr_use_activity")
@@ -580,6 +1615,7 @@ class AppSettingsStore(context: Context) {
         private val KEY_SAFETY_MIN_TARGET_MMOL = doublePreferencesKey("safety_min_target_mmol")
         private val KEY_SAFETY_MAX_TARGET_MMOL = doublePreferencesKey("safety_max_target_mmol")
         private val KEY_BASE_TARGET_MMOL = doublePreferencesKey("base_target_mmol")
+        private val KEY_BASE_TARGET_SCHEDULE_JSON = stringPreferencesKey("base_target_schedule_json")
         private val KEY_POST_HYPO_THRESHOLD_MMOL = doublePreferencesKey("post_hypo_threshold_mmol")
         private val KEY_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = doublePreferencesKey("post_hypo_delta_threshold_mmol_5m")
         private val KEY_POST_HYPO_TARGET_MMOL = doublePreferencesKey("post_hypo_target_mmol")
@@ -614,11 +1650,34 @@ class AppSettingsStore(context: Context) {
         private val KEY_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS = booleanPreferencesKey("circadian_use_replay_residual_bias")
         private val KEY_CIRCADIAN_FORECAST_WEIGHT_30 = doublePreferencesKey("circadian_forecast_weight_30")
         private val KEY_CIRCADIAN_FORECAST_WEIGHT_60 = doublePreferencesKey("circadian_forecast_weight_60")
+        private val KEY_SOFT_ALERT_ENABLED = booleanPreferencesKey("soft_alert_enabled")
+        private val KEY_WATCH_60_ALERT_ENABLED = booleanPreferencesKey("watch_60_alert_enabled")
+        private val KEY_WARNING_30_ALERT_ENABLED = booleanPreferencesKey("warning_30_alert_enabled")
+        private val KEY_SOFT_HIGH_ALERT_ENABLED = booleanPreferencesKey("soft_high_alert_enabled")
+        private val KEY_CRITICAL_5_ALERT_ENABLED = booleanPreferencesKey("critical_5_alert_enabled")
+        private val KEY_LOW_NOW_ALERT_ENABLED = booleanPreferencesKey("low_now_alert_enabled")
+        private val KEY_SOFT_ALERT_LOW_MMOL = doublePreferencesKey("soft_alert_low_mmol")
+        private val KEY_SOFT_ALERT_HIGH_MMOL = doublePreferencesKey("soft_alert_high_mmol")
+        private val KEY_URGENT_LOW_MMOL = doublePreferencesKey("urgent_low_mmol")
+        private val KEY_SOFT_ALERT_REPEAT_MINUTES = intPreferencesKey("soft_alert_repeat_minutes")
+        private val KEY_STRONG_LOW_REPEAT_MINUTES = intPreferencesKey("strong_low_repeat_minutes")
+        private val KEY_SOFT_ALERT_USE_CONFIDENCE_BAND = booleanPreferencesKey("soft_alert_use_confidence_band")
+        private val KEY_SOFT_ALERT_AUDIO_START_MS = intPreferencesKey("soft_alert_audio_start_ms")
+        private val KEY_SOFT_ALERT_AUDIO_DURATION_MS = intPreferencesKey("soft_alert_audio_duration_ms")
+        private val KEY_SOFT_ALERT_AUDIO_URI = stringPreferencesKey("soft_alert_audio_uri")
+        private val KEY_SOFT_ALERT_AUDIO_DISPLAY_NAME = stringPreferencesKey("soft_alert_audio_display_name")
+        private val KEY_CRITICAL_ALERT_AUDIO1_START_MS = intPreferencesKey("critical_alert_audio1_start_ms")
+        private val KEY_CRITICAL_ALERT_AUDIO1_DURATION_MS = intPreferencesKey("critical_alert_audio1_duration_ms")
+        private val KEY_CRITICAL_ALERT_AUDIO1_URI = stringPreferencesKey("critical_alert_audio1_uri")
+        private val KEY_CRITICAL_ALERT_AUDIO1_DISPLAY_NAME = stringPreferencesKey("critical_alert_audio1_display_name")
+        private val KEY_CRITICAL_ALERT_AUDIO2_START_MS = intPreferencesKey("critical_alert_audio2_start_ms")
+        private val KEY_CRITICAL_ALERT_AUDIO2_DURATION_MS = intPreferencesKey("critical_alert_audio2_duration_ms")
+        private val KEY_CRITICAL_ALERT_AUDIO2_URI = stringPreferencesKey("critical_alert_audio2_uri")
+        private val KEY_CRITICAL_ALERT_AUDIO2_DISPLAY_NAME = stringPreferencesKey("critical_alert_audio2_display_name")
         private val KEY_MAX_ACTIONS_6H = intPreferencesKey("max_actions_in_6h")
         private val KEY_STALE_DATA_MAX_MINUTES = intPreferencesKey("stale_data_max_minutes")
         private val KEY_EXPORT_URI = stringPreferencesKey("export_folder_uri")
         private const val DEFAULT_CLOUD_BASE_URL = "https://api.openai.com/v1"
-        private const val DEFAULT_OPENAI_API_KEY = ""
         private const val DEFAULT_BASE_TARGET_MMOL = 5.5
         private const val DEFAULT_POST_HYPO_THRESHOLD_MMOL = 4.0
         private const val DEFAULT_POST_HYPO_DELTA_THRESHOLD_MMOL_5M = 0.20
@@ -641,7 +1700,8 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_PATTERN_MIN_ACTIVE_DAYS = 7
         private const val DEFAULT_PATTERN_LOW_RATE_TRIGGER = 0.12
         private const val DEFAULT_PATTERN_HIGH_RATE_TRIGGER = 0.18
-        private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
+        private const val DEFAULT_ANALYTICS_LOOKBACK_DAYS = 30
+        private const val LEGACY_DEFAULT_ANALYTICS_LOOKBACK_DAYS = 365
         private const val DEFAULT_CIRCADIAN_PATTERNS_ENABLED = true
         private const val DEFAULT_CIRCADIAN_STABLE_LOOKBACK_DAYS = 14
         private const val DEFAULT_CIRCADIAN_RECENCY_LOOKBACK_DAYS = 5
@@ -649,17 +1709,41 @@ class AppSettingsStore(context: Context) {
         private const val DEFAULT_CIRCADIAN_USE_REPLAY_RESIDUAL_BIAS = true
         private const val DEFAULT_CIRCADIAN_FORECAST_WEIGHT_30 = 0.25
         private const val DEFAULT_CIRCADIAN_FORECAST_WEIGHT_60 = 0.35
+        private const val DEFAULT_SOFT_ALERT_ENABLED = true
+        private const val DEFAULT_WATCH_60_ALERT_ENABLED = true
+        private const val DEFAULT_WARNING_30_ALERT_ENABLED = true
+        private const val DEFAULT_SOFT_HIGH_ALERT_ENABLED = true
+        private const val DEFAULT_CRITICAL_5_ALERT_ENABLED = true
+        private const val DEFAULT_LOW_NOW_ALERT_ENABLED = true
+        private const val DEFAULT_SOFT_ALERT_LOW_MMOL = 4.4
+        private const val DEFAULT_SOFT_ALERT_HIGH_MMOL = 10.0
+        private const val DEFAULT_URGENT_LOW_MMOL = 3.9
+        private const val DEFAULT_SOFT_ALERT_REPEAT_MINUTES = 5
+        private const val DEFAULT_STRONG_LOW_REPEAT_MINUTES = 2
+        private const val DEFAULT_SOFT_ALERT_USE_CONFIDENCE_BAND = true
+        private const val DEFAULT_SOFT_ALERT_AUDIO_START_MS = 32_000
+        private const val DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS = 18_000
+        private const val DEFAULT_CRITICAL_ALERT_AUDIO1_START_MS = 42_000
+        private const val DEFAULT_CRITICAL_ALERT_AUDIO1_DURATION_MS = 20_000
+        private const val DEFAULT_CRITICAL_ALERT_AUDIO2_START_MS = 36_000
+        private const val DEFAULT_CRITICAL_ALERT_AUDIO2_DURATION_MS = 20_000
         private const val DEFAULT_MAX_ACTIONS_6H = 3
         private const val DEFAULT_STALE_DATA_MAX_MINUTES = 10
         private const val DEFAULT_SAFETY_MIN_TARGET_MMOL = 4.0
         private const val DEFAULT_SAFETY_MAX_TARGET_MMOL = 10.0
+        private const val INVALID_SCHEDULE_PAYLOAD = "invalid_schedule_payload"
         private const val DEFAULT_LOCAL_NIGHTSCOUT_PORT = 17580
         private const val DEFAULT_LOCAL_COMMAND_PACKAGE = "info.nightscout.androidaps"
         private const val DEFAULT_LOCAL_COMMAND_ACTION = "info.nightscout.client.NEW_TREATMENT"
         private const val DEFAULT_ENABLE_UAM_INFERENCE = true
         private const val DEFAULT_ENABLE_UAM_BOOST = true
-        private const val DEFAULT_ENABLE_UAM_EXPORT = true
-        private const val DEFAULT_DRY_RUN_EXPORT = false
+        private const val DEFAULT_ENABLE_UAM_EXPORT = false
+        private const val DEFAULT_DRY_RUN_EXPORT = true
+        private const val DEFAULT_UAM_AUTO_EXPORT_CAP_ENABLED = false
+        private const val DEFAULT_UAM_AUTO_EXPORT_CAP_GRAMS = 10
+        private const val MIN_UAM_AUTO_EXPORT_CAP_GRAMS = 1
+        private const val MAX_UAM_AUTO_EXPORT_CAP_GRAMS = 15
+        private const val LEGACY_DEFAULT_DRY_RUN_EXPORT = false
         private const val DEFAULT_UAM_LEARNED_MULTIPLIER = 1.0
         private const val DEFAULT_UAM_MIN_SNACK_G = 15
         private const val DEFAULT_UAM_MAX_SNACK_G = 60
@@ -733,23 +1817,30 @@ data class AppSettings(
     val nightscoutUrl: String,
     val apiSecret: String,
     val cloudBaseUrl: String,
-    val openAiApiKey: String,
-    val uiStyle: UiStyle = UiStyle.CLASSIC,
+    val clinicalAiConfigState: ClinicalAiConfigState =
+        ClinicalAiConfigState.UnconfiguredDefault(ClinicalAiProviderConfig.defaultOpenAi()),
+    val automaticEventAiAnalysisEnabled: Boolean = true,
+    val uiStyle: UiStyle = UiStyle.MIDNIGHT_GLASS,
+    val showEventsOnGraph: Boolean = true,
     val killSwitch: Boolean,
+    val powerSaveUntilMs: Long = 0L,
     val rootExperimentalEnabled: Boolean,
     val localBroadcastIngestEnabled: Boolean,
     val strictBroadcastSenderValidation: Boolean,
     val localNightscoutEnabled: Boolean,
     val localNightscoutPort: Int,
+    val localNightscoutLegacyMigrationAcknowledged: Boolean = false,
     val localCommandFallbackEnabled: Boolean,
     val localCommandPackage: String,
     val localCommandAction: String,
     val insulinProfileId: String,
     val enableUamInference: Boolean = true,
     val enableUamBoost: Boolean = true,
-    val enableUamExportToAaps: Boolean = true,
+    val enableUamExportToAaps: Boolean = false,
     val uamExportMode: UamExportMode = UamExportMode.CONFIRMED_ONLY,
-    val dryRunExport: Boolean = false,
+    val dryRunExport: Boolean = true,
+    val enableUamAutoExportCap: Boolean = false,
+    val uamAutoExportCapGrams: Int = 10,
     val uamLearnedMultiplier: Double = 1.0,
     val uamMinSnackG: Int = 15,
     val uamMaxSnackG: Int = 60,
@@ -779,6 +1870,13 @@ data class AppSettings(
     val carbAbsorptionMaxAgeMinutes: Int = 180,
     val carbComputationMaxGrams: Double = 60.0,
     val sensorLagCorrectionMode: SensorLagCorrectionMode = SensorLagCorrectionMode.OFF,
+    val targetManagerMode: TargetManagerMode = TargetManagerMode.SHADOW,
+    val targetManagerModeManualOverride: Boolean = false,
+    val targetManagerCopilotPriorityEnabled: Boolean = false,
+    val targetManagerPolicyRevision: Long = 0L,
+    val isfSourcePreference: SensitivitySourcePreference = SensitivitySourcePreference.EVIDENCE,
+    val crSourcePreference: SensitivitySourcePreference = SensitivitySourcePreference.EVIDENCE,
+    val sensitivitySettingsRevision: Long = 0L,
     val isfCrShadowMode: Boolean = true,
     val isfCrConfidenceThreshold: Double = 0.55,
     val isfCrUseActivity: Boolean = true,
@@ -820,6 +1918,8 @@ data class AppSettings(
     val safetyMinTargetMmol: Double = 4.0,
     val safetyMaxTargetMmol: Double = 10.0,
     val baseTargetMmol: Double,
+    val baseTargetSchedule: BaseTargetSchedule = BaseTargetSchedule.legacy(baseTargetMmol),
+    val baseTargetScheduleRecoveryReason: String? = null,
     val postHypoThresholdMmol: Double,
     val postHypoDeltaThresholdMmol5m: Double,
     val postHypoTargetMmol: Double,
@@ -853,9 +1953,81 @@ data class AppSettings(
     val circadianUseReplayResidualBias: Boolean = true,
     val circadianForecastWeight30: Double = 0.25,
     val circadianForecastWeight60: Double = 0.35,
+    val softAlertEnabled: Boolean = true,
+    val watch60AlertEnabled: Boolean = true,
+    val warning30AlertEnabled: Boolean = true,
+    val softHighAlertEnabled: Boolean = true,
+    val critical5AlertEnabled: Boolean = true,
+    val lowNowAlertEnabled: Boolean = true,
+    val softAlertLowMmol: Double = 4.4,
+    val softAlertHighMmol: Double = 10.0,
+    val urgentLowMmol: Double = 3.9,
+    val softAlertRepeatMinutes: Int = 5,
+    val strongLowRepeatMinutes: Int = 2,
+    val softAlertUseConfidenceBand: Boolean = true,
+    val softAlertAudioStartMs: Int = 32_000,
+    val softAlertAudioDurationMs: Int = 18_000,
+    val softAlertAudioUri: String? = null,
+    val softAlertAudioDisplayName: String? = null,
+    val criticalAlertAudio1StartMs: Int = 42_000,
+    val criticalAlertAudio1DurationMs: Int = 20_000,
+    val criticalAlertAudio1Uri: String? = null,
+    val criticalAlertAudio1DisplayName: String? = null,
+    val criticalAlertAudio2StartMs: Int = 36_000,
+    val criticalAlertAudio2DurationMs: Int = 20_000,
+    val criticalAlertAudio2Uri: String? = null,
+    val criticalAlertAudio2DisplayName: String? = null,
     val maxActionsIn6Hours: Int,
     val staleDataMaxMinutes: Int,
-    val exportFolderUri: String?
+    val exportFolderUri: String?,
+    val therapyActionsArmed: Boolean = false,
+    val energyProfile: EnergyProfileSettings = EnergyProfileSettings()
+)
+
+/**
+ * Exact settings boundary for the atomic ISF/CR runtime. Keep display, alert and transport
+ * preferences out of this fingerprint; add a value only when it can change a candidate,
+ * quality gate, source decision or effective ISF/CR.
+ */
+internal fun AppSettings.sensitivityRuntimeFingerprint(): List<Any?> = listOf(
+    isfSourcePreference,
+    crSourcePreference,
+    isfCrShadowMode,
+    isfCrConfidenceThreshold.coerceIn(0.2, 0.95),
+    isfCrUseActivity,
+    isfCrUseManualTags,
+    isfCrMinIsfEvidencePerHour.coerceIn(0, 12),
+    isfCrMinCrEvidencePerHour.coerceIn(0, 12),
+    isfCrCrMaxGapMinutes.coerceIn(10, 60),
+    isfCrCrMaxSensorBlockedRatePct.coerceIn(0.0, 100.0),
+    isfCrCrMaxUamAmbiguityRatePct.coerceIn(0.0, 100.0),
+    analyticsLookbackDays.coerceIn(30, 730),
+    energyProfile.physiologicalSex
+)
+
+internal fun AppSettings.sensitivityRuntimeIdentity() = SensitivityRuntimeSettingsIdentity(
+    revision = sensitivitySettingsRevision,
+    isfSource = isfSourcePreference,
+    crSource = crSourcePreference
+)
+
+private fun AppSettings.withSensitivityRuntimeSettingsFrom(source: AppSettings): AppSettings = copy(
+    isfSourcePreference = source.isfSourcePreference,
+    crSourcePreference = source.crSourcePreference,
+    sensitivitySettingsRevision = source.sensitivitySettingsRevision,
+    isfCrShadowMode = source.isfCrShadowMode,
+    isfCrConfidenceThreshold = source.isfCrConfidenceThreshold,
+    isfCrUseActivity = source.isfCrUseActivity,
+    isfCrUseManualTags = source.isfCrUseManualTags,
+    isfCrMinIsfEvidencePerHour = source.isfCrMinIsfEvidencePerHour,
+    isfCrMinCrEvidencePerHour = source.isfCrMinCrEvidencePerHour,
+    isfCrCrMaxGapMinutes = source.isfCrCrMaxGapMinutes,
+    isfCrCrMaxSensorBlockedRatePct = source.isfCrCrMaxSensorBlockedRatePct,
+    isfCrCrMaxUamAmbiguityRatePct = source.isfCrCrMaxUamAmbiguityRatePct,
+    analyticsLookbackDays = source.analyticsLookbackDays,
+    energyProfile = energyProfile.copy(
+        physiologicalSex = source.energyProfile.physiologicalSex
+    )
 )
 
 fun AppSettings.toUamUserSettings(): UamUserSettings = UamUserSettings(

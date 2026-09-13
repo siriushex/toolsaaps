@@ -1,21 +1,27 @@
 package io.aaps.copilot.data.repository
 
+import android.os.SystemClock
+import android.util.Log
+import androidx.room.withTransaction
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.config.SensitivitySettingsMutation
 import io.aaps.copilot.config.SensorLagCorrectionMode
-import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
+import io.aaps.copilot.config.UamExportUiMode
+import io.aaps.copilot.config.UamExportUiModePolicy
+import io.aaps.copilot.config.sensitivityRuntimeFingerprint
+import io.aaps.copilot.config.sensitivityRuntimeIdentity
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.dao.TelemetryDao
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
+import io.aaps.copilot.data.local.entity.PlannedActivityEventEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
 import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
-import io.aaps.copilot.data.remote.cloud.CloudGlucosePoint
-import io.aaps.copilot.data.remote.cloud.CloudTherapyEvent
-import io.aaps.copilot.data.remote.cloud.PredictRequest
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.ActionProposal
 import io.aaps.copilot.domain.model.CircadianForecastPrior
@@ -24,28 +30,101 @@ import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.DayType
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.domain.model.GlucoseCalibrationCycleIdentity
+import io.aaps.copilot.domain.model.GlucoseCalibrationModelStatus
+import io.aaps.copilot.domain.model.GlucoseCalibrationModelType
 import io.aaps.copilot.domain.model.ProfileEstimate
 import io.aaps.copilot.domain.model.ProfileSegmentEstimate
 import io.aaps.copilot.domain.model.ProfileTimeSlot
+import io.aaps.copilot.domain.model.ResolvedGlucosePoint
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.model.SensorLagAgeSource
 import io.aaps.copilot.domain.model.SensorLagEstimate
+import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.isfcr.IsfCrRealtimeSnapshot
 import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
+import io.aaps.copilot.domain.activity.PhysicalActivityTelemetryPolicy
+import io.aaps.copilot.domain.alerts.AlertCauseAnalysis
+import io.aaps.copilot.domain.alerts.AlertCauseAnalyzer
+import io.aaps.copilot.domain.alerts.AlertCauseDirection
+import io.aaps.copilot.domain.alerts.AlertCauseInput
+import io.aaps.copilot.domain.alerts.AlertCauseSnapshot
+import io.aaps.copilot.domain.alerts.AlertCauseSnapshotCodec
+import io.aaps.copilot.domain.alerts.AlertCircadianEvidence
+import io.aaps.copilot.domain.alerts.AlertContextEventType
+import io.aaps.copilot.domain.alerts.AlertGlucoseEvidence
+import io.aaps.copilot.domain.alerts.AlertInsulinEvidence
+import io.aaps.copilot.domain.alerts.AlertInsulinSource
+import io.aaps.copilot.domain.alerts.AlertSensitivityEvidence
+import io.aaps.copilot.domain.alerts.AlertSensitivitySource
+import io.aaps.copilot.domain.alerts.AlertSensorEvidence
+import io.aaps.copilot.domain.alerts.AlertTargetEvidence
+import io.aaps.copilot.domain.alerts.AlertTargetState
+import io.aaps.copilot.domain.alerts.AlertUamEvidence
+import io.aaps.copilot.domain.alerts.AlertUamState
+import io.aaps.copilot.domain.events.CompensationEvent
+import io.aaps.copilot.domain.events.CompensationEventType
 import io.aaps.copilot.domain.predict.CarbAbsorptionProfiles
+import io.aaps.copilot.domain.predict.AcceptedSensitivityTupleFreshness
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.InsulinActionPoint
 import io.aaps.copilot.domain.predict.InsulinActionProfile
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import io.aaps.copilot.domain.predict.InsulinActionProfiles
+import io.aaps.copilot.domain.predict.InsulinRuntimeSnapshot
+import io.aaps.copilot.domain.predict.InsulinRuntimeSnapshotResolver
+import io.aaps.copilot.domain.predict.InsulinRuntimeResolution
+import io.aaps.copilot.domain.predict.InsulinRuntimeSource
+import io.aaps.copilot.domain.predict.InsulinComponentTelemetry
+import io.aaps.copilot.domain.predict.QualifiedLocalInsulinEstimate
+import io.aaps.copilot.domain.predict.TimedInsulinValue
+import io.aaps.copilot.domain.predict.IsfRuntimeSourcePreference
+import io.aaps.copilot.domain.predict.MetricRuntimeResolvedSource
+import io.aaps.copilot.domain.predict.MetricRuntimeSourceDecision
+import io.aaps.copilot.domain.predict.SensitivityMetricOverride
+import io.aaps.copilot.domain.predict.SensitivityMetricKind
+import io.aaps.copilot.domain.predict.SensitivityRuntimeSnapshot
+import io.aaps.copilot.domain.predict.SensitivityRuntimeConsumer
+import io.aaps.copilot.domain.predict.SensitivityRuntimeConsumerContext
+import io.aaps.copilot.domain.predict.SensitivityRuntimeFanOut
+import io.aaps.copilot.domain.predict.SensitivityResolvedSource
+import io.aaps.copilot.domain.predict.SensitivitySourcePreference
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_CYCLE_ID_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_DIGEST_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_DECOMPOSITION_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_TIMESTAMP_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_PUBLICATION_PENDING
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_SETTINGS_REVISION_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_SOURCE
+import io.aaps.copilot.domain.predict.SensitivityAcceptedForecastDigest
+import io.aaps.copilot.domain.predict.SensitivityAcceptedForecastDecomposition
+import io.aaps.copilot.domain.predict.SensitivityAcceptedForecastDecompositionCodec
+import io.aaps.copilot.domain.predict.SensitivityAcceptedForecastRow
 import io.aaps.copilot.domain.predict.UamInferenceEngine
 import io.aaps.copilot.domain.predict.UamCalculator
 import io.aaps.copilot.domain.predict.UamUserSettings
 import io.aaps.copilot.domain.predict.PredictionEngine
+import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
 import io.aaps.copilot.domain.predict.isSyntheticUamCarbEvent
+import io.aaps.copilot.domain.profile.ActivityCoverage
+import io.aaps.copilot.domain.profile.ActivityContextSource
+import io.aaps.copilot.domain.profile.ActivityEffectContext
+import io.aaps.copilot.domain.profile.ActivityEffectModel
+import io.aaps.copilot.domain.profile.ActivityMeasurement
+import io.aaps.copilot.domain.profile.ActivityScheduleEngine
+import io.aaps.copilot.domain.profile.ActivityShadowSuppressionReason
+import io.aaps.copilot.domain.profile.ActivitySafePredictedFall
+import io.aaps.copilot.domain.profile.ActivityTargetProposalFactory
+import io.aaps.copilot.domain.profile.ActivityTargetProposalInput
+import io.aaps.copilot.domain.profile.PlannedActivityIntensity
+import io.aaps.copilot.domain.profile.PlannedActivityOccurrence
+import io.aaps.copilot.domain.profile.PlannedActivitySchedule
+import io.aaps.copilot.domain.profile.PlannedActivityType
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.domain.rules.LowGlucoseTargetSafetyLatch
 import io.aaps.copilot.domain.rules.PatternAdaptiveTargetRule
 import io.aaps.copilot.domain.rules.PostHypoReboundGuardRule
 import io.aaps.copilot.domain.rules.RuleContext
@@ -54,26 +133,94 @@ import io.aaps.copilot.domain.rules.RuleRuntimeConfig
 import io.aaps.copilot.domain.rules.SegmentProfileGuardRule
 import io.aaps.copilot.domain.safety.SafetyPolicy
 import io.aaps.copilot.domain.safety.SafetyPolicyConfig
-import io.aaps.copilot.service.ApiFactory
+import io.aaps.copilot.domain.target.ActiveAapsTarget
+import io.aaps.copilot.domain.target.ActiveTargetOwnership
+import io.aaps.copilot.domain.target.DeliveryTrustState
+import io.aaps.copilot.domain.target.DeliveryTrustStateWireCodec
+import io.aaps.copilot.domain.target.DeliveryTrustEvaluator
+import io.aaps.copilot.domain.target.DeliveryTrustInput
+import io.aaps.copilot.domain.target.EffectiveBaseTarget
+import io.aaps.copilot.domain.target.EffectiveTargetRuntimeGates
+import io.aaps.copilot.domain.target.HorizonReliability
+import io.aaps.copilot.domain.target.HorizonReliabilityState
+import io.aaps.copilot.domain.target.LastSentTempTarget
+import io.aaps.copilot.domain.target.SensorTrustState
+import io.aaps.copilot.domain.target.TargetBaseProvenance
+import io.aaps.copilot.domain.target.TargetDecisionOutcome
+import io.aaps.copilot.domain.target.TargetIntent
+import io.aaps.copilot.domain.target.TargetManagerInput
+import io.aaps.copilot.domain.target.TargetManagerDecision
+import io.aaps.copilot.domain.target.TargetManagerMode
+import io.aaps.copilot.domain.target.TargetManagerRuntimeState
+import io.aaps.copilot.domain.target.TargetManagerSafetyContext
+import io.aaps.copilot.domain.target.ActivityForecastSafety
+import io.aaps.copilot.domain.target.ActivityTargetSafetyContext
+import io.aaps.copilot.domain.target.TargetProposal
+import io.aaps.copilot.domain.target.TargetProposalFactory
+import io.aaps.copilot.service.PowerSaveController
 import io.aaps.copilot.util.UnitConverter
+import io.aaps.copilot.util.ordinaryExceptionOrNull
+import java.security.MessageDigest
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.Locale
+import java.util.TreeMap
 import java.util.UUID
+import org.json.JSONArray
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.sqrt
 import kotlin.math.min
+
+internal data class AlertCauseBoundedRows<T>(
+    val rows: List<T>,
+    val overflow: Boolean
+)
+
+internal enum class AlertCauseContextSource {
+    THERAPY,
+    CONTEXT_TAGS,
+    PLANNED_ACTIVITY
+}
+
+internal sealed interface AlertCauseContextLoadResult<out T> {
+    data class Success<T>(val value: T) : AlertCauseContextLoadResult<T>
+    data object Timeout : AlertCauseContextLoadResult<Nothing>
+    data class Failure(val errorType: String) : AlertCauseContextLoadResult<Nothing>
+    data class Overflow(val source: AlertCauseContextSource) : AlertCauseContextLoadResult<Nothing>
+}
+
+internal sealed interface AlertCausePlannedLoadResult {
+    data class Complete(
+        val events: List<CompensationEvent>,
+        val pagesRead: Int
+    ) : AlertCausePlannedLoadResult
+
+    data object RelevantOverflow : AlertCausePlannedLoadResult
+    data object ScanLimitReached : AlertCausePlannedLoadResult
+    data object CursorStalled : AlertCausePlannedLoadResult
+}
 
 class AutomationRepository(
     private val db: CopilotDatabase,
@@ -84,19 +231,78 @@ class AutomationRepository(
     private val rootDbRepository: RootDbExperimentalRepository,
     private val analyticsRepository: AnalyticsRepository,
     private val isfCrRepository: IsfCrRepository,
+    private val sensitivityRuntimeRepository: SensitivityRuntimeRepository,
+    private val glucoseCalibrationRepository: GlucoseCalibrationRepository,
+    private val glucoseAlertStateStore: GlucoseAlertStateStore,
+    private val episodeAlertDelivery: EpisodeAlertDeliveryStateMachine,
+    private val glucoseAlertNotifier: GlucoseAlertNotifier,
     private val actionRepository: NightscoutActionRepository,
+    private val targetManagerRepository: TargetManagerRepository,
+    private val circadianTargetRepository: CircadianTargetRepository,
+    private val energyProfileRepository: EnergyProfileRepository,
     private val predictionEngine: PredictionEngine,
     private val uamInferenceEngine: UamInferenceEngine,
     private val uamEventStore: UamEventStore,
     private val uamExportCoordinator: UamExportCoordinator,
     private val ruleEngine: RuleEngine,
-    private val apiFactory: ApiFactory,
     private val gson: Gson,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val onWidgetDataChanged: (suspend () -> Unit)? = null,
+    private val deliveryDiagnostic: DeliveryDiagnosticRepository? = null
 ) {
 
-    @Volatile
-    private var cycleMutex = Mutex()
+    internal enum class AutomationCycleIntent {
+        NORMAL,
+        LOCAL_READ_ONLY,
+        SENSITIVITY_SOURCE_CHANGE
+    }
+
+    private enum class RuleEvaluationMode {
+        LIVE,
+        DIAGNOSTIC_READ_ONLY
+    }
+
+    internal data class AutomationCyclePolicy(
+        val runCalculations: Boolean,
+        val runRemoteRefresh: Boolean,
+        val therapyWritersAllowed: Boolean,
+        val allowSensitivityMaintenance: Boolean,
+        val allowActionRepositoryAccess: Boolean,
+        val allowLocalSafetyEvidence: Boolean,
+        val allowAlertPublication: Boolean,
+        val publishWidgetAfterAcceptance: Boolean
+    )
+
+    internal data class LocalSafetyEvidence(
+        val actionsLast6h: Int,
+        val activeAapsTarget: ActiveAapsTarget?,
+        val latestAutomaticSent: LastSentTempTarget?,
+        val chronologyResolved: Boolean,
+        val causalThroughTs: Long
+    )
+
+    internal data class AcceptedClinicalForecasts(
+        val forecasts: List<Forecast>,
+        val generationTimestamp: Long,
+        val digest: String
+    )
+
+    private data class SensitivitySettingsAcceptanceExpectation(
+        val settingsRevision: Long,
+        val isfSource: SensitivitySourcePreference,
+        val crSource: SensitivitySourcePreference,
+        val fingerprint: List<Any?>
+    )
+
+    private class SensitivitySettingsRestartRequired(
+        val mutation: SensitivitySettingsMutation
+    ) : RuntimeException("sensitivity settings changed during calculation")
+
+    private class AcceptedForecastGenerationNotFresh(
+        val reason: String
+    ) : IllegalStateException("accepted sensitivity forecast generation is not fresh")
+
+    private val cycleMutex = Mutex()
     private val isfCrRealtimeDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val isfCrRealtimeScope = CoroutineScope(SupervisorJob() + isfCrRealtimeDispatcher)
     @Volatile
@@ -106,8 +312,6 @@ class AutomationRepository(
     @Volatile
     private var currentCycleStartedAtTs: Long = 0L
     @Volatile
-    private var cycleRecoveryCount: Int = 0
-    @Volatile
     private var isfCrRealtimeRefreshInFlight = false
     @Volatile
     private var isfCrRealtimeRefreshStartedAtTs = 0L
@@ -115,6 +319,8 @@ class AutomationRepository(
     private var isfCrRealtimeLastFailureTs = 0L
     @Volatile
     private var isfCrRealtimeRefreshJob: Job? = null
+    @Volatile
+    private var isfCrRealtimeLastRefreshDurationMs = 0L
     @Volatile
     private var lastCalibrationRefreshBucketTs: Long = Long.MIN_VALUE
     @Volatile
@@ -125,7 +331,20 @@ class AutomationRepository(
     private var lastLocalCobIobEstimate: LocalCobIobEstimate? = null
     @Volatile
     private var lastBaselineImportAttemptTs: Long = 0L
+    private val activityEffectModel = ActivityEffectModel()
+    private val activityScheduleEngine = ActivityScheduleEngine()
+    @Volatile
+    private var lastActivityForecastTelemetryAtMs: Long = 0L
+    @Volatile
+    private var lastActivityForecastTelemetryFingerprint: String? = null
+    @Volatile
+    private var glucoseAlertRestoreLogged: Boolean = false
+    @Volatile
+    private var cumulativeActivityDayCache: CumulativeActivityDayCache? = null
     private val sensorLagShadowRuleEngine: RuleEngine = buildSensorLagShadowRuleEngine()
+    private val glucoseAlertEngine = GlucoseAlertEngine()
+    private val lowGlucoseTargetSafetyLatch = LowGlucoseTargetSafetyLatch()
+    private val targetProposalFactory = TargetProposalFactory()
 
     data class DryRunRuleSummary(
         val ruleId: String,
@@ -138,6 +357,18 @@ class AutomationRepository(
         val periodDays: Int,
         val samplePoints: Int,
         val rules: List<DryRunRuleSummary>
+    )
+
+    internal data class AutomaticTargetWriterRouting(
+        val evaluateManager: Boolean,
+        val submitLegacyAutomatic: Boolean,
+        val fallbackToLegacyOnManagerFailure: Boolean = false
+    )
+
+    internal data class TargetManagerDeliveryTrustEvaluation<T : Any>(
+        val evaluation: T,
+        val telemetryPersisted: Boolean,
+        val persistenceFailureType: String?
     )
 
     private data class CalculatedUamSnapshot(
@@ -161,14 +392,93 @@ class AutomationRepository(
         val createdNewEvent: Boolean
     )
 
-    private data class UnifiedUamRuntimeSnapshot(
+    internal data class UamRuntimeQualityAssessment(
+        val sensorTrust: Double,
+        val therapyCoverage: Double,
+        val announcedCarbCoverage: Double,
+        val sensorBlocked: Boolean,
+        val reasons: Set<String>
+    )
+
+    internal data class IobSampleProvenance(
+        val sampleTs: Long?,
+        val ageMinutes: Double?,
+        val fresh: Boolean
+    )
+
+    internal data class MetricRuntimeApplication(
+        val decision: MetricRuntimeSourceDecision,
+        val override: SensitivityMetricOverride?
+    )
+
+    internal data class SensitivityRuntimeApplication(
+        val isf: MetricRuntimeApplication,
+        val cr: MetricRuntimeApplication
+    )
+
+    internal data class UnifiedUamRuntimeSnapshot(
+        val timestamp: Long,
+        val state: String,
         val flag: Double,
+        val controlFlag: Double,
         val confidence: Double,
-        val carbsGrams: Double?,
-        val ingestionTs: Long?,
+        val impactMmol5: Double,
+        val signedResidualMmol5: Double,
+        val shortAverageDeltaMmol5: Double,
+        val forecastComponent60Mmol: Double,
+        val equivalentCarbsGrams: Double?,
+        val supportedLowerBoundGrams: Double?,
+        val onsetTs: Long?,
+        val firstDetectionTs: Long?,
+        val activeSinceTs: Long?,
+        val supportStableBuckets: Int,
+        val lowerBoundStableBuckets: Int,
+        val sensorTrust: Double,
+        val therapyCoverage: Double,
         val source: String,
-        val uci0Mmol5m: Double?,
-        val forecastComponent60Mmol: Double?
+        val reasons: Set<String>,
+        val algorithmVersion: String,
+        val episodeId: String,
+        val effectiveCobGrams: Double,
+        val sensorBlocked: Boolean,
+        val sensitivityCycleId: String,
+        val sensitivitySettingsRevision: Long,
+        val sensitivityIsfMmolPerUnit: Double,
+        val sensitivityCrGramPerUnit: Double,
+        val calibrationIdentity: GlucoseCalibrationCycleIdentity? = null,
+        val acceptedForecastGenerationTimestamp: Long? = null,
+        val acceptedForecastDigest: String? = null,
+        val acceptedForecasts: List<Forecast> = emptyList()
+    )
+
+    internal data class UnifiedUamExportTelemetrySnapshot(
+        val liveEnabled: Boolean,
+        val eligible: Boolean,
+        val blockReason: String,
+        val episodeId: String,
+        val episodeAgeMinutes: Double,
+        val lowerBoundGrams: Double,
+        val cumulativeGrams: Double,
+        val rolling30Grams: Double,
+        val rolling60Grams: Double,
+        val lastIncrementGrams: Double,
+        val lastIncrementTs: Long?,
+        val delivered: Boolean
+    )
+
+    internal data class UnifiedUamExportRuntimeRoute(
+        val invokeCoordinator: Boolean,
+        val dryRun: Boolean
+    )
+
+    internal data class UnifiedUamExportDispatch(
+        val route: UnifiedUamExportRuntimeRoute,
+        val outcome: UamExportCoordinator.Outcome
+    )
+
+    internal data class ForecastVirtualMealGateDecision(
+        val active: Boolean,
+        val reason: String
     )
 
     data class SensorQualityAssessment(
@@ -185,7 +495,11 @@ class AutomationRepository(
         val horizonMinutes: Int,
         val errorMmol: Double,
         val ageMs: Long,
-        val predictedMmol: Double = Double.NaN
+        val predictedMmol: Double = Double.NaN,
+        val ciLowMmol: Double = Double.NaN,
+        val ciHighMmol: Double = Double.NaN,
+        val sensorTrusted: Boolean = false,
+        val modelVersion: String = ""
     )
 
     data class CalibrationAiTuning(
@@ -315,13 +629,55 @@ class AutomationRepository(
         val baseOnsetMinutes: Double,
         val onsetSampleCount: Int,
         val usedLocalFallback: Boolean,
-        val mergedWithTelemetry: Boolean
+        val mergedWithTelemetry: Boolean,
+        val insulinCycleContext: InsulinCycleContext
+    ) {
+        val insulinSnapshot: InsulinRuntimeSnapshot?
+            get() = insulinCycleContext.snapshot
+    }
+
+    data class InsulinCycleContext(
+        val cycleTimestamp: Long,
+        val causalReferenceTimestamp: Long,
+        val snapshot: InsulinRuntimeSnapshot?,
+        val alignedSnapshot: InsulinRuntimeSnapshot?,
+        val safetyIobUnits: Double?,
+        val modeledActiveInsulinUnits: Double?,
+        val signedResidualUnits: Double?,
+        val residualComparisonAllowed: Boolean,
+        val residualComparisonReason: String
     )
+
+    enum class InsulinCycleConsumer {
+        FORECAST,
+        UAM,
+        TARGET,
+        ALERTS
+    }
+
+    class InsulinCycleFanOut internal constructor(
+        val revision: Long,
+        private val context: InsulinCycleContext
+    ) {
+        fun contextFor(consumer: InsulinCycleConsumer): InsulinCycleContext = when (consumer) {
+            InsulinCycleConsumer.FORECAST,
+            InsulinCycleConsumer.UAM,
+            InsulinCycleConsumer.TARGET,
+            InsulinCycleConsumer.ALERTS -> context
+        }
+    }
+
+    fun interface ForecastGateway {
+        fun request(): List<Forecast>
+    }
 
     private data class LocalCobIobEstimate(
         val cobGrams: Double,
         val iobUnits: Double,
         val explicitInsulinEvents: Int,
+        val insulinEvidenceTimestamp: Long?,
+        val insulinTherapyCoverage: Double,
+        val insulinConfidence: Double,
         val realOnsetMinutes: Double,
         val baseOnsetMinutes: Double,
         val onsetSampleCount: Int
@@ -355,46 +711,259 @@ class AutomationRepository(
         val source: String
     )
 
-    suspend fun runAutomationCycle() {
+    internal data class ProfileEstimatorRevisionPreparation(
+        val wasPending: Boolean,
+        val ready: Boolean
+    )
+
+    suspend fun runAutomationCycle(): SensitivityRuntimeSnapshot? =
+        runCycle(AutomationCycleIntent.NORMAL)
+
+    suspend fun runLocalReadOnlyCycle(): SensitivityRuntimeSnapshot? =
+        runCycle(AutomationCycleIntent.LOCAL_READ_ONLY)
+
+    internal suspend fun applySensitivitySettings(
+        updater: (AppSettings) -> AppSettings
+    ): SensitivityRuntimeSnapshot {
+        val revisionPreparation = prepareProfileEstimatorRevision(
+            settings = settingsStore.settings.first(),
+            intent = AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE
+        )
+        check(revisionPreparation.ready) {
+            "profile estimator revision rebuild is not ready; sensitivity settings were not changed"
+        }
+        return applySensitivitySettingsChangeUnderCycleLeaseStatic(
+            mutex = cycleMutex,
+            lockTimeoutMs = SENSITIVITY_SOURCE_CHANGE_LOCK_TIMEOUT_MS,
+            mutateSettings = {
+                settingsStore.beginSensitivitySettingsMutation(updater)
+            },
+            runAcceptedCycle = { mutation ->
+                runWithFailedSensitivitySettingsRestoration(mutation) {
+                    val settings = settingsStore.settings.first()
+                    require(settings.sensitivitySettingsRevision == mutation.applied.sensitivitySettingsRevision) {
+                        "tentative sensitivity settings revision was replaced before calculation"
+                    }
+                    require(settings.sensitivityRuntimeFingerprint() == mutation.appliedFingerprint) {
+                        "tentative sensitivity runtime settings were replaced before calculation"
+                    }
+                    val policy = resolveCyclePolicyStatic(
+                        intent = AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE,
+                        therapyActionsArmed = settings.therapyActionsArmed,
+                        killSwitch = settings.killSwitch,
+                        powerSaveActive = PowerSaveController.isActive(settings)
+                    )
+                    requireNotNull(
+                        runAcquiredCycleAfterProfileRevisionPreparation(
+                            intent = AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE,
+                            bootstrapPolicy = policy,
+                            markEstimatorRevisionOnAcceptance = revisionPreparation.wasPending,
+                            expectedSettings = SensitivitySettingsAcceptanceExpectation(
+                                settingsRevision = mutation.applied.sensitivitySettingsRevision,
+                                isfSource = mutation.applied.isfSourcePreference,
+                                crSource = mutation.applied.crSourcePreference,
+                                fingerprint = mutation.appliedFingerprint
+                            )
+                        )
+                    ) { "calculation-only cycle did not publish an accepted sensitivity snapshot" }
+                }
+            }
+        )
+    }
+
+    private suspend fun <T> runWithFailedSensitivitySettingsRestoration(
+        mutation: SensitivitySettingsMutation,
+        calculation: suspend () -> T
+    ): T = try {
+        calculation()
+    } catch (failure: Exception) {
+        val acceptedRevision = sensitivityRuntimeRepository.current.value?.settingsRevision
+        if (mutation.changed && acceptedRevision != mutation.applied.sensitivitySettingsRevision) {
+            withContext(NonCancellable) {
+                withTimeout(SENSITIVITY_ACCEPTED_DURABILITY_STEP_TIMEOUT_MS) {
+                    settingsStore.beginSensitivitySettingsMutation { current ->
+                        if (
+                            current.sensitivitySettingsRevision != mutation.applied.sensitivitySettingsRevision ||
+                            current.sensitivityRuntimeFingerprint() != mutation.appliedFingerprint
+                        ) {
+                            current
+                        } else {
+                            val before = mutation.before
+                            current.copy(
+                                isfSourcePreference = before.isfSourcePreference,
+                                crSourcePreference = before.crSourcePreference,
+                                isfCrShadowMode = before.isfCrShadowMode,
+                                isfCrConfidenceThreshold = before.isfCrConfidenceThreshold,
+                                isfCrUseActivity = before.isfCrUseActivity,
+                                isfCrUseManualTags = before.isfCrUseManualTags,
+                                isfCrMinIsfEvidencePerHour = before.isfCrMinIsfEvidencePerHour,
+                                isfCrMinCrEvidencePerHour = before.isfCrMinCrEvidencePerHour,
+                                isfCrCrMaxGapMinutes = before.isfCrCrMaxGapMinutes,
+                                isfCrCrMaxSensorBlockedRatePct = before.isfCrCrMaxSensorBlockedRatePct,
+                                isfCrCrMaxUamAmbiguityRatePct = before.isfCrCrMaxUamAmbiguityRatePct,
+                                analyticsLookbackDays = before.analyticsLookbackDays,
+                                energyProfile = current.energyProfile.copy(
+                                    physiologicalSex = before.energyProfile.physiologicalSex
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        currentCoroutineContext().ensureActive()
+        throw failure
+    }
+
+    internal suspend fun ensureAnalyticsRetentionDefault30Days(): Boolean {
+        if (!settingsStore.ensureAnalyticsRetentionDefault30Days()) return false
+        applySensitivitySettings { settings ->
+            settings.copy(analyticsLookbackDays = 30)
+        }
+        settingsStore.markAnalyticsRetentionDefaultMigrationComplete()
+        return true
+    }
+
+    private suspend fun runCycle(intent: AutomationCycleIntent): SensitivityRuntimeSnapshot? {
+        val bootstrapSettings = settingsStore.settings.first()
+        val bootstrapPolicy = resolveCyclePolicyStatic(
+            intent = intent,
+            therapyActionsArmed = bootstrapSettings.therapyActionsArmed,
+            killSwitch = bootstrapSettings.killSwitch,
+            powerSaveActive = PowerSaveController.isActive(bootstrapSettings)
+        )
+        if (!bootstrapPolicy.runCalculations) {
+            auditLogger.infoThrottled(
+                throttleKey = "automation_cycle_skipped:therapy_actions_not_armed",
+                intervalMs = 15 * 60_000L,
+                message = "automation_cycle_skipped",
+                metadata = mapOf("reason" to "therapy_actions_not_armed")
+            )
+            return null
+        }
+        if (intent == AutomationCycleIntent.NORMAL) {
+            settingsStore.ensureUamThreeModeConsentV1()
+        }
+        require(intent != AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) {
+            "source changes must use applySensitivitySourcePreference"
+        }
+
+        val revisionPreparation = prepareProfileEstimatorRevision(
+            settings = bootstrapSettings,
+            intent = intent
+        )
+        if (!revisionPreparation.ready) return null
+
         val now = System.currentTimeMillis()
-        var lock = cycleMutex
-        if (!lock.tryLock()) {
-            val runningForMs = now - currentCycleStartedAtTs
+        val execution = runNormalCycleIfIdleStatic(cycleMutex) {
+            runAcquiredCycleAfterProfileRevisionPreparation(
+                intent = intent,
+                bootstrapPolicy = bootstrapPolicy,
+                markEstimatorRevisionOnAcceptance = revisionPreparation.wasPending
+            )
+        }
+        if (!execution.acquired) {
+            val startedAtTs = currentCycleStartedAtTs
+            val runningForMs = if (startedAtTs > 0L) {
+                runCatching { Math.subtractExact(now, startedAtTs) }
+                    .getOrNull()
+                    ?.coerceAtLeast(0L)
+                    ?: 0L
+            } else {
+                0L
+            }
             val meta = mutableMapOf<String, Any>(
                 "reason" to "already_running",
                 "runningForMs" to runningForMs
             )
             if (runningForMs >= AUTOMATION_STALL_WARN_MS) {
                 meta["stallSuspected"] = true
-                val recovered = recoverStalledCycleLock(now = now, runningForMs = runningForMs)
-                meta["recovered"] = recovered
-                if (recovered) {
-                    lock = cycleMutex
-                    if (!lock.tryLock()) {
-                        auditLogger.warn("automation_cycle_skipped", meta + ("retryLockFailed" to true))
-                        return
-                    }
-                    auditLogger.warn(
-                        "automation_cycle_recovered_and_resumed",
-                        mapOf(
-                            "runningForMs" to runningForMs,
-                            "recoveries" to cycleRecoveryCount
-                        )
-                    )
-                } else {
-                    auditLogger.warn("automation_cycle_skipped", meta)
-                    return
-                }
+                auditLogger.warn("automation_cycle_skipped", meta)
             } else {
                 auditLogger.info("automation_cycle_skipped", meta)
-                return
             }
+            return null
         }
+        return execution.value
+    }
+
+    private suspend fun prepareProfileEstimatorRevision(
+        settings: AppSettings,
+        intent: AutomationCycleIntent
+    ): ProfileEstimatorRevisionPreparation = prepareProfileEstimatorRevisionStatic(
+        isPending = analyticsRepository::isProfileEstimatorRevisionPending,
+        rebuild = {
+            analyticsRepository.ensureProfileStateHealthy(
+                settings = settings,
+                reasonHint = "automation:${intent.name.lowercase()}"
+            )
+        },
+        onNotReady = { reason ->
+            auditLogger.warn(
+                "profile_estimator_revision_not_ready",
+                mapOf(
+                    "intent" to intent.name,
+                    "reason" to reason
+                )
+            )
+        }
+    )
+
+    private suspend fun runAcquiredCycleAfterProfileRevisionPreparation(
+        intent: AutomationCycleIntent,
+        bootstrapPolicy: AutomationCyclePolicy,
+        markEstimatorRevisionOnAcceptance: Boolean,
+        expectedSettings: SensitivitySettingsAcceptanceExpectation? = null
+    ): SensitivityRuntimeSnapshot? {
+        return runAcquiredCycle(
+            intent = intent,
+            bootstrapPolicy = bootstrapPolicy,
+            expectedSettings = expectedSettings,
+            beforeClinicalSideEffects = if (markEstimatorRevisionOnAcceptance) {
+                { analyticsRepository.markProfileEstimatorRevisionApplied() }
+            } else {
+                null
+            }
+        )
+    }
+
+    private suspend fun runAcquiredCycle(
+        intent: AutomationCycleIntent,
+        bootstrapPolicy: AutomationCyclePolicy,
+        expectedSettings: SensitivitySettingsAcceptanceExpectation? = null,
+        beforeClinicalSideEffects: (suspend () -> Unit)? = null
+    ): SensitivityRuntimeSnapshot? {
+        val now = System.currentTimeMillis()
         currentCycleStartedAtTs = now
         auditLogger.info("automation_cycle_started", mapOf("startedAtTs" to now))
-        try {
-            withTimeout(AUTOMATION_CYCLE_TIMEOUT_MS) {
-                runAutomationCycleLocked()
+        return try {
+            val acceptedSnapshot = withTimeout(AUTOMATION_CYCLE_TIMEOUT_MS) {
+                try {
+                    runAutomationCycleLocked(
+                        intent = intent,
+                        bootstrapPolicy = bootstrapPolicy,
+                        expectedSettings = expectedSettings,
+                        beforeClinicalSideEffects = beforeClinicalSideEffects
+                    )
+                } catch (restart: SensitivitySettingsRestartRequired) {
+                    runSensitivitySettingsRestartUnderOwnedLease(
+                        mutation = restart.mutation,
+                        beforeClinicalSideEffects = beforeClinicalSideEffects
+                    )
+                }
+            }
+            if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) {
+                runCatching {
+                    auditLogger.info(
+                        "sensitivity_source_change_cycle_completed",
+                        mapOf(
+                            "status" to "success",
+                            "durationMs" to (System.currentTimeMillis() - now),
+                            "cycleId" to acceptedSnapshot?.forecastCycleId.orEmpty()
+                        )
+                    )
+                }
+                return acceptedSnapshot
             }
             auditLogger.info(
                 "automation_cycle_finished",
@@ -403,6 +972,21 @@ class AutomationRepository(
                     "durationMs" to (System.currentTimeMillis() - now)
                 )
             )
+            acceptedSnapshot
+        } catch (blocked: AcceptedForecastGenerationNotFresh) {
+            currentCoroutineContext().ensureActive()
+            auditLogger.info(
+                "automation_cycle_finished",
+                mapOf(
+                    "status" to "blocked",
+                    "reason" to blocked.reason,
+                    "cycleAccepted" to false,
+                    "intent" to intent.name,
+                    "durationMs" to (System.currentTimeMillis() - now)
+                )
+            )
+            if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) throw blocked
+            null
         } catch (error: TimeoutCancellationException) {
             auditLogger.error(
                 "automation_cycle_timeout",
@@ -423,62 +1007,106 @@ class AutomationRepository(
             throw error
         } finally {
             currentCycleStartedAtTs = 0L
-            if (lock.isLocked) {
-                runCatching { lock.unlock() }
+        }
+    }
+
+    private suspend fun runSensitivitySettingsRestartUnderOwnedLease(
+        mutation: SensitivitySettingsMutation,
+        beforeClinicalSideEffects: (suspend () -> Unit)? = null
+    ): SensitivityRuntimeSnapshot? {
+        val applied = settingsStore.settings.first()
+        require(applied.sensitivityRuntimeFingerprint() == mutation.appliedFingerprint)
+        val expectation = SensitivitySettingsAcceptanceExpectation(
+            settingsRevision = applied.sensitivitySettingsRevision,
+            isfSource = applied.isfSourcePreference,
+            crSource = applied.crSourcePreference,
+            fingerprint = mutation.appliedFingerprint
+        )
+        return runWithFailedSensitivitySettingsRestoration(mutation) {
+            requireNotNull(
+                runAutomationCycleLocked(
+                    intent = AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE,
+                    bootstrapPolicy = resolveCyclePolicyStatic(
+                        intent = AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE,
+                        therapyActionsArmed = applied.therapyActionsArmed,
+                        killSwitch = applied.killSwitch,
+                        powerSaveActive = PowerSaveController.isActive(applied)
+                    ),
+                    expectedSettings = expectation,
+                    beforeClinicalSideEffects = beforeClinicalSideEffects
+                )
+            ) { "automatic sensitivity setting change did not publish an accepted cycle" }
+        }
+    }
+
+    private suspend fun runAutomationCycleLocked(
+        intent: AutomationCycleIntent,
+        bootstrapPolicy: AutomationCyclePolicy,
+        expectedSettings: SensitivitySettingsAcceptanceExpectation?,
+        beforeClinicalSideEffects: (suspend () -> Unit)? = null
+    ): SensitivityRuntimeSnapshot? {
+        var settings = settingsStore.settings.first()
+        runRemoteRefreshStatic(bootstrapPolicy) {
+            runCycleStep("auto_connect_bootstrap") {
+                autoConnectRepository.bootstrap()
+            }
+            runCycleStep("root_db_sync") {
+                rootDbRepository.syncIfEnabled()
+            }
+            runNonFatalCycleStep(name = "nightscout_sync") {
+                syncRepository.syncNightscoutIncremental()
+            }
+            runNonFatalCycleStep(name = "cloud_push_sync", timeoutMs = CLOUD_PUSH_STEP_TIMEOUT_MS) {
+                syncRepository.pushCloudIncremental()
+            }
+            runCycleStep("baseline_import") {
+                maybeRunBaselineImport(settings = settings, nowTs = System.currentTimeMillis())
+            }
+            runCycleStep("db_housekeeping") {
+                runDbHousekeepingIfDue(nowTs = System.currentTimeMillis(), settings = settings)
+            }
+            maybeRecalculateAnalytics(settings)
+            settings = settingsStore.settings.first()
+            runNonFatalCycleStep("sensitivity_candidate_refresh") {
+                isfCrRepository.computeRealtimeSnapshot(
+                    settings = settings,
+                    nowTs = System.currentTimeMillis()
+                )
             }
         }
-    }
-
-    @Synchronized
-    private fun recoverStalledCycleLock(now: Long, runningForMs: Long): Boolean {
-        if (runningForMs < AUTOMATION_STALL_RECOVERY_MS) return false
-        val startedAt = currentCycleStartedAtTs
-        if (startedAt <= 0L) return false
-        if ((now - startedAt) < AUTOMATION_STALL_RECOVERY_MS) return false
-        cycleMutex = Mutex()
-        currentCycleStartedAtTs = 0L
-        cycleRecoveryCount += 1
-        return true
-    }
-
-    private suspend fun runAutomationCycleLocked() {
-        runCycleStep("auto_connect_bootstrap") {
-            autoConnectRepository.bootstrap()
+        val sensitivitySnapshot = runCycleStep("sensitivity_runtime_snapshot") {
+            sensitivityRuntimeRepository.recompute(SensitivityRuntimeTrigger.FORECAST)
         }
-        val settings = settingsStore.settings.first()
-        configurePredictionEngine(settings)
-        runCycleStep("root_db_sync") {
-            rootDbRepository.syncIfEnabled()
+        val sensitivityCandidateInputGeneration =
+            sensitivityRuntimeRepository.isfCrInputGenerationForCandidate(sensitivitySnapshot)
+        require(sensitivitySnapshot.settingsRevision == settings.sensitivitySettingsRevision) {
+            "sensitivity snapshot/settings revision mismatch"
         }
-        runNonFatalCycleStep(name = "nightscout_sync") {
-            syncRepository.syncNightscoutIncremental()
+        expectedSettings?.let { expectation ->
+            requireSensitivitySettingsExpectation(sensitivitySnapshot, settings, expectation)
         }
-        runNonFatalCycleStep(name = "cloud_push_sync", timeoutMs = CLOUD_PUSH_STEP_TIMEOUT_MS) {
-            syncRepository.pushCloudIncremental()
-        }
-        runCycleStep("baseline_import") {
-            maybeRunBaselineImport(settings = settings, nowTs = System.currentTimeMillis())
-        }
-        runCycleStep("db_housekeeping") {
-            runDbHousekeepingIfDue(nowTs = System.currentTimeMillis())
-        }
-        maybeRecalculateAnalytics(settings)
-        val removedInvalidTelemetryTs = db.telemetryDao().deleteByTimestampAtOrBelow(0L)
-        if (removedInvalidTelemetryTs > 0) {
-            auditLogger.info(
-                "telemetry_invalid_timestamp_cleanup",
-                mapOf("removedRows" to removedInvalidTelemetryTs)
-            )
-        }
+        val sensitivityFanOut = SensitivityRuntimeFanOut(sensitivitySnapshot)
         auditCycleCheckpoint("post_initial_steps")
 
-        val glucose = syncRepository.recentGlucose(limit = 72)
-        if (glucose.isEmpty()) {
+        val rawGlucose = syncRepository.recentGlucose(limit = 72)
+        if (rawGlucose.isEmpty()) {
             auditLogger.warn("automation_skipped", mapOf("reason" to "no_glucose_data"))
-            return
+            return null
         }
-
-        val therapy = syncRepository.recentTherapyEvents(hoursBack = 24)
+        // Freeze telemetry before the cycle clock and slow calibration/history preparation.
+        val resolvedTelemetry = resolveLatestTelemetry(System.currentTimeMillis(), settings)
+        val now = System.currentTimeMillis()
+        val calibrationRuntime = prepareCalibrationRuntimeContext(
+            rawGlucose = rawGlucose,
+            nowTs = now,
+            settings = settings,
+            intent = intent,
+            resolvedTelemetry = resolvedTelemetry
+        )
+        val preparedCalibration = calibrationRuntime.preparedCalibration
+        val resolvedGlucose = calibrationRuntime.resolvedGlucose
+        val glucose = calibrationRuntime.glucose
+        val therapy = calibrationRuntime.therapy
         auditCycleCheckpoint(
             stage = "post_recent_data",
             metadata = mapOf(
@@ -486,812 +1114,408 @@ class AutomationRepository(
                 "therapyEvents" to therapy.size
             )
         )
-        val now = System.currentTimeMillis()
-        val sensorLagGlucoseHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
-            GlucoseSanitizer.filterEntities(
-                db.glucoseDao().since(now - SENSOR_LAG_HISTORY_LOOKBACK_MS)
-            ).map { it.toDomain() }
-        } else {
-            glucose
-        }
-        val sensorLagTherapyHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
-            TherapySanitizer.filterEntities(
-                db.therapyDao().since(now - SENSOR_LAG_HISTORY_LOOKBACK_MS)
-            ).map { it.toDomain(gson) }
-        } else {
-            therapy
-        }
-        val latestTelemetry = resolveLatestTelemetry(nowTs = now, settings = settings).toMutableMap()
-        val realtimeIsfCrSnapshot = resolveRealtimeIsfCrSnapshot(settings = settings, nowTs = now)
-        val isfCrRuntimeGate = resolveIsfCrRuntimeGateStatic(
-            snapshot = realtimeIsfCrSnapshot,
-            confidenceThreshold = settings.isfCrConfidenceThreshold
-        )
-        val isfCrOverrideBlendWeight = resolveIsfCrOverrideBlendWeightStatic(
-            snapshot = realtimeIsfCrSnapshot,
-            runtimeGate = isfCrRuntimeGate,
-            confidenceThreshold = settings.isfCrConfidenceThreshold
-        )
-        configurePredictionEngine(
+        val sensorLagGlucoseHistory = calibrationRuntime.sensorLagGlucoseHistory
+        val sensorLagTherapyHistory = calibrationRuntime.sensorLagTherapyHistory
+        val sensorLagRuntimeContext = calibrationRuntime.sensorLagRuntimeContext
+        val latestTelemetry = calibrationRuntime.latestTelemetry
+        val deliveryTrustTelemetry = calibrationRuntime.deliveryTrustTelemetry.toMutableList()
+        val latestResolved = calibrationRuntime.latestResolved
+        val latestCheck = calibrationRuntime.latestCheck
+        val prepared = preparePredictionPreparationContext(
             settings = settings,
-            realtimeIsfCr = realtimeIsfCrSnapshot,
-            runtimeGate = isfCrRuntimeGate,
-            overrideBlendWeight = isfCrOverrideBlendWeight,
-            runtimeTelemetry = latestTelemetry
-        )
-        realtimeIsfCrSnapshot?.let { snapshot ->
-            latestTelemetry["isf_realtime_value"] = snapshot.isfEff
-            latestTelemetry["cr_realtime_value"] = snapshot.crEff
-            latestTelemetry["isf_realtime_confidence"] = snapshot.confidence
-            latestTelemetry["isf_realtime_quality_score"] = snapshot.qualityScore
-            latestTelemetry["isf_realtime_applied"] = if (isfCrRuntimeGate.applyToRuntime) 1.0 else 0.0
-            latestTelemetry["isf_realtime_override_blend_weight"] = isfCrOverrideBlendWeight ?: 0.0
-            latestTelemetry["isf_realtime_mode"] = when (snapshot.mode.name) {
-                "ACTIVE" -> 1.0
-                "SHADOW" -> 0.5
-                else -> 0.0
-            }
-            latestTelemetry["isf_factor_set_factor"] = snapshot.factors["set_factor"]
-            latestTelemetry["isf_factor_sensor_factor"] = snapshot.factors["sensor_factor"]
-            latestTelemetry["isf_factor_activity_factor"] = snapshot.factors["activity_factor"]
-            latestTelemetry["isf_factor_dawn_factor"] = snapshot.factors["dawn_factor"]
-            latestTelemetry["isf_factor_stress_factor"] = snapshot.factors["stress_factor"]
-            latestTelemetry["isf_factor_hormone_factor"] = snapshot.factors["hormone_factor"]
-            latestTelemetry["isf_factor_steroid_factor"] = snapshot.factors["steroid_factor"]
-            latestTelemetry["isf_factor_uam_penalty"] = snapshot.factors["uam_penalty_factor"]
-            latestTelemetry["isf_factor_set_age_hours"] = snapshot.factors["set_age_hours"]
-            latestTelemetry["isf_factor_sensor_age_hours"] = snapshot.factors["sensor_age_hours"]
-            latestTelemetry["isf_factor_context_ambiguity"] = listOfNotNull(
-                snapshot.factors["latent_stress"],
-                snapshot.factors["manual_stress_tag"],
-                snapshot.factors["manual_illness_tag"],
-                snapshot.factors["manual_hormone_tag"],
-                snapshot.factors["manual_steroid_tag"],
-                snapshot.factors["manual_dawn_tag"]
-            ).maxOrNull() ?: 0.0
-            auditLogger.infoThrottled(
-                throttleKey = "isfcr_runtime_gate:${snapshot.mode.name}:${isfCrRuntimeGate.reason}",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "isfcr_runtime_gate",
-                metadata = mapOf(
-                    "mode" to snapshot.mode.name,
-                    "confidence" to snapshot.confidence,
-                    "threshold" to settings.isfCrConfidenceThreshold,
-                    "applied" to isfCrRuntimeGate.applyToRuntime,
-                    "reason" to isfCrRuntimeGate.reason,
-                    "overrideBlendWeight" to isfCrOverrideBlendWeight,
-                    "shadowSoftBlendApplied" to (!isfCrRuntimeGate.applyToRuntime && (isfCrOverrideBlendWeight ?: 0.0) > 0.0)
-                )
-            )
-        }
-        auditCycleCheckpoint(
-            stage = "post_isfcr",
-            metadata = mapOf(
-                "hasRealtimeSnapshot" to (realtimeIsfCrSnapshot != null),
-                "runtimeGateApplied" to isfCrRuntimeGate.applyToRuntime
-            )
-        )
-        val runtimeCobIob = resolveRuntimeCobIobInputs(
             nowTs = now,
             glucose = glucose,
             therapy = therapy,
-            telemetry = latestTelemetry,
-            settings = settings
+            latestTelemetry = latestTelemetry,
+            sensitivityRuntime = sensitivityFanOut.contextFor(SensitivityRuntimeConsumer.FORECAST_5_30_60),
+            allowActionRepositoryAccess = bootstrapPolicy.allowActionRepositoryAccess,
+            allowLocalSafetyEvidence = bootstrapPolicy.allowLocalSafetyEvidence
         )
-        val insulinTherapyAvailable = hasInsulinTherapyEvidence(therapy)
-        val rawCobFromTelemetry = latestTelemetry["cob_grams"]
-        val rawIobFromTelemetry = latestTelemetry["iob_units"]
-        latestTelemetry["cob_grams"] = runtimeCobIob.cobGrams
-        latestTelemetry["iob_units"] = runtimeCobIob.iobUnits
-        latestTelemetry["cob_effective_grams"] = runtimeCobIob.cobGrams
-        latestTelemetry["iob_effective_units"] = runtimeCobIob.iobUnits
-        latestTelemetry["iob_real_units"] = runtimeCobIob.realIobUnits
-        latestTelemetry["cob_local_fallback_grams"] = runtimeCobIob.localCobGrams
-        latestTelemetry["iob_local_fallback_units"] = runtimeCobIob.localIobUnits
-        runtimeCobIob.externalCobAdjustedGrams?.let { latestTelemetry["cob_external_adjusted_grams"] = it }
-        latestTelemetry["cob_synthetic_uam_subtracted_grams"] = runtimeCobIob.syntheticUamCobGrams
-        latestTelemetry["insulin_real_onset_min"] = runtimeCobIob.realOnsetMinutes
-        latestTelemetry["insulin_profile_base_onset_min"] = runtimeCobIob.baseOnsetMinutes
-        latestTelemetry["insulin_real_onset_samples"] = runtimeCobIob.onsetSampleCount.toDouble()
-        (runtimeCobIob.externalCobRawGrams ?: rawCobFromTelemetry)?.let { latestTelemetry["cob_external_raw_grams"] = it }
-        rawIobFromTelemetry?.let { latestTelemetry["iob_external_raw_units"] = it }
-        latestTelemetry["cob_iob_local_used"] = if (runtimeCobIob.usedLocalFallback) 1.0 else 0.0
-        latestTelemetry["cob_iob_merged"] = if (runtimeCobIob.mergedWithTelemetry) 1.0 else 0.0
-        persistRuntimeCobIobTelemetry(
-            nowTs = now,
-            runtime = runtimeCobIob,
-            rawCobGrams = rawCobFromTelemetry,
-            rawIobUnits = rawIobFromTelemetry
-        )
-        val realInsulinProfile = refreshRealInsulinProfileTelemetry(
-            nowTs = now,
-            settings = settings
-        )
-        val rawDiaFromTelemetry = latestTelemetry["dia_hours"]?.takeIf { it.isFinite() }
-        val runtimeDia = resolveRuntimeDiaInputs(
+        val realtimeIsfCrSnapshot = prepared.realtimeIsfCrSnapshot
+        val realtimeInputGeneration = realtimeIsfCrSnapshot?.let { snapshot ->
+            requireNotNull(realtimeSnapshotInputGeneration(snapshot)) {
+                "realtime ISF/CR snapshot has no input generation"
+            }
+        }
+        val expectedIsfCrInputGeneration = listOfNotNull(
+            sensitivityCandidateInputGeneration,
+            realtimeInputGeneration
+        ).distinct().also { generations ->
+            require(generations.size <= 1) {
+                "sensitivity cycle mixed ISF/CR input generations"
+            }
+        }.single()
+        val isfCrRuntimeGate = prepared.isfCrRuntimeGate
+        val runtimeCobIob = prepared.runtimeCobIob
+        val insulinTherapyAvailable = prepared.insulinTherapyAvailable
+        val currentPattern = prepared.currentPattern
+        val latestGlucose = prepared.latestGlucose
+        val effectiveStaleMaxMinutes = prepared.effectiveStaleMaxMinutes
+        val dataFresh = prepared.dataFresh
+        val actionsLast6h = prepared.actionsLast6h
+        val activeAapsTarget = prepared.activeAapsTarget
+        val localSafetyChronologyResolved = prepared.localSafetyChronologyResolved
+        val localSafetyCausalThroughTs = prepared.localSafetyCausalThroughTs
+        val latestAutomaticSent = prepared.latestAutomaticSent
+        val activeTempTarget = activeAapsTarget
+            ?.takeIf(ActiveAapsTarget::evidenceResolved)
+            ?.targetMmol
+        val sensorQuality = prepared.sensorQuality
+        val sensorBlocked = prepared.sensorBlocked
+        val insulinCycleFanOut = prepared.insulinCycleFanOut
+        val forecastInsulinCycle = insulinCycleFanOut.contextFor(InsulinCycleConsumer.FORECAST)
+        val targetInsulinCycle = insulinCycleFanOut.contextFor(InsulinCycleConsumer.TARGET)
+        val circadianPrior = prepared.circadianPrior
+        val currentProfile = prepared.currentProfile
+        val currentSegment = prepared.currentSegment
+        val forecastRuntime = buildForecastRuntimeContext(
             settings = settings,
-            realProfile = realInsulinProfile,
-            rawExternalDiaHours = rawDiaFromTelemetry
-        )
-        runtimeDia.rawExternalHours?.let { latestTelemetry["dia_external_raw_hours"] = it }
-        runtimeDia.rawEstimatedHours?.let { latestTelemetry["dia_real_raw_hours"] = it }
-        latestTelemetry["dia_profile_hours"] = runtimeDia.profileHours
-        latestTelemetry["dia_effective_hours"] = runtimeDia.effectiveHours
-        latestTelemetry["dia_hours"] = runtimeDia.effectiveHours
-        persistRuntimeDiaTelemetry(
             nowTs = now,
-            runtimeDia = runtimeDia
-        )
-        if (realInsulinProfile != null) {
-            latestTelemetry["insulin_profile_real_updated_ts"] = realInsulinProfile.updatedTs.toDouble()
-            latestTelemetry["insulin_profile_real_confidence"] = realInsulinProfile.confidence
-            latestTelemetry["insulin_profile_real_samples"] = realInsulinProfile.sampleCount.toDouble()
-            latestTelemetry["insulin_profile_real_onset_min"] = realInsulinProfile.onsetMinutes
-            latestTelemetry["insulin_profile_real_peak_min"] = realInsulinProfile.peakMinutes
-            latestTelemetry["insulin_profile_real_scale"] = realInsulinProfile.shapeScale
-            latestTelemetry["insulin_profile_real_published_ts"] = realInsulinProfile.lastPublishedTs.toDouble()
-        }
-        if (runtimeCobIob.usedLocalFallback || runtimeCobIob.mergedWithTelemetry) {
-            auditLogger.infoThrottled(
-                throttleKey = "cob_iob_runtime_resolved",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "cob_iob_runtime_resolved",
-                metadata = mapOf(
-                    "cobGrams" to runtimeCobIob.cobGrams,
-                    "iobUnits" to runtimeCobIob.iobUnits,
-                    "realIobUnits" to runtimeCobIob.realIobUnits,
-                    "localCobGrams" to runtimeCobIob.localCobGrams,
-                    "localIobUnits" to runtimeCobIob.localIobUnits,
-                    "realOnsetMinutes" to runtimeCobIob.realOnsetMinutes,
-                    "baseOnsetMinutes" to runtimeCobIob.baseOnsetMinutes,
-                    "onsetSampleCount" to runtimeCobIob.onsetSampleCount,
-                    "usedLocalFallback" to runtimeCobIob.usedLocalFallback,
-                    "mergedWithTelemetry" to runtimeCobIob.mergedWithTelemetry
-                )
-            )
-        }
-        if (!insulinTherapyAvailable && runtimeCobIob.iobUnits >= 0.3) {
-            auditLogger.warn(
-                "forecast_insulin_events_missing",
-                mapOf(
-                    "iobUnits" to runtimeCobIob.iobUnits,
-                    "therapyEvents24h" to therapy.size,
-                    "reason" to "iob_present_without_insulin_therapy_events"
-                )
-            )
-        }
-        auditCycleCheckpoint("post_cob_iob_runtime")
-        val zoned = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
-        val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
-        val currentPattern = db.patternDao().byDayAndHour(dayType.name, zoned.hour)?.let {
-            io.aaps.copilot.domain.model.PatternWindow(
-                dayType = io.aaps.copilot.domain.model.DayType.valueOf(it.dayType),
-                hour = it.hour,
-                sampleCount = it.sampleCount,
-                activeDays = it.activeDays,
-                lowRate = it.lowRate,
-                highRate = it.highRate,
-                recommendedTargetMmol = it.recommendedTargetMmol,
-                isRiskWindow = it.isRiskWindow
-            )
-        }
-        val effectiveBaseTarget = resolveEffectiveBaseTarget(settings.baseTargetMmol, latestTelemetry)
-        val latestGlucose = glucose.maxBy { it.ts }
-
-        val effectiveStaleMaxMinutes = resolveEffectiveStaleMaxMinutes(settings)
-        val dataFresh = now - latestGlucose.ts <= effectiveStaleMaxMinutes * 60 * 1000L
-        val actionsLast6h = actionRepository.countSentActionsLast6h()
-        val activeTempTarget = resolveActiveTempTarget(now)
-        val therapySensorBlocked = isSensorBlocked(therapy, now)
-        val sensorQuality = evaluateSensorQuality(
             glucose = glucose,
-            nowTs = now,
-            staleMaxMinutes = effectiveStaleMaxMinutes
+            therapy = therapy,
+            latestTelemetry = latestTelemetry,
+            latestGlucose = latestGlucose,
+            sensorLagGlucoseHistory = sensorLagGlucoseHistory,
+            sensorLagTherapyHistory = sensorLagTherapyHistory,
+            sensorLagRuntimeContext = sensorLagRuntimeContext,
+            effectiveStaleMaxMinutes = effectiveStaleMaxMinutes,
+            sensorQuality = sensorQuality,
+            sensorBlocked = sensorBlocked,
+            effectiveCobGrams = runtimeCobIob.cobGrams,
+            insulinCycleContext = forecastInsulinCycle,
+            currentPattern = currentPattern,
+            circadianPrior = circadianPrior,
+            sensitivityRuntime = prepared.sensitivityRuntime,
+            uamSensitivityRuntime = sensitivityFanOut.contextFor(SensitivityRuntimeConsumer.UAM),
+            calibrationIdentity = preparedCalibration.identity
         )
-        val sensorBlocked = therapySensorBlocked || sensorQuality.blocked
-        persistSensorQualityTelemetry(nowTs = now, assessment = sensorQuality)
-        latestTelemetry["sensor_quality_score"] = sensorQuality.score
-        latestTelemetry["sensor_quality_blocked"] = if (sensorQuality.blocked) 1.0 else 0.0
-        latestTelemetry["sensor_quality_suspect_false_low"] = if (sensorQuality.suspectFalseLow) 1.0 else 0.0
-        sensorQuality.delta5Mmol?.let { latestTelemetry["sensor_quality_delta5_mmol"] = it }
-        sensorQuality.noiseStd5Mmol?.let { latestTelemetry["sensor_quality_noise_std5"] = it }
-        latestTelemetry["sensor_quality_gap_min"] = sensorQuality.gapMinutes
+        val mergedForecasts = forecastRuntime.mergedForecasts
+        val controlForecasts = forecastRuntime.controlForecasts
+        val lagCorrectedForecasts = forecastRuntime.lagCorrectedForecasts
+        val calibrationApplied = forecastRuntime.calibrationApplied
+        val contextBiasApplied = forecastRuntime.contextBiasApplied
+        val cobIobBiasApplied = forecastRuntime.cobIobBiasApplied
+        val circadianBiasApplied = forecastRuntime.circadianBiasApplied
+        auditForecastFactorCoverage(
+            nowTs = now,
+            latestTelemetry = latestTelemetry,
+            realtimeIsfCrSnapshot = realtimeIsfCrSnapshot,
+            runtimeGate = isfCrRuntimeGate,
+            runtimeCobIob = runtimeCobIob,
+            currentPattern = currentPattern,
+            calibrationSampleCount = forecastRuntime.calibrationSampleCount,
+            calibrationApplied = calibrationApplied,
+            contextBiasApplied = contextBiasApplied,
+            cobIobBiasApplied = cobIobBiasApplied,
+            circadianPrior = circadianPrior,
+            circadianBiasApplied = circadianBiasApplied,
+            insulinTherapyAvailable = insulinTherapyAvailable
+        )
 
-        if (sensorQuality.blocked) {
-            auditLogger.warn(
-                "sensor_quality_gate_blocked",
-                mapOf(
-                    "reason" to sensorQuality.reason,
-                    "score" to sensorQuality.score,
-                    "delta5Mmol" to sensorQuality.delta5Mmol,
-                    "noiseStd5Mmol" to sensorQuality.noiseStd5Mmol,
-                    "gapMinutes" to sensorQuality.gapMinutes
+        val authoritativeSettings = settingsStore.settings.first()
+        require(authoritativeSettings.sensitivitySettingsRevision == sensitivitySnapshot.settingsRevision) {
+            "settings revision changed before accepted sensitivity cycle publication"
+        }
+        expectedSettings?.let { expectation ->
+            requireSensitivitySettingsExpectation(sensitivitySnapshot, authoritativeSettings, expectation)
+        }
+        val acceptedIdentity = authoritativeSettings.sensitivityRuntimeIdentity()
+        require(sensitivitySnapshot.isf.requested == acceptedIdentity.isfSource) {
+            "accepted sensitivity ISF source does not match authoritative settings"
+        }
+        require(sensitivitySnapshot.cr.requested == acceptedIdentity.crSource) {
+            "accepted sensitivity CR source does not match authoritative settings"
+        }
+        val acceptedForecastCandidate = controlForecasts
+        val expectedForecastGeneration = requireNotNull(
+            resolveAcceptedForecastTimestampStatic(acceptedForecastCandidate)
+        ) { "accepted sensitivity cycle requires one 5/30/60 forecast generation timestamp" }
+        val expectedAcceptedDecomposition = forecastRuntime.forecastDecomposition.toAcceptedDecomposition()
+        val expectedAcceptedForecastRows = acceptedForecastCandidate.map { forecast ->
+            SensitivityAcceptedForecastRow(
+                horizonMinutes = forecast.horizonMinutes,
+                targetTimestamp = forecast.ts,
+                valueMmol = forecast.valueMmol,
+                ciLow = forecast.ciLow,
+                ciHigh = forecast.ciHigh,
+                modelVersion = forecast.modelVersion
+            )
+        }.sortedBy(SensitivityAcceptedForecastRow::horizonMinutes)
+        val acceptedAtTs = allocateAcceptedSensitivityMarkerStatic(
+            telemetryDao = db.telemetryDao(),
+            wallClockTs = now
+        )
+        // Allocation may suspend; the tuple's sequence marker is not the freshness clock.
+        requireFreshAcceptedForecastGenerationStatic(expectedForecastGeneration, System.currentTimeMillis())
+        var authenticatedRoomTuple: AcceptedSensitivityRoomTuple? = null
+        val decisions = runAfterAcceptedSensitivityCycleStatic(
+            persistPendingRoomTuple = {
+                persistPendingSensitivityCycle(
+                    acceptedAtTs = acceptedAtTs,
+                    snapshot = sensitivitySnapshot,
+                    forecasts = acceptedForecastCandidate,
+                    decomposition = forecastRuntime.forecastDecomposition
                 )
-            )
-        }
-        if (therapySensorBlocked && sensorQuality.blocked) {
-            auditLogger.warn(
-                "sensor_quality_gate_and_sensor_state_blocked",
-                mapOf("reason" to sensorQuality.reason)
-            )
-        }
+            },
+            reserveAccepted = {
+                sensitivityRuntimeRepository.reserveAccepted(
+                    snapshot = sensitivitySnapshot,
+                    acceptedAtTs = acceptedAtTs,
+                    acceptedCycleId = sensitivitySnapshot.forecastCycleId
+                )
+            },
+            commitAcceptedRoomTuple = {
+                commitAcceptedSensitivityCycle(
+                    acceptedAtTs = acceptedAtTs,
+                    snapshot = sensitivitySnapshot,
+                    forecasts = acceptedForecastCandidate,
+                    preparedCalibration = preparedCalibration,
+                    expectedIsfCrInputGeneration = expectedIsfCrInputGeneration
+                )
+            },
+            reconcileAcceptedRoomTuple = {
+                val accepted = glucoseCalibrationRepository.readPreparedCalibrationAcceptance(
+                    prepared = preparedCalibration,
+                    acceptedAtTs = acceptedAtTs
+                ) {
+                    AcceptedSensitivityTupleRoomLoader(db).loadExact(
+                        currentSettings = acceptedIdentity,
+                        acceptedAtTs = acceptedAtTs,
+                        atTs = System.currentTimeMillis()
+                    )
+                }
+                authenticatedRoomTuple = accepted
+                accepted?.acceptedAtTs == acceptedAtTs &&
+                    accepted.snapshot == sensitivitySnapshot &&
+                    accepted.accepted.generationTimestamp == expectedForecastGeneration &&
+                    accepted.accepted.decomposition == expectedAcceptedDecomposition &&
+                    accepted.forecasts.map { forecast ->
+                        SensitivityAcceptedForecastRow(
+                            horizonMinutes = forecast.horizonMinutes,
+                            targetTimestamp = forecast.timestamp,
+                            valueMmol = forecast.valueMmol,
+                            ciLow = forecast.ciLow,
+                            ciHigh = forecast.ciHigh,
+                            modelVersion = forecast.modelVersion
+                        )
+                    }.sortedBy(SensitivityAcceptedForecastRow::horizonMinutes) ==
+                    expectedAcceptedForecastRows
+            },
+            finalizeAccepted = sensitivityRuntimeRepository::finalizeAccepted,
+            abortReservation = sensitivityRuntimeRepository::abortAcceptedReservation,
+            beforeClinicalSideEffects = beforeClinicalSideEffects,
+            clinicalSideEffects = acceptedEffects@{
+                val acceptedClinicalForecasts = requireAcceptedClinicalForecastsStatic(
+                    requireNotNull(authenticatedRoomTuple) {
+                        "accepted clinical forecast readback was not retained"
+                    }
+                )
+                val acceptedForecasts = acceptedClinicalForecasts.forecasts
+                val acceptedUnifiedUam = bindUnifiedUamToAcceptedForecastsStatic(
+                    unified = forecastRuntime.unifiedUam,
+                    authority = acceptedClinicalForecasts
+                )
+                publishAcceptedCycleStateStatic(
+                    intent = intent,
+                    acceptedSnapshot = sensitivitySnapshot,
+                    publishUiTelemetry = { acceptedSnapshot ->
+                        persistAcceptedCycleRuntimeTelemetry(
+                            nowTs = now,
+                            settings = authoritativeSettings,
+                            acceptedSnapshot = acceptedSnapshot,
+                            prepared = prepared,
+                            forecastRuntime = forecastRuntime,
+                            latestTelemetry = latestTelemetry,
+                            latestResolved = latestResolved,
+                            latestCheck = latestCheck,
+                            preparedCalibration = preparedCalibration,
+                            acceptedClinicalForecastAuthority = acceptedClinicalForecasts,
+                            acceptedUnifiedUam = acceptedUnifiedUam
+                        )
+                    },
+                    runLocalMaintenance = {
+                        runAcceptedLocalMaintenance(
+                            nowTs = now,
+                            settings = authoritativeSettings,
+                            therapy = therapy
+                        )
+                    }
+                )
+                settings = authoritativeSettings
 
-        maybeSendSensorQualityRollbackTempTarget(
-            settings = settings,
-            nowTs = now,
-            dataFresh = dataFresh,
-            assessment = sensorQuality,
-            activeTempTarget = activeTempTarget,
-            actionsLast6h = actionsLast6h,
-            baseTargetMmol = effectiveBaseTarget
-        )
-        auditCycleCheckpoint("post_sensor_quality")
-
-        val circadianPrior = analyticsRepository.resolveCircadianPrior(
-            nowTs = now,
-            currentGlucose = latestGlucose.valueMmol,
-            telemetry = latestTelemetry,
-            settings = settings
-        )
-        latestTelemetry["pattern_prior_confidence"] = circadianPrior?.confidence
-        latestTelemetry["pattern_prior_bg_median_mmol"] = circadianPrior?.bgMedian
-        latestTelemetry["pattern_prior_30_mmol"] = circadianPrior?.delta30
-        latestTelemetry["pattern_prior_60_mmol"] = circadianPrior?.delta60
-        latestTelemetry["pattern_prior_residual_bias_30_mmol"] = circadianPrior?.residualBias30
-        latestTelemetry["pattern_prior_residual_bias_60_mmol"] = circadianPrior?.residualBias60
-        latestTelemetry["pattern_prior_replay_bias_30"] = circadianPrior?.replayBias30
-        latestTelemetry["pattern_prior_replay_bias_60"] = circadianPrior?.replayBias60
-        latestTelemetry["pattern_prior_median_reversion_30"] = circadianPrior?.medianReversion30
-        latestTelemetry["pattern_prior_median_reversion_60"] = circadianPrior?.medianReversion60
-        latestTelemetry["pattern_prior_horizon_quality_30"] = circadianPrior?.horizonQuality30
-        latestTelemetry["pattern_prior_horizon_quality_60"] = circadianPrior?.horizonQuality60
-        latestTelemetry["pattern_prior_stability_score"] = circadianPrior?.stabilityScore
-        latestTelemetry["pattern_prior_replay_weight_30"] = circadianPrior?.let {
-            patternPriorWeightForHorizonStatic(
-                horizonMinutes = 30,
-                prior = it,
-                weight30 = settings.circadianForecastWeight30,
-                weight60 = settings.circadianForecastWeight60
-            )
-        }
-        latestTelemetry["pattern_prior_replay_weight_60"] = circadianPrior?.let {
-            patternPriorWeightForHorizonStatic(
-                horizonMinutes = 60,
-                prior = it,
-                weight30 = settings.circadianForecastWeight30,
-                weight60 = settings.circadianForecastWeight60
-            )
-        }
-        latestTelemetry["pattern_prior_acute_attenuation"] = circadianPrior?.acuteAttenuation
-        latestTelemetry["pattern_prior_stale_blocked"] = if (circadianPrior?.staleBlocked == true) 1.0 else 0.0
-        circadianPrior?.let {
-            db.telemetryDao().upsertAll(
-                buildCircadianPriorTelemetryRowsStatic(
+                val lowGlucoseSafetyCycle = prepareLowGlucoseSafetyCycle(
                     nowTs = now,
-                    prior = it,
-                    weight30 = settings.circadianForecastWeight30,
-                    weight60 = settings.circadianForecastWeight60
+                    currentGlucoseMmol = forecastRuntime.effectiveCurrentGlucoseMmol,
+                    forecasts = acceptedForecasts,
+                    activeTempTarget = activeTempTarget,
+                    mode = ruleEvaluationModeStatic(intent)
                 )
-            )
-        }
-
-        val legacyProfile = db.profileEstimateDao().active()?.toProfileEstimate()
-        realtimeIsfCrSnapshot?.let { snapshot ->
-            if (snapshot.mode.name == "SHADOW") {
-                logIsfCrShadowDiff(snapshot = snapshot, legacyProfile = legacyProfile)
-                maybeProcessIsfCrShadowAutoActivation(
+                val effectiveBaseTarget = resolveCircadianEffectiveBaseTarget(
                     settings = settings,
                     nowTs = now,
+                    controlForecasts = acceptedForecasts,
+                    runtimeCobIob = runtimeCobIob,
+                    insulinCycleContext = targetInsulinCycle,
+                    sensorQuality = sensorQuality,
+                    sensorBlocked = sensorBlocked,
+                    lowGlucoseSafetyState = lowGlucoseSafetyCycle.state,
                     latestTelemetry = latestTelemetry
                 )
-            }
-        }
-        val currentProfile = when {
-            isfCrRuntimeGate.applyToRuntime && realtimeIsfCrSnapshot != null ->
-                realtimeIsfCrSnapshot.toProfileEstimate(lookbackDays = settings.analyticsLookbackDays)
-            legacyProfile != null -> legacyProfile
-            realtimeIsfCrSnapshot != null -> {
-                auditLogger.warn(
-                    "isfcr_runtime_bootstrap_profile",
-                    mapOf(
-                        "reason" to "legacy_profile_missing",
-                        "mode" to realtimeIsfCrSnapshot.mode.name
-                    )
-                )
-                realtimeIsfCrSnapshot.toProfileEstimate(lookbackDays = settings.analyticsLookbackDays)
-            }
-            else -> null
-        }
-        val currentSlot = resolveTimeSlot(zoned.hour)
-        val currentSegment = db.profileSegmentEstimateDao()
-            .byDayTypeAndTimeSlot(dayType.name, currentSlot.name)
-            ?.toProfileSegmentEstimate()
-        val calculatedUam = calculateCalculatedUamSnapshot(
-            glucose = glucose,
-            therapy = therapy,
-            profile = currentProfile,
-            nowTs = now
-        )
-        latestTelemetry["uam_calculated_flag"] = calculatedUam.flag
-        latestTelemetry["uam_calculated_confidence"] = calculatedUam.confidence
-        calculatedUam.estimatedCarbsGrams?.let { latestTelemetry["uam_calculated_carbs_grams"] = it }
-        persistCalculatedUamTelemetry(nowTs = now, snapshot = calculatedUam)
 
-        val inferredUam = maybeProcessUamInferenceCycle(
-            settings = settings,
-            nowTs = now,
-            glucose = glucose,
-            therapy = therapy,
-            profile = currentProfile,
-            calculatedSnapshot = calculatedUam
-        )
-        if (inferredUam != null) {
-            latestTelemetry["uam_inferred_flag"] = inferredUam.activeFlag
-            latestTelemetry["uam_inferred_confidence"] = inferredUam.confidence ?: 0.0
-            inferredUam.inferredCarbsGrams?.let { latestTelemetry["uam_inferred_carbs_grams"] = it }
-            inferredUam.ingestionTs?.let { latestTelemetry["uam_inferred_ingestion_ts"] = it.toDouble() }
-            latestTelemetry["uam_inferred_boost_mode"] = if (inferredUam.modeBoosted) 1.0 else 0.0
-            latestTelemetry["uam_manual_cob_grams"] = inferredUam.manualCobGrams
-            inferredUam.gAbsRecent.lastOrNull()?.let { latestTelemetry["uam_inferred_gabs_last5_g"] = it }
-            latestTelemetry["uam_inferred_events_active"] = inferredUam.events
-                .count { event ->
-                    event.state == io.aaps.copilot.domain.predict.UamInferenceState.SUSPECTED ||
-                        event.state == io.aaps.copilot.domain.predict.UamInferenceState.CONFIRMED
-                }
-                .toDouble()
-            if (inferredUam.activeFlag >= 0.5) {
-                latestTelemetry["uam_value"] = 1.0
-            }
-            persistInferredUamTelemetry(nowTs = now, result = inferredUam)
-            if (inferredUam.createdNewEvent) {
-                auditLogger.info(
-                    "uam_inference_event_created",
-                    mapOf(
-                        "mode" to if (inferredUam.modeBoosted) "BOOST" else "NORMAL",
-                        "confidence" to inferredUam.confidence,
-                        "carbsGrams" to inferredUam.inferredCarbsGrams
-                    )
-                )
-            }
-        }
-        configurePredictionEngine(
-            settings = settings,
-            realtimeIsfCr = realtimeIsfCrSnapshot,
-            runtimeGate = isfCrRuntimeGate,
-            overrideBlendWeight = isfCrOverrideBlendWeight,
-            runtimeTelemetry = latestTelemetry,
-            uamInference = inferredUam
-        )
-
-        val localForecasts = predictionEngine.predict(glucose, therapy)
-        val mergedForecastsRaw = ensureForecast30(
-            maybeMergeCloudPrediction(glucose, therapy, localForecasts)
-        )
-        val latestGlucoseInput = resolveLatestGlucoseInputMetadata(
-            latestGlucose = latestGlucose,
-            nowTs = now
-        )
-        val sensorLagEstimate = SensorLagRuntimeEstimator.estimate(
-            SensorLagRuntimeEstimator.Input(
-                nowTs = now,
-                glucose = sensorLagGlucoseHistory,
-                therapy = sensorLagTherapyHistory,
-                latestGlucose = latestGlucose,
-                requestedMode = settings.sensorLagCorrectionMode,
-                staleMaxMinutes = effectiveStaleMaxMinutes,
-                sensorQualityScore = sensorQuality.score,
-                sensorBlocked = sensorBlocked,
-                sensorSuspectFalseLow = sensorQuality.suspectFalseLow,
-                latestInput = latestGlucoseInput
-            )
-        )
-        applySensorLagTelemetry(
-            latestTelemetry = latestTelemetry,
-            estimate = sensorLagEstimate,
-            latestGlucoseInput = latestGlucoseInput
-        )
-        val lagSeedForecasts = when (sensorLagEstimate.mode) {
-            SensorLagCorrectionMode.OFF -> mergedForecastsRaw
-            else -> SensorLagRuntimeEstimator.applyForecastBias(
-                forecasts = mergedForecastsRaw,
-                estimate = sensorLagEstimate
-            )
-        }
-        val lagReferenceGlucoseMmol = when (sensorLagEstimate.mode) {
-            SensorLagCorrectionMode.OFF -> latestGlucose.valueMmol
-            else -> sensorLagEstimate.correctedGlucoseMmol
-        }
-        val calibrationErrors = collectForecastCalibrationErrors(nowTs = now)
-        val calibrationTuning = resolveAiCalibrationTuning(
-            latestTelemetry = latestTelemetry,
-            nowTs = now
-        )
-        val mergedForecastsCalibrated = applyRecentForecastCalibrationBias(
-            forecasts = mergedForecastsRaw,
-            history = calibrationErrors,
-            aiTuning = calibrationTuning
-        )
-        val lagForecastsCalibrated = applyRecentForecastCalibrationBias(
-            forecasts = lagSeedForecasts,
-            history = calibrationErrors,
-            aiTuning = calibrationTuning
-        )
-        val calibrationApplied = mergedForecastsCalibrated != mergedForecastsRaw
-        if (mergedForecastsCalibrated != mergedForecastsRaw) {
-            auditLogger.infoThrottled(
-                throttleKey = "forecast_calibration_bias_applied",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "forecast_calibration_bias_applied",
-                metadata = buildCalibrationAuditMeta(
-                    source = mergedForecastsRaw,
-                    adjusted = mergedForecastsCalibrated,
-                    aiTuning = calibrationTuning
-                )
-            )
-        }
-        val mergedForecastsContextBiased = applyContextFactorForecastBias(
-            forecasts = mergedForecastsCalibrated,
-            telemetry = latestTelemetry,
-            latestGlucoseMmol = latestGlucose.valueMmol,
-            pattern = currentPattern
-        )
-        val lagForecastsContextBiased = applyContextFactorForecastBias(
-            forecasts = lagForecastsCalibrated,
-            telemetry = latestTelemetry,
-            latestGlucoseMmol = lagReferenceGlucoseMmol,
-            pattern = currentPattern
-        )
-        val contextBiasApplied = mergedForecastsContextBiased != mergedForecastsCalibrated
-        if (mergedForecastsContextBiased != mergedForecastsCalibrated) {
-            auditLogger.infoThrottled(
-                throttleKey = "forecast_context_bias_applied",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "forecast_context_bias_applied",
-                metadata = mapOf(
-                    "setFactor" to latestTelemetry["isf_factor_set_factor"],
-                    "sensorFactor" to latestTelemetry["isf_factor_sensor_factor"],
-                    "activityFactor" to latestTelemetry["isf_factor_activity_factor"],
-                    "dawnFactor" to latestTelemetry["isf_factor_dawn_factor"],
-                    "stressFactor" to latestTelemetry["isf_factor_stress_factor"],
-                    "hormoneFactor" to latestTelemetry["isf_factor_hormone_factor"],
-                    "steroidFactor" to latestTelemetry["isf_factor_steroid_factor"],
-                    "contextAmbiguity" to latestTelemetry["isf_factor_context_ambiguity"],
-                    "sensorQuality" to latestTelemetry["sensor_quality_score"]
-                )
-            )
-        }
-        val mergedForecastsBiased = applyCobIobForecastBias(
-            forecasts = mergedForecastsContextBiased,
-            cobGrams = latestTelemetry["cob_grams"],
-            iobUnits = latestTelemetry["iob_units"],
-            latestGlucoseMmol = latestGlucose.valueMmol,
-            uamActive = resolveUamActiveTelemetry(latestTelemetry)
-        )
-        val lagForecastsBiased = applyCobIobForecastBias(
-            forecasts = lagForecastsContextBiased,
-            cobGrams = latestTelemetry["cob_grams"],
-            iobUnits = latestTelemetry["iob_units"],
-            latestGlucoseMmol = lagReferenceGlucoseMmol,
-            uamActive = resolveUamActiveTelemetry(latestTelemetry)
-        )
-        val cobIobBiasApplied = mergedForecastsBiased != mergedForecastsContextBiased
-        if (mergedForecastsBiased != mergedForecastsContextBiased) {
-            auditLogger.infoThrottled(
-                throttleKey = "forecast_bias_applied",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "forecast_bias_applied",
-                metadata = mapOf(
-                    "cobGrams" to latestTelemetry["cob_grams"],
-                    "iobUnits" to latestTelemetry["iob_units"]
-                )
-            )
-        }
-        val mergedForecastsCircadian = applyCircadianPatternForecastBias(
-            forecasts = mergedForecastsBiased,
-            prior = circadianPrior,
-            latestGlucoseMmol = latestGlucose.valueMmol,
-            settings = settings
-        )
-        val lagForecastsCircadian = applyCircadianPatternForecastBias(
-            forecasts = lagForecastsBiased,
-            prior = circadianPrior,
-            latestGlucoseMmol = lagReferenceGlucoseMmol,
-            settings = settings
-        )
-        val circadianBiasApplied = mergedForecastsCircadian != mergedForecastsBiased
-        if (mergedForecastsCircadian != mergedForecastsBiased && circadianPrior != null) {
-            auditLogger.infoThrottled(
-                throttleKey = "forecast_circadian_prior_applied",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "forecast_circadian_prior_applied",
-                metadata = mapOf(
-                    "segmentSource" to circadianPrior.segmentSource.name,
-                    "requestedDayType" to circadianPrior.requestedDayType.name,
-                    "confidence" to circadianPrior.confidence,
-                    "qualityScore" to circadianPrior.qualityScore,
-                    "acuteAttenuation" to circadianPrior.acuteAttenuation,
-                    "delta15" to circadianPrior.delta15,
-                    "delta30" to circadianPrior.delta30,
-                    "delta60" to circadianPrior.delta60,
-                    "residualBias30" to circadianPrior.residualBias30,
-                    "residualBias60" to circadianPrior.residualBias60
-                )
-            )
-        }
-        val mergedForecasts = normalizeForecastSet(mergedForecastsCircadian)
-        if (mergedForecasts.size != mergedForecastsBiased.size) {
-            auditLogger.warn(
-                "forecast_duplicate_horizon_deduped",
-                mapOf(
-                    "before" to mergedForecastsBiased.size,
-                    "after" to mergedForecasts.size
-                )
-            )
-        }
-        val lagCorrectedForecasts = normalizeForecastSet(lagForecastsCircadian)
-        if (lagCorrectedForecasts.size != lagForecastsBiased.size) {
-            auditLogger.warn(
-                "forecast_sensor_lag_duplicate_horizon_deduped",
-                mapOf(
-                    "before" to lagForecastsBiased.size,
-                    "after" to lagCorrectedForecasts.size
-                )
-            )
-        }
-        val sensorLagControlPlan = resolveSensorLagControlPlanStatic(
-            requestedMode = settings.sensorLagCorrectionMode,
-            estimate = sensorLagEstimate,
-            rawCurrentGlucoseMmol = latestGlucose.valueMmol,
-            mergedForecasts = mergedForecasts,
-            lagCorrectedForecasts = lagCorrectedForecasts
-        )
-        val effectiveCurrentGlucoseMmol = sensorLagControlPlan.effectiveCurrentGlucoseMmol
-        val controlForecasts = sensorLagControlPlan.controlForecasts
-        persistSensorLagTelemetry(
-            nowTs = now,
-            estimate = sensorLagEstimate,
-            latestGlucoseInput = latestGlucoseInput,
-            controlForecasts = controlForecasts,
-            candidateForecasts = lagCorrectedForecasts,
-            shadowRuleChanged = null,
-            shadowTargetDeltaMmol = null
-        )
-        val forecastDiagnostics = (predictionEngine as? HybridPredictionEngine)?.diagnosticsSnapshot()
-        val forecastDecomposition = extractForecastDecompositionSnapshotStatic(
-            diagnostics = forecastDiagnostics,
-            localForecasts = localForecasts
-        )
-        persistForecastDecompositionTelemetry(nowTs = now, decomposition = forecastDecomposition)
-        val unifiedUam = resolveUnifiedUamRuntimeSnapshot(
-            nowTs = now,
-            calculated = calculatedUam,
-            inferred = inferredUam,
-            diagnostics = forecastDiagnostics
-        )
-        applyUnifiedUamTelemetry(latestTelemetry = latestTelemetry, unified = unifiedUam)
-        persistUnifiedUamTelemetry(nowTs = now, unified = unifiedUam)
-
-        val forecastEntities = mergedForecasts.map { it.toForecastEntity() }
-        forecastEntities.forEach { row ->
-            db.forecastDao().deleteByTimestampAndHorizon(
-                timestamp = row.timestamp,
-                horizonMinutes = row.horizonMinutes
-            )
-        }
-        db.forecastDao().insertAll(forecastEntities)
-        val removedDuplicates = db.forecastDao().deleteDuplicateByTimestampAndHorizon()
-        auditLogger.infoThrottled(
-            throttleKey = "forecast_storage_normalized",
-            intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-            message = "forecast_storage_normalized",
-            metadata = mapOf(
-                "insertedRows" to forecastEntities.size,
-                "removedDuplicateRows" to removedDuplicates
-            )
-        )
-        if (removedDuplicates > 0) {
-            auditLogger.warn("forecast_storage_duplicates_cleaned", mapOf("removedRows" to removedDuplicates))
-        }
-        db.forecastDao().deleteOlderThan(System.currentTimeMillis() - FORECAST_RETENTION_MS)
-        auditCycleCheckpoint("post_forecast_storage")
-
-        auditLogger.infoThrottled(
-            throttleKey = "forecast_factor_coverage",
-            intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-            message = "forecast_factor_coverage",
-            metadata = buildForecastFactorCoverageMeta(
-                latestTelemetry = latestTelemetry,
-                realtimeIsfCrSnapshot = realtimeIsfCrSnapshot,
-                runtimeGate = isfCrRuntimeGate,
-                runtimeCobIob = runtimeCobIob,
-                currentPattern = currentPattern,
-                calibrationSampleCount = calibrationErrors.size,
-                calibrationApplied = calibrationApplied,
-                contextBiasApplied = contextBiasApplied,
-                cobIobBiasApplied = cobIobBiasApplied,
-                circadianPrior = circadianPrior,
-                circadianBiasApplied = circadianBiasApplied,
-                calculatedUam = calculatedUam,
-                inferredUam = inferredUam,
-                insulinTherapyAvailable = insulinTherapyAvailable
-            )
-        )
-        auditCycleCheckpoint("post_uam_and_coverage")
-
-        val context = RuleContext(
-            nowTs = now,
-            glucose = glucose,
-            therapyEvents = therapy,
-            forecasts = controlForecasts,
-            currentDayPattern = currentPattern,
-            baseTargetMmol = effectiveBaseTarget,
-            postHypoThresholdMmol = settings.postHypoThresholdMmol,
-            postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
-            postHypoTargetMmol = settings.postHypoTargetMmol,
-            postHypoDurationMinutes = settings.postHypoDurationMinutes,
-            postHypoLookbackMinutes = settings.postHypoLookbackMinutes,
-            dataFresh = dataFresh,
-            activeTempTargetMmol = activeTempTarget,
-            actionsLast6h = actionsLast6h,
-            sensorBlocked = sensorBlocked,
-            currentGlucoseMmol = effectiveCurrentGlucoseMmol,
-            currentProfileEstimate = currentProfile,
-            currentProfileSegment = currentSegment,
-            latestTelemetry = latestTelemetry,
-            retargetCooldownMinutes = settings.adaptiveControllerRetargetMinutes,
-            adaptiveMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
-            adaptiveMinTargetMmol = settings.safetyMinTargetMmol,
-            adaptiveMaxTargetMmol = settings.safetyMaxTargetMmol
-        )
-
-        val decisions = ruleEngine.evaluate(
-            context = context,
-            config = SafetyPolicyConfig(
-                killSwitch = settings.killSwitch,
-                maxActionsIn6Hours = resolveEffectiveMaxActions6h(settings),
-                minTargetMmol = settings.safetyMinTargetMmol,
-                maxTargetMmol = settings.safetyMaxTargetMmol
-            ),
-            runtimeConfig = runtimeConfig(settings)
-        )
-        auditCycleCheckpoint(
-            stage = "post_rule_evaluate",
-            metadata = mapOf("decisions" to decisions.size)
-        )
-        if (sensorLagControlPlan.shouldEvaluateShadow) {
-            val shadowDecisions = sensorLagShadowRuleEngine.evaluate(
-                context = context.copy(
-                    forecasts = checkNotNull(sensorLagControlPlan.shadowForecasts),
-                    currentGlucoseMmol = checkNotNull(sensorLagControlPlan.shadowCurrentGlucoseMmol)
-                ),
-                config = SafetyPolicyConfig(
-                    killSwitch = settings.killSwitch,
-                    maxActionsIn6Hours = resolveEffectiveMaxActions6h(settings),
-                    minTargetMmol = settings.safetyMinTargetMmol,
-                    maxTargetMmol = settings.safetyMaxTargetMmol
-                ),
-                runtimeConfig = runtimeConfig(settings)
-            )
-            val shadowRuleChanged = hasSensorLagShadowRuleChanged(
-                baseline = decisions,
-                candidate = shadowDecisions
-            )
-            val shadowTargetDeltaMmol = resolveSensorLagShadowTargetDeltaMmol(
-                baseline = decisions,
-                candidate = shadowDecisions
-            )
-            latestTelemetry["sensor_lag_shadow_rule_changed"] = if (shadowRuleChanged) 1.0 else 0.0
-            latestTelemetry["sensor_lag_shadow_target_delta_mmol"] = shadowTargetDeltaMmol
-            persistSensorLagTelemetry(
-                nowTs = now,
-                estimate = sensorLagEstimate,
-                latestGlucoseInput = latestGlucoseInput,
-                controlForecasts = controlForecasts,
-                candidateForecasts = lagCorrectedForecasts,
-                shadowRuleChanged = shadowRuleChanged,
-                shadowTargetDeltaMmol = shadowTargetDeltaMmol
-            )
-        }
-
-        val effectiveDecisions = mutableListOf<RuleDecision>()
-        var adaptiveTriggeredThisCycle = false
-        for (decision in decisions) {
-            val effectiveDecision = if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
-                val cooldownMinutes = ruleCooldownMinutes(decision.ruleId, settings)
-                if (
-                    cooldownMinutes > 0 &&
-                    !shouldBypassAdaptiveCooldownStatic(
-                        decision = decision,
-                        activeTempTargetMmol = activeTempTarget
-                    ) &&
-                    isRuleInCooldown(decision.ruleId, now, cooldownMinutes)
-                ) {
-                    val cooldownReason = if (decision.ruleId == AdaptiveTargetControllerRule.RULE_ID) {
-                        "retarget_cooldown_${cooldownMinutes}m"
-                    } else {
-                        "rule_cooldown_active:${cooldownMinutes}m"
-                    }
-                    decision.copy(
-                        state = RuleState.BLOCKED,
-                        reasons = decision.reasons + cooldownReason,
-                        actionProposal = null
-                    )
-                } else {
-                    decision
-                }
-            } else {
-                decision
-            }
-            effectiveDecisions += effectiveDecision
-
-            db.ruleExecutionDao().insert(
-                RuleExecutionEntity(
-                    timestamp = now,
-                    ruleId = effectiveDecision.ruleId,
-                    state = effectiveDecision.state.name,
-                    reasonsJson = gson.toJson(effectiveDecision.reasons),
-                    actionJson = effectiveDecision.actionProposal?.let { gson.toJson(it) }
-                )
-            )
-
-            if (effectiveDecision.state == RuleState.TRIGGERED && effectiveDecision.actionProposal != null) {
-                if (effectiveDecision.ruleId == AdaptiveTargetControllerRule.RULE_ID &&
-                    effectiveDecision.actionProposal.type.equals("temp_target", ignoreCase = true)
-                ) {
-                    adaptiveTriggeredThisCycle = true
-                }
-                val normalizedAction = alignTempTargetToBaseTarget(
-                    action = effectiveDecision.actionProposal,
-                    forecasts = controlForecasts,
-                    baseTargetMmol = effectiveBaseTarget,
-                    sourceRuleId = effectiveDecision.ruleId
-                )
-                val idempotencyKey = buildIdempotencyKey(
-                    ruleId = effectiveDecision.ruleId,
+                val context = RuleContext(
                     nowTs = now,
+                    glucose = glucose,
+                    therapyEvents = therapy,
+                    forecasts = acceptedForecasts,
+                    currentDayPattern = currentPattern,
+                    baseTargetMmol = effectiveBaseTarget.effectiveTargetMmol,
+                    postHypoThresholdMmol = settings.postHypoThresholdMmol,
+                    postHypoDeltaThresholdMmol5m = settings.postHypoDeltaThresholdMmol5m,
+                    postHypoTargetMmol = settings.postHypoTargetMmol,
+                    postHypoDurationMinutes = settings.postHypoDurationMinutes,
+                    postHypoLookbackMinutes = settings.postHypoLookbackMinutes,
+                    dataFresh = dataFresh,
+                    activeTempTargetMmol = activeTempTarget,
+                    actionsLast6h = actionsLast6h,
+                    actionChronologyResolved = localSafetyChronologyResolved,
+                    sensorBlocked = sensorBlocked,
+                    currentGlucoseMmol = forecastRuntime.effectiveCurrentGlucoseMmol,
+                    currentProfileEstimate = currentProfile,
+                    currentProfileSegment = currentSegment,
+                    latestTelemetry = latestTelemetry,
+                    safetyIobUnits = targetInsulinCycle.safetyIobUnits,
+                    retargetCooldownMinutes = settings.adaptiveControllerRetargetMinutes,
+                    adaptiveMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
+                    adaptiveMinTargetMmol = settings.safetyMinTargetMmol,
+                    adaptiveMaxTargetMmol = settings.safetyMaxTargetMmol
+                )
+                val writerSettings = settingsStore.settings.first()
+                require(writerSettings.sensitivitySettingsRevision == sensitivitySnapshot.settingsRevision) {
+                    "settings revision changed before therapy writer stage"
+                }
+                val writerPolicy = restrictCyclePolicyStatic(
+                    bootstrapPolicy = bootstrapPolicy,
+                    intent = intent,
+                    therapyActionsArmed = writerSettings.therapyActionsArmed,
+                    killSwitch = writerSettings.killSwitch,
+                    powerSaveActive = PowerSaveController.isActive(writerSettings)
+                )
+                settings = writerSettings
+                val acceptedDecisions = runAcceptedClinicalCalculationFanOutStatic(
+                    intent = intent,
+                    policy = writerPolicy,
+                    acceptedSnapshot = sensitivitySnapshot,
+                    acceptedClinicalForecastAuthority = acceptedClinicalForecasts,
+                    unifiedUam = acceptedUnifiedUam,
+                    writeUamCarbs = {
+                        processUnifiedUamExport(
+                            nowTs = now,
+                            settings = settings,
+                            unified = acceptedUnifiedUam,
+                            acceptedClinicalForecastAuthority = acceptedClinicalForecasts,
+                            currentGlucoseMmol = forecastRuntime.effectiveCurrentGlucoseMmol,
+                            latestTelemetry = latestTelemetry
+                        )
+                    },
+                    evaluateRulesAndTargetManager = { targetSensitivityRuntime, externalWritesAllowed ->
+                        requireCycleSensitivityRuntime(
+                            context = targetSensitivityRuntime,
+                            expectedConsumer = SensitivityRuntimeConsumer.TARGET_MANAGER,
+                            cycleSnapshot = sensitivitySnapshot
+                        )
+                        executeRulesAndActions(
+                            settings = settings,
+                            nowTs = now,
+                            context = context,
+                            controlForecasts = acceptedForecasts,
+                            lagCorrectedForecasts = lagCorrectedForecasts,
+                            activeAapsTarget = activeAapsTarget,
+                            activeTempTarget = activeTempTarget,
+                            effectiveBaseTarget = effectiveBaseTarget,
+                            dataFresh = dataFresh,
+                            actionsLast6h = actionsLast6h,
+                            localSafetyChronologyResolved = localSafetyChronologyResolved,
+                            localSafetyCausalThroughTs = localSafetyCausalThroughTs,
+                            latestAutomaticSent = latestAutomaticSent,
+                            sensorBlocked = sensorBlocked,
+                            sensorQuality = sensorQuality,
+                            lowGlucoseSafetyCycle = lowGlucoseSafetyCycle,
+                            latestTelemetry = latestTelemetry,
+                            deliveryTrustTelemetry = deliveryTrustTelemetry,
+                            forecastRuntime = forecastRuntime,
+                            insulinCycleContext = targetInsulinCycle,
+                            sensitivityRuntime = targetSensitivityRuntime,
+                            acceptedClinicalForecastAuthority = acceptedClinicalForecasts,
+                            externalWritesAllowed = externalWritesAllowed,
+                            mode = ruleEvaluationModeStatic(intent)
+                        )
+                    },
+                    assessAlertCause = { alertSensitivityRuntime, unifiedUam ->
+                        evaluateAlertCauseDiagnostic(
+                            settings = settings,
+                            nowTs = now,
+                            latestGlucose = latestGlucose,
+                            latestResolved = latestResolved,
+                            controlForecasts = acceptedForecasts,
+                            dataFresh = dataFresh,
+                            sensorBlocked = sensorBlocked,
+                            sensorQuality = sensorQuality,
+                            insulinCycleContext = insulinCycleFanOut.contextFor(InsulinCycleConsumer.ALERTS),
+                            sensitivityRuntime = alertSensitivityRuntime,
+                            unifiedUam = unifiedUam,
+                            deliveryTrustTelemetry = deliveryTrustTelemetry,
+                            effectiveBaseTarget = effectiveBaseTarget,
+                            circadianBiasApplied = forecastRuntime.circadianBiasApplied,
+                            circadianPrior = circadianPrior,
+                            therapy = therapy,
+                            acceptedClinicalForecastAuthority = acceptedClinicalForecasts
+                        )
+                    },
+                    publishAlerts = { alertSensitivityRuntime, unifiedUam ->
+                        evaluateAndPublishGlucoseAlerts(
+                            settings = settings,
+                            nowTs = now,
+                            latestGlucose = latestGlucose,
+                            latestResolved = latestResolved,
+                            controlForecasts = acceptedForecasts,
+                            dataFresh = dataFresh,
+                            sensorBlocked = sensorBlocked,
+                            sensorQuality = sensorQuality,
+                            insulinCycleContext = insulinCycleFanOut.contextFor(InsulinCycleConsumer.ALERTS),
+                            sensitivityRuntime = alertSensitivityRuntime,
+                            unifiedUam = unifiedUam,
+                            deliveryTrustTelemetry = deliveryTrustTelemetry,
+                            effectiveBaseTarget = effectiveBaseTarget,
+                            circadianBiasApplied = forecastRuntime.circadianBiasApplied,
+                            circadianPrior = circadianPrior,
+                            therapy = therapy,
+                            acceptedClinicalForecastAuthority = acceptedClinicalForecasts
+                        )
+                        publishDeliveryDiagnostic(
+                            settings = settings, nowTs = now, glucose = latestGlucose,
+                            sensorTrusted = dataFresh && !sensorBlocked && !sensorQuality.blocked &&
+                                !sensorQuality.suspectFalseLow && sensorQuality.score in 0.7..1.0,
+                            insulin = insulinCycleFanOut.contextFor(InsulinCycleConsumer.ALERTS),
+                            sensitivity = alertSensitivityRuntime, uam = unifiedUam,
+                            forecasts = acceptedClinicalForecasts, calibration = forecastRuntime.calibrationIdentity
+                        )
+                    },
+                    publishAcceptedForecast = {
+                        onWidgetDataChanged?.invoke()
+                    }
+                )
+                runAcceptedSensitivityMaintenance(
+                    policy = writerPolicy,
                     settings = settings,
-                    action = normalizedAction
+                    nowTs = now,
+                    realtimeSnapshot = realtimeIsfCrSnapshot,
+                    latestTelemetry = latestTelemetry
                 )
-                val command = ActionCommand(
-                    id = UUID.randomUUID().toString(),
-                    type = normalizedAction.type,
-                    params = mapOf(
-                        "targetMmol" to normalizedAction.targetMmol.toString(),
-                        "durationMinutes" to normalizedAction.durationMinutes.toString(),
-                        "reason" to normalizedAction.reason
-                    ),
-                    safetySnapshot = SafetySnapshot(
-                        killSwitch = settings.killSwitch,
-                        dataFresh = dataFresh,
-                        activeTempTargetMmol = activeTempTarget,
-                        actionsLast6h = actionsLast6h
-                    ),
-                    idempotencyKey = idempotencyKey
-                )
-                submitActionWithTimeout(
-                    command = command,
-                    sourceRuleId = effectiveDecision.ruleId,
-                    nowTs = now
-                )
+                acceptedDecisions
             }
-        }
+        )
 
-        if (!adaptiveTriggeredThisCycle) {
-            maybeSendAdaptiveKeepaliveTempTarget(
-                settings = settings,
-                nowTs = now,
-                dataFresh = dataFresh,
-                sensorBlocked = sensorBlocked,
-                activeTempTarget = activeTempTarget,
-                actionsLast6h = actionsLast6h,
-                forecasts = controlForecasts,
-                baseTargetMmol = effectiveBaseTarget
-            )
-        }
-        auditCycleCheckpoint("post_actions")
-
-        auditAdaptiveController(effectiveDecisions, context, settings, controlForecasts)
-        auditCycleCheckpoint("post_adaptive_audit")
+        if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) return sensitivitySnapshot
 
         auditLogger.info(
             "automation_cycle_completed",
@@ -1303,6 +1527,761 @@ class AutomationRepository(
                 "staleMaxMin" to effectiveStaleMaxMinutes,
                 "actionsLimit6h" to resolveEffectiveMaxActions6h(settings)
             )
+        )
+        return sensitivitySnapshot
+    }
+
+    private suspend fun persistPendingSensitivityCycle(
+        acceptedAtTs: Long,
+        snapshot: SensitivityRuntimeSnapshot,
+        forecasts: List<Forecast>,
+        decomposition: ForecastDecompositionSnapshot?
+    ) {
+        val forecastTimestamp = requireNotNull(
+            resolveAcceptedForecastTimestampStatic(forecasts)
+        ) {
+            "accepted sensitivity cycle requires one 5/30/60 forecast generation timestamp"
+        }
+        val acceptedDecomposition = decomposition.toAcceptedDecomposition()
+        val encodedDecomposition = SensitivityAcceptedForecastDecompositionCodec.encode(acceptedDecomposition)
+        val digest = requireNotNull(
+            SensitivityAcceptedForecastDigest.compute(
+                cycleId = snapshot.forecastCycleId,
+                settingsRevision = snapshot.settingsRevision,
+                forecasts = forecasts.map { forecast ->
+                    SensitivityAcceptedForecastRow(
+                        horizonMinutes = forecast.horizonMinutes,
+                        targetTimestamp = forecast.ts,
+                        valueMmol = forecast.valueMmol,
+                        ciLow = forecast.ciLow,
+                        ciHigh = forecast.ciHigh,
+                        modelVersion = forecast.modelVersion
+                    )
+                },
+                decomposition = acceptedDecomposition
+            )
+        ) { "accepted sensitivity cycle forecast digest is invalid" }
+        db.telemetryDao().upsertAcceptedSensitivityTuple(
+            listOf(
+                TelemetrySampleEntity(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = acceptedAtTs,
+                    source = SENSITIVITY_ACCEPTED_SOURCE,
+                    key = SENSITIVITY_ACCEPTED_CYCLE_ID_KEY,
+                    valueDouble = null,
+                    valueText = snapshot.forecastCycleId,
+                    unit = null,
+                    quality = "OK"
+                ),
+                TelemetrySampleEntity(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = acceptedAtTs,
+                    source = SENSITIVITY_ACCEPTED_SOURCE,
+                    key = SENSITIVITY_ACCEPTED_FORECAST_DECOMPOSITION_KEY,
+                    valueDouble = null,
+                    valueText = encodedDecomposition,
+                    unit = null,
+                    quality = "OK"
+                ),
+                TelemetrySampleEntity(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = acceptedAtTs,
+                    source = SENSITIVITY_ACCEPTED_SOURCE,
+                    key = SENSITIVITY_ACCEPTED_SETTINGS_REVISION_KEY,
+                    valueDouble = snapshot.settingsRevision.toDouble(),
+                    valueText = null,
+                    unit = "revision",
+                    quality = "OK"
+                ),
+                TelemetrySampleEntity(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = acceptedAtTs,
+                    source = SENSITIVITY_ACCEPTED_SOURCE,
+                    key = SENSITIVITY_ACCEPTED_FORECAST_TIMESTAMP_KEY,
+                    valueDouble = forecastTimestamp.toDouble(),
+                    valueText = null,
+                    unit = "epoch_ms",
+                    quality = "OK"
+                ),
+                TelemetrySampleEntity(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = acceptedAtTs,
+                    source = SENSITIVITY_ACCEPTED_SOURCE,
+                    key = SENSITIVITY_ACCEPTED_FORECAST_DIGEST_KEY,
+                    valueDouble = null,
+                    valueText = digest,
+                    unit = "sha256",
+                    quality = "OK"
+                ),
+                TelemetrySampleEntity(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = acceptedAtTs,
+                    source = SENSITIVITY_ACCEPTED_SOURCE,
+                    key = SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY,
+                    valueDouble = null,
+                    valueText = SENSITIVITY_ACCEPTED_PUBLICATION_PENDING,
+                    unit = null,
+                    quality = "OK"
+                )
+            )
+        )
+    }
+
+    private suspend fun commitAcceptedSensitivityCycle(
+        acceptedAtTs: Long,
+        snapshot: SensitivityRuntimeSnapshot,
+        forecasts: List<Forecast>,
+        preparedCalibration: PreparedCalibrationCycle,
+        expectedIsfCrInputGeneration: IsfCrInputGeneration
+    ) {
+        val rows = forecasts.map { it.toForecastEntity() }
+        glucoseCalibrationRepository.commitPreparedCalibrationAcceptance(
+            prepared = preparedCalibration,
+            acceptedAtTs = acceptedAtTs
+        ) {
+            commitAcceptedSensitivityCycleStatic(
+                db = db,
+                acceptedAtTs = acceptedAtTs,
+                snapshot = snapshot,
+                forecastRows = rows,
+                expectedIsfCrInputGeneration = expectedIsfCrInputGeneration
+            )
+        }
+        auditLogger.infoThrottled(
+            throttleKey = "forecast_storage_accepted",
+            intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+            message = "forecast_storage_accepted",
+            metadata = mapOf(
+                "insertedRows" to rows.size,
+                "cycleId" to snapshot.forecastCycleId,
+                "settingsRevision" to snapshot.settingsRevision
+            )
+        )
+    }
+
+    private fun requireSensitivitySettingsExpectation(
+        snapshot: SensitivityRuntimeSnapshot,
+        settings: AppSettings,
+        expectation: SensitivitySettingsAcceptanceExpectation
+    ) {
+        require(snapshot.settingsRevision == expectation.settingsRevision) {
+            "accepted sensitivity settings revision mismatch"
+        }
+        require(snapshot.isf.requested == expectation.isfSource) {
+            "accepted ISF requested source mismatch"
+        }
+        require(snapshot.cr.requested == expectation.crSource) {
+            "accepted CR requested source mismatch"
+        }
+        require(settings.sensitivitySettingsRevision == expectation.settingsRevision) {
+            "current sensitivity settings revision mismatch"
+        }
+        require(settings.sensitivityRuntimeFingerprint() == expectation.fingerprint) {
+            "current sensitivity runtime fingerprint mismatch"
+        }
+    }
+
+    private fun ForecastDecompositionSnapshot?.toAcceptedDecomposition() =
+        this?.let { value ->
+            SensitivityAcceptedForecastDecomposition(
+                trend60Mmol = value.trend60Mmol,
+                therapy60Mmol = value.therapy60Mmol,
+                uam60Mmol = value.uam60Mmol,
+                residualRoc0Mmol5 = value.residualRoc0Mmol5,
+                sigmaEMmol5 = value.sigmaEMmol5,
+                kfSigmaGMmol = value.kfSigmaGMmol,
+                modelVersion = value.modelVersion
+            )
+        } ?: SensitivityAcceptedForecastDecomposition.unavailable()
+
+    private suspend fun persistAcceptedCycleRuntimeTelemetry(
+        nowTs: Long,
+        settings: AppSettings,
+        acceptedSnapshot: SensitivityRuntimeSnapshot,
+        prepared: PredictionPreparationContext,
+        forecastRuntime: ForecastRuntimeContext,
+        latestTelemetry: Map<String, Double?>,
+        latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
+        latestCheck: io.aaps.copilot.domain.model.BloodGlucoseCheck?,
+        preparedCalibration: PreparedCalibrationCycle,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts,
+        acceptedUnifiedUam: UnifiedUamRuntimeSnapshot
+    ) {
+        val acceptedForecasts = acceptedClinicalForecastAuthority.forecasts
+        require(forecastRuntime.sensitivityRuntime.snapshot === acceptedSnapshot) {
+            "runtime telemetry must use the exact accepted sensitivity snapshot"
+        }
+        require(acceptedUnifiedUam.sensitivityCycleId == acceptedSnapshot.forecastCycleId) {
+            "UAM telemetry cycle does not match accepted sensitivity cycle"
+        }
+        require(
+            acceptedUnifiedUam.sensitivitySettingsRevision == acceptedSnapshot.settingsRevision
+        ) { "UAM telemetry revision does not match accepted sensitivity cycle" }
+        requireUnifiedUamAcceptedForecastAuthorityStatic(
+            unified = acceptedUnifiedUam,
+            authority = acceptedClinicalForecastAuthority
+        )
+        requireExactCalibrationIdentityStatic(
+            prepared = preparedCalibration.identity,
+            forecast = forecastRuntime.calibrationIdentity,
+            uam = requireNotNull(acceptedUnifiedUam.calibrationIdentity),
+            targetManager = forecastRuntime.calibrationIdentity,
+            ui = preparedCalibration.identity
+        )
+
+        persistRealtimeIsfCrTelemetry(nowTs = nowTs, latestTelemetry = latestTelemetry)
+        persistRuntimeDiaTelemetry(nowTs = nowTs, runtimeDia = prepared.runtimeDia)
+        persistRuntimeCobIobTelemetry(
+            nowTs = nowTs,
+            runtime = prepared.runtimeCobIob,
+            rawCobGrams = prepared.rawCobFromTelemetry,
+            rawIobUnits = prepared.rawIobFromTelemetry
+        )
+        persistSensorQualityTelemetry(nowTs = nowTs, assessment = prepared.sensorQuality)
+        prepared.circadianPrior?.let { prior ->
+            db.telemetryDao().upsertAll(
+                buildCircadianPriorTelemetryRowsStatic(
+                    nowTs = nowTs,
+                    prior = prior,
+                    weight30 = settings.circadianForecastWeight30,
+                    weight60 = settings.circadianForecastWeight60
+                )
+            )
+        }
+        persistActivityForecastTelemetry(
+            nowTs = nowTs,
+            context = forecastRuntime.activityEffectContext,
+            plan = forecastRuntime.activityForecastPlan
+        )
+        persistGlucoseCalibrationTelemetry(
+            nowTs = nowTs,
+            latestResolved = latestResolved,
+            calibrationModel = preparedCalibration.model,
+            latestCheck = latestCheck
+        )
+        persistSensorLagTelemetry(
+            nowTs = nowTs,
+            estimate = forecastRuntime.sensorLagEstimate,
+            latestGlucoseInput = forecastRuntime.latestGlucoseInput,
+            controlForecasts = acceptedForecasts,
+            candidateForecasts = forecastRuntime.lagCorrectedForecasts,
+            shadowRuleChanged = null,
+            shadowTargetDeltaMmol = null
+        )
+        persistForecastDecompositionTelemetry(
+            nowTs = nowTs,
+            decomposition = forecastRuntime.forecastDecomposition
+        )
+        db.telemetryDao().upsertAll(
+            buildAcceptedClinicalForecastTelemetryRowsStatic(
+                nowTs = nowTs,
+                source = ACCEPTED_RUNTIME_TELEMETRY_SOURCE,
+                keyPrefix = "overview_accepted_forecast",
+                authority = acceptedClinicalForecastAuthority
+            )
+        )
+        persistUnifiedUamTelemetry(
+            nowTs = nowTs,
+            unified = acceptedUnifiedUam,
+            acceptedClinicalForecastAuthority = acceptedClinicalForecastAuthority
+        )
+    }
+
+    private suspend fun runAcceptedLocalMaintenance(
+        nowTs: Long,
+        settings: AppSettings,
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>
+    ) {
+        val removedInvalidTelemetryTs = db.telemetryDao().deleteByTimestampAtOrBelow(0L)
+        if (removedInvalidTelemetryTs > 0) {
+            auditLogger.info(
+                "telemetry_invalid_timestamp_cleanup",
+                mapOf("removedRows" to removedInvalidTelemetryTs)
+            )
+        }
+        val removedForecastDuplicates = db.forecastDao().deleteDuplicateByTimestampAndHorizon()
+        if (removedForecastDuplicates > 0) {
+            auditLogger.warn(
+                "forecast_storage_duplicates_cleaned",
+                mapOf("removedRows" to removedForecastDuplicates)
+            )
+        }
+        db.forecastDao().deleteOlderThan(nowTs - resolveHistoryRetentionMs(settings))
+        refreshRealInsulinProfileTelemetry(nowTs = nowTs, settings = settings)
+        require(therapy.none { it.ts > nowTs }) { "accepted maintenance therapy must be causal" }
+        energyProfileRepository.refreshPendingSelections(therapy)
+    }
+
+    private suspend fun runAcceptedSensitivityMaintenance(
+        policy: AutomationCyclePolicy,
+        settings: AppSettings,
+        nowTs: Long,
+        realtimeSnapshot: IsfCrRealtimeSnapshot?,
+        latestTelemetry: Map<String, Double?>
+    ) {
+        runSensitivityMaintenanceActionStatic(policy) {
+            recoverAndScheduleRealtimeIsfCrRefresh(settings = settings, nowTs = nowTs)
+        }
+        if (realtimeSnapshot?.mode?.name == "SHADOW") {
+            runSensitivityMaintenanceActionStatic(policy) {
+                maybeProcessIsfCrShadowAutoActivation(
+                    settings = settings,
+                    nowTs = nowTs,
+                    latestTelemetry = latestTelemetry
+                )
+            }
+        }
+    }
+
+    private suspend fun recoverAndScheduleRealtimeIsfCrRefresh(
+        settings: AppSettings,
+        nowTs: Long
+    ) {
+        if (
+            isfCrRealtimeRefreshInFlight &&
+            isfCrRealtimeRefreshStartedAtTs > 0L &&
+            (nowTs - isfCrRealtimeRefreshStartedAtTs) > ISFCR_REALTIME_IN_FLIGHT_STALE_MS
+        ) {
+            val staleJob = isfCrRealtimeRefreshJob
+            val hadActiveJob = staleJob?.isActive == true
+            staleJob?.cancel()
+            isfCrRealtimeRefreshJob = null
+            isfCrRealtimeRefreshInFlight = false
+            isfCrRealtimeRefreshStartedAtTs = 0L
+            isfCrRealtimeLastFailureTs = nowTs
+            auditLogger.warn(
+                "isfcr_realtime_refresh_recovered",
+                mapOf("reason" to "stale_in_flight_guard", "hadActiveJob" to hadActiveJob)
+            )
+        }
+        val latest = runCatching { isfCrRepository.latestSnapshot() }.getOrNull()
+        val ageMs = latest?.let { nowTs - it.ts } ?: Long.MAX_VALUE
+        val inFailureBackoff = isfCrRealtimeLastFailureTs > 0L &&
+            (nowTs - isfCrRealtimeLastFailureTs) < ISFCR_REALTIME_RETRY_BACKOFF_MS
+        val shouldProactivelyRefresh = latest != null &&
+            ageMs in ISFCR_PROACTIVE_REFRESH_AGE_MS..ISFCR_SNAPSHOT_FRESHNESS_MS
+        if (
+            !isfCrRealtimeRefreshInFlight &&
+            !inFailureBackoff &&
+            (latest == null || ageMs > ISFCR_SNAPSHOT_FRESHNESS_MS || shouldProactivelyRefresh)
+        ) {
+            val reason = when {
+                latest == null -> "missing_snapshot"
+                ageMs > ISFCR_SNAPSHOT_FRESHNESS_MS -> "stale_snapshot"
+                else -> "proactive_refresh"
+            }
+            scheduleRealtimeIsfCrRefresh(settings = settings, nowTs = nowTs, reason = reason)
+        } else if (inFailureBackoff && !isfCrRealtimeRefreshInFlight) {
+            auditLogger.infoThrottled(
+                throttleKey = "isfcr_realtime_refresh_skipped:backoff",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "isfcr_realtime_refresh_skipped",
+                metadata = mapOf("reason" to "backoff")
+            )
+        } else if (isfCrRealtimeRefreshInFlight) {
+            auditLogger.infoThrottled(
+                throttleKey = "isfcr_realtime_refresh_skipped:in_flight",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "isfcr_realtime_refresh_skipped",
+                metadata = mapOf("reason" to "in_flight")
+            )
+        }
+    }
+
+    private data class GlucoseAlertCauseAssessment(
+        val decision: GlucoseAlertDecision,
+        val currentGlucoseMmol: Double,
+        val preparedCause: PreparedAlertCause?
+    )
+
+    private suspend fun assessGlucoseAlertCause(
+        settings: AppSettings,
+        nowTs: Long,
+        latestGlucose: GlucosePoint,
+        latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
+        controlForecasts: List<Forecast>,
+        dataFresh: Boolean,
+        sensorBlocked: Boolean,
+        sensorQuality: SensorQualityAssessment,
+        insulinCycleContext: InsulinCycleContext,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        unifiedUam: UnifiedUamRuntimeSnapshot,
+        deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        effectiveBaseTarget: EffectiveBaseTarget,
+        circadianBiasApplied: Boolean,
+        circadianPrior: CircadianForecastPrior?,
+        therapy: List<TherapyEvent>,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts,
+        persisted: GlucoseAlertRuntimeState
+    ): GlucoseAlertCauseAssessment {
+        val pred5 = controlForecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol
+        val pred30 = controlForecasts.firstOrNull { it.horizonMinutes == 30 }?.valueMmol
+        val pred60 = controlForecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
+        val ciLow30 = controlForecasts.firstOrNull { it.horizonMinutes == 30 }?.ciLow
+        val ciHigh30 = controlForecasts.firstOrNull { it.horizonMinutes == 30 }?.ciHigh
+        val currentGlucoseMmol = latestResolved?.calibratedMmol ?: latestGlucose.valueMmol
+        val currentAgeMinutes = ((nowTs - latestGlucose.ts).coerceAtLeast(0L)) / 60_000L
+        val decision = glucoseAlertEngine.evaluate(
+            input = GlucoseAlertInput(
+                nowTs = nowTs,
+                settings = settings,
+                currentGlucoseMmol = currentGlucoseMmol,
+                currentGlucoseAgeMinutes = currentAgeMinutes,
+                pred5 = pred5,
+                pred30 = pred30,
+                pred60 = pred60,
+                ciLow30 = ciLow30,
+                ciHigh30 = ciHigh30,
+                trendDelta5Mmol = sensorQuality.delta5Mmol,
+                staleData = !dataFresh,
+                sensorBlocked = sensorBlocked,
+                sensorSuspectFalseLow = sensorQuality.suspectFalseLow
+            ),
+            persisted = persisted
+        )
+        val preparedCause = prepareAlertCauseForDecisionStatic(decision) {
+            val loadedContext = loadOptionalAlertCauseContextStatic {
+                loadActiveAlertEventContext(nowTs = nowTs, therapy = therapy)
+            }
+            val contextResult = when (loadedContext) {
+                is AlertCauseContextLoadResult.Success -> {
+                    val loaded = loadedContext.value
+                    if (loaded.available) {
+                        loadedContext
+                    } else if (loaded.overflowSource != null) {
+                        AlertCauseContextLoadResult.Overflow(loaded.overflowSource)
+                    } else {
+                        AlertCauseContextLoadResult.Failure(
+                            loaded.failureType ?: "EventContextUnavailable"
+                        )
+                    }
+                }
+                else -> loadedContext
+            }
+            reportAlertCauseContextOutcomeStatic(
+                result = contextResult,
+                stage = decision.episodeStage,
+                warn = auditLogger::warn
+            )
+            val eventContext = (contextResult as? AlertCauseContextLoadResult.Success)?.value
+            require(controlForecasts == acceptedClinicalForecastAuthority.forecasts) {
+                "alert cause must consume the exact authenticated accepted forecast tuple"
+            }
+            buildAlertCauseInputStatic(
+                nowTs = nowTs,
+                currentGlucoseTimestamp = latestGlucose.ts,
+                decision = decision,
+                forecasts = controlForecasts,
+                dataFresh = dataFresh,
+                sensorQuality = sensorQuality,
+                sensorBlocked = sensorBlocked,
+                insulinCycleContext = insulinCycleContext,
+                sensitivitySnapshot = sensitivityRuntime.snapshot,
+                unifiedUam = unifiedUam,
+                deliveryTrust = decodeAlertDeliveryTrustStatic(deliveryTrustTelemetry),
+                effectiveBaseTarget = effectiveBaseTarget,
+                circadianBiasApplied = circadianBiasApplied,
+                circadianDelta30Mmol = circadianPrior?.delta30,
+                circadianConfidence = circadianPrior?.confidence,
+                activeEventTypes = eventContext?.eventTypes.orEmpty(),
+                eventContextAvailable = eventContext?.available == true
+            )
+        }
+        return GlucoseAlertCauseAssessment(
+            decision = decision,
+            currentGlucoseMmol = currentGlucoseMmol,
+            preparedCause = preparedCause
+        )
+    }
+
+    private suspend fun evaluateAlertCauseDiagnostic(
+        settings: AppSettings,
+        nowTs: Long,
+        latestGlucose: GlucosePoint,
+        latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
+        controlForecasts: List<Forecast>,
+        dataFresh: Boolean,
+        sensorBlocked: Boolean,
+        sensorQuality: SensorQualityAssessment,
+        insulinCycleContext: InsulinCycleContext,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        unifiedUam: UnifiedUamRuntimeSnapshot,
+        deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        effectiveBaseTarget: EffectiveBaseTarget,
+        circadianBiasApplied: Boolean,
+        circadianPrior: CircadianForecastPrior?,
+        therapy: List<TherapyEvent>,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts
+    ) {
+        val assessment = assessGlucoseAlertCause(
+            settings = settings,
+            nowTs = nowTs,
+            latestGlucose = latestGlucose,
+            latestResolved = latestResolved,
+            controlForecasts = controlForecasts,
+            dataFresh = dataFresh,
+            sensorBlocked = sensorBlocked,
+            sensorQuality = sensorQuality,
+            insulinCycleContext = insulinCycleContext,
+            sensitivityRuntime = sensitivityRuntime,
+            unifiedUam = unifiedUam,
+            deliveryTrustTelemetry = deliveryTrustTelemetry,
+            effectiveBaseTarget = effectiveBaseTarget,
+            circadianBiasApplied = circadianBiasApplied,
+            circadianPrior = circadianPrior,
+            therapy = therapy,
+            acceptedClinicalForecastAuthority = acceptedClinicalForecastAuthority,
+            persisted = glucoseAlertStateStore.state.first()
+        )
+        assessment.preparedCause?.let { prepared ->
+            db.telemetryDao().upsertAll(
+                buildAlertCauseDiagnosticTelemetryRowsStatic(
+                    nowTs = nowTs,
+                    prepared = prepared
+                ) + buildAcceptedClinicalForecastTelemetryRowsStatic(
+                    nowTs = nowTs,
+                    source = ALERT_CAUSE_DIAGNOSTIC_SOURCE,
+                    keyPrefix = "alert_cause_accepted_forecast",
+                    authority = acceptedClinicalForecastAuthority
+                )
+            )
+        }
+    }
+
+    private suspend fun publishDeliveryDiagnostic(
+        settings: AppSettings, nowTs: Long, glucose: GlucosePoint, sensorTrusted: Boolean,
+        insulin: InsulinCycleContext, sensitivity: SensitivityRuntimeConsumerContext,
+        uam: UnifiedUamRuntimeSnapshot, forecasts: AcceptedClinicalForecasts,
+        calibration: GlucoseCalibrationCycleIdentity
+    ) {
+        val diagnostic = deliveryDiagnostic ?: return
+        try {
+            val observation = DeliveryDiagnosticObservationMapper.mapAccepted(
+                nowTs, glucose, sensorTrusted, insulin, sensitivity, uam, forecasts, calibration
+            )
+            val lowRisk = glucose.valueMmol < 4.0 || forecasts.forecasts.any { !it.ciLow.isFinite() || it.ciLow < 4.0 }
+            diagnostic.accept(nowTs, observation, settings.softAlertEnabled, lowRisk)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Diagnostic failure must not retry already accepted therapeutic or glucose-alert effects.
+            android.util.Log.w("DeliveryDiagnostic", "Advisory evidence or notification unavailable")
+        }
+    }
+
+    private suspend fun evaluateAndPublishGlucoseAlerts(
+        settings: AppSettings,
+        nowTs: Long,
+        latestGlucose: GlucosePoint,
+        latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
+        controlForecasts: List<Forecast>,
+        dataFresh: Boolean,
+        sensorBlocked: Boolean,
+        sensorQuality: SensorQualityAssessment,
+        insulinCycleContext: InsulinCycleContext,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        unifiedUam: UnifiedUamRuntimeSnapshot,
+        deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        effectiveBaseTarget: EffectiveBaseTarget,
+        circadianBiasApplied: Boolean,
+        circadianPrior: CircadianForecastPrior?,
+        therapy: List<TherapyEvent>,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts
+    ) {
+        val persisted = glucoseAlertStateStore.state.first()
+        episodeAlertDelivery.importLegacyIfNeeded(persisted, nowTs)
+        if (!glucoseAlertRestoreLogged && persisted.activeAlertState != GlucoseAlertState.NONE) {
+            auditLogger.info(
+                "glucose_alert_state_restored",
+                mapOf(
+                    "state" to persisted.activeAlertState.name,
+                    "direction" to (persisted.activeDirection?.name ?: ""),
+                    "lastSoftAlertAtTs" to persisted.lastSoftAlertAtTs,
+                    "lastStrongAlertAtTs" to persisted.lastStrongAlertAtTs
+                )
+            )
+            glucoseAlertRestoreLogged = true
+        }
+        val assessment = assessGlucoseAlertCause(
+            settings = settings,
+            nowTs = nowTs,
+            latestGlucose = latestGlucose,
+            latestResolved = latestResolved,
+            controlForecasts = controlForecasts,
+            dataFresh = dataFresh,
+            sensorBlocked = sensorBlocked,
+            sensorQuality = sensorQuality,
+            insulinCycleContext = insulinCycleContext,
+            sensitivityRuntime = sensitivityRuntime,
+            unifiedUam = unifiedUam,
+            deliveryTrustTelemetry = deliveryTrustTelemetry,
+            effectiveBaseTarget = effectiveBaseTarget,
+            circadianBiasApplied = circadianBiasApplied,
+            circadianPrior = circadianPrior,
+            therapy = therapy,
+            acceptedClinicalForecastAuthority = acceptedClinicalForecastAuthority,
+            persisted = persisted
+        )
+        val decision = assessment.decision
+        val currentGlucoseMmol = assessment.currentGlucoseMmol
+        val preparedCause = assessment.preparedCause
+        glucoseAlertStateStore.update { decision.nextState }
+        val delivery = glucoseAlertNotifier.deliver(
+            decision = decision,
+            currentGlucoseMmol = currentGlucoseMmol,
+            settings = settings,
+            causeAnalysis = preparedCause?.analysis,
+            causeSnapshot = preparedCause?.snapshot,
+            nowTs = nowTs
+        )
+        persistGlucoseAlertTelemetry(
+            nowTs = nowTs,
+            decision = decision,
+            persisted = decision.nextState,
+            delivery = delivery,
+            insulinSnapshot = insulinCycleContext.snapshot,
+            sensitivitySnapshot = sensitivityRuntime.snapshot
+        )
+        when (decision.notifyKind) {
+            GlucoseAlertNotifyKind.WATCH_60,
+            GlucoseAlertNotifyKind.WARNING_30,
+            GlucoseAlertNotifyKind.SOFT_HIGH -> auditLogger.info(
+                "glucose_soft_alert_triggered",
+                mapOf(
+                    "state" to decision.state.name,
+                    "direction" to (decision.direction?.name ?: ""),
+                    "predictedMinutesToLow" to decision.predictedMinutesToLow,
+                    "pred5" to decision.pred5,
+                    "pred30" to decision.pred30,
+                    "pred60" to decision.pred60,
+                    "ciLow30" to decision.ciLow30,
+                    "ciHigh30" to decision.ciHigh30,
+                    "trendDelta5Mmol" to decision.trendDelta5Mmol,
+                    "degradedReason" to (delivery.degradedReason ?: ""),
+                    "audioClip" to (delivery.audioClipLabel ?: ""),
+                    "audioFallbackUsed" to delivery.audioFallbackUsed,
+                    "causeCode" to (preparedCause?.analysis?.primary?.name ?: "")
+                )
+            )
+            GlucoseAlertNotifyKind.CRITICAL_5,
+            GlucoseAlertNotifyKind.LOW_NOW -> auditLogger.warn(
+                "glucose_strong_low_triggered",
+                mapOf(
+                    "state" to decision.state.name,
+                    "currentGlucoseMmol" to currentGlucoseMmol,
+                    "predictedMinutesToLow" to decision.predictedMinutesToLow,
+                    "urgentLowThreshold" to decision.urgentLowThreshold,
+                    "currentFresh" to decision.currentGlucoseFresh,
+                    "degradedReason" to (delivery.degradedReason ?: ""),
+                    "audioClip" to (delivery.audioClipLabel ?: ""),
+                    "audioFallbackUsed" to delivery.audioFallbackUsed,
+                    "causeCode" to (preparedCause?.analysis?.primary?.name ?: "")
+                )
+            )
+            GlucoseAlertNotifyKind.CLEAR -> auditLogger.info(
+                "glucose_alert_cleared",
+                mapOf("disableReason" to (decision.disableReason ?: "risk_resolved"))
+            )
+            GlucoseAlertNotifyKind.NONE -> {
+                if (!decision.disableReason.isNullOrBlank()) {
+                    auditLogger.infoThrottled(
+                        throttleKey = "glucose_soft_alert_skipped:${decision.disableReason}",
+                        intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                        message = "glucose_soft_alert_skipped",
+                        metadata = mapOf(
+                            "reason" to decision.disableReason,
+                            "predictedMinutesToLow" to decision.predictedMinutesToLow,
+                            "pred30" to decision.pred30,
+                            "ciLow30" to decision.ciLow30,
+                            "ciHigh30" to decision.ciHigh30
+                        )
+                    )
+                }
+                if (decision.repeatSuppressedByTrend && decision.softActive) {
+                    auditLogger.infoThrottled(
+                        throttleKey = "glucose_soft_alert_repeat_suppressed_by_trend:${decision.direction?.name}",
+                        intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                        message = "glucose_soft_alert_repeat_suppressed_by_trend",
+                        metadata = mapOf(
+                            "state" to decision.state.name,
+                            "direction" to (decision.direction?.name ?: ""),
+                            "trendDelta5Mmol" to decision.trendDelta5Mmol,
+                            "predictedMinutesToLow" to decision.predictedMinutesToLow,
+                            "pred30" to decision.pred30,
+                            "ciLow30" to decision.ciLow30,
+                            "ciHigh30" to decision.ciHigh30
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun loadActiveAlertEventContext(
+        nowTs: Long,
+        therapy: List<TherapyEvent>
+    ): ActiveAlertEventContext {
+        val eventTimelineRepository = EventTimelineRepository(gson)
+        val boundedTherapy = boundAlertCauseTherapyStatic(therapy)
+        if (boundedTherapy.overflow) {
+            return ActiveAlertEventContext(
+                eventTypes = emptySet(),
+                available = false,
+                overflowSource = AlertCauseContextSource.THERAPY,
+                failureType = null
+            )
+        }
+        val contextTags = db.physioContextTagDao().activeAtLimited(
+            ts = nowTs,
+            limit = ALERT_CAUSE_MAX_CONTEXT_EVENTS + 1
+        )
+        if (hasAlertCauseOverflowStatic(contextTags, ALERT_CAUSE_MAX_CONTEXT_EVENTS)) {
+            return ActiveAlertEventContext(
+                eventTypes = emptySet(),
+                available = false,
+                overflowSource = AlertCauseContextSource.CONTEXT_TAGS,
+                failureType = null
+            )
+        }
+        val plannedResult = loadRelevantPlannedAlertEventsStatic(nowTs) { afterStart, afterId, limit ->
+            db.energyProfileDao().alertCauseEnabledCandidatesPage(afterStart, afterId, limit)
+        }
+        val plannedEvents = when (plannedResult) {
+            is AlertCausePlannedLoadResult.Complete -> plannedResult.events
+            AlertCausePlannedLoadResult.RelevantOverflow -> {
+                return ActiveAlertEventContext(
+                    eventTypes = emptySet(),
+                    available = false,
+                    overflowSource = AlertCauseContextSource.PLANNED_ACTIVITY,
+                    failureType = null
+                )
+            }
+            AlertCausePlannedLoadResult.ScanLimitReached,
+            AlertCausePlannedLoadResult.CursorStalled -> {
+                return ActiveAlertEventContext(
+                    eventTypes = emptySet(),
+                    available = false,
+                    overflowSource = null,
+                    failureType = when (plannedResult) {
+                        AlertCausePlannedLoadResult.ScanLimitReached -> "PlannedActivityScanLimit"
+                        else -> "PlannedActivityCursorStalled"
+                    }
+                )
+            }
+        }
+        val timeline = eventTimelineRepository.aggregate(
+            sources = EventTimelineSources(
+                therapyEvents = boundedTherapy.rows,
+                contextTags = contextTags,
+                plannedActivity = plannedEvents
+            ),
+            nowTs = nowTs
+        )
+        return ActiveAlertEventContext(
+            eventTypes = activeAlertContextTypesStatic(timeline, nowTs),
+            available = true,
+            overflowSource = null,
+            failureType = null
         )
     }
 
@@ -1340,31 +2319,1660 @@ class AutomationRepository(
         }
     }
 
-    private suspend fun runNonFatalCycleStep(
+    private suspend fun <T> runNonFatalCycleStep(
         name: String,
         timeoutMs: Long? = null,
-        block: suspend () -> Unit
-    ) {
-        runCatching {
-            if (timeoutMs != null) {
-                runCycleStep(name) {
-                    withTimeout(timeoutMs) { block() }
-                }
-            } else {
-                runCycleStep(name) { block() }
+        block: suspend () -> T
+    ): T? {
+        return runNonFatalCycleStepStatic(
+            timeoutMs = timeoutMs,
+            onNonFatalFailure = { error, timeout ->
+                auditLogger.warn(
+                    "automation_cycle_step_nonfatal_continue",
+                    mapOf(
+                        "step" to name,
+                        "timeout" to timeout,
+                        "timeoutMs" to timeoutMs,
+                        "error" to (
+                            error?.message ?: if (timeout) "step timed out" else "unknown failure"
+                        )
+                    )
+                )
             }
-        }.onFailure { error ->
-            val timeout = error is TimeoutCancellationException
-            auditLogger.warn(
-                "automation_cycle_step_nonfatal_continue",
-                mapOf(
-                    "step" to name,
-                    "timeout" to timeout,
-                    "timeoutMs" to timeoutMs,
-                    "error" to (error.message ?: error::class.simpleName.orEmpty())
+        ) {
+            runCycleStep(name) { block() }
+        }
+    }
+
+    private suspend fun prepareCalibrationRuntimeContext(
+        rawGlucose: List<GlucosePoint>,
+        nowTs: Long,
+        settings: AppSettings,
+        intent: AutomationCycleIntent,
+        resolvedTelemetry: ResolvedLatestTelemetry
+    ): CalibrationRuntimeContext {
+        val sensorLagRawGlucose = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
+            GlucoseSanitizer.filterEntities(
+                db.glucoseDao().since(nowTs - SENSOR_LAG_HISTORY_LOOKBACK_MS)
+            ).map { it.toDomain() }
+        } else {
+            emptyList()
+        }
+        val preparedCalibration = glucoseCalibrationRepository.prepareAcceptedCycleCalibration(
+            rawGlucose = rawGlucose,
+            nowTs = nowTs,
+            allowMaintenance = allowsCalibrationMaintenanceStatic(intent),
+            additionalRawGlucose = sensorLagRawGlucose
+        )
+        val resolvedGlucose = preparedCalibration.resolvedGlucose
+        val glucose = resolvedGlucose.map { it.toDomain() }
+        val therapy = syncRepository.recentTherapyEvents(hoursBack = 24)
+        val sensorLagGlucoseHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
+            preparedCalibration.additionalResolvedGlucose.map { it.toDomain() }
+        } else {
+            glucose
+        }
+        val sensorLagTherapyHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
+            TherapySanitizer.filterEntities(
+                db.therapyDao().since(nowTs - SENSOR_LAG_HISTORY_LOOKBACK_MS)
+            ).map { it.toDomain(gson) }
+        } else {
+            therapy
+        }
+        val sensorLagRuntimeContext = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
+            resolveSensorLagRuntimeContext(nowTs = nowTs)
+        } else {
+            SensorLagRuntimeContext()
+        }
+        val latestTelemetry = resolvedTelemetry.values.toMutableMap()
+        val latestResolved = resolvedGlucose.lastOrNull()
+        val latestCheck = db.bloodGlucoseCheckDao().latest(1).firstOrNull()?.toDomain()
+        latestTelemetry["glucose_raw_mmol"] = latestResolved?.rawMmol ?: rawGlucose.lastOrNull()?.valueMmol
+        latestTelemetry["glucose_calibrated_mmol"] = latestResolved?.calibratedMmol ?: rawGlucose.lastOrNull()?.valueMmol
+        latestTelemetry["glucose_calibration_source_ts"] = latestResolved?.ts?.toDouble()
+        latestTelemetry["glucose_calibration_gain"] =
+            latestResolved?.takeIf { it.calibrationApplied }?.gain
+        latestTelemetry["glucose_calibration_offset_mmol"] =
+            latestResolved?.takeIf { it.calibrationApplied }?.offsetMmolApplied
+        latestTelemetry["glucose_calibration_last_check_age_minutes"] = latestCheck
+            ?.let { ((nowTs - it.timestamp).coerceAtLeast(0L)) / 60_000.0 }
+        return CalibrationRuntimeContext(
+            preparedCalibration = preparedCalibration,
+            resolvedGlucose = resolvedGlucose,
+            glucose = glucose,
+            therapy = therapy,
+            sensorLagGlucoseHistory = sensorLagGlucoseHistory,
+            sensorLagTherapyHistory = sensorLagTherapyHistory,
+            sensorLagRuntimeContext = sensorLagRuntimeContext,
+            latestTelemetry = latestTelemetry,
+            deliveryTrustTelemetry = resolvedTelemetry.deliveryTrustTelemetry,
+            latestResolved = latestResolved,
+            latestCheck = latestCheck
+        )
+    }
+
+    private data class CalibrationRuntimeContext(
+        val preparedCalibration: PreparedCalibrationCycle,
+        val resolvedGlucose: List<io.aaps.copilot.domain.model.ResolvedGlucosePoint>,
+        val glucose: List<GlucosePoint>,
+        val therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        val sensorLagGlucoseHistory: List<GlucosePoint>,
+        val sensorLagTherapyHistory: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        val sensorLagRuntimeContext: SensorLagRuntimeContext,
+        val latestTelemetry: MutableMap<String, Double?>,
+        val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        val latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
+        val latestCheck: io.aaps.copilot.domain.model.BloodGlucoseCheck?
+    )
+
+    private data class ResolvedLatestTelemetry(
+        val values: Map<String, Double?>,
+        val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>
+    )
+
+    private data class CumulativeActivityDayCache(
+        val dayStartTs: Long,
+        val cursorTimestamp: Long,
+        val cursorId: String,
+        val rowsByKey: Map<String, TelemetrySampleEntity>
+    )
+
+    private data class PredictionPreparationContext(
+        val sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        val realtimeIsfCrSnapshot: IsfCrRealtimeSnapshot?,
+        val isfCrRuntimeGate: IsfCrRuntimeGate,
+        val isfCrOverrideBlendWeight: Double?,
+        val runtimeDia: RuntimeDiaInputs,
+        val runtimeCobIob: RuntimeCobIobInputs,
+        val rawCobFromTelemetry: Double?,
+        val rawIobFromTelemetry: Double?,
+        val insulinCycleFanOut: InsulinCycleFanOut,
+        val insulinTherapyAvailable: Boolean,
+        val latestGlucose: GlucosePoint,
+        val effectiveStaleMaxMinutes: Int,
+        val dataFresh: Boolean,
+        val actionsLast6h: Int,
+        val activeAapsTarget: ActiveAapsTarget?,
+        val localSafetyChronologyResolved: Boolean,
+        val localSafetyCausalThroughTs: Long,
+        val latestAutomaticSent: LastSentTempTarget?,
+        val sensorQuality: SensorQualityAssessment,
+        val sensorBlocked: Boolean,
+        val currentPattern: io.aaps.copilot.domain.model.PatternWindow?,
+        val circadianPrior: CircadianForecastPrior?,
+        val currentProfile: io.aaps.copilot.domain.model.ProfileEstimate?,
+        val currentSegment: io.aaps.copilot.domain.model.ProfileSegmentEstimate?
+    )
+
+    private data class ForecastRuntimeContext(
+        val mergedForecasts: List<Forecast>,
+        val controlForecasts: List<Forecast>,
+        val lagCorrectedForecasts: List<Forecast>,
+        val effectiveCurrentGlucoseMmol: Double,
+        val calibrationApplied: Boolean,
+        val contextBiasApplied: Boolean,
+        val cobIobBiasApplied: Boolean,
+        val circadianBiasApplied: Boolean,
+        val calibrationSampleCount: Int,
+        val calibrationPoints: List<ForecastCalibrationPoint>,
+        val sensorLagEstimate: SensorLagEstimate,
+        val latestGlucoseInput: GlucoseInputMetadata?,
+        val sensorLagControlPlan: SensorLagControlPlan,
+        val activityEffectContext: ActivityEffectContext,
+        val activityForecastPlan: ActivityForecastPlan,
+        val plannedActivityTargetOccurrence: PlannedActivityOccurrence?,
+        val unifiedUam: UnifiedUamRuntimeSnapshot,
+        val forecastDecomposition: ForecastDecompositionSnapshot?,
+        val sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        val calibrationIdentity: GlucoseCalibrationCycleIdentity
+    )
+
+    internal data class PreparedAlertCause(
+        val analysis: AlertCauseAnalysis,
+        val snapshot: AlertCauseSnapshot,
+        val input: AlertCauseInput?
+    )
+
+    private data class ActiveAlertEventContext(
+        val eventTypes: Set<AlertContextEventType>,
+        val available: Boolean,
+        val overflowSource: AlertCauseContextSource?,
+        val failureType: String?
+    )
+
+    private data class LowGlucoseSafetyCycleContext(
+        val state: LowGlucoseTargetSafetyLatch.State,
+        val activeSafetyTargetMmol: Double?,
+        val forecastMinimumMmol: Double?
+    )
+
+    private data class ResolvedRealtimeIsfCrSnapshot(
+        val snapshot: IsfCrRealtimeSnapshot?,
+        val servedMode: String,
+        val ageMs: Long?
+    )
+
+    private suspend fun preparePredictionPreparationContext(
+        settings: AppSettings,
+        nowTs: Long,
+        glucose: List<GlucosePoint>,
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        latestTelemetry: MutableMap<String, Double?>,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        allowActionRepositoryAccess: Boolean,
+        allowLocalSafetyEvidence: Boolean
+    ): PredictionPreparationContext {
+        val resolvedRealtimeIsfCr = resolveRealtimeIsfCrSnapshot(nowTs = nowTs)
+        val realtimeIsfCrSnapshot = resolvedRealtimeIsfCr.snapshot
+        latestTelemetry["isfcr_snapshot_age_ms"] = resolvedRealtimeIsfCr.ageMs?.toDouble()
+        latestTelemetry["isfcr_refresh_in_flight"] = if (isfCrRealtimeRefreshInFlight) 1.0 else 0.0
+        latestTelemetry["isfcr_refresh_last_duration_ms"] = isfCrRealtimeLastRefreshDurationMs.toDouble()
+        latestTelemetry["isfcr_snapshot_served_mode"] = when (resolvedRealtimeIsfCr.servedMode) {
+            "FRESH" -> 1.0
+            "STALE_REUSED" -> 0.5
+            else -> 0.0
+        }
+        val isfCrRuntimeGate = resolveIsfCrRuntimeGateStatic(
+            snapshot = realtimeIsfCrSnapshot,
+            confidenceThreshold = settings.isfCrConfidenceThreshold
+        )
+        val isfCrOverrideBlendWeight = resolveIsfCrOverrideBlendWeightStatic(
+            snapshot = realtimeIsfCrSnapshot,
+            runtimeGate = isfCrRuntimeGate,
+            confidenceThreshold = settings.isfCrConfidenceThreshold
+        )
+        val sharedSensitivitySnapshot = sensitivityRuntime.snapshot
+        require(sharedSensitivitySnapshot.settingsRevision == settings.sensitivitySettingsRevision) {
+            "sensitivity snapshot/settings revision mismatch during prediction preparation"
+        }
+        val sensitivityRuntimeApplication = sensitivityRuntimeApplicationFromSnapshot(
+            sharedSensitivitySnapshot,
+            settings
+        )
+        listOf(
+            Triple("isf", sensitivityRuntimeApplication.isf, latestTelemetry["isf_aaps_raw_sample_ts"]),
+            Triple("cr", sensitivityRuntimeApplication.cr, latestTelemetry["cr_aaps_raw_sample_ts"])
+        ).forEach { (metric, application, aapsTimestamp) ->
+            latestTelemetry["${metric}_runtime_source_preference"] =
+                metricPreferenceCodeStatic(application.decision.requested)
+            latestTelemetry["${metric}_runtime_source_resolved"] =
+                metricResolvedCodeStatic(application.decision.resolved)
+            latestTelemetry["${metric}_runtime_selected_value"] = application.override?.value
+            latestTelemetry["${metric}_runtime_aaps_sample_ts"] = aapsTimestamp
+            latestTelemetry["${metric}_runtime_fallback_active"] =
+                if (application.decision.fallbackReason != null) 1.0 else 0.0
+            auditLogger.infoThrottled(
+                throttleKey = "${metric}_runtime_source:${application.decision.requested}:${application.decision.resolved}:${application.decision.fallbackReason}",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "${metric}_runtime_source_resolved",
+                metadata = mapOf(
+                    "requested" to application.decision.requested.name,
+                    "resolved" to application.decision.resolved.name,
+                    "selectedValue" to application.override?.value,
+                    "fallbackReason" to application.decision.fallbackReason,
+                    "aapsSampleTs" to aapsTimestamp,
+                    "evidenceGate" to isfCrRuntimeGate.reason,
+                    "evidenceBlendWeight" to isfCrOverrideBlendWeight
                 )
             )
         }
+        configurePredictionEngine(
+            settings = settings,
+            sensitivityRuntimeApplication = sensitivityRuntimeApplication,
+            runtimeTelemetry = latestTelemetry
+        )
+        latestTelemetry["sensitivity_runtime_cycle_id_hash"] = sharedSensitivitySnapshot.forecastCycleId.hashCode().toDouble()
+        latestTelemetry["sensitivity_runtime_settings_revision"] = sharedSensitivitySnapshot.settingsRevision.toDouble()
+        realtimeIsfCrSnapshot?.let { snapshot ->
+            latestTelemetry["isf_realtime_value"] = snapshot.isfEff
+            latestTelemetry["cr_realtime_value"] = snapshot.crEff
+            latestTelemetry["isf_realtime_confidence"] = snapshot.confidence
+            latestTelemetry["isf_realtime_quality_score"] = snapshot.qualityScore
+            latestTelemetry["isf_realtime_applied"] = if (isfCrRuntimeGate.applyToRuntime) 1.0 else 0.0
+            latestTelemetry["isf_realtime_override_blend_weight"] = isfCrOverrideBlendWeight ?: 0.0
+            latestTelemetry["isf_realtime_mode"] = when (snapshot.mode.name) {
+                "ACTIVE" -> 1.0
+                "SPARSE_REAL_FETCHED" -> 0.25
+                "SHADOW" -> 0.5
+                else -> 0.0
+            }
+            latestTelemetry["isf_factor_set_factor"] = snapshot.factors["set_factor"]
+            latestTelemetry["isf_factor_sensor_factor"] = snapshot.factors["sensor_factor"]
+            latestTelemetry["isf_factor_activity_factor"] = snapshot.factors["activity_factor"]
+            latestTelemetry["isf_factor_dawn_factor"] = snapshot.factors["dawn_factor"]
+            latestTelemetry["isf_factor_stress_factor"] = snapshot.factors["stress_factor"]
+            latestTelemetry["isf_factor_hormone_factor"] = snapshot.factors["hormone_factor"]
+            latestTelemetry["isf_factor_steroid_factor"] = snapshot.factors["steroid_factor"]
+            latestTelemetry["isf_factor_uam_penalty"] = snapshot.factors["uam_penalty_factor"]
+            latestTelemetry["isf_factor_set_age_hours"] = snapshot.factors["set_age_hours"]
+            latestTelemetry["isf_factor_sensor_age_hours"] = snapshot.factors["sensor_age_hours"]
+            latestTelemetry["isf_factor_context_ambiguity"] = listOfNotNull(
+                snapshot.factors["latent_stress"],
+                snapshot.factors["manual_stress_tag"],
+                snapshot.factors["manual_illness_tag"],
+                snapshot.factors["manual_hormone_tag"],
+                snapshot.factors["manual_steroid_tag"],
+                snapshot.factors["manual_dawn_tag"]
+            ).maxOrNull() ?: 0.0
+            auditLogger.infoThrottled(
+                throttleKey = "isfcr_runtime_gate:${snapshot.mode.name}:${isfCrRuntimeGate.reason}:${resolvedRealtimeIsfCr.servedMode}",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "isfcr_runtime_gate",
+                metadata = mapOf(
+                    "mode" to snapshot.mode.name,
+                    "servedMode" to resolvedRealtimeIsfCr.servedMode,
+                    "snapshotAgeMs" to resolvedRealtimeIsfCr.ageMs,
+                    "confidence" to snapshot.confidence,
+                    "threshold" to settings.isfCrConfidenceThreshold,
+                    "applied" to isfCrRuntimeGate.applyToRuntime,
+                    "reason" to isfCrRuntimeGate.reason,
+                    "overrideBlendWeight" to isfCrOverrideBlendWeight,
+                    "shadowSoftBlendApplied" to (!isfCrRuntimeGate.applyToRuntime && (isfCrOverrideBlendWeight ?: 0.0) > 0.0)
+                )
+            )
+        }
+        auditCycleCheckpoint(
+            stage = "post_isfcr",
+            metadata = mapOf(
+                "hasRealtimeSnapshot" to (realtimeIsfCrSnapshot != null),
+                "runtimeGateApplied" to isfCrRuntimeGate.applyToRuntime,
+                "servedMode" to resolvedRealtimeIsfCr.servedMode
+            )
+        )
+        val cycleCausalReferenceTimestamp = resolveCycleCausalReferenceTimestampStatic(glucose)
+
+        val realInsulinProfile = readLatestRealInsulinProfileEstimate(nowTs)
+        val rawDiaFromTelemetry = latestTelemetry["dia_hours"]?.takeIf { it.isFinite() }
+        val runtimeDia = resolveRuntimeDiaInputs(
+            settings = settings,
+            realProfile = realInsulinProfile,
+            rawExternalDiaHours = rawDiaFromTelemetry
+        )
+        runtimeDia.rawExternalHours?.let { latestTelemetry["dia_external_raw_hours"] = it }
+        runtimeDia.rawEstimatedHours?.let { latestTelemetry["dia_real_raw_hours"] = it }
+        latestTelemetry["dia_profile_hours"] = runtimeDia.profileHours
+        latestTelemetry["dia_effective_hours"] = runtimeDia.effectiveHours
+        latestTelemetry["dia_hours"] = runtimeDia.effectiveHours
+        if (realInsulinProfile != null) {
+            latestTelemetry["insulin_profile_real_updated_ts"] = realInsulinProfile.updatedTs.toDouble()
+            latestTelemetry["insulin_profile_real_confidence"] = realInsulinProfile.confidence
+            latestTelemetry["insulin_profile_real_samples"] = realInsulinProfile.sampleCount.toDouble()
+            latestTelemetry["insulin_profile_real_onset_min"] = realInsulinProfile.onsetMinutes
+            latestTelemetry["insulin_profile_real_peak_min"] = realInsulinProfile.peakMinutes
+            latestTelemetry["insulin_profile_real_scale"] = realInsulinProfile.shapeScale
+            latestTelemetry["insulin_profile_real_published_ts"] = realInsulinProfile.lastPublishedTs.toDouble()
+        }
+
+        val runtimeCobIob = resolveRuntimeCobIobInputs(
+            cycleTimestamp = nowTs,
+            causalReferenceTimestamp = cycleCausalReferenceTimestamp,
+            glucose = glucose,
+            therapy = therapy,
+            telemetry = latestTelemetry,
+            settings = settings,
+            effectiveDiaHours = runtimeDia.effectiveHours
+        )
+        val insulinCycleFanOut = buildInsulinCycleFanOutStatic(runtimeCobIob.insulinCycleContext)
+        val insulinTherapyAvailable = hasInsulinTherapyEvidence(therapy)
+        val rawCobFromTelemetry = latestTelemetry["cob_grams"]
+        val rawIobFromTelemetry = latestTelemetry["iob_net_units"] ?: latestTelemetry["iob_units"]
+        latestTelemetry["cob_grams"] = runtimeCobIob.cobGrams
+        latestTelemetry["iob_units"] = runtimeCobIob.iobUnits
+        latestTelemetry["cob_effective_grams"] = runtimeCobIob.cobGrams
+        latestTelemetry["iob_effective_units"] = runtimeCobIob.iobUnits
+        latestTelemetry["iob_real_units"] = runtimeCobIob.realIobUnits
+        runtimeCobIob.insulinSnapshot?.let { snapshot ->
+            latestTelemetry["iob_net_units"] = snapshot.netIobUnits
+            latestTelemetry["iob_bolus_units"] = snapshot.bolusIobUnits
+            latestTelemetry["iob_basal_units"] = snapshot.basalIobUnits
+            latestTelemetry["insulin_activity"] = snapshot.insulinActivity
+            latestTelemetry["iob_runtime_timestamp_ms"] = snapshot.timestamp.toDouble()
+            latestTelemetry["iob_runtime_confidence"] = snapshot.confidence
+            latestTelemetry["iob_runtime_source_code"] = InsulinRuntimeSnapshotResolver.sourceCode(snapshot.source)
+            latestTelemetry["iob_runtime_fallback_active"] = if (snapshot.fallbackReason == null) 0.0 else 1.0
+        }
+        latestTelemetry["cob_local_fallback_grams"] = runtimeCobIob.localCobGrams
+        latestTelemetry["iob_local_fallback_units"] = runtimeCobIob.localIobUnits
+        runtimeCobIob.externalCobAdjustedGrams?.let { latestTelemetry["cob_external_adjusted_grams"] = it }
+        latestTelemetry["cob_synthetic_uam_subtracted_grams"] = runtimeCobIob.syntheticUamCobGrams
+        latestTelemetry["insulin_real_onset_min"] = runtimeCobIob.realOnsetMinutes
+        latestTelemetry["insulin_profile_base_onset_min"] = runtimeCobIob.baseOnsetMinutes
+        latestTelemetry["insulin_real_onset_samples"] = runtimeCobIob.onsetSampleCount.toDouble()
+        (runtimeCobIob.externalCobRawGrams ?: rawCobFromTelemetry)?.let { latestTelemetry["cob_external_raw_grams"] = it }
+        rawIobFromTelemetry?.let { latestTelemetry["iob_external_raw_units"] = it }
+        latestTelemetry["cob_iob_local_used"] = if (runtimeCobIob.usedLocalFallback) 1.0 else 0.0
+        latestTelemetry["cob_iob_merged"] = if (runtimeCobIob.mergedWithTelemetry) 1.0 else 0.0
+
+        if (runtimeCobIob.usedLocalFallback || runtimeCobIob.mergedWithTelemetry) {
+            auditLogger.infoThrottled(
+                throttleKey = "cob_iob_runtime_resolved",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "cob_iob_runtime_resolved",
+                metadata = mapOf(
+                    "cobGrams" to runtimeCobIob.cobGrams,
+                    "iobUnits" to runtimeCobIob.iobUnits,
+                    "realIobUnits" to runtimeCobIob.realIobUnits,
+                    "localCobGrams" to runtimeCobIob.localCobGrams,
+                    "localIobUnits" to runtimeCobIob.localIobUnits,
+                    "realOnsetMinutes" to runtimeCobIob.realOnsetMinutes,
+                    "baseOnsetMinutes" to runtimeCobIob.baseOnsetMinutes,
+                    "onsetSampleCount" to runtimeCobIob.onsetSampleCount,
+                    "usedLocalFallback" to runtimeCobIob.usedLocalFallback,
+                    "mergedWithTelemetry" to runtimeCobIob.mergedWithTelemetry
+                )
+            )
+        }
+        if (!insulinTherapyAvailable && runtimeCobIob.iobUnits >= 0.3) {
+            auditLogger.warn(
+                "forecast_insulin_events_missing",
+                mapOf(
+                    "iobUnits" to runtimeCobIob.iobUnits,
+                    "therapyEvents24h" to therapy.size,
+                    "reason" to "iob_present_without_insulin_therapy_events"
+                )
+            )
+        }
+        auditCycleCheckpoint("post_cob_iob_runtime")
+
+        val zoned = Instant.ofEpochMilli(nowTs).atZone(ZoneId.systemDefault())
+        val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
+        val currentPattern = db.patternDao().byDayAndHour(dayType.name, zoned.hour)?.let {
+            io.aaps.copilot.domain.model.PatternWindow(
+                dayType = io.aaps.copilot.domain.model.DayType.valueOf(it.dayType),
+                hour = it.hour,
+                sampleCount = it.sampleCount,
+                activeDays = it.activeDays,
+                lowRate = it.lowRate,
+                highRate = it.highRate,
+                recommendedTargetMmol = it.recommendedTargetMmol,
+                isRiskWindow = it.isRiskWindow
+            )
+        }
+        val latestGlucose = glucose.maxBy { it.ts }
+        val effectiveStaleMaxMinutes = resolveEffectiveStaleMaxMinutesStatic(settings)
+        val dataFresh = nowTs - latestGlucose.ts <= effectiveStaleMaxMinutes * 60 * 1000L
+        val localSafetyEvidence = if (allowLocalSafetyEvidence) {
+            loadLocalSafetyEvidenceStatic(db = db, gson = gson, nowTs = nowTs)
+        } else {
+            null
+        }
+        val actionsLast6h = when {
+            localSafetyEvidence != null -> localSafetyEvidence.actionsLast6h
+            allowActionRepositoryAccess -> actionRepository.countSentActionsLast6h(nowTs)
+            else -> 0
+        }
+        val activeAapsTarget = when {
+            localSafetyEvidence != null -> localSafetyEvidence.activeAapsTarget
+            allowActionRepositoryAccess -> resolveActiveAapsTarget(nowTs)
+            else -> null
+        }
+        val localSafetyChronologyResolved = localSafetyEvidence?.chronologyResolved ?: true
+        val localSafetyCausalThroughTs = localSafetyEvidence?.causalThroughTs ?: nowTs
+        val latestAutomaticSent = localSafetyEvidence?.latestAutomaticSent
+        val therapySensorBlocked = isSensorBlocked(therapy, nowTs)
+        val sensorQuality = evaluateSensorQuality(
+            glucose = glucose,
+            nowTs = nowTs,
+            staleMaxMinutes = effectiveStaleMaxMinutes
+        )
+        val sensorBlocked = therapySensorBlocked || sensorQuality.blocked
+        latestTelemetry["sensor_quality_score"] = sensorQuality.score
+        latestTelemetry["sensor_quality_blocked"] = if (sensorQuality.blocked) 1.0 else 0.0
+        latestTelemetry["sensor_quality_suspect_false_low"] = if (sensorQuality.suspectFalseLow) 1.0 else 0.0
+        sensorQuality.delta5Mmol?.let { latestTelemetry["sensor_quality_delta5_mmol"] = it }
+        sensorQuality.noiseStd5Mmol?.let { latestTelemetry["sensor_quality_noise_std5"] = it }
+        latestTelemetry["sensor_quality_gap_min"] = sensorQuality.gapMinutes
+        if (sensorQuality.blocked) {
+            auditLogger.warn(
+                "sensor_quality_gate_blocked",
+                mapOf(
+                    "reason" to sensorQuality.reason,
+                    "score" to sensorQuality.score,
+                    "delta5Mmol" to sensorQuality.delta5Mmol,
+                    "noiseStd5Mmol" to sensorQuality.noiseStd5Mmol,
+                    "gapMinutes" to sensorQuality.gapMinutes
+                )
+            )
+        }
+        if (therapySensorBlocked && sensorQuality.blocked) {
+            auditLogger.warn(
+                "sensor_quality_gate_and_sensor_state_blocked",
+                mapOf("reason" to sensorQuality.reason)
+            )
+        }
+        auditCycleCheckpoint("post_sensor_quality")
+
+        val circadianPrior = analyticsRepository.resolveCircadianPrior(
+            nowTs = nowTs,
+            currentGlucose = latestGlucose.valueMmol,
+            telemetry = latestTelemetry,
+            settings = settings
+        )
+        latestTelemetry["pattern_prior_confidence"] = circadianPrior?.confidence
+        latestTelemetry["pattern_prior_bg_median_mmol"] = circadianPrior?.bgMedian
+        latestTelemetry["pattern_prior_30_mmol"] = circadianPrior?.delta30
+        latestTelemetry["pattern_prior_60_mmol"] = circadianPrior?.delta60
+        latestTelemetry["pattern_prior_residual_bias_30_mmol"] = circadianPrior?.residualBias30
+        latestTelemetry["pattern_prior_residual_bias_60_mmol"] = circadianPrior?.residualBias60
+        latestTelemetry["pattern_prior_replay_bias_30"] = circadianPrior?.replayBias30
+        latestTelemetry["pattern_prior_replay_bias_60"] = circadianPrior?.replayBias60
+        latestTelemetry["pattern_prior_median_reversion_30"] = circadianPrior?.medianReversion30
+        latestTelemetry["pattern_prior_median_reversion_60"] = circadianPrior?.medianReversion60
+        latestTelemetry["pattern_prior_horizon_quality_30"] = circadianPrior?.horizonQuality30
+        latestTelemetry["pattern_prior_horizon_quality_60"] = circadianPrior?.horizonQuality60
+        latestTelemetry["pattern_prior_stability_score"] = circadianPrior?.stabilityScore
+        latestTelemetry["pattern_prior_replay_weight_30"] = circadianPrior?.let {
+            patternPriorWeightForHorizonStatic(
+                horizonMinutes = 30,
+                prior = it,
+                weight30 = settings.circadianForecastWeight30,
+                weight60 = settings.circadianForecastWeight60
+            )
+        }
+        latestTelemetry["pattern_prior_replay_weight_60"] = circadianPrior?.let {
+            patternPriorWeightForHorizonStatic(
+                horizonMinutes = 60,
+                prior = it,
+                weight30 = settings.circadianForecastWeight30,
+                weight60 = settings.circadianForecastWeight60
+            )
+        }
+        latestTelemetry["pattern_prior_acute_attenuation"] = circadianPrior?.acuteAttenuation
+        latestTelemetry["pattern_prior_stale_blocked"] = if (circadianPrior?.staleBlocked == true) 1.0 else 0.0
+        val currentSlot = resolveTimeSlot(zoned.hour)
+        val (legacyProfileEntity, currentSegmentEntity) = db.withTransaction {
+            db.profileEstimateDao().active() to db.profileSegmentEstimateDao()
+                .byDayTypeAndTimeSlot(dayType.name, currentSlot.name)
+        }
+        val legacyProfile = legacyProfileEntity?.toProfileEstimate()
+        realtimeIsfCrSnapshot?.let { snapshot ->
+            if (snapshot.mode.name == "SHADOW") {
+                logIsfCrShadowDiff(snapshot = snapshot, legacyProfile = legacyProfile)
+            }
+        }
+        val baselineCurrentProfile = when {
+            (sensitivityRuntimeApplication.isf.decision.resolved == MetricRuntimeResolvedSource.EVIDENCE_BLEND ||
+                sensitivityRuntimeApplication.cr.decision.resolved == MetricRuntimeResolvedSource.EVIDENCE_BLEND) &&
+                realtimeIsfCrSnapshot != null ->
+                realtimeIsfCrSnapshot.toProfileEstimate(lookbackDays = settings.analyticsLookbackDays)
+            legacyProfile != null -> legacyProfile
+            realtimeIsfCrSnapshot != null -> {
+                auditLogger.warn(
+                    "isfcr_runtime_bootstrap_profile",
+                    mapOf(
+                        "reason" to "legacy_profile_missing",
+                        "mode" to realtimeIsfCrSnapshot.mode.name
+                    )
+                )
+                realtimeIsfCrSnapshot.toProfileEstimate(lookbackDays = settings.analyticsLookbackDays)
+            }
+            else -> null
+        }
+        val currentProfile = baselineCurrentProfile?.copy(
+            isfMmolPerUnit = sensitivityRuntimeApplication.isf.override?.value
+                ?: baselineCurrentProfile.isfMmolPerUnit,
+            crGramPerUnit = sensitivityRuntimeApplication.cr.override?.value
+                ?: baselineCurrentProfile.crGramPerUnit
+        )
+        val currentSegment = normalizeSegmentForRuntimeStatic(
+            segment = currentSegmentEntity
+                ?.takeIf {
+                    isMatchingProfileSegmentGenerationStatic(
+                        profileTimestamp = legacyProfileEntity?.timestamp,
+                        segmentUpdatedAt = it.updatedAt
+                    )
+                }
+                ?.toProfileSegmentEstimate(),
+            localProfile = legacyProfile,
+            runtimeProfile = currentProfile
+        )
+
+        val uamRuntimeQuality = resolveUamRuntimeQualityStatic(
+            sensorQualityScore = sensorQuality.score,
+            sensorBlocked = sensorBlocked,
+            nowTs = nowTs,
+            effectiveDiaHours = runtimeDia.effectiveHours,
+            insulinEvidenceTimestamps = causalInsulinEvidenceTimestamps(
+                nowTs = nowTs,
+                therapy = therapy
+            ),
+            iobSampleTs = latestTelemetry["iob_sample_ts"]?.toLong(),
+            iobUnits = runtimeCobIob.iobUnits,
+            insulinCycleContext = insulinCycleFanOut.contextFor(InsulinCycleConsumer.UAM),
+            effectiveCobGrams = runtimeCobIob.cobGrams,
+            externalCobGrams = runtimeCobIob.externalCobRawGrams,
+            carbTherapyAvailable = hasRecentCarbEvents(
+                nowTs = nowTs,
+                therapy = therapy,
+                cutoffMinutes = settings.carbAbsorptionMaxAgeMinutes
+            ),
+            iobFreshnessMaxMinutes = settings.staleDataMaxMinutes
+        )
+        latestTelemetry["uam_runtime_input_sensor_trust"] = uamRuntimeQuality.sensorTrust
+        latestTelemetry["uam_runtime_input_therapy_coverage"] = uamRuntimeQuality.therapyCoverage
+        latestTelemetry["uam_runtime_input_announced_carb_coverage"] = uamRuntimeQuality.announcedCarbCoverage
+        configurePredictionEngine(
+            settings = settings,
+            sensitivityRuntimeApplication = sensitivityRuntimeApplication,
+            runtimeTelemetry = latestTelemetry,
+            uamRuntimeQuality = uamRuntimeQuality
+        )
+        return PredictionPreparationContext(
+            sensitivityRuntime = sensitivityRuntime,
+            realtimeIsfCrSnapshot = realtimeIsfCrSnapshot,
+            isfCrRuntimeGate = isfCrRuntimeGate,
+            isfCrOverrideBlendWeight = isfCrOverrideBlendWeight,
+            runtimeDia = runtimeDia,
+            runtimeCobIob = runtimeCobIob,
+            rawCobFromTelemetry = rawCobFromTelemetry,
+            rawIobFromTelemetry = rawIobFromTelemetry,
+            insulinCycleFanOut = insulinCycleFanOut,
+            insulinTherapyAvailable = insulinTherapyAvailable,
+            latestGlucose = latestGlucose,
+            effectiveStaleMaxMinutes = effectiveStaleMaxMinutes,
+            dataFresh = dataFresh,
+            actionsLast6h = actionsLast6h,
+            activeAapsTarget = activeAapsTarget,
+            localSafetyChronologyResolved = localSafetyChronologyResolved,
+            localSafetyCausalThroughTs = localSafetyCausalThroughTs,
+            latestAutomaticSent = latestAutomaticSent,
+            sensorQuality = sensorQuality,
+            sensorBlocked = sensorBlocked,
+            currentPattern = currentPattern,
+            circadianPrior = circadianPrior,
+            currentProfile = currentProfile,
+            currentSegment = currentSegment
+        )
+    }
+
+    private suspend fun buildForecastRuntimeContext(
+        settings: AppSettings,
+        nowTs: Long,
+        glucose: List<GlucosePoint>,
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        latestTelemetry: MutableMap<String, Double?>,
+        latestGlucose: GlucosePoint,
+        sensorLagGlucoseHistory: List<GlucosePoint>,
+        sensorLagTherapyHistory: List<io.aaps.copilot.domain.model.TherapyEvent>,
+        sensorLagRuntimeContext: SensorLagRuntimeContext,
+        effectiveStaleMaxMinutes: Int,
+        sensorQuality: SensorQualityAssessment,
+        sensorBlocked: Boolean,
+        effectiveCobGrams: Double,
+        insulinCycleContext: InsulinCycleContext,
+        currentPattern: io.aaps.copilot.domain.model.PatternWindow?,
+        circadianPrior: CircadianForecastPrior?,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        uamSensitivityRuntime: SensitivityRuntimeConsumerContext,
+        calibrationIdentity: GlucoseCalibrationCycleIdentity
+    ): ForecastRuntimeContext {
+        require(sensitivityRuntime.consumer == SensitivityRuntimeConsumer.FORECAST_5_30_60) {
+            "forecast runtime requires FORECAST_5_30_60 sensitivity context"
+        }
+        require(uamSensitivityRuntime.consumer == SensitivityRuntimeConsumer.UAM) {
+            "UAM runtime requires UAM sensitivity context"
+        }
+        require(sensitivityRuntime.snapshot === uamSensitivityRuntime.snapshot) {
+            "forecast and UAM must share the exact sensitivity snapshot"
+        }
+        (predictionEngine as? HybridPredictionEngine)
+            ?.setUamSensitivityRuntimeContext(uamSensitivityRuntime)
+        (predictionEngine as? HybridPredictionEngine)?.setMealAbsorptionContext(
+            energyProfileRepository.mealAbsorptionContext(settings, therapy)
+        )
+        val activityEffectContext = resolveActivityEffectContext(
+            settings = settings,
+            nowTs = nowTs,
+            latestTelemetry = latestTelemetry
+        )
+        val plannedActivityTargetOccurrence = resolvePlannedActivityTargetOccurrence(
+            nowTs = nowTs
+        )
+        val localForecasts = predictionEngine.predict(glucose, therapy)
+        val mergedForecastsRaw = ensureForecast30(
+            selectAutomationControlForecastsStatic(
+                local = localForecasts,
+                forecastGateway = null
+            )
+        )
+        val latestGlucoseInput = resolveLatestGlucoseInputMetadata(
+            latestGlucose = latestGlucose,
+            nowTs = nowTs
+        )
+        val sensorLagEstimate = SensorLagRuntimeEstimator.estimate(
+            SensorLagRuntimeEstimator.Input(
+                nowTs = nowTs,
+                glucose = sensorLagGlucoseHistory,
+                therapy = sensorLagTherapyHistory,
+                latestGlucose = latestGlucose,
+                requestedMode = settings.sensorLagCorrectionMode,
+                staleMaxMinutes = effectiveStaleMaxMinutes,
+                sensorQualityScore = sensorQuality.score,
+                sensorBlocked = sensorBlocked,
+                sensorSuspectFalseLow = sensorQuality.suspectFalseLow,
+                latestInput = latestGlucoseInput,
+                devicestatusAgeHours = sensorLagRuntimeContext.sensorAgeHours,
+                devicestatusAgeTs = sensorLagRuntimeContext.sensorAgeTs,
+                devicestatusAgeSourceRaw = sensorLagRuntimeContext.sensorAgeSourceRaw,
+                sageDays = sensorLagRuntimeContext.sageDays,
+                cageDays = sensorLagRuntimeContext.cageDays,
+                replayBucketStats = sensorLagRuntimeContext.replayBucketStats
+            )
+        )
+        sensorLagEstimate.ageConflictHours
+            ?.takeIf { it > 24.0 }
+            ?.let { conflictHours ->
+                auditLogger.warn(
+                    "sensor_lag_age_source_conflict",
+                    mapOf(
+                        "conflictHours" to conflictHours,
+                        "ageSource" to sensorLagEstimate.ageSource.name,
+                        "devicestatusAgeHours" to sensorLagRuntimeContext.sensorAgeHours,
+                        "sourceRaw" to sensorLagRuntimeContext.sensorAgeSourceRaw
+                    )
+                )
+            }
+        applySensorLagTelemetry(
+            latestTelemetry = latestTelemetry,
+            estimate = sensorLagEstimate,
+            latestGlucoseInput = latestGlucoseInput
+        )
+        val lagSeedForecasts = when (sensorLagEstimate.mode) {
+            SensorLagCorrectionMode.OFF -> mergedForecastsRaw
+            else -> SensorLagRuntimeEstimator.applyForecastBias(
+                forecasts = mergedForecastsRaw,
+                estimate = sensorLagEstimate
+            )
+        }
+        val lagReferenceGlucoseMmol = when (sensorLagEstimate.mode) {
+            SensorLagCorrectionMode.OFF -> latestGlucose.valueMmol
+            else -> sensorLagEstimate.correctedGlucoseMmol
+        }
+        val forecastDiagnostics = (predictionEngine as? HybridPredictionEngine)?.diagnosticsSnapshot()
+        val unifiedUam = projectUnifiedUamRuntimeStatic(
+            diagnostics = forecastDiagnostics,
+            effectiveCobGrams = effectiveCobGrams,
+            sensorBlocked = sensorBlocked,
+            sensitivityRuntime = uamSensitivityRuntime,
+            calibrationIdentity = calibrationIdentity
+        )
+        val calibrationErrors = collectForecastCalibrationErrors(nowTs = nowTs)
+        val calibrationTuning = resolveAiCalibrationTuning(
+            latestTelemetry = latestTelemetry,
+            nowTs = nowTs
+        )
+        val mergedForecastsCalibrated = applyRecentForecastCalibrationBias(
+            forecasts = mergedForecastsRaw,
+            history = calibrationErrors,
+            aiTuning = calibrationTuning
+        )
+        val lagForecastsCalibrated = applyRecentForecastCalibrationBias(
+            forecasts = lagSeedForecasts,
+            history = calibrationErrors,
+            aiTuning = calibrationTuning
+        )
+        val calibrationApplied = mergedForecastsCalibrated != mergedForecastsRaw
+        if (calibrationApplied) {
+            auditLogger.infoThrottled(
+                throttleKey = "forecast_calibration_bias_applied",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "forecast_calibration_bias_applied",
+                metadata = buildCalibrationAuditMeta(
+                    source = mergedForecastsRaw,
+                    adjusted = mergedForecastsCalibrated,
+                    aiTuning = calibrationTuning
+                )
+            )
+        }
+        val mergedForecastsContextBiased = applyContextFactorForecastBias(
+            forecasts = mergedForecastsCalibrated,
+            telemetry = latestTelemetry,
+            latestGlucoseMmol = latestGlucose.valueMmol,
+            pattern = currentPattern
+        )
+        val lagForecastsContextBiased = applyContextFactorForecastBias(
+            forecasts = lagForecastsCalibrated,
+            telemetry = latestTelemetry,
+            latestGlucoseMmol = lagReferenceGlucoseMmol,
+            pattern = currentPattern
+        )
+        val contextBiasApplied = mergedForecastsContextBiased != mergedForecastsCalibrated
+        if (contextBiasApplied) {
+            auditLogger.infoThrottled(
+                throttleKey = "forecast_context_bias_applied",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "forecast_context_bias_applied",
+                metadata = mapOf(
+                    "setFactor" to latestTelemetry["isf_factor_set_factor"],
+                    "sensorFactor" to latestTelemetry["isf_factor_sensor_factor"],
+                    "activityFactor" to latestTelemetry["isf_factor_activity_factor"],
+                    "dawnFactor" to latestTelemetry["isf_factor_dawn_factor"],
+                    "stressFactor" to latestTelemetry["isf_factor_stress_factor"],
+                    "hormoneFactor" to latestTelemetry["isf_factor_hormone_factor"],
+                    "steroidFactor" to latestTelemetry["isf_factor_steroid_factor"],
+                    "contextAmbiguity" to latestTelemetry["isf_factor_context_ambiguity"],
+                    "sensorQuality" to latestTelemetry["sensor_quality_score"]
+                )
+            )
+        }
+        val mergedForecastsBiased = applyCobIobForecastBias(
+            forecasts = mergedForecastsContextBiased,
+            cobGrams = latestTelemetry["cob_grams"],
+            diagnosticIobUnits = latestTelemetry["iob_effective_units"],
+            insulinCycleContext = insulinCycleContext,
+            isfMmolPerUnit = resolveForecastIsfStatic(latestTelemetry),
+            latestGlucoseMmol = latestGlucose.valueMmol,
+            uamActive = resolveCobIobBiasUamActive(
+                latestTelemetry = latestTelemetry,
+                currentUnifiedUamFlag = unifiedUam.flag
+            )
+        )
+        val lagForecastsBiased = applyCobIobForecastBias(
+            forecasts = lagForecastsContextBiased,
+            cobGrams = latestTelemetry["cob_grams"],
+            diagnosticIobUnits = latestTelemetry["iob_effective_units"],
+            insulinCycleContext = insulinCycleContext,
+            isfMmolPerUnit = resolveForecastIsfStatic(latestTelemetry),
+            latestGlucoseMmol = lagReferenceGlucoseMmol,
+            uamActive = resolveCobIobBiasUamActive(
+                latestTelemetry = latestTelemetry,
+                currentUnifiedUamFlag = unifiedUam.flag
+            )
+        )
+        val cobIobBiasApplied = mergedForecastsBiased != mergedForecastsContextBiased
+        if (cobIobBiasApplied) {
+            auditLogger.infoThrottled(
+                throttleKey = "forecast_bias_applied",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "forecast_bias_applied",
+                metadata = mapOf(
+                    "cobGrams" to latestTelemetry["cob_grams"],
+                    "iobNetUnits" to insulinCycleContext.snapshot?.netIobUnits,
+                    "iobEffectivePositiveUnits" to insulinCycleContext.snapshot?.effectivePositiveIobUnits,
+                    "iobBasalUnits" to insulinCycleContext.snapshot?.basalIobUnits,
+                    "insulinActivity" to insulinCycleContext.snapshot?.insulinActivity,
+                    "insulinResidualAllowed" to insulinCycleContext.residualComparisonAllowed,
+                    "insulinResidualReason" to insulinCycleContext.residualComparisonReason
+                )
+            )
+        }
+        val mergedForecastsCircadian = applyCircadianPatternForecastBias(
+            forecasts = mergedForecastsBiased,
+            prior = circadianPrior,
+            latestGlucoseMmol = latestGlucose.valueMmol,
+            settings = settings
+        )
+        val lagForecastsCircadian = applyCircadianPatternForecastBias(
+            forecasts = lagForecastsBiased,
+            prior = circadianPrior,
+            latestGlucoseMmol = lagReferenceGlucoseMmol,
+            settings = settings
+        )
+        val circadianBiasApplied = mergedForecastsCircadian != mergedForecastsBiased
+        if (circadianBiasApplied && circadianPrior != null) {
+            auditLogger.infoThrottled(
+                throttleKey = "forecast_circadian_prior_applied",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "forecast_circadian_prior_applied",
+                metadata = mapOf(
+                    "segmentSource" to circadianPrior.segmentSource.name,
+                    "requestedDayType" to circadianPrior.requestedDayType.name,
+                    "confidence" to circadianPrior.confidence,
+                    "qualityScore" to circadianPrior.qualityScore,
+                    "acuteAttenuation" to circadianPrior.acuteAttenuation,
+                    "delta15" to circadianPrior.delta15,
+                    "delta30" to circadianPrior.delta30,
+                    "delta60" to circadianPrior.delta60,
+                    "residualBias30" to circadianPrior.residualBias30,
+                    "residualBias60" to circadianPrior.residualBias60
+                )
+            )
+        }
+        val mergedForecasts = normalizeForecastSet(mergedForecastsCircadian)
+        if (mergedForecasts.size != mergedForecastsBiased.size) {
+            auditLogger.warn(
+                "forecast_duplicate_horizon_deduped",
+                mapOf("before" to mergedForecastsBiased.size, "after" to mergedForecasts.size)
+            )
+        }
+        val lagCorrectedForecasts = normalizeForecastSet(lagForecastsCircadian)
+        if (lagCorrectedForecasts.size != lagForecastsBiased.size) {
+            auditLogger.warn(
+                "forecast_sensor_lag_duplicate_horizon_deduped",
+                mapOf("before" to lagForecastsBiased.size, "after" to lagCorrectedForecasts.size)
+            )
+        }
+        val sensorLagControlPlan = resolveSensorLagControlPlanStatic(
+            requestedMode = settings.sensorLagCorrectionMode,
+            estimate = sensorLagEstimate,
+            rawCurrentGlucoseMmol = latestGlucose.valueMmol,
+            mergedForecasts = mergedForecasts,
+            lagCorrectedForecasts = lagCorrectedForecasts
+        )
+        val activityForecastPlan = resolveActivityForecastPlanStatic(
+            controlForecasts = sensorLagControlPlan.controlForecasts,
+            context = activityEffectContext,
+            existingControlActivityFactor = resolveContextActivityFactorStatic(latestTelemetry)
+        )
+        activityForecastPlan.shadowForecasts?.let { shadow ->
+            auditLogger.infoThrottled(
+                throttleKey = "activity_forecast_shadow",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "activity_forecast_shadow",
+                metadata = shadow.associate { forecast ->
+                    val control = activityForecastPlan.controlForecasts
+                        .firstOrNull { it.horizonMinutes == forecast.horizonMinutes }
+                    "h${forecast.horizonMinutes}_delta" to
+                        ((forecast.valueMmol - (control?.valueMmol ?: forecast.valueMmol)) * 1000.0).toInt() / 1000.0
+                }
+            )
+        }
+        val forecastDecomposition = extractForecastDecompositionSnapshotStatic(
+            diagnostics = forecastDiagnostics,
+            localForecasts = localForecasts
+        )
+        applyUnifiedUamTelemetry(latestTelemetry = latestTelemetry, unified = unifiedUam)
+        requireCycleSensitivityRuntime(
+            context = uamSensitivityRuntime,
+            expectedConsumer = SensitivityRuntimeConsumer.UAM,
+            cycleSnapshot = sensitivityRuntime.snapshot
+        )
+        return ForecastRuntimeContext(
+            mergedForecasts = mergedForecasts,
+            controlForecasts = sensorLagControlPlan.controlForecasts,
+            lagCorrectedForecasts = lagCorrectedForecasts,
+            effectiveCurrentGlucoseMmol = sensorLagControlPlan.effectiveCurrentGlucoseMmol,
+            calibrationApplied = calibrationApplied,
+            contextBiasApplied = contextBiasApplied,
+            cobIobBiasApplied = cobIobBiasApplied,
+            circadianBiasApplied = circadianBiasApplied,
+            calibrationSampleCount = calibrationErrors.size,
+            calibrationPoints = calibrationErrors,
+            sensorLagEstimate = sensorLagEstimate,
+            latestGlucoseInput = latestGlucoseInput,
+            sensorLagControlPlan = sensorLagControlPlan,
+            activityEffectContext = activityEffectContext,
+            activityForecastPlan = activityForecastPlan,
+            plannedActivityTargetOccurrence = plannedActivityTargetOccurrence,
+            unifiedUam = unifiedUam,
+            forecastDecomposition = forecastDecomposition,
+            sensitivityRuntime = sensitivityRuntime,
+            calibrationIdentity = calibrationIdentity
+        )
+    }
+
+    private suspend fun auditForecastFactorCoverage(
+        nowTs: Long,
+        latestTelemetry: Map<String, Double?>,
+        realtimeIsfCrSnapshot: IsfCrRealtimeSnapshot?,
+        runtimeGate: IsfCrRuntimeGate,
+        runtimeCobIob: RuntimeCobIobInputs,
+        currentPattern: io.aaps.copilot.domain.model.PatternWindow?,
+        calibrationSampleCount: Int,
+        calibrationApplied: Boolean,
+        contextBiasApplied: Boolean,
+        cobIobBiasApplied: Boolean,
+        circadianPrior: CircadianForecastPrior?,
+        circadianBiasApplied: Boolean,
+        insulinTherapyAvailable: Boolean
+    ) {
+        auditLogger.infoThrottled(
+            throttleKey = "forecast_factor_coverage",
+            intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+            message = "forecast_factor_coverage",
+            metadata = buildForecastFactorCoverageMeta(
+                latestTelemetry = latestTelemetry,
+                realtimeIsfCrSnapshot = realtimeIsfCrSnapshot,
+                runtimeGate = runtimeGate,
+                runtimeCobIob = runtimeCobIob,
+                currentPattern = currentPattern,
+                calibrationSampleCount = calibrationSampleCount,
+                calibrationApplied = calibrationApplied,
+                contextBiasApplied = contextBiasApplied,
+                cobIobBiasApplied = cobIobBiasApplied,
+                circadianPrior = circadianPrior,
+                circadianBiasApplied = circadianBiasApplied,
+                calculatedUam = CalculatedUamSnapshot(0.0, 0.0, null, null, null, null),
+                inferredUam = null,
+                insulinTherapyAvailable = insulinTherapyAvailable
+            )
+        )
+        auditCycleCheckpoint("post_uam_and_coverage")
+    }
+
+    private suspend fun executeRulesAndActions(
+        settings: AppSettings,
+        nowTs: Long,
+        context: RuleContext,
+        controlForecasts: List<Forecast>,
+        lagCorrectedForecasts: List<Forecast>,
+        activeAapsTarget: ActiveAapsTarget?,
+        activeTempTarget: Double?,
+        effectiveBaseTarget: EffectiveBaseTarget,
+        dataFresh: Boolean,
+        actionsLast6h: Int,
+        localSafetyChronologyResolved: Boolean,
+        localSafetyCausalThroughTs: Long,
+        latestAutomaticSent: LastSentTempTarget?,
+        sensorBlocked: Boolean,
+        sensorQuality: SensorQualityAssessment,
+        lowGlucoseSafetyCycle: LowGlucoseSafetyCycleContext,
+        latestTelemetry: MutableMap<String, Double?>,
+        deliveryTrustTelemetry: MutableList<DeliveryTrustTelemetryValue>,
+        forecastRuntime: ForecastRuntimeContext,
+        insulinCycleContext: InsulinCycleContext,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts,
+        externalWritesAllowed: Boolean,
+        mode: RuleEvaluationMode
+    ): List<RuleDecision> {
+        val decisions = ruleEngine.evaluate(
+            context = context,
+            config = SafetyPolicyConfig(
+                killSwitch = settings.killSwitch,
+                maxActionsIn6Hours = resolveEffectiveMaxActions6h(settings),
+                minTargetMmol = settings.safetyMinTargetMmol,
+                maxTargetMmol = settings.safetyMaxTargetMmol
+            ),
+            runtimeConfig = runtimeConfig(settings)
+        )
+        auditCycleCheckpoint(
+            stage = "post_rule_evaluate",
+            metadata = mapOf("decisions" to decisions.size)
+        )
+        if (forecastRuntime.sensorLagControlPlan.shouldEvaluateShadow) {
+            val shadowDecisions = sensorLagShadowRuleEngine.evaluate(
+                context = context.copy(
+                    forecasts = checkNotNull(forecastRuntime.sensorLagControlPlan.shadowForecasts),
+                    currentGlucoseMmol = checkNotNull(forecastRuntime.sensorLagControlPlan.shadowCurrentGlucoseMmol)
+                ),
+                config = SafetyPolicyConfig(
+                    killSwitch = settings.killSwitch,
+                    maxActionsIn6Hours = resolveEffectiveMaxActions6h(settings),
+                    minTargetMmol = settings.safetyMinTargetMmol,
+                    maxTargetMmol = settings.safetyMaxTargetMmol
+                ),
+                runtimeConfig = runtimeConfig(settings)
+            )
+            val shadowRuleChanged = hasSensorLagShadowRuleChanged(
+                baseline = decisions,
+                candidate = shadowDecisions
+            )
+            val shadowTargetDeltaMmol = resolveSensorLagShadowTargetDeltaMmol(
+                baseline = decisions,
+                candidate = shadowDecisions
+            )
+            latestTelemetry["sensor_lag_shadow_rule_changed"] = if (shadowRuleChanged) 1.0 else 0.0
+            latestTelemetry["sensor_lag_shadow_target_delta_mmol"] = shadowTargetDeltaMmol
+            persistSensorLagTelemetry(
+                nowTs = nowTs,
+                estimate = forecastRuntime.sensorLagEstimate,
+                latestGlucoseInput = forecastRuntime.latestGlucoseInput,
+                controlForecasts = controlForecasts,
+                candidateForecasts = lagCorrectedForecasts,
+                shadowRuleChanged = shadowRuleChanged,
+                shadowTargetDeltaMmol = shadowTargetDeltaMmol
+            )
+        }
+
+        val effectiveDecisions = decisions.map { decision ->
+            if (decision.state == RuleState.TRIGGERED && decision.actionProposal != null) {
+                val cooldownMinutes = ruleCooldownMinutes(decision.ruleId, settings)
+                if (
+                    cooldownMinutes > 0 &&
+                    !shouldBypassAdaptiveCooldownStatic(
+                        decision = decision,
+                        activeTempTargetMmol = activeTempTarget
+                    ) &&
+                    isRuleInCooldown(decision.ruleId, nowTs, cooldownMinutes)
+                ) {
+                    val cooldownReason = if (decision.ruleId == AdaptiveTargetControllerRule.RULE_ID) {
+                        "retarget_cooldown_${cooldownMinutes}m"
+                    } else {
+                        "rule_cooldown_active:${cooldownMinutes}m"
+                    }
+                    decision.copy(
+                        state = RuleState.BLOCKED,
+                        reasons = decision.reasons + cooldownReason,
+                        actionProposal = null
+                    )
+                } else {
+                    decision
+                }
+            } else {
+                decision
+            }
+        }
+
+        val proposedSafetyTarget = effectiveDecisions.asSequence()
+            .filter { it.state == RuleState.TRIGGERED }
+            .filter { it.ruleId == AdaptiveTargetControllerRule.RULE_ID }
+            .mapNotNull { it.actionProposal }
+            .filter { it.type.equals("temp_target", ignoreCase = true) }
+            .filter { isLowGlucoseSafetyReasonStatic(it.reason) }
+            .maxOfOrNull { it.targetMmol }
+        val lowGlucoseSafetyState = if (
+            lowGlucoseSafetyCycle.state.riskNow && proposedSafetyTarget != null
+        ) {
+            evaluateLowGlucoseSafetyLatch(
+                mode = mode,
+                currentGlucoseMmol = context.currentGlucoseMmol,
+                forecastMinimumMmol = lowGlucoseSafetyCycle.forecastMinimumMmol,
+                activeSafetyTargetMmol = lowGlucoseSafetyCycle.activeSafetyTargetMmol,
+                proposedSafetyTargetMmol = proposedSafetyTarget,
+                seedFromActiveSafety = lowGlucoseSafetyCycle.activeSafetyTargetMmol != null
+            )
+        } else {
+            lowGlucoseSafetyCycle.state
+        }
+        latestTelemetry["target_low_risk_active"] = if (lowGlucoseSafetyState.riskNow) 1.0 else 0.0
+        latestTelemetry["target_low_risk_latched"] = if (lowGlucoseSafetyState.latched) 1.0 else 0.0
+        latestTelemetry["target_low_risk_safe_cycles"] = lowGlucoseSafetyState.safeCycles.toDouble()
+        latestTelemetry["target_low_risk_protected_target_mmol"] = lowGlucoseSafetyState.protectedTargetMmol
+        if (mode == RuleEvaluationMode.LIVE) {
+            persistLowGlucoseTargetSafetyTelemetry(nowTs, lowGlucoseSafetyState)
+        }
+
+        val writerRouting = automaticTargetWriterRoutingStatic(settings.targetManagerMode)
+        val targetProposals = mutableListOf<TargetProposal>()
+        val latestGlucoseTs = context.glucose.maxOfOrNull { it.ts } ?: nowTs
+        val therapyWatermark = context.therapyEvents.maxOfOrNull { it.ts } ?: 0L
+        if (externalWritesAllowed && writerRouting.submitLegacyAutomatic) {
+            maybeSendSensorQualityRollbackTempTarget(
+                settings = settings,
+                nowTs = nowTs,
+                dataFresh = dataFresh,
+                assessment = sensorQuality,
+                activeTempTarget = activeTempTarget,
+                actionsLast6h = actionsLast6h,
+                baseTargetMmol = effectiveBaseTarget.effectiveTargetMmol
+            )
+        }
+
+        var adaptiveTriggeredThisCycle = false
+        for (effectiveDecision in effectiveDecisions) {
+
+            db.ruleExecutionDao().insert(
+                RuleExecutionEntity(
+                    timestamp = nowTs,
+                    ruleId = effectiveDecision.ruleId,
+                    state = if (mode == RuleEvaluationMode.DIAGNOSTIC_READ_ONLY) {
+                        DIAGNOSTIC_RULE_EXECUTION_STATE
+                    } else {
+                        effectiveDecision.state.name
+                    },
+                    reasonsJson = gson.toJson(effectiveDecision.reasons),
+                    actionJson = effectiveDecision.actionProposal?.let { gson.toJson(it) }
+                )
+            )
+
+            if (effectiveDecision.state == RuleState.TRIGGERED && effectiveDecision.actionProposal != null) {
+                if (effectiveDecision.ruleId == AdaptiveTargetControllerRule.RULE_ID &&
+                    effectiveDecision.actionProposal.type.equals("temp_target", ignoreCase = true)
+                ) {
+                    adaptiveTriggeredThisCycle = true
+                }
+                val normalizedAction = alignTempTargetToBaseTarget(
+                    action = effectiveDecision.actionProposal,
+                    forecasts = controlForecasts,
+                    baseTargetMmol = effectiveBaseTarget.effectiveTargetMmol,
+                    sourceRuleId = effectiveDecision.ruleId
+                )
+                val protectedAction = protectLowGlucoseTargetStatic(
+                    action = normalizedAction,
+                    state = lowGlucoseSafetyState,
+                    minTargetMmol = settings.safetyMinTargetMmol,
+                    maxTargetMmol = settings.safetyMaxTargetMmol
+                )
+                val idempotencyKey = buildIdempotencyKey(
+                    ruleId = effectiveDecision.ruleId,
+                    nowTs = nowTs,
+                    settings = settings,
+                    action = protectedAction
+                )
+                val targetProposal = targetProposalFactory.fromRuleDecision(
+                    decision = effectiveDecision.copy(actionProposal = protectedAction),
+                    priority = targetRulePriority(effectiveDecision.ruleId, settings),
+                    generatedAt = nowTs,
+                    inputFingerprint = listOf(
+                        latestGlucoseTs,
+                        therapyWatermark,
+                        effectiveDecision.ruleId,
+                        protectedAction.targetMmol,
+                        protectedAction.durationMinutes,
+                        protectedAction.reason
+                    ).joinToString(":")
+                )
+                targetProposal?.let(targetProposals::add)
+
+                val isAutomaticTempTarget = protectedAction.type.equals("temp_target", ignoreCase = true)
+                if (externalWritesAllowed && (!isAutomaticTempTarget || writerRouting.submitLegacyAutomatic)) {
+                    val command = ActionCommand(
+                        id = UUID.randomUUID().toString(),
+                        type = protectedAction.type,
+                        params = mapOf(
+                            "targetMmol" to protectedAction.targetMmol.toString(),
+                            "durationMinutes" to protectedAction.durationMinutes.toString(),
+                            "reason" to protectedAction.reason,
+                            "targetIntent" to (targetProposal?.intent ?: TargetIntent.NORMAL_CONTROL).name
+                        ),
+                        safetySnapshot = SafetySnapshot(
+                            killSwitch = settings.killSwitch,
+                            dataFresh = dataFresh,
+                            activeTempTargetMmol = activeTempTarget,
+                            actionsLast6h = actionsLast6h
+                        ),
+                        idempotencyKey = idempotencyKey
+                    )
+                    submitActionWithTimeout(
+                        command = command,
+                        sourceRuleId = effectiveDecision.ruleId,
+                        nowTs = nowTs
+                    )
+                }
+            }
+        }
+
+        val sameCycleAdaptiveDecision = effectiveDecisions
+            .asSequence()
+            .filter { it.ruleId == AdaptiveTargetControllerRule.RULE_ID }
+            .filter { it.state == RuleState.TRIGGERED }
+            .mapNotNull { decision ->
+                decision.actionProposal
+                    ?.takeIf { it.type.equals("temp_target", ignoreCase = true) }
+                    ?.let { action -> decision to action }
+            }
+            .firstOrNull()
+        val sameCycleAdaptiveCandidate = sameCycleAdaptiveDecision?.second?.targetMmol
+        val sameCycleAdaptiveCandidateFingerprint = sameCycleAdaptiveDecision?.let { (decision, action) ->
+            listOf(
+                latestGlucoseTs,
+                therapyWatermark,
+                decision.ruleId,
+                action.targetMmol,
+                action.durationMinutes,
+                action.reason
+            ).joinToString(":")
+        }
+        val safePredictedFall = activitySafePredictedFallStatic(
+            currentGlucoseMmol = context.currentGlucoseMmol,
+            glucose = context.glucose,
+            controlForecasts = controlForecasts,
+            lowRiskThresholdMmol = ACTIVITY_TARGET_LOW_RISK_THRESHOLD_MMOL
+        )
+        val activityProposal = ActivityTargetProposalFactory().create(
+            ActivityTargetProposalInput(
+                now = Instant.ofEpochMilli(nowTs),
+                occurrence = forecastRuntime.plannedActivityTargetOccurrence,
+                moduleEnabled = settings.energyProfile.enabled &&
+                    settings.energyProfile.forecastActivityInfluenceEnabled,
+                baseTargetMmol = effectiveBaseTarget.effectiveTargetMmol,
+                minTargetMmol = settings.safetyMinTargetMmol,
+                maxTargetMmol = settings.safetyMaxTargetMmol,
+                sameCycleAdaptiveCandidateMmol = sameCycleAdaptiveCandidate,
+                sameCycleAdaptiveCandidateFingerprint = sameCycleAdaptiveCandidateFingerprint,
+                safePredictedFall = safePredictedFall,
+                // Canonical personal/replay evidence is intentionally unavailable until Task 9.
+                personalRiseEvidence = null,
+                replayEvidence = null
+            )
+        )
+        ActivityTargetProposalFactory().asTargetProposal(activityProposal, nowTs)?.let(targetProposals::add)
+
+        if (writerRouting.evaluateManager) {
+            val targetManagerNoProposalReason = effectiveDecisions
+                .asSequence()
+                .filter { it.ruleId == AdaptiveTargetControllerRule.RULE_ID }
+                .flatMap { it.reasons.asSequence() }
+                .map { it.removePrefix("reason=") }
+                .firstOrNull { it == "safety_iob_missing_blocks_lowering" }
+            evaluateTargetManager(
+                settings = settings,
+                nowTs = nowTs,
+                latestGlucoseTs = latestGlucoseTs,
+                therapyWatermark = therapyWatermark,
+                proposals = targetProposals,
+                activeAapsTarget = activeAapsTarget,
+                dataFresh = dataFresh,
+                localSafetyChronologyResolved = localSafetyChronologyResolved,
+                latestAutomaticSent = latestAutomaticSent,
+                sensorQuality = sensorQuality,
+                sensorBlocked = sensorBlocked,
+                currentGlucoseMmol = context.currentGlucoseMmol,
+                forecasts = controlForecasts,
+                calibrationPoints = forecastRuntime.calibrationPoints,
+                effectiveBaseTarget = effectiveBaseTarget,
+                canonicalGlucose = context.glucose,
+                therapyEvents = context.therapyEvents,
+                latestTelemetry = latestTelemetry,
+                deliveryTrustTelemetry = deliveryTrustTelemetry,
+                insulinCycleContext = insulinCycleContext,
+                sensitivityRuntime = sensitivityRuntime,
+                acceptedClinicalForecastAuthority = acceptedClinicalForecastAuthority,
+                calibrationIdentity = forecastRuntime.calibrationIdentity,
+                plannedActivityProposal = activityProposal,
+                sameCycleAdaptiveCandidateMmol = sameCycleAdaptiveCandidate,
+                noProposalReason = targetManagerNoProposalReason,
+                activityReturnToBaseRequested = activityReturnToBaseRequestedStatic(
+                    plannedActivityTargetOccurrence = forecastRuntime.plannedActivityTargetOccurrence,
+                    activityContextSource = forecastRuntime.activityEffectContext.source
+                ),
+                dispatchAllowed = externalWritesAllowed,
+                liveEvaluation = mode == RuleEvaluationMode.LIVE
+            )
+        }
+        if (externalWritesAllowed && !adaptiveTriggeredThisCycle && writerRouting.submitLegacyAutomatic) {
+            maybeSendAdaptiveKeepaliveTempTarget(
+                settings = settings,
+                nowTs = nowTs,
+                dataFresh = dataFresh,
+                sensorBlocked = sensorBlocked,
+                activeTempTarget = activeTempTarget,
+                actionsLast6h = actionsLast6h,
+                chronologyResolved = localSafetyChronologyResolved,
+                causalThroughTs = localSafetyCausalThroughTs,
+                forecasts = controlForecasts,
+                baseTargetMmol = effectiveBaseTarget.effectiveTargetMmol,
+                lowGlucoseSafetyState = lowGlucoseSafetyState
+            )
+        }
+        auditCycleCheckpoint("post_actions")
+        auditAdaptiveController(effectiveDecisions, context, settings, controlForecasts)
+        auditCycleCheckpoint("post_adaptive_audit")
+        return decisions
+    }
+
+    private suspend fun prepareLowGlucoseSafetyCycle(
+        nowTs: Long,
+        currentGlucoseMmol: Double,
+        forecasts: List<Forecast>,
+        activeTempTarget: Double?,
+        mode: RuleEvaluationMode
+    ): LowGlucoseSafetyCycleContext {
+        val activeSafetyTarget = resolveRecentActiveSafetyTarget(
+            nowTs = nowTs,
+            activeTempTarget = activeTempTarget
+        )
+        val forecastMinimum = resolveLowGlucoseForecastMinimumStatic(
+            currentGlucoseMmol = currentGlucoseMmol,
+            forecasts = forecasts
+        )
+        val state = evaluateLowGlucoseSafetyLatch(
+            mode = mode,
+            currentGlucoseMmol = currentGlucoseMmol,
+            forecastMinimumMmol = forecastMinimum,
+            activeSafetyTargetMmol = activeSafetyTarget,
+            proposedSafetyTargetMmol = null,
+            seedFromActiveSafety = activeSafetyTarget != null
+        )
+        return LowGlucoseSafetyCycleContext(
+            state = state,
+            activeSafetyTargetMmol = activeSafetyTarget,
+            forecastMinimumMmol = forecastMinimum
+        )
+    }
+
+    private fun evaluateLowGlucoseSafetyLatch(
+        mode: RuleEvaluationMode,
+        currentGlucoseMmol: Double?,
+        forecastMinimumMmol: Double?,
+        activeSafetyTargetMmol: Double?,
+        proposedSafetyTargetMmol: Double?,
+        seedFromActiveSafety: Boolean
+    ): LowGlucoseTargetSafetyLatch.State = when (mode) {
+        RuleEvaluationMode.LIVE -> lowGlucoseTargetSafetyLatch.update(
+            currentGlucoseMmol = currentGlucoseMmol,
+            forecastMinimumMmol = forecastMinimumMmol,
+            activeSafetyTargetMmol = activeSafetyTargetMmol,
+            proposedSafetyTargetMmol = proposedSafetyTargetMmol,
+            seedFromActiveSafety = seedFromActiveSafety
+        )
+        RuleEvaluationMode.DIAGNOSTIC_READ_ONLY -> lowGlucoseTargetSafetyLatch.preview(
+            currentGlucoseMmol = currentGlucoseMmol,
+            forecastMinimumMmol = forecastMinimumMmol,
+            activeSafetyTargetMmol = activeSafetyTargetMmol,
+            proposedSafetyTargetMmol = proposedSafetyTargetMmol,
+            seedFromActiveSafety = seedFromActiveSafety
+        )
+    }
+
+    private suspend fun resolveCircadianEffectiveBaseTarget(
+        settings: AppSettings,
+        nowTs: Long,
+        controlForecasts: List<Forecast>,
+        runtimeCobIob: RuntimeCobIobInputs,
+        insulinCycleContext: InsulinCycleContext,
+        sensorQuality: SensorQualityAssessment,
+        sensorBlocked: Boolean,
+        lowGlucoseSafetyState: LowGlucoseTargetSafetyLatch.State,
+        latestTelemetry: MutableMap<String, Double?>
+    ): EffectiveBaseTarget {
+        val result = circadianTargetRepository.resolveEffectiveTarget(
+            now = nowTs,
+            schedule = settings.baseTargetSchedule,
+            zoneId = ZoneId.systemDefault(),
+            targetManagerMode = settings.targetManagerMode,
+            hardMinTargetMmol = settings.safetyMinTargetMmol,
+            hardMaxTargetMmol = settings.safetyMaxTargetMmol,
+            gates = EffectiveTargetRuntimeGates(
+                sensorTrust = resolveSensorTrustStateStatic(sensorQuality, sensorBlocked),
+                sensorAgeHours = latestTelemetry["sensor_age_hours"]
+                    ?.takeIf { it.isFinite() && it >= 0.0 }
+                    ?: latestTelemetry["sensor_lag_age_hours"]
+                        ?.takeIf { it.isFinite() && it >= 0.0 },
+                lowRiskLatched = lowGlucoseSafetyState.latched,
+                forecast5CiLowMmol = controlForecasts
+                    .firstOrNull { it.horizonMinutes == 5 }
+                    ?.ciLow,
+                forecast30CiLowMmol = controlForecasts
+                    .firstOrNull { it.horizonMinutes == 30 }
+                    ?.ciLow,
+                safetyIobUnits = insulinCycleContext.safetyIobUnits,
+                effectiveCobGrams = runtimeCobIob.cobGrams,
+                uamActive = latestTelemetry["uam_runtime_control_flag"]
+                    ?.takeIf(Double::isFinite)
+                    ?.let { it >= 0.5 }
+                    ?: false
+            )
+        )
+        latestTelemetry["target_base_manual_mmol"] = result.manualTargetMmol
+        latestTelemetry["target_base_auto_delta_mmol"] = result.autoDeltaMmol
+        latestTelemetry["target_base_effective_mmol"] = result.effectiveTargetMmol
+        latestTelemetry["target_base_schedule_revision"] = result.scheduleRevision.toDouble()
+        auditLogger.infoThrottled(
+            throttleKey = "effective_base_target_resolved",
+            intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+            message = "effective_base_target_resolved",
+            metadata = mapOf(
+                "manualTargetMmol" to result.manualTargetMmol,
+                "autoDeltaMmol" to result.autoDeltaMmol,
+                "effectiveTargetMmol" to result.effectiveTargetMmol,
+                "state" to result.state.name,
+                "scheduleRevision" to result.scheduleRevision,
+                "intervalId" to result.intervalId.orEmpty(),
+                "adjustmentRunId" to result.adjustmentRunId.orEmpty(),
+                "reasons" to result.reasonCodes.joinToString("|")
+            )
+        )
+        return result
+    }
+
+    private suspend fun evaluateTargetManager(
+        settings: AppSettings,
+        nowTs: Long,
+        latestGlucoseTs: Long,
+        therapyWatermark: Long,
+        proposals: List<TargetProposal>,
+        activeAapsTarget: ActiveAapsTarget?,
+        dataFresh: Boolean,
+        localSafetyChronologyResolved: Boolean,
+        latestAutomaticSent: LastSentTempTarget?,
+        sensorQuality: SensorQualityAssessment,
+        sensorBlocked: Boolean,
+        currentGlucoseMmol: Double?,
+        forecasts: List<Forecast>,
+        calibrationPoints: List<ForecastCalibrationPoint>,
+        effectiveBaseTarget: EffectiveBaseTarget,
+        canonicalGlucose: List<GlucosePoint>,
+        therapyEvents: List<TherapyEvent>,
+        latestTelemetry: MutableMap<String, Double?>,
+        deliveryTrustTelemetry: MutableList<DeliveryTrustTelemetryValue>,
+        insulinCycleContext: InsulinCycleContext,
+        sensitivityRuntime: SensitivityRuntimeConsumerContext,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts,
+        calibrationIdentity: GlucoseCalibrationCycleIdentity,
+        plannedActivityProposal: io.aaps.copilot.domain.profile.ActivityTargetProposal,
+        sameCycleAdaptiveCandidateMmol: Double?,
+        noProposalReason: String?,
+        activityReturnToBaseRequested: Boolean,
+        dispatchAllowed: Boolean,
+        liveEvaluation: Boolean
+    ) {
+        val reliability = listOf(5, 30, 60).associateWith { horizon ->
+            val forecast = forecasts.firstOrNull { it.horizonMinutes == horizon }
+            buildHorizonReliabilityStatic(
+                horizonMinutes = horizon,
+                currentForecast = forecast,
+                maturedPoints = calibrationPoints,
+                evaluatedAt = nowTs
+            )
+        }
+        val minimumPredictedOrCi = forecasts.asSequence()
+            .flatMap { sequenceOf(it.valueMmol, it.ciLow) }
+            .filter(Double::isFinite)
+            .minOrNull()
+        val sensorTrust = resolveSensorTrustStateStatic(sensorQuality, sensorBlocked)
+        val deliveryTrust = resolveLiveDeliveryTrustStatic(
+            nowTs = nowTs,
+            canonicalGlucose = canonicalGlucose,
+            therapyEvents = therapyEvents,
+            sensorTrust = sensorTrust,
+            latestTelemetry = latestTelemetry
+        )
+        val encodedDeliveryTrust = DeliveryTrustStateWireCodec.encode(deliveryTrust)
+        latestTelemetry[DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY] = encodedDeliveryTrust
+        deliveryTrustTelemetry += buildSameCycleAlertDeliveryTrustTelemetryStatic(
+            nowTs = nowTs,
+            state = deliveryTrust
+        )
+        val activityForecasts = forecasts
+            .filter { it.horizonMinutes in setOf(5, 30, 60) }
+            .associate { forecast ->
+                forecast.horizonMinutes to ActivityForecastSafety(
+                    horizonMinutes = forecast.horizonMinutes,
+                    valueMmol = forecast.valueMmol,
+                    ciLowMmol = forecast.ciLow,
+                    ciHighMmol = forecast.ciHigh
+                )
+            }
+        val observedDelta5 = contextDelta5MmolStatic(context = canonicalGlucose)
+        val activitySafety = ActivityTargetSafetyContext(
+            moduleEnabled = settings.energyProfile.enabled &&
+                settings.energyProfile.forecastActivityInfluenceEnabled,
+            occurrenceId = plannedActivityProposal.occurrenceId.ifBlank { null },
+            occurrenceRevision = plannedActivityProposal.occurrenceRevision.takeIf { it >= 0L },
+            validFromMs = plannedActivityProposal.validFromMs,
+            validUntilMs = plannedActivityProposal.validUntilMs,
+            evidenceHash = plannedActivityProposal.evidenceHash.ifBlank { null },
+            sameCycleAdaptiveCandidateMmol = sameCycleAdaptiveCandidateMmol,
+            sameCycleCandidateFingerprint = plannedActivityProposal.sameCycleCandidateFingerprint,
+            personalEvidenceHash = plannedActivityProposal.personalEvidenceHash,
+            replayHash = plannedActivityProposal.replayHash,
+            observedDelta5Mmol = observedDelta5,
+            diagnosticIobUnits = latestTelemetry["iob_effective_units"]?.takeIf(Double::isFinite),
+            cobGrams = latestTelemetry["cob_effective_grams"]?.takeIf(Double::isFinite),
+            uamActive = latestTelemetry["uam_runtime_control_flag"]
+                ?.takeIf(Double::isFinite)
+                ?.let { it >= 0.5 }
+                ?: false,
+            forecasts = activityForecasts,
+            safePredictedFall = activitySafePredictedFallStatic(
+                currentGlucoseMmol = currentGlucoseMmol,
+                glucose = canonicalGlucose,
+                controlForecasts = forecasts,
+                lowRiskThresholdMmol = ACTIVITY_TARGET_LOW_RISK_THRESHOLD_MMOL
+            ),
+            keepaliveAllowed = plannedActivityProposal.targetMmol != null &&
+                plannedActivityProposal.blockers.isEmpty() &&
+                nowTs in plannedActivityProposal.validFromMs until plannedActivityProposal.validUntilMs,
+            returnToBaseRequested = activityReturnToBaseRequested
+        )
+        val input = TargetManagerInput(
+            nowTs = nowTs,
+            glucoseTimestamp = latestGlucoseTs,
+            therapyWatermark = therapyWatermark,
+            mode = settings.targetManagerMode,
+            proposals = proposals,
+            runtimeState = TargetManagerRuntimeState(settings.targetManagerMode),
+            activeAapsTarget = activeAapsTarget,
+            safety = TargetManagerSafetyContext(
+                killSwitch = settings.killSwitch,
+                dataFresh = dataFresh,
+                sensorTrust = sensorTrust,
+                deliveryTrust = deliveryTrust,
+                currentGlucoseMmol = currentGlucoseMmol,
+                minimumPredictedOrCiMmol = minimumPredictedOrCi,
+                lowRiskThresholdMmol = 4.4,
+                minTargetMmol = settings.safetyMinTargetMmol,
+                maxTargetMmol = settings.safetyMaxTargetMmol,
+                minDurationMinutes = 15,
+                maxDurationMinutes = 120,
+                baseTargetMmol = effectiveBaseTarget.effectiveTargetMmol,
+                safetyIobUnits = insulinCycleContext.safetyIobUnits,
+                localChronologyResolved = localSafetyChronologyResolved
+            ),
+            reliability = reliability,
+            lastAutomaticSent = latestAutomaticSent,
+            baseProvenance = TargetBaseProvenance(
+                scheduleRevision = effectiveBaseTarget.scheduleRevision,
+                intervalId = effectiveBaseTarget.intervalId,
+                adjustmentRunId = effectiveBaseTarget.adjustmentRunId
+            ),
+            activitySafety = activitySafety,
+            sensitivityRuntime = sensitivityRuntime,
+            calibrationIdentity = calibrationIdentity,
+            copilotPriorityEnabled = settings.targetManagerCopilotPriorityEnabled,
+            priorityRevision = settings.targetManagerPolicyRevision
+        )
+        require(forecasts == acceptedClinicalForecastAuthority.forecasts) {
+            "Target Manager must consume the exact authenticated accepted forecast tuple"
+        }
+        evaluateTargetManagerWithFailureBoundaryStatic(
+            mode = settings.targetManagerMode,
+            evaluateAndReport = {
+                evaluatePersistAndReportTargetManagerDeliveryTrustStatic(
+                    nowTs = nowTs,
+                    state = deliveryTrust,
+                    evaluate = {
+                        if (dispatchAllowed) {
+                            targetManagerRepository.evaluateAndDispatch(input)
+                        } else {
+                            targetManagerRepository.evaluateReadOnly(input)
+                        }
+                    },
+                    persist = { row ->
+                        db.telemetryDao().upsertAll(
+                            listOf(row) + buildTargetManagerSensitivityTelemetryRowsStatic(
+                                nowTs = nowTs,
+                                sensitivityRuntime = sensitivityRuntime
+                            ) + buildAcceptedClinicalForecastTelemetryRowsStatic(
+                                nowTs = nowTs,
+                                source = TARGET_MANAGER_DELIVERY_TRUST_SOURCE,
+                                keyPrefix = "target_manager_accepted_forecast",
+                                authority = acceptedClinicalForecastAuthority
+                            )
+                        )
+                    },
+                    warn = auditLogger::warn,
+                    reportDecision = { decision ->
+                        runBestEffortTargetManagerPostEvaluationAuditStatic {
+                            auditLogger.info(
+                                "target_manager_decision",
+                                mapOf(
+                                    "mode" to settings.targetManagerMode.name,
+                                    "outcome" to decision.outcome.name,
+                                    "winner" to decision.winner?.sourceRuleId.orEmpty(),
+                                    "targetMmol" to (decision.winner?.targetMmol ?: -1.0),
+                                    "semanticFingerprint" to decision.semanticFingerprint.orEmpty(),
+                                    "cadenceOutcome" to decision.cadenceOutcome?.name.orEmpty(),
+                                    "cadenceReason" to decision.cadenceReason.orEmpty(),
+                                    "scheduleRevision" to effectiveBaseTarget.scheduleRevision,
+                                    "intervalId" to effectiveBaseTarget.intervalId.orEmpty(),
+                                    "adjustmentRunId" to effectiveBaseTarget.adjustmentRunId.orEmpty(),
+                                    "deliveryTrust" to deliveryTrust.name,
+                                    "sensitivityCycleId" to sensitivityRuntime.snapshot.forecastCycleId,
+                                    "sensitivitySettingsRevision" to
+                                        sensitivityRuntime.snapshot.settingsRevision
+                                )
+                            )
+                        }
+                        reportTargetManagerLiveStatusStatic(
+                            liveEvaluation = liveEvaluation,
+                            status = buildTargetManagerLiveStatusStatic(
+                                nowTs = nowTs,
+                                mode = settings.targetManagerMode,
+                                priorityEnabled = settings.targetManagerCopilotPriorityEnabled,
+                                policyRevision = settings.targetManagerPolicyRevision,
+                                activeAapsTarget = activeAapsTarget,
+                                decision = decision,
+                                noProposalReason = noProposalReason,
+                                dispatchAllowed = dispatchAllowed
+                            ),
+                            persist = { row -> db.telemetryDao().upsertAll(listOf(row)) }
+                        )
+                    }
+                )
+            },
+            reportEvaluationFailure = auditLogger::error
+        )
+    }
+
+    private fun targetRulePriority(ruleId: String, settings: AppSettings): Int = when (ruleId) {
+        AdaptiveTargetControllerRule.RULE_ID -> settings.adaptiveControllerPriority
+        "PostHypoReboundGuard.v1" -> settings.rulePostHypoPriority
+        "PatternAdaptiveTarget.v1" -> settings.rulePatternPriority
+        "SegmentProfileGuard.v1" -> settings.ruleSegmentPriority
+        else -> 0
     }
 
     private suspend fun maybeRecalculateAnalytics(settings: AppSettings) {
@@ -1381,60 +3989,15 @@ class AutomationRepository(
         )
     }
 
-    private suspend fun resolveRealtimeIsfCrSnapshot(
-        settings: AppSettings,
-        nowTs: Long
-    ): IsfCrRealtimeSnapshot? {
-        if (
-            isfCrRealtimeRefreshInFlight &&
-            isfCrRealtimeRefreshStartedAtTs > 0L &&
-            (nowTs - isfCrRealtimeRefreshStartedAtTs) > ISFCR_REALTIME_IN_FLIGHT_STALE_MS
-        ) {
-            val staleJob = isfCrRealtimeRefreshJob
-            val hadActiveJob = staleJob?.isActive == true
-            staleJob?.cancel()
-            isfCrRealtimeRefreshJob = null
-            isfCrRealtimeRefreshInFlight = false
-            isfCrRealtimeRefreshStartedAtTs = 0L
-            isfCrRealtimeLastFailureTs = nowTs
-            auditLogger.warn(
-                "isfcr_realtime_refresh_recovered",
-                mapOf(
-                    "reason" to "stale_in_flight_guard",
-                    "hadActiveJob" to hadActiveJob
-                )
-            )
-        }
-
+    private suspend fun resolveRealtimeIsfCrSnapshot(nowTs: Long): ResolvedRealtimeIsfCrSnapshot {
         val latest = runCatching { isfCrRepository.latestSnapshot() }.getOrNull()
         val ageMs = latest?.let { nowTs - it.ts } ?: Long.MAX_VALUE
+
         if (latest != null && ageMs in 0..ISFCR_SNAPSHOT_FRESHNESS_MS) {
-            return latest
-        }
-
-        var inFailureBackoff = isfCrRealtimeLastFailureTs > 0L &&
-            (nowTs - isfCrRealtimeLastFailureTs) < ISFCR_REALTIME_RETRY_BACKOFF_MS
-
-        if (!isfCrRealtimeRefreshInFlight && !inFailureBackoff) {
-            val refreshReason = when {
-                latest == null -> "missing_snapshot"
-                ageMs >= ISFCR_SYNC_REFRESH_STALE_MS -> "stale_snapshot"
-                else -> "background_refresh"
-            }
-            scheduleRealtimeIsfCrRefresh(settings = settings, nowTs = nowTs, reason = refreshReason)
-        } else if (inFailureBackoff && !isfCrRealtimeRefreshInFlight) {
-            auditLogger.infoThrottled(
-                throttleKey = "isfcr_realtime_refresh_skipped:backoff",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "isfcr_realtime_refresh_skipped",
-                metadata = mapOf("reason" to "backoff")
-            )
-        } else {
-            auditLogger.infoThrottled(
-                throttleKey = "isfcr_realtime_refresh_skipped:in_flight",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "isfcr_realtime_refresh_skipped",
-                metadata = mapOf("reason" to "in_flight")
+            return ResolvedRealtimeIsfCrSnapshot(
+                snapshot = latest,
+                servedMode = "FRESH",
+                ageMs = ageMs
             )
         }
 
@@ -1446,17 +4009,6 @@ class AutomationRepository(
                 metadata = mapOf("reason" to "snapshot_missing_or_stale")
             )
         } else {
-            auditLogger.warnThrottled(
-                throttleKey = "isfcr_realtime_unavailable:stale",
-                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
-                message = "isfcr_realtime_unavailable",
-                metadata = mapOf(
-                    "reason" to "snapshot_stale",
-                    "snapshotTs" to latest.ts,
-                    "snapshotAgeMs" to ageMs,
-                    "freshnessMs" to ISFCR_SNAPSHOT_FRESHNESS_MS
-                )
-            )
             if (ageMs <= ISFCR_STALE_REUSE_MAX_MS) {
                 val reused = latest.copy(
                     mode = IsfCrRuntimeMode.FALLBACK,
@@ -1473,10 +4025,29 @@ class AutomationRepository(
                         "confidence" to reused.confidence
                     )
                 )
-                return reused
+                return ResolvedRealtimeIsfCrSnapshot(
+                    snapshot = reused,
+                    servedMode = "STALE_REUSED",
+                    ageMs = ageMs
+                )
             }
+            auditLogger.warnThrottled(
+                throttleKey = "isfcr_realtime_unavailable:stale",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "isfcr_realtime_unavailable",
+                metadata = mapOf(
+                    "reason" to "snapshot_stale",
+                    "snapshotTs" to latest.ts,
+                    "snapshotAgeMs" to ageMs,
+                    "freshnessMs" to ISFCR_SNAPSHOT_FRESHNESS_MS
+                )
+            )
         }
-        return null
+        return ResolvedRealtimeIsfCrSnapshot(
+            snapshot = null,
+            servedMode = "MISSING",
+            ageMs = if (latest != null && ageMs != Long.MAX_VALUE) ageMs else null
+        )
     }
 
     private suspend fun maybeRunBaselineImport(
@@ -1532,20 +4103,22 @@ class AutomationRepository(
                     }
                 }.onSuccess { snapshot ->
                     isfCrRealtimeLastFailureTs = 0L
+                    isfCrRealtimeLastRefreshDurationMs = System.currentTimeMillis() - startedAt
                     auditLogger.info(
                         "isfcr_realtime_refresh_completed",
                         mapOf(
-                            "durationMs" to (System.currentTimeMillis() - startedAt),
+                            "durationMs" to isfCrRealtimeLastRefreshDurationMs,
                             "snapshotTs" to snapshot.ts
                         )
                     )
                 }.onFailure { error ->
                     isfCrRealtimeLastFailureTs = System.currentTimeMillis()
+                    isfCrRealtimeLastRefreshDurationMs = System.currentTimeMillis() - startedAt
                     auditLogger.warn(
                         "isfcr_realtime_refresh_failed",
                         mapOf(
                             "timeout" to (error is TimeoutCancellationException),
-                            "durationMs" to (System.currentTimeMillis() - startedAt),
+                            "durationMs" to isfCrRealtimeLastRefreshDurationMs,
                             "reason" to (error.message ?: error::class.simpleName.orEmpty())
                         )
                     )
@@ -1636,14 +4209,30 @@ class AutomationRepository(
             lastCalibrationPointsCache = emptyList()
             return emptyList()
         }
-        val glucoseHistory = GlucoseSanitizer
-            .filterEntities(db.glucoseDao().latest(CALIBRATION_GLUCOSE_LIMIT))
-            .sortedBy { it.timestamp }
+        val glucoseHistory = glucoseCalibrationRepository.resolveGlucoseHistory(
+            rawGlucose = GlucoseSanitizer.filterEntities(db.glucoseDao().latest(CALIBRATION_GLUCOSE_LIMIT)),
+            nowTs = nowTs
+        ).sortedBy { it.ts }
         if (glucoseHistory.isEmpty()) {
             lastCalibrationRefreshBucketTs = refreshBucket
             lastCalibrationPointsCache = emptyList()
             return emptyList()
         }
+
+        val sensorTrustTimeline = TreeMap<Long, Boolean>()
+        db.telemetryDao().sinceByKeys(
+            since = nowTs - CALIBRATION_LOOKBACK_MS - SENSOR_TRUST_MATCH_TOLERANCE_MS,
+            keys = FORECAST_RELIABILITY_SENSOR_KEYS
+        ).groupBy { it.timestamp }
+            .forEach { (timestamp, rows) ->
+                val values = rows.associate { it.key to it.valueDouble }
+                val score = values["sensor_quality_score"]
+                val blocked = values["sensor_quality_blocked"]
+                val suspectFalseLow = values["sensor_quality_suspect_false_low"]
+                sensorTrustTimeline[timestamp] = score != null && score.isFinite() && score >= 0.65 &&
+                    blocked != null && blocked.isFinite() && blocked < 0.5 &&
+                    suspectFalseLow != null && suspectFalseLow.isFinite() && suspectFalseLow < 0.5
+            }
 
         val computed = forecastHistory.asSequence()
             .filter { row ->
@@ -1651,16 +4240,28 @@ class AutomationRepository(
                 age in CALIBRATION_MIN_AGE_MS..CALIBRATION_LOOKBACK_MS
             }
             .mapNotNull { row ->
-                val nearest = nearestGlucoseAt(
+                val nearest = nearestResolvedGlucoseAt(
                     targetTs = row.timestamp,
                     sorted = glucoseHistory,
                     toleranceMs = CALIBRATION_MATCH_TOLERANCE_MS
                 ) ?: return@mapNotNull null
+                val forecastGeneratedAt = forecastGeneratedAtStatic(
+                    targetTimestamp = row.timestamp,
+                    horizonMinutes = row.horizonMinutes
+                ) ?: return@mapNotNull null
                 ForecastCalibrationPoint(
                     horizonMinutes = row.horizonMinutes,
-                    errorMmol = nearest.mmol - row.valueMmol,
+                    errorMmol = nearest.calibratedMmol - row.valueMmol,
                     ageMs = nowTs - row.timestamp,
-                    predictedMmol = row.valueMmol
+                    predictedMmol = row.valueMmol,
+                    ciLowMmol = row.ciLow,
+                    ciHighMmol = row.ciHigh,
+                    sensorTrusted = sensorTrustTimeline.floorEntry(forecastGeneratedAt)
+                        ?.takeIf { entry ->
+                            forecastGeneratedAt - entry.key in 0L..SENSOR_TRUST_MATCH_TOLERANCE_MS
+                        }
+                        ?.value == true,
+                    modelVersion = row.modelVersion
                 )
             }
             .toList()
@@ -1693,6 +4294,32 @@ class AutomationRepository(
         val leftDiff = left?.let { abs(it.timestamp - targetTs) } ?: Long.MAX_VALUE
         val best = if (rightDiff < leftDiff) right else left
         return best?.takeIf { abs(it.timestamp - targetTs) <= toleranceMs }
+    }
+
+    private fun nearestResolvedGlucoseAt(
+        targetTs: Long,
+        sorted: List<ResolvedGlucosePoint>,
+        toleranceMs: Long
+    ): ResolvedGlucosePoint? {
+        if (sorted.isEmpty()) return null
+        var lo = 0
+        var hi = sorted.lastIndex
+        while (lo <= hi) {
+            val mid = (lo + hi).ushr(1)
+            val midTs = sorted[mid].ts
+            when {
+                midTs < targetTs -> lo = mid + 1
+                midTs > targetTs -> hi = mid - 1
+                else -> return sorted[mid]
+            }
+        }
+
+        val right = sorted.getOrNull(lo)
+        val left = sorted.getOrNull(lo - 1)
+        val rightDiff = right?.let { abs(it.ts - targetTs) } ?: Long.MAX_VALUE
+        val leftDiff = left?.let { abs(it.ts - targetTs) } ?: Long.MAX_VALUE
+        val best = if (rightDiff < leftDiff) right else left
+        return best?.takeIf { abs(it.ts - targetTs) <= toleranceMs }
     }
 
     private fun applyRecentForecastCalibrationBias(
@@ -1753,16 +4380,20 @@ class AutomationRepository(
     private fun applyCobIobForecastBias(
         forecasts: List<Forecast>,
         cobGrams: Double?,
-        iobUnits: Double?,
+        diagnosticIobUnits: Double?,
         latestGlucoseMmol: Double? = null,
-        uamActive: Boolean? = null
+        uamActive: Boolean? = null,
+        insulinCycleContext: InsulinCycleContext,
+        isfMmolPerUnit: Double? = null,
     ): List<Forecast> {
         return applyCobIobForecastBiasStatic(
             forecasts = forecasts,
             cobGrams = cobGrams,
-            iobUnits = iobUnits,
+            diagnosticIobUnits = diagnosticIobUnits,
             latestGlucoseMmol = latestGlucoseMmol,
-            uamActive = uamActive
+            uamActive = uamActive,
+            insulinCycleContext = insulinCycleContext,
+            isfMmolPerUnit = isfMmolPerUnit,
         )
     }
 
@@ -1781,34 +4412,155 @@ class AutomationRepository(
         )
     }
 
-    private fun resolveEffectiveBaseTarget(
-        configuredBaseTargetMmol: Double,
-        telemetry: Map<String, Double?>
-    ): Double {
-        val base = configuredBaseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
-        val cob = telemetry["cob_grams"]?.coerceIn(0.0, 400.0) ?: return base
-        if (cob < COB_FORCE_BASE_THRESHOLD_G) return base
-        return COB_FORCE_BASE_TARGET_MMOL.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+    private suspend fun resolveActivityEffectContext(
+        settings: AppSettings,
+        nowTs: Long,
+        latestTelemetry: MutableMap<String, Double?>
+    ): ActivityEffectContext {
+        if (!settings.energyProfile.enabled || !settings.energyProfile.forecastActivityInfluenceEnabled) {
+            return ActivityEffectContext.DISABLED
+        }
+        val measured = physicalActivityMeasurementStatic(
+            sample = db.telemetryDao().latestPhysicalActivityRatioSince(
+                since = nowTs - PHYSICAL_ACTIVITY_MEASUREMENT_FRESHNESS_MS,
+                through = nowTs
+            ),
+            nowTs = nowTs
+        )
+        val context = activityEffectModel.evaluate(
+            enabled = true,
+            now = Instant.ofEpochMilli(nowTs),
+            planned = resolveCurrentPlannedActivity(nowTs),
+            measured = measured,
+            // Canonical replay evidence is intentionally unavailable until Task 9.
+            replayEvidence = null
+        )
+        latestTelemetry["activity_context_factor_5m"] = context.factor5
+        latestTelemetry["activity_context_factor_30m"] = context.factor30
+        latestTelemetry["activity_context_factor_60m"] = context.factor60
+        latestTelemetry["activity_context_confidence"] = context.confidence
+        return context
     }
+
+    private suspend fun resolveCurrentPlannedActivity(nowTs: Long): PlannedActivityOccurrence? {
+        val now = Instant.ofEpochMilli(nowTs)
+        val candidates = db.energyProfileDao().enabledEvents().flatMap { entity ->
+            val schedule = entity.toPlannedActivityScheduleOrNull() ?: return@flatMap emptyList()
+            val zone = runCatching { ZoneId.of(schedule.timezoneId) }.getOrNull() ?: return@flatMap emptyList()
+            val localDate = now.atZone(zone).toLocalDate()
+            listOf(localDate, localDate.minusDays(1)).mapNotNull { date ->
+                activityScheduleEngine.materialize(schedule, date)
+            }
+        }.filter { occurrence -> activityEffectModel.isWithinPlannedEffectWindow(now, occurrence) }
+        return candidates.singleOrNull()
+    }
+
+    private suspend fun resolvePlannedActivityTargetOccurrence(nowTs: Long): PlannedActivityOccurrence? {
+        val now = Instant.ofEpochMilli(nowTs)
+        val candidates = db.energyProfileDao().enabledEvents().flatMap { entity ->
+            val schedule = entity.toPlannedActivityScheduleOrNull() ?: return@flatMap emptyList()
+            val zone = runCatching { ZoneId.of(schedule.timezoneId) }.getOrNull() ?: return@flatMap emptyList()
+            val localDate = now.atZone(zone).toLocalDate()
+            listOf(localDate, localDate.minusDays(1)).mapNotNull { date ->
+                activityScheduleEngine.materialize(schedule, date)
+            }
+        }.filter { occurrence ->
+            activityEffectModel.isWithinPlannedTargetWindow(now, occurrence)
+        }
+        // Ambiguous overlapping plans fail closed even if legacy records bypassed schedule validation.
+        return candidates.singleOrNull()
+    }
+
+    private fun contextDelta5MmolStatic(context: List<GlucosePoint>): Double? {
+        val latest = context.sortedBy(GlucosePoint::ts).takeLast(2)
+        if (latest.size < 2) return null
+        val elapsed = latest[1].ts - latest[0].ts
+        val values = latest.map(GlucosePoint::valueMmol)
+        if (elapsed !in 60_000L..15 * 60_000L || values.any { !it.isFinite() }) return null
+        return (values[1] - values[0]) * (5 * 60_000.0 / elapsed.toDouble())
+    }
+
+    private fun activitySafePredictedFallStatic(
+        currentGlucoseMmol: Double?,
+        glucose: List<GlucosePoint>,
+        controlForecasts: List<Forecast>,
+        lowRiskThresholdMmol: Double
+    ): ActivitySafePredictedFall? {
+        val current = currentGlucoseMmol?.takeIf(Double::isFinite) ?: return null
+        val delta = contextDelta5MmolStatic(glucose) ?: return null
+        val byHorizon = controlForecasts.associateBy(Forecast::horizonMinutes)
+        val forecast5 = byHorizon[5] ?: return null
+        val forecast30 = byHorizon[30] ?: return null
+        val forecast60 = byHorizon[60] ?: return null
+        val evidenceHash = listOf(
+            current,
+            delta,
+            lowRiskThresholdMmol,
+            forecast5.ts,
+            forecast5.valueMmol,
+            forecast5.ciLow,
+            forecast30.ts,
+            forecast30.valueMmol,
+            forecast30.ciLow,
+            forecast60.ts,
+            forecast60.valueMmol,
+            forecast60.ciLow
+        ).joinToString(":")
+        return ActivitySafePredictedFall(
+            evidenceHash = evidenceHash,
+            currentGlucoseMmol = current,
+            observedDelta5Mmol = delta,
+            pred5Mmol = forecast5.valueMmol,
+            pred30Mmol = forecast30.valueMmol,
+            pred60Mmol = forecast60.valueMmol,
+            ciLow5Mmol = forecast5.ciLow,
+            ciLow30Mmol = forecast30.ciLow,
+            ciLow60Mmol = forecast60.ciLow,
+            lowRiskThresholdMmol = lowRiskThresholdMmol
+        )
+    }
+
+    private fun PlannedActivityEventEntity.toPlannedActivityScheduleOrNull(): PlannedActivitySchedule? = runCatching {
+        PlannedActivitySchedule(
+            eventId = eventId,
+            enabled = enabled,
+            title = title,
+            type = PlannedActivityType.valueOf(activityType),
+            intensity = PlannedActivityIntensity.valueOf(intensity),
+            localStart = LocalDateTime.parse(localStartIso),
+            durationMinutes = durationMinutes,
+            timezoneId = timezoneId,
+            recurrenceDays = DayOfWeek.entries.filterTo(linkedSetOf()) { day ->
+                recurrenceDaysMask and (1 shl (day.value - 1)) != 0
+            },
+            recurrenceEndEpochDay = recurrenceEndEpochDay,
+            revision = revision,
+            createdAtMs = createdAtMs,
+            updatedAtMs = updatedAtMs
+        )
+    }.getOrNull()
 
     private suspend fun resolveLatestTelemetry(
         nowTs: Long,
         settings: AppSettings
-    ): Map<String, Double?> {
+    ): ResolvedLatestTelemetry {
         val baseRows = db.telemetryDao().latestBySourceAndKeySince(nowTs - TELEMETRY_LOOKBACK_MS)
         val reportRows = db.telemetryDao().latestReportAndProfileSince(nowTs - TELEMETRY_REPORT_LOOKBACK_MS)
-        val activityRowsToday = db.telemetryDao().sinceByKeys(
-            since = Instant.ofEpochMilli(nowTs)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate()
-                .atStartOfDay(ZoneId.systemDefault())
-                .toInstant()
-                .toEpochMilli(),
-            keys = CUMULATIVE_ACTIVITY_KEYS.toList()
+        val dayStartTs = Instant.ofEpochMilli(nowTs)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        val activityRowsToday = resolveCumulativeActivityRowsToday(dayStartTs)
+        val readCompletedAt = System.currentTimeMillis()
+        val deliveryTrustTelemetry = selectAcceptedAlertDeliveryTrustTelemetryStatic(
+            baseRows = baseRows,
+            reportRows = reportRows
         )
         val rows = (baseRows + reportRows)
             .distinctBy { row -> "${row.source}:${row.key}:${row.timestamp}" }
-        if (rows.isEmpty()) return emptyMap()
+        if (rows.isEmpty()) return ResolvedLatestTelemetry(emptyMap(), emptyList())
         val usableRows = rows
             .filter { it.valueDouble != null && telemetryValueUsable(it.key, it.valueDouble) }
         val usableActivityRowsToday = activityRowsToday
@@ -1882,9 +4634,28 @@ class AutomationRepository(
             ),
             tokenAliases = listOf("insulinonboard")
         )
-        selectStrictAapsIob(rows)?.let { selected ->
-            latestByKey["iob_units"] = selected.valueDouble
-            latestTimestampByKey["iob_units"] = selected.timestamp
+        val selectedAuthoritativeIob = selectStrictAapsIob(rows)
+        val runtimeInsulinResolution = resolveFreshRuntimeInsulinTelemetryStatic(
+            rows = rows,
+            nowTs = readCompletedAt,
+            freshnessMs = settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+        )
+        val runtimeInsulinSnapshot = runtimeInsulinResolution.snapshot
+        ATOMIC_AAPS_INSULIN_PACKET_KEYS.forEach { key -> latestByKey[key] = null }
+        if (runtimeInsulinSnapshot != null) {
+            val snapshot = runtimeInsulinSnapshot
+            latestByKey["iob_units"] = snapshot.effectivePositiveIobUnits
+            latestByKey["iob_net_units"] = snapshot.netIobUnits
+            latestByKey["iob_bolus_units"] = snapshot.bolusIobUnits
+            latestByKey["iob_basal_units"] = snapshot.basalIobUnits
+            latestByKey["insulin_activity"] = snapshot.insulinActivity
+            latestByKey["iob_effective_positive_units"] = snapshot.effectivePositiveIobUnits
+            latestByKey["iob_relay_timestamp_ms"] = snapshot.timestamp.toDouble()
+            latestByKey["iob_runtime_confidence"] = snapshot.confidence
+            latestByKey["iob_runtime_source_code"] = InsulinRuntimeSnapshotResolver.sourceCode(snapshot.source)
+            ATOMIC_AAPS_INSULIN_PACKET_KEYS.forEach { key ->
+                latestTimestampByKey[key] = snapshot.timestamp
+            }
         }
         alias(
             targetKey = "cob_grams",
@@ -1896,15 +4667,17 @@ class AutomationRepository(
             ),
             tokenAliases = listOf("carbsonboard")
         )
+        val selectedAuthoritativeCob = selectStrictAapsCob(rows)
+        selectedAuthoritativeCob?.let { selected ->
+            latestByKey["cob_grams"] = selected.valueDouble
+            latestTimestampByKey["cob_grams"] = selected.timestamp
+        }
+        val selectedAuthoritativeIsf = selectStrictAapsIsf(rows)
+        val selectedAuthoritativeCr = selectStrictAapsCr(rows)
         alias(
             targetKey = "activity_ratio",
             preferredKeys = listOf("activity_ratio", "raw_activityratio"),
             tokenAliases = listOf("activityratio", "sensitivityratio")
-        )
-        alias(
-            targetKey = "uam_value",
-            preferredKeys = listOf("uam_value", "uam_inferred_flag", "uam_calculated_flag", "uam_flag"),
-            tokenAliases = listOf("enable_uam", "uam_detected", "unannounced_meal", "has_uam", "is_uam")
         )
         var usedRiskTextFallback = false
         if (latestByKey["daily_report_isfcr_quality_risk_level"] == null) {
@@ -1925,7 +4698,7 @@ class AutomationRepository(
         val staleRuntimeKeys = latestByKey.keys.filter { key ->
             requiresRuntimeFreshness(key) &&
                 !isReportTelemetryKey(key) &&
-                ((latestTimestampByKey[key]?.let { ts -> nowTs - ts > runtimeFreshnessMs }) == true)
+                ((latestTimestampByKey[key]?.let { ts -> readCompletedAt - ts > runtimeFreshnessMs }) == true)
         }
         staleRuntimeKeys.forEach { key -> latestByKey[key] = null }
         if (staleRuntimeKeys.isNotEmpty()) {
@@ -1938,7 +4711,81 @@ class AutomationRepository(
                 )
             )
         }
-        return latestByKey
+        val iobProvenance = resolveIobSampleProvenanceStatic(
+            selected = selectedAuthoritativeIob,
+            nowTs = readCompletedAt,
+            freshnessMs = runtimeFreshnessMs
+        )
+        val runtimeIobSampleTs = latestByKey["iob_relay_timestamp_ms"]
+            ?.takeIf { it.isFinite() }
+            ?.toLong()
+        val effectiveIobSampleTs = runtimeIobSampleTs ?: iobProvenance.sampleTs
+        latestByKey["iob_sample_ts"] = effectiveIobSampleTs?.toDouble()
+        latestByKey["iob_sample_age_min"] = effectiveIobSampleTs?.let { (readCompletedAt - it) / 60_000.0 }
+        latestByKey["iob_sample_fresh"] = if (
+            effectiveIobSampleTs != null &&
+            effectiveIobSampleTs in 0..readCompletedAt &&
+            readCompletedAt - effectiveIobSampleTs <= runtimeFreshnessMs
+        ) 1.0 else 0.0
+        selectedAuthoritativeIsf?.let { selected ->
+            val sampleTs = selected.timestamp.takeIf { it in 0..readCompletedAt }
+            latestByKey["isf_aaps_raw_value"] = selected.valueDouble
+            latestByKey["isf_aaps_raw_sample_ts"] = sampleTs?.toDouble()
+            latestByKey["isf_aaps_raw_age_min"] = sampleTs?.let { (readCompletedAt - it) / 60_000.0 }
+        }
+        selectedAuthoritativeCr?.let { selected ->
+            val sampleTs = selected.timestamp.takeIf { it in 0..readCompletedAt }
+            latestByKey["cr_aaps_raw_value"] = selected.valueDouble
+            latestByKey["cr_aaps_raw_sample_ts"] = sampleTs?.toDouble()
+            latestByKey["cr_aaps_raw_age_min"] = sampleTs?.let { (readCompletedAt - it) / 60_000.0 }
+        }
+        return ResolvedLatestTelemetry(
+            values = latestByKey,
+            deliveryTrustTelemetry = deliveryTrustTelemetry
+        )
+    }
+
+    private suspend fun resolveCumulativeActivityRowsToday(dayStartTs: Long): List<TelemetrySampleEntity> {
+        val previous = cumulativeActivityDayCache?.takeIf { it.dayStartTs == dayStartTs }
+        val bestRowsByKey = previous?.rowsByKey?.toMutableMap() ?: linkedMapOf()
+        var afterTimestamp = previous?.cursorTimestamp ?: (dayStartTs - 1L)
+        var afterId = previous?.cursorId ?: ""
+        while (true) {
+            val page = db.telemetryDao().sinceByKeysPage(
+                since = dayStartTs,
+                keys = CUMULATIVE_ACTIVITY_KEYS.toList(),
+                afterTimestamp = afterTimestamp,
+                afterId = afterId,
+                limit = CUMULATIVE_ACTIVITY_PAGE_SIZE
+            )
+            if (page.isEmpty()) break
+            page.forEach { row ->
+                val value = row.valueDouble
+                if (!telemetryValueUsable(row.key, value)) return@forEach
+                val entity = row.toEntity()
+                val existing = bestRowsByKey[row.key]
+                val replace = existing == null ||
+                    (value ?: Double.NEGATIVE_INFINITY) > (existing.valueDouble ?: Double.NEGATIVE_INFINITY) ||
+                    (
+                        value == existing.valueDouble &&
+                            entity.timestamp > existing.timestamp
+                        )
+                if (replace) {
+                    bestRowsByKey[row.key] = entity
+                }
+            }
+            val last = page.last()
+            afterTimestamp = last.timestamp
+            afterId = last.id
+            if (page.size < CUMULATIVE_ACTIVITY_PAGE_SIZE) break
+        }
+        cumulativeActivityDayCache = CumulativeActivityDayCache(
+            dayStartTs = dayStartTs,
+            cursorTimestamp = afterTimestamp,
+            cursorId = afterId,
+            rowsByKey = bestRowsByKey.toMap()
+        )
+        return bestRowsByKey.values.toList()
     }
 
     private suspend fun resolveLatestGlucoseInputMetadata(
@@ -1966,6 +4813,186 @@ class AutomationRepository(
             estimate = estimate,
             latestGlucoseInput = latestGlucoseInput
         )
+    }
+
+    private suspend fun resolveSensorLagRuntimeContext(
+        nowTs: Long
+    ): SensorLagRuntimeContext {
+        val rows = db.telemetryDao().latestBySourceAndKeySinceForKeys(
+            since = nowTs - SENSOR_LAG_RUNTIME_CONTEXT_LOOKBACK_MS,
+            keys = SENSOR_LAG_RUNTIME_CONTEXT_KEYS
+        )
+        if (rows.isEmpty()) return SensorLagRuntimeContext()
+        val ageHoursRow = rows
+            .asSequence()
+            .filter { it.key == "sensor_age_hours" && it.valueDouble?.isFinite() == true }
+            .maxByOrNull { it.timestamp }
+        val ageDaysRow = rows
+            .asSequence()
+            .filter { it.key == "sensor_age_days" && it.valueDouble?.isFinite() == true }
+            .maxByOrNull { it.timestamp }
+        val sensorAgeTs = listOfNotNull(ageHoursRow?.timestamp, ageDaysRow?.timestamp).maxOrNull()
+        val sensorAgeHours = when {
+            ageHoursRow != null && ageDaysRow != null -> {
+                if (ageHoursRow.timestamp >= ageDaysRow.timestamp) {
+                    ageHoursRow.valueDouble
+                } else {
+                    ageDaysRow.valueDouble?.times(24.0)
+                }
+            }
+            ageHoursRow != null -> ageHoursRow.valueDouble
+            ageDaysRow != null -> ageDaysRow.valueDouble?.times(24.0)
+            else -> {
+                rows.asSequence()
+                    .filter {
+                        it.key == "raw_com_eveningoutpost_dexdrip_extras_sensorstartedat" &&
+                            it.valueDouble?.isFinite() == true
+                    }
+                    .maxByOrNull { it.timestamp }
+                    ?.let { startedAtRow ->
+                        val startedAtMs = normalizeSensorStartedAtMillis(startedAtRow.valueDouble)
+                        startedAtMs
+                            ?.takeIf { ts -> ts in 1L..nowTs }
+                            ?.let { ts -> ((nowTs - ts).coerceAtLeast(0L)) / 3_600_000.0 }
+                    }
+            }
+        }
+        val ageSourceRaw = rows
+            .asSequence()
+            .filter { it.key == "sensor_age_source_raw" }
+            .maxByOrNull { it.timestamp }
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: rows.asSequence()
+                .filter { it.key == "raw_com_eveningoutpost_dexdrip_extras_sensorstartedat" }
+                .maxByOrNull { it.timestamp }
+                ?.key
+        val sageDays = rows
+            .asSequence()
+            .filter { it.key == "sage_days" && it.valueDouble?.isFinite() == true }
+            .maxByOrNull { it.timestamp }
+            ?.valueDouble
+        val cageDays = rows
+            .asSequence()
+            .filter { it.key == "cage_days" && it.valueDouble?.isFinite() == true }
+            .maxByOrNull { it.timestamp }
+            ?.valueDouble
+        val replayBuckets = rows
+            .asSequence()
+            .filter { it.key == "daily_report_sensor_lag_bucket_json" }
+            .maxByOrNull { it.timestamp }
+            ?.valueText
+            .let(::parseSensorLagReplayBucketStats)
+        return SensorLagRuntimeContext(
+            sensorAgeHours = sensorAgeHours,
+            sensorAgeTs = sensorAgeTs ?: rows
+                .asSequence()
+                .filter { it.key == "raw_com_eveningoutpost_dexdrip_extras_sensorstartedat" }
+                .maxByOrNull { it.timestamp }
+                ?.timestamp,
+            sensorAgeSourceRaw = ageSourceRaw,
+            sageDays = sageDays,
+            cageDays = cageDays,
+            replayBucketStats = replayBuckets
+        )
+    }
+
+    private fun parseSensorLagReplayBucketStats(
+        raw: String?
+    ): List<SensorLagReplayBucketStats> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val horizonMinutes = item.optInt("horizonMinutes", -1)
+                    val bucket = item.optString("bucket", "").trim()
+                    val sampleCount = item.optInt("sampleCount", 0)
+                    val rawMae = item.optDouble("rawMae", Double.NaN)
+                    val lagMae = item.optDouble("lagMae", Double.NaN)
+                    val maeImprovement = item.optDouble("maeImprovementMmol", Double.NaN)
+                    val rawBias = item.optDouble("rawBias", Double.NaN)
+                    val lagBias = item.optDouble("lagBias", Double.NaN)
+                    if (
+                        horizonMinutes <= 0 ||
+                        bucket.isBlank() ||
+                        sampleCount <= 0 ||
+                        !rawMae.isFinite() ||
+                        !lagMae.isFinite() ||
+                        !maeImprovement.isFinite() ||
+                        !rawBias.isFinite() ||
+                        !lagBias.isFinite()
+                    ) {
+                        continue
+                    }
+                    add(
+                        SensorLagReplayBucketStats(
+                            horizonMinutes = horizonMinutes,
+                            bucket = bucket,
+                            sampleCount = sampleCount,
+                            rawMae = rawMae,
+                            lagMae = lagMae,
+                            maeImprovementMmol = maeImprovement,
+                            rawBias = rawBias,
+                            lagBias = lagBias
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private suspend fun persistRealtimeIsfCrTelemetry(
+        nowTs: Long,
+        latestTelemetry: Map<String, Double?>
+    ) {
+        val source = "copilot_runtime_isfcr"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+
+        fun addNumeric(key: String, value: Double?, unit: String? = null) {
+            val numeric = value ?: return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = numeric,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+        }
+
+        addNumeric("isfcr_snapshot_age_ms", latestTelemetry["isfcr_snapshot_age_ms"], "ms")
+        addNumeric("isfcr_refresh_in_flight", latestTelemetry["isfcr_refresh_in_flight"])
+        addNumeric("isfcr_refresh_last_duration_ms", latestTelemetry["isfcr_refresh_last_duration_ms"], "ms")
+        addNumeric("isfcr_snapshot_served_mode", latestTelemetry["isfcr_snapshot_served_mode"])
+        addNumeric("isf_realtime_value", latestTelemetry["isf_realtime_value"], "mmol/L/U")
+        addNumeric("cr_realtime_value", latestTelemetry["cr_realtime_value"], "g/U")
+        addNumeric("isf_realtime_confidence", latestTelemetry["isf_realtime_confidence"])
+        addNumeric("isf_realtime_quality_score", latestTelemetry["isf_realtime_quality_score"])
+        addNumeric("isf_realtime_applied", latestTelemetry["isf_realtime_applied"])
+        addNumeric("isf_realtime_override_blend_weight", latestTelemetry["isf_realtime_override_blend_weight"])
+        addNumeric("isf_realtime_mode", latestTelemetry["isf_realtime_mode"])
+        addNumeric("isf_runtime_source_preference", latestTelemetry["isf_runtime_source_preference"])
+        addNumeric("isf_runtime_source_resolved", latestTelemetry["isf_runtime_source_resolved"])
+        addNumeric("isf_runtime_selected_value", latestTelemetry["isf_runtime_selected_value"], "mmol/L/U")
+        addNumeric("isf_aaps_raw_value", latestTelemetry["isf_aaps_raw_value"], "mmol/L/U")
+        addNumeric("isf_aaps_raw_sample_ts", latestTelemetry["isf_aaps_raw_sample_ts"], "ms")
+        addNumeric("isf_runtime_aaps_sample_ts", latestTelemetry["isf_runtime_aaps_sample_ts"], "ms")
+        addNumeric("isf_runtime_fallback_active", latestTelemetry["isf_runtime_fallback_active"])
+        addNumeric("cr_runtime_source_preference", latestTelemetry["cr_runtime_source_preference"])
+        addNumeric("cr_runtime_source_resolved", latestTelemetry["cr_runtime_source_resolved"])
+        addNumeric("cr_runtime_selected_value", latestTelemetry["cr_runtime_selected_value"], "g/U")
+        addNumeric("cr_aaps_raw_value", latestTelemetry["cr_aaps_raw_value"], "g/U")
+        addNumeric("cr_aaps_raw_sample_ts", latestTelemetry["cr_aaps_raw_sample_ts"], "ms")
+        addNumeric("cr_runtime_aaps_sample_ts", latestTelemetry["cr_runtime_aaps_sample_ts"], "ms")
+        addNumeric("cr_runtime_fallback_active", latestTelemetry["cr_runtime_fallback_active"])
+        if (rows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(rows)
+        }
     }
 
     private suspend fun persistSensorLagTelemetry(
@@ -2023,26 +5050,99 @@ class AutomationRepository(
         )
     }
 
-    private suspend fun runDbHousekeepingIfDue(nowTs: Long) {
+    suspend fun runDbHousekeepingNowForDebug() {
+        val settings = settingsStore.settings.first()
+        runDbHousekeepingIfDue(
+            nowTs = System.currentTimeMillis(),
+            settings = settings,
+            force = true
+        )
+    }
+
+    private suspend fun runDbHousekeepingIfDue(nowTs: Long, settings: AppSettings, force: Boolean = false) {
         val lastRunTs = db.syncStateDao().bySource(SOURCE_DB_HOUSEKEEPING_CURSOR)?.lastSyncedTimestamp ?: 0L
-        if (lastRunTs > 0L && (nowTs - lastRunTs) < DB_HOUSEKEEPING_INTERVAL_MS) {
+        if (!force && lastRunTs > 0L && (nowTs - lastRunTs) < DB_HOUSEKEEPING_INTERVAL_MS) {
             return
         }
+
+        val historyRetentionMs = resolveHistoryRetentionMs(settings)
+        val reportAndProfileRetentionMs = resolveReportAndProfileRetentionMs(settings)
+        val forecastOlderThan = nowTs - historyRetentionMs
+        val historyOlderThan = nowTs - historyRetentionMs
+        val telemetryGeneralOlderThan = nowTs - TELEMETRY_GENERAL_RETENTION_MS
+        val reportOlderThan = nowTs - reportAndProfileRetentionMs
+        val physicalActivityOlderThan = nowTs - TELEMETRY_PHYSICAL_ACTIVITY_RETENTION_MS
+        val telemetryNoisy7dOlderThan = nowTs - TELEMETRY_NOISY_RETENTION_7D_MS
+        val telemetryNoisy14dOlderThan = nowTs - TELEMETRY_NOISY_RETENTION_14D_MS
+        val auditNoisyOlderThan = nowTs - AUDIT_LOG_NOISY_RETENTION_MS
+        val integratedRuntimeOlderThan = nowTs - INTEGRATED_RUNTIME_RETENTION_MS
 
         var glucoseDedupRemoved = 0
         GLUCOSE_HOUSEKEEPING_SOURCES.forEach { source ->
             glucoseDedupRemoved += db.glucoseDao().deleteDuplicateBySourceAndTimestamp(source)
         }
         val therapyDedupRemoved = db.therapyDao().deleteDuplicateByTimestampTypePayload()
-        val telemetryDedupRemoved = db.telemetryDao().deleteDuplicateRows()
+        val telemetryDedupSince = nowTs - TELEMETRY_DEDUP_LOOKBACK_MS
+        val telemetryDedupRemoved = db.telemetryDao().deleteDuplicateRowsSince(telemetryDedupSince)
+        val glucoseTrimmed = db.glucoseDao().deleteOlderThan(historyOlderThan)
+        val therapyTrimmed = db.therapyDao().deleteOlderThan(historyOlderThan)
+        val forecastTrimmed = db.forecastDao().deleteOlderThan(forecastOlderThan)
+        val ruleExecutionTrimmed = db.ruleExecutionDao().deleteOlderThan(historyOlderThan)
+        val actionCommandTrimmed = db.actionCommandDao().deleteOlderThan(historyOlderThan)
         val rawTelemetryTrimmed = db.telemetryDao().deleteOlderThanByKeyPattern(
             olderThan = nowTs - TELEMETRY_RAW_RETENTION_MS,
             keyPattern = "raw_%"
         )
-        val telemetryTrimmed = db.telemetryDao().deleteOlderThanExcludingReportAndProfile(
-            olderThan = nowTs - TELEMETRY_GENERAL_RETENTION_MS
+        val noisyTelemetry7dTrimmed = TELEMETRY_NOISY_7D_PATTERNS.sumOf { pattern ->
+            db.telemetryDao().deleteOlderThanByKeyPattern(
+                olderThan = telemetryNoisy7dOlderThan,
+                keyPattern = pattern
+            )
+        } + db.telemetryDao().deleteOlderThanByKeys(
+            olderThan = telemetryNoisy7dOlderThan,
+            keys = TELEMETRY_NOISY_7D_KEYS
+        )
+        val noisyTelemetry14dTrimmed = TELEMETRY_NOISY_14D_PATTERNS.sumOf { pattern ->
+            db.telemetryDao().deleteOlderThanByKeyPattern(
+                olderThan = telemetryNoisy14dOlderThan,
+                keyPattern = pattern
+            )
+        } + db.telemetryDao().deleteOlderThanByKeys(
+            olderThan = telemetryNoisy14dOlderThan,
+            keys = TELEMETRY_NOISY_14D_KEYS
+        )
+        val telemetryTrimmed = trimTelemetryWithRetention(
+            generalOlderThan = telemetryGeneralOlderThan,
+            reportOlderThan = reportOlderThan,
+            physicalActivityOlderThan = physicalActivityOlderThan,
+            maxBatches = if (force) {
+                TELEMETRY_TRIM_DEBUG_MAX_BATCHES_PER_RUN
+            } else {
+                TELEMETRY_TRIM_MAX_BATCHES_PER_RUN
+            }
+        )
+        val noisyAuditTrimmed = db.auditLogDao().deleteOlderThanInfoMessages(
+            olderThan = auditNoisyOlderThan,
+            messages = AUDIT_NOISY_INFO_MESSAGES
         )
         val auditTrimmed = db.auditLogDao().deleteOlderThan(nowTs - AUDIT_LOG_RETENTION_MS)
+        val alertEventsTrimmed = db.alertEventDao().deleteResolvedOlderThan(integratedRuntimeOlderThan)
+        val contextSyncTrimmed = db.contextEventSyncDao().deleteCompletedOlderThan(integratedRuntimeOlderThan)
+        val runtimeSnapshotsTrimmed = db.sensitivityRuntimeSnapshotDao().deleteOlderThan(integratedRuntimeOlderThan)
+        val totalTrimmed = glucoseTrimmed +
+            therapyTrimmed +
+            forecastTrimmed +
+            ruleExecutionTrimmed +
+            actionCommandTrimmed +
+            rawTelemetryTrimmed +
+            noisyTelemetry7dTrimmed +
+            noisyTelemetry14dTrimmed +
+            telemetryTrimmed +
+            noisyAuditTrimmed +
+            auditTrimmed +
+            alertEventsTrimmed +
+            contextSyncTrimmed +
+            runtimeSnapshotsTrimmed
 
         db.syncStateDao().upsert(
             SyncStateEntity(
@@ -2058,9 +5158,27 @@ class AutomationRepository(
                 "glucoseDedupRemoved" to glucoseDedupRemoved,
                 "therapyDedupRemoved" to therapyDedupRemoved,
                 "telemetryDedupRemoved" to telemetryDedupRemoved,
+                "telemetryDedupLookbackHours" to (TELEMETRY_DEDUP_LOOKBACK_MS / 3_600_000L),
+                "historyRetentionDays" to (historyRetentionMs / DAY_MS),
+                "telemetryGeneralRetentionDays" to (TELEMETRY_GENERAL_RETENTION_MS / DAY_MS),
+                "telemetryPhysicalActivityRetentionDays" to
+                    (TELEMETRY_PHYSICAL_ACTIVITY_RETENTION_MS / DAY_MS),
+                "reportRetentionDays" to (reportAndProfileRetentionMs / DAY_MS),
+                "glucoseTrimmed" to glucoseTrimmed,
+                "therapyTrimmed" to therapyTrimmed,
+                "forecastTrimmed" to forecastTrimmed,
+                "ruleExecutionTrimmed" to ruleExecutionTrimmed,
+                "actionCommandTrimmed" to actionCommandTrimmed,
                 "rawTelemetryTrimmed" to rawTelemetryTrimmed,
+                "noisyTelemetry7dTrimmed" to noisyTelemetry7dTrimmed,
+                "noisyTelemetry14dTrimmed" to noisyTelemetry14dTrimmed,
                 "telemetryTrimmed" to telemetryTrimmed,
-                "auditTrimmed" to auditTrimmed
+                "noisyAuditTrimmed" to noisyAuditTrimmed,
+                "auditTrimmed" to auditTrimmed,
+                "alertEventsTrimmed" to alertEventsTrimmed,
+                "contextSyncTrimmed" to contextSyncTrimmed,
+                "runtimeSnapshotsTrimmed" to runtimeSnapshotsTrimmed,
+                "totalTrimmed" to totalTrimmed
             )
         )
         auditLogger.info(
@@ -2068,9 +5186,123 @@ class AutomationRepository(
             mapOf(
                 "intervalHours" to (DB_HOUSEKEEPING_INTERVAL_MS / 3_600_000L),
                 "retentionHours" to (AUDIT_LOG_RETENTION_MS / 3_600_000L),
-                "deletedRows" to auditTrimmed
+                "deletedRows" to (noisyAuditTrimmed + auditTrimmed),
+                "noisyDeletedRows" to noisyAuditTrimmed,
+                "generalDeletedRows" to auditTrimmed
             )
         )
+        runDbCompactionIfDue(nowTs = nowTs, totalTrimmed = totalTrimmed)
+    }
+
+    private suspend fun trimTelemetryWithRetention(
+        generalOlderThan: Long,
+        reportOlderThan: Long,
+        physicalActivityOlderThan: Long,
+        maxBatches: Int
+    ): Int {
+        var totalDeleted = 0
+        var batches = 0
+        while (batches < maxBatches) {
+            val deleted = db.telemetryDao().deleteOlderThanWithReportProfileAndPhysicalActivityRetentionLimit(
+                generalOlderThan = generalOlderThan,
+                reportOlderThan = reportOlderThan,
+                physicalActivityOlderThan = physicalActivityOlderThan,
+                physicalActivityKeys = PhysicalActivityTelemetryPolicy.PERSISTED_ACTIVITY_METRIC_KEYS.sorted(),
+                physicalActivitySources = PhysicalActivityTelemetryPolicy.TRUSTED_SOURCES.sorted(),
+                physicalActivityQualities = PhysicalActivityTelemetryPolicy.ACCEPTABLE_QUALITIES.sorted(),
+                limit = TELEMETRY_TRIM_BATCH_LIMIT
+            )
+            if (deleted <= 0) break
+            totalDeleted += deleted
+            batches += 1
+            if (batches % TELEMETRY_TRIM_CHECKPOINT_EVERY_BATCHES == 0) {
+                val checkpoint = checkpointWal("PASSIVE")
+                auditLogger.infoThrottled(
+                    throttleKey = "db_housekeeping_telemetry_trim_progress",
+                    intervalMs = 60_000L,
+                    message = "db_housekeeping_telemetry_trim_progress",
+                    metadata = mapOf(
+                        "deletedRows" to totalDeleted,
+                        "batches" to batches,
+                        "batchLimit" to TELEMETRY_TRIM_BATCH_LIMIT,
+                        "checkpoint" to checkpoint
+                    )
+                )
+            }
+            delay(TELEMETRY_TRIM_BATCH_PAUSE_MS)
+        }
+        if (batches >= maxBatches) {
+            auditLogger.warn(
+                "db_housekeeping_telemetry_trim_limited",
+                mapOf(
+                    "deletedRows" to totalDeleted,
+                    "batches" to batches,
+                    "maxBatches" to maxBatches,
+                    "batchLimit" to TELEMETRY_TRIM_BATCH_LIMIT
+                )
+            )
+        }
+        return totalDeleted
+    }
+
+    private suspend fun runDbCompactionIfDue(nowTs: Long, totalTrimmed: Int) {
+        if (totalTrimmed < DB_COMPACTION_MIN_TRIMMED_ROWS) return
+        val lastRunTs = db.syncStateDao().bySource(SOURCE_DB_COMPACTION_CURSOR)?.lastSyncedTimestamp ?: 0L
+        if (lastRunTs > 0L && (nowTs - lastRunTs) < DB_COMPACTION_INTERVAL_MS) {
+            return
+        }
+        runCatching {
+            val checkpoint = checkpointWal("TRUNCATE")
+            db.syncStateDao().upsert(
+                SyncStateEntity(
+                    source = SOURCE_DB_COMPACTION_CURSOR,
+                    lastSyncedTimestamp = nowTs
+                )
+            )
+            auditLogger.info(
+                "db_compaction_completed",
+                mapOf(
+                    "trimmedRows" to totalTrimmed,
+                    "checkpoint" to checkpoint,
+                    "vacuumSkipped" to true,
+                    "vacuumSkipReason" to "avoid_full_db_rewrite_on_device",
+                    "intervalHours" to (DB_COMPACTION_INTERVAL_MS / 3_600_000L)
+                )
+            )
+        }.onFailure { error ->
+            auditLogger.warn(
+                "db_compaction_failed",
+                mapOf(
+                    "trimmedRows" to totalTrimmed,
+                    "message" to (error.message ?: error::class.java.simpleName)
+                )
+            )
+        }
+    }
+
+    private fun checkpointWal(mode: String): String {
+        val safeMode = when (mode.uppercase(Locale.US)) {
+            "PASSIVE" -> "PASSIVE"
+            "TRUNCATE" -> "TRUNCATE"
+            else -> "PASSIVE"
+        }
+        return db.openHelper.writableDatabase
+            .query("PRAGMA wal_checkpoint($safeMode)")
+            .use { cursor ->
+                if (cursor.moveToFirst()) {
+                    "busy=${cursor.getInt(0)},log=${cursor.getInt(1)},checkpointed=${cursor.getInt(2)}"
+                } else {
+                    "unknown"
+                }
+            }
+    }
+
+    private fun resolveHistoryRetentionMs(settings: AppSettings): Long {
+        return settings.analyticsLookbackDays.coerceIn(MIN_STORAGE_RETENTION_DAYS, MAX_STORAGE_RETENTION_DAYS) * DAY_MS
+    }
+
+    private fun resolveReportAndProfileRetentionMs(settings: AppSettings): Long {
+        return maxOf(resolveHistoryRetentionMs(settings), REPORT_AND_PROFILE_MIN_RETENTION_DAYS * DAY_MS)
     }
 
     private fun requiresRuntimeFreshness(key: String): Boolean {
@@ -2085,6 +5317,7 @@ class AutomationRepository(
             "temp_target_high_mmol"
         ) || key.startsWith("cob_") ||
             key.startsWith("iob_") ||
+            key.startsWith("uam_runtime_") ||
             key.startsWith("sensor_quality_") ||
             key.startsWith("isf_factor_") ||
             key.startsWith("isf_realtime_")
@@ -2113,55 +5346,50 @@ class AutomationRepository(
         return normalizedKey.split('_').any { it == normalizedAlias }
     }
 
-    private fun normalizeTelemetryKey(value: String): String {
-        return value
-            .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
-            .lowercase(Locale.US)
-            .replace(Regex("[^a-z0-9]+"), "_")
-            .trim('_')
-    }
+    private fun normalizeTelemetryKey(value: String): String = TherapyPayloadLookup.normalizeKey(value)
 
     private fun selectStrictAapsIob(
         rows: List<TelemetrySampleEntity>
-    ): TelemetrySampleEntity? {
-        if (rows.isEmpty()) return null
-        return rows
-            .asSequence()
-            .filter { row ->
-                row.valueDouble?.isFinite() == true &&
-                    row.valueDouble in 0.0..30.0 &&
-                    row.source in IOB_STRICT_ALLOWED_SOURCES &&
-                    isStrictIobKey(row.key)
-            }
-            .maxWithOrNull(
-                compareBy<TelemetrySampleEntity> { it.timestamp }
-                    .thenBy { IOB_STRICT_SOURCE_PRIORITY[it.source] ?: 0 }
-            )
-    }
+    ): TelemetrySampleEntity? = selectStrictAapsIobStatic(rows)
 
-    private fun isStrictIobKey(key: String): Boolean {
-        val normalized = normalizeTelemetryKey(key)
-        return normalized in IOB_STRICT_ALLOWED_KEYS ||
-            normalized.contains("insulinonboard") ||
-            normalized.endsWith("_iob")
+    private fun selectStrictAapsCob(
+        rows: List<TelemetrySampleEntity>
+    ): TelemetrySampleEntity? = selectStrictAapsCobStatic(rows)
+
+    private fun selectStrictAapsIsf(
+        rows: List<TelemetrySampleEntity>
+    ): TelemetrySampleEntity? = selectStrictAapsIsfStatic(rows)
+
+    private fun selectStrictAapsCr(
+        rows: List<TelemetrySampleEntity>
+    ): TelemetrySampleEntity? = selectStrictAapsCrStatic(rows)
+
+    private fun sensitivityRuntimeApplicationFromSnapshot(
+        snapshot: SensitivityRuntimeSnapshot,
+        @Suppress("UNUSED_PARAMETER") settings: AppSettings
+    ): SensitivityRuntimeApplication = sensitivityRuntimeApplicationFromSnapshotStatic(snapshot)
+
+    private suspend fun requireCycleSensitivityRuntime(
+        context: SensitivityRuntimeConsumerContext,
+        expectedConsumer: SensitivityRuntimeConsumer,
+        cycleSnapshot: SensitivityRuntimeSnapshot
+    ) {
+        validateSensitivityRuntimeDispatchStatic(
+            context = context,
+            expectedConsumer = expectedConsumer,
+            currentSettingsRevision = settingsStore.settings.first().sensitivitySettingsRevision,
+            cycleSnapshot = cycleSnapshot
+        )
     }
 
     private fun configurePredictionEngine(
         settings: AppSettings,
-        realtimeIsfCr: IsfCrRealtimeSnapshot? = null,
-        runtimeGate: IsfCrRuntimeGate = resolveIsfCrRuntimeGateStatic(
-            snapshot = realtimeIsfCr,
-            confidenceThreshold = settings.isfCrConfidenceThreshold
-        ),
-        overrideBlendWeight: Double? = resolveIsfCrOverrideBlendWeightStatic(
-            snapshot = realtimeIsfCr,
-            runtimeGate = runtimeGate,
-            confidenceThreshold = settings.isfCrConfidenceThreshold
-        ),
+        sensitivityRuntimeApplication: SensitivityRuntimeApplication? = null,
         runtimeTelemetry: Map<String, Double?> = emptyMap(),
-        uamInference: UamInferenceCycleResult? = null
+        uamRuntimeQuality: UamRuntimeQualityAssessment? = null,
+        engine: HybridPredictionEngine? = predictionEngine as? HybridPredictionEngine
     ) {
-        val engine = predictionEngine as? HybridPredictionEngine ?: return
+        engine ?: return
         val profileId = InsulinActionProfileId.fromRaw(settings.insulinProfileId)
         val profile = InsulinActionProfiles.profile(profileId)
         engine.setInsulinProfile(profileId)
@@ -2178,39 +5406,31 @@ class AutomationRepository(
         } else {
             engine.setInsulinDurationHours(diaHours.coerceIn(0.5, 24.0))
         }
-        val effectiveBlendWeight = overrideBlendWeight?.coerceIn(0.0, 1.0)
-        val applyOverride = (effectiveBlendWeight ?: 0.0) > 0.0
-        val overrideIsf = if (applyOverride) realtimeIsfCr?.isfEff else null
-        val overrideCr = if (applyOverride) realtimeIsfCr?.crEff else null
-        val overrideConfidence = if (applyOverride) realtimeIsfCr?.confidence else null
-        engine.setSensitivityOverride(
-            isfMmolPerUnit = overrideIsf,
-            crGramPerUnit = overrideCr,
-            confidence = overrideConfidence,
-            source = realtimeIsfCr?.mode?.name ?: runtimeGate.reason,
-            minConfidenceRequired = settings.isfCrConfidenceThreshold,
-            blendWeight = effectiveBlendWeight ?: 1.0
+        engine.setSensitivityOverrides(
+            isf = sensitivityRuntimeApplication?.isf?.override,
+            cr = sensitivityRuntimeApplication?.cr?.override
         )
-        engine.setUamRuntimeHint(
-            ingestionTs = uamInference?.ingestionTs,
-            carbsGrams = uamInference?.inferredCarbsGrams,
-            confidence = uamInference?.confidence,
-            source = "uam_inference"
+        engine.setUamRuntimeQualityContext(
+            sensorTrust = uamRuntimeQuality?.sensorTrust ?: 0.0,
+            therapyCoverage = uamRuntimeQuality?.therapyCoverage ?: 0.0,
+            announcedCarbCoverage = uamRuntimeQuality?.announcedCarbCoverage ?: 0.0,
+            sensorBlocked = uamRuntimeQuality?.sensorBlocked ?: true
         )
     }
 
     private fun resolveRuntimeCobIobInputs(
-        nowTs: Long,
+        cycleTimestamp: Long,
+        causalReferenceTimestamp: Long,
         glucose: List<GlucosePoint>,
         therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
         telemetry: Map<String, Double?>,
-        settings: AppSettings
+        settings: AppSettings,
+        effectiveDiaHours: Double
     ): RuntimeCobIobInputs {
         val carbMax = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
         val telemetryCobRaw = telemetry["cob_grams"]?.takeIf { it.isFinite() }?.coerceIn(0.0, carbMax)
-        val telemetryIob = telemetry["iob_units"]?.takeIf { it.isFinite() }?.coerceIn(0.0, 30.0)
         val syntheticUamCob = estimateSyntheticUamExportCob(
-            nowTs = nowTs,
+            nowTs = cycleTimestamp,
             glucose = glucose,
             therapy = therapy,
             settings = settings
@@ -2223,22 +5443,17 @@ class AutomationRepository(
             )
         }
         val hasRecentCarbEvents = hasRecentCarbEvents(
-            nowTs = nowTs,
+            nowTs = cycleTimestamp,
             therapy = therapy,
             cutoffMinutes = settings.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180)
         )
-        val shouldComputeLocalEstimate =
-            telemetryCob == null || telemetryIob == null || hasRecentCarbEvents
-        val localEstimate = if (shouldComputeLocalEstimate) {
-            estimateLocalCobIob(
-                nowTs = nowTs,
-                glucose = glucose,
-                therapy = therapy,
-                settings = settings
-            ).also { lastLocalCobIobEstimate = it }
-        } else {
-            lastLocalCobIobEstimate ?: fallbackLocalCobIobEstimate(settings)
-        }
+        val localEstimate = estimateLocalCobIob(
+            nowTs = causalReferenceTimestamp,
+            glucose = glucose,
+            therapy = therapy,
+            settings = settings,
+            effectiveDiaHours = effectiveDiaHours
+        ).also { lastLocalCobIobEstimate = it }
         val localCob = localEstimate.cobGrams
         val localIob = localEstimate.iobUnits
         val mergedCob = when {
@@ -2252,10 +5467,48 @@ class AutomationRepository(
             telemetryCob != null -> telemetryCob
             else -> localCob.coerceIn(0.0, carbMax)
         }
-        val strictIob = telemetryIob?.coerceIn(0.0, 30.0) ?: 0.0
-        val realIobUnits = strictIob
-        val mergedIob = strictIob
-        val usedLocalFallback = telemetryCob == null && localCob > 0.0
+        val insulinResolution = InsulinRuntimeSnapshotResolver.resolveTelemetry(
+            nowTimestamp = cycleTimestamp,
+            telemetry = telemetry,
+            localEstimate = localEstimate.insulinEvidenceTimestamp?.let { evidenceTimestamp ->
+                QualifiedLocalInsulinEstimate(
+                    value = localIob,
+                    timestamp = causalReferenceTimestamp,
+                    evidenceTimestamp = evidenceTimestamp,
+                    therapyCoverage = localEstimate.insulinTherapyCoverage,
+                    confidence = localEstimate.insulinConfidence
+                )
+            }
+        )
+        val insulinSnapshot = insulinResolution.snapshot
+        val modeledAtSnapshotUnits = insulinSnapshot
+            ?.takeIf { it.timestamp != causalReferenceTimestamp && localEstimate.explicitInsulinEvents > 0 }
+            ?.let { snapshot ->
+                (predictionEngine as? HybridPredictionEngine)?.let { engine ->
+                    modelSameCycleActiveInsulinStatic(
+                        engine = engine,
+                        profileIdRaw = settings.insulinProfileId,
+                        resolvedEffectiveDiaHours = effectiveDiaHours,
+                        baseOnsetMinutes = localEstimate.baseOnsetMinutes,
+                        realOnsetMinutes = localEstimate.realOnsetMinutes,
+                        therapyEvents = therapy,
+                        nowTs = snapshot.timestamp
+                    ).activeUnits
+                }
+            }
+        val insulinCycleContext = buildInsulinCycleContextStatic(
+            cycleTimestamp = cycleTimestamp,
+            causalReferenceTimestamp = causalReferenceTimestamp,
+            insulinSnapshot = insulinSnapshot,
+            modeledActiveInsulinUnits = localIob,
+            modeledActiveInsulinAtSnapshotUnits = modeledAtSnapshotUnits,
+            therapyModelAvailable = localEstimate.explicitInsulinEvents > 0,
+            freshnessMs = settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+        )
+        val realIobUnits = insulinSnapshot?.netIobUnits ?: 0.0
+        val mergedIob = insulinSnapshot?.effectivePositiveIobUnits ?: 0.0
+        val usedLocalFallback = (telemetryCob == null && localCob > 0.0) ||
+            insulinSnapshot?.source == io.aaps.copilot.domain.predict.InsulinRuntimeSource.LOCAL_ESTIMATE
         val mergedWithTelemetry = telemetryCob != null && localCob > 0.0
         return RuntimeCobIobInputs(
             cobGrams = mergedCob,
@@ -2270,7 +5523,8 @@ class AutomationRepository(
             baseOnsetMinutes = localEstimate.baseOnsetMinutes,
             onsetSampleCount = localEstimate.onsetSampleCount,
             usedLocalFallback = usedLocalFallback,
-            mergedWithTelemetry = mergedWithTelemetry
+            mergedWithTelemetry = mergedWithTelemetry,
+            insulinCycleContext = insulinCycleContext
         )
     }
 
@@ -2410,26 +5664,38 @@ class AutomationRepository(
         nowTs: Long,
         glucose: List<GlucosePoint>,
         therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
-        settings: AppSettings
+        settings: AppSettings,
+        effectiveDiaHours: Double
     ): LocalCobIobEstimate {
         val carbCutoffMinutes = settings.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180).toDouble()
         val carbMaxGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
         val profile = InsulinActionProfiles.profile(InsulinActionProfileId.fromRaw(settings.insulinProfileId))
         val baseOnsetMinutes = profileOnsetMinutes(profile)
         val recentEvents = therapy.asSequence()
-            .filter { event -> nowTs - event.ts <= LOCAL_COB_IOB_LOOKBACK_MS }
+            .filter { event -> event.ts in 0..nowTs && nowTs - event.ts <= LOCAL_COB_IOB_LOOKBACK_MS }
             .toList()
+        val engine = (predictionEngine as? HybridPredictionEngine)?.also { prediction ->
+            prediction.setInsulinProfile(InsulinActionProfileId.fromRaw(settings.insulinProfileId))
+            prediction.setInsulinDurationHours(effectiveDiaHours)
+            prediction.setInsulinOnsetMinutes(
+                baseOnsetMinutes = baseOnsetMinutes,
+                realOnsetMinutes = baseOnsetMinutes
+            )
+        }
         if (recentEvents.isEmpty()) {
             return fallbackLocalCobIobEstimate(settings)
         }
-        val hasEligibleInsulin = recentEvents.any { event ->
+        val eligibleInsulinEvents = engine?.let { prediction ->
+            recentEvents.filter(prediction::isModeledInsulinEvent)
+        }.orEmpty()
+        val hasEligibleInsulin = eligibleInsulinEvents.any { event ->
             (extractInsulinUnits(event) ?: 0.0) >= 0.5
         }
         val realOnsetEstimate = if (hasEligibleInsulin) {
             estimateRealInsulinOnsetMinutes(
                 nowTs = nowTs,
                 glucose = glucose,
-                therapy = recentEvents
+                therapy = eligibleInsulinEvents
             )
         } else {
             null
@@ -2438,21 +5704,37 @@ class AutomationRepository(
             .coerceIn(INSULIN_ONSET_MIN_MINUTES, INSULIN_ONSET_MAX_MINUTES)
         val onsetSampleCount = realOnsetEstimate?.second ?: 0
         var cob = 0.0
-        var iob = 0.0
-        var explicitInsulinEvents = 0
+        val modeledInsulin = engine?.let { prediction ->
+            modelSameCycleActiveInsulinStatic(
+                engine = prediction,
+                profileIdRaw = settings.insulinProfileId,
+                resolvedEffectiveDiaHours = effectiveDiaHours,
+                baseOnsetMinutes = baseOnsetMinutes,
+                realOnsetMinutes = realOnsetMinutes,
+                therapyEvents = recentEvents,
+                nowTs = nowTs
+            )
+        }
+            ?: HybridPredictionEngine.ModeledActiveInsulinEvidence()
+        val iob = modeledInsulin.activeUnits
+        val explicitInsulinEvents = modeledInsulin.eventCount
+        val insulinEvidenceTimestamp = modeledInsulin.latestQualifiedEvidenceTimestamp
+        val effectiveDiaMs = ((engine?.currentInsulinDurationHoursForTest() ?: 0.0) * 60.0 * 60_000.0)
+            .toLong()
+        // Event presence is useful diagnostic evidence, but it does not prove continuous
+        // therapy import/revision coverage. LOCAL_ESTIMATE therefore remains non-safety data.
+        val insulinTherapyCoverage = 0.0
+        val insulinConfidence = if (
+            insulinEvidenceTimestamp != null &&
+            effectiveDiaMs > 0L &&
+            nowTs - insulinEvidenceTimestamp <= effectiveDiaMs
+        ) {
+            0.5
+        } else {
+            0.0
+        }
         recentEvents.forEach { event ->
             val ageMin = ((nowTs - event.ts).coerceAtLeast(0L)) / 60_000.0
-            val insulinUnits = extractInsulinUnits(event)
-            if (insulinUnits != null) {
-                explicitInsulinEvents += 1
-                val delivered = adjustedInsulinCumulativeAt(
-                    profile = profile,
-                    ageMinutes = ageMin,
-                    baseOnsetMinutes = baseOnsetMinutes,
-                    realOnsetMinutes = realOnsetMinutes
-                )
-                iob += insulinUnits * (1.0 - delivered)
-            }
             val carbsGramsRaw = if (isSyntheticUamCarbEvent(event)) {
                 null
             } else {
@@ -2474,6 +5756,9 @@ class AutomationRepository(
             cobGrams = cob.coerceIn(0.0, carbMaxGrams),
             iobUnits = iob.coerceAtLeast(0.0),
             explicitInsulinEvents = explicitInsulinEvents,
+            insulinEvidenceTimestamp = insulinEvidenceTimestamp,
+            insulinTherapyCoverage = insulinTherapyCoverage,
+            insulinConfidence = insulinConfidence,
             realOnsetMinutes = realOnsetMinutes,
             baseOnsetMinutes = baseOnsetMinutes,
             onsetSampleCount = onsetSampleCount
@@ -2487,6 +5772,9 @@ class AutomationRepository(
             cobGrams = 0.0,
             iobUnits = 0.0,
             explicitInsulinEvents = 0,
+            insulinEvidenceTimestamp = null,
+            insulinTherapyCoverage = 0.0,
+            insulinConfidence = 0.0,
             realOnsetMinutes = lastLocalCobIobEstimate?.realOnsetMinutes ?: baseOnsetMinutes,
             baseOnsetMinutes = baseOnsetMinutes,
             onsetSampleCount = lastLocalCobIobEstimate?.onsetSampleCount ?: 0
@@ -2525,17 +5813,6 @@ class AutomationRepository(
             .coerceIn(0.0, carbMaxGrams)
     }
 
-    private fun adjustedInsulinCumulativeAt(
-        profile: InsulinActionProfile,
-        ageMinutes: Double,
-        baseOnsetMinutes: Double,
-        realOnsetMinutes: Double
-    ): Double {
-        val shiftMinutes = (realOnsetMinutes - baseOnsetMinutes).coerceIn(-30.0, 75.0)
-        val adjustedAge = (ageMinutes - shiftMinutes).coerceAtLeast(0.0)
-        return profile.cumulativeAt(adjustedAge).coerceIn(0.0, 1.0)
-    }
-
     private fun profileOnsetMinutes(profile: InsulinActionProfile): Double {
         val points = profile.points.sortedBy { it.minute }
         if (points.isEmpty()) return 30.0
@@ -2561,6 +5838,7 @@ class AutomationRepository(
     ): Pair<Double, Int>? {
         val sortedGlucose = glucose.sortedBy { it.ts }
         if (sortedGlucose.size < 8) return null
+        val mealExclusion = InsulinOnsetMealExclusion(therapy, INSULIN_ONSET_MEAL_EXCLUSION_MS)
         val candidates = mutableListOf<Double>()
         therapy.asSequence()
             .filter { event ->
@@ -2568,14 +5846,7 @@ class AutomationRepository(
                     (extractInsulinUnits(event) ?: 0.0) >= 0.5
             }
             .forEach { bolusEvent ->
-                val hasNearbyMeal = therapy.any { other ->
-                    val grams = if (isSyntheticUamCarbEvent(other)) {
-                        0.0
-                    } else {
-                        payloadDouble(other, "grams", "carbs", "enteredCarbs", "mealCarbs") ?: 0.0
-                    }
-                    grams >= 5.0 && kotlin.math.abs(other.ts - bolusEvent.ts) <= INSULIN_ONSET_MEAL_EXCLUSION_MS
-                }
+                val hasNearbyMeal = mealExclusion.hasNearbyMeal(bolusEvent.ts)
                 if (hasNearbyMeal) return@forEach
                 val baseline = nearestGlucoseValueMmol(
                     sortedGlucose = sortedGlucose,
@@ -2689,47 +5960,48 @@ class AutomationRepository(
         }
     }
 
+    private fun causalInsulinEvidenceTimestamps(
+        nowTs: Long,
+        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>
+    ): List<Long> = therapy.asSequence()
+        .filter { event ->
+            event.ts <= nowTs && (
+                extractInsulinUnits(event)?.let { it > 0.0 } == true ||
+                    event.type.equals("meal_bolus", ignoreCase = true) ||
+                    event.type.equals("correction_bolus", ignoreCase = true) ||
+                    event.type.equals("bolus", ignoreCase = true) ||
+                    event.type.equals("insulin", ignoreCase = true)
+                )
+        }
+        .map { it.ts }
+        .distinct()
+        .sorted()
+        .toList()
+
     private fun resolveUamActiveTelemetry(latestTelemetry: Map<String, Double?>): Boolean {
-        return ((latestTelemetry["uam_runtime_flag"] ?: 0.0) >= 0.5) ||
-            ((latestTelemetry["uam_value"] ?: 0.0) >= 0.5) ||
-            ((latestTelemetry["uam_inferred_flag"] ?: 0.0) >= 0.5) ||
-            ((latestTelemetry["uam_calculated_flag"] ?: 0.0) >= 0.5) ||
-            ((latestTelemetry["uam_flag"] ?: 0.0) >= 0.5)
+        return resolveUamActiveTelemetryStatic(latestTelemetry)
+    }
+
+    private fun resolveCobIobBiasUamActive(
+        latestTelemetry: Map<String, Double?>,
+        currentUnifiedUamFlag: Double?
+    ): Boolean {
+        return resolveCobIobBiasUamActiveStatic(
+            latestTelemetry = latestTelemetry,
+            currentUnifiedUamFlag = currentUnifiedUamFlag
+        )
     }
 
     private fun payloadDouble(
         event: io.aaps.copilot.domain.model.TherapyEvent,
         vararg keys: String
-    ): Double? {
-        if (event.payload.isEmpty()) return null
-        val normalizedKeys = keys.map(::normalizeTelemetryKey)
-        for (candidate in normalizedKeys) {
-            for ((rawKey, rawValue) in event.payload) {
-                if (normalizeTelemetryKey(rawKey) == candidate) {
-                    return rawValue.replace(",", ".").toDoubleOrNull()
-                }
-            }
-        }
-        return null
-    }
+    ): Double? = TherapyPayloadLookup.number(event.payload, keys)
 
     private fun extractInsulinUnits(
         event: io.aaps.copilot.domain.model.TherapyEvent
     ): Double? {
         return payloadDouble(event, "units", "bolusUnits", "insulin", "enteredInsulin")
             ?.takeIf { it in 0.02..30.0 }
-    }
-
-    private fun resolveEffectiveStaleMaxMinutes(settings: AppSettings): Int {
-        val global = settings.staleDataMaxMinutes
-        if (!settings.adaptiveControllerEnabled) return global
-        val profileLimit = when (settings.adaptiveControllerSafetyProfile.uppercase(Locale.US)) {
-            "STRICT" -> 10
-            "AGGRESSIVE" -> 20
-            else -> 15
-        }
-        val adaptiveLimit = min(settings.adaptiveControllerStaleMaxMinutes, profileLimit)
-        return min(global, adaptiveLimit)
     }
 
     private fun resolveEffectiveMaxActions6h(settings: AppSettings): Int {
@@ -2850,9 +6122,69 @@ class AutomationRepository(
             )
         }
 
+        fun addNullableNumeric(key: String, value: Double?, unit: String? = null) {
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = value,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+        }
+
+        fun addNullableText(key: String, value: String?) {
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = value,
+                unit = null,
+                quality = "OK"
+            )
+        }
+
         addNumeric("cob_effective_grams", runtime.cobGrams, "g")
-        addNumeric("iob_effective_units", runtime.iobUnits, "U")
-        addNumeric("iob_real_units", runtime.realIobUnits, "U")
+        runtime.insulinSnapshot?.let { snapshot ->
+            addNumeric("iob_effective_units", snapshot.effectivePositiveIobUnits, "U")
+            addNumeric("iob_effective_positive_units", snapshot.effectivePositiveIobUnits, "U")
+            addNumeric("iob_real_units", snapshot.netIobUnits, "U")
+            addNumeric("iob_units", snapshot.effectivePositiveIobUnits, "U")
+            addNumeric("iob_net_units", snapshot.netIobUnits, "U")
+            addNullableNumeric("iob_bolus_units", snapshot.bolusIobUnits, "U")
+            addNullableNumeric("iob_basal_units", snapshot.basalIobUnits, "U")
+            addNullableNumeric("insulin_activity", snapshot.insulinActivity, "U/min")
+            addNumeric("iob_runtime_timestamp_ms", snapshot.timestamp.toDouble(), "epoch_ms")
+            addNumeric("iob_runtime_evidence_timestamp_ms", snapshot.evidenceTimestamp?.toDouble(), "epoch_ms")
+            addNumeric("iob_runtime_therapy_coverage", snapshot.therapyCoverage)
+            addNumeric("iob_runtime_confidence", snapshot.confidence)
+            addNumeric("iob_runtime_source_code", InsulinRuntimeSnapshotResolver.sourceCode(snapshot.source))
+            addNumeric("iob_runtime_fallback_active", if (snapshot.fallbackReason == null) 0.0 else 1.0)
+            addNullableText("iob_runtime_source", snapshot.source.name)
+            addNullableText("iob_runtime_fallback_reason", snapshot.fallbackReason?.take(96))
+        }
+        if (runtime.insulinSnapshot == null) {
+            addNullableNumeric("iob_effective_units", null, "U")
+            addNullableNumeric("iob_effective_positive_units", null, "U")
+            addNullableNumeric("iob_real_units", null, "U")
+            addNullableNumeric("iob_units", null, "U")
+            addNullableNumeric("iob_net_units", null, "U")
+            addNullableNumeric("iob_bolus_units", null, "U")
+            addNullableNumeric("iob_basal_units", null, "U")
+            addNullableNumeric("insulin_activity", null, "U/min")
+            addNullableNumeric("iob_runtime_timestamp_ms", null, "epoch_ms")
+            addNullableNumeric("iob_runtime_evidence_timestamp_ms", null, "epoch_ms")
+            addNullableNumeric("iob_runtime_therapy_coverage", null)
+            addNullableNumeric("iob_runtime_confidence", null)
+            addNullableNumeric("iob_runtime_source_code", null)
+            addNullableNumeric("iob_runtime_fallback_active", null)
+            addNullableText("iob_runtime_source", "UNAVAILABLE")
+            addNullableText("iob_runtime_fallback_reason", null)
+        }
         addNumeric("insulin_real_onset_min", runtime.realOnsetMinutes, "min")
         addNumeric("insulin_profile_base_onset_min", runtime.baseOnsetMinutes, "min")
         addNumeric("insulin_real_onset_samples", runtime.onsetSampleCount.toDouble())
@@ -2912,6 +6244,106 @@ class AutomationRepository(
         addNumeric("dia_external_raw_hours", runtimeDia.rawExternalHours, "h")
         addText("dia_effective_source", runtimeDia.source)
 
+        if (rows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(rows)
+        }
+    }
+
+    private suspend fun persistGlucoseCalibrationTelemetry(
+        nowTs: Long,
+        latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
+        calibrationModel: io.aaps.copilot.domain.model.GlucoseCalibrationModel?,
+        latestCheck: io.aaps.copilot.domain.model.BloodGlucoseCheck?
+    ) {
+        val source = "copilot_glucose_calibration"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+
+        fun addNumeric(key: String, value: Double?, unit: String? = null) {
+            if (value == null) return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = value,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+        }
+
+        fun addText(key: String, value: String?) {
+            val text = value?.trim()?.takeIf { it.isNotBlank() } ?: return
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = text,
+                unit = null,
+                quality = "OK"
+            )
+        }
+
+        addNumeric("glucose_raw_mmol", latestResolved?.rawMmol, "mmol/L")
+        addNumeric("glucose_calibrated_mmol", latestResolved?.calibratedMmol, "mmol/L")
+        addNumeric("glucose_calibration_source_ts", latestResolved?.ts?.toDouble(), "epoch_ms")
+        addNumeric(
+            "glucose_calibration_gain",
+            latestResolved?.takeIf { it.calibrationApplied }?.gain ?: calibrationModel?.gain
+        )
+        addNumeric(
+            "glucose_calibration_offset_mmol",
+            latestResolved?.takeIf { it.calibrationApplied }?.offsetMmolApplied ?: calibrationModel?.offsetMmol,
+            "mmol/L"
+        )
+        addNumeric("glucose_calibration_confidence", calibrationModel?.confidence)
+        addNumeric(
+            "glucose_calibration_last_check_age_minutes",
+            latestCheck?.let { ((nowTs - it.timestamp).coerceAtLeast(0L)) / 60_000.0 },
+            "min"
+        )
+        addText("glucose_calibration_model_type", calibrationModel?.modelType?.name)
+        addText("glucose_calibration_model_id", calibrationModel?.id)
+        addText("glucose_calibration_status", calibrationModel?.status?.name ?: "OFF")
+        addText("glucose_calibration_sensor_session_key", calibrationModel?.sensorSessionKey)
+
+        if (rows.isNotEmpty()) {
+            db.telemetryDao().upsertAll(rows)
+        }
+        if (latestResolved?.calibrationApplied == true && calibrationModel != null) {
+            auditLogger.infoThrottled(
+                throttleKey = "glucose_calibration_applied",
+                intervalMs = RECURRING_INFO_LOG_INTERVAL_MS,
+                message = "glucose_calibration_applied",
+                metadata = mapOf(
+                    "modelType" to calibrationModel.modelType.name,
+                    "status" to calibrationModel.status.name,
+                    "gain" to latestResolved.gain,
+                    "offsetMmol" to latestResolved.offsetMmolApplied,
+                    "confidence" to calibrationModel.confidence
+                )
+            )
+        }
+    }
+
+    private suspend fun persistGlucoseAlertTelemetry(
+        nowTs: Long,
+        decision: GlucoseAlertDecision,
+        persisted: GlucoseAlertRuntimeState,
+        delivery: GlucoseAlertDeliveryResult,
+        insulinSnapshot: InsulinRuntimeSnapshot?,
+        sensitivitySnapshot: SensitivityRuntimeSnapshot
+    ) {
+        val rows = buildGlucoseAlertTelemetryRowsStatic(
+            nowTs = nowTs,
+            decision = decision,
+            persisted = persisted,
+            delivery = delivery,
+            insulinSnapshot = insulinSnapshot,
+            sensitivitySnapshot = sensitivitySnapshot
+        )
         if (rows.isNotEmpty()) {
             db.telemetryDao().upsertAll(rows)
         }
@@ -3035,15 +6467,21 @@ class AutomationRepository(
         settings: AppSettings
     ): RealInsulinProfileEstimate {
         val historyStart = nowTs - REAL_PROFILE_HISTORY_LOOKBACK_MS
-        val glucose = GlucoseSanitizer
-            .filterEntities(db.glucoseDao().since(historyStart))
-            .map { it.toDomain() }
-            .sortedBy { it.ts }
+        val glucose = glucoseCalibrationRepository.resolveDomainGlucoseHistory(
+            rawGlucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(historyStart)),
+            nowTs = nowTs
+        ).sortedBy { it.ts }
         val therapy = TherapySanitizer
             .filterEntities(db.therapyDao().since(historyStart))
             .map { it.toDomain(gson) }
             .sortedBy { it.ts }
-        val telemetry = db.telemetryDao().since(historyStart)
+        val (telemetry, _) = collectTelemetryEntitiesByKeysPaged(
+            telemetryDao = db.telemetryDao(),
+            since = historyStart,
+            keys = REAL_PROFILE_IMPLICIT_IOB_KEYS,
+            callerTag = "automation_real_profile_implicit_iob",
+            auditLogger = auditLogger
+        )
 
         val profileId = InsulinActionProfileId.fromRaw(settings.insulinProfileId)
         val profile = InsulinActionProfiles.profile(profileId)
@@ -3387,7 +6825,7 @@ class AutomationRepository(
         if (telemetry.isEmpty()) return emptyList()
         val iobSeries = telemetry
             .asSequence()
-            .filter { sample -> sample.key == "iob_effective_units" || sample.key == "iob_units" }
+            .filter { sample -> sample.key in REAL_PROFILE_IMPLICIT_IOB_KEYS }
             .mapNotNull { sample ->
                 val value = sample.valueDouble ?: return@mapNotNull null
                 sample.timestamp to value.coerceAtLeast(0.0)
@@ -3612,6 +7050,7 @@ class AutomationRepository(
 
     private suspend fun maybeProcessUamInferenceCycle(
         settings: AppSettings,
+        sensorBlocked: Boolean,
         nowTs: Long,
         glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
         therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
@@ -3665,23 +7104,7 @@ class AutomationRepository(
             )
         )
 
-        val exportOutcome = uamExportCoordinator.process(
-            nowTs = cycleBucket,
-            events = inferenceOutput.events,
-            config = UamExportCoordinator.Config(
-                enableUamExportToAaps = settings.enableUamExportToAaps,
-                exportMode = settings.uamExportMode,
-                dryRunExport = settings.dryRunExport,
-                minSnackG = settings.uamMinSnackG,
-                maxSnackG = settings.uamMaxSnackG,
-                snackStepG = settings.uamSnackStepG,
-                exportMinIntervalMin = settings.uamExportMinIntervalMin,
-                exportMaxBackdateMin = settings.uamExportMaxBackdateMin,
-                calculatedCarbsGrams = calculatedSnapshot.estimatedCarbsGrams,
-                calculatedToOriginalMultiplier = CALCULATED_TO_ORIGINAL_MULTIPLIER
-            )
-        )
-        val finalizedEvents = exportOutcome.events
+        val finalizedEvents = inferenceOutput.events
         uamEventStore.upsert(finalizedEvents)
         uamEventStore.prune(cycleBucket - UAM_EVENT_RETENTION_MS)
 
@@ -3768,78 +7191,44 @@ class AutomationRepository(
         }
     }
 
-    private fun resolveUnifiedUamRuntimeSnapshot(
-        nowTs: Long,
-        calculated: CalculatedUamSnapshot,
-        inferred: UamInferenceCycleResult?,
-        diagnostics: HybridPredictionEngine.V3Diagnostics?
-    ): UnifiedUamRuntimeSnapshot {
-        val inferredActive = (inferred?.activeFlag ?: 0.0) >= 0.5 &&
-            inferred?.inferredCarbsGrams != null &&
-            inferred.ingestionTs != null
-        val forecastActive = diagnostics?.usingVirtualMeal == true &&
-            (diagnostics.virtualMealCarbs ?: 0.0) > 0.0
-        val calculatedActive = calculated.flag >= 0.5
-
-        return when {
-            inferredActive -> UnifiedUamRuntimeSnapshot(
-                flag = 1.0,
-                confidence = inferred?.confidence ?: 0.0,
-                carbsGrams = inferred?.inferredCarbsGrams,
-                ingestionTs = inferred?.ingestionTs,
-                source = "inferred_event",
-                uci0Mmol5m = diagnostics?.uci0,
-                forecastComponent60Mmol = diagnostics?.predByHorizon?.get(60)?.let {
-                    diagnostics.uamStep.drop(1).take(12).sum()
-                }
-            )
-            forecastActive -> UnifiedUamRuntimeSnapshot(
-                flag = 1.0,
-                confidence = diagnostics?.virtualMealConfidence ?: diagnostics?.uci0 ?: 0.0,
-                carbsGrams = diagnostics?.virtualMealCarbs,
-                ingestionTs = null,
-                source = "forecast_virtual_meal",
-                uci0Mmol5m = diagnostics?.uci0,
-                forecastComponent60Mmol = diagnostics?.uamStep?.drop(1)?.take(12)?.sum()
-            )
-            calculatedActive -> UnifiedUamRuntimeSnapshot(
-                flag = 1.0,
-                confidence = calculated.confidence,
-                carbsGrams = calculated.estimatedCarbsGrams,
-                ingestionTs = null,
-                source = "calculated_signal",
-                uci0Mmol5m = diagnostics?.uci0 ?: calculated.delta5Mmol,
-                forecastComponent60Mmol = diagnostics?.uamStep?.drop(1)?.take(12)?.sum()
-            )
-            else -> UnifiedUamRuntimeSnapshot(
-                flag = 0.0,
-                confidence = 0.0,
-                carbsGrams = null,
-                ingestionTs = null,
-                source = "none",
-                uci0Mmol5m = diagnostics?.uci0,
-                forecastComponent60Mmol = diagnostics?.uamStep?.drop(1)?.take(12)?.sum()
-            )
-        }
-    }
-
     private fun applyUnifiedUamTelemetry(
         latestTelemetry: MutableMap<String, Double?>,
         unified: UnifiedUamRuntimeSnapshot
     ) {
         latestTelemetry["uam_value"] = unified.flag
         latestTelemetry["uam_runtime_flag"] = unified.flag
+        latestTelemetry["uam_runtime_control_flag"] = unified.controlFlag
         latestTelemetry["uam_runtime_confidence"] = unified.confidence
-        latestTelemetry["uam_runtime_carbs_grams"] = unified.carbsGrams ?: 0.0
-        latestTelemetry["uam_runtime_ingestion_ts"] = unified.ingestionTs?.toDouble()
-        latestTelemetry["uam_uci0_mmol5"] = unified.uci0Mmol5m ?: 0.0
-        latestTelemetry["uam_runtime_60_mmol"] = unified.forecastComponent60Mmol ?: 0.0
+        latestTelemetry["uam_runtime_impact_mmol5"] = unified.impactMmol5
+        latestTelemetry["uam_runtime_signed_residual_mmol5"] = unified.signedResidualMmol5
+        latestTelemetry["uam_runtime_short_average_delta_mmol5"] = unified.shortAverageDeltaMmol5
+        latestTelemetry["uam_runtime_60_mmol"] = unified.forecastComponent60Mmol
+        latestTelemetry["uam_runtime_equivalent_carbs_grams"] = unified.equivalentCarbsGrams ?: 0.0
+        latestTelemetry["uam_runtime_lower_bound_grams"] = unified.supportedLowerBoundGrams ?: 0.0
+        latestTelemetry["uam_runtime_onset_ts"] = unified.onsetTs?.toDouble() ?: 0.0
+        latestTelemetry["uam_runtime_sensor_trust"] = unified.sensorTrust
+        latestTelemetry["uam_runtime_therapy_coverage"] = unified.therapyCoverage
+        latestTelemetry["uam_runtime_sensitivity_cycle_id_hash"] = unified.sensitivityCycleId.hashCode().toDouble()
+        latestTelemetry["uam_runtime_sensitivity_settings_revision"] =
+            unified.sensitivitySettingsRevision.toDouble()
+        latestTelemetry["uam_runtime_sensitivity_isf_mmol_per_unit"] = unified.sensitivityIsfMmolPerUnit
+        latestTelemetry["uam_runtime_sensitivity_cr_gram_per_unit"] = unified.sensitivityCrGramPerUnit
+        // Clear compatibility keys in the same cycle so older readers cannot revive stale legacy UAM.
+        latestTelemetry["uam_runtime_carbs_grams"] = unified.equivalentCarbsGrams ?: 0.0
+        latestTelemetry["uam_runtime_ingestion_ts"] = 0.0
+        latestTelemetry["uam_uci0_mmol5"] = unified.impactMmol5
+        latestTelemetry["uam_runtime_stale_decay"] = if (unified.state == "DECAYING") 1.0 else 0.0
     }
 
     private suspend fun persistUnifiedUamTelemetry(
         nowTs: Long,
-        unified: UnifiedUamRuntimeSnapshot
+        unified: UnifiedUamRuntimeSnapshot,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts
     ) {
+        requireUnifiedUamAcceptedForecastAuthorityStatic(
+            unified = unified,
+            authority = acceptedClinicalForecastAuthority
+        )
         val source = "copilot_uam_runtime"
         val rows = mutableListOf<TelemetrySampleEntity>()
 
@@ -3874,16 +7263,177 @@ class AutomationRepository(
 
         addNumeric("uam_value", unified.flag)
         addNumeric("uam_runtime_flag", unified.flag)
+        addNumeric("uam_runtime_control_flag", unified.controlFlag)
         addNumeric("uam_runtime_confidence", unified.confidence)
-        addNumeric("uam_runtime_carbs_grams", unified.carbsGrams ?: 0.0, "g")
-        addNumeric("uam_runtime_ingestion_ts", unified.ingestionTs?.toDouble())
-        addNumeric("uam_uci0_mmol5", unified.uci0Mmol5m ?: 0.0, "mmol/5m")
-        addNumeric("uam_runtime_60_mmol", unified.forecastComponent60Mmol ?: 0.0, "mmol/L")
+        addNumeric("uam_runtime_impact_mmol5", unified.impactMmol5, "mmol/5m")
+        addNumeric("uam_runtime_signed_residual_mmol5", unified.signedResidualMmol5, "mmol/5m")
+        addNumeric("uam_runtime_short_average_delta_mmol5", unified.shortAverageDeltaMmol5, "mmol/5m")
+        addNumeric("uam_runtime_60_mmol", unified.forecastComponent60Mmol, "mmol/L")
+        addNumeric("uam_runtime_equivalent_carbs_grams", unified.equivalentCarbsGrams ?: 0.0, "g")
+        addNumeric("uam_runtime_lower_bound_grams", unified.supportedLowerBoundGrams ?: 0.0, "g")
+        addNumeric("uam_runtime_onset_ts", unified.onsetTs?.toDouble() ?: 0.0)
+        addNumeric("uam_runtime_first_detection_ts", unified.firstDetectionTs?.toDouble() ?: 0.0)
+        addNumeric("uam_runtime_active_since_ts", unified.activeSinceTs?.toDouble() ?: 0.0)
+        addNumeric("uam_runtime_support_stable_buckets", unified.supportStableBuckets.toDouble())
+        addNumeric("uam_runtime_lower_bound_stable_buckets", unified.lowerBoundStableBuckets.toDouble())
+        addNumeric("uam_runtime_sensor_trust", unified.sensorTrust)
+        addNumeric("uam_runtime_therapy_coverage", unified.therapyCoverage)
+        addNumeric("uam_runtime_sensitivity_settings_revision", unified.sensitivitySettingsRevision.toDouble())
+        addNumeric("uam_runtime_sensitivity_isf_mmol_per_unit", unified.sensitivityIsfMmolPerUnit, "mmol/L/U")
+        addNumeric("uam_runtime_sensitivity_cr_gram_per_unit", unified.sensitivityCrGramPerUnit, "g/U")
+        addText("uam_runtime_state", unified.state)
         addText("uam_runtime_source", unified.source)
+        addText("uam_runtime_reason", unified.reasons.sorted().joinToString("|").ifBlank { "none" })
+        addText("uam_runtime_algorithm_version", unified.algorithmVersion)
+        addText("uam_runtime_episode_id", unified.episodeId.ifBlank { "none" })
+        addText("uam_runtime_sensitivity_cycle_id", unified.sensitivityCycleId)
+        rows += buildAcceptedClinicalForecastTelemetryRowsStatic(
+            nowTs = nowTs,
+            source = source,
+            keyPrefix = "uam_runtime_accepted_forecast",
+            authority = acceptedClinicalForecastAuthority
+        )
 
         if (rows.isNotEmpty()) {
             db.telemetryDao().upsertAll(rows)
         }
+    }
+
+    private suspend fun processUnifiedUamExport(
+        nowTs: Long,
+        settings: AppSettings,
+        unified: UnifiedUamRuntimeSnapshot,
+        acceptedClinicalForecastAuthority: AcceptedClinicalForecasts,
+        currentGlucoseMmol: Double,
+        latestTelemetry: MutableMap<String, Double?>
+    ) {
+        requireUnifiedUamAcceptedForecastAuthorityStatic(
+            unified = unified,
+            authority = acceptedClinicalForecastAuthority
+        )
+        val controlForecasts = unified.acceptedForecasts
+        val candidate = UamExportPolicyInput(
+            nowTs = nowTs,
+            episodeId = unified.episodeId,
+            activeSinceTs = unified.activeSinceTs,
+            confidence = unified.confidence,
+            supportedLowerBoundGrams = unified.supportedLowerBoundGrams,
+            lowerBoundStableBuckets = unified.lowerBoundStableBuckets,
+            sensorTrust = unified.sensorTrust,
+            sensorBlocked = unified.sensorBlocked,
+            signedResidualMmol5 = unified.signedResidualMmol5,
+            shortAverageDeltaMmol5 = unified.shortAverageDeltaMmol5,
+            currentGlucoseMmol = currentGlucoseMmol,
+            forecastMinimumMmol = controlForecasts.minOfOrNull { forecast ->
+                minOf(forecast.valueMmol, forecast.ciLow)
+            } ?: currentGlucoseMmol,
+            effectiveCobGrams = unified.effectiveCobGrams,
+            therapyCoverage = unified.therapyCoverage,
+            remoteLedger = emptyList(),
+            sourceSnapshotTs = unified.timestamp,
+            maximumIncrementGrams = if (settings.enableUamAutoExportCap) {
+                settings.uamAutoExportCapGrams.toDouble()
+            } else {
+                UamExportPolicy.MAX_INCREMENT_G
+            }
+        )
+        val dispatch = dispatchUnifiedUamExportStatic(
+            settings = settings,
+            candidate = candidate,
+            coordinator = uamExportCoordinator
+        )
+        val route = dispatch.route
+        val outcome = dispatch.outcome
+        val exportTelemetry = resolveUnifiedUamExportTelemetryStatic(
+            nowTs = nowTs,
+            episodeId = unified.episodeId,
+            onsetTs = unified.onsetTs,
+            lowerBoundGrams = unified.supportedLowerBoundGrams ?: 0.0,
+            enabled = route.invokeCoordinator,
+            dryRun = route.dryRun,
+            outcome = outcome
+        )
+
+        latestTelemetry["uam_export_live_enabled"] = if (exportTelemetry.liveEnabled) 1.0 else 0.0
+        latestTelemetry["uam_export_eligible"] = if (exportTelemetry.eligible) 1.0 else 0.0
+        latestTelemetry["uam_export_episode_age_min"] = exportTelemetry.episodeAgeMinutes
+        latestTelemetry["uam_export_supported_lower_bound_g"] = exportTelemetry.lowerBoundGrams
+        latestTelemetry["uam_export_cumulative_g"] = exportTelemetry.cumulativeGrams
+        latestTelemetry["uam_export_rolling_30m_g"] = exportTelemetry.rolling30Grams
+        latestTelemetry["uam_export_rolling_60m_g"] = exportTelemetry.rolling60Grams
+        latestTelemetry["uam_export_last_increment_g"] = exportTelemetry.lastIncrementGrams
+        latestTelemetry["uam_export_last_ts"] = exportTelemetry.lastIncrementTs?.toDouble() ?: 0.0
+        latestTelemetry["uam_export_delivered"] = if (exportTelemetry.delivered) 1.0 else 0.0
+
+        persistUnifiedUamExportTelemetry(
+            nowTs = nowTs,
+            liveEnabled = exportTelemetry.liveEnabled,
+            eligible = exportTelemetry.eligible,
+            blockReason = exportTelemetry.blockReason,
+            episodeId = exportTelemetry.episodeId,
+            episodeAgeMinutes = exportTelemetry.episodeAgeMinutes,
+            lowerBoundGrams = exportTelemetry.lowerBoundGrams,
+            cumulativeGrams = exportTelemetry.cumulativeGrams,
+            rolling30Grams = exportTelemetry.rolling30Grams,
+            rolling60Grams = exportTelemetry.rolling60Grams,
+            lastIncrementGrams = exportTelemetry.lastIncrementGrams,
+            lastIncrementTs = exportTelemetry.lastIncrementTs,
+            delivered = exportTelemetry.delivered
+        )
+    }
+
+    private suspend fun persistUnifiedUamExportTelemetry(
+        nowTs: Long,
+        liveEnabled: Boolean,
+        eligible: Boolean,
+        blockReason: String,
+        episodeId: String,
+        episodeAgeMinutes: Double,
+        lowerBoundGrams: Double,
+        cumulativeGrams: Double,
+        rolling30Grams: Double,
+        rolling60Grams: Double,
+        lastIncrementGrams: Double,
+        lastIncrementTs: Long?,
+        delivered: Boolean
+    ) {
+        val source = "copilot_uam_export"
+        fun numeric(key: String, value: Double, unit: String? = null) = TelemetrySampleEntity(
+            id = "tm-$source-$key-$nowTs",
+            timestamp = nowTs,
+            source = source,
+            key = key,
+            valueDouble = value,
+            valueText = null,
+            unit = unit,
+            quality = "OK"
+        )
+        fun text(key: String, value: String) = TelemetrySampleEntity(
+            id = "tm-$source-$key-$nowTs",
+            timestamp = nowTs,
+            source = source,
+            key = key,
+            valueDouble = null,
+            valueText = value,
+            unit = null,
+            quality = "OK"
+        )
+        db.telemetryDao().upsertAll(
+            listOf(
+                numeric("uam_export_live_enabled", if (liveEnabled) 1.0 else 0.0),
+                numeric("uam_export_eligible", if (eligible) 1.0 else 0.0),
+                text("uam_export_block_reason", blockReason.ifBlank { "none" }),
+                text("uam_export_episode_id", episodeId.ifBlank { "none" }),
+                numeric("uam_export_episode_age_min", episodeAgeMinutes, "min"),
+                numeric("uam_export_supported_lower_bound_g", lowerBoundGrams, "g"),
+                numeric("uam_export_cumulative_g", cumulativeGrams, "g"),
+                numeric("uam_export_rolling_30m_g", rolling30Grams, "g"),
+                numeric("uam_export_rolling_60m_g", rolling60Grams, "g"),
+                numeric("uam_export_last_increment_g", lastIncrementGrams, "g"),
+                numeric("uam_export_last_ts", lastIncrementTs?.toDouble() ?: 0.0),
+                numeric("uam_export_delivered", if (delivered) 1.0 else 0.0)
+            )
+        )
     }
 
     private suspend fun persistForecastDecompositionTelemetry(
@@ -3932,20 +7482,108 @@ class AutomationRepository(
         db.telemetryDao().upsertAll(rows)
     }
 
+    private suspend fun persistActivityForecastTelemetry(
+        nowTs: Long,
+        context: ActivityEffectContext,
+        plan: ActivityForecastPlan
+    ) {
+        if (context == ActivityEffectContext.DISABLED) return
+
+        fun forecastValue(forecasts: List<Forecast>?, horizon: Int): Double? =
+            forecasts?.firstOrNull { it.horizonMinutes == horizon }?.valueMmol
+        val fingerprint = buildString {
+            append(context.source.name)
+            append('|').append(context.factor5)
+            append('|').append(context.factor30)
+            append('|').append(context.factor60)
+            append('|').append(context.confidence)
+            append('|').append(context.blockers.map { it.name }.sorted().joinToString(","))
+            append('|').append(plan.suppressionReasons.map { it.name }.sorted().joinToString(","))
+            append('|').append(plan.shadowForecasts != null)
+            listOf(5, 30, 60).forEach { horizon ->
+                append('|').append(forecastValue(plan.controlForecasts, horizon))
+                append('|').append(forecastValue(plan.shadowForecasts, horizon))
+            }
+        }
+        if (fingerprint == lastActivityForecastTelemetryFingerprint &&
+            nowTs - lastActivityForecastTelemetryAtMs < RECURRING_INFO_LOG_INTERVAL_MS
+        ) {
+            return
+        }
+
+        val source = "copilot_activity_forecast"
+        val rows = mutableListOf<TelemetrySampleEntity>()
+        fun numeric(key: String, value: Double?, unit: String? = null) {
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = value,
+                valueText = null,
+                unit = unit,
+                quality = if (value == null) "STALE" else "OK"
+            )
+        }
+        fun text(key: String, value: String) {
+            rows += TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = value,
+                unit = null,
+                quality = "OK"
+            )
+        }
+
+        numeric("activity_shadow_available", if (plan.shadowForecasts != null) 1.0 else 0.0)
+        numeric("activity_shadow_factor_5m", context.factor5)
+        numeric("activity_shadow_factor_30m", context.factor30)
+        numeric("activity_shadow_factor_60m", context.factor60)
+        numeric("activity_shadow_confidence", context.confidence)
+        text("activity_shadow_source", context.source.name)
+        text("activity_shadow_blockers", context.blockers.map { it.name }.sorted().joinToString(","))
+        text("activity_shadow_suppressions", plan.suppressionReasons.map { it.name }.sorted().joinToString(","))
+        listOf(5, 30, 60).forEach { horizon ->
+            numeric("activity_shadow_control_${horizon}m_mmol", forecastValue(plan.controlForecasts, horizon), "mmol/L")
+            numeric("activity_shadow_${horizon}m_mmol", forecastValue(plan.shadowForecasts, horizon), "mmol/L")
+        }
+        db.telemetryDao().upsertAll(rows)
+        lastActivityForecastTelemetryFingerprint = fingerprint
+        lastActivityForecastTelemetryAtMs = nowTs
+    }
+
     suspend fun runDryRunSimulation(days: Int): DryRunReport {
         val settings = settingsStore.settings.first()
-        configurePredictionEngine(settings)
+        val dryRunPredictionEngine = (predictionEngine as? HybridPredictionEngine)
+            ?.newSimulationEngine()
+            ?.also { configurePredictionEngine(settings = settings, engine = it) }
+            ?: predictionEngine
         val periodDays = days.coerceIn(1, 60)
         val startTs = System.currentTimeMillis() - periodDays * 24L * 60 * 60 * 1000
 
-        val glucose = GlucoseSanitizer
-            .filterEntities(db.glucoseDao().since(startTs))
-            .map { it.toGlucosePoint() }
+        val glucose = glucoseCalibrationRepository.resolveDomainGlucoseHistory(
+            rawGlucose = GlucoseSanitizer.filterEntities(db.glucoseDao().since(startTs)),
+            nowTs = System.currentTimeMillis()
+        ).sortedBy { it.ts }
+        val therapy = db.therapyDao().since(startTs)
+            .map { mapDryRunTherapyEventStatic(it, gson) }
             .sortedBy { it.ts }
-        val therapy = db.therapyDao().since(startTs).map { it.toTherapyEvent(gson) }.sortedBy { it.ts }
         val patterns = db.patternDao().all()
-        val profile = db.profileEstimateDao().active()?.toProfileEstimate()
-        val segments = db.profileSegmentEstimateDao().all().associateBy { it.dayType to it.timeSlot }
+        val (profileEntity, segmentEntities) = db.withTransaction {
+            db.profileEstimateDao().active() to db.profileSegmentEstimateDao().all()
+        }
+        val profile = profileEntity?.toProfileEstimate()
+        val segments = segmentEntities
+            .filter { segment ->
+                isMatchingProfileSegmentGenerationStatic(
+                    profileTimestamp = profileEntity?.timestamp,
+                    segmentUpdatedAt = segment.updatedAt
+                )
+            }
+            .associateBy { it.dayType to it.timeSlot }
 
         if (glucose.size < 8) {
             return DryRunReport(periodDays, glucose.size, emptyList())
@@ -3962,7 +7600,7 @@ class AutomationRepository(
             val therapyStart = pointTs - 24L * 60 * 60 * 1000
             val gWindow = glucose.filter { it.ts in windowStart..pointTs }
             val tWindow = therapy.filter { it.ts in therapyStart..pointTs }
-            val forecasts = ensureForecast30(predictionEngine.predict(gWindow, tWindow))
+            val forecasts = ensureForecast30(dryRunPredictionEngine.predict(gWindow, tWindow))
 
             val zoned = Instant.ofEpochMilli(pointTs).atZone(ZoneId.systemDefault())
             val dayType = if (zoned.dayOfWeek.value in setOf(6, 7)) DayType.WEEKEND else DayType.WEEKDAY
@@ -4058,75 +7696,17 @@ class AutomationRepository(
         )
     }
 
-    private suspend fun maybeMergeCloudPrediction(
-        glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
-        therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
-        localForecasts: List<io.aaps.copilot.domain.model.Forecast>
-    ): List<io.aaps.copilot.domain.model.Forecast> {
-        val settings = settingsStore.settings.first()
-        if (!isCopilotCloudBackendEndpoint(settings.cloudBaseUrl)) return localForecasts
-
-        return runCatching {
-            val cloudApi = apiFactory.cloudApi(settings)
-            val response = cloudApi.predict(
-                PredictRequest(
-                    glucose = glucose.map {
-                        CloudGlucosePoint(
-                            ts = it.ts,
-                            valueMmol = it.valueMmol,
-                            source = it.source,
-                            quality = it.quality.name
-                        )
-                    },
-                    therapyEvents = therapy.map {
-                        CloudTherapyEvent(
-                            id = "local-${it.ts}-${it.type}",
-                            ts = it.ts,
-                            type = it.type,
-                            payload = it.payload
-                        )
-                    }
-                )
-            )
-            val cloud = response.forecasts.map {
-                io.aaps.copilot.domain.model.Forecast(
-                    ts = it.ts,
-                    horizonMinutes = it.horizon,
-                    valueMmol = it.valueMmol,
-                    ciLow = it.ciLow,
-                    ciHigh = it.ciHigh,
-                    modelVersion = it.modelVersion
-                )
-            }
-            mergeForecasts(localForecasts, cloud)
-        }.onFailure {
-            auditLogger.warn("cloud_predict_failed", mapOf("error" to (it.message ?: "unknown")))
-        }.getOrDefault(localForecasts)
-    }
-
-    private fun mergeForecasts(
-        local: List<io.aaps.copilot.domain.model.Forecast>,
-        cloud: List<io.aaps.copilot.domain.model.Forecast>
-    ): List<io.aaps.copilot.domain.model.Forecast> {
-        if (cloud.isEmpty()) return local
-        val byHorizon = local.associateBy { it.horizonMinutes }.toMutableMap()
-        cloud.forEach { byHorizon[it.horizonMinutes] = it }
-        return byHorizon.values.sortedBy { it.horizonMinutes }
-    }
-
-    private suspend fun resolveActiveTempTarget(now: Long): Double? {
-        val since = now - 3L * 60 * 60 * 1000
-        val recentTargets = db.therapyDao().byTypeSince("temp_target", since)
-        return resolveActiveTempTargetStatic(now = now, recentTargets = recentTargets, gson = gson)
+    private suspend fun resolveActiveAapsTarget(now: Long): ActiveAapsTarget? {
+        return resolveActiveAapsTargetFromRoomStatic(db = db, gson = gson, nowTs = now)
     }
 
     private fun runtimeConfig(settings: AppSettings): RuleRuntimeConfig {
-        val enabled = buildSet {
-            add(AdaptiveTargetControllerRule.RULE_ID)
-            if (settings.rulePostHypoEnabled) add("PostHypoReboundGuard.v1")
-            if (settings.rulePatternEnabled) add("PatternAdaptiveTarget.v1")
-            if (settings.ruleSegmentEnabled) add("SegmentProfileGuard.v1")
-        }
+        val enabled = enabledTargetRuleIdsStatic(
+            postHypoEnabled = settings.rulePostHypoEnabled,
+            patternEnabled = settings.rulePatternEnabled,
+            segmentEnabled = settings.ruleSegmentEnabled,
+            scheduleAutoEnabled = settings.baseTargetSchedule.autoEnabled
+        )
         val priorities = mapOf(
             AdaptiveTargetControllerRule.RULE_ID to settings.adaptiveControllerPriority,
             "PostHypoReboundGuard.v1" to settings.rulePostHypoPriority,
@@ -4136,6 +7716,63 @@ class AutomationRepository(
         return RuleRuntimeConfig(enabledRuleIds = enabled, priorities = priorities)
     }
 
+    private suspend fun resolveRecentActiveSafetyTarget(
+        nowTs: Long,
+        activeTempTarget: Double?
+    ): Double? {
+        val activeTarget = activeTempTarget?.takeIf(Double::isFinite) ?: return null
+        val latest = db.actionCommandDao().latestByTypeAndStatusAtOrBeforeExcludingPrefix(
+            type = "temp_target",
+            status = NightscoutActionRepository.STATUS_SENT,
+            through = nowTs,
+            excludedPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%"
+        ) ?: return null
+        if (nowTs - latest.timestamp !in 0L..LOW_GLUCOSE_SAFETY_SEED_MAX_AGE_MS) return null
+
+        val payload = runCatching {
+            gson.fromJson(latest.payloadJson, MutableMap::class.java) as? Map<*, *>
+        }.getOrNull() ?: return null
+        val reason = payload["reason"]?.toString().orEmpty()
+        if (!isLowGlucoseSafetyReasonStatic(reason)) return null
+        val sentTarget = payload["targetMmol"]
+            ?.toString()
+            ?.replace(",", ".")
+            ?.toDoubleOrNull()
+            ?.takeIf(Double::isFinite)
+            ?: return null
+        if (abs(sentTarget - activeTarget) > LOW_GLUCOSE_SAFETY_TARGET_MATCH_TOLERANCE_MMOL) return null
+        return maxOf(activeTarget, sentTarget)
+    }
+
+    private suspend fun persistLowGlucoseTargetSafetyTelemetry(
+        nowTs: Long,
+        state: LowGlucoseTargetSafetyLatch.State
+    ) {
+        val source = "copilot_target_safety"
+        fun numeric(key: String, value: Double?, unit: String? = null) = TelemetrySampleEntity(
+            id = "tm-$source-$key-$nowTs",
+            timestamp = nowTs,
+            source = source,
+            key = key,
+            valueDouble = value,
+            valueText = null,
+            unit = unit,
+            quality = if (value == null) "STALE" else "OK"
+        )
+        db.telemetryDao().upsertAll(
+            listOf(
+                numeric("target_low_risk_active", if (state.riskNow) 1.0 else 0.0),
+                numeric("target_low_risk_latched", if (state.latched) 1.0 else 0.0),
+                numeric("target_low_risk_safe_cycles", state.safeCycles.toDouble(), "cycle"),
+                numeric(
+                    "target_low_risk_protected_target_mmol",
+                    state.protectedTargetMmol,
+                    "mmol/L"
+                )
+            )
+        )
+    }
+
     private suspend fun maybeSendAdaptiveKeepaliveTempTarget(
         settings: AppSettings,
         nowTs: Long,
@@ -4143,8 +7780,11 @@ class AutomationRepository(
         sensorBlocked: Boolean,
         activeTempTarget: Double?,
         actionsLast6h: Int,
+        chronologyResolved: Boolean,
+        causalThroughTs: Long,
         forecasts: List<Forecast>,
-        baseTargetMmol: Double
+        baseTargetMmol: Double,
+        lowGlucoseSafetyState: LowGlucoseTargetSafetyLatch.State
     ) {
         if (settings.killSwitch) {
             auditLogger.info("adaptive_keepalive_skipped", mapOf("reason" to "kill_switch"))
@@ -4158,10 +7798,19 @@ class AutomationRepository(
             auditLogger.info("adaptive_keepalive_skipped", mapOf("reason" to "sensor_blocked"))
             return
         }
+        if (!chronologyResolved) {
+            auditLogger.info(
+                "adaptive_keepalive_skipped",
+                mapOf("reason" to "local_safety_chronology_unresolved")
+            )
+            return
+        }
 
-        val lastAutoSentTs = db.actionCommandDao().latestTimestampByTypeAndStatusExcludingPrefix(
+        val lastAutoSentTs = db.actionCommandDao()
+            .latestTimestampByTypeAndStatusAtOrBeforeExcludingPrefix(
             type = "temp_target",
             status = NightscoutActionRepository.STATUS_SENT,
+            through = causalThroughTs,
             excludedPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%"
         )
         if (lastAutoSentTs != null && nowTs - lastAutoSentTs < ADAPTIVE_KEEPALIVE_INTERVAL_MS) {
@@ -4169,7 +7818,7 @@ class AutomationRepository(
         }
 
         val baseTarget = baseTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
-        val proposal = alignTempTargetToBaseTarget(
+        val alignedProposal = alignTempTargetToBaseTarget(
             action = ActionProposal(
                 type = "temp_target",
                 targetMmol = baseTarget,
@@ -4179,6 +7828,12 @@ class AutomationRepository(
             forecasts = forecasts,
             baseTargetMmol = baseTarget,
             sourceRuleId = AdaptiveTargetControllerRule.RULE_ID
+        )
+        val proposal = protectLowGlucoseTargetStatic(
+            action = alignedProposal,
+            state = lowGlucoseSafetyState,
+            minTargetMmol = settings.safetyMinTargetMmol,
+            maxTargetMmol = settings.safetyMaxTargetMmol
         )
 
         val idempotencyKey = "${NightscoutActionRepository.KEEPALIVE_IDEMPOTENCY_PREFIX}${nowTs / ADAPTIVE_KEEPALIVE_INTERVAL_MS}"
@@ -4303,10 +7958,2102 @@ class AutomationRepository(
         else -> ProfileTimeSlot.EVENING
     }
 
+    private data class SensorLagRuntimeContext(
+        val sensorAgeHours: Double? = null,
+        val sensorAgeTs: Long? = null,
+        val sensorAgeSourceRaw: String? = null,
+        val sageDays: Double? = null,
+        val cageDays: Double? = null,
+        val replayBucketStats: List<SensorLagReplayBucketStats> = emptyList()
+    )
+
+    private fun normalizeSensorStartedAtMillis(raw: Double?): Long? {
+        val value = raw?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        return when {
+            value > 1_000_000_000_000.0 -> value.toLong()
+            value > 1_000_000_000.0 -> (value * 1000.0).toLong()
+            else -> null
+        }
+    }
+
     companion object {
+        internal fun resolveEffectiveStaleMaxMinutesStatic(settings: AppSettings): Int {
+            val global = settings.staleDataMaxMinutes
+            if (!settings.adaptiveControllerEnabled) return global
+            val profileLimit = when (settings.adaptiveControllerSafetyProfile.uppercase(Locale.US)) {
+                "STRICT" -> 10
+                "AGGRESSIVE" -> 20
+                else -> 15
+            }
+            val adaptiveLimit = min(settings.adaptiveControllerStaleMaxMinutes, profileLimit)
+            return min(global, adaptiveLimit)
+        }
+
+        internal fun normalizeSegmentForRuntimeStatic(
+            segment: ProfileSegmentEstimate?,
+            localProfile: ProfileEstimate?,
+            runtimeProfile: ProfileEstimate?
+        ): ProfileSegmentEstimate? {
+            if (segment == null || localProfile == null || runtimeProfile == null) return null
+
+            fun normalize(value: Double?, localBaseline: Double, runtimeBaseline: Double): Double? {
+                if (
+                    value == null || !value.isFinite() || value <= 0.0 ||
+                    !localBaseline.isFinite() || localBaseline <= 0.0 ||
+                    !runtimeBaseline.isFinite() || runtimeBaseline <= 0.0
+                ) {
+                    return null
+                }
+                return (value / localBaseline * runtimeBaseline).takeIf { it.isFinite() && it > 0.0 }
+            }
+
+            return segment.copy(
+                isfMmolPerUnit = normalize(
+                    value = segment.isfMmolPerUnit,
+                    localBaseline = localProfile.isfMmolPerUnit,
+                    runtimeBaseline = runtimeProfile.isfMmolPerUnit
+                ),
+                crGramPerUnit = normalize(
+                    value = segment.crGramPerUnit,
+                    localBaseline = localProfile.crGramPerUnit,
+                    runtimeBaseline = runtimeProfile.crGramPerUnit
+                )
+            )
+        }
+
+        internal fun isMatchingProfileSegmentGenerationStatic(
+            profileTimestamp: Long?,
+            segmentUpdatedAt: Long?
+        ): Boolean = profileTimestamp != null &&
+            segmentUpdatedAt != null &&
+            profileTimestamp == segmentUpdatedAt
+
+        private fun ruleEvaluationModeStatic(intent: AutomationCycleIntent): RuleEvaluationMode =
+            if (intent == AutomationCycleIntent.NORMAL) {
+                RuleEvaluationMode.LIVE
+            } else {
+                RuleEvaluationMode.DIAGNOSTIC_READ_ONLY
+            }
+
+        internal const val TARGET_MANAGER_DELIVERY_TRUST_SOURCE = "copilot_target_manager"
+        internal const val ALERT_CAUSE_DIAGNOSTIC_SOURCE = "copilot_alert_cause_diagnostic"
+        internal const val ACCEPTED_RUNTIME_TELEMETRY_SOURCE = "copilot_accepted_runtime"
+        internal const val ALERT_CAUSE_CONTEXT_TIMEOUT_MS = 125L
+        internal const val ALERT_CAUSE_MAX_THERAPY_EVENTS = 128
+        internal const val ALERT_CAUSE_MAX_CONTEXT_EVENTS = 64
+        internal const val ALERT_CAUSE_MAX_PLANNED_EVENTS = 64
+        internal const val ALERT_CAUSE_PLANNED_PAGE_LIMIT = 65
+        internal const val ALERT_CAUSE_MAX_PLANNED_PAGES = 8
+
+        internal suspend fun <T> loadOptionalAlertCauseContextStatic(
+            timeoutMs: Long = ALERT_CAUSE_CONTEXT_TIMEOUT_MS,
+            load: suspend () -> T
+        ): AlertCauseContextLoadResult<T> = try {
+            withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+                AlertCauseContextLoadResult.Success(load())
+            } ?: AlertCauseContextLoadResult.Timeout
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            AlertCauseContextLoadResult.Failure(
+                error::class.java.simpleName.take(80).ifBlank { "Exception" }
+            )
+        }
+
+        internal suspend fun reportAlertCauseContextOutcomeStatic(
+            result: AlertCauseContextLoadResult<*>,
+            stage: GlucoseAlertState,
+            warn: suspend (String, Map<String, Any?>) -> Unit
+        ) {
+            val metadata = when (result) {
+                is AlertCauseContextLoadResult.Success -> return
+                AlertCauseContextLoadResult.Timeout -> mapOf(
+                    "stage" to stage.name,
+                    "eventContextAvailable" to false,
+                    "reason" to "timeout",
+                    "timeoutMs" to ALERT_CAUSE_CONTEXT_TIMEOUT_MS
+                )
+                is AlertCauseContextLoadResult.Failure -> mapOf(
+                    "stage" to stage.name,
+                    "eventContextAvailable" to false,
+                    "reason" to "failure",
+                    "errorType" to result.errorType
+                )
+                is AlertCauseContextLoadResult.Overflow -> mapOf(
+                    "stage" to stage.name,
+                    "eventContextAvailable" to false,
+                    "reason" to "overflow",
+                    "source" to result.source.name
+                )
+            }
+            warn("glucose_alert_cause_context_unavailable", metadata)
+        }
+
+        internal fun boundAlertCauseTherapyStatic(
+            therapy: List<TherapyEvent>
+        ): AlertCauseBoundedRows<TherapyEvent> {
+            val relevant = ArrayDeque<TherapyEvent>(ALERT_CAUSE_MAX_THERAPY_EVENTS)
+            var overflow = false
+            val timelineRepository = EventTimelineRepository()
+            therapy.forEach { event ->
+                if (timelineRepository.isAlertCauseContextTherapyEvent(event)) {
+                    if (relevant.size == ALERT_CAUSE_MAX_THERAPY_EVENTS) {
+                        overflow = true
+                    } else {
+                        relevant.addLast(event)
+                    }
+                }
+            }
+            return AlertCauseBoundedRows(rows = relevant.toList(), overflow = overflow)
+        }
+
+        internal fun hasAlertCauseOverflowStatic(rows: Collection<*>, limit: Int): Boolean =
+            rows.size > limit.coerceAtLeast(0)
+
+        internal suspend fun loadRelevantPlannedAlertEventsStatic(
+            nowTs: Long,
+            loadPage: suspend (
+                afterLocalStartIso: String?,
+                afterEventId: String?,
+                limit: Int
+            ) -> List<PlannedActivityEventEntity>
+        ): AlertCausePlannedLoadResult {
+            val relevant = ArrayList<CompensationEvent>(ALERT_CAUSE_MAX_PLANNED_EVENTS + 1)
+            val timelineRepository = EventTimelineRepository()
+            var afterStart: String? = null
+            var afterId: String? = null
+            var pagesRead = 0
+
+            repeat(ALERT_CAUSE_MAX_PLANNED_PAGES) {
+                val page = loadPage(afterStart, afterId, ALERT_CAUSE_PLANNED_PAGE_LIMIT)
+                pagesRead += 1
+                if (page.isEmpty()) {
+                    return AlertCausePlannedLoadResult.Complete(relevant, pagesRead)
+                }
+                if (page.size > ALERT_CAUSE_PLANNED_PAGE_LIMIT) {
+                    return AlertCausePlannedLoadResult.ScanLimitReached
+                }
+
+                var previousStart = afterStart
+                var previousId = afterId
+                page.forEach { row ->
+                    val advances = previousStart == null ||
+                        row.localStartIso > previousStart ||
+                        (row.localStartIso == previousStart && row.eventId > requireNotNull(previousId))
+                    if (!advances) return AlertCausePlannedLoadResult.CursorStalled
+                    previousStart = row.localStartIso
+                    previousId = row.eventId
+                }
+
+                timelineRepository.plannedActivityEvents(
+                    rows = page,
+                    fromTs = nowTs,
+                    throughTs = nowTs,
+                    statusAtTs = nowTs
+                ).asSequence()
+                    .filter { event -> event.startTs <= nowTs && event.endTs > nowTs }
+                    .forEach { event ->
+                        relevant += event
+                        if (relevant.size > ALERT_CAUSE_MAX_PLANNED_EVENTS) {
+                            return AlertCausePlannedLoadResult.RelevantOverflow
+                        }
+                    }
+
+                afterStart = page.last().localStartIso
+                afterId = page.last().eventId
+                if (page.size < ALERT_CAUSE_PLANNED_PAGE_LIMIT) {
+                    return AlertCausePlannedLoadResult.Complete(
+                        events = relevant.sortedWith(
+                            compareBy<CompensationEvent> { it.startTs }.thenBy { it.localId }
+                        ),
+                        pagesRead = pagesRead
+                    )
+                }
+            }
+            return AlertCausePlannedLoadResult.ScanLimitReached
+        }
+
+        internal suspend fun prepareAlertCauseForDecisionStatic(
+            decision: GlucoseAlertDecision,
+            buildInput: suspend () -> AlertCauseInput
+        ): PreparedAlertCause? {
+            if (decision.episodeStage == GlucoseAlertState.NONE || decision.episodeDirection == null) {
+                return null
+            }
+            return try {
+                val input = buildInput()
+                val analysis = AlertCauseAnalyzer.analyze(input)
+                PreparedAlertCause(
+                    analysis = analysis,
+                    snapshot = AlertCauseSnapshotCodec.encode(input, analysis),
+                    input = input
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: VirtualMachineError) {
+                throw fatal
+            } catch (termination: ThreadDeath) {
+                throw termination
+            } catch (_: Throwable) {
+                PreparedAlertCause(
+                    analysis = AlertCauseAnalyzer.failureAnalysis(),
+                    snapshot = AlertCauseSnapshotCodec.failureSnapshot(),
+                    input = null
+                )
+            }
+        }
+
+        internal fun buildAlertCauseDiagnosticTelemetryRowsStatic(
+            nowTs: Long,
+            prepared: PreparedAlertCause
+        ): List<TelemetrySampleEntity> {
+            val input = prepared.input
+            val sensitivity = input?.sensitivity
+            val uam = input?.uam
+            val identityMatched = sensitivity != null && uam != null &&
+                sensitivity.cycleId == uam.sensitivityCycleId &&
+                sensitivity.settingsRevision == uam.sensitivitySettingsRevision
+            fun text(key: String, value: String?) = TelemetrySampleEntity(
+                id = "tm-copilot-alert-cause-diagnostic-$key-$nowTs",
+                timestamp = nowTs,
+                source = ALERT_CAUSE_DIAGNOSTIC_SOURCE,
+                key = key,
+                valueDouble = null,
+                valueText = value?.trim()?.takeIf(String::isNotBlank),
+                unit = null,
+                quality = if (value.isNullOrBlank()) "STALE" else "OK"
+            )
+            fun numeric(key: String, value: Long?) = TelemetrySampleEntity(
+                id = "tm-copilot-alert-cause-diagnostic-$key-$nowTs",
+                timestamp = nowTs,
+                source = ALERT_CAUSE_DIAGNOSTIC_SOURCE,
+                key = key,
+                valueDouble = value?.toDouble(),
+                valueText = null,
+                unit = null,
+                quality = if (value == null) "STALE" else "OK"
+            )
+            return listOf(
+                text("alert_cause_primary", prepared.analysis.primary.name),
+                text("alert_cause_confidence", prepared.analysis.confidence.name),
+                text(
+                    "alert_cause_identity_status",
+                    if (identityMatched) "MATCHED" else "UNAVAILABLE"
+                ),
+                text("alert_cause_sensitivity_cycle_id", sensitivity?.cycleId),
+                numeric(
+                    "alert_cause_sensitivity_settings_revision",
+                    sensitivity?.settingsRevision
+                ),
+                text("alert_cause_uam_sensitivity_cycle_id", uam?.sensitivityCycleId),
+                numeric(
+                    "alert_cause_uam_sensitivity_settings_revision",
+                    uam?.sensitivitySettingsRevision
+                ),
+                text("alert_cause_input_snapshot", prepared.snapshot.canonicalJson)
+            )
+        }
+
+        internal fun buildTargetManagerSensitivityTelemetryRowsStatic(
+            nowTs: Long,
+            sensitivityRuntime: SensitivityRuntimeConsumerContext
+        ): List<TelemetrySampleEntity> {
+            require(sensitivityRuntime.consumer == SensitivityRuntimeConsumer.TARGET_MANAGER) {
+                "Target Manager diagnostics require TARGET_MANAGER sensitivity context"
+            }
+            val snapshot = sensitivityRuntime.snapshot
+            return listOf(
+                TelemetrySampleEntity(
+                    id = "tm-copilot-target-manager-sensitivity-cycle-$nowTs",
+                    timestamp = nowTs,
+                    source = TARGET_MANAGER_DELIVERY_TRUST_SOURCE,
+                    key = "target_manager_sensitivity_cycle_id",
+                    valueDouble = null,
+                    valueText = snapshot.forecastCycleId,
+                    unit = null,
+                    quality = "OK"
+                ),
+                TelemetrySampleEntity(
+                    id = "tm-copilot-target-manager-sensitivity-revision-$nowTs",
+                    timestamp = nowTs,
+                    source = TARGET_MANAGER_DELIVERY_TRUST_SOURCE,
+                    key = "target_manager_sensitivity_settings_revision",
+                    valueDouble = snapshot.settingsRevision.toDouble(),
+                    valueText = null,
+                    unit = null,
+                    quality = "OK"
+                )
+            )
+        }
+
+        internal fun parseAlertUamStateStatic(
+            raw: String,
+            parse: (String) -> AlertUamState = AlertUamState::valueOf
+        ): AlertUamState = ordinaryExceptionOrNull { parse(raw) } ?: AlertUamState.BLOCKED
+
+        internal fun buildAlertCauseInputStatic(
+            nowTs: Long,
+            currentGlucoseTimestamp: Long,
+            decision: GlucoseAlertDecision,
+            forecasts: List<Forecast>,
+            dataFresh: Boolean,
+            sensorQuality: SensorQualityAssessment,
+            sensorBlocked: Boolean,
+            insulinCycleContext: InsulinCycleContext,
+            sensitivitySnapshot: SensitivityRuntimeSnapshot,
+            unifiedUam: UnifiedUamRuntimeSnapshot,
+            deliveryTrust: DeliveryTrustState?,
+            effectiveBaseTarget: EffectiveBaseTarget,
+            circadianBiasApplied: Boolean,
+            circadianDelta30Mmol: Double?,
+            circadianConfidence: Double?,
+            activeEventTypes: Set<AlertContextEventType>,
+            eventContextAvailable: Boolean
+        ): AlertCauseInput {
+            val byHorizon = forecasts.associateBy(Forecast::horizonMinutes)
+            val insulin = insulinCycleContext.snapshot?.let { snapshot ->
+                AlertInsulinEvidence(
+                    cycleTimestamp = insulinCycleContext.cycleTimestamp,
+                    snapshotTimestamp = snapshot.timestamp,
+                    evidenceTimestamp = snapshot.evidenceTimestamp,
+                    source = AlertInsulinSource.valueOf(snapshot.source.name),
+                    netIobUnits = snapshot.netIobUnits,
+                    effectivePositiveIobUnits = snapshot.effectivePositiveIobUnits,
+                    insulinActivity = snapshot.insulinActivity,
+                    confidence = snapshot.confidence
+                )
+            }
+            val sensitivity = AlertSensitivityEvidence(
+                cycleId = sensitivitySnapshot.forecastCycleId,
+                settingsRevision = sensitivitySnapshot.settingsRevision,
+                timestamp = sensitivitySnapshot.timestamp,
+                isfMmolPerUnit = sensitivitySnapshot.isf.effective,
+                crGramPerUnit = sensitivitySnapshot.cr.effective,
+                isfSource = AlertSensitivitySource.valueOf(sensitivitySnapshot.isf.resolved.name),
+                crSource = AlertSensitivitySource.valueOf(sensitivitySnapshot.cr.resolved.name),
+                confidence = minOf(
+                    sensitivitySnapshot.isf.confidence,
+                    sensitivitySnapshot.cr.confidence
+                )
+            )
+            return AlertCauseInput(
+                nowTs = nowTs,
+                cycleTimestamp = insulinCycleContext.cycleTimestamp,
+                direction = when (requireNotNull(decision.episodeDirection)) {
+                    GlucoseAlertDirection.LOW -> AlertCauseDirection.LOW
+                    GlucoseAlertDirection.HIGH -> AlertCauseDirection.HIGH
+                },
+                glucose = AlertGlucoseEvidence(
+                    currentMmol = decision.currentGlucoseMmol,
+                    currentTimestamp = currentGlucoseTimestamp,
+                    forecast5Mmol = byHorizon[5]?.valueMmol,
+                    forecast30Mmol = byHorizon[30]?.valueMmol,
+                    forecast60Mmol = byHorizon[60]?.valueMmol,
+                    lowerCi5Mmol = byHorizon[5]?.ciLow,
+                    lowerCi30Mmol = byHorizon[30]?.ciLow,
+                    lowerCi60Mmol = byHorizon[60]?.ciLow,
+                    trendDelta5Mmol = decision.trendDelta5Mmol,
+                    dataFresh = dataFresh
+                ),
+                sensor = AlertSensorEvidence(
+                    score = sensorQuality.score,
+                    blocked = sensorBlocked || sensorQuality.blocked,
+                    suspectFalseLow = sensorQuality.suspectFalseLow
+                ),
+                insulin = insulin,
+                sensitivity = sensitivity,
+                uam = AlertUamEvidence(
+                    timestamp = unifiedUam.timestamp,
+                    state = parseAlertUamStateStatic(unifiedUam.state),
+                    active = unifiedUam.flag >= 0.5,
+                    controlActive = unifiedUam.controlFlag >= 0.5,
+                    confidence = unifiedUam.confidence,
+                    signedResidualMmol5 = unifiedUam.signedResidualMmol5,
+                    equivalentCarbsGrams = unifiedUam.equivalentCarbsGrams,
+                    sensitivityCycleId = unifiedUam.sensitivityCycleId,
+                    sensitivitySettingsRevision = unifiedUam.sensitivitySettingsRevision
+                ),
+                deliveryTrust = deliveryTrust,
+                target = AlertTargetEvidence(
+                    manualTargetMmol = effectiveBaseTarget.manualTargetMmol,
+                    autoDeltaMmol = effectiveBaseTarget.autoDeltaMmol,
+                    effectiveTargetMmol = effectiveBaseTarget.effectiveTargetMmol,
+                    state = AlertTargetState.valueOf(effectiveBaseTarget.state.name),
+                    reasonCodes = effectiveBaseTarget.reasonCodes
+                ),
+                circadian = AlertCircadianEvidence(
+                    applied = circadianBiasApplied,
+                    delta30Mmol = circadianDelta30Mmol,
+                    confidence = circadianConfidence ?: 0.0
+                ),
+                activeEventTypes = activeEventTypes,
+                eventContextAvailable = eventContextAvailable
+            )
+        }
+
+        internal fun decodeAlertDeliveryTrustStatic(
+            telemetry: Iterable<DeliveryTrustTelemetryValue>
+        ): DeliveryTrustState? {
+            fun latestStateFor(key: String): Pair<Boolean, DeliveryTrustState?> {
+                val valid = telemetry.asSequence()
+                    .filter { row -> row.key == key }
+                    .mapNotNull { row ->
+                        if (
+                            row.key == DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY &&
+                            row.source != TARGET_MANAGER_DELIVERY_TRUST_SOURCE
+                        ) {
+                            return@mapNotNull null
+                        }
+                        DeliveryTrustStateWireCodec.decodeTelemetry(
+                            key = row.key,
+                            source = row.source,
+                            value = row.value
+                        )?.let { state -> row.timestamp to state }
+                    }
+                    .toList()
+                if (valid.isEmpty()) return false to null
+                val latestTimestamp = valid.maxOf { it.first }
+                return true to valid.asSequence()
+                    .filter { it.first == latestTimestamp }
+                    .map { it.second }
+                    .distinct()
+                    .singleOrNull()
+            }
+
+            val stable = latestStateFor(DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY)
+            if (stable.first) return stable.second
+            return latestStateFor(DeliveryTrustStateWireCodec.LEGACY_TELEMETRY_KEY).second
+        }
+
+        internal fun selectAlertDeliveryTrustTelemetryStatic(
+            rows: Iterable<TelemetrySampleEntity>
+        ): List<DeliveryTrustTelemetryValue> = rows.asSequence()
+            .filter { row ->
+                when (row.key) {
+                    DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY ->
+                        row.source == TARGET_MANAGER_DELIVERY_TRUST_SOURCE
+                    DeliveryTrustStateWireCodec.LEGACY_TELEMETRY_KEY -> true
+                    else -> false
+                }
+            }
+            .map { row ->
+                DeliveryTrustTelemetryValue(
+                    timestamp = row.timestamp,
+                    source = row.source,
+                    key = row.key,
+                    value = row.valueDouble
+                )
+            }
+            .sortedWith(
+                compareBy<DeliveryTrustTelemetryValue> { it.timestamp }
+                    .thenBy { it.source }
+                    .thenBy { it.key }
+                    .thenBy { it.value }
+            )
+            .toList()
+
+        internal fun selectAcceptedAlertDeliveryTrustTelemetryStatic(
+            baseRows: Iterable<TelemetrySampleEntity>,
+            reportRows: Iterable<TelemetrySampleEntity>
+        ): List<DeliveryTrustTelemetryValue> = selectAlertDeliveryTrustTelemetryStatic(
+            (baseRows.asSequence() + reportRows.asSequence()).asIterable()
+        )
+
+        internal fun buildSameCycleAlertDeliveryTrustTelemetryStatic(
+            nowTs: Long,
+            state: DeliveryTrustState
+        ): DeliveryTrustTelemetryValue {
+            val row = buildTargetManagerDeliveryTrustTelemetryRowStatic(nowTs, state)
+            return DeliveryTrustTelemetryValue(
+                timestamp = row.timestamp,
+                source = row.source,
+                key = row.key,
+                value = row.valueDouble
+            )
+        }
+
+        internal fun buildTargetManagerDeliveryTrustTelemetryRowStatic(
+            nowTs: Long,
+            state: DeliveryTrustState
+        ): TelemetrySampleEntity {
+            require(nowTs > 0L) { "target manager delivery trust timestamp must be positive" }
+            val encoded = DeliveryTrustStateWireCodec.encode(state)
+            require(encoded.isFinite()) { "target manager delivery trust code must be finite" }
+            return TelemetrySampleEntity(
+                id = "tm-$TARGET_MANAGER_DELIVERY_TRUST_SOURCE-" +
+                    "${DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY}-$nowTs",
+                timestamp = nowTs,
+                source = TARGET_MANAGER_DELIVERY_TRUST_SOURCE,
+                key = DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY,
+                valueDouble = encoded,
+                valueText = null,
+                unit = "code",
+                quality = "OK"
+            )
+        }
+
+        internal fun buildTargetManagerLiveStatusStatic(
+            nowTs: Long,
+            mode: TargetManagerMode,
+            priorityEnabled: Boolean,
+            policyRevision: Long,
+            activeAapsTarget: ActiveAapsTarget?,
+            decision: TargetManagerDecision,
+            noProposalReason: String? = null,
+            dispatchAllowed: Boolean = true
+        ): TargetManagerLiveStatus {
+            val dispatchSuppressed = !dispatchAllowed && decision.outcome in setOf(
+                TargetDecisionOutcome.SEND,
+                TargetDecisionOutcome.RENEW_SAME_TARGET
+            )
+            val preflightFailure = TargetCommandPreflightFailure.fromMarkedReasonCodes(
+                decision.reasonCodes
+            )?.takeIf {
+                decision.outcome == TargetDecisionOutcome.DELIVERY_FAILED &&
+                    "delivery_status_unknown" !in decision.reasonCodes
+            }
+            return TargetManagerLiveStatus(
+            schemaVersion = TargetManagerLiveStatusCodec.SCHEMA_VERSION,
+            timestamp = nowTs,
+            mode = mode.name,
+            priorityEnabled = priorityEnabled,
+            policyRevision = policyRevision,
+            currentTargetMmol = activeAapsTarget?.takeIf {
+                it.evidenceResolved && it.targetMmol.isFinite() && it.targetMmol > 0.0 &&
+                    it.startedAt in 1L..nowTs && it.expiresAt > nowTs
+            }?.targetMmol,
+            proposedTargetMmol = decision.winner?.targetMmol,
+            outcome = when {
+                dispatchSuppressed -> "DISPATCH_DISABLED"
+                preflightFailure != null -> preflightFailure.outcome.name
+                else -> decision.outcome.name
+            },
+            reason = if (dispatchSuppressed) {
+                "therapy_writes_disabled"
+            } else if (preflightFailure != null) {
+                preflightFailure.reasonCode
+            } else when (decision.outcome) {
+                TargetDecisionOutcome.NO_PROPOSAL -> when {
+                    noProposalReason == "safety_iob_missing_blocks_lowering" -> "iob_unqualified"
+                    decision.reasonCodes.any { it == "mode_off" } -> "mode_off"
+                    else -> "no_eligible_proposal"
+                }
+                TargetDecisionOutcome.SHADOW_WOULD_SEND -> "shadow_would_send"
+                TargetDecisionOutcome.SEND,
+                TargetDecisionOutcome.RENEW_SAME_TARGET -> "eligible"
+                TargetDecisionOutcome.SUPPRESS_SEMANTIC_DUPLICATE -> "semantic_duplicate"
+                TargetDecisionOutcome.BLOCK_CADENCE -> "cadence_blocked"
+                TargetDecisionOutcome.BLOCK_KILL_SWITCH -> "kill_switch"
+                TargetDecisionOutcome.BLOCK_STALE_DATA -> "stale_data"
+                TargetDecisionOutcome.BLOCK_SENSOR_TRUST -> "sensor_untrusted"
+                TargetDecisionOutcome.BLOCK_DELIVERY_TRUST -> "delivery_untrusted"
+                TargetDecisionOutcome.BLOCK_PROTECTIVE_DIRECTION -> "protective_direction"
+                TargetDecisionOutcome.BLOCK_FORECAST_RELIABILITY -> "forecast_unreliable"
+                TargetDecisionOutcome.BLOCK_MANUAL_TARGET -> if (
+                    "external_target_writer_conflict" in decision.reasonCodes
+                ) "external_target_writer_conflict" else "external_target_retained"
+                TargetDecisionOutcome.BLOCK_LEGACY_TARGET_DRAIN -> "legacy_target_drain"
+                TargetDecisionOutcome.BLOCK_SAFETY_BOUNDS -> "safety_bounds"
+                TargetDecisionOutcome.DELIVERY_FAILED -> "delivery_failed"
+            }
+        )
+        }
+
+        internal suspend fun reportTargetManagerLiveStatusStatic(
+            liveEvaluation: Boolean,
+            status: TargetManagerLiveStatus,
+            persist: suspend (TelemetrySampleEntity) -> Unit
+        ) {
+            if (!liveEvaluation) return
+            runBestEffortTargetManagerPostEvaluationAuditStatic {
+                persist(TargetManagerLiveStatusCodec.toTelemetryRow(status))
+            }
+        }
+
+        internal suspend fun <T : Any> evaluateAndPersistTargetManagerDeliveryTrustStatic(
+            nowTs: Long,
+            state: DeliveryTrustState,
+            evaluate: suspend () -> T?,
+            persist: suspend (TelemetrySampleEntity) -> Unit
+        ): TargetManagerDeliveryTrustEvaluation<T>? {
+            val evaluation = evaluate() ?: return null
+            val row = buildTargetManagerDeliveryTrustTelemetryRowStatic(nowTs, state)
+            return try {
+                persist(row)
+                TargetManagerDeliveryTrustEvaluation(
+                    evaluation = evaluation,
+                    telemetryPersisted = true,
+                    persistenceFailureType = null
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (operational: Exception) {
+                TargetManagerDeliveryTrustEvaluation(
+                    evaluation = evaluation,
+                    telemetryPersisted = false,
+                    persistenceFailureType = operational::class.java.simpleName
+                        .take(80)
+                        .ifBlank { "Exception" }
+                )
+            }
+        }
+
+        internal suspend fun reportTargetManagerDeliveryTrustPersistenceFailureStatic(
+            nowTs: Long,
+            failureType: String?,
+            warn: suspend (String, Map<String, Any?>) -> Unit
+        ) {
+            val boundedFailureType = failureType?.take(80)?.ifBlank { "Exception" } ?: return
+            warn(
+                "target_manager_delivery_trust_persistence_failed",
+                mapOf(
+                    "timestamp" to nowTs,
+                    "source" to TARGET_MANAGER_DELIVERY_TRUST_SOURCE,
+                    "key" to DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY,
+                    "failureType" to boundedFailureType
+                )
+            )
+        }
+
+        internal suspend fun <T : Any> evaluatePersistAndReportTargetManagerDeliveryTrustStatic(
+            nowTs: Long,
+            state: DeliveryTrustState,
+            evaluate: suspend () -> T?,
+            persist: suspend (TelemetrySampleEntity) -> Unit,
+            warn: suspend (String, Map<String, Any?>) -> Unit,
+            reportDecision: suspend (T) -> Unit
+        ): T? {
+            val result = evaluateAndPersistTargetManagerDeliveryTrustStatic(
+                nowTs = nowTs,
+                state = state,
+                evaluate = evaluate,
+                persist = persist
+            ) ?: return null
+            runBestEffortTargetManagerPostEvaluationAuditStatic {
+                reportTargetManagerDeliveryTrustPersistenceFailureStatic(
+                    nowTs = nowTs,
+                    failureType = result.persistenceFailureType,
+                    warn = warn
+                )
+            }
+            runBestEffortTargetManagerPostEvaluationAuditStatic {
+                reportDecision(result.evaluation)
+            }
+            return result.evaluation
+        }
+
+        internal suspend fun <T : Any> evaluateTargetManagerWithFailureBoundaryStatic(
+            mode: TargetManagerMode,
+            evaluateAndReport: suspend () -> T?,
+            reportEvaluationFailure: suspend (String, Map<String, Any?>) -> Unit
+        ): T? = try {
+            evaluateAndReport()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (fatal: Error) {
+            throw fatal
+        } catch (operational: Exception) {
+            reportEvaluationFailure(
+                "target_manager_evaluation_failed",
+                mapOf(
+                    "mode" to mode.name,
+                    "failureType" to operational.javaClass.simpleName,
+                    "legacyFallback" to false
+                )
+            )
+            null
+        }
+
+        internal suspend fun runBestEffortTargetManagerPostEvaluationAuditStatic(
+            audit: suspend () -> Unit
+        ) {
+            try {
+                audit()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Exception) {
+                // A completed therapy dispatch must not be retried because its audit store is unavailable.
+            }
+        }
+
+        internal fun activeAlertContextTypesStatic(
+            events: List<CompensationEvent>,
+            nowTs: Long
+        ): Set<AlertContextEventType> {
+            val mapped = events.asSequence()
+                .filter { it.isActiveAt(nowTs) }
+                .mapNotNull { event ->
+                    when (event.type) {
+                        CompensationEventType.ACTIVITY -> AlertContextEventType.ACTIVITY
+                        CompensationEventType.STRESS -> AlertContextEventType.STRESS
+                        CompensationEventType.ILLNESS -> AlertContextEventType.ILLNESS
+                        CompensationEventType.SLEEP -> AlertContextEventType.SLEEP
+                        CompensationEventType.HORMONAL,
+                        CompensationEventType.MENSTRUAL_CYCLE -> AlertContextEventType.HORMONAL
+                        CompensationEventType.MEDICATION_STEROID -> AlertContextEventType.STEROID
+                        CompensationEventType.ALCOHOL -> AlertContextEventType.ALCOHOL
+                        CompensationEventType.INFUSION_PUMP_INSULIN -> AlertContextEventType.INFUSION
+                        CompensationEventType.SENSOR_CALIBRATION -> AlertContextEventType.SENSOR
+                        CompensationEventType.MEAL,
+                        CompensationEventType.CUSTOM -> null
+                    }
+                }
+                .toSet()
+            return AlertContextEventType.entries
+                .filter(mapped::contains)
+                .toCollection(linkedSetOf())
+        }
+
+        internal fun resolveCyclePolicyStatic(
+            intent: AutomationCycleIntent,
+            therapyActionsArmed: Boolean,
+            killSwitch: Boolean,
+            powerSaveActive: Boolean
+        ): AutomationCyclePolicy = when (intent) {
+            AutomationCycleIntent.NORMAL -> AutomationCyclePolicy(
+                runCalculations = true,
+                runRemoteRefresh = therapyActionsArmed && !powerSaveActive,
+                therapyWritersAllowed = therapyActionsArmed && !killSwitch && !powerSaveActive,
+                allowSensitivityMaintenance = therapyActionsArmed && !powerSaveActive,
+                allowActionRepositoryAccess = therapyActionsArmed && !powerSaveActive,
+                allowLocalSafetyEvidence = therapyActionsArmed && !powerSaveActive,
+                allowAlertPublication = true,
+                publishWidgetAfterAcceptance = true
+            )
+            AutomationCycleIntent.LOCAL_READ_ONLY -> AutomationCyclePolicy(
+                runCalculations = true,
+                runRemoteRefresh = false,
+                therapyWritersAllowed = false,
+                allowSensitivityMaintenance = false,
+                allowActionRepositoryAccess = false,
+                allowLocalSafetyEvidence = false,
+                allowAlertPublication = false,
+                publishWidgetAfterAcceptance = false
+            )
+            AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE -> AutomationCyclePolicy(
+                runCalculations = true,
+                runRemoteRefresh = false,
+                therapyWritersAllowed = false,
+                allowSensitivityMaintenance = false,
+                allowActionRepositoryAccess = false,
+                allowLocalSafetyEvidence = true,
+                allowAlertPublication = false,
+                publishWidgetAfterAcceptance = true
+            )
+        }
+
+        internal fun restrictCyclePolicyStatic(
+            bootstrapPolicy: AutomationCyclePolicy,
+            intent: AutomationCycleIntent,
+            therapyActionsArmed: Boolean,
+            killSwitch: Boolean,
+            powerSaveActive: Boolean
+        ): AutomationCyclePolicy {
+            val current = resolveCyclePolicyStatic(
+                intent = intent,
+                therapyActionsArmed = therapyActionsArmed,
+                killSwitch = killSwitch,
+                powerSaveActive = powerSaveActive
+            )
+            return bootstrapPolicy.copy(
+                runCalculations = bootstrapPolicy.runCalculations && current.runCalculations,
+                runRemoteRefresh = bootstrapPolicy.runRemoteRefresh && current.runRemoteRefresh,
+                therapyWritersAllowed =
+                    bootstrapPolicy.therapyWritersAllowed && current.therapyWritersAllowed,
+                allowSensitivityMaintenance =
+                    bootstrapPolicy.allowSensitivityMaintenance && current.allowSensitivityMaintenance,
+                allowActionRepositoryAccess =
+                    bootstrapPolicy.allowActionRepositoryAccess && current.allowActionRepositoryAccess,
+                allowLocalSafetyEvidence =
+                    bootstrapPolicy.allowLocalSafetyEvidence && current.allowLocalSafetyEvidence,
+                allowAlertPublication =
+                    bootstrapPolicy.allowAlertPublication && current.allowAlertPublication,
+                publishWidgetAfterAcceptance =
+                    bootstrapPolicy.publishWidgetAfterAcceptance && current.publishWidgetAfterAcceptance
+            )
+        }
+
+        internal suspend fun requireFreshAcceptedForecastGenerationStatic(
+            generationTimestamp: Long,
+            acceptedAtTs: Long
+        ) {
+            currentCoroutineContext().ensureActive()
+            if (!AcceptedSensitivityTupleFreshness.isFresh(generationTimestamp, acceptedAtTs)) {
+                throw AcceptedForecastGenerationNotFresh(
+                    reason = if (generationTimestamp > acceptedAtTs) {
+                        "future_forecast_generation"
+                    } else {
+                        "stale_forecast_generation"
+                    }
+                )
+            }
+        }
+
+        internal suspend fun <Reservation : Any, T> runAfterAcceptedSensitivityCycleStatic(
+            persistPendingRoomTuple: suspend () -> Unit,
+            reserveAccepted: suspend () -> Reservation?,
+            commitAcceptedRoomTuple: suspend () -> Unit,
+            reconcileAcceptedRoomTuple: suspend () -> Boolean,
+            finalizeAccepted: (Reservation) -> Unit,
+            abortReservation: (Reservation) -> Unit = {},
+            beforeClinicalSideEffects: (suspend () -> Unit)? = null,
+            clinicalSideEffects: suspend () -> T
+        ): T {
+            persistPendingRoomTuple()
+            val reservation = requireNotNull(reserveAccepted()) {
+                "accepted sensitivity reservation rejected the candidate cycle"
+            }
+            var finalized = false
+            try {
+                withContext(NonCancellable) {
+                    var commitFailure: Exception? = null
+                    try {
+                        runBoundedAcceptedDurabilityStepStatic(
+                            label = "accepted sensitivity Room commit",
+                            timeoutMs = SENSITIVITY_ACCEPTED_DURABILITY_STEP_TIMEOUT_MS,
+                            block = commitAcceptedRoomTuple
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (fatal: Error) {
+                        throw fatal
+                    } catch (operational: Exception) {
+                        commitFailure = operational
+                    }
+                    val reconciled = try {
+                        runBoundedAcceptedDurabilityStepStatic(
+                            label = "accepted sensitivity Room readback",
+                            timeoutMs = SENSITIVITY_ACCEPTED_DURABILITY_STEP_TIMEOUT_MS,
+                            block = reconcileAcceptedRoomTuple
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (fatal: Error) {
+                        throw fatal
+                    } catch (readbackFailure: Exception) {
+                        throw IllegalStateException(
+                            "accepted sensitivity Room commit is ambiguous: exact readback unavailable",
+                            readbackFailure
+                        ).also { ambiguous ->
+                            commitFailure?.let(ambiguous::addSuppressed)
+                        }
+                    }
+                    if (!reconciled) {
+                        throw commitFailure ?: IllegalStateException(
+                            "accepted sensitivity Room tuple was not committed"
+                        )
+                    }
+                    finalizeAccepted(reservation)
+                    finalized = true
+                    beforeClinicalSideEffects?.let { durabilityFence ->
+                        runBoundedAcceptedDurabilityStepStatic(
+                            label = "accepted sensitivity pre-clinical durability fence",
+                            timeoutMs = SENSITIVITY_ACCEPTED_DURABILITY_STEP_TIMEOUT_MS,
+                            block = durabilityFence
+                        )
+                    }
+                }
+                currentCoroutineContext().ensureActive()
+                return clinicalSideEffects()
+            } finally {
+                if (!finalized) {
+                    abortReservation(reservation)
+                }
+            }
+        }
+
+        internal suspend fun prepareProfileEstimatorRevisionStatic(
+            isPending: suspend () -> Boolean,
+            rebuild: suspend () -> Boolean,
+            onNotReady: suspend (String) -> Unit = {}
+        ): ProfileEstimatorRevisionPreparation {
+            suspend fun reportNotReady(reason: String) {
+                try {
+                    onNotReady(reason)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Revision preparation remains fail-closed even when audit persistence is unavailable.
+                }
+            }
+
+            return try {
+                if (!isPending()) {
+                    ProfileEstimatorRevisionPreparation(wasPending = false, ready = true)
+                } else {
+                    val rebuilt = rebuild()
+                    if (!rebuilt) reportNotReady("active_profile_not_rebuilt")
+                    ProfileEstimatorRevisionPreparation(wasPending = true, ready = rebuilt)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                reportNotReady(failure.message ?: failure::class.simpleName.orEmpty())
+                ProfileEstimatorRevisionPreparation(wasPending = true, ready = false)
+            }
+        }
+
+        internal suspend fun <T> runNonFatalCycleStepStatic(
+            timeoutMs: Long? = null,
+            onNonFatalFailure: suspend (error: Throwable?, timedOut: Boolean) -> Unit = { _, _ -> },
+            block: suspend () -> T
+        ): T? {
+            return try {
+                if (timeoutMs == null) {
+                    block()
+                } else {
+                    require(timeoutMs > 0L)
+                    val result = withTimeoutOrNull(timeoutMs) {
+                        NonFatalCycleStepResult(block())
+                    }
+                    if (result == null) {
+                        onNonFatalFailure(null, true)
+                        null
+                    } else {
+                        result.value
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (operational: Exception) {
+                onNonFatalFailure(operational, false)
+                null
+            }
+        }
+
+        private suspend fun <T> runBoundedAcceptedDurabilityStepStatic(
+            label: String,
+            timeoutMs: Long,
+            block: suspend () -> T
+        ): T {
+            require(timeoutMs > 0L)
+            return withTimeoutOrNull(timeoutMs) {
+                BoundedAcceptedDurabilityResult(block())
+            }?.value ?: throw IllegalStateException("$label timed out")
+        }
+
+        private data class BoundedAcceptedDurabilityResult<T>(val value: T)
+
+        private data class NonFatalCycleStepResult<T>(val value: T)
+
+        internal suspend fun runRemoteRefreshStatic(
+            policy: AutomationCyclePolicy,
+            refresh: suspend () -> Unit
+        ) {
+            if (policy.runRemoteRefresh) refresh()
+        }
+
+        internal suspend fun runSensitivityMaintenanceStatic(
+            policy: AutomationCyclePolicy,
+            refreshRealtimeCandidate: suspend () -> Unit,
+            evaluateShadowAutoActivation: suspend () -> Unit,
+            runRetentionMaintenance: suspend () -> Unit
+        ) {
+            runSensitivityMaintenanceActionStatic(policy, refreshRealtimeCandidate)
+            runSensitivityMaintenanceActionStatic(policy, evaluateShadowAutoActivation)
+            runSensitivityMaintenanceActionStatic(policy, runRetentionMaintenance)
+        }
+
+        internal suspend fun runSensitivityMaintenanceActionStatic(
+            policy: AutomationCyclePolicy,
+            action: suspend () -> Unit
+        ) {
+            if (policy.allowSensitivityMaintenance) action()
+        }
+
+        internal fun allowsCalibrationMaintenanceStatic(intent: AutomationCycleIntent): Boolean =
+            intent == AutomationCycleIntent.NORMAL
+
+        internal fun requireExactCalibrationIdentityStatic(
+            prepared: GlucoseCalibrationCycleIdentity,
+            forecast: GlucoseCalibrationCycleIdentity,
+            uam: GlucoseCalibrationCycleIdentity,
+            targetManager: GlucoseCalibrationCycleIdentity,
+            ui: GlucoseCalibrationCycleIdentity
+        ) {
+            require(
+                prepared === forecast &&
+                    prepared === uam &&
+                    prepared === targetManager &&
+                    prepared === ui
+            ) { "accepted runtime consumers require one exact calibration identity" }
+        }
+
+        internal fun requireAcceptedClinicalForecastsStatic(
+            roomTuple: AcceptedSensitivityRoomTuple
+        ): AcceptedClinicalForecasts {
+            val accepted = roomTuple.accepted
+            require(accepted.error == null) { "accepted clinical forecast tuple is not authenticated" }
+            val generationTimestamp = requireNotNull(accepted.generationTimestamp) {
+                "accepted clinical forecast generation is missing"
+            }
+            val digest = requireNotNull(accepted.forecastDigest) {
+                "accepted clinical forecast digest is missing"
+            }
+            val rows = listOf(5, 30, 60).map { horizon ->
+                requireNotNull(accepted.forecastsByHorizon[horizon]) {
+                    "accepted clinical forecast horizon $horizon is missing"
+                }
+            }
+            require(
+                SensitivityAcceptedForecastDigest.matches(
+                    cycleId = roomTuple.snapshot.forecastCycleId,
+                    settingsRevision = roomTuple.snapshot.settingsRevision,
+                    forecasts = rows.map { row ->
+                        SensitivityAcceptedForecastRow(
+                            horizonMinutes = row.horizonMinutes,
+                            targetTimestamp = row.timestamp,
+                            valueMmol = row.valueMmol,
+                            ciLow = row.ciLow,
+                            ciHigh = row.ciHigh,
+                            modelVersion = row.modelVersion
+                        )
+                    },
+                    decomposition = requireNotNull(accepted.decomposition),
+                    expectedDigest = digest
+                )
+            ) { "accepted clinical forecast digest no longer matches Room" }
+            return AcceptedClinicalForecasts(
+                forecasts = rows.map { row ->
+                    Forecast(
+                        ts = row.timestamp,
+                        horizonMinutes = row.horizonMinutes,
+                        valueMmol = row.valueMmol,
+                        ciLow = row.ciLow,
+                        ciHigh = row.ciHigh,
+                        modelVersion = row.modelVersion
+                    )
+                },
+                generationTimestamp = generationTimestamp,
+                digest = digest
+            )
+        }
+
+        internal fun bindUnifiedUamToAcceptedForecastsStatic(
+            unified: UnifiedUamRuntimeSnapshot,
+            authority: AcceptedClinicalForecasts
+        ): UnifiedUamRuntimeSnapshot {
+            requireAcceptedClinicalForecastAuthorityStatic(authority)
+            return unified.copy(
+                acceptedForecastGenerationTimestamp = authority.generationTimestamp,
+                acceptedForecastDigest = authority.digest,
+                acceptedForecasts = authority.forecasts.toList()
+            )
+        }
+
+        internal fun requireUnifiedUamAcceptedForecastAuthorityStatic(
+            unified: UnifiedUamRuntimeSnapshot,
+            authority: AcceptedClinicalForecasts
+        ) {
+            requireAcceptedClinicalForecastAuthorityStatic(authority)
+            require(unified.acceptedForecastGenerationTimestamp != null) {
+                "UAM accepted forecast authority is missing generation"
+            }
+            require(unified.acceptedForecastDigest != null) {
+                "UAM accepted forecast authority is missing digest"
+            }
+            require(unified.acceptedForecasts.isNotEmpty()) {
+                "UAM accepted forecast authority is missing rows"
+            }
+            require(unified.acceptedForecastGenerationTimestamp == authority.generationTimestamp) {
+                "UAM accepted forecast generation mismatch"
+            }
+            require(unified.acceptedForecastDigest == authority.digest) {
+                "UAM accepted forecast digest mismatch"
+            }
+            require(unified.acceptedForecasts == authority.forecasts) {
+                "UAM accepted forecast rows mismatch"
+            }
+        }
+
+        private fun requireAcceptedClinicalForecastAuthorityStatic(
+            authority: AcceptedClinicalForecasts
+        ) {
+            require(authority.forecasts.map(Forecast::horizonMinutes) == listOf(5, 30, 60)) {
+                "accepted clinical forecast authority requires ordered 5/30/60 rows"
+            }
+            require(resolveAcceptedForecastTimestampStatic(authority.forecasts) == authority.generationTimestamp) {
+                "accepted clinical forecast authority generation mismatch"
+            }
+            require(authority.digest.matches(Regex("[0-9a-f]{64}"))) {
+                "accepted clinical forecast authority requires a SHA-256 digest"
+            }
+        }
+
+        internal fun buildAcceptedClinicalForecastTelemetryRowsStatic(
+            nowTs: Long,
+            source: String,
+            keyPrefix: String,
+            authority: AcceptedClinicalForecasts
+        ): List<TelemetrySampleEntity> {
+            require(nowTs > 0L)
+            require(source.isNotBlank())
+            require(keyPrefix.isNotBlank())
+            requireAcceptedClinicalForecastAuthorityStatic(authority)
+            fun numeric(key: String, value: Double, unit: String? = null) = TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = value,
+                valueText = null,
+                unit = unit,
+                quality = "OK"
+            )
+            fun text(key: String, value: String, unit: String? = null) = TelemetrySampleEntity(
+                id = "tm-$source-$key-$nowTs",
+                timestamp = nowTs,
+                source = source,
+                key = key,
+                valueDouble = null,
+                valueText = value,
+                unit = unit,
+                quality = "OK"
+            )
+            return buildList {
+                add(
+                    numeric(
+                        "${keyPrefix}_generation_timestamp",
+                        authority.generationTimestamp.toDouble(),
+                        "epoch_ms"
+                    )
+                )
+                add(text("${keyPrefix}_digest", authority.digest, "sha256"))
+                authority.forecasts.forEach { forecast ->
+                    val horizonPrefix = "${keyPrefix}_${forecast.horizonMinutes}m"
+                    add(numeric("${horizonPrefix}_target_timestamp", forecast.ts.toDouble(), "epoch_ms"))
+                    add(numeric("${horizonPrefix}_value_mmol", forecast.valueMmol, "mmol/L"))
+                    add(numeric("${horizonPrefix}_ci_low_mmol", forecast.ciLow, "mmol/L"))
+                    add(numeric("${horizonPrefix}_ci_high_mmol", forecast.ciHigh, "mmol/L"))
+                    add(text("${horizonPrefix}_model_version", forecast.modelVersion))
+                }
+            }
+        }
+
+        internal suspend fun publishAcceptedCycleStateStatic(
+            intent: AutomationCycleIntent,
+            acceptedSnapshot: SensitivityRuntimeSnapshot,
+            publishUiTelemetry: suspend (SensitivityRuntimeSnapshot) -> Unit,
+            runLocalMaintenance: suspend () -> Unit
+        ) {
+            if (intent == AutomationCycleIntent.LOCAL_READ_ONLY) return
+            publishUiTelemetry(acceptedSnapshot)
+            if (intent == AutomationCycleIntent.NORMAL) runLocalMaintenance()
+        }
+
+        internal suspend fun <Decision> runAcceptedClinicalCalculationFanOutStatic(
+            intent: AutomationCycleIntent,
+            policy: AutomationCyclePolicy,
+            acceptedSnapshot: SensitivityRuntimeSnapshot,
+            acceptedClinicalForecastAuthority: AcceptedClinicalForecasts,
+            unifiedUam: UnifiedUamRuntimeSnapshot,
+            writeUamCarbs: suspend () -> Unit,
+            evaluateRulesAndTargetManager: suspend (
+                SensitivityRuntimeConsumerContext,
+                Boolean
+            ) -> List<Decision>,
+            assessAlertCause: suspend (
+                SensitivityRuntimeConsumerContext,
+                UnifiedUamRuntimeSnapshot
+            ) -> Unit,
+            publishAlerts: suspend (
+                SensitivityRuntimeConsumerContext,
+                UnifiedUamRuntimeSnapshot
+            ) -> Unit,
+            publishAcceptedForecast: suspend () -> Unit
+        ): List<Decision> {
+            if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) {
+                require(
+                    policy.runCalculations &&
+                        !policy.runRemoteRefresh &&
+                        !policy.therapyWritersAllowed &&
+                        !policy.allowSensitivityMaintenance &&
+                        !policy.allowActionRepositoryAccess &&
+                        policy.allowLocalSafetyEvidence &&
+                        !policy.allowAlertPublication &&
+                        policy.publishWidgetAfterAcceptance
+                ) { "source-change policy must disable writers and alerts" }
+            }
+            requireAcceptedClinicalForecastAuthorityStatic(acceptedClinicalForecastAuthority)
+            require(unifiedUam.sensitivityCycleId == acceptedSnapshot.forecastCycleId) {
+                "accepted clinical fan-out UAM cycle mismatch"
+            }
+            require(unifiedUam.sensitivitySettingsRevision == acceptedSnapshot.settingsRevision) {
+                "accepted clinical fan-out UAM revision mismatch"
+            }
+            requireUnifiedUamAcceptedForecastAuthorityStatic(
+                unified = unifiedUam,
+                authority = acceptedClinicalForecastAuthority
+            )
+            val fanOut = SensitivityRuntimeFanOut(acceptedSnapshot)
+            val decisions = runTherapyStageStatic(
+                policy = policy,
+                writeUamCarbs = writeUamCarbs,
+                evaluateRulesAndTargetManager = { externalWritesAllowed ->
+                    evaluateRulesAndTargetManager(
+                        fanOut.contextFor(SensitivityRuntimeConsumer.TARGET_MANAGER),
+                        externalWritesAllowed
+                    )
+                }
+            )
+            val alertContext = fanOut.contextFor(SensitivityRuntimeConsumer.ALERT_CAUSE)
+            when {
+                policy.allowAlertPublication -> publishAlerts(alertContext, unifiedUam)
+                intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE -> {
+                    assessAlertCause(alertContext, unifiedUam)
+                }
+            }
+            if (policy.publishWidgetAfterAcceptance) publishAcceptedForecast()
+            return decisions
+        }
+
+        internal suspend fun publishAcceptedForecastConsumerStatic(
+            intent: AutomationCycleIntent,
+            onAcceptedForecastChanged: (suspend () -> Unit)?
+        ) {
+            if (intent == AutomationCycleIntent.LOCAL_READ_ONLY) return
+            onAcceptedForecastChanged?.invoke()
+        }
+
+        internal suspend fun commitAcceptedSensitivityCycleStatic(
+            db: CopilotDatabase,
+            acceptedAtTs: Long,
+            snapshot: SensitivityRuntimeSnapshot,
+            forecastRows: List<io.aaps.copilot.data.local.entity.ForecastEntity>,
+            expectedIsfCrInputGeneration: IsfCrInputGeneration
+        ) {
+            db.withTransaction {
+                require(expectedIsfCrInputGeneration.modelRevision > 0L) {
+                    "expected ISF/CR base model revision is invalid"
+                }
+                require(expectedIsfCrInputGeneration.profileRevision > 0L) {
+                    "expected ISF/CR profile revision is invalid"
+                }
+                val currentGeneration = isfCrInputGenerationOrNull(
+                    modelUpdatedAt = db.isfCrModelStateDao().active()?.updatedAt,
+                    profileTimestamp = db.profileEstimateDao().active()?.timestamp
+                )
+                require(currentGeneration == expectedIsfCrInputGeneration) {
+                    "ISF/CR input generation changed before accepted cycle publication"
+                }
+                forecastRows.forEach { row ->
+                    db.forecastDao().deleteByTimestampAndHorizon(
+                        timestamp = row.timestamp,
+                        horizonMinutes = row.horizonMinutes
+                    )
+                }
+                db.forecastDao().insertAll(forecastRows)
+                require(
+                    db.telemetryDao().commitAcceptedSensitivityTuple(
+                        timestamp = acceptedAtTs,
+                        cycleId = snapshot.forecastCycleId,
+                        settingsRevision = snapshot.settingsRevision
+                    )
+                ) { "accepted sensitivity Room publication commit was rejected" }
+            }
+        }
+
+        internal suspend fun allocateAcceptedSensitivityMarkerStatic(
+            telemetryDao: TelemetryDao,
+            wallClockTs: Long,
+            authoritativeNow: () -> Long = { System.currentTimeMillis() },
+            suspendForMs: suspend (Long) -> Unit = { delayMs -> delay(delayMs) }
+        ): Long {
+            require(wallClockTs > 0L) { "accepted sensitivity wall clock must be positive" }
+            val latestMarkerTs = telemetryDao.latestTimestampBySourceAndKey(
+                source = SENSITIVITY_ACCEPTED_SOURCE,
+                key = SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY
+            )
+            val markerTs = if (latestMarkerTs == null || latestMarkerTs < wallClockTs) {
+                wallClockTs
+            } else {
+                val requiredMarkerTs = try {
+                    Math.addExact(latestMarkerTs, 1L)
+                } catch (overflow: ArithmeticException) {
+                    throw IllegalStateException("accepted sensitivity marker sequence overflow", overflow)
+                }
+                val aheadMs = try {
+                    Math.subtractExact(requiredMarkerTs, wallClockTs)
+                } catch (overflow: ArithmeticException) {
+                    throw IllegalStateException("accepted sensitivity marker future distance overflow", overflow)
+                }
+                require(aheadMs in 1L..SENSITIVITY_ACCEPTED_MARKER_MAX_AHEAD_MS) {
+                    "accepted sensitivity marker is too far in the future"
+                }
+                suspendForMs(aheadMs)
+                requiredMarkerTs
+            }
+            val actualNow = authoritativeNow()
+            require(actualNow >= markerTs) {
+                "accepted sensitivity clock did not reach required marker"
+            }
+            return markerTs
+        }
+
+        internal suspend fun <T> runTherapyStageStatic(
+            policy: AutomationCyclePolicy,
+            writeUamCarbs: suspend () -> Unit,
+            evaluateRulesAndTargetManager: suspend (writersAllowed: Boolean) -> T
+        ): T {
+            if (policy.therapyWritersAllowed) writeUamCarbs()
+            return evaluateRulesAndTargetManager(policy.therapyWritersAllowed)
+        }
+
+        internal data class NormalCycleExecution<T>(
+            val acquired: Boolean,
+            val value: T?
+        )
+
+        private data class SerializedCycleExecution<T>(val value: T)
+
+        internal suspend fun <T> runNormalCycleIfIdleStatic(
+            mutex: Mutex,
+            block: suspend () -> T
+        ): NormalCycleExecution<T> {
+            val owner = Any()
+            if (!mutex.tryLock(owner)) return NormalCycleExecution(acquired = false, value = null)
+            return try {
+                NormalCycleExecution(acquired = true, value = block())
+            } finally {
+                mutex.unlock(owner)
+            }
+        }
+
+        internal suspend fun <T> runSerializedSensitivitySourceChangeStatic(
+            mutex: Mutex,
+            lockTimeoutMs: Long,
+            block: suspend () -> T
+        ): T {
+            require(lockTimeoutMs > 0L)
+            val acquired = withTimeoutOrNull(lockTimeoutMs) {
+                mutex.lock()
+                true
+            } ?: false
+            if (!acquired) throw IllegalStateException(
+                "sensitivity source change timed out waiting for cycle lease"
+            )
+            return try {
+                block()
+            } finally {
+                mutex.unlock()
+            }
+        }
+
+        internal suspend fun <Mutation, Result> applySensitivitySettingsChangeUnderCycleLeaseStatic(
+            mutex: Mutex,
+            lockTimeoutMs: Long,
+            mutateSettings: suspend () -> Mutation,
+            runAcceptedCycle: suspend (Mutation) -> Result
+        ): Result = runSerializedSensitivitySourceChangeStatic(mutex, lockTimeoutMs) {
+            val mutation = mutateSettings()
+            runAcceptedCycle(mutation)
+        }
+
+        internal suspend fun <Mutation, Result> applySensitivitySourceChangeUnderCycleLeaseStatic(
+            mutex: Mutex,
+            lockTimeoutMs: Long,
+            mutateSource: suspend () -> Mutation,
+            runAcceptedCycle: suspend (Mutation) -> Result
+        ): Result = applySensitivitySettingsChangeUnderCycleLeaseStatic(
+            mutex = mutex,
+            lockTimeoutMs = lockTimeoutMs,
+            mutateSettings = mutateSource,
+            runAcceptedCycle = runAcceptedCycle
+        )
+
+        internal fun resolveAcceptedForecastTimestampStatic(
+            forecasts: List<Forecast>
+        ): Long? {
+            val requiredHorizons = setOf(5, 30, 60)
+            val grouped = forecasts
+                .filter { it.horizonMinutes in requiredHorizons }
+                .groupBy(Forecast::horizonMinutes)
+            if (grouped.keys != requiredHorizons) return null
+            if (requiredHorizons.any { grouped[it]?.size != 1 }) return null
+            return requiredHorizons.mapNotNull { horizon ->
+                val forecast = grouped.getValue(horizon).single()
+                runCatching {
+                    Math.subtractExact(forecast.ts, Math.multiplyExact(horizon.toLong(), 60_000L))
+                }.getOrNull()
+            }.takeIf { it.size == requiredHorizons.size }
+                ?.distinct()
+                ?.singleOrNull()
+        }
+
+        internal fun selectCloudCompatibleControlForecastsStatic(
+            local: List<Forecast>,
+            cloud: List<Forecast>
+        ): List<Forecast> {
+            if (cloud.isEmpty()) return local
+            // CloudForecast currently carries no verifiable therapy decomposition. Keep it out
+            // of control horizons until the wire contract can prove local-physiology parity.
+            return local
+        }
+
+        @Suppress("UNUSED_PARAMETER")
+        internal fun selectAutomationControlForecastsStatic(
+            local: List<Forecast>,
+            forecastGateway: ForecastGateway?
+        ): List<Forecast> {
+            // Automated control is local-only until the gateway contract carries a verified
+            // insulin/carb decomposition. The parameter makes accidental invocation testable.
+            return local
+        }
+
+        internal fun buildInsulinCycleFanOutStatic(
+            context: InsulinCycleContext
+        ): InsulinCycleFanOut = InsulinCycleFanOut(
+            revision = context.cycleTimestamp,
+            context = context
+        )
+
+        private const val ACTIVITY_TARGET_LOW_RISK_THRESHOLD_MMOL = 4.4
+
+        internal fun mapDryRunTherapyEventStatic(
+            row: TherapyEventEntity,
+            gson: Gson
+        ): TherapyEvent = row.toDomain(gson)
+
+        internal fun activityReturnToBaseRequestedStatic(
+            plannedActivityTargetOccurrence: PlannedActivityOccurrence?,
+            activityContextSource: ActivityContextSource
+        ): Boolean = when (activityContextSource) {
+            ActivityContextSource.DISABLED,
+            ActivityContextSource.MEASURED,
+            ActivityContextSource.SCHEDULED,
+            ActivityContextSource.UNKNOWN -> plannedActivityTargetOccurrence == null
+        }
+
+        internal fun isLowGlucoseSafetyReasonStatic(reason: String): Boolean =
+            reason.contains("safety_force_high") ||
+                reason.contains("safety_hypo_guard") ||
+                reason.contains("safety_raise_target_to_five") ||
+                reason.contains("hypo_preemptive_") ||
+                reason.contains("low_glucose_safety_latch")
+
+        internal fun resolveLowGlucoseForecastMinimumStatic(
+            currentGlucoseMmol: Double?,
+            forecasts: List<Forecast>
+        ): Double? = buildList {
+            currentGlucoseMmol?.takeIf(Double::isFinite)?.let(::add)
+            forecasts.forEach { forecast ->
+                forecast.valueMmol.takeIf(Double::isFinite)?.let(::add)
+                forecast.ciLow.takeIf(Double::isFinite)?.let(::add)
+            }
+        }.minOrNull()
+
+        internal fun protectLowGlucoseTargetStatic(
+            action: ActionProposal,
+            state: LowGlucoseTargetSafetyLatch.State,
+            minTargetMmol: Double = MIN_TARGET_MMOL,
+            maxTargetMmol: Double = MAX_TARGET_MMOL
+        ): ActionProposal {
+            if (!action.type.equals("temp_target", ignoreCase = true)) return action
+            require(minTargetMmol.isFinite() && maxTargetMmol.isFinite() && minTargetMmol <= maxTargetMmol)
+            if (!action.targetMmol.isFinite()) return action
+            val protectedTarget = state.protectedTargetMmol
+            if (state.latched && protectedTarget != null && !protectedTarget.isFinite()) {
+                return action.copy(targetMmol = protectedTarget)
+            }
+            val raised = state.latched && protectedTarget != null && action.targetMmol < protectedTarget
+            val protectedAction = if (raised) {
+                val reason = if (action.reason.contains("low_glucose_safety_latch")) {
+                    action.reason
+                } else {
+                    "${action.reason}|low_glucose_safety_latch"
+                }
+                action.copy(targetMmol = checkNotNull(protectedTarget), reason = reason)
+            } else {
+                action
+            }
+            // A historical latch must not reintroduce a target above a newly configured ceiling.
+            // This projects a proposal only; Target Manager still checks the actual active anchor.
+            return protectedAction.copy(
+                targetMmol = protectedAction.targetMmol.coerceIn(minTargetMmol, maxTargetMmol)
+            )
+        }
+
+        internal fun resolveIobSampleProvenanceStatic(
+            selected: TelemetrySampleEntity?,
+            nowTs: Long,
+            freshnessMs: Long = UAM_IOB_SAMPLE_FRESHNESS_MS
+        ): IobSampleProvenance {
+            val sampleTs = selected?.timestamp?.takeIf { it in 0..nowTs }
+            val ageMs = sampleTs?.let { nowTs - it }
+            return IobSampleProvenance(
+                sampleTs = sampleTs,
+                ageMinutes = ageMs?.div(60_000.0),
+                fresh = ageMs != null && freshnessMs >= 0L && ageMs <= freshnessMs
+            )
+        }
+
+        internal fun selectStrictAapsIobStatic(
+            rows: List<TelemetrySampleEntity>,
+            directPreferenceWindowMs: Long = DIRECT_AAPS_THERAPY_PREFERENCE_WINDOW_MS
+        ): TelemetrySampleEntity? {
+            if (rows.isEmpty()) return null
+            val candidates = rows.filter { row ->
+                row.valueDouble?.isFinite() == true &&
+                    row.valueDouble in -30.0..30.0 &&
+                    row.source in IOB_STRICT_ALLOWED_SOURCES &&
+                    isStrictIobKeyStatic(row.key)
+            }
+            val selected = selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
+                ?: return null
+            return candidates.firstOrNull { row ->
+                row.source == selected.source &&
+                    row.timestamp == selected.timestamp &&
+                    normalizeStrictTherapyKeyStatic(row.key) == "iob_net_units"
+            } ?: selected
+        }
+
+        internal fun selectStrictAapsCobStatic(
+            rows: List<TelemetrySampleEntity>,
+            directPreferenceWindowMs: Long = DIRECT_AAPS_THERAPY_PREFERENCE_WINDOW_MS
+        ): TelemetrySampleEntity? {
+            if (rows.isEmpty()) return null
+            val candidates = rows.filter { row ->
+                row.valueDouble?.isFinite() == true &&
+                    row.valueDouble in 0.0..400.0 &&
+                    row.source in IOB_STRICT_ALLOWED_SOURCES &&
+                    normalizeStrictTherapyKeyStatic(row.key) in COB_STRICT_ALLOWED_KEYS
+            }
+            val selected = selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
+                ?: return null
+            // Canonical values replace earlier broadcasts in the same bucket; raw aliases
+            // retain value-hashed IDs, whose lexical order is not an update sequence.
+            return candidates.firstOrNull { row ->
+                row.source == selected.source && row.timestamp == selected.timestamp &&
+                    row.key == "cob_grams"
+            } ?: selected
+        }
+
+        internal fun selectStrictAapsIsfStatic(
+            rows: List<TelemetrySampleEntity>,
+            directPreferenceWindowMs: Long = DIRECT_AAPS_THERAPY_PREFERENCE_WINDOW_MS
+        ): TelemetrySampleEntity? {
+            if (rows.isEmpty()) return null
+            val candidates = rows.filter { row ->
+                row.valueDouble?.isFinite() == true &&
+                    row.valueDouble in 0.8..18.0 &&
+                    row.source in ISF_AAPS_ALLOWED_SOURCES &&
+                    normalizeStrictTherapyKeyStatic(row.key) in ISF_AAPS_ALLOWED_KEYS
+            }
+            return selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
+        }
+
+        internal fun selectStrictAapsCrStatic(
+            rows: List<TelemetrySampleEntity>,
+            directPreferenceWindowMs: Long = DIRECT_AAPS_THERAPY_PREFERENCE_WINDOW_MS
+        ): TelemetrySampleEntity? {
+            if (rows.isEmpty()) return null
+            val candidates = rows.filter { row ->
+                row.valueDouble?.isFinite() == true &&
+                    row.valueDouble in 2.0..60.0 &&
+                    row.source in CR_AAPS_ALLOWED_SOURCES &&
+                    normalizeStrictTherapyKeyStatic(row.key) in CR_AAPS_ALLOWED_KEYS
+            }
+            return selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
+        }
+
+        internal fun sensitivityRuntimeApplicationFromSnapshotStatic(
+            snapshot: SensitivityRuntimeSnapshot
+        ): SensitivityRuntimeApplication {
+            fun metric(
+                requested: IsfRuntimeSourcePreference,
+                resolved: SensitivityResolvedSource,
+                value: Double,
+                confidence: Double,
+                fallbackReason: String?
+            ): MetricRuntimeApplication {
+                val runtimeResolved = when (resolved) {
+                    SensitivityResolvedSource.AAPS -> MetricRuntimeResolvedSource.AAPS
+                    SensitivityResolvedSource.EVIDENCE_BLEND -> MetricRuntimeResolvedSource.EVIDENCE_BLEND
+                    SensitivityResolvedSource.COPILOT_NATIVE -> MetricRuntimeResolvedSource.COPILOT_NATIVE
+                }
+                return MetricRuntimeApplication(
+                    decision = MetricRuntimeSourceDecision(
+                        requested = requested,
+                        resolved = runtimeResolved,
+                        overrideValue = value,
+                        fallbackReason = fallbackReason
+                    ),
+                    override = SensitivityMetricOverride(
+                        value = value,
+                        confidence = confidence.coerceIn(0.0, 1.0),
+                        minConfidenceRequired = 0.0,
+                        blendWeight = 1.0,
+                        source = resolved.name.lowercase(Locale.US),
+                        authoritative = true
+                    )
+                )
+            }
+            return SensitivityRuntimeApplication(
+                isf = metric(
+                    snapshot.isf.requested,
+                    snapshot.isf.resolved,
+                    snapshot.isf.effective,
+                    snapshot.isf.confidence,
+                    snapshot.isf.fallbackReason
+                ),
+                cr = metric(
+                    snapshot.cr.requested,
+                    snapshot.cr.resolved,
+                    snapshot.cr.effective,
+                    snapshot.cr.confidence,
+                    snapshot.cr.fallbackReason
+                )
+            )
+        }
+
+        internal fun validateSensitivityRuntimeDispatchStatic(
+            context: SensitivityRuntimeConsumerContext,
+            expectedConsumer: SensitivityRuntimeConsumer,
+            currentSettingsRevision: Long,
+            cycleSnapshot: SensitivityRuntimeSnapshot?
+        ) {
+            require(context.consumer == expectedConsumer) {
+                "unexpected sensitivity consumer: expected=$expectedConsumer actual=${context.consumer}"
+            }
+            require(cycleSnapshot === context.snapshot) {
+                "sensitivity snapshot was replaced before dispatch"
+            }
+            require(context.snapshot.settingsRevision == currentSettingsRevision) {
+                "sensitivity settings changed before dispatch"
+            }
+        }
+
+        private fun metricPreferenceCodeStatic(preference: IsfRuntimeSourcePreference): Double = when (preference) {
+            IsfRuntimeSourcePreference.AAPS -> 1.0
+            IsfRuntimeSourcePreference.EVIDENCE -> 2.0
+            IsfRuntimeSourcePreference.COPILOT -> 3.0
+        }
+
+        private fun metricResolvedCodeStatic(source: MetricRuntimeResolvedSource): Double = when (source) {
+            MetricRuntimeResolvedSource.AAPS -> 1.0
+            MetricRuntimeResolvedSource.EVIDENCE_BLEND -> 2.0
+            MetricRuntimeResolvedSource.COPILOT_NATIVE -> 3.0
+        }
+
+        private fun selectPreferredDirectAapsSampleStatic(
+            candidates: List<TelemetrySampleEntity>,
+            directPreferenceWindowMs: Long
+        ): TelemetrySampleEntity? {
+            val newest = candidates.maxWithOrNull(
+                compareBy<TelemetrySampleEntity> { it.timestamp }
+                    .thenBy { IOB_STRICT_SOURCE_PRIORITY[it.source] ?: 0 }
+                    .thenBy { it.id }
+            ) ?: return null
+            val boundedWindowMs = directPreferenceWindowMs.coerceAtLeast(0L)
+            return candidates
+                .asSequence()
+                .filter { row ->
+                    row.source == "aaps_broadcast" &&
+                        row.timestamp <= newest.timestamp &&
+                        newest.timestamp - row.timestamp <= boundedWindowMs
+                }
+                .maxWithOrNull(compareBy<TelemetrySampleEntity> { it.timestamp }.thenBy { it.id })
+                ?: newest
+        }
+
+        private fun isStrictIobKeyStatic(key: String): Boolean {
+            val normalized = normalizeStrictTherapyKeyStatic(key)
+            return normalized in IOB_STRICT_ALLOWED_KEYS ||
+                normalized.contains("insulinonboard") ||
+                normalized.endsWith("_iob")
+        }
+
+        private fun normalizeStrictTherapyKeyStatic(key: String): String = TherapyPayloadLookup.normalizeKey(key)
+
+        private fun resolveInsulinRuntimeSourceMarkerStatic(
+            rows: List<TelemetrySampleEntity>
+        ): InsulinRuntimeSource? {
+            val codeRow = rows.firstOrNull { it.key == "iob_runtime_source_code" }
+            val nameRow = rows.firstOrNull { it.key == "iob_runtime_source" }
+            if (codeRow == null && nameRow == null) return null
+
+            val codeSource = codeRow?.let { row ->
+                val code = row.valueDouble?.takeIf(Double::isFinite) ?: return null
+                InsulinRuntimeSource.values().firstOrNull { source ->
+                    InsulinRuntimeSnapshotResolver.sourceCode(source) == code
+                } ?: return null
+            }
+            val nameSource = nameRow?.let { row ->
+                val name = row.valueText?.trim()?.uppercase(Locale.US) ?: return null
+                runCatching { InsulinRuntimeSource.valueOf(name) }.getOrNull() ?: return null
+            }
+            if (codeSource != null && nameSource != null && codeSource != nameSource) return null
+            return codeSource ?: nameSource
+        }
+
+        internal fun isInsulinSnapshotSafetyQualifiedStatic(
+            snapshot: InsulinRuntimeSnapshot?
+        ): Boolean {
+            snapshot ?: return false
+            if (
+                snapshot.timestamp <= 0L ||
+                !snapshot.netIobUnits.isFinite() ||
+                !snapshot.effectivePositiveIobUnits.isFinite() ||
+                snapshot.effectivePositiveIobUnits !in 0.0..30.0 ||
+                snapshot.evidenceTimestamp?.let { it <= 0L || it > snapshot.timestamp } != false
+            ) {
+                return false
+            }
+            val (minimumConfidence, minimumCoverage) = when (snapshot.source) {
+                InsulinRuntimeSource.AAPS_COMPONENTS -> 0.95 to 0.95
+                InsulinRuntimeSource.LEGACY_AAPS -> 0.60 to 0.95
+                InsulinRuntimeSource.EXTERNAL_ESTIMATE -> 0.55 to 0.70
+                InsulinRuntimeSource.LOCAL_ESTIMATE -> return false
+            }
+            val componentsComplete = snapshot.source != InsulinRuntimeSource.AAPS_COMPONENTS ||
+                listOf(snapshot.bolusIobUnits, snapshot.basalIobUnits, snapshot.insulinActivity)
+                    .all { it?.isFinite() == true }
+            return componentsComplete &&
+                snapshot.confidence.isFinite() &&
+                snapshot.confidence >= minimumConfidence &&
+                snapshot.therapyCoverage.isFinite() &&
+                snapshot.therapyCoverage >= minimumCoverage
+        }
+
+        internal fun resolveUamRuntimeQualityStatic(
+            sensorQualityScore: Double,
+            sensorBlocked: Boolean,
+            nowTs: Long,
+            effectiveDiaHours: Double,
+            insulinEvidenceTimestamps: List<Long>,
+            iobSampleTs: Long?,
+            iobUnits: Double,
+            effectiveCobGrams: Double,
+            externalCobGrams: Double?,
+            carbTherapyAvailable: Boolean,
+            iobFreshnessMaxMinutes: Int = 15,
+            insulinCycleContext: InsulinCycleContext? = null,
+            insulinSnapshot: InsulinRuntimeSnapshot? = null
+        ): UamRuntimeQualityAssessment {
+            val reasons = linkedSetOf<String>()
+            val boundedSensorScore = sensorQualityScore
+                .takeIf { it.isFinite() }
+                ?.coerceIn(0.0, 1.0)
+                ?: 0.0.also { reasons += "invalid_sensor_quality" }
+            val sensorTrust = if (sensorBlocked) {
+                reasons += "sensor_blocked"
+                0.0
+            } else {
+                boundedSensorScore
+            }
+
+            val qualifiedSnapshot = (insulinCycleContext?.snapshot ?: insulinSnapshot)
+                ?.takeIf(::isInsulinSnapshotSafetyQualifiedStatic)
+            if (qualifiedSnapshot == null) reasons += "iob_snapshot_unqualified"
+            val effectiveIobUnits = qualifiedSnapshot?.effectivePositiveIobUnits ?: Double.NaN
+            val effectiveIobSampleTs = qualifiedSnapshot?.timestamp
+            val iobValid = effectiveIobUnits.isFinite() && effectiveIobUnits >= 0.0
+            val cobValid = effectiveCobGrams.isFinite() && effectiveCobGrams >= 0.0
+            val iobSampleFresh = effectiveIobSampleTs != null &&
+                effectiveIobSampleTs in 0..nowTs &&
+                nowTs - effectiveIobSampleTs <= iobFreshnessMaxMinutes.coerceIn(5, 60) * 60_000L
+            if (!iobSampleFresh) reasons += "iob_sample_missing_or_stale"
+            val diaEvidenceCoverage = if (
+                iobValid && effectiveIobUnits < UAM_MEANINGFUL_IOB_UNITS && iobSampleFresh
+            ) {
+                1.0
+            } else if (nowTs < 0L || !effectiveDiaHours.isFinite() || effectiveDiaHours <= 0.0) {
+                reasons += "invalid_insulin_evidence_window"
+                0.0
+            } else {
+                val diaWindowMs = (effectiveDiaHours.coerceIn(0.5, 24.0) * 60.0 * 60_000.0).toLong()
+                val causalEvidence = insulinEvidenceTimestamps
+                    .asSequence()
+                    .filter { it in 0..nowTs }
+                    .distinct()
+                    .sorted()
+                    .toList()
+                val recentEvidence = causalEvidence.filter { nowTs - it <= diaWindowMs }
+                when {
+                    recentEvidence.isEmpty() -> {
+                        reasons += if (causalEvidence.isEmpty()) {
+                            "iob_without_causal_insulin"
+                        } else {
+                            "iob_without_recent_dia_insulin"
+                        }
+                        0.0
+                    }
+                    recentEvidence.size >= 2 &&
+                        nowTs - recentEvidence.last() <= UAM_STRONG_INSULIN_FRESHNESS_MS -> 1.0
+                    else -> {
+                        reasons += "partial_causal_insulin_coverage"
+                        UAM_PARTIAL_INSULIN_THERAPY_COVERAGE
+                    }
+                }
+            }
+            val insulinCoverageRaw = when {
+                !iobValid -> {
+                    reasons += "invalid_iob"
+                    0.0
+                }
+                effectiveIobUnits < UAM_MEANINGFUL_IOB_UNITS && iobSampleFresh -> 1.0
+                else -> diaEvidenceCoverage
+            }
+            val insulinCoverage = qualifiedSnapshot
+                ?.let { min(insulinCoverageRaw, it.therapyCoverage.coerceIn(0.0, 1.0)) }
+                ?: 0.0
+            val hasMeaningfulExternalCob = externalCobGrams
+                ?.takeIf { it.isFinite() }
+                ?.let { it > UAM_MEANINGFUL_COB_GRAMS } == true
+            val announcedCarbCoverage = when {
+                !cobValid -> {
+                    reasons += "invalid_effective_cob"
+                    0.0
+                }
+                effectiveCobGrams <= UAM_MEANINGFUL_COB_GRAMS -> 1.0
+                carbTherapyAvailable -> 1.0
+                else -> 0.0
+            }
+            val carbCoverage = when {
+                !cobValid -> 0.0
+                hasMeaningfulExternalCob && !carbTherapyAvailable -> {
+                    reasons += "external_cob_without_causal_carbs"
+                    UAM_DIAGNOSTIC_ONLY_THERAPY_COVERAGE
+                }
+                effectiveCobGrams > UAM_MEANINGFUL_COB_GRAMS && !carbTherapyAvailable -> {
+                    reasons += "cob_without_causal_carbs"
+                    UAM_DIAGNOSTIC_ONLY_THERAPY_COVERAGE
+                }
+                else -> 1.0
+            }
+            return UamRuntimeQualityAssessment(
+                sensorTrust = sensorTrust,
+                therapyCoverage = min(insulinCoverage, carbCoverage),
+                announcedCarbCoverage = announcedCarbCoverage,
+                sensorBlocked = sensorBlocked,
+                reasons = reasons
+            )
+        }
+
+        internal fun buildUnifiedUamEpisodeIdStatic(algorithmVersion: String, onsetTs: Long?): String {
+            val normalizedVersion = algorithmVersion.trim()
+            if (normalizedVersion.isEmpty() || onsetTs == null || onsetTs < 0L) return ""
+            return "$normalizedVersion:${onsetTs / UAM_EPISODE_BUCKET_MS}"
+        }
+
+        internal fun projectUnifiedUamRuntimeStatic(
+            diagnostics: HybridPredictionEngine.V3Diagnostics?,
+            effectiveCobGrams: Double,
+            sensorBlocked: Boolean,
+            sensitivityRuntime: SensitivityRuntimeConsumerContext,
+            calibrationIdentity: GlucoseCalibrationCycleIdentity? = null
+        ): UnifiedUamRuntimeSnapshot {
+            require(sensitivityRuntime.consumer == SensitivityRuntimeConsumer.UAM) {
+                "unified UAM projection requires UAM sensitivity context"
+            }
+            val sensitivitySnapshot = sensitivityRuntime.snapshot
+            val boundedEffectiveCob = effectiveCobGrams
+                .takeIf { it.isFinite() && it >= 0.0 }
+                ?: Double.NaN
+            if (diagnostics == null) {
+                return UnifiedUamRuntimeSnapshot(
+                    timestamp = 0L,
+                    state = "DISABLED",
+                    flag = 0.0,
+                    controlFlag = 0.0,
+                    confidence = 0.0,
+                    impactMmol5 = 0.0,
+                    signedResidualMmol5 = 0.0,
+                    shortAverageDeltaMmol5 = 0.0,
+                    forecastComponent60Mmol = 0.0,
+                    equivalentCarbsGrams = null,
+                    supportedLowerBoundGrams = null,
+                    onsetTs = null,
+                    firstDetectionTs = null,
+                    activeSinceTs = null,
+                    supportStableBuckets = 0,
+                    lowerBoundStableBuckets = 0,
+                    sensorTrust = 0.0,
+                    therapyCoverage = 0.0,
+                    source = "disabled",
+                    reasons = setOf("forecast_diagnostics_missing"),
+                    algorithmVersion = "unified-uam-v1",
+                    episodeId = "",
+                    effectiveCobGrams = boundedEffectiveCob,
+                    sensorBlocked = sensorBlocked,
+                    sensitivityCycleId = sensitivitySnapshot.forecastCycleId,
+                    sensitivitySettingsRevision = sensitivitySnapshot.settingsRevision,
+                    sensitivityIsfMmolPerUnit = sensitivitySnapshot.isf.effective,
+                    sensitivityCrGramPerUnit = sensitivitySnapshot.cr.effective,
+                    calibrationIdentity = calibrationIdentity
+                )
+            }
+            require(diagnostics.unifiedUamSensitivityCycleId == sensitivitySnapshot.forecastCycleId) {
+                "UAM diagnostics sensitivity cycle mismatch"
+            }
+            require(diagnostics.unifiedUamSensitivitySettingsRevision == sensitivitySnapshot.settingsRevision) {
+                "UAM diagnostics sensitivity revision mismatch"
+            }
+            require(diagnostics.unifiedUamSensitivityIsfMmolPerUnit == sensitivitySnapshot.isf.effective) {
+                "UAM diagnostics ISF mismatch"
+            }
+            require(diagnostics.unifiedUamSensitivityCrGramPerUnit == sensitivitySnapshot.cr.effective) {
+                "UAM diagnostics CR mismatch"
+            }
+            val episodeId = buildUnifiedUamEpisodeIdStatic(
+                algorithmVersion = diagnostics.unifiedUamAlgorithmVersion,
+                onsetTs = diagnostics.unifiedUamOnsetTs
+            )
+            return UnifiedUamRuntimeSnapshot(
+                timestamp = diagnostics.unifiedUamTimestamp,
+                state = diagnostics.unifiedUamState,
+                flag = if (diagnostics.unifiedUamActiveForForecast) 1.0 else 0.0,
+                controlFlag = if (diagnostics.unifiedUamActiveForControl) 1.0 else 0.0,
+                confidence = diagnostics.unifiedUamConfidence,
+                impactMmol5 = diagnostics.unifiedUamImpactMmol5,
+                signedResidualMmol5 = diagnostics.unifiedUamSignedResidualMmol5,
+                shortAverageDeltaMmol5 = diagnostics.unifiedUamShortAverageDeltaMmol5,
+                forecastComponent60Mmol = diagnostics.rawUnifiedUamStep.drop(1).take(12).sum(),
+                equivalentCarbsGrams = diagnostics.unifiedUamEquivalentCarbsGrams,
+                supportedLowerBoundGrams = diagnostics.unifiedUamLowerBoundCarbsGrams,
+                onsetTs = diagnostics.unifiedUamOnsetTs,
+                firstDetectionTs = diagnostics.unifiedUamFirstDetectionTs,
+                activeSinceTs = diagnostics.unifiedUamActiveSinceTs,
+                supportStableBuckets = diagnostics.unifiedUamSupportStableBuckets,
+                lowerBoundStableBuckets = diagnostics.unifiedUamLowerBoundStableBuckets,
+                sensorTrust = diagnostics.unifiedUamSensorTrust,
+                therapyCoverage = diagnostics.unifiedUamTherapyCoverage,
+                source = diagnostics.unifiedUamSource,
+                reasons = diagnostics.unifiedUamReasons,
+                algorithmVersion = diagnostics.unifiedUamAlgorithmVersion,
+                episodeId = episodeId,
+                effectiveCobGrams = boundedEffectiveCob,
+                sensorBlocked = sensorBlocked,
+                sensitivityCycleId = sensitivitySnapshot.forecastCycleId,
+                sensitivitySettingsRevision = sensitivitySnapshot.settingsRevision,
+                sensitivityIsfMmolPerUnit = sensitivitySnapshot.isf.effective,
+                sensitivityCrGramPerUnit = sensitivitySnapshot.cr.effective,
+                calibrationIdentity = calibrationIdentity
+            )
+        }
+
+        internal fun resolveUnifiedUamExportRuntimeRouteStatic(
+            settings: AppSettings
+        ): UnifiedUamExportRuntimeRoute = when (UamExportUiModePolicy.resolve(settings)) {
+            UamExportUiMode.OFF -> UnifiedUamExportRuntimeRoute(
+                invokeCoordinator = false,
+                dryRun = true
+            )
+            UamExportUiMode.OBSERVE -> UnifiedUamExportRuntimeRoute(
+                invokeCoordinator = true,
+                dryRun = true
+            )
+            UamExportUiMode.AUTO -> UnifiedUamExportRuntimeRoute(
+                invokeCoordinator = true,
+                dryRun = false
+            )
+        }
+
+        internal suspend fun dispatchUnifiedUamExportStatic(
+            settings: AppSettings,
+            candidate: UamExportPolicyInput,
+            coordinator: UamExportCoordinator
+        ): UnifiedUamExportDispatch {
+            val route = resolveUnifiedUamExportRuntimeRouteStatic(settings)
+            val outcome = if (route.invokeCoordinator) {
+                coordinator.processUnified(
+                    candidate = candidate,
+                    enabled = true,
+                    dryRun = route.dryRun
+                )
+            } else {
+                UamExportCoordinator.Outcome(
+                    events = emptyList(),
+                    remoteEntries = emptyList(),
+                    reason = "disabled"
+                )
+            }
+            return UnifiedUamExportDispatch(route = route, outcome = outcome)
+        }
+
+        internal fun resolveUnifiedUamExportTelemetryStatic(
+            nowTs: Long,
+            episodeId: String,
+            onsetTs: Long?,
+            lowerBoundGrams: Double,
+            enabled: Boolean,
+            dryRun: Boolean,
+            outcome: UamExportCoordinator.Outcome
+        ): UnifiedUamExportTelemetrySnapshot {
+            val decision = outcome.decision as? UamExportDecision
+            val deliveredNow = outcome.delivered && !dryRun && decision is UamExportDecision.Send
+            val validGlobalV2Entries = outcome.remoteEntries.mapNotNull { entry ->
+                val tag = io.aaps.copilot.domain.predict.UamTagCodec.parseUamTag(entry.note)
+                if (
+                    tag?.ver == 2 &&
+                    entry.tsMs in 0..nowTs &&
+                    entry.grams.isFinite() &&
+                    entry.grams > 0.0
+                ) {
+                    tag to entry
+                } else {
+                    null
+                }
+            }
+                .groupBy { (tag, _) -> tag.id to tag.seq }
+                .mapNotNull { (_, entries) ->
+                    val first = entries.first()
+                    val consistent = entries.all { (_, entry) ->
+                        entry.tsMs == first.second.tsMs && entry.grams == first.second.grams
+                    }
+                    first.second.takeIf { consistent }
+                }
+            val remoteLatest = validGlobalV2Entries.maxByOrNull { it.tsMs }
+            val deliveredDecision = decision as? UamExportDecision.Send
+            val deliveredGrams = if (deliveredNow) deliveredDecision?.grams ?: 0.0 else 0.0
+            val deliveredTs = if (deliveredNow) deliveredDecision?.treatmentTs else null
+            val rolling30Remote = validGlobalV2Entries
+                .filter { it.tsMs > nowTs - 30 * 60_000L }
+                .sumOf { it.grams }
+            val rolling60Remote = validGlobalV2Entries
+                .filter { it.tsMs > nowTs - 60 * 60_000L }
+                .sumOf { it.grams }
+            val deliveredIn30 = deliveredTs?.let { it > nowTs - 30 * 60_000L } == true
+            val deliveredIn60 = deliveredTs?.let { it > nowTs - 60 * 60_000L } == true
+            val latestIncrement = if (
+                deliveredTs != null && (remoteLatest == null || deliveredTs >= remoteLatest.tsMs)
+            ) {
+                deliveredGrams to deliveredTs
+            } else {
+                (remoteLatest?.grams ?: 0.0) to remoteLatest?.tsMs
+            }
+            return UnifiedUamExportTelemetrySnapshot(
+                liveEnabled = enabled && !dryRun,
+                eligible = decision is UamExportDecision.Send,
+                blockReason = when (decision) {
+                    is UamExportDecision.Block -> decision.reason
+                    else -> outcome.reason ?: "none"
+                },
+                episodeId = episodeId,
+                episodeAgeMinutes = onsetTs?.let { onset ->
+                    ((nowTs - onset).coerceAtLeast(0L) / 60_000.0)
+                } ?: 0.0,
+                lowerBoundGrams = lowerBoundGrams,
+                cumulativeGrams = validGlobalV2Entries.sumOf { it.grams } + deliveredGrams,
+                rolling30Grams = rolling30Remote + if (deliveredIn30) deliveredGrams else 0.0,
+                rolling60Grams = rolling60Remote + if (deliveredIn60) deliveredGrams else 0.0,
+                lastIncrementGrams = latestIncrement.first,
+                lastIncrementTs = latestIncrement.second,
+                delivered = deliveredNow
+            )
+        }
+
         private const val AUTOMATION_CYCLE_TIMEOUT_MS = 180_000L
+        private const val SENSITIVITY_SOURCE_CHANGE_LOCK_TIMEOUT_MS = 30_000L
+        private const val SENSITIVITY_ACCEPTED_DURABILITY_STEP_TIMEOUT_MS = 5_000L
+        private const val SENSITIVITY_ACCEPTED_MARKER_MAX_AHEAD_MS = 1_000L
         private const val AUTOMATION_STALL_WARN_MS = 180_000L
-        private const val AUTOMATION_STALL_RECOVERY_MS = 240_000L
         private const val AUTOMATION_STEP_SLOW_MS = 10_000L
         private const val AUTOMATION_STEP_INFO_LOG_INTERVAL_MS = 15 * 60_000L
         private const val ACTION_SUBMIT_TIMEOUT_MS = 8_000L
@@ -4314,16 +10061,37 @@ class AutomationRepository(
         private const val CLOUD_PUSH_STEP_TIMEOUT_MS = 20_000L
         private const val BASELINE_IMPORT_INTERVAL_MS = 30L * 60_000L
         private const val BASELINE_IMPORT_SKIP_LOG_INTERVAL_MS = 6L * 60L * 60L * 1000L
-        private const val ISFCR_SNAPSHOT_FRESHNESS_MS = 10 * 60_000L
+        private const val ISFCR_SNAPSHOT_FRESHNESS_MS = 15 * 60_000L
+        private const val ISFCR_PROACTIVE_REFRESH_AGE_MS = 6 * 60_000L
+        private const val LOCAL_ACTIVE_TARGET_FUTURE_MARKER_SOURCE = "copilot_target_safety"
+        private const val LOCAL_ACTIVE_TARGET_FUTURE_MARKER_KEY =
+            "active_target_future_first_seen"
+        private const val LOCAL_SAFETY_CLOCK_HIGH_WATER_ID =
+            "copilot-local-safety-clock-high-water-v1"
+        private const val LOCAL_SAFETY_CLOCK_SOURCE = "copilot_local_safety_clock"
+        private const val LOCAL_SAFETY_CLOCK_KEY = "wall_clock_high_water_ms"
+        private const val LOCAL_SAFETY_CLOCK_RECOVERY_KEY = "wall_clock_recovery_candidate_ms"
+        private const val LOCAL_SAFETY_CLOCK_UNIT = "epoch_ms|elapsed_ms_v1"
+        private const val LOCAL_SAFETY_CLOCK_LEGACY_UNIT = "epoch_ms"
+        private const val LOCAL_SAFETY_CLOCK_RECOVERY_ID_PREFIX =
+            "copilot-local-safety-clock-recovery-v1"
+        private const val LOCAL_SAFETY_CLOCK_RECOVERY_SLOTS = 4
+        private const val LOCAL_SAFETY_CLOCK_MAX_TRUSTED_ROLLBACK_MS = 60L * 60L * 1_000L
+        private const val LOCAL_SAFETY_CLOCK_MAX_WALL_TS = 253_402_300_799_999L
+        private const val MAX_EXACT_DOUBLE_INTEGER = 9_007_199_254_740_992L
+        private const val DIAGNOSTIC_RULE_EXECUTION_STATE = "DIAGNOSTIC_BLOCKED"
         private const val ISFCR_REALTIME_TIMEOUT_MS = 45_000L
         private const val ISFCR_REALTIME_IN_FLIGHT_STALE_MS = 180_000L
         private const val ISFCR_REALTIME_RETRY_BACKOFF_MS = 5 * 60_000L
-        private const val ISFCR_SYNC_REFRESH_STALE_MS = 30 * 60_000L
+        private const val ISFCR_SYNC_REFRESH_STALE_MS = 45 * 60_000L
         private const val ISFCR_STALE_REUSE_MAX_MS = 72 * 60 * 60_000L
         private const val ISFCR_STALE_REUSE_CONFIDENCE_MAX = 0.35
         private const val SENSOR_BLOCK_TTL_MS = 30 * 60 * 1000L
+        private const val SENSOR_LAG_RUNTIME_CONTEXT_LOOKBACK_MS = 72L * 60L * 60L * 1000L
         private const val MIN_TARGET_MMOL = 4.0
         private const val MAX_TARGET_MMOL = 10.0
+        private const val LOW_GLUCOSE_SAFETY_SEED_MAX_AGE_MS = 45 * 60_000L
+        private const val LOW_GLUCOSE_SAFETY_TARGET_MATCH_TOLERANCE_MMOL = 0.15
         private const val TEMP_TARGET_MGDL_THRESHOLD = 30.0
         // One rounded target step is enough to justify an immediate retarget.
         // Same-target resends are already suppressed in AdaptiveTargetControllerRule.
@@ -4340,27 +10108,81 @@ class AutomationRepository(
         private const val SENSOR_LAG_HISTORY_LOOKBACK_MS = 21L * 24L * 60L * 60L * 1000L
         private const val RECURRING_INFO_LOG_INTERVAL_MS = 15 * 60_000L
         private const val CALCULATED_UAM_LOOKBACK_MINUTES = 120
-        private const val CALCULATED_TO_ORIGINAL_MULTIPLIER = 2.4
         private const val UAM_PROCESSING_BUCKET_MS = 5 * 60 * 1000L
+        private const val UAM_EPISODE_BUCKET_MS = 5 * 60 * 1000L
+        private const val UAM_MEANINGFUL_IOB_UNITS = 0.3
+        private const val UAM_MEANINGFUL_COB_GRAMS = 0.5
+        private const val UAM_DIAGNOSTIC_ONLY_THERAPY_COVERAGE = 0.5
+        private const val UAM_PARTIAL_INSULIN_THERAPY_COVERAGE = 0.85
+        private const val UAM_STRONG_INSULIN_FRESHNESS_MS = 90L * 60_000L
+        private const val UAM_IOB_SAMPLE_FRESHNESS_MS = 15L * 60_000L
+        private const val DIRECT_AAPS_THERAPY_PREFERENCE_WINDOW_MS = 6L * 60_000L
         private const val CALIBRATION_REFRESH_INTERVAL_MS = 5 * 60_000L
-        private const val UAM_EVENT_RETENTION_MS = 14L * 24 * 60 * 60 * 1000
-        private const val FORECAST_RETENTION_MS = 400L * 24 * 60 * 60 * 1000
+        private const val CUMULATIVE_ACTIVITY_PAGE_SIZE = 500
+        private const val MINUTE_MS = 60_000L
+        private const val DAY_MS = 24L * 60 * 60 * 1000
+        private const val UAM_EVENT_RETENTION_MS = 14L * DAY_MS
+        private const val INTEGRATED_RUNTIME_RETENTION_MS = 30L * DAY_MS
+        private val DELIVERY_CARB_KEYS = setOf("grams", "carbs", "enteredcarbs", "mealcarbs")
+        private val ATOMIC_AAPS_INSULIN_PACKET_KEYS = setOf(
+            "iob_units",
+            "iob_net_units",
+            "iob_bolus_units",
+            "iob_basal_units",
+            "insulin_activity",
+            "iob_effective_positive_units",
+            "iob_relay_timestamp_ms",
+            "iob_runtime_confidence",
+            "iob_runtime_source_code"
+        )
+        private val ATOMIC_AAPS_INSULIN_PACKET_MARKER_KEYS = setOf(
+            "iob_relay_timestamp_ms",
+            "iob_runtime_confidence",
+            "iob_runtime_source_code",
+            "iob_runtime_source",
+            "iob_runtime_fallback_reason"
+        )
+        private val AAPS_COMPONENT_ONLY_INSULIN_KEYS = ATOMIC_AAPS_INSULIN_PACKET_KEYS - "iob_units"
 
-        private const val COB_FORCE_BASE_THRESHOLD_G = 20.0
-        private const val COB_FORCE_BASE_TARGET_MMOL = 4.2
         private val CUMULATIVE_ACTIVITY_KEYS = setOf(
             "steps_count",
             "distance_km",
             "active_minutes",
             "calories_active_kcal"
         )
+        private val SENSOR_LAG_RUNTIME_CONTEXT_KEYS = listOf(
+            "sensor_age_hours",
+            "sensor_age_days",
+            "raw_com_eveningoutpost_dexdrip_extras_sensorstartedat",
+            "sensor_age_source_raw",
+            "sage_days",
+            "cage_days",
+            "daily_report_sensor_lag_bucket_json"
+        )
         private val IOB_STRICT_ALLOWED_KEYS = setOf(
             "iob_units",
+            "iob_net_units",
             "raw_iob",
             "raw_iob_units",
             "raw_iob_iob",
             "raw_openaps_iob_iob",
             "openaps_iob_iob"
+        )
+        private val COB_STRICT_ALLOWED_KEYS = setOf(
+            "cob_grams",
+            "raw_cob"
+        )
+        private val ISF_AAPS_ALLOWED_KEYS = setOf(
+            "isf_value",
+            "raw_isf",
+            "aaps_isf",
+            "isf"
+        )
+        private val CR_AAPS_ALLOWED_KEYS = setOf(
+            "cr_value",
+            "raw_cr",
+            "aaps_cr",
+            "cr"
         )
         private val IOB_STRICT_ALLOWED_SOURCES = setOf(
             "aaps_broadcast",
@@ -4371,6 +10193,8 @@ class AutomationRepository(
             "nightscout_treatment",
             "local_nightscout_devicestatus"
         )
+        private val ISF_AAPS_ALLOWED_SOURCES = IOB_STRICT_ALLOWED_SOURCES
+        private val CR_AAPS_ALLOWED_SOURCES = IOB_STRICT_ALLOWED_SOURCES
         private val IOB_STRICT_SOURCE_PRIORITY = mapOf(
             "aaps_broadcast" to 6,
             "xdrip_broadcast" to 5,
@@ -4386,12 +10210,20 @@ class AutomationRepository(
         private const val COB_FORECAST_GAIN_60 = 0.018
         private const val COB_FORECAST_BIAS_MAX = 2.5
 
-        private const val IOB_FORECAST_GAIN_5 = 0.14
-        private const val IOB_FORECAST_GAIN_30 = 0.28
-        private const val IOB_FORECAST_GAIN_60 = 0.42
-        private const val IOB_FORECAST_BIAS_MAX = 4.0
+        private const val COMPONENT_IOB_BIAS_MIN = -1.5
+        private const val COMPONENT_IOB_BIAS_MAX = 1.5
+        private const val DEFAULT_FORECAST_ISF_MMOL_PER_UNIT = 3.0
         private const val COB_IOB_TELEMETRY_WEIGHT = 0.60
         private const val LOCAL_COB_IOB_LOOKBACK_MS = 12L * 60 * 60 * 1000
+        private const val INSULIN_CAUSAL_NORMALIZATION_MAX_MS = 10L * 60_000L
+        private const val INSULIN_MODEL_RATIO_EPSILON = 0.01
+        private const val INSULIN_MODEL_RATIO_MIN = 0.75
+        private const val INSULIN_MODEL_RATIO_MAX = 1.25
+        private const val INSULIN_ACTIVITY_NORMALIZATION_MAX_UNITS = 0.5
+        private const val INSULIN_NORMALIZED_IOB_MAX_UNITS = 30.0
+        private const val INSULIN_NORMALIZED_ACTIVITY_MAX = 5.0
+        private const val MIN_AUTHORITATIVE_INSULIN_TIMESTAMP_MS = 1_000_000_000_000L
+        private const val MAX_AUTHORITATIVE_INSULIN_TIMESTAMP_MS = 10_000_000_000_000L
         private const val INSULIN_ONSET_FRACTION_THRESHOLD = 0.05
         private const val INSULIN_ONSET_MIN_MINUTES = 8.0
         private const val INSULIN_ONSET_MAX_MINUTES = 120.0
@@ -4403,6 +10235,8 @@ class AutomationRepository(
         private const val INSULIN_ONSET_DELTA5_THRESHOLD_MMOL = -0.04
         private const val ISFCR_SHADOW_BLEND_MIN = 0.25
         private const val ISFCR_SHADOW_BLEND_MAX = 0.65
+        private const val ISFCR_SPARSE_BLEND_MIN = 0.12
+        private const val ISFCR_SPARSE_BLEND_MAX = 0.32
 
         private const val FORECAST_BIAS_MIN = -4.0
         private const val FORECAST_BIAS_MAX = 3.0
@@ -4424,9 +10258,6 @@ class AutomationRepository(
         private const val COB_BIAS_SUPPRESSION_SOFT = 0.80
         private const val COB_BIAS_SUPPRESSION_HARD = 0.55
         private const val COB_BIAS_SUPPRESSION_FALLING = 0.85
-        private const val IOB_BIAS_BOOST_SOFT = 1.08
-        private const val IOB_BIAS_BOOST_HARD = 1.20
-        private const val IOB_BIAS_BOOST_FALLING = 1.05
         private const val IOB_LOW_GUARD_GAIN = 0.14
         private const val COB_LOW_GUARD_GAIN = 0.004
         private const val GLUCOSE_LOW_GUARD_GAIN = 0.30
@@ -4434,11 +10265,23 @@ class AutomationRepository(
         private const val LOW_GUARD_EXTRA_DOWN_MAX = 0.90
         private const val MIN_GLUCOSE_MMOL = 2.2
         private const val MAX_GLUCOSE_MMOL = 22.0
+        private const val PHYSICAL_ACTIVITY_RATIO_KEY = "activity_ratio"
+        private const val PHYSICAL_ACTIVITY_MEASUREMENT_FRESHNESS_MS = 10L * 60 * 1000
+        private val PHYSICAL_ACTIVITY_SOURCES = setOf("local_sensor", "health_connect")
+        private val PHYSICAL_ACTIVITY_QUALITIES = setOf("OK", "TRUSTED")
         private const val CALIBRATION_FORECAST_LIMIT = 4_000
         private const val CALIBRATION_GLUCOSE_LIMIT = 8_000
         private const val CALIBRATION_LOOKBACK_MS = 12L * 60 * 60 * 1000
         private const val CALIBRATION_MIN_AGE_MS = 2L * 60 * 1000
         private const val CALIBRATION_MATCH_TOLERANCE_MS = 2L * 60 * 1000
+        private const val SENSOR_TRUST_MATCH_TOLERANCE_MS = 10L * 60 * 1000
+        private const val FORECAST_RELIABILITY_MIN_SAMPLES = 36
+        private const val FORECAST_RELIABILITY_FULL_SAMPLE_COUNT = 288
+        private val FORECAST_RELIABILITY_SENSOR_KEYS = listOf(
+            "sensor_quality_score",
+            "sensor_quality_blocked",
+            "sensor_quality_suspect_false_low"
+        )
         private const val CALIBRATION_HALF_LIFE_MS = 90.0 * 60 * 1000
         private const val AI_CALIBRATION_MIN_CONFIDENCE = 0.45
         private const val AI_CALIBRATION_MAX_AGE_MS = 36L * 60 * 60 * 1000
@@ -4470,6 +10313,20 @@ class AutomationRepository(
         private const val REAL_PROFILE_IMPLICIT_CONFIRM_STEPS = 3
         private const val REAL_PROFILE_IMPLICIT_CONFIRM_WINDOW_MS = 20L * 60 * 1000
         private const val REAL_PROFILE_IMPLICIT_CONFIRM_DROP_MIN_UNITS = 0.05
+        private val REAL_PROFILE_IMPLICIT_IOB_KEYS = listOf(
+            "iob_effective_units",
+            "iob_units",
+            "iob_real_units",
+            "raw_iob",
+            "raw_iob_units",
+            "raw_iob_iob",
+            "openaps_iob",
+            "openaps_iob_iob",
+            "openaps_iob_basaliob",
+            "openaps_iob_activity",
+            "iob_iob",
+            "iob_basaliob"
+        )
         private const val REAL_PROFILE_BASELINE_TOLERANCE_MS = 15L * 60 * 1000
         private const val REAL_PROFILE_WINDOW_START_MS = 10L * 60 * 1000
         private const val REAL_PROFILE_WINDOW_END_MS = 4L * 60 * 60 * 1000
@@ -4710,19 +10567,684 @@ class AutomationRepository(
             now: Long,
             recentTargets: List<TherapyEventEntity>,
             gson: Gson
-        ): Double? {
-            val latest = recentTargets.maxByOrNull { it.timestamp } ?: return null
+        ): Double? = resolveActiveAapsTargetStatic(now, recentTargets, gson)
+            ?.takeIf(ActiveAapsTarget::evidenceResolved)
+            ?.targetMmol
+
+        internal fun resolveActiveAapsTargetStatic(
+            now: Long,
+            recentTargets: List<TherapyEventEntity>,
+            gson: Gson
+        ): ActiveAapsTarget? {
+            val latest = recentTargets.maxWithOrNull(
+                compareBy<TherapyEventEntity>(TherapyEventEntity::timestamp, TherapyEventEntity::id)
+            ) ?: return null
+            fun unresolved(): ActiveAapsTarget? {
+                val maxPotentialExpiry = if (latest.timestamp > now) {
+                    saturatingAddStatic(now, LocalTargetSafetyTimeWindow.FUTURE_AMBIGUITY_MS)
+                } else {
+                    saturatingAddStatic(
+                        latest.timestamp,
+                        LocalTargetSafetyTimeWindow.ACTIVE_TARGET_LOOKBACK_MS
+                    )
+                }
+                if (maxPotentialExpiry < now) return null
+                return ActiveAapsTarget(
+                    targetMmol = MIN_TARGET_MMOL,
+                    startedAt = latest.timestamp.coerceAtMost(now),
+                    expiresAt = maxPotentialExpiry.coerceAtLeast(now + 1L),
+                    source = "unresolved_therapy_history",
+                    ownership = ActiveTargetOwnership.UNKNOWN,
+                    idempotencyKey = null,
+                    evidenceResolved = false
+                )
+            }
+            if (recentTargets.count { it.timestamp == latest.timestamp } > 1) return unresolved()
+            if (latest.timestamp > now) return unresolved()
             val payload = runCatching {
                 gson.fromJson(latest.payloadJson, MutableMap::class.java) as? Map<*, *>
-            }.getOrNull() ?: return null
-            val durationMinutes = payload.doubleValueOf(
+            }.getOrNull() ?: return unresolved()
+            val rawDurationMinutes = payload.doubleValueOf(
                 "duration",
                 "durationInMinutes"
-            )?.toLong()?.coerceAtLeast(0L) ?: 0L
-            if (durationMinutes <= 0L) return null
-            val activeUntil = latest.timestamp + durationMinutes * 60_000L
+            ) ?: return unresolved()
+            if (
+                !rawDurationMinutes.isFinite() ||
+                rawDurationMinutes % 1.0 != 0.0 ||
+                rawDurationMinutes < 0.0 ||
+                rawDurationMinutes in 1.0..<5.0 ||
+                rawDurationMinutes >
+                LocalTargetSafetyTimeWindow.ACTIVE_TARGET_MAX_DURATION_MINUTES.toDouble()
+            ) return unresolved()
+            val durationMinutes = rawDurationMinutes.toLong()
+            if (durationMinutes == 0L) return null
+            val durationMs = runCatching { Math.multiplyExact(durationMinutes, 60_000L) }.getOrNull()
+                ?: return unresolved()
+            val activeUntil = runCatching { Math.addExact(latest.timestamp, durationMs) }.getOrNull()
+                ?: return unresolved()
             if (now > activeUntil) return null
-            return extractTempTargetMmolStatic(payload)?.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
+            val target = extractTempTargetMmolStatic(payload)
+                ?.takeIf { it.isFinite() && it in MIN_TARGET_MMOL..MAX_TARGET_MMOL }
+                ?: return unresolved()
+            val notes = payload["notes"]?.toString()?.trim().orEmpty()
+            val idempotencyKey = notes
+                .takeIf { it.startsWith("copilot:") }
+                ?.removePrefix("copilot:")
+                ?.takeIf(String::isNotBlank)
+            val ownership = when {
+                idempotencyKey?.startsWith(NightscoutActionRepository.TARGET_MANAGER_IDEMPOTENCY_PREFIX) == true ->
+                    ActiveTargetOwnership.TARGET_MANAGER
+                idempotencyKey?.startsWith(NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX) == true ->
+                    ActiveTargetOwnership.MANUAL_OR_FOREIGN
+                idempotencyKey != null -> ActiveTargetOwnership.LEGACY_COPILOT
+                notes.isNotBlank() -> ActiveTargetOwnership.MANUAL_OR_FOREIGN
+                else -> ActiveTargetOwnership.UNKNOWN
+            }
+            return ActiveAapsTarget(
+                targetMmol = target,
+                startedAt = latest.timestamp,
+                expiresAt = activeUntil,
+                source = payload["source"]?.toString()?.trim()?.takeIf(String::isNotEmpty)
+                    ?: "therapy_history",
+                ownership = ownership,
+                idempotencyKey = idempotencyKey
+            )
+        }
+
+        internal suspend fun resolveActiveAapsTargetFromRoomStatic(
+            db: CopilotDatabase,
+            gson: Gson,
+            nowTs: Long
+        ): ActiveAapsTarget? = loadLocalSafetyEvidenceStatic(db, gson, nowTs).activeAapsTarget
+
+        private fun isCanonicalLocalFutureTargetMarkerStatic(
+            marker: TelemetrySampleEntity,
+            causalThroughTs: Long
+        ): Boolean = marker.source == LOCAL_ACTIVE_TARGET_FUTURE_MARKER_SOURCE &&
+            marker.key == LOCAL_ACTIVE_TARGET_FUTURE_MARKER_KEY &&
+            marker.valueDouble == null &&
+            marker.valueText == marker.id &&
+            marker.unit == null &&
+            marker.quality == "OK" &&
+            marker.timestamp in 1L..causalThroughTs
+
+        private fun unresolvedTargetMarkerCollisionStatic(nowTs: Long): ActiveAapsTarget =
+            unresolvedActiveAapsTargetStatic(
+                nowTs = nowTs,
+                expiresAt = saturatingAddStatic(
+                    nowTs,
+                    LocalTargetSafetyTimeWindow.FUTURE_AMBIGUITY_MS
+                ),
+                source = "unresolved_target_quarantine_marker"
+            )
+
+        internal fun localFutureTargetMarkerStatic(
+            row: TherapyEventEntity,
+            firstSeenTs: Long
+        ) = TelemetrySampleEntity(
+            id = localFutureTargetMarkerIdStatic(row),
+            timestamp = firstSeenTs,
+            source = LOCAL_ACTIVE_TARGET_FUTURE_MARKER_SOURCE,
+            key = LOCAL_ACTIVE_TARGET_FUTURE_MARKER_KEY,
+            valueDouble = null,
+            valueText = localFutureTargetMarkerIdStatic(row),
+            unit = null,
+            quality = "OK"
+        )
+
+        private fun localFutureTargetMarkerIdStatic(row: TherapyEventEntity): String {
+            val identity = listOf(
+                row.id,
+                row.timestamp.toString(),
+                row.type,
+                row.payloadJson
+            ).joinToString("\u0000")
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(identity.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte ->
+                    "%02x".format(Locale.US, byte.toInt() and 0xff)
+                }
+            return "local-active-target-future-$digest"
+        }
+
+        private fun unresolvedActiveAapsTargetStatic(
+            nowTs: Long,
+            expiresAt: Long,
+            source: String
+        ): ActiveAapsTarget = ActiveAapsTarget(
+            targetMmol = MIN_TARGET_MMOL,
+            startedAt = nowTs,
+            expiresAt = expiresAt.coerceAtLeast(saturatingAddStatic(nowTs, 1L)),
+            source = source,
+            ownership = ActiveTargetOwnership.UNKNOWN,
+            idempotencyKey = null,
+            evidenceResolved = false
+        )
+
+        private fun saturatingAddStatic(value: Long, increment: Long): Long = runCatching {
+            Math.addExact(value, increment)
+        }.getOrDefault(Long.MAX_VALUE)
+
+        internal suspend fun loadLocalSafetyEvidenceStatic(
+            db: CopilotDatabase,
+            gson: Gson,
+            nowTs: Long,
+            monotonicNowTs: Long = SystemClock.elapsedRealtime()
+        ): LocalSafetyEvidence = db.withTransaction {
+            val clock = observeLocalSafetyClockStatic(
+                telemetryDao = db.telemetryDao(),
+                nowTs = nowTs,
+                monotonicNowTs = monotonicNowTs
+            )
+            val window = LocalTargetSafetyTimeWindow.at(clock.effectiveNowTs, clock.highWaterTs)
+            val actionDao = db.actionCommandDao()
+            val actionsLast6h = actionDao.countByStatusBetweenExcludingTwoPrefixes(
+                status = NightscoutActionRepository.STATUS_SENT,
+                since = window.actionSinceInclusive,
+                through = window.causalThroughInclusive,
+                excludedPrefix1 = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%",
+                excludedPrefix2 = "${NightscoutActionRepository.KEEPALIVE_IDEMPOTENCY_PREFIX}%"
+            )
+            val latestAutomaticEntity = actionDao.latestByTypeAndStatusAtOrBeforeExcludingPrefix(
+                type = "temp_target",
+                status = NightscoutActionRepository.STATUS_SENT,
+                through = window.causalThroughInclusive,
+                excludedPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%"
+            )
+            val latestAutomatic = latestAutomaticEntity?.let { entity ->
+                parseLastSentTempTargetStatic(entity, gson)
+            }
+            val activeTarget = resolveActiveAapsTargetInTransactionStatic(
+                db = db,
+                gson = gson,
+                window = window
+            )
+            LocalSafetyEvidence(
+                actionsLast6h = actionsLast6h.coerceAtLeast(0),
+                activeAapsTarget = activeTarget,
+                latestAutomaticSent = latestAutomatic,
+                chronologyResolved = clock.markerResolved &&
+                    window.chronologyResolved &&
+                    (latestAutomaticEntity == null || latestAutomatic != null),
+                causalThroughTs = window.causalThroughInclusive
+            )
+        }
+
+        private suspend fun resolveActiveAapsTargetInTransactionStatic(
+            db: CopilotDatabase,
+            gson: Gson,
+            window: LocalTargetSafetyTimeWindow
+        ): ActiveAapsTarget? {
+            val rows = db.therapyDao().newestByTypeBetween(
+                type = "temp_target",
+                since = window.targetSinceInclusive,
+                through = window.targetEvidenceThroughInclusive,
+                limit = LocalTargetSafetyTimeWindow.TARGET_EVIDENCE_PROBE_ROWS
+            )
+            if (rows.size > LocalTargetSafetyTimeWindow.TARGET_EVIDENCE_MAX_ROWS) {
+                return unresolvedActiveAapsTargetStatic(
+                    nowTs = window.nowTs,
+                    expiresAt = saturatingAddStatic(
+                        window.nowTs,
+                        LocalTargetSafetyTimeWindow.FUTURE_AMBIGUITY_MS
+                    ),
+                    source = "unresolved_therapy_history_truncated"
+                )
+            }
+            if (rows.isEmpty()) return null
+
+            val markerIds = rows.map(::localFutureTargetMarkerIdStatic)
+            if (markerIds.distinct().size != markerIds.size) {
+                return unresolvedTargetMarkerCollisionStatic(window.nowTs)
+            }
+            val markerRows = db.telemetryDao().byIds(markerIds)
+            if (markerRows.any { marker ->
+                    !isCanonicalLocalFutureTargetMarkerStatic(
+                        marker,
+                        window.causalThroughInclusive
+                    )
+                }
+            ) {
+                return unresolvedTargetMarkerCollisionStatic(window.nowTs)
+            }
+            val markedIds = markerRows.mapTo(mutableSetOf(), TelemetrySampleEntity::id)
+            val usableRows = rows.zip(markerIds)
+                .filterNot { (_, markerId) -> markerId in markedIds }
+                .map { (row, _) -> row }
+            return resolveActiveAapsTargetStatic(
+                now = window.causalThroughInclusive,
+                recentTargets = usableRows,
+                gson = gson
+            )
+        }
+
+        private suspend fun observeLocalSafetyClockStatic(
+            telemetryDao: TelemetryDao,
+            nowTs: Long,
+            monotonicNowTs: Long
+        ): LocalSafetyClockObservation {
+            require(nowTs > 0L) { "local safety observation timestamp must be positive" }
+            if (!isValidLocalSafetyWallTsStatic(nowTs) ||
+                !isValidLocalSafetyMonotonicTsStatic(monotonicNowTs)
+            ) {
+                return LocalSafetyClockObservation(
+                    effectiveNowTs = 1L,
+                    highWaterTs = 1L,
+                    markerResolved = false
+                )
+            }
+            var marker = telemetryDao.byId(LOCAL_SAFETY_CLOCK_HIGH_WATER_ID)
+            if (marker == null) {
+                telemetryDao.insertIgnoreAll(
+                    listOf(localSafetyClockMarkerStatic(nowTs, monotonicNowTs))
+                )
+                marker = telemetryDao.byId(LOCAL_SAFETY_CLOCK_HIGH_WATER_ID)
+            }
+            if (marker == null) {
+                return LocalSafetyClockObservation(nowTs, nowTs, markerResolved = false)
+            }
+
+            val markerMonotonicTs = canonicalLocalSafetyClockMonotonicTsStatic(marker)
+            if (markerMonotonicTs != null &&
+                nowTs >= marker.timestamp &&
+                isLocalSafetyClockProgressionConsistentStatic(
+                    anchorWallTs = marker.timestamp,
+                    anchorMonotonicTs = markerMonotonicTs,
+                    nowTs = nowTs,
+                    monotonicNowTs = monotonicNowTs
+                )
+            ) {
+                telemetryDao.upsertAll(
+                    listOf(localSafetyClockMarkerStatic(nowTs, monotonicNowTs))
+                )
+                return LocalSafetyClockObservation(nowTs, nowTs, markerResolved = true)
+            }
+
+            val recovery = observeLocalSafetyClockRecoveryStatic(
+                telemetryDao = telemetryDao,
+                blockedMarker = marker,
+                nowTs = nowTs,
+                monotonicNowTs = monotonicNowTs
+            )
+            if (recovery.confirmed) {
+                if (isOwnedLocalSafetyClockMarkerStatic(marker)) {
+                    telemetryDao.upsertAll(
+                        listOf(localSafetyClockMarkerStatic(nowTs, monotonicNowTs))
+                    )
+                }
+                return LocalSafetyClockObservation(nowTs, nowTs, markerResolved = true)
+            }
+
+            val trustedRollbackHighWater = marker.timestamp.takeIf { persisted ->
+                markerMonotonicTs != null &&
+                    persisted > nowTs &&
+                    persisted - nowTs <= LOCAL_SAFETY_CLOCK_MAX_TRUSTED_ROLLBACK_MS
+            }
+            return LocalSafetyClockObservation(
+                effectiveNowTs = if (nowTs > marker.timestamp && markerMonotonicTs != null) {
+                    marker.timestamp
+                } else {
+                    nowTs
+                },
+                highWaterTs = trustedRollbackHighWater ?: if (
+                    nowTs > marker.timestamp && markerMonotonicTs != null
+                ) {
+                    marker.timestamp
+                } else {
+                    nowTs
+                },
+                markerResolved = false
+            )
+        }
+
+        private fun localSafetyClockMarkerStatic(
+            highWaterTs: Long,
+            monotonicTs: Long
+        ) = TelemetrySampleEntity(
+            id = LOCAL_SAFETY_CLOCK_HIGH_WATER_ID,
+            timestamp = highWaterTs,
+            source = LOCAL_SAFETY_CLOCK_SOURCE,
+            key = LOCAL_SAFETY_CLOCK_KEY,
+            valueDouble = monotonicTs.toDouble(),
+            valueText = highWaterTs.toString(),
+            unit = LOCAL_SAFETY_CLOCK_UNIT,
+            quality = "OK"
+        )
+
+        private fun canonicalLocalSafetyClockMonotonicTsStatic(
+            marker: TelemetrySampleEntity
+        ): Long? {
+            if (!isCanonicalLocalSafetyClockMarkerStatic(marker)) return null
+            val raw = marker.valueDouble ?: return null
+            val value = raw.toLong()
+            return value.takeIf { raw == value.toDouble() }
+        }
+
+        private fun isCanonicalLocalSafetyClockMarkerStatic(marker: TelemetrySampleEntity): Boolean =
+            marker.id == LOCAL_SAFETY_CLOCK_HIGH_WATER_ID &&
+                isValidLocalSafetyWallTsStatic(marker.timestamp) &&
+                marker.source == LOCAL_SAFETY_CLOCK_SOURCE &&
+                marker.key == LOCAL_SAFETY_CLOCK_KEY &&
+                marker.valueDouble?.let { value ->
+                    value.isFinite() &&
+                        value >= 0.0 &&
+                        value <= MAX_EXACT_DOUBLE_INTEGER.toDouble()
+                } == true &&
+                marker.valueText == marker.timestamp.toString() &&
+                marker.unit == LOCAL_SAFETY_CLOCK_UNIT &&
+                marker.quality == "OK"
+
+        private fun isOwnedLocalSafetyClockMarkerStatic(marker: TelemetrySampleEntity): Boolean =
+            marker.id == LOCAL_SAFETY_CLOCK_HIGH_WATER_ID &&
+                marker.timestamp > 0L &&
+                marker.source == LOCAL_SAFETY_CLOCK_SOURCE &&
+                marker.key == LOCAL_SAFETY_CLOCK_KEY &&
+                marker.valueText == marker.timestamp.toString() &&
+                marker.quality == "OK" &&
+                (
+                    marker.unit == LOCAL_SAFETY_CLOCK_UNIT ||
+                        (marker.unit == LOCAL_SAFETY_CLOCK_LEGACY_UNIT && marker.valueDouble == null)
+                    )
+
+        private suspend fun observeLocalSafetyClockRecoveryStatic(
+            telemetryDao: TelemetryDao,
+            blockedMarker: TelemetrySampleEntity,
+            nowTs: Long,
+            monotonicNowTs: Long
+        ): LocalSafetyClockRecoveryObservation {
+            val fingerprint = localSafetyClockBlockedMarkerFingerprintStatic(blockedMarker)
+            repeat(LOCAL_SAFETY_CLOCK_RECOVERY_SLOTS) { slot ->
+                val id = "$LOCAL_SAFETY_CLOCK_RECOVERY_ID_PREFIX-$slot-$fingerprint"
+                val existing = telemetryDao.byId(id)
+                if (existing == null) {
+                    telemetryDao.insertIgnoreAll(
+                        listOf(
+                            localSafetyClockRecoveryMarkerStatic(
+                                id = id,
+                                blockedMarkerFingerprint = fingerprint,
+                                nowTs = nowTs,
+                                monotonicNowTs = monotonicNowTs
+                            )
+                        )
+                    )
+                    val inserted = telemetryDao.byId(id)
+                    if (inserted != null &&
+                        isCanonicalLocalSafetyClockRecoveryStatic(inserted, fingerprint)
+                    ) {
+                        return LocalSafetyClockRecoveryObservation(confirmed = false)
+                    }
+                    return@repeat
+                }
+                val recoveryMonotonicTs = canonicalLocalSafetyClockRecoveryMonotonicTsStatic(
+                    existing,
+                    fingerprint
+                ) ?: return@repeat
+                val confirmed = isLocalSafetyClockProgressionConsistentStatic(
+                    anchorWallTs = existing.timestamp,
+                    anchorMonotonicTs = recoveryMonotonicTs,
+                    nowTs = nowTs,
+                    monotonicNowTs = monotonicNowTs
+                )
+                telemetryDao.upsertAll(
+                    listOf(
+                        localSafetyClockRecoveryMarkerStatic(
+                            id = id,
+                            blockedMarkerFingerprint = fingerprint,
+                            nowTs = nowTs,
+                            monotonicNowTs = monotonicNowTs
+                        )
+                    )
+                )
+                return LocalSafetyClockRecoveryObservation(confirmed = confirmed)
+            }
+            return LocalSafetyClockRecoveryObservation(confirmed = false)
+        }
+
+        private fun localSafetyClockRecoveryMarkerStatic(
+            id: String,
+            blockedMarkerFingerprint: String,
+            nowTs: Long,
+            monotonicNowTs: Long
+        ) = TelemetrySampleEntity(
+            id = id,
+            timestamp = nowTs,
+            source = LOCAL_SAFETY_CLOCK_SOURCE,
+            key = LOCAL_SAFETY_CLOCK_RECOVERY_KEY,
+            valueDouble = monotonicNowTs.toDouble(),
+            valueText = blockedMarkerFingerprint,
+            unit = LOCAL_SAFETY_CLOCK_UNIT,
+            quality = "QUARANTINED"
+        )
+
+        private fun canonicalLocalSafetyClockRecoveryMonotonicTsStatic(
+            marker: TelemetrySampleEntity,
+            blockedMarkerFingerprint: String
+        ): Long? {
+            if (!isCanonicalLocalSafetyClockRecoveryStatic(marker, blockedMarkerFingerprint)) {
+                return null
+            }
+            val raw = marker.valueDouble ?: return null
+            val value = raw.toLong()
+            return value.takeIf { raw == value.toDouble() }
+        }
+
+        private fun isCanonicalLocalSafetyClockRecoveryStatic(
+            marker: TelemetrySampleEntity,
+            blockedMarkerFingerprint: String
+        ): Boolean =
+            isValidLocalSafetyWallTsStatic(marker.timestamp) &&
+                marker.id.startsWith("$LOCAL_SAFETY_CLOCK_RECOVERY_ID_PREFIX-") &&
+                marker.source == LOCAL_SAFETY_CLOCK_SOURCE &&
+                marker.key == LOCAL_SAFETY_CLOCK_RECOVERY_KEY &&
+                marker.valueDouble?.let { value ->
+                    value.isFinite() &&
+                        value >= 0.0 &&
+                        value <= MAX_EXACT_DOUBLE_INTEGER.toDouble()
+                } == true &&
+                marker.valueText == blockedMarkerFingerprint &&
+                marker.unit == LOCAL_SAFETY_CLOCK_UNIT &&
+                marker.quality == "QUARANTINED"
+
+        private fun localSafetyClockBlockedMarkerFingerprintStatic(
+            marker: TelemetrySampleEntity
+        ): String {
+            val identity = listOf(
+                marker.id,
+                marker.timestamp.toString(),
+                marker.source,
+                marker.key,
+                marker.valueDouble?.toString().orEmpty(),
+                marker.valueText.orEmpty(),
+                marker.unit.orEmpty(),
+                marker.quality
+            ).joinToString("\u0000")
+            return MessageDigest.getInstance("SHA-256")
+                .digest(identity.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> "%02x".format(Locale.US, byte.toInt() and 0xff) }
+        }
+
+        private fun isLocalSafetyClockProgressionConsistentStatic(
+            anchorWallTs: Long,
+            anchorMonotonicTs: Long,
+            nowTs: Long,
+            monotonicNowTs: Long
+        ): Boolean {
+            if (monotonicNowTs < anchorMonotonicTs) return false
+            val expectedNowTs = saturatingAddStatic(
+                anchorWallTs,
+                monotonicNowTs - anchorMonotonicTs
+            )
+            val lowerBound = (expectedNowTs - LocalTargetSafetyTimeWindow.SUPPORTED_FUTURE_SKEW_MS)
+                .coerceAtLeast(1L)
+            val upperBound = saturatingAddStatic(
+                expectedNowTs,
+                LocalTargetSafetyTimeWindow.SUPPORTED_FUTURE_SKEW_MS
+            )
+            return nowTs in lowerBound..upperBound
+        }
+
+        private fun isValidLocalSafetyWallTsStatic(value: Long): Boolean =
+            value in 1L..LOCAL_SAFETY_CLOCK_MAX_WALL_TS
+
+        private fun isValidLocalSafetyMonotonicTsStatic(value: Long): Boolean =
+            value in 0L..MAX_EXACT_DOUBLE_INTEGER
+
+        private fun parseLastSentTempTargetStatic(
+            entity: io.aaps.copilot.data.local.entity.ActionCommandEntity,
+            gson: Gson
+        ): LastSentTempTarget? {
+            val payloadType = object : TypeToken<Map<String, Any?>>() {}.type
+            val payload = runCatching {
+                gson.fromJson<Map<String, Any?>>(entity.payloadJson, payloadType)
+            }.getOrNull()
+            val target = when (val raw = payload?.get("targetMmol")) {
+                is Number -> raw.toDouble()
+                is String -> raw.toDoubleOrNull()
+                else -> null
+            }?.takeIf(Double::isFinite) ?: return null
+            return LastSentTempTarget(
+                timestamp = entity.timestamp,
+                targetMmol = target,
+                idempotencyKey = entity.idempotencyKey
+            )
+        }
+
+        private data class LocalSafetyClockObservation(
+            val effectiveNowTs: Long,
+            val highWaterTs: Long,
+            val markerResolved: Boolean
+        )
+
+        private data class LocalSafetyClockRecoveryObservation(
+            val confirmed: Boolean
+        )
+
+        internal fun automaticTargetWriterRoutingStatic(
+            mode: TargetManagerMode
+        ): AutomaticTargetWriterRouting = when (mode) {
+            TargetManagerMode.OFF -> AutomaticTargetWriterRouting(
+                evaluateManager = false,
+                submitLegacyAutomatic = false
+            )
+            TargetManagerMode.SHADOW -> AutomaticTargetWriterRouting(
+                evaluateManager = true,
+                submitLegacyAutomatic = false
+            )
+            TargetManagerMode.ACTIVE -> AutomaticTargetWriterRouting(
+                evaluateManager = true,
+                submitLegacyAutomatic = false
+            )
+        }
+
+        internal fun enabledTargetRuleIdsStatic(
+            postHypoEnabled: Boolean,
+            patternEnabled: Boolean,
+            segmentEnabled: Boolean,
+            scheduleAutoEnabled: Boolean
+        ): Set<String> = buildSet {
+            add(AdaptiveTargetControllerRule.RULE_ID)
+            if (postHypoEnabled) add("PostHypoReboundGuard.v1")
+            if (patternEnabled && !scheduleAutoEnabled) add("PatternAdaptiveTarget.v1")
+            if (segmentEnabled) add("SegmentProfileGuard.v1")
+        }
+
+        internal fun resolveSensorTrustStateStatic(
+            assessment: SensorQualityAssessment,
+            sensorBlocked: Boolean
+        ): SensorTrustState = when {
+            sensorBlocked || assessment.blocked -> SensorTrustState.BLOCKED
+            assessment.score >= 0.65 && !assessment.suspectFalseLow -> SensorTrustState.TRUSTED
+            else -> SensorTrustState.WARN
+        }
+
+        internal fun forecastGeneratedAtStatic(
+            targetTimestamp: Long,
+            horizonMinutes: Int
+        ): Long? {
+            if (targetTimestamp <= 0L || horizonMinutes <= 0) return null
+            return runCatching {
+                Math.subtractExact(
+                    targetTimestamp,
+                    Math.multiplyExact(horizonMinutes.toLong(), MINUTE_MS)
+                )
+            }.getOrNull()?.takeIf { it > 0L }
+        }
+
+        internal fun buildHorizonReliabilityStatic(
+            horizonMinutes: Int,
+            currentForecast: Forecast?,
+            maturedPoints: List<ForecastCalibrationPoint>,
+            evaluatedAt: Long
+        ): HorizonReliability {
+            val points = maturedPoints.filter { point ->
+                point.horizonMinutes == horizonMinutes &&
+                    currentForecast != null &&
+                    point.modelVersion == currentForecast.modelVersion &&
+                    point.sensorTrusted &&
+                    point.errorMmol.isFinite() &&
+                    point.predictedMmol.isFinite() &&
+                    point.ciLowMmol.isFinite() &&
+                    point.ciHighMmol.isFinite() &&
+                    point.ciLowMmol <= point.ciHighMmol
+            }
+            val sampleCount = points.size
+            val mae = points.takeIf { it.isNotEmpty() }
+                ?.map { abs(it.errorMmol) }
+                ?.average()
+            val bias = points.takeIf { it.isNotEmpty() }
+                ?.map { it.errorMmol }
+                ?.average()
+            val ciCoverage = points.takeIf { it.isNotEmpty() }?.let { samples ->
+                samples.count { point ->
+                    val actual = point.predictedMmol + point.errorMmol
+                    actual in point.ciLowMmol..point.ciHighMmol
+                }.toDouble() / samples.size.toDouble()
+            }
+            val sampleFactor = (sampleCount / FORECAST_RELIABILITY_FULL_SAMPLE_COUNT.toDouble())
+                .coerceIn(0.0, 1.0)
+            val errorFactor = mae?.let { 1.0 / (1.0 + it * it) } ?: 0.0
+            val biasFactor = if (mae != null && bias != null) {
+                (1.0 - abs(bias) / maxOf(mae, 0.3)).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+            val coverageFactor = ((ciCoverage ?: 0.0) / 0.80).coerceIn(0.0, 1.0)
+            val weight = (sampleFactor * errorFactor * biasFactor * coverageFactor)
+                .coerceIn(0.0, 1.0)
+            val currentForecastValid = currentForecast != null &&
+                currentForecast.horizonMinutes == horizonMinutes &&
+                currentForecast.modelVersion.isNotBlank() &&
+                currentForecast.valueMmol.isFinite() &&
+                currentForecast.ciLow.isFinite() &&
+                currentForecast.ciHigh.isFinite() &&
+                currentForecast.ciLow <= currentForecast.ciHigh
+            val limits = when (horizonMinutes) {
+                5 -> Triple(1.2, 0.7, 0.70)
+                30 -> Triple(1.8, 0.9, 0.70)
+                60 -> Triple(2.5, 1.1, 0.65)
+                else -> Triple(1.8, 0.9, 0.70)
+            }
+            val state = when {
+                !currentForecastValid || sampleCount < FORECAST_RELIABILITY_MIN_SAMPLES ->
+                    HorizonReliabilityState.INSUFFICIENT
+                mae == null || bias == null || ciCoverage == null ->
+                    HorizonReliabilityState.INSUFFICIENT
+                mae > limits.first * 1.75 || abs(bias) > limits.second * 1.75 || ciCoverage < 0.40 ->
+                    HorizonReliabilityState.BLOCKED
+                mae <= limits.first && abs(bias) <= limits.second && ciCoverage >= limits.third ->
+                    HorizonReliabilityState.RELIABLE
+                else -> HorizonReliabilityState.DEGRADED
+            }
+            return HorizonReliability(
+                horizonMinutes = horizonMinutes,
+                state = state,
+                sampleCount = sampleCount,
+                maeMmol = mae,
+                biasMmol = bias,
+                ciCoverage = ciCoverage,
+                weightMultiplier = if (currentForecastValid) weight else 0.0,
+                evaluatedAt = evaluatedAt
+            )
         }
 
         private fun extractTempTargetMmolStatic(payload: Map<*, *>): Double? {
@@ -4777,6 +11299,8 @@ class AutomationRepository(
                 ADAPTIVE_COOLDOWN_BYPASS_DELTA_MMOL - 1e-6
             val urgentMode = action.reason.contains("safety_force_high") ||
                 action.reason.contains("safety_hypo_guard") ||
+                action.reason.contains("safety_raise_target_to_five") ||
+                action.reason.contains("hypo_preemptive_") ||
                 action.reason.contains("activity_protection")
 
             return materialRetarget || urgentMode
@@ -4796,6 +11320,11 @@ class AutomationRepository(
                 "SHADOW" -> IsfCrRuntimeGate(
                     applyToRuntime = false,
                     reason = "shadow_mode"
+                )
+
+                "SPARSE_REAL_FETCHED" -> IsfCrRuntimeGate(
+                    applyToRuntime = false,
+                    reason = "sparse_real_fetched_mode"
                 )
 
                 "FALLBACK" -> IsfCrRuntimeGate(
@@ -4832,8 +11361,22 @@ class AutomationRepository(
         ): Double? {
             val current = snapshot ?: return null
             val threshold = confidenceThreshold.coerceIn(0.2, 0.95)
-            if (current.confidence < threshold) return null
             if (runtimeGate.applyToRuntime) return 1.0
+            if (current.mode == IsfCrRuntimeMode.SPARSE_REAL_FETCHED) {
+                val sparseThreshold = maxOf(0.30, threshold - 0.22)
+                if (current.confidence < sparseThreshold) return null
+                val confidenceScale = ((current.confidence - sparseThreshold) / (threshold - sparseThreshold).coerceAtLeast(0.05))
+                    .coerceIn(0.0, 1.0)
+                val realFetchedCount =
+                    (current.factors["therapy_history_real_fetched_insulin_30d"] ?: 0.0).coerceIn(0.0, 12.0)
+                val sampleScale = ((realFetchedCount - 4.0) / 5.0).coerceIn(0.0, 1.0)
+                val combinedScale = (confidenceScale * 0.6 + sampleScale * 0.4).coerceIn(0.0, 1.0)
+                return (
+                    ISFCR_SPARSE_BLEND_MIN +
+                        (ISFCR_SPARSE_BLEND_MAX - ISFCR_SPARSE_BLEND_MIN) * combinedScale
+                    ).coerceIn(ISFCR_SPARSE_BLEND_MIN, ISFCR_SPARSE_BLEND_MAX)
+            }
+            if (current.confidence < threshold) return null
             if (current.mode == IsfCrRuntimeMode.SHADOW) {
                 val confidenceScale = ((current.confidence - threshold) / (1.0 - threshold)).coerceIn(0.0, 1.0)
                 return (
@@ -5139,8 +11682,10 @@ class AutomationRepository(
             val grouped = forecasts.groupBy { it.horizonMinutes }
             return grouped.mapNotNull { (_, rows) ->
                 rows.sortedWith(
-                    compareByDescending<Forecast> { it.ts }
-                        .thenByDescending { forecast -> forecast.modelVersion.contains("cloud", ignoreCase = true) }
+                    compareBy<Forecast> { forecast ->
+                        forecast.modelVersion.contains("cloud", ignoreCase = true)
+                    }
+                        .thenByDescending { it.ts }
                         .thenBy { forecast -> abs(forecast.ciHigh - forecast.ciLow) }
                 ).firstOrNull()
             }.sortedBy { it.horizonMinutes }
@@ -5446,12 +11991,7 @@ class AutomationRepository(
         ): List<Forecast> {
             if (forecasts.isEmpty()) return forecasts
 
-            val activityFactor = (
-                telemetry["isf_factor_activity_factor"]
-                    ?: telemetry["activity_factor"]
-                    ?: telemetry["activity_ratio"]
-                    ?: 1.0
-                ).coerceIn(0.6, 1.8)
+            val activityFactor = resolveContextActivityFactorStatic(telemetry)
             val setFactor = (telemetry["isf_factor_set_factor"] ?: 1.0).coerceIn(0.5, 1.2)
             val dawnFactor = (telemetry["isf_factor_dawn_factor"] ?: 1.0).coerceIn(0.7, 1.1)
             val stressFactor = (telemetry["isf_factor_stress_factor"] ?: 1.0).coerceIn(0.7, 1.1)
@@ -5552,6 +12092,28 @@ class AutomationRepository(
             }
         }
 
+        internal fun physicalActivityMeasurementStatic(
+            sample: TelemetrySampleEntity?,
+            nowTs: Long
+        ): ActivityMeasurement {
+            val physical = sample?.takeIf {
+                it.key == PHYSICAL_ACTIVITY_RATIO_KEY &&
+                    it.source in PHYSICAL_ACTIVITY_SOURCES &&
+                    it.timestamp in 0..nowTs &&
+                    it.quality.uppercase(Locale.US) in PHYSICAL_ACTIVITY_QUALITIES &&
+                    it.valueDouble?.isFinite() == true
+            }
+            return if (physical == null) {
+                ActivityMeasurement(observedAt = null, activityRatio = null, coverage = ActivityCoverage.UNKNOWN)
+            } else {
+                ActivityMeasurement(
+                    observedAt = Instant.ofEpochMilli(physical.timestamp),
+                    activityRatio = physical.valueDouble,
+                    coverage = ActivityCoverage.AVAILABLE
+                )
+            }
+        }
+
         internal fun adjustExternalCobForSyntheticUamStatic(
             externalCobGrams: Double,
             syntheticUamCobGrams: Double,
@@ -5561,23 +12123,217 @@ class AutomationRepository(
                 .coerceIn(0.0, carbMaxGrams)
         }
 
+        internal fun resolveFreshRuntimeInsulinTelemetryStatic(
+            rows: List<TelemetrySampleEntity>,
+            nowTs: Long,
+            freshnessMs: Long
+        ): InsulinRuntimeResolution {
+            val boundedFreshnessMs = freshnessMs.coerceAtLeast(0L)
+            fun TelemetrySampleEntity.isFresh(): Boolean =
+                timestamp in 0..nowTs && nowTs - timestamp <= boundedFreshnessMs
+
+            data class Packet(
+                val source: String,
+                val rowsByKey: Map<String, TelemetrySampleEntity>,
+                val runtimeSource: InsulinRuntimeSource?,
+                val authoritativeTimestamp: Long?
+            ) {
+                fun timedValue(key: String): TimedInsulinValue? {
+                    val timestamp = authoritativeTimestamp ?: return null
+                    val value = rowsByKey[key]?.valueDouble?.takeIf(Double::isFinite) ?: return null
+                    return TimedInsulinValue(value, timestamp)
+                }
+
+                fun totalIob(): TimedInsulinValue? = timedValue("iob_net_units")
+                    ?: timedValue("iob_units")
+            }
+
+            val packetRowsByIdentity = rows.asSequence()
+                .filter { it.source in IOB_STRICT_ALLOWED_SOURCES }
+                .groupBy { it.source to it.timestamp }
+                .filter { (identity, packetRows) ->
+                    packetRows.any { it.key in ATOMIC_AAPS_INSULIN_PACKET_MARKER_KEYS } ||
+                        (
+                            identity.first == "aaps_broadcast" &&
+                                packetRows.any { it.key in AAPS_COMPONENT_ONLY_INSULIN_KEYS }
+                            )
+                }
+            val newestPacketRowsBySource = packetRowsByIdentity
+                .entries
+                .groupBy { it.key.first }
+                .mapValues { (_, groups) -> groups.maxByOrNull { it.key.second }?.value.orEmpty() }
+
+            fun parsePacket(packetRows: List<TelemetrySampleEntity>): Packet? {
+                if (packetRows.isEmpty()) return null
+                val rowsByKey = packetRows.associateBy(TelemetrySampleEntity::key)
+                val runtimeSource = resolveInsulinRuntimeSourceMarkerStatic(packetRows)
+                val authoritativeTimestamp = rowsByKey["iob_relay_timestamp_ms"]
+                    ?.valueDouble
+                    ?.takeIf(Double::isFinite)
+                    ?.takeIf { value ->
+                        value in MIN_AUTHORITATIVE_INSULIN_TIMESTAMP_MS.toDouble()..
+                            MAX_AUTHORITATIVE_INSULIN_TIMESTAMP_MS.toDouble() &&
+                            value == value.toLong().toDouble()
+                    }
+                    ?.toLong()
+                    ?.takeIf { timestamp ->
+                        timestamp <= nowTs &&
+                            nowTs - timestamp <= boundedFreshnessMs
+                    }
+                return Packet(
+                    source = packetRows.first().source,
+                    rowsByKey = rowsByKey,
+                    runtimeSource = runtimeSource,
+                    authoritativeTimestamp = authoritativeTimestamp
+                )
+            }
+
+            val newestPackets = newestPacketRowsBySource.mapValues { (_, packetRows) ->
+                parsePacket(packetRows)
+            }
+            val aapsPacket = newestPackets["aaps_broadcast"]
+            val components = aapsPacket
+                ?.takeIf {
+                    it.runtimeSource == InsulinRuntimeSource.AAPS_COMPONENTS &&
+                        it.authoritativeTimestamp != null
+                }
+                ?.let { packet ->
+                    InsulinComponentTelemetry(
+                        netIob = packet.timedValue("iob_net_units"),
+                        bolusIob = packet.timedValue("iob_bolus_units"),
+                        basalIob = packet.timedValue("iob_basal_units"),
+                        insulinActivity = packet.timedValue("insulin_activity")
+                    )
+                }
+
+            fun latestCandidate(
+                sourcePredicate: (String) -> Boolean,
+                excludedPackets: Set<Pair<String, Long>> = emptySet()
+            ): TimedInsulinValue? = rows.asSequence()
+                .filter { row ->
+                    sourcePredicate(row.source) &&
+                        (row.source to row.timestamp) !in excludedPackets &&
+                        row.isFresh() &&
+                        row.valueDouble?.isFinite() == true &&
+                        row.valueDouble in -30.0..30.0 &&
+                        isStrictIobKeyStatic(row.key)
+                }
+                .sortedWith(
+                    compareByDescending<TelemetrySampleEntity> { it.timestamp }
+                        .thenByDescending { normalizeStrictTherapyKeyStatic(it.key) == "iob_net_units" }
+                        .thenByDescending { it.id }
+                )
+                .firstOrNull()
+                ?.let { TimedInsulinValue(requireNotNull(it.valueDouble), it.timestamp) }
+
+            val packetIdentities = packetRowsByIdentity.keys
+            val legacy = when {
+                aapsPacket == null -> latestCandidate(
+                    sourcePredicate = { source -> source == "aaps_broadcast" }
+                )
+                aapsPacket.runtimeSource == InsulinRuntimeSource.LEGACY_AAPS &&
+                    aapsPacket.authoritativeTimestamp != null -> aapsPacket.totalIob()
+                else -> null
+            }
+            val packetExternal = newestPackets.values.asSequence()
+                .filterNotNull()
+                .filter {
+                    it.source != "aaps_broadcast" &&
+                        it.runtimeSource == InsulinRuntimeSource.EXTERNAL_ESTIMATE &&
+                        it.authoritativeTimestamp != null
+                }
+                .mapNotNull(Packet::totalIob)
+                .maxByOrNull(TimedInsulinValue::timestamp)
+            val standaloneExternal = latestCandidate(
+                sourcePredicate = { source ->
+                    source != "aaps_broadcast" && source in IOB_STRICT_ALLOWED_SOURCES
+                },
+                excludedPackets = packetIdentities
+            )
+            val external = listOfNotNull(packetExternal, standaloneExternal)
+                .maxByOrNull(TimedInsulinValue::timestamp)
+            return InsulinRuntimeSnapshotResolver.resolve(
+                nowTimestamp = nowTs,
+                components = components,
+                legacyIob = legacy,
+                externalEstimate = external
+            )
+        }
+
+        internal fun applyAtomicAapsInsulinPacketStatic(
+            rows: List<TelemetrySampleEntity>,
+            latestByKey: MutableMap<String, Double?>,
+            latestTimestampByKey: MutableMap<String, Long>
+        ): Long? {
+            val packetTimestamp = rows.asSequence()
+                .filter { row ->
+                    row.source == "aaps_broadcast" &&
+                        row.key in ATOMIC_AAPS_INSULIN_PACKET_MARKER_KEYS
+                }
+                .maxOfOrNull(TelemetrySampleEntity::timestamp)
+                ?: return null
+            val packet = rows.asSequence()
+                .filter { row ->
+                    row.source == "aaps_broadcast" &&
+                        row.timestamp == packetTimestamp
+                }
+                .associateBy(TelemetrySampleEntity::key)
+            val authoritativeTimestamp = packet["iob_relay_timestamp_ms"]
+                ?.valueDouble
+                ?.takeIf(Double::isFinite)
+                ?.takeIf { value ->
+                    value in MIN_AUTHORITATIVE_INSULIN_TIMESTAMP_MS.toDouble()..
+                        MAX_AUTHORITATIVE_INSULIN_TIMESTAMP_MS.toDouble() &&
+                        value == value.toLong().toDouble()
+                }
+                ?.toLong()
+                ?: return null
+            if (resolveInsulinRuntimeSourceMarkerStatic(packet.values.toList()) == null) return null
+            ATOMIC_AAPS_INSULIN_PACKET_KEYS.forEach { key ->
+                latestByKey[key] = packet[key]?.valueDouble
+                latestTimestampByKey[key] = authoritativeTimestamp
+            }
+            return authoritativeTimestamp
+        }
+
         internal fun applyCobIobForecastBiasStatic(
             forecasts: List<Forecast>,
             cobGrams: Double?,
-            iobUnits: Double?,
+            diagnosticIobUnits: Double?,
             latestGlucoseMmol: Double? = null,
-            uamActive: Boolean? = null
+            uamActive: Boolean? = null,
+            insulinCycleContext: InsulinCycleContext = InsulinCycleContext(
+                cycleTimestamp = 0L,
+                causalReferenceTimestamp = 0L,
+                snapshot = null,
+                alignedSnapshot = null,
+                safetyIobUnits = null,
+                modeledActiveInsulinUnits = null,
+                signedResidualUnits = null,
+                residualComparisonAllowed = false,
+                residualComparisonReason = "diagnostic_only"
+            ),
+            isfMmolPerUnit: Double? = null,
         ): List<Forecast> {
             if (forecasts.isEmpty()) return forecasts
             val cob = (cobGrams ?: 0.0).coerceIn(0.0, 400.0)
-            val iob = (iobUnits ?: 0.0).coerceIn(0.0, 30.0)
-            if (cob <= 0.0 && iob <= 0.0) return forecasts
+            // The loose scalar is retained only for diagnostics/UI parity. Forecast insulin
+            // effects come exclusively from the causal cycle context shared with the engine.
+            val runtimeSnapshot = insulinCycleContext.alignedSnapshot
+                ?.takeIf { insulinCycleContext.residualComparisonAllowed && it.netIobUnits.isFinite() }
+            val signedResidualUnits = insulinCycleContext.signedResidualUnits
+                ?.takeIf { insulinCycleContext.residualComparisonAllowed && it.isFinite() }
+                ?.coerceIn(-30.0, 30.0)
+                ?: 0.0
+            val residualPositiveIob = signedResidualUnits.coerceAtLeast(0.0)
+            val snapshotInputPresent = runtimeSnapshot != null && insulinCycleContext.residualComparisonAllowed
+            if (cob <= 0.0 && abs(signedResidualUnits) <= 1e-6) return forecasts
             val latestGlucose = latestGlucoseMmol?.coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
             val hasUam = uamActive == true
             val lowRisk = !hasUam &&
                 latestGlucose != null &&
                 latestGlucose <= COB_IOB_LOW_RISK_MMOL &&
-                iob >= COB_IOB_LOW_RISK_MIN_IOB &&
+                residualPositiveIob >= COB_IOB_LOW_RISK_MIN_IOB &&
                 cob >= COB_IOB_LOW_RISK_MIN_COB
             val hardLowRisk = lowRisk && (latestGlucose ?: MAX_GLUCOSE_MMOL) <= COB_IOB_HARD_LOW_MMOL
 
@@ -5595,15 +12351,7 @@ class AutomationRepository(
                     60 -> COB_FORECAST_GAIN_60
                     else -> COB_FORECAST_GAIN_60 * (forecast.horizonMinutes / 60.0)
                 }
-                val iobGain = when (forecast.horizonMinutes) {
-                    5 -> IOB_FORECAST_GAIN_5
-                    30 -> IOB_FORECAST_GAIN_30
-                    60 -> IOB_FORECAST_GAIN_60
-                    else -> IOB_FORECAST_GAIN_60 * (forecast.horizonMinutes / 60.0)
-                }
-
                 val baseCobBias = (cob * cobGain).coerceIn(0.0, COB_FORECAST_BIAS_MAX)
-                val baseIobBias = (iob * iobGain).coerceIn(0.0, IOB_FORECAST_BIAS_MAX)
                 val cobRiskAttenuation = if (hasUam) {
                     1.0
                 } else {
@@ -5617,14 +12365,21 @@ class AutomationRepository(
                 }
                 val cobBias = (baseCobBias * cobRiskAttenuation).coerceIn(0.0, COB_FORECAST_BIAS_MAX)
 
-                var iobRiskBoost = 1.0
-                if (!hasUam && lowRisk) {
-                    iobRiskBoost *= if (hardLowRisk) IOB_BIAS_BOOST_HARD else IOB_BIAS_BOOST_SOFT
-                }
-                if (!hasUam && fallingSignal) {
-                    iobRiskBoost *= IOB_BIAS_BOOST_FALLING
-                }
-                val iobBias = (baseIobBias * iobRiskBoost).coerceIn(0.0, IOB_FORECAST_BIAS_MAX)
+                val residualBias = runtimeSnapshot?.let { snapshot ->
+                    val isf = isfMmolPerUnit
+                        ?.takeIf { it.isFinite() }
+                        ?.coerceIn(0.2, 18.0)
+                        ?: DEFAULT_FORECAST_ISF_MMOL_PER_UNIT
+                    val horizonFraction = (forecast.horizonMinutes / 60.0).coerceIn(0.08, 1.25)
+                    val activityScale = snapshot.insulinActivity
+                        ?.takeIf { it.isFinite() }
+                        ?.let { 1.0 + (abs(it) * 15.0).coerceIn(0.0, 0.25) }
+                        ?: 1.0
+                    (-signedResidualUnits * isf * horizonFraction * 0.12 * activityScale)
+                        .takeIf(Double::isFinite)
+                        ?.coerceIn(COMPONENT_IOB_BIAS_MIN, COMPONENT_IOB_BIAS_MAX)
+                        ?: 0.0
+                } ?: 0.0
 
                 val horizonLowRiskScale = when (forecast.horizonMinutes) {
                     5 -> 0.45
@@ -5635,13 +12390,13 @@ class AutomationRepository(
                 val extraLowGuardDown = if (
                     !hasUam &&
                     hardLowRisk &&
-                    iob >= COB_IOB_EXTRA_GUARD_MIN_IOB &&
+                    residualPositiveIob >= COB_IOB_EXTRA_GUARD_MIN_IOB &&
                     cob >= COB_IOB_EXTRA_GUARD_MIN_COB
                 ) {
                     val glucoseDelta = (COB_IOB_HARD_LOW_MMOL - (latestGlucose ?: forecast.valueMmol))
                         .coerceAtLeast(0.0)
                     var guard = (
-                        (iob - COB_IOB_EXTRA_GUARD_MIN_IOB).coerceAtLeast(0.0) * IOB_LOW_GUARD_GAIN +
+                        (residualPositiveIob - COB_IOB_EXTRA_GUARD_MIN_IOB).coerceAtLeast(0.0) * IOB_LOW_GUARD_GAIN +
                             (cob - COB_IOB_EXTRA_GUARD_MIN_COB).coerceAtLeast(0.0) * COB_LOW_GUARD_GAIN +
                             glucoseDelta * GLUCOSE_LOW_GUARD_GAIN
                         ) * horizonLowRiskScale
@@ -5653,7 +12408,8 @@ class AutomationRepository(
                     0.0
                 }
 
-                val totalBias = (cobBias - iobBias - extraLowGuardDown).coerceIn(FORECAST_BIAS_MIN, FORECAST_BIAS_MAX)
+                val totalBias = (cobBias - extraLowGuardDown + residualBias)
+                    .coerceIn(FORECAST_BIAS_MIN, FORECAST_BIAS_MAX)
                 if (abs(totalBias) < 1e-6) return@map forecast
 
                 val shiftedValue = (forecast.valueMmol + totalBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
@@ -5661,10 +12417,15 @@ class AutomationRepository(
                 var shiftedHigh = (forecast.ciHigh + totalBias).coerceIn(MIN_GLUCOSE_MMOL, MAX_GLUCOSE_MMOL)
                 if (shiftedLow > shiftedValue) shiftedLow = shiftedValue
                 if (shiftedHigh < shiftedValue) shiftedHigh = shiftedValue
-                val version = if (forecast.modelVersion.contains("|cob_iob_bias_v1")) {
+                val legacyVersion = if (forecast.modelVersion.contains("|cob_iob_bias_v1")) {
                     forecast.modelVersion
                 } else {
                     "${forecast.modelVersion}|cob_iob_bias_v1"
+                }
+                val version = if (snapshotInputPresent && !legacyVersion.contains("|component_iob_residual_v3")) {
+                    "$legacyVersion|component_iob_residual_v3"
+                } else {
+                    legacyVersion
                 }
                 forecast.copy(
                     valueMmol = shiftedValue,
@@ -5674,6 +12435,237 @@ class AutomationRepository(
                 )
             }
         }
+
+        internal fun resolveCycleCausalReferenceTimestampStatic(
+            glucose: List<GlucosePoint>
+        ): Long = glucose.asSequence()
+            .map(GlucosePoint::ts)
+            .filter { it > 0L }
+            .maxOrNull()
+            ?: 0L
+
+        internal fun resolveTargetManagerSafetyIobStatic(
+            insulinSnapshot: InsulinRuntimeSnapshot?,
+            cycleTimestamp: Long,
+            freshnessMs: Long
+        ): Double? {
+            val snapshot = insulinSnapshot
+                ?.takeIf(::isInsulinSnapshotSafetyQualifiedStatic)
+                ?: return null
+            val boundedFreshnessMs = freshnessMs.coerceAtLeast(0L)
+            if (
+                cycleTimestamp <= 0L ||
+                snapshot.timestamp !in 1..cycleTimestamp ||
+                cycleTimestamp - snapshot.timestamp > boundedFreshnessMs
+            ) {
+                return null
+            }
+            return snapshot.effectivePositiveIobUnits
+                .takeIf(Double::isFinite)
+                ?.coerceIn(0.0, 30.0)
+        }
+
+        internal fun buildInsulinCycleContextStatic(
+            cycleTimestamp: Long,
+            causalReferenceTimestamp: Long,
+            insulinSnapshot: InsulinRuntimeSnapshot?,
+            modeledActiveInsulinUnits: Double?,
+            modeledActiveInsulinAtSnapshotUnits: Double? = null,
+            therapyModelAvailable: Boolean,
+            freshnessMs: Long
+        ): InsulinCycleContext {
+            val safetyIobUnits = resolveTargetManagerSafetyIobStatic(
+                insulinSnapshot = insulinSnapshot,
+                cycleTimestamp = cycleTimestamp,
+                freshnessMs = freshnessMs
+            )
+            val modeledUnits = modeledActiveInsulinUnits
+                ?.takeIf { therapyModelAvailable && it.isFinite() && it >= 0.0 }
+                ?.coerceIn(0.0, 30.0)
+            val causalTimestampValid = causalReferenceTimestamp in 1..cycleTimestamp
+            val modeledAtSnapshotUnits = modeledActiveInsulinAtSnapshotUnits
+                ?.takeIf { therapyModelAvailable && it.isFinite() && it >= 0.0 }
+                ?.coerceIn(0.0, 30.0)
+            val alignment = alignInsulinSnapshotToCausalStatic(
+                snapshot = insulinSnapshot,
+                causalReferenceTimestamp = causalReferenceTimestamp,
+                modeledAtCausalUnits = modeledUnits,
+                modeledAtSnapshotUnits = modeledAtSnapshotUnits
+            )
+            val alignedSnapshot = alignment.snapshot
+            val residualReason: String
+            val residualUnits: Double?
+            when {
+                insulinSnapshot == null -> {
+                    residualReason = "snapshot_missing"
+                    residualUnits = null
+                }
+                !causalTimestampValid -> {
+                    residualReason = "causal_timestamp_invalid"
+                    residualUnits = null
+                }
+                alignedSnapshot == null -> {
+                    residualReason = alignment.reason
+                    residualUnits = null
+                }
+                therapyModelAvailable && modeledUnits == null -> {
+                    residualReason = "modeled_insulin_missing"
+                    residualUnits = null
+                }
+                modeledUnits != null -> {
+                    residualReason = alignment.reason
+                    residualUnits = (alignedSnapshot.netIobUnits - modeledUnits)
+                        .takeIf(Double::isFinite)
+                        ?.coerceIn(-30.0, 30.0)
+                }
+                else -> {
+                    residualReason = alignment.reason
+                    residualUnits = alignedSnapshot.netIobUnits
+                        .takeIf(Double::isFinite)
+                        ?.coerceIn(-30.0, 30.0)
+                }
+            }
+            return InsulinCycleContext(
+                cycleTimestamp = cycleTimestamp,
+                causalReferenceTimestamp = causalReferenceTimestamp,
+                snapshot = insulinSnapshot,
+                alignedSnapshot = alignedSnapshot,
+                safetyIobUnits = safetyIobUnits,
+                modeledActiveInsulinUnits = modeledUnits,
+                signedResidualUnits = residualUnits,
+                residualComparisonAllowed = residualUnits != null,
+                residualComparisonReason = residualReason
+            )
+        }
+
+        private data class InsulinSnapshotAlignment(
+            val snapshot: InsulinRuntimeSnapshot?,
+            val reason: String
+        )
+
+        private fun alignInsulinSnapshotToCausalStatic(
+            snapshot: InsulinRuntimeSnapshot?,
+            causalReferenceTimestamp: Long,
+            modeledAtCausalUnits: Double?,
+            modeledAtSnapshotUnits: Double?
+        ): InsulinSnapshotAlignment {
+            snapshot ?: return InsulinSnapshotAlignment(null, "snapshot_missing")
+            if (causalReferenceTimestamp <= 0L || snapshot.timestamp <= 0L) {
+                return InsulinSnapshotAlignment(null, "causal_timestamp_invalid")
+            }
+            val offsetMs = snapshot.timestamp - causalReferenceTimestamp
+            if (kotlin.math.abs(offsetMs) > INSULIN_CAUSAL_NORMALIZATION_MAX_MS) {
+                return InsulinSnapshotAlignment(null, "snapshot_offset_exceeds_normalization_bound")
+            }
+            if (offsetMs == 0L) {
+                return InsulinSnapshotAlignment(snapshot, "authoritative_local_aligned")
+            }
+
+            val modelRatio = if (
+                modeledAtCausalUnits != null &&
+                modeledAtSnapshotUnits != null &&
+                modeledAtSnapshotUnits > INSULIN_MODEL_RATIO_EPSILON
+            ) {
+                modeledAtCausalUnits / modeledAtSnapshotUnits
+            } else {
+                null
+            }
+            if (modelRatio != null) {
+                if (!modelRatio.isFinite() || modelRatio !in INSULIN_MODEL_RATIO_MIN..INSULIN_MODEL_RATIO_MAX) {
+                    return InsulinSnapshotAlignment(null, "snapshot_model_ratio_out_of_bounds")
+                }
+                val scaledBolus = snapshot.bolusIobUnits?.times(modelRatio)
+                val scaledBasal = snapshot.basalIobUnits?.times(modelRatio)
+                val scaledNet = snapshot.netIobUnits * modelRatio
+                val scaledEffective = if (scaledBolus != null && scaledBasal != null) {
+                    scaledBolus.coerceAtLeast(0.0) + scaledBasal.coerceAtLeast(0.0)
+                } else {
+                    scaledNet.coerceAtLeast(0.0)
+                }
+                val aligned = snapshot.copy(
+                    timestamp = causalReferenceTimestamp,
+                    netIobUnits = scaledNet,
+                    bolusIobUnits = scaledBolus,
+                    basalIobUnits = scaledBasal,
+                    insulinActivity = snapshot.insulinActivity?.times(modelRatio),
+                    effectivePositiveIobUnits = scaledEffective
+                )
+                if (!isCausalAlignedSnapshotBoundedStatic(aligned)) {
+                    return InsulinSnapshotAlignment(null, "snapshot_model_alignment_out_of_bounds")
+                }
+                return InsulinSnapshotAlignment(aligned, "authoritative_local_ratio_aligned")
+            }
+
+            val activity = snapshot.insulinActivity
+                ?.takeIf { snapshot.source == InsulinRuntimeSource.AAPS_COMPONENTS && it.isFinite() && it >= 0.0 }
+            val bolus = snapshot.bolusIobUnits
+            val basal = snapshot.basalIobUnits
+            if (offsetMs <= 0L || activity == null || bolus == null || basal == null) {
+                return InsulinSnapshotAlignment(null, "snapshot_normalization_evidence_missing")
+            }
+            val offsetMinutes = offsetMs / 60_000.0
+            val correctionUnits = activity * offsetMinutes
+            if (!correctionUnits.isFinite() || correctionUnits !in 0.0..INSULIN_ACTIVITY_NORMALIZATION_MAX_UNITS) {
+                return InsulinSnapshotAlignment(null, "snapshot_activity_normalization_out_of_bounds")
+            }
+            val alignedBolus = bolus + correctionUnits
+            val alignedBasal = basal
+            val alignedNet = alignedBolus + alignedBasal
+            val aligned = snapshot.copy(
+                timestamp = causalReferenceTimestamp,
+                netIobUnits = alignedNet,
+                bolusIobUnits = alignedBolus,
+                basalIobUnits = alignedBasal,
+                effectivePositiveIobUnits = alignedBolus.coerceAtLeast(0.0) +
+                    alignedBasal.coerceAtLeast(0.0)
+            )
+            if (!isCausalAlignedSnapshotBoundedStatic(aligned)) {
+                return InsulinSnapshotAlignment(null, "snapshot_activity_alignment_out_of_bounds")
+            }
+            return InsulinSnapshotAlignment(aligned, "aaps_activity_backward_aligned")
+        }
+
+        private fun isCausalAlignedSnapshotBoundedStatic(snapshot: InsulinRuntimeSnapshot): Boolean =
+            snapshot.netIobUnits.isFinite() &&
+                snapshot.netIobUnits in -INSULIN_NORMALIZED_IOB_MAX_UNITS..INSULIN_NORMALIZED_IOB_MAX_UNITS &&
+                snapshot.effectivePositiveIobUnits.isFinite() &&
+                snapshot.effectivePositiveIobUnits in 0.0..INSULIN_NORMALIZED_IOB_MAX_UNITS &&
+                snapshot.bolusIobUnits?.let {
+                    it.isFinite() && it in 0.0..INSULIN_NORMALIZED_IOB_MAX_UNITS
+                } != false &&
+                snapshot.basalIobUnits?.let {
+                    it.isFinite() && it in -INSULIN_NORMALIZED_IOB_MAX_UNITS..INSULIN_NORMALIZED_IOB_MAX_UNITS
+                } != false &&
+                snapshot.insulinActivity?.let {
+                    it.isFinite() && it in -INSULIN_NORMALIZED_ACTIVITY_MAX..INSULIN_NORMALIZED_ACTIVITY_MAX
+                } != false
+
+        internal fun modelSameCycleActiveInsulinStatic(
+            engine: HybridPredictionEngine,
+            profileIdRaw: String,
+            resolvedEffectiveDiaHours: Double,
+            baseOnsetMinutes: Double,
+            realOnsetMinutes: Double,
+            therapyEvents: List<io.aaps.copilot.domain.model.TherapyEvent>,
+            nowTs: Long
+        ): HybridPredictionEngine.ModeledActiveInsulinEvidence {
+            engine.setInsulinProfile(InsulinActionProfileId.fromRaw(profileIdRaw))
+            engine.setInsulinDurationHours(resolvedEffectiveDiaHours)
+            engine.setInsulinOnsetMinutes(
+                baseOnsetMinutes = baseOnsetMinutes,
+                realOnsetMinutes = realOnsetMinutes
+            )
+            return engine.modeledActiveInsulinEvidence(therapyEvents, nowTs)
+        }
+
+        internal fun resolveForecastIsfStatic(telemetry: Map<String, Double?>): Double = sequenceOf(
+            telemetry["isf_runtime_selected_value"],
+            telemetry["isf_realtime_value"],
+            telemetry["isf_value"]
+        )
+            .filterNotNull()
+            .firstOrNull { it.isFinite() && it in 0.2..18.0 }
+            ?: DEFAULT_FORECAST_ISF_MMOL_PER_UNIT
 
         internal fun applyCircadianPatternForecastBiasStatic(
             forecasts: List<Forecast>,
@@ -5964,6 +12956,12 @@ class AutomationRepository(
             addNumeric("sensor_lag_age_hours", estimate.ageHours, "h")
             addText("sensor_lag_age_source", estimate.ageSource.name.lowercase(Locale.US))
             addNumeric("sensor_lag_minutes", estimate.lagMinutes, "min")
+            addText("sensor_lag_wear_bucket", estimate.wearBucket)
+            addNumeric("sensor_lag_source_confidence", estimate.sourceConfidence)
+            addNumeric("sensor_lag_trend_consistency", estimate.trendConsistency)
+            addNumeric("sensor_lag_replay_multiplier", estimate.replayMultiplier)
+            addNumeric("sensor_lag_effective_lag_minutes", estimate.effectiveLagMinutes, "min")
+            addNumeric("sensor_lag_effective_correction_cap", estimate.effectiveCorrectionCap, "mmol/L")
             addNumeric("sensor_lag_correction_mmol", estimate.correctionMmol, "mmol/L")
             addNumeric("sensor_lag_corrected_glucose_mmol", estimate.correctedGlucoseMmol, "mmol/L")
             addNumeric("sensor_lag_confidence", estimate.confidence)
@@ -5994,6 +12992,374 @@ class AutomationRepository(
             }
             addText("glucose_input_key", latestGlucoseInput?.key)
             addText("glucose_input_kind", latestGlucoseInput?.kind)
+        }
+
+        internal fun buildGlucoseAlertTelemetryRowsStatic(
+            nowTs: Long,
+            decision: GlucoseAlertDecision,
+            persisted: GlucoseAlertRuntimeState,
+            delivery: GlucoseAlertDeliveryResult,
+            insulinSnapshot: InsulinRuntimeSnapshot? = null,
+            sensitivitySnapshot: SensitivityRuntimeSnapshot? = null
+        ): List<TelemetrySampleEntity> = buildList {
+            fun addNumeric(key: String, value: Double?, unit: String? = null) {
+                add(
+                    TelemetrySampleEntity(
+                        id = "tm-copilot-glucose-alert-$key-$nowTs",
+                        timestamp = nowTs,
+                        source = "copilot_glucose_alert",
+                        key = key,
+                        valueDouble = value,
+                        valueText = null,
+                        unit = unit,
+                        quality = if (value == null) "STALE" else "OK"
+                    )
+                )
+            }
+
+            fun addText(key: String, value: String?) {
+                add(
+                    TelemetrySampleEntity(
+                        id = "tm-copilot-glucose-alert-$key-$nowTs",
+                        timestamp = nowTs,
+                        source = "copilot_glucose_alert",
+                        key = key,
+                        valueDouble = null,
+                        valueText = value?.trim()?.takeIf { it.isNotBlank() },
+                        unit = null,
+                        quality = if (value.isNullOrBlank()) "STALE" else "OK"
+                    )
+                )
+            }
+
+            addText("glucose_alert_state", decision.state.name)
+            addText("glucose_alert_direction", decision.direction?.name)
+            addNumeric("glucose_alert_soft_active", if (decision.softActive) 1.0 else 0.0)
+            addNumeric("glucose_alert_strong_active", if (decision.strongActive) 1.0 else 0.0)
+            addNumeric("glucose_alert_soft_last_ts", persisted.lastSoftAlertAtTs.toDouble())
+            addNumeric("glucose_alert_strong_last_ts", persisted.lastStrongAlertAtTs.toDouble())
+            addNumeric("glucose_alert_last_stage_change_ts", persisted.lastStageChangeTs.toDouble())
+            addNumeric("glucose_alert_muted_until_ts", persisted.mutedUntilTs.toDouble())
+            addNumeric("glucose_alert_muted_active", if (persisted.mutedUntilTs > nowTs) 1.0 else 0.0)
+            addNumeric("glucose_alert_predicted_minutes_to_low", decision.predictedMinutesToLow?.toDouble(), "min")
+            addNumeric("glucose_alert_current_glucose_mmol", decision.currentGlucoseMmol, "mmol/L")
+            addNumeric("glucose_alert_pred5", decision.pred5, "mmol/L")
+            addNumeric("glucose_alert_pred30", decision.pred30, "mmol/L")
+            addNumeric("glucose_alert_pred60", decision.pred60, "mmol/L")
+            addNumeric("glucose_alert_ci_low30", decision.ciLow30, "mmol/L")
+            addNumeric("glucose_alert_ci_high30", decision.ciHigh30, "mmol/L")
+            addNumeric("glucose_alert_trend_delta5_mmol", decision.trendDelta5Mmol, "mmol/5m")
+            addNumeric("glucose_alert_repeat_suppressed_by_trend", if (decision.repeatSuppressedByTrend) 1.0 else 0.0)
+            addNumeric("glucose_alert_low_threshold", decision.lowThreshold, "mmol/L")
+            addNumeric("glucose_alert_high_threshold", decision.highThreshold, "mmol/L")
+            addNumeric("glucose_alert_urgent_low_threshold", decision.urgentLowThreshold, "mmol/L")
+            addNumeric(
+                "glucose_alert_notification_permission_granted",
+                if (delivery.notificationPermissionGranted) 1.0 else 0.0
+            )
+            addNumeric("glucose_alert_notification_posted", if (delivery.notificationPosted) 1.0 else 0.0)
+            addNumeric("glucose_alert_vibration_attempted", if (delivery.vibrationAttempted) 1.0 else 0.0)
+            addNumeric("glucose_alert_audio_played", if (delivery.audioPlayed) 1.0 else 0.0)
+            addText("glucose_alert_disable_reason", decision.disableReason ?: delivery.degradedReason)
+            addText("glucose_alert_audio_clip", delivery.audioClipLabel)
+            addNumeric("glucose_alert_audio_fallback_used", if (delivery.audioFallbackUsed) 1.0 else 0.0)
+            addNumeric("glucose_alert_audio_start_ms", delivery.audioStartMs?.toDouble(), "ms")
+            addNumeric("glucose_alert_audio_duration_ms", delivery.audioDurationMs?.toDouble(), "ms")
+            insulinSnapshot?.let { snapshot ->
+                addNumeric("glucose_alert_iob_net_units", snapshot.netIobUnits, "U")
+                addNumeric("glucose_alert_iob_effective_positive_units", snapshot.effectivePositiveIobUnits, "U")
+                addNumeric("glucose_alert_iob_bolus_units", snapshot.bolusIobUnits, "U")
+                addNumeric("glucose_alert_iob_basal_units", snapshot.basalIobUnits, "U")
+                addNumeric("glucose_alert_insulin_activity", snapshot.insulinActivity, "U/min")
+                addNumeric("glucose_alert_iob_runtime_timestamp_ms", snapshot.timestamp.toDouble(), "epoch_ms")
+                addNumeric("glucose_alert_iob_runtime_confidence", snapshot.confidence)
+                addText("glucose_alert_iob_runtime_source", snapshot.source.name)
+                addText("glucose_alert_iob_fallback_reason", snapshot.fallbackReason)
+            }
+            sensitivitySnapshot?.let { snapshot ->
+                addText("glucose_alert_sensitivity_cycle_id", snapshot.forecastCycleId)
+                addNumeric("glucose_alert_sensitivity_settings_revision", snapshot.settingsRevision.toDouble())
+                addNumeric("glucose_alert_isf_effective", snapshot.isf.effective, "mmol/L/U")
+                addText("glucose_alert_isf_resolved_source", snapshot.isf.resolved.name)
+                addNumeric("glucose_alert_cr_effective", snapshot.cr.effective, "g/U")
+                addText("glucose_alert_cr_resolved_source", snapshot.cr.resolved.name)
+            }
+        }
+
+        internal fun shouldKeepInferredUamRuntimeActiveStatic(
+            nowTs: Long,
+            activeFlag: Double,
+            inferredCarbsGrams: Double?,
+            ingestionTs: Long?,
+            manualCobGrams: Double,
+            gAbsRecent: List<Double>,
+            forecastRocPer5Used: Double?,
+            forecastUci0: Double?,
+            forecastVirtualMealConfidence: Double?,
+            forecastUam60Mmol: Double?
+        ): Boolean {
+            if (activeFlag < 0.5 || inferredCarbsGrams == null || ingestionTs == null) return false
+
+            val ageMinutes = ((nowTs - ingestionTs).coerceAtLeast(0L)) / 60_000.0
+            if (ageMinutes < 45.0) return true
+
+            val tail = gAbsRecent.takeLast(4).filter { it.isFinite() }
+            val weakTail = tail.isNotEmpty() &&
+                (tail.maxOrNull() ?: 0.0) < 0.40 &&
+                tail.average() < 0.20
+            val moderateWeakTail = tail.isNotEmpty() &&
+                (tail.maxOrNull() ?: 0.0) < 0.52 &&
+                tail.average() < 0.24
+            val veryWeakTail = tail.isEmpty() || (
+                (tail.maxOrNull() ?: 0.0) < 0.28 &&
+                    tail.average() < 0.14
+                )
+            val lowManualCob = manualCobGrams < 3.0
+            val veryLowManualCob = manualCobGrams < 2.0
+            val calmRoc = abs(forecastRocPer5Used ?: 0.0) < 0.20
+            val lowForecastUam =
+                (forecastUci0 ?: 0.0) < 0.10 &&
+                    (forecastVirtualMealConfidence ?: 0.0) < 0.35 &&
+                    (forecastUam60Mmol ?: 0.0) < 0.75
+            val moderateForecastUam =
+                (forecastUci0 ?: 0.0) < 0.12 &&
+                    (forecastVirtualMealConfidence ?: 0.0) < 0.42 &&
+                    (forecastUam60Mmol ?: 0.0) < 1.10 &&
+                    abs(forecastRocPer5Used ?: 0.0) < 0.18
+            val veryLowForecastUam =
+                (forecastUci0 ?: 0.0) < 0.08 &&
+                    (forecastVirtualMealConfidence ?: 0.0) < 0.28 &&
+                    (forecastUam60Mmol ?: 0.0) < 0.50 &&
+                    abs(forecastRocPer5Used ?: 0.0) < 0.15
+
+            if (ageMinutes >= 60.0 && lowManualCob && veryWeakTail && veryLowForecastUam) {
+                return false
+            }
+            if (ageMinutes >= 90.0 && veryLowManualCob && moderateWeakTail && moderateForecastUam) {
+                return false
+            }
+            if (ageMinutes >= 75.0 && lowManualCob && weakTail && calmRoc && lowForecastUam) {
+                return false
+            }
+            if (ageMinutes >= 120.0 && lowManualCob && veryWeakTail && (forecastUam60Mmol ?: 0.0) < 1.0) {
+                return false
+            }
+            return true
+        }
+
+        internal fun evaluateForecastVirtualMealRuntimeGateStatic(
+            usingVirtualMeal: Boolean,
+            virtualMealCarbs: Double?,
+            virtualMealConfidence: Double?,
+            forecastUam60Mmol: Double?,
+            forecastUci0: Double?,
+            forecastRocPer5Used: Double?,
+            inferredStaleDecayApplied: Boolean
+        ): ForecastVirtualMealGateDecision {
+            if (!usingVirtualMeal) {
+                return ForecastVirtualMealGateDecision(
+                    active = false,
+                    reason = "virtual_meal_disabled"
+                )
+            }
+            val carbs = virtualMealCarbs ?: return ForecastVirtualMealGateDecision(
+                active = false,
+                reason = "virtual_meal_carbs_missing"
+            )
+            if (!carbs.isFinite() || carbs <= 0.0) {
+                return ForecastVirtualMealGateDecision(
+                    active = false,
+                    reason = "virtual_meal_carbs_invalid"
+                )
+            }
+
+            val confidence = (virtualMealConfidence ?: 0.0).coerceIn(0.0, 1.0)
+            val forecastUam60 = (forecastUam60Mmol ?: 0.0).coerceAtLeast(0.0)
+            val uci0 = (forecastUci0 ?: 0.0).coerceAtLeast(0.0)
+            val rocAbs = abs(forecastRocPer5Used ?: 0.0)
+
+            val strongSupport = forecastUam60 >= 2.00 ||
+                uci0 >= 0.14 ||
+                rocAbs >= 0.22 ||
+                (confidence >= 0.60 && (
+                    forecastUam60 >= 1.75 ||
+                        uci0 >= 0.10 ||
+                        rocAbs >= 0.18 ||
+                        carbs >= 24.0
+                    ))
+            if (strongSupport) {
+                return ForecastVirtualMealGateDecision(
+                    active = true,
+                    reason = "forecast_virtual_meal_strong_support"
+                )
+            }
+
+            val weakSupport = confidence < 0.45 &&
+                forecastUam60 < 0.75 &&
+                uci0 < 0.10 &&
+                rocAbs < 0.18
+            if (inferredStaleDecayApplied && weakSupport) {
+                return ForecastVirtualMealGateDecision(
+                    active = false,
+                    reason = "forecast_virtual_meal_weak_support_released_by_inferred_decay"
+                )
+            }
+            val modestSupport = confidence < 0.50 &&
+                forecastUam60 < 1.05 &&
+                uci0 < 0.12 &&
+                rocAbs < 0.20
+            if (inferredStaleDecayApplied && modestSupport) {
+                return ForecastVirtualMealGateDecision(
+                    active = false,
+                    reason = "forecast_virtual_meal_modest_support_released_by_inferred_decay"
+                )
+            }
+
+            val calmTailRelease = confidence < 0.45 &&
+                carbs < 22.0 &&
+                forecastUam60 < 1.95 &&
+                uci0 < 0.06 &&
+                rocAbs < 0.14
+            if (calmTailRelease) {
+                return ForecastVirtualMealGateDecision(
+                    active = false,
+                    reason = "forecast_virtual_meal_calm_tail_release"
+                )
+            }
+
+            val lateWeakForecastTailRelease = confidence < 0.72 &&
+                carbs < 21.0 &&
+                forecastUam60 < 1.85 &&
+                uci0 < 0.05 &&
+                rocAbs < 0.10
+            if (lateWeakForecastTailRelease) {
+                return ForecastVirtualMealGateDecision(
+                    active = false,
+                    reason = "forecast_virtual_meal_late_weak_tail_release"
+                )
+            }
+
+            val fallbackSupport = confidence >= 0.35 &&
+                (forecastUam60 >= 0.50 || uci0 >= 0.08 || rocAbs >= 0.16)
+            return ForecastVirtualMealGateDecision(
+                active = fallbackSupport,
+                reason = if (fallbackSupport) {
+                    "forecast_virtual_meal_fallback_support"
+                } else {
+                    "forecast_virtual_meal_released_no_support"
+                }
+            )
+        }
+
+        internal fun shouldKeepForecastVirtualMealRuntimeActiveStatic(
+            usingVirtualMeal: Boolean,
+            virtualMealCarbs: Double?,
+            virtualMealConfidence: Double?,
+            forecastUam60Mmol: Double?,
+            forecastUci0: Double?,
+            forecastRocPer5Used: Double?,
+            inferredStaleDecayApplied: Boolean
+        ): Boolean {
+            return evaluateForecastVirtualMealRuntimeGateStatic(
+                usingVirtualMeal = usingVirtualMeal,
+                virtualMealCarbs = virtualMealCarbs,
+                virtualMealConfidence = virtualMealConfidence,
+                forecastUam60Mmol = forecastUam60Mmol,
+                forecastUci0 = forecastUci0,
+                forecastRocPer5Used = forecastRocPer5Used,
+                inferredStaleDecayApplied = inferredStaleDecayApplied
+            ).active
+        }
+
+        internal fun resolveUamActiveTelemetryStatic(latestTelemetry: Map<String, Double?>): Boolean {
+            val controlFlag = latestTelemetry["uam_runtime_control_flag"]?.takeIf { it.isFinite() }
+            if (controlFlag != null) return controlFlag >= 0.5
+            val runtimeFlag = latestTelemetry["uam_runtime_flag"]?.takeIf { it.isFinite() }
+            return runtimeFlag != null && runtimeFlag >= 0.5
+        }
+
+        internal fun resolveLiveDeliveryTrustStatic(
+            nowTs: Long,
+            canonicalGlucose: List<GlucosePoint>,
+            therapyEvents: List<TherapyEvent>,
+            sensorTrust: SensorTrustState,
+            latestTelemetry: Map<String, Double?>
+        ): DeliveryTrustState {
+            var announcedCarbsKnown = true
+            val announcedCarbTimestamps = buildList {
+                therapyEvents.forEach { event ->
+                    val rawValues = event.payload.asSequence()
+                        .filter { (key, _) -> normalizeDeliveryKey(key) in DELIVERY_CARB_KEYS }
+                        .map { (_, value) -> value.trim().replace(',', '.').toDoubleOrNull() }
+                        .toList()
+                    if (rawValues.isEmpty()) return@forEach
+                    if (rawValues.any { value -> value == null || !value.isFinite() || value !in 0.0..400.0 }) {
+                        announcedCarbsKnown = false
+                        return@forEach
+                    }
+                    val values = rawValues.filterNotNull()
+                    if (values.maxOrNull()!! - values.minOrNull()!! > 1e-9) {
+                        announcedCarbsKnown = false
+                        return@forEach
+                    }
+                    if (values.firstOrNull()?.let { it >= 0.5 } == true) add(event.ts)
+                }
+            }
+            val uamActive = resolveNullableRuntimeFlag(
+                latestTelemetry = latestTelemetry,
+                primaryKey = "uam_runtime_control_flag",
+                fallbackKey = "uam_runtime_flag"
+            )
+            val setAgeHours = when {
+                latestTelemetry.containsKey("isf_factor_set_age_hours") ->
+                    latestTelemetry["isf_factor_set_age_hours"]?.takeIf { it.isFinite() && it >= 0.0 }
+                latestTelemetry.containsKey("cage_days") ->
+                    latestTelemetry["cage_days"]?.takeIf { it.isFinite() && it >= 0.0 }?.times(24.0)
+                else -> null
+            }
+            return DeliveryTrustEvaluator().evaluate(
+                DeliveryTrustInput(
+                    evaluationTimestamp = nowTs,
+                    canonicalGlucose = canonicalGlucose.filter { it.ts >= nowTs - 30L * 60_000L },
+                    sensorTrust = sensorTrust,
+                    iobUnits = latestTelemetry["iob_units"],
+                    effectiveCobGrams = latestTelemetry["cob_effective_grams"],
+                    uamActive = uamActive,
+                    announcedCarbsKnown = announcedCarbsKnown,
+                    announcedCarbTimestamps = announcedCarbTimestamps,
+                    setAgeHours = setAgeHours
+                )
+            )
+        }
+
+        private fun resolveNullableRuntimeFlag(
+            latestTelemetry: Map<String, Double?>,
+            primaryKey: String,
+            fallbackKey: String
+        ): Boolean? {
+            val key = when {
+                latestTelemetry.containsKey(primaryKey) -> primaryKey
+                latestTelemetry.containsKey(fallbackKey) -> fallbackKey
+                else -> return null
+            }
+            val value = latestTelemetry[key] ?: return null
+            return value.takeIf { it.isFinite() && it in 0.0..1.0 }?.let { it >= 0.5 }
+        }
+
+        private fun normalizeDeliveryKey(value: String): String = value
+            .lowercase(Locale.US)
+            .filter(Char::isLetterOrDigit)
+
+        internal fun resolveCobIobBiasUamActiveStatic(
+            latestTelemetry: Map<String, Double?>,
+            currentUnifiedUamFlag: Double?
+        ): Boolean {
+            val current = currentUnifiedUamFlag?.takeIf { it.isFinite() }
+            return if (current != null) {
+                current >= 0.5
+            } else {
+                resolveUamActiveTelemetryStatic(latestTelemetry)
+            }
         }
 
         internal fun buildCircadianPriorTelemetryRowsStatic(
@@ -6078,13 +13444,19 @@ class AutomationRepository(
             return mapOf(
                 "sensor_lag_age_hours" to estimate.ageHours,
                 "sensor_lag_minutes" to estimate.lagMinutes,
+                "sensor_lag_source_confidence" to estimate.sourceConfidence,
+                "sensor_lag_trend_consistency" to estimate.trendConsistency,
+                "sensor_lag_replay_multiplier" to estimate.replayMultiplier,
+                "sensor_lag_effective_lag_minutes" to estimate.effectiveLagMinutes,
+                "sensor_lag_effective_correction_cap" to estimate.effectiveCorrectionCap,
                 "sensor_lag_correction_mmol" to estimate.correctionMmol,
                 "sensor_lag_corrected_glucose_mmol" to estimate.correctedGlucoseMmol,
                 "sensor_lag_confidence" to estimate.confidence,
                 "sensor_lag_active" to if (estimate.mode == SensorLagCorrectionMode.ACTIVE) 1.0 else 0.0,
                 "sensor_lag_age_source" to when (estimate.ageSource) {
-                    SensorLagAgeSource.EXPLICIT -> 1.0
-                    SensorLagAgeSource.INFERRED -> 0.5
+                    SensorLagAgeSource.DEVICESTATUS -> 1.0
+                    SensorLagAgeSource.EXPLICIT_EVENT -> 0.8
+                    SensorLagAgeSource.INFERRED_BOUNDARY -> 0.5
                     SensorLagAgeSource.MISSING -> 0.0
                 },
                 "glucose_input_kind" to when (latestGlucoseInput?.kind?.lowercase(Locale.US)) {
@@ -6129,6 +13501,53 @@ class AutomationRepository(
             val shadowCurrentGlucoseMmol: Double?,
             val shadowForecasts: List<Forecast>?
         )
+
+        internal data class ActivityForecastPlan(
+            val controlForecasts: List<Forecast>,
+            val shadowForecasts: List<Forecast>?,
+            val suppressionReasons: Set<ActivityShadowSuppressionReason> = emptySet()
+        )
+
+        /**
+         * Activity is advisory until Task 8 supplies complete target gates. The
+         * original list is therefore the only list eligible for control.
+         */
+        internal fun resolveActivityForecastPlanStatic(
+            controlForecasts: List<Forecast>,
+            context: ActivityEffectContext,
+            existingControlActivityFactor: Double? = null
+        ): ActivityForecastPlan {
+            if (context == ActivityEffectContext.DISABLED) {
+                return ActivityForecastPlan(controlForecasts = controlForecasts, shadowForecasts = null)
+            }
+            if (existingControlActivityFactor.isNonIdentityActivityFactor()) {
+                return ActivityForecastPlan(
+                    controlForecasts = controlForecasts,
+                    shadowForecasts = null,
+                    suppressionReasons = setOf(
+                        ActivityShadowSuppressionReason.UNPROVEN_PREEXISTING_CONTROL_ACTIVITY_FACTOR
+                    )
+                )
+            }
+            val shadow = ActivityEffectModel().applyForecastContext(controlForecasts, context)
+            return ActivityForecastPlan(
+                controlForecasts = controlForecasts,
+                shadowForecasts = shadow.takeUnless { it == controlForecasts }
+            )
+        }
+
+        private fun Double?.isNonIdentityActivityFactor(): Boolean = when {
+            this == null -> false
+            !isFinite() -> true
+            else -> kotlin.math.abs(this - 1.0) >= 1e-6
+        }
+
+        internal fun resolveContextActivityFactorStatic(telemetry: Map<String, Double?>): Double = (
+            telemetry["isf_factor_activity_factor"]
+                ?: telemetry["activity_factor"]
+                ?: telemetry["activity_ratio"]
+                ?: 1.0
+            ).coerceIn(0.6, 1.8)
 
         internal fun resolveSensorLagControlPlanStatic(
             requestedMode: SensorLagCorrectionMode,
@@ -6181,10 +13600,62 @@ class AutomationRepository(
         private const val ISFCR_AUTO_ACTIVATION_HYPO_THRESHOLD_MMOL = 3.9
         private val ISFCR_ROLLING_WINDOWS_DAYS = listOf(14, 30, 90)
         private const val SOURCE_DB_HOUSEKEEPING_CURSOR = "db_housekeeping_cursor"
+        private const val SOURCE_DB_COMPACTION_CURSOR = "db_compaction_cursor"
         private const val DB_HOUSEKEEPING_INTERVAL_MS = 2L * 60 * 60 * 1000
+        private const val DB_COMPACTION_INTERVAL_MS = 7L * DAY_MS
+        private const val DB_COMPACTION_MIN_TRIMMED_ROWS = 5_000
+        private const val MIN_STORAGE_RETENTION_DAYS = 30
+        private const val MAX_STORAGE_RETENTION_DAYS = 730
+        private const val REPORT_AND_PROFILE_MIN_RETENTION_DAYS = 45
         private const val AUDIT_LOG_RETENTION_MS = 14L * 24 * 60 * 60 * 1000
-        private const val TELEMETRY_RAW_RETENTION_MS = 24L * 60 * 60 * 1000
-        private const val TELEMETRY_GENERAL_RETENTION_MS = 365L * 24 * 60 * 60 * 1000
+        private const val AUDIT_LOG_NOISY_RETENTION_MS = 3L * DAY_MS
+        private const val TELEMETRY_DEDUP_LOOKBACK_MS = 6L * 60 * 60 * 1000
+        private const val TELEMETRY_GENERAL_RETENTION_MS = 7L * DAY_MS
+        private const val TELEMETRY_PHYSICAL_ACTIVITY_RETENTION_MS = 45L * DAY_MS
+        private const val TELEMETRY_TRIM_BATCH_LIMIT = 20_000
+        private const val TELEMETRY_TRIM_MAX_BATCHES_PER_RUN = 25
+        private const val TELEMETRY_TRIM_DEBUG_MAX_BATCHES_PER_RUN = 100
+        private const val TELEMETRY_TRIM_CHECKPOINT_EVERY_BATCHES = 5
+        private const val TELEMETRY_TRIM_BATCH_PAUSE_MS = 50L
+        private const val TELEMETRY_RAW_RETENTION_MS = DAY_MS
+        private const val TELEMETRY_NOISY_RETENTION_7D_MS = 7L * DAY_MS
+        private const val TELEMETRY_NOISY_RETENTION_14D_MS = 14L * DAY_MS
+        private val TELEMETRY_NOISY_7D_PATTERNS = listOf(
+            "glucose_input_%",
+            "temp_target_%"
+        )
+        private val TELEMETRY_NOISY_7D_KEYS = listOf(
+            "activity_label"
+        )
+        private val TELEMETRY_NOISY_14D_PATTERNS = listOf(
+            "isfcr_%",
+            "glucose_alert_%",
+            "therapy_history_%",
+            "sensor_lag_%"
+        )
+        private val TELEMETRY_NOISY_14D_KEYS = listOf(
+            "uam_runtime_gate_reason"
+        )
+        private val AUDIT_NOISY_INFO_MESSAGES = listOf(
+            "broadcast_ingest_completed",
+            "automation_cycle_started",
+            "automation_cycle_finished",
+            "automation_cycle_completed",
+            "automation_cycle_checkpoint",
+            "automation_cycle_step_started",
+            "automation_cycle_step_completed",
+            "cloud_push_skipped",
+            "broadcast_reactive_automation_skipped",
+            "nightscout_sync_started",
+            "nightscout_sync_completed",
+            "nightscout_sync_skipped",
+            "adaptive_controller_evaluated",
+            "adaptive_controller_blocked",
+            "forecast_storage_normalized",
+            "forecast_bias_applied",
+            "forecast_calibration_bias_applied",
+            "isfcr_shadow_diff_logged"
+        )
         private val GLUCOSE_HOUSEKEEPING_SOURCES = listOf(
             "nightscout",
             "aaps_broadcast",
@@ -6355,12 +13826,18 @@ class AutomationRepository(
             val ciWidth30 = latestTelemetry["daily_report_ci_width_30m"]
             val ciWidth60 = latestTelemetry["daily_report_ci_width_60m"]
             val hypoRate24h = runCatching {
-                val glucose24h = GlucoseSanitizer
-                    .filterEntities(db.glucoseDao().since(nowTs - 24L * 60L * 60L * 1000L))
+                val glucose24h = glucoseCalibrationRepository.resolveGlucoseHistory(
+                    rawGlucose = GlucoseSanitizer.filterEntities(
+                        db.glucoseDao().since(nowTs - 24L * 60L * 60L * 1000L)
+                    ),
+                    nowTs = nowTs
+                )
                 if (glucose24h.isEmpty()) {
                     null
                 } else {
-                    val hypoCount = glucose24h.count { it.mmol < ISFCR_AUTO_ACTIVATION_HYPO_THRESHOLD_MMOL }
+                    val hypoCount = glucose24h.count {
+                        it.calibratedMmol < ISFCR_AUTO_ACTIVATION_HYPO_THRESHOLD_MMOL
+                    }
                     hypoCount * 100.0 / glucose24h.size.toDouble()
                 }
             }.getOrNull()
@@ -6540,16 +14017,14 @@ class AutomationRepository(
         )
         if (!rollingGateAssessment.eligible) return
 
-        var promoted = false
-        settingsStore.update { current ->
+        val mutation = settingsStore.beginSensitivitySettingsMutation { current ->
             if (current.isfCrShadowMode && current.isfCrAutoActivationEnabled) {
-                promoted = true
                 current.copy(isfCrShadowMode = false)
             } else {
                 current
             }
         }
-        if (!promoted) return
+        if (!mutation.changed) return
 
         auditLogger.warn(
             "isfcr_shadow_auto_promoted",
@@ -6591,6 +14066,7 @@ class AutomationRepository(
                 "rollingGatePassedWindowCount" to rollingGateAssessment.passedWindowCount
             )
         )
+        throw SensitivitySettingsRestartRequired(mutation)
     }
 
     private fun extractIsfCrShadowDiffSamples(rows: List<AuditLogEntity>): List<IsfCrShadowDiffSample> {
@@ -6703,8 +14179,11 @@ class AutomationRepository(
     }
 
     private fun io.aaps.copilot.data.local.entity.ProfileEstimateEntity.toProfileEstimate(): ProfileEstimate {
-        val useCalculatedIsf = calculatedIsfMmolPerUnit != null && calculatedIsfSampleCount > 0
-        val useCalculatedCr = calculatedCrGramPerUnit != null && calculatedCrSampleCount > 0
+        val productionThresholds = ProfileEstimatorConfig()
+        val useCalculatedIsf = calculatedIsfMmolPerUnit != null &&
+            calculatedIsfSampleCount >= productionThresholds.minIsfSamples
+        val useCalculatedCr = calculatedCrGramPerUnit != null &&
+            calculatedCrSampleCount >= productionThresholds.minCrSamples
         val realFirstIsf = if (useCalculatedIsf) calculatedIsfMmolPerUnit!! else isfMmolPerUnit
         val realFirstCr = if (useCalculatedCr) calculatedCrGramPerUnit!! else crGramPerUnit
         val realFirstIsfSamples = if (useCalculatedIsf) calculatedIsfSampleCount else isfSampleCount
@@ -6785,17 +14264,6 @@ class AutomationRepository(
             valueMmol = mmol,
             source = source,
             quality = quality
-        )
-    }
-
-    private fun io.aaps.copilot.data.local.entity.TherapyEventEntity.toTherapyEvent(gson: Gson):
-        io.aaps.copilot.domain.model.TherapyEvent {
-        val mapType = object : TypeToken<Map<String, String>>() {}.type
-        val payload = gson.fromJson<Map<String, String>>(payloadJson, mapType) ?: emptyMap()
-        return io.aaps.copilot.domain.model.TherapyEvent(
-            ts = timestamp,
-            type = type,
-            payload = payload
         )
     }
 

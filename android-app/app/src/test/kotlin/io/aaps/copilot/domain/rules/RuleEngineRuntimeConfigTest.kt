@@ -2,6 +2,10 @@ package io.aaps.copilot.domain.rules
 
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.domain.model.ActionProposal
+import io.aaps.copilot.domain.model.DayType
+import io.aaps.copilot.domain.model.ProfileEstimate
+import io.aaps.copilot.domain.model.ProfileSegmentEstimate
+import io.aaps.copilot.domain.model.ProfileTimeSlot
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
 import io.aaps.copilot.domain.safety.SafetyPolicy
@@ -22,6 +26,53 @@ class RuleEngineRuntimeConfigTest {
             }
             return RuleDecision(id, state, reasons = listOf("ok"), actionProposal = action)
         }
+    }
+
+    @Test
+    fun blocksSegmentFallbackWhenSensorIsBlocked() {
+        val engine = RuleEngine(listOf(SegmentProfileGuardRule()), SafetyPolicy())
+
+        val result = engine.evaluate(
+            context = RuleContext(
+                nowTs = 1_000L,
+                glucose = emptyList(),
+                therapyEvents = emptyList(),
+                forecasts = emptyList(),
+                currentDayPattern = null,
+                baseTargetMmol = 5.5,
+                dataFresh = true,
+                activeTempTargetMmol = null,
+                actionsLast6h = 0,
+                sensorBlocked = true,
+                currentProfileEstimate = ProfileEstimate(
+                    isfMmolPerUnit = 2.0,
+                    crGramPerUnit = 10.0,
+                    confidence = 0.8,
+                    sampleCount = 20,
+                    isfSampleCount = 10,
+                    crSampleCount = 10,
+                    lookbackDays = 14
+                ),
+                currentProfileSegment = ProfileSegmentEstimate(
+                    dayType = DayType.WEEKDAY,
+                    timeSlot = ProfileTimeSlot.NIGHT,
+                    isfMmolPerUnit = 3.0,
+                    crGramPerUnit = 10.0,
+                    confidence = 0.8,
+                    isfSampleCount = 10,
+                    crSampleCount = 10,
+                    lookbackDays = 14
+                )
+            ),
+            config = SafetyPolicyConfig(killSwitch = false)
+        )
+
+        assertThat(result).hasSize(1)
+        val decision = result.single()
+        assertThat(decision.ruleId).isEqualTo("SegmentProfileGuard.v1")
+        assertThat(decision.state).isEqualTo(RuleState.BLOCKED)
+        assertThat(decision.reasons).contains("sensor_blocked")
+        assertThat(decision.actionProposal).isNull()
     }
 
     @Test

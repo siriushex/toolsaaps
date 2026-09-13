@@ -11,6 +11,7 @@ plugins {
 android {
     namespace = "io.aaps.copilot"
     compileSdk = 36
+    testBuildType = "uiTest"
 
     defaultConfig {
         applicationId = "io.aaps.predictivecopilot"
@@ -19,11 +20,16 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "io.aaps.copilot.CopilotTestRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
     buildTypes {
+        create("uiTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".uitest"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -41,6 +47,10 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
     }
 
     packaging {
@@ -89,6 +99,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
     implementation("com.squareup.okhttp3:logging-interceptor:5.3.2")
+    implementation("com.squareup.okhttp3:okhttp-tls:5.3.2")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     implementation("com.google.code.gson:gson:2.13.2")
@@ -96,12 +107,17 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("com.google.truth:truth:1.4.5")
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("androidx.room:room-testing:2.8.4")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.room:room-testing:2.8.4")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    add("uiTestImplementation", "androidx.compose.ui:ui-test-manifest")
 }

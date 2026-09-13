@@ -17,6 +17,12 @@ class AdaptiveTargetControllerRule : TargetRule {
     private var previousI: Double = 0.0
 
     @Volatile
+    private var rapidFallCandidateCycles: Int = 0
+
+    @Volatile
+    private var rapidFallCandidateGlucoseTs: Long? = null
+
+    @Volatile
     private var previousStepsCount: Double? = null
 
     @Volatile
@@ -46,9 +52,11 @@ class AdaptiveTargetControllerRule : TargetRule {
             .coerceIn(adaptiveMinTarget, MAX_TARGET_MMOL)
 
         if (!context.dataFresh) {
+            resetRapidFallConfirmation()
             return RuleDecision(id, RuleState.BLOCKED, listOf("stale_data"), null)
         }
         if (context.sensorBlocked) {
+            resetRapidFallConfirmation()
             return RuleDecision(id, RuleState.BLOCKED, listOf("sensor_blocked"), null)
         }
 
@@ -57,6 +65,7 @@ class AdaptiveTargetControllerRule : TargetRule {
         val baseRounded = roundToStep(base, TARGET_STEP_MMOL)
 
         if (activitySignal.recoveryToBase) {
+            resetRapidFallConfirmation()
             val anchor = context.activeTempTargetMmol ?: baseRounded
             if (abs(anchor - baseRounded) < TARGET_STEP_MMOL / 2.0) {
                 return RuleDecision(
@@ -90,6 +99,7 @@ class AdaptiveTargetControllerRule : TargetRule {
         }
 
         if (activitySignal.active && activitySignal.targetMmol != null) {
+            resetRapidFallConfirmation()
             val target = roundToStep(
                 activitySignal.targetMmol.coerceIn(ACTIVITY_TARGET_MIN_MMOL, ACTIVITY_TARGET_MAX_MMOL),
                 TARGET_STEP_MMOL
@@ -133,59 +143,57 @@ class AdaptiveTargetControllerRule : TargetRule {
         }
 
         val forecast5 = latestForecast(context.forecasts, 5)
-            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("missing_forecast_5m"), null)
+            ?: return missingForecast("missing_forecast_5m")
         val forecast30 = latestForecast(context.forecasts, 30)
-            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("missing_forecast_30m"), null)
+            ?: return missingForecast("missing_forecast_30m")
         val forecast60 = latestForecast(context.forecasts, 60)
-            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("missing_forecast_60m"), null)
+            ?: return missingForecast("missing_forecast_60m")
 
         val forecast5Row = latestForecastRow(context.forecasts, 5)
-            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("missing_forecast_5m"), null)
+            ?: return missingForecast("missing_forecast_5m")
         val forecast30Row = latestForecastRow(context.forecasts, 30)
-            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("missing_forecast_30m"), null)
+            ?: return missingForecast("missing_forecast_30m")
         val forecast60Row = latestForecastRow(context.forecasts, 60)
-            ?: return RuleDecision(id, RuleState.NO_MATCH, listOf("missing_forecast_60m"), null)
+            ?: return missingForecast("missing_forecast_60m")
 
-        val controllerOut = controller.evaluate(
-            AdaptiveTempTargetController.Input(
-                nowTs = context.nowTs,
-                baseTarget = context.baseTargetMmol,
-                targetMinMmol = adaptiveMinTarget,
-                targetMaxMmol = adaptiveMaxTarget,
-                currentGlucoseMmol = context.currentGlucoseMmol
-                    ?: context.glucose.maxByOrNull { it.ts }?.valueMmol,
-                observedDelta5Mmol = observedDelta5(context.glucose),
-                pred5 = forecast5,
-                pred30 = forecast30,
-                pred60 = forecast60,
-                ciLow5 = forecast5Row.ciLow,
-                ciHigh5 = forecast5Row.ciHigh,
-                ciLow30 = forecast30Row.ciLow,
-                ciHigh30 = forecast30Row.ciHigh,
-                ciLow60 = forecast60Row.ciLow,
-                ciHigh60 = forecast60Row.ciHigh,
-                uamActive = resolveUamActive(context.latestTelemetry),
-                previousTempTarget = context.activeTempTargetMmol,
-                previousI = previousI,
-                cobGrams = resolveTelemetryMetric(
-                    context.latestTelemetry,
-                    "cob_effective_grams",
-                    "cob_grams",
-                    "cob",
-                    "carbsonboard"
-                ),
-                iobUnits = resolveTelemetryMetric(
-                    context.latestTelemetry,
-                    "iob_effective_units",
-                    "iob_real_units",
-                    "iob_units",
-                    "iob",
-                    "insulinonboard"
-                )
-            )
+        val latestGlucoseTs = context.glucose.maxOfOrNull { it.ts }
+        val controllerInput = AdaptiveTempTargetController.Input(
+            nowTs = context.nowTs,
+            baseTarget = context.baseTargetMmol,
+            targetMinMmol = adaptiveMinTarget,
+            targetMaxMmol = adaptiveMaxTarget,
+            currentGlucoseMmol = context.currentGlucoseMmol
+                ?: context.glucose.maxByOrNull { it.ts }?.valueMmol,
+            observedDelta5Mmol = observedDelta5(context.glucose),
+            pred5 = forecast5,
+            pred30 = forecast30,
+            pred60 = forecast60,
+            ciLow5 = forecast5Row.ciLow,
+            ciHigh5 = forecast5Row.ciHigh,
+            ciLow30 = forecast30Row.ciLow,
+            ciHigh30 = forecast30Row.ciHigh,
+            ciLow60 = forecast60Row.ciLow,
+            ciHigh60 = forecast60Row.ciHigh,
+            uamActive = resolveUamActiveStatic(context.latestTelemetry),
+            previousTempTarget = context.activeTempTargetMmol,
+            previousI = previousI,
+            cobGrams = resolveTelemetryMetric(
+                context.latestTelemetry,
+                "cob_effective_grams",
+                "cob_grams",
+                "cob",
+                "carbsonboard"
+            ),
+            safetyIobUnits = context.safetyIobUnits,
+            rapidFallPriorConfirmedCycles = rapidFallPriorCyclesFor(latestGlucoseTs)
         )
+        val controllerOut = controller.evaluate(controllerInput)
 
         previousI = controllerOut.updatedI
+        recordRapidFallCandidate(
+            glucoseTs = latestGlucoseTs,
+            candidate = controllerOut.debugFields["rapidFallFarTermLowCandidate"] == 1.0
+        )
 
         if (abs(controllerOut.newTempTarget - base) < EPS_EQ) {
             return RuleDecision(
@@ -375,6 +383,45 @@ class AdaptiveTargetControllerRule : TargetRule {
         return ((latest.valueMmol - previous.valueMmol) / (dtMin / 5.0)).coerceIn(-1.6, 1.6)
     }
 
+    private fun rapidFallPriorCyclesFor(glucoseTs: Long?): Int {
+        val currentTs = glucoseTs ?: return 0
+        val previousTs = rapidFallCandidateGlucoseTs ?: return 0
+        val gapMs = currentTs - previousTs
+        return when {
+            gapMs < 0L -> 0
+            gapMs == 0L -> if (rapidFallCandidateCycles >= 2) rapidFallCandidateCycles else 0
+            gapMs <= RAPID_FALL_CONFIRMATION_MAX_GAP_MS -> rapidFallCandidateCycles
+            else -> 0
+        }
+    }
+
+    private fun recordRapidFallCandidate(glucoseTs: Long?, candidate: Boolean) {
+        val currentTs = glucoseTs ?: return
+        val previousTs = rapidFallCandidateGlucoseTs
+        if (previousTs != null && currentTs <= previousTs) return
+
+        val consecutive = candidate &&
+            previousTs != null &&
+            currentTs - previousTs <= RAPID_FALL_CONFIRMATION_MAX_GAP_MS &&
+            rapidFallCandidateCycles > 0
+        rapidFallCandidateCycles = when {
+            !candidate -> 0
+            consecutive -> (rapidFallCandidateCycles + 1).coerceAtMost(2)
+            else -> 1
+        }
+        rapidFallCandidateGlucoseTs = currentTs
+    }
+
+    private fun missingForecast(reason: String): RuleDecision {
+        resetRapidFallConfirmation()
+        return RuleDecision(id, RuleState.NO_MATCH, listOf(reason), null)
+    }
+
+    private fun resetRapidFallConfirmation() {
+        rapidFallCandidateCycles = 0
+        rapidFallCandidateGlucoseTs = null
+    }
+
     private fun mapActivityTarget(activityRatio: Double?, stepsDelta5: Double?): Double {
         val ratioScore = if (activityRatio != null) {
             ((activityRatio - ACTIVITY_RATIO_TRIGGER) /
@@ -404,17 +451,6 @@ class AdaptiveTargetControllerRule : TargetRule {
             .asSequence()
             .filter { it.horizonMinutes == horizon }
             .maxByOrNull { it.ts }
-    }
-
-    private fun resolveUamActive(telemetry: Map<String, Double?>): Boolean {
-        val normalized = normalizedTelemetry(telemetry)
-
-        val direct = listOf("uam_active", "uam_value", "uam_calculated_flag", "uam_detected")
-            .map { normalizeTelemetryKey(it) }
-            .firstNotNullOfOrNull { normalized[it] }
-        if (direct != null) return direct >= 0.5
-
-        return normalized.entries.any { (k, v) -> k.contains("uam") && v >= 0.5 }
     }
 
     private fun resolveTelemetryMetric(telemetry: Map<String, Double?>, vararg aliases: String): Double? {
@@ -468,6 +504,28 @@ class AdaptiveTargetControllerRule : TargetRule {
 
     companion object {
         const val RULE_ID = "AdaptiveTargetController.v1"
+
+        /** Shared deterministic mapping for activity-protection targets. */
+        fun plannedActivityTargetMmol(
+            intensity: io.aaps.copilot.domain.profile.PlannedActivityIntensity,
+            minTargetMmol: Double,
+            maxTargetMmol: Double
+        ): Double {
+            val nominal = when (intensity) {
+                io.aaps.copilot.domain.profile.PlannedActivityIntensity.LIGHT -> 7.7
+                io.aaps.copilot.domain.profile.PlannedActivityIntensity.MEDIUM -> 8.2
+                io.aaps.copilot.domain.profile.PlannedActivityIntensity.HIGH -> 8.7
+            }
+            return nominal.coerceIn(minTargetMmol, maxTargetMmol)
+        }
+
+        internal fun resolveUamActiveStatic(telemetry: Map<String, Double?>): Boolean {
+            val controlFlag = telemetry["uam_runtime_control_flag"]?.takeIf { it.isFinite() }
+            if (controlFlag != null) return controlFlag >= 0.5
+            val runtimeFlag = telemetry["uam_runtime_flag"]?.takeIf { it.isFinite() }
+            return runtimeFlag != null && runtimeFlag >= 0.5
+        }
+
         private const val MIN_TARGET_MMOL = 4.0
         private const val MAX_TARGET_MMOL = 10.0
         private const val TARGET_STEP_MMOL = 0.05
@@ -486,5 +544,6 @@ class AdaptiveTargetControllerRule : TargetRule {
         private const val ACTIVITY_END_LOW_CYCLES = 6
         private const val ACTIVITY_DT_MIN_ALLOWED_MIN = 1.0
         private const val ACTIVITY_DT_MIN_ALLOWED_MAX = 30.0
+        private const val RAPID_FALL_CONFIRMATION_MAX_GAP_MS = 6 * 60_000L
     }
 }

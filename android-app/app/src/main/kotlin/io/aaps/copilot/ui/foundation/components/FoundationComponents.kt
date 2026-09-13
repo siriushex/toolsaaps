@@ -26,8 +26,6 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -246,85 +244,65 @@ fun AppHealthBanner(
     modifier: Modifier = Modifier
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val issueIcon = when {
+        killSwitchEnabled -> Icons.Default.Error
+        staleData -> Icons.Default.Warning
+        else -> Icons.Default.CheckCircle
+    }
+    val issueText = when {
+        killSwitchEnabled -> stringResource(id = R.string.status_kill_switch)
+        staleData -> stringResource(id = R.string.status_stale_data)
+        else -> stringResource(id = R.string.status_live_data)
+    }
+    val issueTone = when {
+        killSwitchEnabled -> if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFFFB4B4) else MaterialTheme.colorScheme.error
+        staleData -> if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFFFD180) else MaterialTheme.colorScheme.tertiary
+        else -> if (midnightGlass) androidx.compose.ui.graphics.Color(0xFF8DB6FF) else MaterialTheme.colorScheme.primary
+    }
     Card(
         modifier = modifier,
-        border = if (midnightGlass) BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0x1FFFFFFF)) else null,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, issueTone.copy(alpha = if (midnightGlass) 0.38f else 0.24f)),
         colors = CardDefaults.cardColors(
-            containerColor = if (midnightGlass) androidx.compose.ui.graphics.Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface
+            containerColor = if (midnightGlass) {
+                when {
+                    killSwitchEnabled -> androidx.compose.ui.graphics.Color(0xF5321B24)
+                    staleData -> androidx.compose.ui.graphics.Color(0xF5332A18)
+                    else -> androidx.compose.ui.graphics.Color(0xF51C2D48)
+                }
+            } else {
+                when {
+                    killSwitchEnabled -> MaterialTheme.colorScheme.errorContainer
+                    staleData -> MaterialTheme.colorScheme.tertiaryContainer
+                    else -> MaterialTheme.colorScheme.surface
+                }
+            }
         ),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = AppElevation.level1)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Spacing.md),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Icon(imageVector = issueIcon, contentDescription = issueText, tint = issueTone)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = stringResource(id = R.string.app_health_title),
-                    style = MaterialTheme.typography.titleSmall,
+                    text = issueText,
+                    style = MaterialTheme.typography.labelLarge,
                     color = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                 )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    BadgedBox(
-                        badge = {
-                            Badge {
-                                Text(
-                                    text = if (staleData) {
-                                        stringResource(R.string.status_stale_short)
-                                    } else {
-                                        stringResource(R.string.status_ok_short)
-                                    }
-                                )
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (staleData) Icons.Default.Warning else Icons.Default.CheckCircle,
-                            contentDescription = if (staleData) {
-                                stringResource(R.string.status_stale_short)
-                            } else {
-                                stringResource(R.string.status_ok_short)
-                            }
-                        )
-                    }
-                    BadgedBox(
-                        badge = {
-                            Badge {
-                                Text(
-                                    text = if (killSwitchEnabled) {
-                                        stringResource(R.string.status_on_short)
-                                    } else {
-                                        stringResource(R.string.status_off_short)
-                                    }
-                                )
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (killSwitchEnabled) Icons.Default.Error else Icons.Default.CheckCircle,
-                            contentDescription = if (killSwitchEnabled) {
-                                stringResource(R.string.status_on_short)
-                            } else {
-                                stringResource(R.string.status_off_short)
-                            }
-                        )
-                    }
-                }
+                Text(
+                    text = stringResource(R.string.app_health_last_sync, lastSyncText),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFD8E2F4) else MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            Text(
-                text = stringResource(R.string.app_health_last_sync, lastSyncText),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
@@ -370,14 +348,14 @@ fun OverviewBaseTargetBanner(
         modifier = modifier,
         border = if (midnightGlass) BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0x1FFFFFFF)) else null,
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = AppElevation.level2)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Spacing.md),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -390,7 +368,7 @@ fun OverviewBaseTargetBanner(
                 ) {
                     Text(
                         text = stringResource(id = R.string.metric_base_target),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = titleTone
                     )
                     Text(
@@ -399,54 +377,41 @@ fun OverviewBaseTargetBanner(
                             UiFormatters.formatMmol(minTargetMmol, 1),
                             UiFormatters.formatMmol(maxTargetMmol, 1)
                         ),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = secondaryTone
                     )
                 }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (killSwitchEnabled) {
-                        OverviewInlineBadge(
-                            label = stringResource(id = R.string.status_kill_switch),
-                            icon = Icons.Default.Error,
-                            containerColor = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFF5A1E25) else MaterialTheme.colorScheme.errorContainer,
-                            contentColor = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFFFD0D3) else MaterialTheme.colorScheme.onErrorContainer
-                        )
+                OverviewInlineBadge(
+                    label = if (staleData) {
+                        stringResource(id = R.string.status_stale_data)
+                    } else {
+                        stringResource(id = R.string.status_live_data)
+                    },
+                    icon = if (staleData) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    containerColor = when {
+                        staleData && midnightGlass -> androidx.compose.ui.graphics.Color(0xFF46330E)
+                        staleData -> MaterialTheme.colorScheme.tertiaryContainer
+                        midnightGlass -> androidx.compose.ui.graphics.Color(0xFF17335F)
+                        else -> MaterialTheme.colorScheme.secondaryContainer
+                    },
+                    contentColor = when {
+                        staleData && midnightGlass -> androidx.compose.ui.graphics.Color(0xFFFFDE9B)
+                        staleData -> MaterialTheme.colorScheme.onTertiaryContainer
+                        midnightGlass -> androidx.compose.ui.graphics.Color(0xFFDCEBFF)
+                        else -> MaterialTheme.colorScheme.onSecondaryContainer
                     }
-                    OverviewInlineBadge(
-                        label = if (staleData) {
-                            stringResource(id = R.string.status_stale_data)
-                        } else {
-                            stringResource(id = R.string.status_live_data)
-                        },
-                        icon = if (staleData) Icons.Default.Warning else Icons.Default.CheckCircle,
-                        containerColor = when {
-                            staleData && midnightGlass -> androidx.compose.ui.graphics.Color(0xFF46330E)
-                            staleData -> MaterialTheme.colorScheme.tertiaryContainer
-                            midnightGlass -> androidx.compose.ui.graphics.Color(0xFF17335F)
-                            else -> MaterialTheme.colorScheme.secondaryContainer
-                        },
-                        contentColor = when {
-                            staleData && midnightGlass -> androidx.compose.ui.graphics.Color(0xFFFFDE9B)
-                            staleData -> MaterialTheme.colorScheme.onTertiaryContainer
-                            midnightGlass -> androidx.compose.ui.graphics.Color(0xFFDCEBFF)
-                            else -> MaterialTheme.colorScheme.onSecondaryContainer
-                        }
-                    )
-                }
+                )
             }
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = heroColor,
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, heroBorder)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -463,7 +428,7 @@ fun OverviewBaseTargetBanner(
                     Column(
                         modifier = Modifier.weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         AnimatedContent(
                             targetState = heroValue,
@@ -472,27 +437,27 @@ fun OverviewBaseTargetBanner(
                         ) { target ->
                             Text(
                                 text = target,
-                                style = LocalNumericTypography.current.valueLarge,
+                                style = LocalNumericTypography.current.valueMedium,
                                 color = titleTone
                             )
                         }
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = stringResource(id = R.string.unit_mmol_l),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = secondaryTone
                             )
                             Box(
                                 modifier = Modifier
-                                    .size(4.dp)
+                                    .size(3.dp)
                                     .background(secondaryTone.copy(alpha = 0.7f), RoundedCornerShape(999.dp))
                             )
                             Text(
                                 text = "±0.1",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = secondaryTone
                             )
                         }
@@ -508,46 +473,6 @@ fun OverviewBaseTargetBanner(
                         }
                     )
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        color = if (midnightGlass) androidx.compose.ui.graphics.Color(0x141AFFFFFF) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                        shape = RoundedCornerShape(999.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = null,
-                                tint = secondaryTone,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = stringResource(id = R.string.app_health_last_sync, lastSyncText),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = secondaryTone
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.width(Spacing.xs))
-                Text(
-                    text = "${UiFormatters.formatMmol(minTargetMmol, 1)}-${UiFormatters.formatMmol(maxTargetMmol, 1)}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = secondaryTone
-                )
             }
         }
     }
@@ -565,6 +490,7 @@ private fun OverviewTargetStepperButton(
     FilledTonalIconButton(
         onClick = onClick,
         enabled = enabled,
+        modifier = Modifier.size(42.dp),
         colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = containerColor,
             contentColor = contentColor,

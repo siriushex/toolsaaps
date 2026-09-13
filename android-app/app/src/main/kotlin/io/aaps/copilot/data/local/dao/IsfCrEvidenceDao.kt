@@ -17,4 +17,7 @@ interface IsfCrEvidenceDao {
 
     @Query("DELETE FROM isf_cr_evidence WHERE ts < :olderThan")
     suspend fun deleteOlderThan(olderThan: Long)
+
+    @Query("DELETE FROM isf_cr_evidence WHERE sampleType = :sampleType")
+    suspend fun deleteBySampleType(sampleType: String)
 }

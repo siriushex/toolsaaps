@@ -5,6 +5,8 @@ import io.aaps.copilot.domain.model.GlucosePoint
 
 object GlucoseSanitizer {
 
+    internal const val CURRENT_CAUSAL_QUERY_LIMIT = 2
+
     private const val LEGACY_INVALID_SOURCE = "local_broadcast"
     private const val LEGACY_INVALID_THRESHOLD_MMOL = 30.0
 
@@ -21,6 +23,26 @@ object GlucoseSanitizer {
                 }
             }
         return selected.values.sortedBy { it.timestamp }
+    }
+
+    internal fun selectCausalEntities(
+        samples: List<GlucoseSampleEntity>,
+        atTs: Long
+    ): CausalGlucoseSelection {
+        if (atTs < 0L) return CausalGlucoseSelection()
+        val selected = samples
+            .asSequence()
+            .filter { sample ->
+                sample.timestamp in 0L..atTs &&
+                    sample.mmol.isFinite() &&
+                    sample.mmol > 0.0 &&
+                    !isKnownInvalidQuality(sample.quality) &&
+                    !isLegacyStatusArtifact(sample)
+            }
+            .toList()
+        return CausalGlucoseSelection(
+            glucose = filterEntities(selected).takeLast(CURRENT_CAUSAL_QUERY_LIMIT)
+        )
     }
 
     fun duplicateEntityIdsToDelete(samples: List<GlucoseSampleEntity>): List<Long> {
@@ -66,6 +88,9 @@ object GlucoseSanitizer {
         point.source == LEGACY_INVALID_SOURCE && point.valueMmol >= LEGACY_INVALID_THRESHOLD_MMOL
 
     private fun shouldReplace(existing: GlucoseSampleEntity, candidate: GlucoseSampleEntity): Boolean {
+        val existingInvalid = isKnownInvalidQuality(existing.quality)
+        val candidateInvalid = isKnownInvalidQuality(candidate.quality)
+        if (existingInvalid != candidateInvalid) return existingInvalid
         val existingScore = samplePriority(existing)
         val candidateScore = samplePriority(candidate)
         return when {
@@ -82,17 +107,26 @@ object GlucoseSanitizer {
     }
 
     private fun samplePriority(sample: GlucoseSampleEntity): Int {
-        return sourcePriority(sample.source) * 10 + qualityPriority(sample.quality)
+        return clinicalPriority(sample.source, sample.quality)
     }
 
     private fun pointPriority(point: GlucosePoint): Int {
-        return sourcePriority(point.source) * 10 + qualityPriority(point.quality.name)
+        return clinicalPriority(point.source, point.quality.name)
     }
 
+    internal fun clinicalPriority(source: String, quality: String): Int =
+        sourcePriority(source) * 10 + qualityPriority(quality)
+
+    internal fun isKnownInvalidQuality(quality: String): Boolean =
+        quality.trim().uppercase() in setOf("SENSOR_ERROR", "ERROR", "INVALID")
+
+    internal fun isLegacyStatusArtifact(source: String, mmol: Double): Boolean =
+        source == LEGACY_INVALID_SOURCE && mmol >= LEGACY_INVALID_THRESHOLD_MMOL
+
     private fun qualityPriority(quality: String): Int = when (quality.uppercase()) {
-        "OK" -> 3
+        "OK", "GOOD", "VALID" -> 3
         "STALE" -> 2
-        "SENSOR_ERROR" -> 1
+        "SENSOR_ERROR", "ERROR", "INVALID" -> 1
         else -> 0
     }
 
@@ -107,4 +141,12 @@ object GlucoseSanitizer {
             else -> 20
         }
     }
+}
+
+internal data class CausalGlucoseSelection(
+    val glucose: List<GlucoseSampleEntity> = emptyList()
+) {
+    val latest: GlucoseSampleEntity? get() = glucose.lastOrNull()
+    val previous: GlucoseSampleEntity? get() = glucose.dropLast(1).lastOrNull()
+    val authorityPointTs: Long? get() = latest?.timestamp
 }

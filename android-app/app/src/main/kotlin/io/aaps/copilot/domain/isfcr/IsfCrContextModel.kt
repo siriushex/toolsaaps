@@ -31,7 +31,8 @@ class IsfCrContextModel(
         telemetry: List<TelemetrySignal>,
         tags: List<PhysioContextTag>,
         previous: IsfCrRealtimeSnapshot?,
-        settings: IsfCrSettings
+        settings: IsfCrSettings,
+        applyPreviousIsfRateLimit: Boolean = true
     ): Output {
         val latestTelemetry = telemetry
             .groupBy { normalizeKey(it.key) }
@@ -216,7 +217,7 @@ class IsfCrContextModel(
             uamPenaltyFactor
 
         val isfLimited = applyRateLimiter(
-            previous = previous?.isfEff,
+            previous = previous?.isfEff.takeIf { applyPreviousIsfRateLimit },
             candidate = isfCandidate.coerceIn(0.8, 18.0),
             maxCycleChange = 0.05
         ).coerceIn(0.8, 18.0)

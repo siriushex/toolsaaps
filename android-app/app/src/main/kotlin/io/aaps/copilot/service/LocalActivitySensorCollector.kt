@@ -16,8 +16,9 @@ import io.aaps.copilot.domain.activity.ActivityIntensity
 import io.aaps.copilot.domain.activity.LocalActivityMetricsEstimator
 import io.aaps.copilot.domain.activity.LocalActivitySnapshot
 import io.aaps.copilot.domain.activity.LocalActivityState
-import io.aaps.copilot.scheduler.WorkScheduler
+import io.aaps.copilot.domain.activity.PhysicalActivityTelemetryPolicy
 import java.util.Locale
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,10 +28,46 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+internal suspend fun persistLocalActivityClinicalInput(
+    shouldPersist: Boolean,
+    shouldInvalidate: Boolean,
+    persist: suspend () -> Boolean,
+    onClinicalInputPersisted: suspend () -> Unit
+): Boolean = persistPhysicalActivityClinicalInput(
+    shouldPersist = shouldPersist,
+    shouldInvalidate = shouldInvalidate,
+    persist = persist,
+    onClinicalInputPersisted = onClinicalInputPersisted
+)
+
+internal suspend fun persistHealthConnectActivityClinicalInput(
+    shouldPersist: Boolean,
+    persist: suspend () -> Boolean,
+    onClinicalInputPersisted: suspend () -> Unit
+): Boolean = persistPhysicalActivityClinicalInput(
+    shouldPersist = shouldPersist,
+    shouldInvalidate = true,
+    persist = persist,
+    onClinicalInputPersisted = onClinicalInputPersisted
+)
+
+private suspend fun persistPhysicalActivityClinicalInput(
+    shouldPersist: Boolean,
+    shouldInvalidate: Boolean,
+    persist: suspend () -> Boolean,
+    onClinicalInputPersisted: suspend () -> Unit
+): Boolean {
+    if (!shouldPersist) return false
+    if (!persist()) return false
+    if (shouldInvalidate) onClinicalInputPersisted()
+    return true
+}
+
 class LocalActivitySensorCollector(
     private val context: Context,
     private val db: CopilotDatabase,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val onClinicalInputPersisted: suspend () -> Unit = {}
 ) : SensorEventListener {
 
     private val appContext = context.applicationContext
@@ -44,8 +81,10 @@ class LocalActivitySensorCollector(
     private var registered = false
 
     private var state: LocalActivityState = readState()
-    private var lastPersistMinuteBucket: Long = -1L
+    private var lastPersistAtMs: Long = 0L
     private var lastPersistSteps: Double = -1.0
+    private var lastPersistActiveMinutes: Double = -1.0
+    private var lastPersistActivityRatio: Double = -1.0
     private var heartbeatJob: Job? = null
 
     private val stepCounterSensor: Sensor? by lazy {
@@ -169,40 +208,70 @@ class LocalActivitySensorCollector(
         nowTs: Long,
         force: Boolean
     ) {
-        val minuteBucket = nowTs / 60_000L
-        val shouldPersist = synchronized(stateLock) {
-            if (force) {
-                lastPersistMinuteBucket = minuteBucket
-                lastPersistSteps = snapshot.stepsToday
-                true
-            } else if (minuteBucket == lastPersistMinuteBucket && snapshot.stepsToday <= lastPersistSteps + MIN_STEP_DELTA_WITHIN_MINUTE) {
-                false
+        val decision = synchronized(stateLock) {
+            val stepsDelta = if (lastPersistSteps < 0.0) {
+                Double.MAX_VALUE
             } else {
-                lastPersistMinuteBucket = minuteBucket
+                snapshot.stepsToday - lastPersistSteps
+            }
+            val activeMinutesDelta = if (lastPersistActiveMinutes < 0.0) {
+                Double.MAX_VALUE
+            } else {
+                snapshot.activeMinutesToday - lastPersistActiveMinutes
+            }
+            val activityRatioDelta = if (lastPersistActivityRatio < 0.0) {
+                Double.MAX_VALUE
+            } else {
+                abs(snapshot.activityRatio - lastPersistActivityRatio)
+            }
+            val meaningfulChange = stepsDelta >= MIN_STEP_DELTA_TO_PERSIST ||
+                activeMinutesDelta >= MIN_ACTIVE_MINUTES_DELTA_TO_PERSIST ||
+                activityRatioDelta >= MIN_ACTIVITY_RATIO_DELTA_TO_PERSIST
+            val heartbeatDue = nowTs - lastPersistAtMs >= ACTIVITY_HEARTBEAT_INTERVAL_MS
+            if (force) {
                 lastPersistSteps = snapshot.stepsToday
-                true
+                lastPersistActiveMinutes = snapshot.activeMinutesToday
+                lastPersistActivityRatio = snapshot.activityRatio
+                lastPersistAtMs = nowTs
+                PersistDecision(shouldPersist = true, triggerAutomation = true)
+            } else if (meaningfulChange || heartbeatDue) {
+                lastPersistSteps = snapshot.stepsToday
+                lastPersistActiveMinutes = snapshot.activeMinutesToday
+                lastPersistActivityRatio = snapshot.activityRatio
+                lastPersistAtMs = nowTs
+                PersistDecision(shouldPersist = true, triggerAutomation = meaningfulChange || heartbeatDue)
+            } else {
+                PersistDecision(shouldPersist = false, triggerAutomation = false)
             }
         }
-        if (!shouldPersist) return
-
-        val payload = linkedMapOf(
-            "steps" to format(snapshot.stepsToday),
-            "distanceKm" to format(snapshot.distanceKmToday),
-            "activeMinutes" to format(snapshot.activeMinutesToday),
-            "activeCalories" to format(snapshot.activeCaloriesKcalToday),
-            "activityRatio" to format(snapshot.activityRatio),
-            "activityType" to inferActivityLabel(snapshot.activityRatio)
-        )
-        val telemetry = TelemetryMetricMapper.fromKeyValueMap(
-            timestamp = nowTs,
-            source = SOURCE,
-            values = payload
-        )
-        if (telemetry.isEmpty()) return
-
         scope.launch {
-            db.telemetryDao().upsertAll(telemetry)
-            if (force) {
+            val persisted = persistLocalActivityClinicalInput(
+                shouldPersist = decision.shouldPersist,
+                shouldInvalidate = decision.triggerAutomation,
+                persist = {
+                    val payload = linkedMapOf(
+                        "steps" to format(snapshot.stepsToday),
+                        "distanceKm" to format(snapshot.distanceKmToday),
+                        "activeMinutes" to format(snapshot.activeMinutesToday),
+                        "activeCalories" to format(snapshot.activeCaloriesKcalToday),
+                        "activityRatio" to format(snapshot.activityRatio),
+                        "activityType" to inferActivityLabel(snapshot.activityRatio)
+                    )
+                    val telemetry = TelemetryMetricMapper.fromPhysicalActivityKeyValueMap(
+                        timestamp = nowTs,
+                        source = SOURCE,
+                        values = payload
+                    )
+                    if (telemetry.persistedMetrics.isEmpty()) return@persistLocalActivityClinicalInput false
+                    db.telemetryDao().upsertPhysicalActivityMinute(telemetry.persistedMetrics)
+                    if (telemetry.labels.isNotEmpty()) {
+                        db.telemetryDao().upsertAll(telemetry.labels)
+                    }
+                    true
+                },
+                onClinicalInputPersisted = onClinicalInputPersisted
+            )
+            if (force && persisted) {
                 logInfo(
                     "local_activity_sensor_seeded",
                     mapOf(
@@ -211,9 +280,6 @@ class LocalActivitySensorCollector(
                         "activityRatio" to snapshot.activityRatio
                     )
                 )
-            }
-            if (minuteBucket % 5L == 0L || force) {
-                WorkScheduler.triggerReactiveAutomation(appContext)
             }
         }
     }
@@ -272,10 +338,18 @@ class LocalActivitySensorCollector(
         return (nextMinute - now).coerceIn(1_000L, 60_000L)
     }
 
+    private data class PersistDecision(
+        val shouldPersist: Boolean,
+        val triggerAutomation: Boolean
+    )
+
     private companion object {
         private const val PREFS_NAME = "local_activity_sensor_collector"
         private const val PREF_STATE_JSON = "state_json"
-        private const val SOURCE = "local_sensor"
-        private const val MIN_STEP_DELTA_WITHIN_MINUTE = 3.0
+        private const val SOURCE = PhysicalActivityTelemetryPolicy.LOCAL_SENSOR_SOURCE
+        private const val MIN_STEP_DELTA_TO_PERSIST = 10.0
+        private const val MIN_ACTIVE_MINUTES_DELTA_TO_PERSIST = 1.0
+        private const val MIN_ACTIVITY_RATIO_DELTA_TO_PERSIST = 0.05
+        private const val ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60_000L
     }
 }

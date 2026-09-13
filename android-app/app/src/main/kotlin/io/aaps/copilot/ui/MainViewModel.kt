@@ -3,6 +3,7 @@ package io.aaps.copilot.ui
 import android.Manifest
 import android.app.Application
 import android.content.ContentValues
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -12,19 +13,36 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.security.KeyChain
 import androidx.documentfile.provider.DocumentFile
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import io.aaps.copilot.CopilotApp
+import io.aaps.copilot.R
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.config.ClinicalAiConfigState
+import io.aaps.copilot.config.ClinicalAiEndpointPolicy
+import io.aaps.copilot.config.ClinicalAiEndpointValidation
+import io.aaps.copilot.config.ClinicalAiModelCatalog
+import io.aaps.copilot.config.ClinicalAiModelIdPolicy
+import io.aaps.copilot.config.ClinicalAiProviderConfig
+import io.aaps.copilot.config.ClinicalAiProviderId
+import io.aaps.copilot.config.OpenAiCompatibleProtocol
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.config.UamExportUiModeCommand
+import io.aaps.copilot.config.UamExportUiModePolicy
 import io.aaps.copilot.config.isCopilotCloudBackendEndpoint
 import io.aaps.copilot.config.resolvedNightscoutUrl
+import io.aaps.copilot.config.sensitivityRuntimeIdentity
+import io.aaps.copilot.data.local.TelemetrySampleSelector
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.repository.AapsAutoConnectRepository
+import io.aaps.copilot.data.repository.AapsBolusLaunchResult
+import io.aaps.copilot.data.repository.AtomicInsulinRuntimePacketContract
 import io.aaps.copilot.data.local.entity.AuditLogEntity
 import io.aaps.copilot.data.local.entity.BaselinePointEntity
 import io.aaps.copilot.data.local.entity.CircadianPatternSnapshotEntity
@@ -33,6 +51,7 @@ import io.aaps.copilot.data.local.entity.CircadianTransitionStatEntity
 import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.PatternWindowEntity
+import io.aaps.copilot.data.local.entity.PlannedActivityEventEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
 import io.aaps.copilot.data.local.entity.ProfileSegmentEstimateEntity
 import io.aaps.copilot.data.local.entity.RuleExecutionEntity
@@ -40,39 +59,132 @@ import io.aaps.copilot.data.local.entity.SyncStateEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
+import io.aaps.copilot.data.local.dao.PhysicalActivityMetricBucketProjection
 import io.aaps.copilot.data.repository.CloudAnalysisHistoryUiModel
 import io.aaps.copilot.data.repository.CloudAnalysisTrendUiModel
 import io.aaps.copilot.data.repository.CloudJobsUiModel
 import io.aaps.copilot.data.repository.CloudReplayUiModel
 import io.aaps.copilot.data.repository.CircadianReplaySummary
+import io.aaps.copilot.data.repository.ClinicalReportConfigurationChangedException
+import io.aaps.copilot.data.repository.ClinicalReportDatasetBuilder
+import io.aaps.copilot.data.repository.ClinicalOpenAiResult
+import io.aaps.copilot.data.repository.ClinicalReportRunDisposition
+import io.aaps.copilot.data.repository.ClinicalReportState
+import io.aaps.copilot.data.repository.ClinicalPdfReportIdentity
+import io.aaps.copilot.data.repository.ClinicalPdfReprepareResult
+import io.aaps.copilot.data.repository.ClinicalPdfSourceCaptureResult
+import io.aaps.copilot.data.repository.ClinicalPdfSourceLease
+import io.aaps.copilot.data.repository.ClinicalPdfSourceLeaseResult
+import io.aaps.copilot.data.repository.GlucoseAlertAudioProfiles
+import io.aaps.copilot.data.repository.GlucoseAlertAudioSlot
+import io.aaps.copilot.data.repository.GlucoseAlertBellAction
+import io.aaps.copilot.data.repository.GlucoseAlertMuteOption
+import io.aaps.copilot.data.repository.AlertsRepository
+import io.aaps.copilot.data.repository.AlertHistoryWindow
+import io.aaps.copilot.data.repository.CalibrationModelAuthority
+import io.aaps.copilot.data.repository.ManualMealSubmission
+import io.aaps.copilot.data.repository.CalibrationAuthorityStateCodec
 import io.aaps.copilot.data.repository.GlucoseSanitizer
+import io.aaps.copilot.data.repository.AcceptedCalibrationAuthority
+import io.aaps.copilot.data.repository.AcceptedSensitivityCandidateDiagnostics
+import io.aaps.copilot.data.repository.ACCEPTED_CALIBRATION_AUTHORITY_TOKEN_KEY
+import io.aaps.copilot.data.repository.ACCEPTED_CALIBRATION_MODEL_FINGERPRINT_KEY
+import io.aaps.copilot.data.repository.ACCEPTED_CALIBRATION_MODEL_ID_KEY
+import io.aaps.copilot.data.repository.ACCEPTED_CALIBRATION_PREPARED_AT_KEY
+import io.aaps.copilot.data.repository.ACCEPTED_CALIBRATION_SESSION_KEY
+import io.aaps.copilot.data.repository.ACCEPTED_CALIBRATION_NONE
+import io.aaps.copilot.data.repository.CALIBRATION_AUTHORITY_SOURCE
+import io.aaps.copilot.data.repository.CALIBRATION_AUTHORITY_TOKEN_KEY
+import io.aaps.copilot.data.repository.ForecastSnapshotResolver
 import io.aaps.copilot.data.repository.TherapySanitizer
+import io.aaps.copilot.data.repository.TargetManagerLiveStatus
+import io.aaps.copilot.config.TargetManagerTimingSetting
+import io.aaps.copilot.config.withTargetManagerTiming
+import io.aaps.copilot.data.repository.TargetManagerLiveStatusCodec
+import io.aaps.copilot.data.repository.EventTimelineRepository
+import io.aaps.copilot.data.repository.EventTimelineSources
+import io.aaps.copilot.data.repository.DeliveryTrustTelemetryValue
+import io.aaps.copilot.data.repository.deliveryDiagnosticEventsForWindow
+import io.aaps.copilot.data.repository.deliveryDiagnosticLookbackFrom
+import io.aaps.copilot.data.repository.ContextEventCommandResult
+import io.aaps.copilot.data.repository.UamExportPolicy
 import io.aaps.copilot.data.repository.AiChatAttachmentRequest
 import io.aaps.copilot.data.repository.AiChatTurn
 import io.aaps.copilot.data.repository.toDomain
-import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
+import io.aaps.copilot.domain.eating.EatingEvidencePoint
+import io.aaps.copilot.domain.eating.EatingWindowSnapshotPlanner
+import io.aaps.copilot.domain.model.BloodGlucoseCheck
 import io.aaps.copilot.domain.model.DayType
+import io.aaps.copilot.domain.model.GlucoseCalibrationModel
 import io.aaps.copilot.domain.model.PatternWindow
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.domain.isfcr.IsfCrRealtimeSnapshot
 import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
 import io.aaps.copilot.domain.isfcr.PhysioContextTag
+import io.aaps.copilot.domain.events.CompensationEvent
+import io.aaps.copilot.domain.events.CompensationEventProfilePolicy
+import io.aaps.copilot.domain.activity.PhysicalActivityBucket
+import io.aaps.copilot.domain.activity.PhysicalActivityTelemetryPolicy
+import io.aaps.copilot.domain.events.CompensationEventStatus
+import io.aaps.copilot.domain.events.CompensationEventType
+import io.aaps.copilot.domain.events.EventSeverity
+import io.aaps.copilot.domain.events.EventSource
+import io.aaps.copilot.domain.events.EventTimeline
+import io.aaps.copilot.domain.events.CompensationEventManualPolicy
 import io.aaps.copilot.domain.predict.UamInferenceState
 import io.aaps.copilot.domain.predict.BaselineComparator
+import io.aaps.copilot.domain.predict.AcceptedSensitivityTupleFreshness
 import io.aaps.copilot.domain.predict.ForecastQualityEvaluator
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
+import io.aaps.copilot.domain.predict.SensitivityResolvedSource
+import io.aaps.copilot.domain.predict.SensitivityMetricKind
+import io.aaps.copilot.domain.predict.SensitivityRuntimeConsumer
+import io.aaps.copilot.domain.predict.SensitivityRuntimeFanOut
+import io.aaps.copilot.domain.predict.SensitivityRuntimeSnapshot
+import io.aaps.copilot.domain.predict.SensitivitySourcePreference
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_CYCLE_ID_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_DIGEST_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_DECOMPOSITION_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_TIMESTAMP_KEY
+import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_SETTINGS_REVISION_KEY
 import io.aaps.copilot.domain.predict.ProfileEstimator
 import io.aaps.copilot.domain.predict.ProfileEstimatorConfig
 import io.aaps.copilot.domain.predict.TelemetrySignal
 import io.aaps.copilot.domain.predict.UamTagCodec
 import io.aaps.copilot.domain.predict.UamExportMode
+import io.aaps.copilot.domain.profile.CalorieGoalMode
+import io.aaps.copilot.domain.profile.EnergyProfilePolicy
+import io.aaps.copilot.domain.profile.EnergyProfileSettings
+import io.aaps.copilot.domain.profile.ProfileResolution
+import io.aaps.copilot.domain.profile.ProfileViolation
+import io.aaps.copilot.security.ClinicalAiCredentialStatus
+import io.aaps.copilot.security.ServerAiConnectionState
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.domain.target.BaseTargetSchedule
+import io.aaps.copilot.domain.target.BaseTargetSchedulePolicy
+import io.aaps.copilot.domain.target.CircadianAutoState
+import io.aaps.copilot.domain.target.EffectiveTargetRuntimeGates
+import io.aaps.copilot.domain.target.SensorTrustState
+import io.aaps.copilot.domain.target.DeliveryTrustStateWireCodec
+import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.scheduler.WorkScheduler
+import io.aaps.copilot.scheduler.ClinicalInputInvalidationSource
 import io.aaps.copilot.service.LocalNightscoutServiceController
+import io.aaps.copilot.service.ClinicalAiProviderCredentialState
+import io.aaps.copilot.service.LocalNightscoutIdentityResetResult
+import io.aaps.copilot.service.LocalNightscoutRuntimeReason
+import io.aaps.copilot.service.LocalNightscoutRuntimeState
+import io.aaps.copilot.service.LocalNightscoutSecretClipboard
+import io.aaps.copilot.service.LocalNightscoutUpgradeMigrationGate
 import io.aaps.copilot.service.LocalNightscoutTls
+import io.aaps.copilot.service.PowerSaveController
+import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.ui.foundation.screens.AnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.AlertsUiState
 import io.aaps.copilot.ui.foundation.screens.AiAnalysisUiState
+import io.aaps.copilot.ui.foundation.screens.AiCredentialUiState
 import io.aaps.copilot.ui.foundation.screens.AiChatAttachmentUi
 import io.aaps.copilot.ui.foundation.screens.AiChatMessageUi
 import io.aaps.copilot.ui.foundation.screens.AppHealthUiState
@@ -80,62 +192,1717 @@ import io.aaps.copilot.ui.foundation.screens.AuditItemUi
 import io.aaps.copilot.ui.foundation.screens.AuditWindowUi
 import io.aaps.copilot.ui.foundation.screens.AuditUiState
 import io.aaps.copilot.ui.foundation.screens.BaseTargetBannerUiState
+import io.aaps.copilot.ui.foundation.screens.BaseTargetSchedulePresentation
 import io.aaps.copilot.ui.foundation.screens.CircadianPatternSectionUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayBucketUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayMetricUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplaySummaryUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayWindowUi
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalReportRetryFeedbackUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiConnectionTestPhaseUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiConnectionTestUiState
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiProtocolOptionUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiProviderOptionUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiSettingsLabels
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiSettingsUiState
+import io.aaps.copilot.ui.foundation.screens.ClinicalAiSettingsValidationErrorUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalReportDisclosureUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalPdfExportTicketUi
+import io.aaps.copilot.ui.foundation.screens.ClinicalPdfExportUiState
+import io.aaps.copilot.ui.foundation.screens.ClinicalReportUiState
 import io.aaps.copilot.ui.foundation.screens.ForecastLayerState
 import io.aaps.copilot.ui.foundation.screens.ForecastRangeUi
 import io.aaps.copilot.ui.foundation.screens.ForecastUiState
 import io.aaps.copilot.ui.foundation.screens.OverviewUiState
+import io.aaps.copilot.ui.foundation.screens.MetricRuntimeAvailabilityUi
 import io.aaps.copilot.ui.foundation.screens.PhysioTagJournalItemUi
 import io.aaps.copilot.ui.foundation.screens.SafetyUiState
 import io.aaps.copilot.ui.foundation.screens.SensorLagTimelineSegmentUi
 import io.aaps.copilot.ui.foundation.screens.SettingsUiState
 import io.aaps.copilot.ui.foundation.screens.UamUiState
+import io.aaps.copilot.ui.foundation.screens.UamExportControlUi
 import io.aaps.copilot.ui.foundation.screens.toAnalyticsUiState
 import io.aaps.copilot.ui.IsfCrOverlayPointUi
+import io.aaps.copilot.ui.foundation.screens.mapClinicalReportState
 import io.aaps.copilot.ui.foundation.screens.toAiAnalysisUiState
+import io.aaps.copilot.ui.foundation.screens.withClinicalReport
 import io.aaps.copilot.ui.foundation.screens.toAppHealthUiState
 import io.aaps.copilot.ui.foundation.screens.toAuditUiState
 import io.aaps.copilot.ui.foundation.screens.toForecastUiState
 import io.aaps.copilot.ui.foundation.screens.toOverviewUiState
+import io.aaps.copilot.ui.foundation.screens.withSensitivityApplyPresentation
 import io.aaps.copilot.ui.foundation.screens.toSafetyUiState
 import io.aaps.copilot.ui.foundation.screens.toSettingsUiState
+import io.aaps.copilot.ui.foundation.screens.energyProfileSettingsUiState
 import io.aaps.copilot.ui.foundation.screens.toUamUiState
+import io.aaps.copilot.ui.foundation.screens.toUamExportControlUi
+import io.aaps.copilot.ui.foundation.screens.toClinicalReportDisclosureUi
+import io.aaps.copilot.report.ClinicalReportExportRepository
+import io.aaps.copilot.report.ClinicalPdfContentSource
+import io.aaps.copilot.storage.ClinicalPdfCopyResult
+import io.aaps.copilot.storage.ClinicalPdfReadyArtifact
+import io.aaps.copilot.storage.ClinicalPdfSharePayload
+import io.aaps.copilot.storage.ClinicalPdfShareResult
+import io.aaps.copilot.storage.ClinicalPdfStageResult
+import io.aaps.copilot.util.LocaleFriendlyDecimalParser
 import java.net.URI
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+private const val EVENT_TIMELINE_RECENT_WINDOW_MS = 24L * 60L * 60L * 1_000L
+
+internal fun Flow<Long>.shareAuthoritativeAlertMuteUntil(
+    scope: CoroutineScope
+): StateFlow<Long> = stateIn(
+    scope = scope,
+    started = SharingStarted.WhileSubscribed(5_000),
+    initialValue = 0L
+)
+
+internal data class EventTimelineWindow(val nowTs: Long, val fromTs: Long, val throughTs: Long)
+
+internal data class EventTimelineBoundaryPolicy(val includeRecent24h: Boolean = true)
+
+private data class VersionedEventTimelineWindow(val version: Long, val window: EventTimelineWindow)
+
+private sealed interface EventTimelineBoundarySignal<out T> {
+    data class Input<T>(val windowVersion: Long, val value: T) : EventTimelineBoundarySignal<T>
+    data class Boundary(val generation: Long) : EventTimelineBoundarySignal<Nothing>
+}
+
+internal fun eventTimelineWindowAt(
+    nowTs: Long,
+    pastWindowMs: Long,
+    futureWindowMs: Long
+): EventTimelineWindow {
+    require(nowTs >= 0L && pastWindowMs > 0L && futureWindowMs > 0L)
+    return EventTimelineWindow(
+        nowTs = nowTs,
+        fromTs = (nowTs - pastWindowMs).coerceAtLeast(0L),
+        throughTs = nowTs + futureWindowMs.coerceAtMost(Long.MAX_VALUE - nowTs)
+    )
+}
+
+internal fun nextEventTimelineBoundaryTs(
+    events: List<CompensationEvent>,
+    nowTs: Long,
+    policy: EventTimelineBoundaryPolicy = EventTimelineBoundaryPolicy()
+): Long? {
+    require(nowTs >= 0L)
+    var earliest: Long? = null
+    fun accept(candidate: Long?) {
+        if (candidate != null && candidate > nowTs && (earliest == null || candidate < earliest!!)) {
+            earliest = candidate
+        }
+    }
+    events.forEach { event ->
+        if (nowTs < event.startTs) {
+            accept(event.startTs)
+        } else if (event.status != CompensationEventStatus.CLOSED && nowTs < event.endTs) {
+            accept(event.endTs)
+        }
+        if (policy.includeRecent24h && event.startTs <= nowTs) {
+            accept(safeEventTimelineAdd(event.endTs, EVENT_TIMELINE_RECENT_WINDOW_MS + 1L))
+        }
+    }
+    return earliest
+}
+
+internal fun eventTimelineBoundaryDelayMs(boundaryTs: Long, nowTs: Long): Long =
+    if (boundaryTs <= nowTs) 1L else (boundaryTs - nowTs).coerceAtLeast(1L)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun acceptedSensitivityTupleUiClock(
+    generationTimestamps: Flow<Long?>,
+    targetManagerStatusTimestamps: Flow<Long?> = flowOf(null),
+    cobEvidence: Flow<Pair<Long?, Long>> = flowOf(null to 600_000L),
+    clock: () -> Long
+): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence) { generationTs, statusTs, cob ->
+    Triple(generationTs, statusTs, cob)
+}
+    .distinctUntilChanged()
+    .flatMapLatest { (generationTs, statusTs, cob) ->
+        flow {
+            var authoritativeNowTs = clock()
+            emit(authoritativeNowTs)
+            uiExpiryBoundaries(
+                nowTs = authoritativeNowTs,
+                generationTs = generationTs,
+                targetManagerStatusTs = statusTs,
+                cobEvidence = cob
+            ).forEach { boundaryTs ->
+                delay((boundaryTs - authoritativeNowTs).coerceAtLeast(1L))
+                authoritativeNowTs = max(clock(), boundaryTs)
+                emit(authoritativeNowTs)
+            }
+        }
+    }
+    .distinctUntilChanged()
+
+private fun uiExpiryBoundaries(
+    nowTs: Long,
+    generationTs: Long?,
+    targetManagerStatusTs: Long?,
+    cobEvidence: Pair<Long?, Long>
+): List<Long> = listOfNotNull(
+    uiExpiryBoundary(
+        timestamp = generationTs,
+        maxAgeMs = AcceptedSensitivityTupleFreshness.MAX_AGE_MS,
+        nowTs = nowTs
+    ),
+    uiExpiryBoundary(
+        timestamp = targetManagerStatusTs,
+        maxAgeMs = TargetManagerLiveStatusCodec.MAX_AGE_MS,
+        nowTs = nowTs
+    ),
+    uiExpiryBoundary(
+        timestamp = cobEvidence.first,
+        maxAgeMs = cobEvidence.second,
+        nowTs = nowTs
+    )
+).distinct().sorted()
+
+private fun uiExpiryBoundary(timestamp: Long?, maxAgeMs: Long, nowTs: Long): Long? {
+    timestamp ?: return null
+    val ageMs = runCatching { Math.subtractExact(nowTs, timestamp) }.getOrNull() ?: return null
+    if (ageMs !in 0L..maxAgeMs) return null
+    return runCatching { Math.addExact(timestamp, maxAgeMs + 1L) }.getOrNull()
+}
+
+private fun safeEventTimelineAdd(value: Long, increment: Long): Long? =
+    if (value < 0L || increment < 0L || value > Long.MAX_VALUE - increment) null else value + increment
+
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun <T : Any> boundaryDrivenEventTimeline(
+    inputsForWindow: (EventTimelineWindow) -> kotlinx.coroutines.flow.Flow<T>,
+    pastWindowMs: Long,
+    futureWindowMs: Long,
+    clock: () -> Long,
+    project: suspend (T, EventTimelineWindow) -> List<CompensationEvent>,
+    policy: EventTimelineBoundaryPolicy = EventTimelineBoundaryPolicy(),
+    onTimerScheduled: (Long) -> Unit = {}
+): kotlinx.coroutines.flow.Flow<EventTimeline> = channelFlow {
+    fun capturedNow(): Long = clock().coerceAtLeast(0L)
+
+    var windowVersion = 0L
+    val windows = MutableStateFlow(
+        VersionedEventTimelineWindow(
+            version = windowVersion,
+            window = eventTimelineWindowAt(capturedNow(), pastWindowMs, futureWindowMs)
+        )
+    )
+    val signals = Channel<EventTimelineBoundarySignal<T>>(capacity = 1)
+    val inputCollector = launch {
+        windows.flatMapLatest { versioned ->
+            inputsForWindow(versioned.window).map { value ->
+                EventTimelineBoundarySignal.Input(versioned.version, value)
+            }
+        }.buffer(0).collect(signals::send)
+    }
+    var latestInput: T? = null
+    var timerJob: Job? = null
+    var timerGeneration = 0L
+    var scheduledBoundaryTs: Long? = null
+
+    suspend fun projectAndSchedule(input: T, refreshWindow: Boolean) {
+        timerJob?.cancel()
+        timerGeneration += 1L
+        val nowTs = capturedNow()
+        // Continuous inputs can cancel a due timer before its signal is handled.
+        val refreshAfterProjection = refreshWindow || scheduledBoundaryTs?.let { nowTs >= it } == true
+        val window = eventTimelineWindowAt(nowTs, pastWindowMs, futureWindowMs)
+        val events = project(input, window)
+        send(EventTimeline(events = events, generatedAt = nowTs))
+        scheduledBoundaryTs = nextEventTimelineBoundaryTs(events, nowTs, policy)
+        scheduledBoundaryTs?.let { boundaryTs ->
+            val generation = timerGeneration
+            onTimerScheduled(boundaryTs)
+            timerJob = launch {
+                delay(eventTimelineBoundaryDelayMs(boundaryTs, capturedNow()))
+                signals.send(EventTimelineBoundarySignal.Boundary(generation))
+            }
+        }
+        if (refreshAfterProjection) {
+            windowVersion += 1L
+            windows.value = VersionedEventTimelineWindow(windowVersion, window)
+        }
+    }
+
+    try {
+        for (signal in signals) {
+            when (signal) {
+                is EventTimelineBoundarySignal.Input -> if (signal.windowVersion == windowVersion) {
+                    latestInput = signal.value
+                    projectAndSchedule(signal.value, refreshWindow = false)
+                }
+                is EventTimelineBoundarySignal.Boundary -> if (signal.generation == timerGeneration) {
+                    latestInput?.let { projectAndSchedule(it, refreshWindow = true) }
+                }
+            }
+        }
+    } finally {
+        timerJob?.cancel()
+        inputCollector.cancel()
+        signals.close()
+    }
+}
+
+private data class OverviewEventTimelineInputs(
+    val therapyRows: List<TherapyEventEntity>,
+    val contextTags: List<PhysioContextTag>,
+    val plannedRows: List<PlannedActivityEventEntity>,
+    val calibrationChecks: List<BloodGlucoseCheck>,
+    val activityTelemetryRows: List<PhysicalActivityMetricBucketProjection>,
+    val deliveryTelemetryRows: List<TelemetrySampleEntity>
+)
+
+private data class OverviewEventTelemetryInputs(
+    val activityRows: List<PhysicalActivityMetricBucketProjection>,
+    val deliveryRows: List<TelemetrySampleEntity>
+)
+
+private data class OverviewRuntimeContext(
+    val state: MainUiState,
+    val settings: AppSettings,
+    val timeline: EventTimeline,
+    val candidateDiagnostics: AcceptedSensitivityCandidateDiagnostics?
+)
+
+private data class TimedOverviewRuntimeContext(
+    val runtime: OverviewRuntimeContext,
+    val authoritativeNowTs: Long
+)
+
+private data class BaseTargetPresentationInput(
+    val schedule: BaseTargetSchedule,
+    val targetManagerMode: TargetManagerMode,
+    val hardMinTargetMmol: Double,
+    val hardMaxTargetMmol: Double,
+    val sensorTrust: SensorTrustState,
+    val sensorAgeHours: Double?,
+    val lowRiskLatched: Boolean,
+    val forecast5CiLowMmol: Double?,
+    val forecast30CiLowMmol: Double?,
+    val iobUnits: Double?,
+    val effectiveCobGrams: Double?,
+    val uamActive: Boolean
+)
+
+private data class SettingsUiDependencies(
+    val settings: AppSettings,
+    val credentialStatus: ClinicalAiCredentialStatus,
+    val clinicalAi: ClinicalAiSettingsUiState,
+    val energyProfile: io.aaps.copilot.ui.foundation.screens.EnergyProfileSettingsUiState
+)
+
+internal data class SensitivitySourceApplyUiState(
+    val applying: Boolean = false,
+    val pendingMetric: String? = null,
+    val pendingValue: String? = null,
+    val expectedSettingsRevision: Long? = null,
+    val expectedIsfSource: String? = null,
+    val expectedCrSource: String? = null,
+    val error: String? = null
+)
+
+internal class SensitivitySourceApplyCoordinator(
+    private val beforeAttemptRelease: suspend (Long) -> Unit = {}
+) {
+    private data class ApplyAttempt(
+        val id: Long,
+        val metricLabel: String,
+        val requestedSource: String
+    )
+
+    private data class AwaitingAcceptedIdentity(
+        val attempt: ApplyAttempt,
+        val settingsRevision: Long,
+        val isfSource: String,
+        val crSource: String
+    )
+
+    private data class TerminalFailure(
+        val attempt: ApplyAttempt,
+        val message: String
+    )
+
+    private val operationMutex = Mutex()
+    private val stateLock = Any()
+    private val attempts = linkedMapOf<Long, ApplyAttempt>()
+    private var nextAttemptId = 1L
+    private var activeAttemptId: Long? = null
+    private var awaitingAcceptedIdentity: AwaitingAcceptedIdentity? = null
+    private var terminalFailure: TerminalFailure? = null
+    private val mutableState = MutableStateFlow(SensitivitySourceApplyUiState())
+    val state: StateFlow<SensitivitySourceApplyUiState> = mutableState.asStateFlow()
+
+    suspend fun run(
+        metricLabel: String,
+        requestedSource: String,
+        operation: suspend () -> SensitivityRuntimeSnapshot
+    ): SensitivityRuntimeSnapshot {
+        val attempt = synchronized(stateLock) {
+            check(nextAttemptId != Long.MAX_VALUE) { "sensitivity apply attempt id exhausted" }
+            ApplyAttempt(
+                id = nextAttemptId++,
+                metricLabel = metricLabel,
+                requestedSource = requestedSource
+            ).also { registered ->
+                attempts[registered.id] = registered
+                reconcileStateLocked()
+            }
+        }
+        var acquired = false
+        var cancelled = false
+        var terminalError: String? = null
+        var acceptedSnapshot: SensitivityRuntimeSnapshot? = null
+        try {
+            operationMutex.lock()
+            acquired = true
+            synchronized(stateLock) {
+                check(activeAttemptId == null) { "sensitivity apply ownership overlap" }
+                check(attempts[attempt.id] == attempt) { "sensitivity apply attempt was not registered" }
+                activeAttemptId = attempt.id
+                terminalFailure = null
+                reconcileStateLocked()
+            }
+            return operation().also { acceptedSnapshot = it }
+        } catch (cancellation: CancellationException) {
+            cancelled = true
+            throw cancellation
+        } catch (error: Throwable) {
+            terminalError = error.message ?: "runtime unavailable"
+            throw error
+        } finally {
+            try {
+                if (acquired) {
+                    withContext(NonCancellable) { beforeAttemptRelease(attempt.id) }
+                }
+            } finally {
+                synchronized(stateLock) {
+                    attempts.remove(attempt.id)
+                    if (acquired) {
+                        check(activeAttemptId == attempt.id) { "sensitivity apply ownership lost" }
+                        activeAttemptId = null
+                        when {
+                            acceptedSnapshot != null -> {
+                                awaitingAcceptedIdentity = AwaitingAcceptedIdentity(
+                                    attempt = attempt,
+                                    settingsRevision = acceptedSnapshot.settingsRevision,
+                                    isfSource = acceptedSnapshot.isf.requested.name,
+                                    crSource = acceptedSnapshot.cr.requested.name
+                                )
+                                terminalFailure = null
+                            }
+                            terminalError != null -> {
+                                awaitingAcceptedIdentity = null
+                                terminalFailure = TerminalFailure(attempt, terminalError)
+                            }
+                            cancelled -> {
+                                awaitingAcceptedIdentity = null
+                                terminalFailure = null
+                            }
+                        }
+                        operationMutex.unlock()
+                    }
+                    reconcileStateLocked()
+                }
+            }
+        }
+    }
+
+    private fun reconcileStateLocked() {
+        val visibleAttempt = activeAttemptId?.let(attempts::get) ?: attempts.values.firstOrNull()
+        if (visibleAttempt != null) {
+            val expected = awaitingAcceptedIdentity
+            mutableState.value = SensitivitySourceApplyUiState(
+                applying = true,
+                pendingMetric = visibleAttempt.metricLabel,
+                pendingValue = visibleAttempt.requestedSource,
+                expectedSettingsRevision = expected?.settingsRevision,
+                expectedIsfSource = expected?.isfSource,
+                expectedCrSource = expected?.crSource
+            )
+            return
+        }
+        awaitingAcceptedIdentity?.let { expected ->
+            mutableState.value = SensitivitySourceApplyUiState(
+                applying = true,
+                pendingMetric = expected.attempt.metricLabel,
+                pendingValue = expected.attempt.requestedSource,
+                expectedSettingsRevision = expected.settingsRevision,
+                expectedIsfSource = expected.isfSource,
+                expectedCrSource = expected.crSource
+            )
+            return
+        }
+        terminalFailure?.let { failure ->
+            mutableState.value = SensitivitySourceApplyUiState(
+                pendingMetric = failure.attempt.metricLabel,
+                pendingValue = failure.attempt.requestedSource,
+                error = failure.message
+            )
+            return
+        }
+        mutableState.value = SensitivitySourceApplyUiState()
+    }
+
+    fun presentationStateForOverview(
+        overview: OverviewUiState,
+        observedState: SensitivitySourceApplyUiState = state.value
+    ): SensitivitySourceApplyUiState = synchronized(stateLock) {
+        val current = mutableState.value
+        if (current != observedState || !current.applying || attempts.isNotEmpty()) {
+            return@synchronized current
+        }
+        val expectedRevision = current.expectedSettingsRevision ?: return@synchronized current
+        val expectedIsf = current.expectedIsfSource ?: return@synchronized current
+        val expectedCr = current.expectedCrSource ?: return@synchronized current
+        val identityObserved = overview.currentIsfMmolPerUnit != null &&
+            overview.currentCrGramsPerUnit != null &&
+            overview.isfRuntime.availability == MetricRuntimeAvailabilityUi.AVAILABLE &&
+            overview.crRuntime.availability == MetricRuntimeAvailabilityUi.AVAILABLE &&
+            overview.isfRuntime.acceptedSettingsRevision == expectedRevision &&
+            overview.crRuntime.acceptedSettingsRevision == expectedRevision &&
+            overview.isfRuntime.requested.equals(expectedIsf, ignoreCase = true) &&
+            overview.crRuntime.requested.equals(expectedCr, ignoreCase = true)
+        if (!identityObserved) return@synchronized current
+
+        awaitingAcceptedIdentity = null
+        terminalFailure = null
+        current.copy(
+            applying = false,
+            expectedSettingsRevision = null,
+            expectedIsfSource = null,
+            expectedCrSource = null
+        ).also { mutableState.value = it }
+    }
+}
+
+internal fun sensitivitySourceSelection(
+    acceptedSource: String,
+    authoritativeSource: String = acceptedSource,
+    metric: String,
+    apply: SensitivitySourceApplyUiState
+): String = apply.pendingValue
+    ?.takeIf { apply.pendingMetric.equals(metric, ignoreCase = true) }
+    ?: acceptedSource.takeUnless { it.equals("UNAVAILABLE", ignoreCase = true) }
+    ?: authoritativeSource
+
+private const val MAX_CLINICAL_AI_MODEL_DRAFT_CHARS = 256
+private const val MAX_CLINICAL_AI_ENDPOINT_DRAFT_CHARS = 2_048
+
+internal data class ClinicalAiSettingsDraft(
+    val providerId: ClinicalAiProviderId,
+    val customModelSelected: Boolean,
+    val modelDraft: String,
+    val endpointDraft: String,
+    val protocol: OpenAiCompatibleProtocol
+) {
+    init {
+        require(modelDraft.length <= MAX_CLINICAL_AI_MODEL_DRAFT_CHARS)
+        require(endpointDraft.length <= MAX_CLINICAL_AI_ENDPOINT_DRAFT_CHARS)
+    }
+
+    companion object {
+        fun bounded(
+            providerId: ClinicalAiProviderId,
+            customModelSelected: Boolean,
+            modelDraft: String,
+            endpointDraft: String,
+            protocol: OpenAiCompatibleProtocol
+        ) = ClinicalAiSettingsDraft(
+            providerId = providerId,
+            customModelSelected = customModelSelected,
+            modelDraft = modelDraft.take(MAX_CLINICAL_AI_MODEL_DRAFT_CHARS),
+            endpointDraft = endpointDraft.take(MAX_CLINICAL_AI_ENDPOINT_DRAFT_CHARS),
+            protocol = protocol
+        )
+
+        fun compatible(
+            modelDraft: String,
+            endpointDraft: String,
+            protocol: OpenAiCompatibleProtocol
+        ) = bounded(
+            providerId = ClinicalAiProviderId.OPENAI_COMPATIBLE,
+            customModelSelected = true,
+            modelDraft = modelDraft,
+            endpointDraft = endpointDraft,
+            protocol = protocol
+        )
+    }
+}
+
+internal data class ClinicalAiSettingsResolution(
+    val effectiveConfig: ClinicalAiProviderConfig,
+    val selectedProvider: ClinicalAiProviderId,
+    val customModelSelected: Boolean,
+    val modelDraft: String,
+    val endpointDraft: String,
+    val protocol: OpenAiCompatibleProtocol,
+    val persistableConfig: ClinicalAiProviderConfig?,
+    val validationError: ClinicalAiSettingsValidationErrorUi?
+)
+
+internal fun selectClinicalAiNativeConfig(
+    providerId: ClinicalAiProviderId,
+    currentConfig: ClinicalAiProviderConfig
+): ClinicalAiProviderConfig {
+    require(providerId != ClinicalAiProviderId.OPENAI_COMPATIBLE)
+    val modelId = currentConfig.modelId.takeIf { current ->
+        ClinicalAiModelCatalog.forProvider(providerId).any { it.id == current }
+    } ?: ClinicalAiModelCatalog.defaultFor(providerId).id
+    return ClinicalAiProviderConfig.normalized(
+        providerId = providerId,
+        modelId = modelId
+    )
+}
+
+internal fun resolveClinicalAiSettings(
+    persistedState: ClinicalAiConfigState,
+    draft: ClinicalAiSettingsDraft?
+): ClinicalAiSettingsResolution {
+    val persistedConfig = when (persistedState) {
+        is ClinicalAiConfigState.UnconfiguredDefault -> persistedState.config
+        is ClinicalAiConfigState.Valid -> persistedState.config
+        is ClinicalAiConfigState.Invalid -> ClinicalAiProviderConfig.defaultOpenAi()
+    }
+    if (draft == null) {
+        val storedInvalid = persistedState is ClinicalAiConfigState.Invalid
+        val presets = ClinicalAiModelCatalog.forProvider(persistedConfig.providerId)
+        val custom = presets.none { it.id == persistedConfig.modelId }
+        return ClinicalAiSettingsResolution(
+            effectiveConfig = persistedConfig,
+            selectedProvider = persistedConfig.providerId,
+            customModelSelected = custom,
+            modelDraft = persistedConfig.modelId.takeIf { custom }.orEmpty(),
+            endpointDraft = persistedConfig.endpoint.orEmpty(),
+            protocol = persistedConfig.compatibleProtocol
+                ?: OpenAiCompatibleProtocol.RESPONSES,
+            persistableConfig = persistedConfig.takeUnless { storedInvalid },
+            validationError = ClinicalAiSettingsValidationErrorUi.INVALID_CONFIGURATION
+                .takeIf { storedInvalid }
+        )
+    }
+
+    if (runCatching { ClinicalAiModelIdPolicy.requireValid(draft.modelDraft) }.isFailure) {
+        return draft.invalidResolution(
+            fallback = persistedConfig,
+            error = ClinicalAiSettingsValidationErrorUi.INVALID_MODEL
+        )
+    }
+    if (draft.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE) {
+        val endpoint = ClinicalAiEndpointPolicy.validate(draft.endpointDraft)
+        if (endpoint !is ClinicalAiEndpointValidation.Valid) {
+            return draft.invalidResolution(
+                fallback = persistedConfig,
+                error = ClinicalAiSettingsValidationErrorUi.INVALID_ENDPOINT
+            )
+        }
+    }
+
+    val normalized = runCatching {
+        ClinicalAiProviderConfig.normalized(
+            providerId = draft.providerId,
+            modelId = draft.modelDraft,
+            endpoint = draft.endpointDraft.takeIf {
+                draft.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE
+            },
+            compatibleProtocol = draft.protocol.takeIf {
+                draft.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE
+            }
+        )
+    }.getOrElse {
+        return draft.invalidResolution(
+            fallback = persistedConfig,
+            error = ClinicalAiSettingsValidationErrorUi.INVALID_CONFIGURATION
+        )
+    }
+    return ClinicalAiSettingsResolution(
+        effectiveConfig = normalized,
+        selectedProvider = draft.providerId,
+        customModelSelected = draft.customModelSelected,
+        modelDraft = draft.modelDraft,
+        endpointDraft = draft.endpointDraft,
+        protocol = draft.protocol,
+        persistableConfig = normalized,
+        validationError = null
+    )
+}
+
+private fun ClinicalAiSettingsDraft.invalidResolution(
+    fallback: ClinicalAiProviderConfig,
+    error: ClinicalAiSettingsValidationErrorUi
+) = ClinicalAiSettingsResolution(
+    effectiveConfig = fallback,
+    selectedProvider = providerId,
+    customModelSelected = customModelSelected,
+    modelDraft = modelDraft,
+    endpointDraft = endpointDraft,
+    protocol = protocol,
+    persistableConfig = null,
+    validationError = error
+)
+
+internal enum class ClinicalAiRemotePreflightResult {
+    READY,
+    INVALID_CONFIGURATION,
+    PERSISTENCE_PENDING,
+    PERSISTENCE_FAILED
+}
+
+internal class ClinicalAiRemoteSendPreflight(
+    private val persistedState: suspend () -> ClinicalAiConfigState,
+    private val draftState: () -> ClinicalAiSettingsDraft?,
+    private val persistencePending: () -> Boolean,
+    private val persistenceFailed: () -> Boolean = { false }
+) {
+    suspend fun check(): ClinicalAiRemotePreflightResult {
+        val storedState = persistedState()
+        val resolution = resolveClinicalAiSettings(
+            persistedState = storedState,
+            draft = draftState()
+        )
+        if (resolution.persistableConfig == null) {
+            return ClinicalAiRemotePreflightResult.INVALID_CONFIGURATION
+        }
+        val storedConfig = when (storedState) {
+            is ClinicalAiConfigState.UnconfiguredDefault -> storedState.config
+            is ClinicalAiConfigState.Valid -> storedState.config
+            is ClinicalAiConfigState.Invalid -> null
+        }
+        if (persistenceFailed()) {
+            return ClinicalAiRemotePreflightResult.PERSISTENCE_FAILED
+        }
+        return if (
+            persistencePending() ||
+            resolution.persistableConfig != storedConfig
+        ) {
+            ClinicalAiRemotePreflightResult.PERSISTENCE_PENDING
+        } else {
+            ClinicalAiRemotePreflightResult.READY
+        }
+    }
+}
+
+internal class ClinicalReportDisclosureSendGuard(
+    private val persistedState: suspend () -> ClinicalAiConfigState,
+    private val onMismatch: () -> Unit
+) {
+    suspend fun sendIfMatches(
+        confirmedDisclosure: ClinicalReportDisclosureUi,
+        send: suspend () -> Unit
+    ): Boolean {
+        val currentDisclosure = when (val state = persistedState()) {
+            is ClinicalAiConfigState.UnconfiguredDefault -> state.config
+            is ClinicalAiConfigState.Valid -> state.config
+            is ClinicalAiConfigState.Invalid -> null
+        }?.let { config ->
+            runCatching { config.toClinicalReportDisclosureUi() }.getOrNull()
+        }
+        if (currentDisclosure != confirmedDisclosure) {
+            onMismatch()
+            return false
+        }
+        send()
+        return true
+    }
+}
+
+internal suspend fun persistClinicalAiSettingsResolution(
+    resolution: ClinicalAiSettingsResolution,
+    persist: suspend (ClinicalAiProviderConfig) -> Unit
+): Boolean {
+    val config = resolution.persistableConfig ?: return false
+    persist(config)
+    return true
+}
+
+internal enum class ClinicalAiPersistenceResult {
+    CONFIRMED,
+    FAILED,
+    STALE
+}
+
+internal data class ClinicalAiPersistenceState(
+    val version: Long = 0L,
+    val draft: ClinicalAiSettingsDraft? = null,
+    val pending: Boolean = false,
+    val saveFailed: Boolean = false
+) {
+    fun begin(
+        draft: ClinicalAiSettingsDraft,
+        persistable: Boolean
+    ): ClinicalAiPersistenceState = ClinicalAiPersistenceState(
+        version = version + 1L,
+        draft = draft,
+        pending = persistable,
+        saveFailed = this.saveFailed
+    )
+
+    fun complete(
+        version: Long,
+        result: ClinicalAiPersistenceResult
+    ): ClinicalAiPersistenceState {
+        if (version != this.version) return this
+        return when (result) {
+            ClinicalAiPersistenceResult.CONFIRMED -> copy(
+                draft = null,
+                pending = false,
+                saveFailed = false
+            )
+            ClinicalAiPersistenceResult.FAILED -> copy(
+                pending = false,
+                saveFailed = true
+            )
+            ClinicalAiPersistenceResult.STALE -> copy(pending = false)
+        }
+    }
+}
+
+internal class ClinicalAiSettingsPersistenceCoordinator {
+    private val mutex = Mutex()
+
+    suspend fun persist(
+        version: Long,
+        config: ClinicalAiProviderConfig,
+        currentVersion: () -> Long,
+        write: suspend (ClinicalAiProviderConfig) -> Unit,
+        persistedState: suspend () -> ClinicalAiConfigState
+    ): ClinicalAiPersistenceResult = mutex.withLock {
+        if (currentVersion() != version) {
+            return@withLock ClinicalAiPersistenceResult.STALE
+        }
+        try {
+            write(config)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (fatal: Error) {
+            throw fatal
+        } catch (_: Exception) {
+            return@withLock ClinicalAiPersistenceResult.FAILED
+        }
+        if (currentVersion() != version) {
+            return@withLock ClinicalAiPersistenceResult.STALE
+        }
+        val observed = try {
+            persistedState()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (fatal: Error) {
+            throw fatal
+        } catch (_: Exception) {
+            return@withLock ClinicalAiPersistenceResult.FAILED
+        }
+        if (currentVersion() != version) {
+            return@withLock ClinicalAiPersistenceResult.STALE
+        }
+        val observedConfig = when (observed) {
+            is ClinicalAiConfigState.UnconfiguredDefault -> observed.config
+            is ClinicalAiConfigState.Valid -> observed.config
+            is ClinicalAiConfigState.Invalid -> null
+        }
+        if (observedConfig == config) {
+            ClinicalAiPersistenceResult.CONFIRMED
+        } else {
+            ClinicalAiPersistenceResult.FAILED
+        }
+    }
+}
+
+internal data class ClinicalAiConnectionTestToken(
+    val generation: Long,
+    val config: ClinicalAiProviderConfig
+)
+
+internal class ClinicalAiConnectionTestGenerationGuard {
+    private var generation: Long = 0L
+
+    fun begin(config: ClinicalAiProviderConfig): ClinicalAiConnectionTestToken {
+        generation += 1L
+        return ClinicalAiConnectionTestToken(generation, config)
+    }
+
+    fun invalidate() {
+        generation += 1L
+    }
+
+    fun publishIfCurrent(
+        token: ClinicalAiConnectionTestToken,
+        currentConfig: ClinicalAiProviderConfig?,
+        value: ClinicalAiConnectionTestUiState,
+        publish: (ClinicalAiConnectionTestUiState) -> Unit
+    ): Boolean {
+        if (token.generation != generation || currentConfig != token.config) {
+            return false
+        }
+        publish(value)
+        return true
+    }
+}
+
+internal class ClinicalAiRetryStateResetGate {
+    private var lastUsable: Boolean? = null
+
+    fun shouldClear(configurationUsable: Boolean): Boolean {
+        val shouldClear = !configurationUsable && lastUsable != false
+        lastUsable = configurationUsable
+        return shouldClear
+    }
+}
+
+internal data class ClinicalReportPdfExportCoordinatorState(
+    val phase: ClinicalPdfExportUiState = ClinicalPdfExportUiState.IDLE,
+    val ticket: ClinicalPdfExportTicketUi? = null,
+    val canShare: Boolean = false,
+    val requiresReprepare: Boolean = false
+)
+
+internal fun clinicalPdfReportIdentity(state: ClinicalReportState): ClinicalPdfReportIdentity =
+    ClinicalPdfReportIdentity.from(state)
+
+internal class ClinicalReportPdfReprepareCoordinator(
+    private val currentReportIdentity: () -> ClinicalPdfReportIdentity,
+    private val claimReprepare:
+        suspend (ClinicalPdfReportIdentity) -> ClinicalPdfReprepareResult,
+    private val prepare: suspend () -> Unit
+) {
+    private val mutex = Mutex()
+
+    suspend fun reprepare() {
+        if (!mutex.tryLock()) return
+        try {
+            val reportIdentity = currentReportIdentity()
+            if (!reportIdentity.isExportable) return
+            if (
+                claimReprepare(reportIdentity) ==
+                ClinicalPdfReprepareResult.PREPARE_REQUIRED
+            ) {
+                prepare()
+            }
+        } finally {
+            mutex.unlock()
+        }
+    }
+}
+
+internal class ClinicalReportPdfExportCoordinator(
+    private val scope: CoroutineScope,
+    private val acquireSourceLease: suspend () -> ClinicalPdfSourceLeaseResult,
+    private val sourceDispatcher: CoroutineDispatcher,
+    private val stage: suspend (ClinicalPdfContentSource) -> ClinicalPdfStageResult,
+    private val copy: suspend (ClinicalPdfReadyArtifact, Any) -> ClinicalPdfCopyResult,
+    private val share: suspend (ClinicalPdfReadyArtifact) -> ClinicalPdfShareResult,
+    private val discardShare: (ClinicalPdfSharePayload) -> Unit,
+    private val currentReportIdentity: () -> ClinicalPdfReportIdentity,
+    initialReportIdentity: ClinicalPdfReportIdentity,
+    private val release: (ClinicalPdfReadyArtifact) -> Unit
+) {
+    private enum class WriteOperation { SAF, SHARE }
+
+    private sealed interface ActiveExport {
+        val id: Long
+        val identity: ClinicalPdfReportIdentity
+
+        data class Preparing(
+            override val id: Long,
+            override val identity: ClinicalPdfReportIdentity,
+            var job: Job? = null
+        ) : ActiveExport
+        data class Ready(
+            override val id: Long,
+            override val identity: ClinicalPdfReportIdentity,
+            val artifact: ClinicalPdfReadyArtifact,
+            val retryCount: Int,
+            var claimed: Boolean = false
+        ) : ActiveExport
+        data class Writing(
+            override val id: Long,
+            override val identity: ClinicalPdfReportIdentity,
+            val artifact: ClinicalPdfReadyArtifact,
+            val retryCount: Int,
+            val operation: WriteOperation,
+            var job: Job? = null
+        ) : ActiveExport
+        data class Retryable(
+            override val id: Long,
+            override val identity: ClinicalPdfReportIdentity,
+            val artifact: ClinicalPdfReadyArtifact,
+            val retryCount: Int
+        ) : ActiveExport
+    }
+
+    private val lock = Any()
+    private val mutableState = MutableStateFlow(ClinicalReportPdfExportCoordinatorState())
+    private var nextId = 0L
+    private var active: ActiveExport? = null
+    private var closed = false
+    private var observedReportIdentity = initialReportIdentity
+    private var blockedReportIdentity: ClinicalPdfReportIdentity? = null
+
+    val state: StateFlow<ClinicalReportPdfExportCoordinatorState> = mutableState.asStateFlow()
+
+    fun begin() {
+        if (!reconcileCurrentIdentity()) return
+        val reportIdentity = currentReportIdentity()
+        val preparing = synchronized(lock) {
+            if (closed) return
+            if (!reportIdentity.isExportable || observedReportIdentity != reportIdentity) return
+            if (mutableState.value.requiresReprepare) return
+            val current = active
+            if (current is ActiveExport.Retryable) {
+                if (current.identity != reportIdentity) return
+                if (current.retryCount > MAX_LOCAL_RETRIES) return
+                val id = nextTicketId() ?: return
+                val ready = ActiveExport.Ready(
+                    id = id,
+                    identity = current.identity,
+                    artifact = current.artifact,
+                    retryCount = (current.retryCount + 1).coerceAtMost(MAX_LOCAL_RETRIES)
+                )
+                active = ready
+                publishReady(ready)
+                return
+            }
+            if (current != null) return
+            val id = nextTicketId() ?: return
+            ActiveExport.Preparing(id, reportIdentity).also {
+                active = it
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.PREPARING
+                )
+            }
+        }
+        val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val ownJob = checkNotNull(currentCoroutineContext()[Job])
+            val registered = synchronized(lock) {
+                val current = active as? ActiveExport.Preparing
+                if (current?.id == preparing.id) {
+                    current.job = ownJob
+                    true
+                } else {
+                    false
+                }
+            }
+            if (!registered) return@launch
+            var lease: ClinicalPdfSourceLease? = null
+            try {
+                val acquired = acquireSourceLease()
+                if (acquired !is ClinicalPdfSourceLeaseResult.Ready) {
+                    if (!identityMatches(preparing.identity)) {
+                        onReportIdentityChanged(currentReportIdentity())
+                        return@launch
+                    }
+                    failPreparing(
+                        preparing.id,
+                        ClinicalPdfExportUiState.FAILED,
+                        requiresReprepare = true,
+                        reportIdentity = observedReportIdentity
+                    )
+                    return@launch
+                }
+                lease = acquired.lease
+                if (acquired.lease.reportIdentity != preparing.identity) {
+                    reconcileCurrentIdentity()
+                    return@launch
+                }
+                if (!identityMatches(acquired.lease.reportIdentity)) {
+                    onReportIdentityChanged(currentReportIdentity())
+                    return@launch
+                }
+                val captured = withContext(sourceDispatcher) {
+                    acquired.lease.buildSource()
+                }
+                if (captured !is ClinicalPdfSourceCaptureResult.Ready) {
+                    failPreparing(
+                        preparing.id,
+                        ClinicalPdfExportUiState.FAILED,
+                        requiresReprepare = true,
+                        reportIdentity = acquired.lease.reportIdentity
+                    )
+                    return@launch
+                }
+                val result = stage(captured.source)
+                if (!identityMatches(acquired.lease.reportIdentity)) {
+                    onReportIdentityChanged(currentReportIdentity())
+                    if (result is ClinicalPdfStageResult.Ready) release(result.artifact)
+                    return@launch
+                }
+                when (result) {
+                    is ClinicalPdfStageResult.Ready -> completePreparing(
+                        preparing.id,
+                        acquired.lease.reportIdentity,
+                        result.artifact
+                    )
+                    ClinicalPdfStageResult.TooLarge ->
+                        failPreparing(
+                            preparing.id,
+                            ClinicalPdfExportUiState.TOO_LARGE,
+                            requiresReprepare = true,
+                            reportIdentity = acquired.lease.reportIdentity
+                        )
+                    ClinicalPdfStageResult.Failed ->
+                        failPreparing(preparing.id, ClinicalPdfExportUiState.FAILED)
+                }
+            } catch (cancelled: CancellationException) {
+                cancelPreparingIfCurrent(preparing.id)
+                throw cancelled
+            } catch (_: Exception) {
+                failPreparing(preparing.id, ClinicalPdfExportUiState.FAILED)
+            } finally {
+                lease?.let { owned ->
+                    withContext(NonCancellable) {
+                        owned.close()
+                    }
+                }
+            }
+        }
+        synchronized(lock) {
+            (active as? ActiveExport.Preparing)?.takeIf { it.id == preparing.id }?.job = job
+        }
+    }
+
+    fun claimReadyTicket(ticketId: Long): Boolean {
+        if (!reconcileCurrentIdentity()) return false
+        return synchronized(lock) {
+            val ready = active as? ActiveExport.Ready ?: return@synchronized false
+            if (
+                ready.id != ticketId ||
+                ready.claimed ||
+                ready.identity != observedReportIdentity
+            ) return@synchronized false
+            ready.claimed = true
+            true
+        }
+    }
+
+    fun beginShare(onReady: (ClinicalPdfSharePayload) -> Boolean) {
+        if (!reconcileCurrentIdentity()) return
+        val writing = synchronized(lock) {
+            if (closed) return
+            val (artifact, retryCount, identity) = when (val current = active) {
+                is ActiveExport.Ready -> Triple(
+                    current.artifact,
+                    current.retryCount,
+                    current.identity
+                )
+                is ActiveExport.Retryable -> Triple(
+                    current.artifact,
+                    current.retryCount,
+                    current.identity
+                )
+                else -> return
+            }
+            if (identity != observedReportIdentity) return
+            val id = nextTicketId() ?: return
+            ActiveExport.Writing(
+                id = id,
+                identity = identity,
+                artifact = artifact,
+                retryCount = retryCount,
+                operation = WriteOperation.SHARE
+            ).also {
+                active = it
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.WRITING
+                )
+            }
+        }
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                completeSharing(writing.id, share(writing.artifact), onReady)
+            } catch (cancelled: CancellationException) {
+                cancelWritingIfCurrent(writing.id)
+                throw cancelled
+            } catch (_: Exception) {
+                completeSharing(writing.id, ClinicalPdfShareResult.Failed, onReady)
+            }
+        }
+        val registered = synchronized(lock) {
+            (active as? ActiveExport.Writing)?.takeIf { it.id == writing.id }?.let {
+                it.job = job
+                true
+            } ?: false
+        }
+        if (registered) job.start() else job.cancel()
+    }
+
+    fun onReportIdentityChanged(reportIdentity: ClinicalPdfReportIdentity) {
+        val invalidated = synchronized(lock) {
+            observedReportIdentity = reportIdentity
+            val stale = active?.takeIf {
+                it.identity != reportIdentity || !reportIdentity.isExportable
+            }
+            if (stale != null) {
+                active = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.CANCELLED
+                )
+            }
+            if (
+                !closed &&
+                mutableState.value.requiresReprepare &&
+                reportIdentity.isExportable &&
+                reportIdentity != blockedReportIdentity
+            ) {
+                blockedReportIdentity = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState()
+            }
+            stale
+        }
+        invalidated?.let(::disposeInvalidated)
+    }
+
+    fun resolvePicker(ticketId: Long, destination: Any?) {
+        if (!reconcileCurrentIdentity()) return
+        val writing = synchronized(lock) {
+            val ready = active as? ActiveExport.Ready ?: return
+            if (
+                ready.id != ticketId ||
+                !ready.claimed ||
+                ready.identity != observedReportIdentity
+            ) return
+            if (destination == null) {
+                cancelReady(ready)
+                return
+            }
+            ActiveExport.Writing(
+                id = ready.id,
+                identity = ready.identity,
+                artifact = ready.artifact,
+                retryCount = ready.retryCount,
+                operation = WriteOperation.SAF
+            ).also {
+                active = it
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.WRITING
+                )
+            }
+        }
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                completeWriting(writing.id, copy(writing.artifact, checkNotNull(destination)))
+            } catch (cancelled: CancellationException) {
+                cancelWritingIfCurrent(writing.id)
+                throw cancelled
+            } catch (_: Exception) {
+                completeWriting(writing.id, ClinicalPdfCopyResult.Failed)
+            }
+        }
+        val registered = synchronized(lock) {
+            (active as? ActiveExport.Writing)?.takeIf { it.id == writing.id }?.let {
+                it.job = job
+                true
+            } ?: false
+        }
+        if (registered) job.start() else job.cancel()
+    }
+
+    fun cancel() {
+        synchronized(lock) {
+            when (val current = active) {
+                is ActiveExport.Preparing -> current.job?.cancel()
+                is ActiveExport.Ready -> release(current.artifact)
+                is ActiveExport.Writing -> {
+                    current.job?.cancel()
+                    release(current.artifact)
+                }
+                is ActiveExport.Retryable -> release(current.artifact)
+                null -> Unit
+            }
+            active = null
+            mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                ClinicalPdfExportUiState.CANCELLED
+            )
+        }
+    }
+
+    fun close() {
+        val owned = synchronized(lock) {
+            if (closed) return
+            closed = true
+            active.also {
+                active = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.CANCELLED
+                )
+            }
+        }
+        when (owned) {
+            is ActiveExport.Preparing -> owned.job?.cancel()
+            is ActiveExport.Ready -> release(owned.artifact)
+            is ActiveExport.Writing -> {
+                owned.job?.cancel()
+                release(owned.artifact)
+            }
+            is ActiveExport.Retryable -> release(owned.artifact)
+            null -> Unit
+        }
+    }
+
+    private fun completePreparing(
+        ticketId: Long,
+        reportIdentity: ClinicalPdfReportIdentity,
+        artifact: ClinicalPdfReadyArtifact
+    ) {
+        if (!identityMatches(reportIdentity)) {
+            onReportIdentityChanged(currentReportIdentity())
+            release(artifact)
+            return
+        }
+        synchronized(lock) {
+            val preparing = active as? ActiveExport.Preparing
+            if (preparing?.id != ticketId || preparing.identity != reportIdentity) {
+                release(artifact)
+                return
+            }
+            val ready = ActiveExport.Ready(
+                ticketId,
+                reportIdentity,
+                artifact,
+                retryCount = 0
+            )
+            active = ready
+            publishReady(ready)
+        }
+    }
+
+    private fun failPreparing(
+        ticketId: Long,
+        phase: ClinicalPdfExportUiState,
+        requiresReprepare: Boolean = false,
+        reportIdentity: ClinicalPdfReportIdentity? = null
+    ) {
+        synchronized(lock) {
+            val preparing = active as? ActiveExport.Preparing ?: return
+            if (preparing.id != ticketId) return
+            active = null
+            if (requiresReprepare) blockedReportIdentity = reportIdentity
+            mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                phase = phase,
+                requiresReprepare = requiresReprepare
+            )
+        }
+    }
+
+    private fun cancelPreparingIfCurrent(ticketId: Long) {
+        synchronized(lock) {
+            val preparing = active as? ActiveExport.Preparing ?: return
+            if (preparing.id != ticketId) return
+            active = null
+            mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                ClinicalPdfExportUiState.CANCELLED
+            )
+        }
+    }
+
+    private fun completeWriting(ticketId: Long, result: ClinicalPdfCopyResult) {
+        if (!reconcileCurrentIdentity()) return
+        synchronized(lock) {
+            val writing = active as? ActiveExport.Writing ?: return
+            if (writing.id != ticketId || writing.operation != WriteOperation.SAF) return
+            if (
+                result == ClinicalPdfCopyResult.CopiedVerified ||
+                result == ClinicalPdfCopyResult.CopiedUnverifiedProvider
+            ) {
+                release(writing.artifact)
+                active = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.COMPLETE
+                )
+            } else if (writing.retryCount < MAX_LOCAL_RETRIES) {
+                active = ActiveExport.Retryable(
+                    writing.id,
+                    writing.identity,
+                    writing.artifact,
+                    writing.retryCount
+                )
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.FAILED,
+                    canShare = true
+                )
+            } else {
+                release(writing.artifact)
+                active = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.FAILED
+                )
+            }
+        }
+    }
+
+    private fun completeSharing(
+        ticketId: Long,
+        result: ClinicalPdfShareResult,
+        onReady: (ClinicalPdfSharePayload) -> Boolean
+    ) {
+        if (!reconcileCurrentIdentity()) {
+            if (result is ClinicalPdfShareResult.Ready) discardShare(result.payload)
+            return
+        }
+        if (result is ClinicalPdfShareResult.Ready) {
+            val completion = synchronized(lock) {
+                val writing = active as? ActiveExport.Writing
+                if (writing?.id != ticketId || writing.operation != WriteOperation.SHARE) {
+                    null
+                } else {
+                    val accepted = runCatching { onReady(result.payload) }.getOrDefault(false)
+                    active = null
+                    mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                        if (accepted) {
+                            ClinicalPdfExportUiState.COMPLETE
+                        } else {
+                            ClinicalPdfExportUiState.FAILED
+                        }
+                    )
+                    writing.artifact to accepted
+                }
+            }
+            if (completion?.second != true) discardShare(result.payload)
+            completion?.first?.let(release)
+            return
+        }
+        val releaseArtifact = synchronized(lock) {
+            val writing = active as? ActiveExport.Writing
+            if (writing?.id != ticketId || writing.operation != WriteOperation.SHARE) return@synchronized null
+            if (writing.retryCount < MAX_LOCAL_RETRIES) {
+                active = ActiveExport.Retryable(
+                    writing.id,
+                    writing.identity,
+                    writing.artifact,
+                    writing.retryCount + 1
+                )
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.FAILED,
+                    canShare = true
+                )
+                null
+            } else {
+                active = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.FAILED
+                )
+                writing.artifact
+            }
+        }
+        releaseArtifact?.let(release)
+    }
+
+    private fun cancelWritingIfCurrent(ticketId: Long) {
+        synchronized(lock) {
+            val writing = active as? ActiveExport.Writing ?: return
+            if (writing.id != ticketId) return
+            release(writing.artifact)
+            active = null
+            mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                ClinicalPdfExportUiState.CANCELLED
+            )
+        }
+    }
+
+    private fun cancelReady(ready: ActiveExport.Ready) {
+        if (ready.retryCount < MAX_LOCAL_RETRIES) {
+            active = ActiveExport.Retryable(
+                ready.id,
+                ready.identity,
+                ready.artifact,
+                ready.retryCount
+            )
+        } else {
+            release(ready.artifact)
+            active = null
+        }
+        mutableState.value = ClinicalReportPdfExportCoordinatorState(
+            ClinicalPdfExportUiState.CANCELLED,
+            canShare = active is ActiveExport.Retryable
+        )
+    }
+
+    private fun publishReady(ready: ActiveExport.Ready) {
+        val date = Instant.ofEpochMilli(ready.artifact.createdAt)
+            .atZone(ZoneOffset.UTC)
+            .toLocalDate()
+        mutableState.value = ClinicalReportPdfExportCoordinatorState(
+            phase = ClinicalPdfExportUiState.READY,
+            ticket = ClinicalPdfExportTicketUi(
+                id = ready.id,
+                suggestedFilename = ClinicalReportExportRepository.suggestedFilename(
+                    "aaps-copilot-clinical-report-$date"
+                )
+            ),
+            canShare = true
+        )
+    }
+
+    private fun reconcileCurrentIdentity(): Boolean {
+        val current = currentReportIdentity()
+        val invalidated = synchronized(lock) {
+            observedReportIdentity = current
+            val stale = active?.takeIf {
+                it.identity != current || !current.isExportable
+            }
+            if (stale != null) {
+                active = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                    ClinicalPdfExportUiState.CANCELLED
+                )
+            }
+            if (
+                !closed &&
+                mutableState.value.requiresReprepare &&
+                current.isExportable &&
+                current != blockedReportIdentity
+            ) {
+                blockedReportIdentity = null
+                mutableState.value = ClinicalReportPdfExportCoordinatorState()
+            }
+            stale
+        }
+        invalidated?.let(::disposeInvalidated)
+        return current.isExportable && invalidated == null
+    }
+
+    private fun identityMatches(expected: ClinicalPdfReportIdentity): Boolean {
+        val current = currentReportIdentity()
+        return current.isExportable && current == expected
+    }
+
+    private fun disposeInvalidated(export: ActiveExport) {
+        when (export) {
+            is ActiveExport.Preparing -> export.job?.cancel()
+            is ActiveExport.Ready -> release(export.artifact)
+            is ActiveExport.Writing -> {
+                export.job?.cancel()
+                release(export.artifact)
+            }
+            is ActiveExport.Retryable -> release(export.artifact)
+        }
+    }
+
+    private fun nextTicketId(): Long? {
+        if (nextId == Long.MAX_VALUE) {
+            active = null
+            mutableState.value = ClinicalReportPdfExportCoordinatorState(
+                ClinicalPdfExportUiState.FAILED
+            )
+            return null
+        }
+        nextId += 1L
+        return nextId
+    }
+
+    private companion object {
+        const val MAX_LOCAL_RETRIES = 1
+    }
+}
+
+internal fun mapClinicalAiCredentialUiState(
+    state: ClinicalAiProviderCredentialState
+): AiCredentialUiState = AiCredentialUiState(
+    configured = state.configured,
+    busy = state.busy,
+    migrationError = state.migrationFailed,
+    readError = state.readFailed,
+    legacyCleanupPending = state.legacyCleanupPending
+)
+
+internal fun ClinicalReportUiState.withClinicalAiRemoteActionsEnabled(
+    enabled: Boolean
+): ClinicalReportUiState {
+    val blockedRemoteAction =
+        !enabled && (canSend || canRequestGuardedRetry || showRetryConfirmation)
+    return copy(
+        canSend = canSend && enabled,
+        canRequestGuardedRetry = canRequestGuardedRetry && enabled,
+        showRetryConfirmation = showRetryConfirmation && enabled,
+        retryFeedback = retryFeedback.takeIf { enabled },
+        pointsToSettings = pointsToSettings || blockedRemoteAction
+    )
+}
+
+private data class ClinicalAiTransientState(
+    val persistence: ClinicalAiPersistenceState,
+    val connectionTest: ClinicalAiConnectionTestUiState
+)
+
+internal fun interface AutomaticEventAiAnalysisSettingsAction {
+    fun setAutomaticEventAiAnalysisEnabled(enabled: Boolean)
+}
+
+internal class AutomaticEventAiAnalysisSettingCommand(
+    private val scope: CoroutineScope,
+    private val updateSettings: suspend ((AppSettings) -> AppSettings) -> Unit,
+    private val onSaveFailed: () -> Unit,
+    private val launchCommand: ((suspend () -> Unit) -> Unit) = { block ->
+        scope.launch { block() }
+    }
+) : AutomaticEventAiAnalysisSettingsAction {
+    override fun setAutomaticEventAiAnalysisEnabled(enabled: Boolean) {
+        launchCommand {
+            try {
+                MainViewModel.setAutomaticEventAiAnalysisEnabled(enabled, updateSettings)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Exception) {
+                onSaveFailed()
+            }
+        }
+    }
+}
+
+class MainViewModel(application: Application) :
+    AndroidViewModel(application),
+    AutomaticEventAiAnalysisSettingsAction {
 
     private val container = (application as CopilotApp).container
     private val db = container.db
+    private val manualCarbSubmission = ManualMealSubmission(
+        sendCarbs = container.actionRepository::submitCarbs,
+        stageSelection = { command, selection, manualMealEnergyKcal ->
+            container.energyProfileRepository.stageSelectionAfterSubmittedCarbAction(
+                command = command,
+                selection = selection,
+                manualMealEnergyKcal = manualMealEnergyKcal
+            )
+        },
+        sendEatingSoon = container::submitManualEatingSoon
+    )
+    private val clinicalReportCommands = ClinicalReportUiCommands(
+        state = container.clinicalReportRepository.state,
+        clock = System::currentTimeMillis,
+        zoneId = ZoneId::systemDefault,
+        prepareLocal = { nowTs, zoneId ->
+            container.clinicalReportRepository.prepareLocal(nowTs, zoneId)
+        },
+        start = { nowTs, zoneId, force, expectedConfigIdentity ->
+            container.clinicalReportRepository.start(
+                nowTs = nowTs,
+                zoneId = zoneId,
+                force = force,
+                expectedConfigIdentity = expectedConfigIdentity
+            ).disposition
+        },
+        cancelActive = container.clinicalReportRepository::cancelActive
+    )
+    private val clinicalReportPdfReprepareCoordinator =
+        ClinicalReportPdfReprepareCoordinator(
+            currentReportIdentity = {
+                clinicalPdfReportIdentity(container.clinicalReportRepository.state.value)
+            },
+            claimReprepare =
+                container.clinicalReportRepository::claimClinicalPdfReprepare,
+            prepare = clinicalReportCommands::prepare
+        )
+    private val clinicalReportPdfExportCoordinator =
+        ClinicalReportPdfExportCoordinator(
+            scope = viewModelScope,
+            acquireSourceLease = container.clinicalReportRepository::acquireClinicalPdfSourceLease,
+            sourceDispatcher = Dispatchers.IO,
+            stage = container.clinicalPdfStorageRepository::stage,
+            copy = container.clinicalPdfStorageRepository::copyToDestination,
+            share = container.clinicalPdfShareRepository::createShare,
+            discardShare = container.clinicalPdfShareRepository::discard,
+            currentReportIdentity = {
+                clinicalPdfReportIdentity(container.clinicalReportRepository.state.value)
+            },
+            initialReportIdentity = clinicalPdfReportIdentity(
+                container.clinicalReportRepository.state.value
+            ),
+            release = container.clinicalPdfStorageRepository::release
+        )
 
     private val messageState = MutableStateFlow<String?>(null)
+    private val automaticEventAiAnalysisSettingCommand =
+        AutomaticEventAiAnalysisSettingCommand(
+            scope = viewModelScope,
+            updateSettings = container.settingsStore::update,
+            onSaveFailed = {
+                messageState.value = application.getString(
+                    R.string.settings_clinical_ai_config_save_failed
+                )
+            }
+        )
+    private val selectedAlertEpisodeId = MutableStateFlow<String?>(null)
+    private val alertsHistoryWindow = MutableStateFlow(
+        AlertHistoryWindow(fromTsInclusive = 0L, throughTsExclusive = 0L)
+    )
+    private val energyProfileValidationMessage = MutableStateFlow<String?>(null)
+    private val clinicalReportRetryConfirmationState = MutableStateFlow(false)
+    private val clinicalReportRetryFeedbackState =
+        MutableStateFlow<ClinicalReportRetryFeedbackUi?>(null)
+    private val clinicalAiPersistenceState = MutableStateFlow(ClinicalAiPersistenceState())
+    private val clinicalAiConnectionTestState =
+        MutableStateFlow(ClinicalAiConnectionTestUiState())
+    private val clinicalAiPersistenceCoordinator =
+        ClinicalAiSettingsPersistenceCoordinator()
+    private val clinicalAiConnectionTestGuard =
+        ClinicalAiConnectionTestGenerationGuard()
+    private var clinicalAiConnectionTestJob: Job? = null
+    private val clinicalAiRemotePreflight = ClinicalAiRemoteSendPreflight(
+        persistedState = {
+            container.settingsStore.settings.first().clinicalAiConfigState
+        },
+        draftState = { clinicalAiPersistenceState.value.draft },
+        persistencePending = { clinicalAiPersistenceState.value.pending },
+        persistenceFailed = { clinicalAiPersistenceState.value.saveFailed }
+    )
+    private val clinicalReportDisclosureSendGuard = ClinicalReportDisclosureSendGuard(
+        persistedState = {
+            container.settingsStore.settings.first().clinicalAiConfigState
+        },
+        onMismatch = {
+            messageState.value = getApplication<Application>().getString(
+                R.string.settings_clinical_ai_report_settings_changed
+            )
+        }
+    )
     private val dryRunState = MutableStateFlow<DryRunUi?>(null)
     private val cloudReplayState = MutableStateFlow<CloudReplayUiModel?>(null)
     private val cloudJobsState = MutableStateFlow<CloudJobsUiModel?>(null)
@@ -159,6 +1926,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val killSwitchOverrideState = MutableStateFlow<Boolean?>(null)
     private val proModeState = MutableStateFlow(false)
     private val verboseLogsState = MutableStateFlow(false)
+    private val glucoseAlertAudioPreviewState = container.glucoseAlertAudioController.playbackState
+    private val sensitivitySourceApplyCoordinator = SensitivitySourceApplyCoordinator()
+    private val sensitivitySourceApplyState = sensitivitySourceApplyCoordinator.state
     private val autoConnectState = MutableStateFlow<AutoConnectUi?>(null)
     private val qualityEvaluator = ForecastQualityEvaluator()
     private val baselineComparator = BaselineComparator()
@@ -179,22 +1949,153 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var aiRecordingFile: File? = null
     private var aiVoicePlayer: MediaPlayer? = null
     private val uiStateDispatcher = Dispatchers.Default.limitedParallelism(1)
+    private val telemetryObserveAnchorTs = System.currentTimeMillis()
+    private val eventTimelineRepository = EventTimelineRepository(container.gson)
+    private val calibrationSessionEvidence = db.telemetryDao()
+        .observeCalibrationSessionEvidence(
+            keys = CalibrationModelAuthority.SESSION_EVIDENCE_KEYS,
+            limit = CalibrationModelAuthority.SESSION_EVIDENCE_QUERY_LIMIT + 1
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val overviewEventTimeline = projectOverviewEventTimeline(
+        inputsForWindow = { window ->
+            val telemetryInputs = combine(
+                PhysicalActivityTelemetryPolicy.reportBucketWindow(
+                    window.fromTs,
+                    window.throughTs
+                ).let { activityWindow ->
+                    db.telemetryDao().observePhysicalActivityMetric5MinuteBuckets(
+                        fromTs = activityWindow.fromTs,
+                        toTsExclusive = activityWindow.toTsExclusive,
+                        firstBucketTs = activityWindow.firstBucketTs,
+                        keys = listOf(PhysicalActivityTelemetryPolicy.ACTIVITY_RATIO_KEY),
+                        sources = PhysicalActivityTelemetryPolicy.TRUSTED_SOURCES.sorted(),
+                        qualities = PhysicalActivityTelemetryPolicy.ACCEPTABLE_QUALITIES.sorted(),
+                        bucketMs = PhysicalActivityTelemetryPolicy.REPORT_BUCKET_MS
+                    )
+                },
+                db.telemetryDao().observeDeliveryTrustInWindow(
+                    stableKey = DeliveryTrustStateWireCodec.STABLE_TELEMETRY_KEY,
+                    legacyKey = DeliveryTrustStateWireCodec.LEGACY_TELEMETRY_KEY,
+                    legacySource = DeliveryTrustStateWireCodec.LEGACY_SOURCE,
+                    fromTs = deliveryDiagnosticLookbackFrom(window.fromTs),
+                    throughTs = window.throughTs
+                )
+            ) { activityRows, deliveryRows ->
+                OverviewEventTelemetryInputs(activityRows, deliveryRows)
+            }
+            combine(
+                db.therapyDao().observeLatest(limit = EVENT_TIMELINE_THERAPY_LIMIT),
+                container.isfCrRepository.observeRecentTags(sinceTs = window.fromTs),
+                db.energyProfileDao().observeAllEvents(),
+                container.glucoseCalibrationRepository.observeLatestChecks(limit = EVENT_TIMELINE_CALIBRATION_LIMIT),
+                telemetryInputs
+            ) { therapyRows, contextTags, plannedRows, calibrationChecks, telemetryRows ->
+                OverviewEventTimelineInputs(
+                    therapyRows = therapyRows,
+                    contextTags = contextTags,
+                    plannedRows = plannedRows,
+                    calibrationChecks = calibrationChecks,
+                    activityTelemetryRows = telemetryRows.activityRows,
+                    deliveryTelemetryRows = telemetryRows.deliveryRows
+                )
+            }
+        },
+        pastWindowMs = EVENT_TIMELINE_PAST_WINDOW_MS,
+        futureWindowMs = EVENT_TIMELINE_FUTURE_WINDOW_MS,
+        clock = System::currentTimeMillis,
+        gson = container.gson,
+        projectionDispatcher = uiStateDispatcher,
+        therapyRows = { it.therapyRows },
+        maxRetainedRows = EVENT_TIMELINE_THERAPY_LIMIT,
+        prepareTherapyEvent = eventTimelineRepository::prepareTherapyEvent,
+        project = { input, window, preparedTherapyEvents ->
+            val planned = eventTimelineRepository.plannedActivityEvents(
+                rows = input.plannedRows.take(EVENT_TIMELINE_PLANNED_DEFINITION_LIMIT),
+                fromTs = window.fromTs,
+                throughTs = window.throughTs,
+                statusAtTs = window.nowTs
+            )
+            val actual = eventTimelineRepository.actualActivityEventsFromBuckets(
+                input.activityTelemetryRows.map { row ->
+                    PhysicalActivityBucket(
+                        bucketTs = row.bucketTs,
+                        firstTs = row.firstTs,
+                        lastTs = row.lastTs,
+                        peakRatio = row.maxValue,
+                        meanRatio = row.meanValue,
+                        sampleCount = row.sampleCount,
+                        source = row.source,
+                        qualityEvidence = row.qualityEvidence
+                    )
+                }
+            )
+            val delivery = deliveryDiagnosticEventsForWindow(
+                rows = input.deliveryTelemetryRows.map { row ->
+                    DeliveryTrustTelemetryValue(row.timestamp, row.source, row.key, row.valueDouble)
+                },
+                fromTs = window.fromTs,
+                throughTs = window.throughTs
+            )
+            eventTimelineRepository.aggregatePreparedTherapy(
+                EventTimelineSources(
+                    contextTags = input.contextTags
+                        .filter { it.tsStart <= window.throughTs }
+                        .map(PhysioContextTag::toEventTimelineEntity),
+                    plannedActivity = planned,
+                    actualActivity = actual,
+                    calibrationEvents = eventTimelineRepository.calibrationEvents(
+                        input.calibrationChecks.filter { it.timestamp in window.fromTs..window.throughTs }
+                    ),
+                    deliveryDiagnostics = delivery
+                ),
+                preparedTherapyEvents = preparedTherapyEvents,
+                nowTs = window.nowTs
+            )
+        }
+    )
+        .conflate()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = EventTimeline(emptyList(), System.currentTimeMillis())
+        )
 
     init {
+        viewModelScope.launch {
+            container.clinicalReportRepository.state
+                .map(::clinicalPdfReportIdentity)
+                .distinctUntilChanged()
+                .collect(clinicalReportPdfExportCoordinator::onReportIdentityChanged)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            container.aapsCarbHistorySyncRepository.sync()
+        }
         runAutoConnectNow(silent = true)
         normalizeLegacyActionStatusesAsync()
+        ensureProfileAnalyticsHealthyAsync(reasonHint = "startup")
     }
 
     private val primaryUiState: StateFlow<MainUiState> = combine(
         db.glucoseDao().observeLatest(limit = PRIMARY_GLUCOSE_LATEST_LIMIT),
         db.forecastDao().observeLatest(limit = PRIMARY_FORECAST_LATEST_LIMIT),
         db.actionCommandDao().observeLatest(limit = PRIMARY_ACTION_LATEST_LIMIT),
-        db.telemetryDao().observeLatestByKeys(
+        db.telemetryDao().observeLatestByKeysSince(
             limit = PRIMARY_TELEMETRY_LATEST_LIMIT,
-            keys = PRIMARY_TELEMETRY_KEYS
+            keys = PRIMARY_TELEMETRY_KEYS,
+            since = telemetryObserveAnchorTs - PRIMARY_TELEMETRY_OBSERVE_WINDOW_MS
         ),
         db.syncStateDao().observeAll(),
-        container.settingsStore.settings
+        container.settingsStore.settings,
+        container.glucoseCalibrationRepository.observeLatestChecks(limit = BLOOD_GLUCOSE_CHECK_LATEST_LIMIT),
+        container.glucoseCalibrationRepository.observeLatestActiveModel(),
+        db.telemetryDao().observeCurrentBySourceAndKey(
+            source = CALIBRATION_AUTHORITY_SOURCE,
+            key = CALIBRATION_AUTHORITY_TOKEN_KEY
+        ),
+        container.sensitivityRuntimeRepository.current,
+        calibrationSessionEvidence
     ) { values ->
         buildPrimaryUiState(values)
     }
@@ -205,6 +2106,100 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = MainUiState()
         )
+
+    private val baseTargetPresentationState: StateFlow<BaseTargetSchedulePresentation> = combine(
+        container.settingsStore.settings,
+        primaryUiState
+    ) { settings, state ->
+        BaseTargetPresentationInput(
+            schedule = settings.baseTargetSchedule,
+            targetManagerMode = settings.targetManagerMode,
+            hardMinTargetMmol = settings.safetyMinTargetMmol,
+            hardMaxTargetMmol = settings.safetyMaxTargetMmol,
+            sensorTrust = when {
+                state.sensorQualityBlocked == true -> SensorTrustState.BLOCKED
+                state.sensorQualityScore != null &&
+                    state.sensorQualityScore!! >= TARGET_UI_TRUSTED_SENSOR_SCORE &&
+                    state.sensorQualitySuspectFalseLow != true -> SensorTrustState.TRUSTED
+                else -> SensorTrustState.WARN
+            },
+            sensorAgeHours = state.sensorAgeHours,
+            lowRiskLatched = state.targetLowRiskLatched == true,
+            forecast5CiLowMmol = state.forecast5mCiLow,
+            forecast30CiLowMmol = state.forecast30mCiLow,
+            iobUnits = state.latestIobUnits,
+            effectiveCobGrams = state.latestCobGrams,
+            uamActive = resolveBaseTargetPresentationUamActiveStatic(state)
+        )
+    }
+        .distinctUntilChanged()
+        .conflate()
+        .map(::resolveBaseTargetPresentation)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = BaseTargetSchedulePresentation(
+                schedule = BaseTargetSchedule.legacy(5.5),
+                effectiveTargetMmol = 5.5,
+                autoDeltaMmol = 0.0,
+                autoState = CircadianAutoState.OFF
+            )
+        )
+
+    private suspend fun resolveBaseTargetPresentation(
+        input: BaseTargetPresentationInput
+    ): BaseTargetSchedulePresentation {
+        val now = System.currentTimeMillis()
+        return try {
+            val effective = container.circadianTargetRepository.resolveEffectiveTarget(
+                now = now,
+                schedule = input.schedule,
+                zoneId = ZoneId.systemDefault(),
+                targetManagerMode = input.targetManagerMode,
+                hardMinTargetMmol = input.hardMinTargetMmol,
+                hardMaxTargetMmol = input.hardMaxTargetMmol,
+                gates = EffectiveTargetRuntimeGates(
+                    sensorTrust = input.sensorTrust,
+                    sensorAgeHours = input.sensorAgeHours,
+                    lowRiskLatched = input.lowRiskLatched,
+                    forecast5CiLowMmol = input.forecast5CiLowMmol,
+                    forecast30CiLowMmol = input.forecast30CiLowMmol,
+                    // Presentation-only preview; runtime lowering uses InsulinCycleContext.
+                    safetyIobUnits = input.iobUnits,
+                    effectiveCobGrams = input.effectiveCobGrams,
+                    uamActive = input.uamActive
+                )
+            )
+            BaseTargetSchedulePresentation(
+                schedule = input.schedule,
+                effectiveTargetMmol = effective.effectiveTargetMmol,
+                autoDeltaMmol = effective.autoDeltaMmol,
+                autoState = effective.state,
+                autoReason = effective.reasonCodes.joinToString(", ").takeIf { it.isNotBlank() }
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (fatal: Error) {
+            throw fatal
+        } catch (_: Throwable) {
+            val manual = BaseTargetSchedulePolicy.resolveManual(
+                schedule = input.schedule,
+                instant = Instant.ofEpochMilli(now),
+                zoneId = ZoneId.systemDefault()
+            )
+            BaseTargetSchedulePresentation(
+                schedule = input.schedule,
+                effectiveTargetMmol = manual.targetMmol,
+                autoDeltaMmol = 0.0,
+                autoState = if (input.schedule.autoEnabled) {
+                    CircadianAutoState.WAITING_DATA
+                } else {
+                    CircadianAutoState.OFF
+                },
+                autoReason = "ui_resolution_failed"
+            )
+        }
+    }
 
     val uiState: StateFlow<MainUiState> = combine(
         db.glucoseDao().observeLatest(limit = GLUCOSE_LATEST_LIMIT),
@@ -237,21 +2232,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         container.analyticsRepository.observeIsfCrSnapshot(),
         container.analyticsRepository.observeIsfCrHistory(limit = ISF_CR_HISTORY_LIMIT),
         container.isfCrRepository.observeRecentTags(sinceTs = 0L),
-        db.telemetryDao().observeLatestByKeys(
+        db.telemetryDao().observeLatestByKeysSince(
             limit = ISF_CR_HISTORY_TELEMETRY_LIMIT,
-            keys = ISFCR_HISTORY_TELEMETRY_KEYS
+            keys = ISFCR_HISTORY_TELEMETRY_KEYS,
+            since = telemetryObserveAnchorTs - ISF_CR_HISTORY_TELEMETRY_WINDOW_MS
         ),
-        db.telemetryDao().observeLatestByKeys(
+        db.telemetryDao().observeLatestByKeysSince(
             limit = AI_TUNING_TELEMETRY_LIMIT,
-            keys = AI_TUNING_TELEMETRY_KEYS
+            keys = AI_TUNING_TELEMETRY_KEYS,
+            since = telemetryObserveAnchorTs - AI_TUNING_TELEMETRY_WINDOW_MS
         ),
-        db.telemetryDao().observeLatestByKeys(
+        db.telemetryDao().observeLatestByKeysSince(
             limit = SENSOR_LAG_HISTORY_TELEMETRY_LIMIT,
-            keys = SENSOR_LAG_HISTORY_TELEMETRY_KEYS
+            keys = SENSOR_LAG_HISTORY_TELEMETRY_KEYS,
+            since = telemetryObserveAnchorTs - SENSOR_LAG_HISTORY_TELEMETRY_WINDOW_MS
+        ),
+        container.glucoseCalibrationRepository.observeLatestChecks(limit = BLOOD_GLUCOSE_CHECK_LATEST_LIMIT),
+        container.glucoseCalibrationRepository.observeLatestActiveModel(),
+        db.telemetryDao().observeCurrentBySourceAndKey(
+            source = CALIBRATION_AUTHORITY_SOURCE,
+            key = CALIBRATION_AUTHORITY_TOKEN_KEY
         ),
         db.glucoseDao().observeMinTimestamp(),
         db.glucoseDao().observeMaxTimestamp(),
-        activeRouteState
+        activeRouteState,
+        container.sensitivityRuntimeRepository.current,
+        calibrationSessionEvidence
     ) { values ->
         buildMainUiState(values)
     }
@@ -263,17 +2269,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = MainUiState()
     )
 
-    private fun buildMainUiState(values: Array<Any?>): MainUiState {
+    private suspend fun buildMainUiState(values: Array<Any?>): MainUiState {
         @Suppress("UNCHECKED_CAST")
-        val glucose = GlucoseSanitizer.filterEntities(values[0] as List<GlucoseSampleEntity>)
+        val rawGlucose = values[0] as List<GlucoseSampleEntity>
+        val glucose = GlucoseSanitizer.filterEntities(rawGlucose)
         @Suppress("UNCHECKED_CAST")
         val therapy = TherapySanitizer.filterEntities(values[1] as List<TherapyEventEntity>)
         @Suppress("UNCHECKED_CAST")
         val forecasts = values[2] as List<ForecastEntity>
-        val latestForecastByHorizon = ForecastSnapshotResolver.resolveLatestByHorizon(forecasts)
-        val latestForecast5Row = latestForecastByHorizon[5]
-        val latestForecast30Row = latestForecastByHorizon[30]
-        val latestForecast60Row = latestForecastByHorizon[60]
         @Suppress("UNCHECKED_CAST")
         val baseline = values[3] as List<BaselinePointEntity>
         @Suppress("UNCHECKED_CAST")
@@ -323,21 +2326,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val aiTuningTelemetry = values[31] as List<TelemetrySampleEntity>
         @Suppress("UNCHECKED_CAST")
         val sensorLagTelemetryHistory = values[32] as List<TelemetrySampleEntity>
-        val glucoseMinTs = values[33] as Long?
-        val glucoseMaxTs = values[34] as Long?
-        val activeRoute = values[35] as String
+        @Suppress("UNCHECKED_CAST")
+        val bloodChecks = values[33] as List<BloodGlucoseCheck>
+        val activeCalibrationModel = values[34] as GlucoseCalibrationModel?
+        val calibrationAuthorityTokenRow = values[35] as TelemetrySampleEntity?
+        val glucoseMinTs = values[36] as Long?
+        val glucoseMaxTs = values[37] as Long?
+        val activeRoute = values[38] as String
+        val sensitivityRuntime = values[39] as SensitivityRuntimeSnapshot?
         val analyticsDetailRequested = activeRoute == ROUTE_ANALYTICS
         val reportAnalyticsRequested = activeRoute == ROUTE_ANALYTICS || activeRoute == ROUTE_AI_ANALYSIS
+        val now = System.currentTimeMillis()
+        val eventTimeline = EventTimelineRepository().aggregate(
+            EventTimelineSources(
+                therapyEvents = TherapySanitizer.toDomainEvents(therapy, container.gson),
+                contextTags = physioTags.map { tag ->
+                    tag.toEventTimelineEntity()
+                }
+            ),
+            nowTs = now
+        )
 
         val sortedGlucose = glucose.sortedBy { it.timestamp }
-        val latest = sortedGlucose.lastOrNull()
-        val prev = sortedGlucose.dropLast(1).lastOrNull()
+        val currentGlucose = selectOverviewCurrentGlucoseForUi(rawGlucose, now)
+        val latest = currentGlucose.latest
+        val prev = currentGlucose.previous
         val quality = qualityEvaluator.evaluate(forecasts, glucose)
         val baselineDeltas = baselineComparator.compare(
             forecasts = forecasts.map { it.toDomainForecast() },
             baseline = baseline
         )
-        val now = System.currentTimeMillis()
         val aiDataCoverageHours = computeAiCoverageHours(
             oldestTs = glucoseMinTs,
             latestTs = glucoseMaxTs,
@@ -391,13 +2409,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             audits = audits,
             nowTs = now
         )
+        val localNightscoutRuntime = LocalNightscoutRuntimeState.value
         val transportStatusLines = buildList {
             val effectiveNightscoutUrl = settings.resolvedNightscoutUrl()
             add(
-                "Local Nightscout emulator: " + if (settings.localNightscoutEnabled) {
-                    "enabled (https://127.0.0.1:${settings.localNightscoutPort})"
+                "Local Nightscout configuration: " + if (settings.localNightscoutEnabled) {
+                    "configured; runtime=${localNightscoutRuntime.status.name}; " +
+                        "exactPort=${settings.localNightscoutPort}"
                 } else {
-                    "disabled"
+                    "disabled; runtime=${localNightscoutRuntime.status.name}"
                 }
             )
             add(
@@ -549,7 +2569,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             emptyList()
         }
-        val telemetryByKey = latestTelemetryByKey(telemetry, nowTs = now)
+        val telemetryByKey = mergeAtomicInsulinRuntimeTelemetryForUi(
+            latestByKey = latestTelemetryByKey(telemetry, nowTs = now),
+            samples = telemetry
+        ).toMutableMap()
         val aiTuningTelemetryByKey = latestTelemetryByKey(aiTuningTelemetry, nowTs = now)
         val aiTuningStatus = resolveAiTuningStatus(
             telemetryByKey = aiTuningTelemetryByKey,
@@ -578,20 +2601,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             latestByKey = telemetryByKey
         )
         val actionLines = buildActionLines(actionCommands)
-        val glucoseHistoryPoints = sortedGlucose
-            .filter { it.timestamp >= now - 24 * 60 * 60_000L }
-            .map { GlucoseHistoryRowUi(timestamp = it.timestamp, valueMmol = it.mmol) }
-        val forecast5Latest = latestForecast5Row?.valueMmol ?: latestForecastValue(forecasts, 5)
-        val forecast30Latest = latestForecast30Row?.valueMmol ?: latestForecastValue(forecasts, 30)
-        val forecast60Latest = latestForecast60Row?.valueMmol ?: latestForecastValue(forecasts, 60)
+        val glucoseHistoryPoints = buildGlucoseHistoryPointsForUi(sortedGlucose, nowTs = now)
+        val currentCalibrationAuthorityForUi = loadUiCalibrationAuthority(
+            db = db,
+            nowTs = now,
+            observedAuthorityToken = calibrationAuthorityTokenRow?.valueText
+        )
+        val currentCalibrationModelForUi = currentCalibrationAuthorityForUi.activeModel
+        val acceptedForecastTuple = ForecastSnapshotResolver.resolveAcceptedTuple(
+            forecasts = forecasts,
+            telemetry = telemetry,
+            snapshot = sensitivityRuntime,
+            currentSettings = settings.sensitivityRuntimeIdentity(),
+            authoritativeNowTs = now,
+            calibrationAuthority = AcceptedCalibrationAuthority(
+                activeModel = currentCalibrationModelForUi,
+                authorityToken = calibrationAuthorityTokenRow
+                    ?.valueText?.takeIf(String::isNotBlank) ?: ACCEPTED_CALIBRATION_NONE,
+                currentSessionKey = currentCalibrationAuthorityForUi.currentSessionKey,
+                contextValid = currentCalibrationAuthorityForUi.contextValid
+            )
+        )
+        val latestForecast5Row = acceptedForecastTuple.forecastsByHorizon[5]
+        val latestForecast30Row = acceptedForecastTuple.forecastsByHorizon[30]
+        val latestForecast60Row = acceptedForecastTuple.forecastsByHorizon[60]
+        val forecast5Latest = latestForecast5Row?.valueMmol
+        val forecast30Latest = latestForecast30Row?.valueMmol
+        val forecast60Latest = latestForecast60Row?.valueMmol
         val forecast5CiLow = latestForecast5Row?.ciLow
         val forecast5CiHigh = latestForecast5Row?.ciHigh
         val forecast30CiLow = latestForecast30Row?.ciLow
         val forecast30CiHigh = latestForecast30Row?.ciHigh
         val forecast60CiLow = latestForecast60Row?.ciLow
         val forecast60CiHigh = latestForecast60Row?.ciHigh
-        val latestIobUnits = telemetryByKey["iob_units"].toNumericValue()
-        val latestIobRealUnits = telemetryByKey["iob_real_units"].toNumericValue()
+        val latestIobUnits = resolveEffectivePositiveIobForUi(telemetryByKey)
+            ?.coerceIn(0.0, 60.0)
+        val latestIobRealUnits = resolveMetricByRecency(
+            preferred = telemetryByKey["iob_net_units"],
+            fallback = telemetryByKey["iob_real_units"]
+        )
+        val latestIobBolusUnits = telemetryByKey["iob_bolus_units"].toNumericValue()
+        val latestIobBasalUnits = telemetryByKey["iob_basal_units"].toNumericValue()
+        val latestInsulinActivity = telemetryByKey["insulin_activity"].toNumericValue()
+        val latestIobRuntimeSource = telemetryByKey["iob_runtime_source"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val latestIobRuntimeConfidence = telemetryByKey["iob_runtime_confidence"].toNumericValue()
+        val latestIobRuntimeTimestamp = telemetryByKey["iob_runtime_timestamp_ms"]
+            .toNumericValue()?.toLong()?.takeIf { it > 0L }
+        val latestIobEvidenceTimestamp = telemetryByKey["iob_runtime_evidence_timestamp_ms"]
+            .toNumericValue()?.toLong()?.takeIf { it > 0L }
+        val latestIobTherapyCoverage = telemetryByKey["iob_runtime_therapy_coverage"].toNumericValue()
+        val latestIobRuntimeFallbackReason = telemetryByKey["iob_runtime_fallback_reason"]
+            ?.valueText?.trim()?.takeIf { it.isNotBlank() }
         val latestCobGrams = resolveMetricByRecency(
             preferred = telemetryByKey["cob_effective_grams"],
             fallback = telemetryByKey["cob_grams"]
@@ -642,7 +2702,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val calculatedUamDelta5 = telemetryByKey["uam_calculated_delta5_mmol"].toNumericValue()
         val calculatedUamRise15 = telemetryByKey["uam_calculated_rise15_mmol"].toNumericValue()
         val calculatedUamRise30 = telemetryByKey["uam_calculated_rise30_mmol"].toNumericValue()
-        val uci0Mmol5m = telemetryByKey["uam_uci0_mmol5"].toNumericValue() ?: calculatedUamDelta5
+        val uci0Mmol5m = resolveUiUamImpactStatic(
+            telemetryByKey["uam_runtime_impact_mmol5"].toNumericValue()
+        )
         val inferredUamFlag = telemetryByKey["uam_inferred_flag"].toNumericValue()
         val inferredUamConfidence = telemetryByKey["uam_inferred_confidence"].toNumericValue()
         val inferredUamCarbs = telemetryByKey["uam_inferred_carbs_grams"].toNumericValue()
@@ -650,6 +2712,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val inferredUamBoostMode = telemetryByKey["uam_inferred_boost_mode"].toNumericValue()
         val inferredUamManualCob = telemetryByKey["uam_manual_cob_grams"].toNumericValue()
         val inferredUamLastGAbs = telemetryByKey["uam_inferred_gabs_last5_g"].toNumericValue()
+        val uamRuntime = resolveFullUiUamRuntimeSnapshotStatic(
+            telemetryByKey = telemetryByKey,
+            nowTs = now,
+            acceptedCycleId = acceptedForecastTuple.sensitivity?.forecastCycleId
+        )
         val dailyReportBundle = if (reportAnalyticsRequested) {
             buildDailyReportBundle(telemetryByKey)
         } else {
@@ -660,14 +2727,107 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sensorQualityReason = telemetryByKey["sensor_quality_reason"]?.valueText
         val sensorQualitySuspectFalseLow = telemetryByKey["sensor_quality_suspect_false_low"].toNumericValue()
             ?.let { it >= 0.5 }
+        val targetLowRiskLatched = telemetryByKey["target_low_risk_latched"].toNumericValue()
+            ?.let { it >= 0.5 }
         val correctedGlucoseMmol = telemetryByKey["sensor_lag_corrected_glucose_mmol"].toNumericValue()
+        val rawGlucoseMmol = latest?.mmol
+        val calibrationModelForUi = resolveOverviewCalibrationModelForUi(
+            acceptedTuple = acceptedForecastTuple,
+            currentModel = currentCalibrationModelForUi
+        )
+        val calibrationTelemetrySourceTs = telemetryByKey["glucose_calibration_source_ts"]
+            .toNumericValue()
+            ?.toLong()
+        val calibratedGlucoseMmol = resolveUiCalibratedGlucose(
+            pointTs = latest?.timestamp,
+            rawMmol = rawGlucoseMmol,
+            telemetryCalibratedMmol = telemetryByKey["glucose_calibrated_mmol"].toNumericValue(),
+            telemetryCalibrationSourceTs = calibrationTelemetrySourceTs,
+            activeModel = calibrationModelForUi
+        )
+        val calibrationGain = calibrationModelForUi?.gain
+        val calibrationOffsetMmol = calibrationModelForUi?.offsetMmol
+        val calibrationConfidence = calibrationModelForUi?.confidence
+        val calibrationLastCheckAgeMinutes = telemetryByKey["glucose_calibration_last_check_age_minutes"].toNumericValue()
+            ?: bloodChecks.firstOrNull()?.timestamp?.let { checkTs ->
+                ((now - checkTs).coerceAtLeast(0L)) / 60_000.0
+            }
+        val calibrationModelType = calibrationModelForUi?.modelType?.name
+        val calibrationStatus = calibrationModelForUi?.status?.name
+        val glucoseAlertState = telemetryByKey["glucose_alert_state"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val glucoseAlertDirection = telemetryByKey["glucose_alert_direction"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val glucoseAlertDisableReason = telemetryByKey["glucose_alert_disable_reason"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val glucoseAlertSoftActive = telemetryByKey["glucose_alert_soft_active"].toNumericValue()?.let { it >= 0.5 }
+        val glucoseAlertStrongActive = telemetryByKey["glucose_alert_strong_active"].toNumericValue()?.let { it >= 0.5 }
+        val glucoseAlertSoftLastTs = telemetryByKey["glucose_alert_soft_last_ts"].toNumericValue()?.toLong()
+        val glucoseAlertStrongLastTs = telemetryByKey["glucose_alert_strong_last_ts"].toNumericValue()?.toLong()
+        val glucoseAlertPred30 = telemetryByKey["glucose_alert_pred30"].toNumericValue()
+        val glucoseAlertCiLow30 = telemetryByKey["glucose_alert_ci_low30"].toNumericValue()
+        val glucoseAlertCiHigh30 = telemetryByKey["glucose_alert_ci_high30"].toNumericValue()
+        val glucoseAlertLowThreshold = telemetryByKey["glucose_alert_low_threshold"].toNumericValue()
+        val glucoseAlertHighThreshold = telemetryByKey["glucose_alert_high_threshold"].toNumericValue()
+        val glucoseAlertUrgentLowThreshold = telemetryByKey["glucose_alert_urgent_low_threshold"].toNumericValue()
         val sensorLagMinutes = telemetryByKey["sensor_lag_minutes"].toNumericValue()
-        val sensorAgeHours = telemetryByKey["sensor_lag_age_hours"].toNumericValue()
+        val sensorAgeHours = telemetryByKey["sensor_age_hours"].toNumericValue()
+            ?: telemetryByKey["sensor_lag_age_hours"].toNumericValue()
         val sensorAgeSource = telemetryByKey["sensor_lag_age_source"]
             ?.valueText
             ?.trim()
             ?.takeIf { it.isNotBlank() }
         val sensorLagConfidence = telemetryByKey["sensor_lag_confidence"].toNumericValue()
+        val sensorLagWearBucket = telemetryByKey["sensor_lag_wear_bucket"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val sensorLagSourceConfidence = telemetryByKey["sensor_lag_source_confidence"].toNumericValue()
+        val sensorLagTrendConsistency = telemetryByKey["sensor_lag_trend_consistency"].toNumericValue()
+        val sensorLagReplayMultiplier = telemetryByKey["sensor_lag_replay_multiplier"].toNumericValue()
+        val sensorLagEffectiveLagMinutes = telemetryByKey["sensor_lag_effective_lag_minutes"].toNumericValue()
+        val sensorLagEffectiveCorrectionCap = telemetryByKey["sensor_lag_effective_correction_cap"].toNumericValue()
+        val therapyHistorySourceMode = telemetryByKey["therapy_history_source_mode"]
+            ?.valueText
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val therapyHistoryRawInsulin30d = telemetryByKey["therapy_history_raw_insulin_30d"].toNumericValue()?.roundToInt()
+        val therapyHistoryInferredInsulin30d =
+            telemetryByKey["therapy_history_inferred_insulin_30d"].toNumericValue()?.roundToInt()
+        val therapyHistoryRealFetchedInsulin30d =
+            telemetryByKey["therapy_history_real_fetched_insulin_30d"].toNumericValue()?.roundToInt()
+        val therapyHistoryRecoveredInsulin30d =
+            telemetryByKey["therapy_history_recovered_insulin_30d"].toNumericValue()?.roundToInt()
+        val therapyHistoryUsableInsulin30d =
+            telemetryByKey["therapy_history_usable_insulin_30d"].toNumericValue()?.roundToInt()
+        val therapyHistoryBootstrapNeeded = telemetryByKey["therapy_history_bootstrap_needed"]
+            ?.valueText
+            ?.toBooleanStrictOrNull()
+            ?: telemetryByKey["therapy_history_bootstrap_needed"].toNumericValue()?.let { it >= 0.5 }
+        val therapyHistoryPlateauOnly = telemetryByKey["therapy_history_plateau_only"]
+            ?.valueText
+            ?.toBooleanStrictOrNull()
+            ?: telemetryByKey["therapy_history_plateau_only"].toNumericValue()?.let { it >= 0.5 }
+        val therapyHistorySyntheticRatioPct = telemetryByKey["therapy_history_synthetic_ratio_pct"].toNumericValue()
+        val therapyHistoryLastSyncTreatmentCount =
+            telemetryByKey["therapy_history_last_sync_treatment_count"].toNumericValue()?.roundToInt()
+        val therapyHistoryLastSyncInsulinLikeCount =
+            telemetryByKey["therapy_history_last_sync_insulin_like_count"].toNumericValue()?.roundToInt()
+        val therapyHistoryLastSyncCarbLikeCount =
+            telemetryByKey["therapy_history_last_sync_carb_like_count"].toNumericValue()?.roundToInt()
+        val therapyHistoryLastSyncLocalActionCount =
+            telemetryByKey["therapy_history_last_sync_local_action_count"].toNumericValue()?.roundToInt()
+        val therapyHistoryUpstreamTempTargetOnly =
+            telemetryByKey["therapy_history_upstream_temp_target_only"]
+                ?.valueText
+                ?.toBooleanStrictOrNull()
+                ?: telemetryByKey["therapy_history_upstream_temp_target_only"].toNumericValue()?.let { it >= 0.5 }
         val sensorLagMode = telemetryByKey["sensor_lag_mode"]
             ?.valueText
             ?.trim()
@@ -677,6 +2837,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ?.trim()
             ?.takeIf { it.isNotBlank() }
         val sensorLagHistoryMinTs = now - SENSOR_LAG_HISTORY_WINDOW_MS
+        val calibrationChartMinTs = now - 24L * 60L * 60L * 1000L
+        val calibrationRawHistoryPoints = sortedGlucose
+            .asSequence()
+            .filter { it.timestamp >= calibrationChartMinTs }
+            .map { ChartPointUi(ts = it.timestamp, value = it.mmol) }
+            .toList()
+        val calibrationResolvedHistoryPoints = sortedGlucose
+            .asSequence()
+            .filter { it.timestamp >= calibrationChartMinTs }
+            .map { sample ->
+                val resolved = calibrationModelForUi?.let { model ->
+                    applyGlucoseCalibrationModelForUi(sample.timestamp, sample.mmol, model)
+                } ?: sample.mmol
+                ChartPointUi(ts = sample.timestamp, value = resolved)
+            }
+            .toList()
+        val calibrationCheckPoints = bloodChecks
+            .asSequence()
+            .filter { it.timestamp >= calibrationChartMinTs }
+            .map { ChartPointUi(ts = it.timestamp, value = it.mmol) }
+            .toList()
         val sensorLagLagTrendPoints = buildTelemetrySeriesFromKeys(
             telemetry = sensorLagTelemetryHistory,
             preferredKeys = listOf("sensor_lag_minutes"),
@@ -962,12 +3143,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         result.apply {
             this.nightscoutUrl = settings.nightscoutUrl
             this.cloudUrl = settings.cloudBaseUrl
-            this.openAiApiKey = settings.openAiApiKey
             this.uiStyle = settings.uiStyle.name
             this.exportUri = settings.exportFolderUri
             this.killSwitch = settings.killSwitch
+            this.powerSaveUntilMs = settings.powerSaveUntilMs
             this.localNightscoutEnabled = settings.localNightscoutEnabled
             this.localNightscoutPort = settings.localNightscoutPort
+            this.localNightscoutLegacyMigrationAcknowledged =
+                settings.localNightscoutLegacyMigrationAcknowledged
             this.resolvedNightscoutUrl = settings.resolvedNightscoutUrl()
             this.localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled
             this.strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation
@@ -980,6 +3163,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.enableUamExportToAaps = settings.enableUamExportToAaps
             this.uamExportMode = settings.uamExportMode.name
             this.dryRunExport = settings.dryRunExport
+            this.enableUamAutoExportCap = settings.enableUamAutoExportCap
+            this.uamAutoExportCapGrams = settings.uamAutoExportCapGrams
             this.uamLearnedMultiplier = settings.uamLearnedMultiplier
             this.uamMinSnackG = settings.uamMinSnackG
             this.uamMaxSnackG = settings.uamMaxSnackG
@@ -988,6 +3173,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.uamExportMinIntervalMin = settings.uamExportMinIntervalMin
             this.uamExportMaxBackdateMin = settings.uamExportMaxBackdateMin
             this.sensorLagCorrectionMode = settings.sensorLagCorrectionMode.name
+            this.targetManagerMode = settings.targetManagerMode.name
+            this.targetManagerModeManualOverride = settings.targetManagerModeManualOverride
+            this.targetManagerCopilotPriorityEnabled = settings.targetManagerCopilotPriorityEnabled
+            this.targetManagerPolicyRevision = settings.targetManagerPolicyRevision
+            this.targetManagerLiveStatus = resolveTargetManagerLiveStatusForUi(telemetry)
             this.circadianPatternsEnabled = settings.circadianPatternsEnabled
             this.circadianStableLookbackDays = settings.circadianStableLookbackDays
             this.circadianRecencyLookbackDays = settings.circadianRecencyLookbackDays
@@ -995,6 +3185,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.circadianUseReplayResidualBias = settings.circadianUseReplayResidualBias
             this.circadianForecastWeight30 = settings.circadianForecastWeight30
             this.circadianForecastWeight60 = settings.circadianForecastWeight60
+            this.softAlertAudioUri = settings.softAlertAudioUri
+            this.softAlertAudioDisplayName = settings.softAlertAudioDisplayName
+            this.criticalAlertAudio1Uri = settings.criticalAlertAudio1Uri
+            this.criticalAlertAudio1DisplayName = settings.criticalAlertAudio1DisplayName
+            this.criticalAlertAudio2Uri = settings.criticalAlertAudio2Uri
+            this.criticalAlertAudio2DisplayName = settings.criticalAlertAudio2DisplayName
+            this.isfRuntimeSourcePreference = "UNAVAILABLE"
+            this.crRuntimeSourcePreference = "UNAVAILABLE"
             this.isfCrShadowMode = settings.isfCrShadowMode
             this.isfCrConfidenceThreshold = settings.isfCrConfidenceThreshold
             this.isfCrUseActivity = settings.isfCrUseActivity
@@ -1058,11 +3256,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.nightscoutSyncAgeMinutes = nightscoutAgeMinutes
             this.cloudPushBacklogMinutes = cloudPushBacklogMinutes
             this.latestGlucoseMmol = latest?.mmol
+            this.rawGlucoseMmol = rawGlucoseMmol
+            this.calibratedGlucoseMmol = calibratedGlucoseMmol
+            this.glucoseCalibrationGain = calibrationGain
+            this.glucoseCalibrationOffsetMmol = calibrationOffsetMmol
+            this.glucoseCalibrationConfidence = calibrationConfidence
+            this.glucoseCalibrationLastCheckAgeMinutes = calibrationLastCheckAgeMinutes
+            this.glucoseCalibrationModelType = calibrationModelType
+            this.glucoseCalibrationStatus = calibrationStatus
+            this.glucoseAlertState = glucoseAlertState
+            this.glucoseAlertDirection = glucoseAlertDirection
+            this.glucoseAlertDisableReason = glucoseAlertDisableReason
+            this.glucoseAlertSoftActive = glucoseAlertSoftActive
+            this.glucoseAlertStrongActive = glucoseAlertStrongActive
+            this.glucoseAlertSoftLastTs = glucoseAlertSoftLastTs
+            this.glucoseAlertStrongLastTs = glucoseAlertStrongLastTs
+            this.glucoseAlertPred30 = glucoseAlertPred30
+            this.glucoseAlertCiLow30 = glucoseAlertCiLow30
+            this.glucoseAlertCiHigh30 = glucoseAlertCiHigh30
+            this.glucoseAlertLowThreshold = glucoseAlertLowThreshold
+            this.glucoseAlertHighThreshold = glucoseAlertHighThreshold
+            this.glucoseAlertUrgentLowThreshold = glucoseAlertUrgentLowThreshold
+            this.glucoseCalibrationChecks = bloodChecks
+            this.glucoseCalibrationModel = activeCalibrationModel
+            this.glucoseCalibrationRawHistoryPoints = calibrationRawHistoryPoints
+            this.glucoseCalibrationResolvedHistoryPoints = calibrationResolvedHistoryPoints
+            this.glucoseCalibrationCheckPoints = calibrationCheckPoints
             this.correctedGlucoseMmol = correctedGlucoseMmol
             this.glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null
             this.latestIobUnits = latestIobUnits
             this.latestIobRealUnits = latestIobRealUnits
+            this.latestIobBolusUnits = latestIobBolusUnits
+            this.latestIobBasalUnits = latestIobBasalUnits
+            this.latestInsulinActivity = latestInsulinActivity
+            this.latestIobRuntimeSource = latestIobRuntimeSource
+            this.latestIobRuntimeConfidence = latestIobRuntimeConfidence
+            this.latestIobRuntimeTimestamp = latestIobRuntimeTimestamp
+            this.latestIobEvidenceTimestamp = latestIobEvidenceTimestamp
+            this.latestIobTherapyCoverage = latestIobTherapyCoverage
+            this.latestIobRuntimeFallbackReason = latestIobRuntimeFallbackReason
             this.latestCobGrams = latestCobGrams
+            val externalCob = selectExternalCobForUi(
+                telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+            )
+            this.latestExternalCobGrams = externalCob?.valueDouble
+            this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
             this.insulinRealProfileCurveCompact = insulinRealProfileCurveCompact
             this.insulinRealProfileUpdatedTs = insulinRealProfileUpdatedTs
@@ -1083,6 +3321,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.forecast60m = forecast60Latest
             this.forecast60mCiLow = forecast60CiLow
             this.forecast60mCiHigh = forecast60CiHigh
+            this.forecastTupleError = acceptedForecastTuple.error?.uiReason
+            this.forecastAcceptedGenerationTs = acceptedForecastTuple.generationTimestamp
+            this.acceptedSensitivityRuntimeSnapshot = acceptedForecastTuple.sensitivity
+            this.trend60ComponentMmol = acceptedForecastTuple.decomposition?.trend60Mmol
+            this.therapy60ComponentMmol = acceptedForecastTuple.decomposition?.therapy60Mmol
+            this.uam60ComponentMmol = acceptedForecastTuple.decomposition?.uam60Mmol
+            this.residualRoc0Mmol5m = acceptedForecastTuple.decomposition?.residualRoc0Mmol5
+            this.sigmaEMmol5m = acceptedForecastTuple.decomposition?.sigmaEMmol5
+            this.kfSigmaGMmol = acceptedForecastTuple.decomposition?.kfSigmaGMmol
             this.calculatedUamActive = calculatedUamFlag?.let { it >= 0.5 }
             this.calculatedUamConfidence = calculatedUamConfidence
             this.calculatedUamCarbsGrams = calculatedUamCarbs
@@ -1097,15 +3344,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.inferredUamBoostMode = inferredUamBoostMode?.let { it >= 0.5 }
             this.inferredUamManualCobGrams = inferredUamManualCob
             this.inferredUamLastGAbsGrams = inferredUamLastGAbs
+            this.uamRuntimeActive = uamRuntime.active
+            this.uamRuntimeEquivalentCarbsGrams = uamRuntime.equivalentCarbsGrams
+            this.uamRuntimeConfidence = uamRuntime.confidence
+            this.uamRuntimeState = uamRuntime.state
+            this.uamRuntimeReason = uamRuntime.reason
+            this.uamRuntimeSource = uamRuntime.source
             this.uamEventRows = uamEventRows
             this.sensorQualityScore = sensorQualityScore
             this.sensorQualityBlocked = sensorQualityBlocked
             this.sensorQualityReason = sensorQualityReason
             this.sensorQualitySuspectFalseLow = sensorQualitySuspectFalseLow
+            this.targetLowRiskLatched = targetLowRiskLatched
             this.sensorLagMinutes = sensorLagMinutes
             this.sensorAgeHours = sensorAgeHours
             this.sensorAgeSource = sensorAgeSource
             this.sensorLagConfidence = sensorLagConfidence
+            this.sensorLagWearBucket = sensorLagWearBucket
+            this.sensorLagSourceConfidence = sensorLagSourceConfidence
+            this.sensorLagTrendConsistency = sensorLagTrendConsistency
+            this.sensorLagReplayMultiplier = sensorLagReplayMultiplier
+            this.sensorLagEffectiveLagMinutes = sensorLagEffectiveLagMinutes
+            this.sensorLagEffectiveCorrectionCap = sensorLagEffectiveCorrectionCap
+            this.therapyHistorySourceMode = therapyHistorySourceMode
+            this.therapyHistoryRawInsulin30d = therapyHistoryRawInsulin30d
+            this.therapyHistoryInferredInsulin30d = therapyHistoryInferredInsulin30d
+            this.therapyHistoryRealFetchedInsulin30d = therapyHistoryRealFetchedInsulin30d
+            this.therapyHistoryRecoveredInsulin30d = therapyHistoryRecoveredInsulin30d
+            this.therapyHistoryUsableInsulin30d = therapyHistoryUsableInsulin30d
+            this.therapyHistoryBootstrapNeeded = therapyHistoryBootstrapNeeded
+            this.therapyHistoryPlateauOnly = therapyHistoryPlateauOnly
+            this.therapyHistorySyntheticRatioPct = therapyHistorySyntheticRatioPct
+            this.therapyHistoryLastSyncTreatmentCount = therapyHistoryLastSyncTreatmentCount
+            this.therapyHistoryLastSyncInsulinLikeCount = therapyHistoryLastSyncInsulinLikeCount
+            this.therapyHistoryLastSyncCarbLikeCount = therapyHistoryLastSyncCarbLikeCount
+            this.therapyHistoryLastSyncLocalActionCount = therapyHistoryLastSyncLocalActionCount
+            this.therapyHistoryUpstreamTempTargetOnly = therapyHistoryUpstreamTempTargetOnly
             this.sensorLagMode = sensorLagMode
             this.sensorLagDisableReason = sensorLagDisableReason
             this.sensorLagTrendLagPoints = sensorLagLagTrendPoints
@@ -1192,6 +3466,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.isfCrWearImpact24hLines = isfCrWearImpact24h
             this.isfCrWearImpact7dLines = isfCrWearImpact7d
             this.isfCrActiveTags = physioTagLines
+            this.events = eventTimeline.filter { it.visibleFor(settings.energyProfile.physiologicalSex) }
+            this.physiologicalSex = settings.energyProfile.physiologicalSex
             this.isfCrHistoryPoints = profileHistoryPoints
             this.isfCrHistoryOverlayPoints = profileHistoryOverlayPoints
             this.isfCrHistoryLastUpdatedTs = listOfNotNull(
@@ -1317,12 +3593,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.adaptiveAuditLines = adaptiveAuditLines
             this.glucoseHistoryPoints = glucoseHistoryPoints
             this.lastAction = lastAction
-            this.trend60ComponentMmol = telemetryByKey["forecast_trend_60_mmol"].toNumericValue()
-            this.therapy60ComponentMmol = telemetryByKey["forecast_therapy_60_mmol"].toNumericValue()
-            this.uam60ComponentMmol = telemetryByKey["forecast_uam_60_mmol"].toNumericValue()
-            this.residualRoc0Mmol5m = telemetryByKey["forecast_residual_roc0_mmol5"].toNumericValue()
-            this.sigmaEMmol5m = telemetryByKey["forecast_sigmae_mmol5"].toNumericValue()
-            this.kfSigmaGMmol = telemetryByKey["forecast_kf_sigma_g_mmol"].toNumericValue()
             this.patternPriorConfidence = patternPriorConfidence
             this.patternPriorBgMedianMmol = patternPriorBgMedian
             this.patternPrior30Mmol = patternPrior30
@@ -1335,13 +3605,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.auditRecords = auditRecords
             this.auditLines = audits.map { "${it.level}: ${it.message}" }
             this.message = message
+            acceptedForecastTuple.sensitivity
+                ?.let { SensitivityRuntimeFanOut(it).contextFor(SensitivityRuntimeConsumer.OVERVIEW) }
+                ?.let { context ->
+                    val snapshot = context.snapshot
+                    this.isfRuntimeSourcePreference = snapshot.isf.requested.name
+                    this.crRuntimeSourcePreference = snapshot.cr.requested.name
+                    this.isfRuntimeResolved = snapshot.isf.resolved.uiCode()
+                    this.crRuntimeResolved = snapshot.cr.resolved.uiCode()
+                    this.isfRuntimeSelected = snapshot.isf.effective
+                    this.crRuntimeSelected = snapshot.cr.effective
+                    this.isfRuntimeAaps = snapshot.isf.rawAaps
+                    this.crRuntimeAaps = snapshot.cr.rawAaps
+                    this.isfRuntimeEvidence = snapshot.isf.rawEvidence
+                    this.crRuntimeEvidence = snapshot.cr.rawEvidence
+                    this.isfRuntimeFallbackActive = snapshot.isf.fallbackReason != null
+                    this.crRuntimeFallbackActive = snapshot.cr.fallbackReason != null
+                    this.isfCrRealtimeConfidence = minOf(snapshot.isf.confidence, snapshot.cr.confidence)
+                }
         }
         return result
     }
 
-    private fun buildPrimaryUiState(values: Array<*>): MainUiState {
+    private suspend fun buildPrimaryUiState(values: Array<*>): MainUiState {
         @Suppress("UNCHECKED_CAST")
-        val glucose = GlucoseSanitizer.filterEntities(values[0] as List<GlucoseSampleEntity>)
+        val rawGlucose = values[0] as List<GlucoseSampleEntity>
+        val glucose = GlucoseSanitizer.filterEntities(rawGlucose)
         @Suppress("UNCHECKED_CAST")
         val forecasts = values[1] as List<ForecastEntity>
         @Suppress("UNCHECKED_CAST")
@@ -1351,15 +3640,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @Suppress("UNCHECKED_CAST")
         val syncStates = values[4] as List<SyncStateEntity>
         val settings = values[5] as AppSettings
+        @Suppress("UNCHECKED_CAST")
+        val bloodChecks = values[6] as List<BloodGlucoseCheck>
+        val activeCalibrationModel = values[7] as GlucoseCalibrationModel?
+        val calibrationAuthorityTokenRow = values[8] as TelemetrySampleEntity?
+        val sensitivityRuntime = values[9] as SensitivityRuntimeSnapshot?
 
-        val sortedGlucose = glucose.sortedBy { it.timestamp }
-        val latest = sortedGlucose.lastOrNull()
-        val prev = sortedGlucose.dropLast(1).lastOrNull()
-        val latestForecastByHorizon = ForecastSnapshotResolver.resolveLatestByHorizon(forecasts)
-        val latestForecast5Row = latestForecastByHorizon[5]
-        val latestForecast30Row = latestForecastByHorizon[30]
-        val latestForecast60Row = latestForecastByHorizon[60]
         val now = System.currentTimeMillis()
+        val sortedGlucose = glucose.sortedBy { it.timestamp }
+        val currentGlucose = selectOverviewCurrentGlucoseForUi(rawGlucose, now)
+        val latest = currentGlucose.latest
+        val prev = currentGlucose.previous
+        val glucoseHistoryPoints = buildGlucoseHistoryPointsForUi(sortedGlucose, nowTs = now)
         val latestDataAgeMinutes = minutesSince(now, latest?.timestamp)
         val nightscoutSyncTs = syncStates.firstOrNull { it.source == "nightscout" }?.lastSyncedTimestamp
         val nightscoutAgeMinutes = minutesSince(now, nightscoutSyncTs)
@@ -1368,15 +3660,114 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "Data age: ${minutesLabel(latestDataAgeMinutes)} ($staleTag)",
             "Nightscout last sync: ${formatTs(nightscoutSyncTs)} (age ${minutesLabel(nightscoutAgeMinutes)})"
         )
-        val telemetryByKey = latestTelemetryByKey(telemetry, nowTs = now)
-        val latestIobUnits = telemetryByKey["iob_units"].toNumericValue()
-        val latestIobRealUnits = telemetryByKey["iob_real_units"].toNumericValue()
+        val telemetryByKey = mergeAtomicInsulinRuntimeTelemetryForUi(
+            latestByKey = latestTelemetryByKey(telemetry, nowTs = now),
+            samples = telemetry
+        ).toMutableMap()
+        val latestIobUnits = resolveEffectivePositiveIobForUi(telemetryByKey)
+            ?.coerceIn(0.0, 60.0)
+        val latestIobRealUnits = resolveMetricByRecency(
+            preferred = telemetryByKey["iob_net_units"],
+            fallback = telemetryByKey["iob_real_units"]
+        )
+        val latestIobBolusUnits = telemetryByKey["iob_bolus_units"].toNumericValue()
+        val latestIobBasalUnits = telemetryByKey["iob_basal_units"].toNumericValue()
+        val latestInsulinActivity = telemetryByKey["insulin_activity"].toNumericValue()
+        val latestIobRuntimeSource = telemetryByKey["iob_runtime_source"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val latestIobRuntimeConfidence = telemetryByKey["iob_runtime_confidence"].toNumericValue()
+        val latestIobRuntimeTimestamp = telemetryByKey["iob_runtime_timestamp_ms"]
+            .toNumericValue()?.toLong()?.takeIf { it > 0L }
+        val latestIobEvidenceTimestamp = telemetryByKey["iob_runtime_evidence_timestamp_ms"]
+            .toNumericValue()?.toLong()?.takeIf { it > 0L }
+        val latestIobTherapyCoverage = telemetryByKey["iob_runtime_therapy_coverage"].toNumericValue()
+        val latestIobRuntimeFallbackReason = telemetryByKey["iob_runtime_fallback_reason"]
+            ?.valueText?.trim()?.takeIf { it.isNotBlank() }
         val latestCobGrams = resolveMetricByRecency(
             preferred = telemetryByKey["cob_effective_grams"],
             fallback = telemetryByKey["cob_grams"]
         )?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
         val correctedGlucoseMmol = telemetryByKey["sensor_lag_corrected_glucose_mmol"].toNumericValue()
+        val rawGlucoseMmol = latest?.mmol
+        val currentCalibrationAuthorityForUi = loadUiCalibrationAuthority(
+            db = db,
+            nowTs = now,
+            observedAuthorityToken = calibrationAuthorityTokenRow?.valueText
+        )
+        val currentCalibrationModelForUi = currentCalibrationAuthorityForUi.activeModel
+        val acceptedForecastTuple = ForecastSnapshotResolver.resolveAcceptedTuple(
+            forecasts = forecasts,
+            telemetry = telemetry,
+            snapshot = sensitivityRuntime,
+            currentSettings = settings.sensitivityRuntimeIdentity(),
+            authoritativeNowTs = now,
+            calibrationAuthority = AcceptedCalibrationAuthority(
+                activeModel = currentCalibrationModelForUi,
+                authorityToken = calibrationAuthorityTokenRow
+                    ?.valueText?.takeIf(String::isNotBlank) ?: ACCEPTED_CALIBRATION_NONE,
+                currentSessionKey = currentCalibrationAuthorityForUi.currentSessionKey,
+                contextValid = currentCalibrationAuthorityForUi.contextValid
+            )
+        )
+        val calibrationModelForUi = resolveOverviewCalibrationModelForUi(
+            acceptedTuple = acceptedForecastTuple,
+            currentModel = currentCalibrationModelForUi
+        )
+        val calibrationTelemetrySourceTs = telemetryByKey["glucose_calibration_source_ts"]
+            .toNumericValue()
+            ?.toLong()
+        val calibratedGlucoseMmol = resolveUiCalibratedGlucose(
+            pointTs = latest?.timestamp,
+            rawMmol = rawGlucoseMmol,
+            telemetryCalibratedMmol = telemetryByKey["glucose_calibrated_mmol"].toNumericValue(),
+            telemetryCalibrationSourceTs = calibrationTelemetrySourceTs,
+            activeModel = calibrationModelForUi
+        )
+        val calibrationResolvedHistoryPoints = buildCalibrationResolvedHistoryPointsForUi(
+            glucose = glucoseHistoryPoints,
+            calibrate = calibrationModelForUi?.let { model ->
+                { timestamp, rawMmol -> applyGlucoseCalibrationModelForUi(timestamp, rawMmol, model) }
+            }
+        )
+        val calibrationGain = calibrationModelForUi?.gain
+        val calibrationOffsetMmol = calibrationModelForUi?.offsetMmol
+        val calibrationConfidence = calibrationModelForUi?.confidence
+        val calibrationLastCheckAgeMinutes = telemetryByKey["glucose_calibration_last_check_age_minutes"].toNumericValue()
+            ?: bloodChecks.firstOrNull()?.timestamp?.let { checkTs ->
+                ((now - checkTs).coerceAtLeast(0L)) / 60_000.0
+            }
+        val calibrationModelType = calibrationModelForUi?.modelType?.name
+        val calibrationStatus = calibrationModelForUi?.status?.name
+        val glucoseAlertState = telemetryByKey["glucose_alert_state"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val glucoseAlertDirection = telemetryByKey["glucose_alert_direction"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val glucoseAlertDisableReason = telemetryByKey["glucose_alert_disable_reason"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val glucoseAlertSoftActive = telemetryByKey["glucose_alert_soft_active"].toNumericValue()?.let { it >= 0.5 }
+        val glucoseAlertStrongActive = telemetryByKey["glucose_alert_strong_active"].toNumericValue()?.let { it >= 0.5 }
+        val glucoseAlertSoftLastTs = telemetryByKey["glucose_alert_soft_last_ts"].toNumericValue()?.toLong()
+        val glucoseAlertStrongLastTs = telemetryByKey["glucose_alert_strong_last_ts"].toNumericValue()?.toLong()
+        val glucoseAlertPred30 = telemetryByKey["glucose_alert_pred30"].toNumericValue()
+        val glucoseAlertCiLow30 = telemetryByKey["glucose_alert_ci_low30"].toNumericValue()
+        val glucoseAlertCiHigh30 = telemetryByKey["glucose_alert_ci_high30"].toNumericValue()
+        val glucoseAlertLowThreshold = telemetryByKey["glucose_alert_low_threshold"].toNumericValue()
+        val glucoseAlertHighThreshold = telemetryByKey["glucose_alert_high_threshold"].toNumericValue()
+        val glucoseAlertUrgentLowThreshold = telemetryByKey["glucose_alert_urgent_low_threshold"].toNumericValue()
+        val sensorQualityScore = telemetryByKey["sensor_quality_score"].toNumericValue()
+        val sensorQualityBlocked = telemetryByKey["sensor_quality_blocked"].toNumericValue()?.let { it >= 0.5 }
+        val sensorQualityReason = telemetryByKey["sensor_quality_reason"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val sensorQualitySuspectFalseLow = telemetryByKey["sensor_quality_suspect_false_low"].toNumericValue()
+            ?.let { it >= 0.5 }
+        val targetLowRiskLatched = telemetryByKey["target_low_risk_latched"].toNumericValue()
+            ?.let { it >= 0.5 }
         val sensorLagMinutes = telemetryByKey["sensor_lag_minutes"].toNumericValue()
+        val sensorAgeHours = telemetryByKey["sensor_age_hours"].toNumericValue()
+            ?: telemetryByKey["sensor_lag_age_hours"].toNumericValue()
+        val sensorAgeSource = telemetryByKey["sensor_lag_age_source"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val sensorLagConfidence = telemetryByKey["sensor_lag_confidence"].toNumericValue()
+        val sensorLagWearBucket = telemetryByKey["sensor_lag_wear_bucket"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
+        val sensorLagSourceConfidence = telemetryByKey["sensor_lag_source_confidence"].toNumericValue()
+        val sensorLagTrendConsistency = telemetryByKey["sensor_lag_trend_consistency"].toNumericValue()
+        val sensorLagReplayMultiplier = telemetryByKey["sensor_lag_replay_multiplier"].toNumericValue()
+        val sensorLagEffectiveLagMinutes = telemetryByKey["sensor_lag_effective_lag_minutes"].toNumericValue()
+        val sensorLagEffectiveCorrectionCap = telemetryByKey["sensor_lag_effective_correction_cap"].toNumericValue()
         val sensorLagMode = telemetryByKey["sensor_lag_mode"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
         val sensorLagDisableReason = telemetryByKey["sensor_lag_disable_reason"]?.valueText?.trim()?.takeIf { it.isNotBlank() }
         val insulinRealOnsetMinutes = telemetryByKey["insulin_real_onset_min"].toNumericValue()
@@ -1388,7 +3779,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val calculatedUamDelta5 = telemetryByKey["uam_calculated_delta5_mmol"].toNumericValue()
         val calculatedUamRise15 = telemetryByKey["uam_calculated_rise15_mmol"].toNumericValue()
         val calculatedUamRise30 = telemetryByKey["uam_calculated_rise30_mmol"].toNumericValue()
-        val uci0Mmol5m = telemetryByKey["uam_uci0_mmol5"].toNumericValue() ?: calculatedUamDelta5
+        val uci0Mmol5m = resolveUiUamImpactStatic(
+            telemetryByKey["uam_runtime_impact_mmol5"].toNumericValue()
+        )
         val inferredUamFlag = telemetryByKey["uam_inferred_flag"].toNumericValue()
         val inferredUamConfidence = telemetryByKey["uam_inferred_confidence"].toNumericValue()
         val inferredUamCarbs = telemetryByKey["uam_inferred_carbs_grams"].toNumericValue()
@@ -1396,6 +3789,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val inferredUamBoostMode = telemetryByKey["uam_inferred_boost_mode"].toNumericValue()
         val inferredUamManualCob = telemetryByKey["uam_manual_cob_grams"].toNumericValue()
         val inferredUamLastGAbs = telemetryByKey["uam_inferred_gabs_last5_g"].toNumericValue()
+        val uamRuntime = resolvePrimaryUiUamRuntimeSnapshotStatic(
+            telemetryByKey = telemetryByKey,
+            nowTs = now,
+            acceptedCycleId = acceptedForecastTuple.sensitivity?.forecastCycleId
+        )
+        val latestForecast5Row = acceptedForecastTuple.forecastsByHorizon[5]
+        val latestForecast30Row = acceptedForecastTuple.forecastsByHorizon[30]
+        val latestForecast60Row = acceptedForecastTuple.forecastsByHorizon[60]
+        val publishedSensitivity = acceptedForecastTuple.sensitivity
+            ?.let { SensitivityRuntimeFanOut(it).contextFor(SensitivityRuntimeConsumer.OVERVIEW) }
+            ?.snapshot
+        val realtimeIsf = publishedSensitivity?.isf?.rawEvidence
+        val realtimeCr = publishedSensitivity?.cr?.rawEvidence
+        val realtimeIsfCrConfidence = publishedSensitivity
+            ?.let { minOf(it.isf.confidence, it.cr.confidence) }
+        val realtimeIsfCrQuality = telemetryByKey["isf_realtime_quality_score"].toNumericValue()
+        val isfRuntimeResolved = publishedSensitivity?.isf?.resolved?.uiCode()
+        val crRuntimeResolved = publishedSensitivity?.cr?.resolved?.uiCode()
+        val isfRuntimeSelected = publishedSensitivity?.isf?.effective
+        val crRuntimeSelected = publishedSensitivity?.cr?.effective
+        val isfRuntimeAaps = publishedSensitivity?.isf?.rawAaps
+        val crRuntimeAaps = publishedSensitivity?.cr?.rawAaps
+        val isfRuntimeFallback = publishedSensitivity?.let {
+            if (it.isf.fallbackReason == null) 0.0 else 1.0
+        }
+        val crRuntimeFallback = publishedSensitivity?.let {
+            if (it.cr.fallbackReason == null) 0.0 else 1.0
+        }
         val lastAction = actionCommands.firstOrNull()?.let { command ->
             val target = payloadDouble(command.payloadJson, "targetMmol")
             val duration = payloadDouble(command.payloadJson, "durationMinutes")?.toInt()
@@ -1417,21 +3838,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        return MainUiState().apply {
+        return MainUiState().applyPrimaryUamSettingsForUi(settings).apply {
             this.killSwitch = settings.killSwitch
+            this.powerSaveUntilMs = settings.powerSaveUntilMs
+            this.targetManagerMode = settings.targetManagerMode.name
+            this.targetManagerModeManualOverride = settings.targetManagerModeManualOverride
+            this.targetManagerCopilotPriorityEnabled = settings.targetManagerCopilotPriorityEnabled
+            this.targetManagerPolicyRevision = settings.targetManagerPolicyRevision
+            this.targetManagerLiveStatus = resolveTargetManagerLiveStatusForUi(telemetry)
             this.baseTargetMmol = settings.baseTargetMmol
             this.safetyMinTargetMmol = settings.safetyMinTargetMmol
             this.safetyMaxTargetMmol = settings.safetyMaxTargetMmol
             this.staleDataMaxMinutes = settings.staleDataMaxMinutes
-            this.enableUamBoost = settings.enableUamBoost
+            this.carbComputationMaxGrams = settings.carbComputationMaxGrams
+            this.isfRuntimeSourcePreference = publishedSensitivity?.isf?.requested?.name ?: "UNAVAILABLE"
+            this.crRuntimeSourcePreference = publishedSensitivity?.cr?.requested?.name ?: "UNAVAILABLE"
             this.latestDataAgeMinutes = latestDataAgeMinutes
             this.nightscoutSyncAgeMinutes = nightscoutAgeMinutes
             this.latestGlucoseMmol = latest?.mmol
+            this.rawGlucoseMmol = rawGlucoseMmol
+            this.calibratedGlucoseMmol = calibratedGlucoseMmol
+            this.glucoseCalibrationGain = calibrationGain
+            this.glucoseCalibrationOffsetMmol = calibrationOffsetMmol
+            this.glucoseCalibrationConfidence = calibrationConfidence
+            this.glucoseCalibrationLastCheckAgeMinutes = calibrationLastCheckAgeMinutes
+            this.glucoseCalibrationModelType = calibrationModelType
+            this.glucoseCalibrationStatus = calibrationStatus
+            this.glucoseAlertState = glucoseAlertState
+            this.glucoseAlertDirection = glucoseAlertDirection
+            this.glucoseAlertDisableReason = glucoseAlertDisableReason
+            this.glucoseAlertSoftActive = glucoseAlertSoftActive
+            this.glucoseAlertStrongActive = glucoseAlertStrongActive
+            this.glucoseAlertSoftLastTs = glucoseAlertSoftLastTs
+            this.glucoseAlertStrongLastTs = glucoseAlertStrongLastTs
+            this.glucoseAlertPred30 = glucoseAlertPred30
+            this.glucoseAlertCiLow30 = glucoseAlertCiLow30
+            this.glucoseAlertCiHigh30 = glucoseAlertCiHigh30
+            this.glucoseAlertLowThreshold = glucoseAlertLowThreshold
+            this.glucoseAlertHighThreshold = glucoseAlertHighThreshold
+            this.glucoseAlertUrgentLowThreshold = glucoseAlertUrgentLowThreshold
+            this.glucoseCalibrationChecks = bloodChecks
+            this.glucoseCalibrationModel = activeCalibrationModel
+            this.glucoseCalibrationResolvedHistoryPoints = calibrationResolvedHistoryPoints
             this.correctedGlucoseMmol = correctedGlucoseMmol
             this.glucoseDelta = if (latest != null && prev != null) latest.mmol - prev.mmol else null
             this.latestIobUnits = latestIobUnits
             this.latestIobRealUnits = latestIobRealUnits
+            this.latestIobBolusUnits = latestIobBolusUnits
+            this.latestIobBasalUnits = latestIobBasalUnits
+            this.latestInsulinActivity = latestInsulinActivity
+            this.latestIobRuntimeSource = latestIobRuntimeSource
+            this.latestIobRuntimeConfidence = latestIobRuntimeConfidence
+            this.latestIobRuntimeTimestamp = latestIobRuntimeTimestamp
+            this.latestIobEvidenceTimestamp = latestIobEvidenceTimestamp
+            this.latestIobTherapyCoverage = latestIobTherapyCoverage
+            this.latestIobRuntimeFallbackReason = latestIobRuntimeFallbackReason
             this.latestCobGrams = latestCobGrams
+            val externalCob = selectExternalCobForUi(
+                telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+            )
+            this.latestExternalCobGrams = externalCob?.valueDouble
+            this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
             this.latestActivityRatio = latestActivityRatio
             this.latestStepsCount = latestStepsCount
@@ -1444,6 +3911,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.forecast60m = latestForecast60Row?.valueMmol
             this.forecast60mCiLow = latestForecast60Row?.ciLow
             this.forecast60mCiHigh = latestForecast60Row?.ciHigh
+            this.forecastTupleError = acceptedForecastTuple.error?.uiReason
+            this.forecastAcceptedGenerationTs = acceptedForecastTuple.generationTimestamp
+            this.acceptedSensitivityRuntimeSnapshot = acceptedForecastTuple.sensitivity
+            this.trend60ComponentMmol = acceptedForecastTuple.decomposition?.trend60Mmol
+            this.therapy60ComponentMmol = acceptedForecastTuple.decomposition?.therapy60Mmol
+            this.uam60ComponentMmol = acceptedForecastTuple.decomposition?.uam60Mmol
+            this.residualRoc0Mmol5m = acceptedForecastTuple.decomposition?.residualRoc0Mmol5
+            this.sigmaEMmol5m = acceptedForecastTuple.decomposition?.sigmaEMmol5
+            this.kfSigmaGMmol = acceptedForecastTuple.decomposition?.kfSigmaGMmol
             this.calculatedUamActive = calculatedUamFlag?.let { it >= 0.5 }
             this.calculatedUamConfidence = calculatedUamConfidence
             this.calculatedUamCarbsGrams = calculatedUamCarbs
@@ -1458,15 +3934,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             this.inferredUamBoostMode = inferredUamBoostMode?.let { it >= 0.5 }
             this.inferredUamManualCobGrams = inferredUamManualCob
             this.inferredUamLastGAbsGrams = inferredUamLastGAbs
+            this.uamRuntimeActive = uamRuntime.active
+            this.uamRuntimeEquivalentCarbsGrams = uamRuntime.equivalentCarbsGrams
+            this.uamRuntimeConfidence = uamRuntime.confidence
+            this.uamRuntimeState = uamRuntime.state
+            this.uamRuntimeReason = uamRuntime.reason
+            this.uamRuntimeSource = uamRuntime.source
+            this.sensorQualityScore = sensorQualityScore
+            this.sensorQualityBlocked = sensorQualityBlocked
+            this.sensorQualityReason = sensorQualityReason
+            this.sensorQualitySuspectFalseLow = sensorQualitySuspectFalseLow
+            this.targetLowRiskLatched = targetLowRiskLatched
+            this.isfCrRealtimeConfidence = realtimeIsfCrConfidence
+            this.isfCrRealtimeQualityScore = realtimeIsfCrQuality
+            this.isfCrRealtimeIsfEff = realtimeIsf
+            this.isfCrRealtimeCrEff = realtimeCr
+            this.isfCrRealtimeIsfBase = realtimeIsf
+            this.isfCrRealtimeCrBase = realtimeCr
+            this.isfRuntimeResolved = isfRuntimeResolved
+            this.crRuntimeResolved = crRuntimeResolved
+            this.isfRuntimeSelected = isfRuntimeSelected
+            this.crRuntimeSelected = crRuntimeSelected
+            this.isfRuntimeAaps = isfRuntimeAaps
+            this.crRuntimeAaps = crRuntimeAaps
+            this.isfRuntimeEvidence = realtimeIsf
+            this.crRuntimeEvidence = realtimeCr
+            this.isfRuntimeFallbackActive = isfRuntimeFallback?.let { it >= 0.5 } ?: false
+            this.crRuntimeFallbackActive = crRuntimeFallback?.let { it >= 0.5 } ?: false
             this.sensorLagMinutes = sensorLagMinutes
+            this.sensorAgeHours = sensorAgeHours
+            this.sensorAgeSource = sensorAgeSource
+            this.sensorLagConfidence = sensorLagConfidence
+            this.sensorLagWearBucket = sensorLagWearBucket
+            this.sensorLagSourceConfidence = sensorLagSourceConfidence
+            this.sensorLagTrendConsistency = sensorLagTrendConsistency
+            this.sensorLagReplayMultiplier = sensorLagReplayMultiplier
+            this.sensorLagEffectiveLagMinutes = sensorLagEffectiveLagMinutes
+            this.sensorLagEffectiveCorrectionCap = sensorLagEffectiveCorrectionCap
             this.sensorLagMode = sensorLagMode
             this.sensorLagDisableReason = sensorLagDisableReason
             this.lastAction = lastAction
             this.syncStatusLines = syncStatusLines
+            this.glucoseHistoryPoints = glucoseHistoryPoints
         }
     }
 
     val messageUiState: StateFlow<String?> = messageState.asStateFlow()
+
+    val serverAiConnectionState: StateFlow<ServerAiConnectionState> =
+        container.serverAiConnectionManager.state
 
     val uiStyleState: StateFlow<String> = container.settingsStore.settings
         .map { it.uiStyle.name }
@@ -1474,7 +3990,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = UiStyle.CLASSIC.name
+            initialValue = UiStyle.MIDNIGHT_GLASS.name
         )
 
     val appHealthUiState: StateFlow<AppHealthUiState> = primaryUiState
@@ -1503,17 +4019,133 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         )
 
-    val overviewUiState: StateFlow<OverviewUiState> = combine(
-        primaryUiState,
-        proModeState
-    ) { state, isProMode ->
-        state.toOverviewUiState(isProMode = isProMode)
+    private val energyActivityOverviewStatusState = combine(
+        container.settingsStore.settings,
+        container.db.energyProfileDao().observeLatestSnapshot(),
+        container.db.energyProfileDao().observeAllEvents(),
+        primaryUiState
+    ) { settings, snapshot, events, _ ->
+        io.aaps.copilot.ui.foundation.screens.energyActivityOverviewStatus(
+            settings = settings.energyProfile,
+            snapshot = snapshot,
+            events = events
+        )
     }
+
+    private val overviewRuntimeAndSettings = combine(
+        primaryUiState,
+        container.settingsStore.settings,
+        overviewEventTimeline,
+        container.sensitivityRuntimeRepository.acceptedCandidateDiagnostics
+    ) { state, settings, timeline, candidateDiagnostics ->
+        OverviewRuntimeContext(state, settings, timeline, candidateDiagnostics)
+    }
+
+    private val acceptedSensitivityTupleUiNow = acceptedSensitivityTupleUiClock(
+        generationTimestamps = primaryUiState.map { it.forecastAcceptedGenerationTs },
+        targetManagerStatusTimestamps = primaryUiState.map { it.targetManagerLiveStatus?.timestamp },
+        cobEvidence = primaryUiState.map {
+            it.latestExternalCobTimestamp to it.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+        },
+        clock = System::currentTimeMillis
+    )
+
+    private val timedOverviewRuntime = combine(
+        overviewRuntimeAndSettings,
+        acceptedSensitivityTupleUiNow
+    ) { runtime, authoritativeNowTs ->
+        TimedOverviewRuntimeContext(runtime, authoritativeNowTs)
+    }
+
+    private val authoritativeGlucoseAlertMuteUntil = container.episodeAlertDelivery.mutedUntil
+        .shareAuthoritativeAlertMuteUntil(viewModelScope)
+
+    val overviewUiState: StateFlow<OverviewUiState> = combine(
+        timedOverviewRuntime,
+        proModeState,
+        authoritativeGlucoseAlertMuteUntil,
+        baseTargetPresentationState,
+        energyActivityOverviewStatusState
+    ) { timedRuntime, isProMode, mutedUntilTs, targetPresentation, energyActivityStatus ->
+        val runtime = timedRuntime.runtime
+        val state = runtime.state
+        val settings = runtime.settings
+        state.toOverviewUiState(
+            isProMode = isProMode,
+            baseTargetPresentation = targetPresentation,
+            authoritativeIsfSource = settings.isfSourcePreference.name,
+            authoritativeCrSource = settings.crSourcePreference.name,
+            authoritativeSensitivitySettingsRevision = settings.sensitivitySettingsRevision,
+            authoritativeTargetManagerMode = settings.targetManagerMode.name,
+            authoritativeTargetManagerPriorityEnabled = settings.targetManagerCopilotPriorityEnabled,
+            authoritativeTargetManagerPolicyRevision = settings.targetManagerPolicyRevision,
+            acceptedCandidateDiagnostics = runtime.candidateDiagnostics,
+            authoritativeNowTs = timedRuntime.authoritativeNowTs,
+            eventTimeline = runtime.timeline.events,
+            eventTimelineNowTs = runtime.timeline.generatedAt,
+            profileSex = settings.energyProfile.physiologicalSex,
+            showEventsOnGraph = settings.showEventsOnGraph
+        ).copy(
+            glucoseAlertMutedUntilTs = mutedUntilTs,
+            energyActivityStatus = energyActivityStatus
+        )
+    }
+        .combine(sensitivitySourceApplyState) { state, apply ->
+            val presentation = sensitivitySourceApplyCoordinator.presentationStateForOverview(state, apply)
+            state.withSensitivityApplyPresentation(
+                applying = presentation.applying,
+                pendingMetric = presentation.pendingMetric,
+                pendingValue = presentation.pendingValue,
+                error = presentation.error ?: state.sensitivitySourceApplyError
+            )
+        }
+        .combine(container.pumpLinkMonitor.state) { state, pumpLink -> state.copy(pumpLinkStatus = pumpLink) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = MainUiState().toOverviewUiState(isProMode = false)
+            initialValue = MainUiState().toOverviewUiState(
+                isProMode = false,
+                baseTargetPresentation = baseTargetPresentationState.value
+            )
         )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val selectedAlertDetail = selectedAlertEpisodeId.flatMapLatest { episodeId ->
+        episodeId?.let(container.alertsRepository::observeDetail) ?: flowOf(null)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val alertHistory = alertsHistoryWindow.flatMapLatest { window ->
+        container.alertsRepository.observeHistory(
+            fromTs = window.fromTsInclusive,
+            throughTs = window.throughTsExclusive
+        )
+    }
+
+    val alertsUiState: StateFlow<AlertsUiState> = combine(
+        alertHistory,
+        container.alertsRepository.observeActive(),
+        selectedAlertDetail,
+        authoritativeGlucoseAlertMuteUntil
+    ) { history, active, selected, mutedUntilTs ->
+        AlertsUiState(
+            loadState = if (history.isEmpty() && active == null) {
+                io.aaps.copilot.ui.foundation.screens.ScreenLoadState.EMPTY
+            } else {
+                io.aaps.copilot.ui.foundation.screens.ScreenLoadState.READY
+            },
+            mutedUntilTs = mutedUntilTs,
+            active = active,
+            history = history.filterNot { it.episodeId == active?.episodeId },
+            selected = selected
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = AlertsUiState()
+    )
+
+    val alertNavigationRequests = container.alertNavigationCoordinator.pendingRequest
 
     val forecastUiState: StateFlow<ForecastUiState> = combine(
         uiState,
@@ -1529,8 +4161,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = ForecastUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
         )
 
-    val uamUiState: StateFlow<UamUiState> = uiState
-        .map { it.toUamUiState() }
+    val uamUiState: StateFlow<UamUiState> = combine(uiState, proModeState) { state, isProMode ->
+        state.toUamUiState(isProMode = isProMode)
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -1539,10 +4172,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val safetyUiState: StateFlow<SafetyUiState> = combine(
         uiState,
-        killSwitchOverrideState
-    ) { state, killSwitchOverride ->
+        killSwitchOverrideState,
+        LocalNightscoutRuntimeState.snapshot
+    ) { state, killSwitchOverride, localNightscout ->
         val mapped = state.toSafetyUiState()
-        if (killSwitchOverride != null) mapped.copy(killSwitchEnabled = killSwitchOverride) else mapped
+        val runtimeText = buildString {
+            append(localNightscout.status.name)
+            localNightscout.reason?.let { append(" (reason=").append(it).append(')') }
+            localNightscout.caFingerprint?.let { append(" CA=").append(it) }
+        }
+        mapped.copy(
+            killSwitchEnabled = killSwitchOverride ?: mapped.killSwitchEnabled,
+            localNightscoutRuntimeStatus = localNightscout.status.name,
+            localNightscoutRuntimeReason = localNightscout.reason,
+            localNightscoutCaFingerprint = localNightscout.caFingerprint,
+            localNightscoutTlsOk = localNightscout.status.name == "READY",
+            localNightscoutTlsStatusText = runtimeText,
+            checklist = mapped.checklist.map { item ->
+                if (item.title == "Nightscout local runtime") {
+                    item.copy(
+                        ok = localNightscout.status.name == "READY",
+                        details = runtimeText
+                    )
+                } else {
+                    item
+                }
+            }
+        )
     }
         .stateIn(
             scope = viewModelScope,
@@ -1579,11 +4235,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = AuditUiState(loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING, isStale = true)
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val probableMealWindowsState = db.eatingWindowSnapshotDao()
+        .observeLatest()
+        .flatMapLatest { stored ->
+            stored?.let { snapshot ->
+                flowOf(container.eatingWindowSnapshotRepository.decode(snapshot).snapshot)
+            } ?: db.therapyDao()
+                .observeLatestCarbCandidates(limit = PROBABLE_MEAL_CARB_LIMIT)
+                .map { rows ->
+                    val canonical = ClinicalReportDatasetBuilder.canonicalTherapyEvents(
+                        rows.mapNotNull(ClinicalReportDatasetBuilder::sanitizeTherapyEvent)
+                    ).map { it.point }
+                    EatingWindowSnapshotPlanner.plan(
+                        evidence = canonical.mapNotNull { point ->
+                            point.carbsG?.let { carbs ->
+                                EatingEvidencePoint(point.ts, carbs, point.syntheticUam)
+                            }
+                        },
+                        generatedAt = System.currentTimeMillis(),
+                        zoneId = ZoneId.systemDefault()
+                    )
+                }
+        }
+        .conflate()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null
+        )
+
     val analyticsUiState: StateFlow<AnalyticsUiState> = combine(
         uiState,
-        circadianReplaySummaryState
-    ) { state, circadianReplaySummary ->
-        state.toAnalyticsUiState(circadianReplaySummary = circadianReplaySummary)
+        circadianReplaySummaryState,
+        probableMealWindowsState
+    ) { state, circadianReplaySummary, probableMealSnapshot ->
+        state.toAnalyticsUiState(
+            circadianReplaySummary = circadianReplaySummary,
+            probableMealWindows = probableMealSnapshot?.stable?.windows.orEmpty(),
+            recentProbableMealWindows = probableMealSnapshot?.recent?.windows.orEmpty()
+        )
     }
         .stateIn(
             scope = viewModelScope,
@@ -1628,7 +4319,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = AiChatComposerState()
     )
 
-    val aiAnalysisUiState: StateFlow<AiAnalysisUiState> = combine(
+    private val clinicalAiTransientState: StateFlow<ClinicalAiTransientState> = combine(
+        clinicalAiPersistenceState,
+        clinicalAiConnectionTestState
+    ) { persistence, connectionTest ->
+        ClinicalAiTransientState(
+            persistence = persistence,
+            connectionTest = connectionTest
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ClinicalAiTransientState(
+            persistence = ClinicalAiPersistenceState(),
+            connectionTest = ClinicalAiConnectionTestUiState()
+        )
+    )
+
+    private val clinicalAiSettingsUiState: StateFlow<ClinicalAiSettingsUiState> = combine(
+        container.settingsStore.settings,
+        container.clinicalAiProviderManager.status,
+        clinicalAiTransientState
+    ) { settings, providerStatuses, transient ->
+        val resolution = resolveClinicalAiSettings(
+            persistedState = settings.clinicalAiConfigState,
+            draft = transient.persistence.draft
+        )
+        val credential = mapClinicalAiCredentialUiState(
+            providerStatuses[resolution.selectedProvider]
+                ?: ClinicalAiProviderCredentialState(
+                    configured = false,
+                    busy = true
+                )
+        )
+        val configurationUsable =
+            resolution.persistableConfig != null &&
+                !transient.persistence.pending &&
+                !transient.persistence.saveFailed &&
+                !credential.resetRequired
+        ClinicalAiSettingsUiState(
+            effectiveConfig = resolution.effectiveConfig,
+            selectedProvider = resolution.selectedProvider,
+            providerOptions = clinicalAiProviderOptions(),
+            modelPresets = ClinicalAiModelCatalog.forProvider(
+                resolution.selectedProvider
+            ),
+            customModelSelected = resolution.customModelSelected,
+            customModelDraft = resolution.modelDraft,
+            endpointDraft = resolution.endpointDraft,
+            selectedProtocol = resolution.protocol,
+            protocolOptions = clinicalAiProtocolOptions(),
+            automaticCauseAnalysisEnabled = settings.automaticEventAiAnalysisEnabled,
+            credential = credential,
+            usesLegacyCredentialState = false,
+            localValidationError = resolution.validationError,
+            saveError = transient.persistence.saveFailed,
+            connectionTest = transient.connectionTest,
+            canTestConnection =
+                configurationUsable &&
+                    credential.configured &&
+                    !credential.busy &&
+                    transient.connectionTest.phase !=
+                    ClinicalAiConnectionTestPhaseUi.RUNNING,
+            canSendReport =
+                configurationUsable &&
+                    credential.configured &&
+                    !credential.busy,
+            labels = clinicalAiLabels()
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ClinicalAiSettingsUiState(
+            effectiveConfig = ClinicalAiProviderConfig.defaultOpenAi(),
+            providerOptions = clinicalAiProviderOptions(),
+            protocolOptions = clinicalAiProtocolOptions(),
+            labels = clinicalAiLabels()
+        )
+    )
+
+    private val legacyAiAnalysisUiState: StateFlow<AiAnalysisUiState> = combine(
         uiState,
         circadianReplaySummaryState,
         aiChatMessagesState,
@@ -1656,14 +4426,118 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         )
 
-    val settingsUiState: StateFlow<SettingsUiState> = combine(
+    private val clinicalAiRetryStateObserver = viewModelScope.launch {
+        val resetGate = ClinicalAiRetryStateResetGate()
+        clinicalAiSettingsUiState
+            .map { it.canSendReport }
+            .distinctUntilChanged()
+            .collect { configurationUsable ->
+                if (resetGate.shouldClear(configurationUsable)) {
+                    clearClinicalReportRetryState()
+                }
+            }
+    }
+
+    val aiAnalysisUiState: StateFlow<AiAnalysisUiState> = combine(
+        legacyAiAnalysisUiState,
+        clinicalReportCommands.state,
+        clinicalReportRetryConfirmationState,
+        clinicalReportRetryFeedbackState,
+        clinicalAiSettingsUiState
+    ) {
+            legacyState,
+            clinicalState,
+            retryConfirmationRequested,
+            retryFeedback,
+            clinicalAi ->
+        val mapped = legacyState.withClinicalReport(
+            clinicalReport = mapClinicalReportState(
+                state = clinicalState,
+                retryConfirmationRequested = retryConfirmationRequested,
+                retryFeedback = retryFeedback,
+                disclosure = clinicalAi.effectiveConfig.toClinicalReportDisclosureUi()
+            )
+        )
+        mapped.copy(
+            clinicalReport = mapped.clinicalReport.withClinicalAiRemoteActionsEnabled(
+                clinicalAi.canSendReport
+            )
+        )
+    }
+        .combine(clinicalReportPdfExportCoordinator.state) { state, pdfExportState ->
+            state.copy(
+                clinicalReport = state.clinicalReport.copy(
+                    canSavePdf =
+                        (
+                            state.clinicalReport.phase ==
+                                io.aaps.copilot.ui.foundation.screens.ClinicalReportPhaseUi.LOCAL_READY ||
+                            state.clinicalReport.phase ==
+                                io.aaps.copilot.ui.foundation.screens.ClinicalReportPhaseUi.COMPLETE
+                            ) && !pdfExportState.requiresReprepare,
+                    pdfExportState = pdfExportState.phase,
+                    pdfExportTicket = pdfExportState.ticket,
+                    canSharePdf = pdfExportState.canShare,
+                    pdfRequiresReprepare = pdfExportState.requiresReprepare
+                )
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = legacyAiAnalysisUiState.value.withClinicalReport(
+                clinicalReport = mapClinicalReportState(
+                    state = clinicalReportCommands.state.value,
+                    retryConfirmationRequested = false,
+                    disclosure = clinicalAiSettingsUiState.value.effectiveConfig
+                        .toClinicalReportDisclosureUi()
+                )
+            )
+        )
+
+    private val rawEnergyProfileSettingsState = combine(
         container.settingsStore.settings,
+        container.db.energyProfileDao().observeLatestSnapshot(),
+        container.db.energyProfileDao().observeAllEvents()
+    ) { settings, snapshot, events ->
+        energyProfileSettingsUiState(
+            settings = settings.energyProfile,
+            snapshot = snapshot,
+            events = events
+        )
+    }
+
+    private val energyProfileSettingsState = combine(
+        rawEnergyProfileSettingsState,
+        energyProfileValidationMessage
+    ) { profile, validationMessage ->
+        profile.copy(validationMessage = validationMessage)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = energyProfileSettingsUiState(
+            settings = EnergyProfileSettings(),
+            snapshot = null,
+            events = emptyList()
+        )
+    )
+
+    private val rawSettingsUiState: StateFlow<SettingsUiState> = combine(
+        combine(
+            container.settingsStore.settings,
+            container.openAiCredentialProvider.status,
+            clinicalAiSettingsUiState,
+            energyProfileSettingsState
+        ) { settings, credentialStatus, clinicalAi, energyProfile ->
+            SettingsUiDependencies(settings, credentialStatus, clinicalAi, energyProfile)
+        },
         verboseLogsState,
         proModeState,
+        glucoseAlertAudioPreviewState,
         container.isfCrRepository.observeRecentTags(
             sinceTs = System.currentTimeMillis() - PHYSIO_TAG_JOURNAL_LOOKBACK_MS
         )
-    ) { settings, verbose, proMode, tags ->
+    ) { settingsAndCredential, verbose, proMode, previewState, tags ->
+        val (settings, credentialStatus, clinicalAi, energyProfile) = settingsAndCredential
         val nowTs = System.currentTimeMillis()
         val activeTags = tags
             .asSequence()
@@ -1680,6 +4554,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { tag ->
                 PhysioTagJournalItemUi(
                     id = tag.id,
+                    revision = tag.revision,
                     tagType = tag.tagType,
                     severity = tag.severity.coerceIn(0.0, 1.0),
                     tsStart = tag.tsStart,
@@ -1689,6 +4564,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     note = tag.note
                 )
             }
+        val softAudioSpec = GlucoseAlertAudioProfiles.resolve(settings, GlucoseAlertAudioSlot.SOFT)
+        val criticalAudio1Spec = GlucoseAlertAudioProfiles.resolve(settings, GlucoseAlertAudioSlot.CRITICAL_PRIMARY)
+        val criticalAudio2Spec = GlucoseAlertAudioProfiles.resolve(settings, GlucoseAlertAudioSlot.CRITICAL_SECONDARY)
         SettingsUiState(
             loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.READY,
             isStale = false,
@@ -1697,18 +4575,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             baseTarget = settings.baseTargetMmol,
             nightscoutUrl = settings.nightscoutUrl,
             aiApiUrl = settings.cloudBaseUrl,
-            aiApiKey = settings.openAiApiKey,
+            aiCredential = AiCredentialUiState(
+                configured = credentialStatus.configured,
+                busy = credentialStatus.busy,
+                migrationError = credentialStatus.migrationFailed,
+                readError = credentialStatus.readFailed,
+                legacyCleanupPending = credentialStatus.legacyCleanupPending
+            ),
+            energyProfile = energyProfile,
+            clinicalAi = clinicalAi,
             uiStyle = settings.uiStyle.name,
             resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
             insulinProfileId = settings.insulinProfileId,
             localNightscoutEnabled = settings.localNightscoutEnabled,
+            localNightscoutLegacyMigrationAcknowledged =
+                settings.localNightscoutLegacyMigrationAcknowledged,
             localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled,
             strictBroadcastSenderValidation = settings.strictBroadcastSenderValidation,
             enableUamInference = settings.enableUamInference,
             enableUamBoost = settings.enableUamBoost,
-            enableUamExportToAaps = settings.enableUamExportToAaps,
-            uamExportMode = settings.uamExportMode.name,
-            dryRunExport = settings.dryRunExport,
+            uamExport = UamExportControlUi(
+                available = settings.enableUamInference,
+                mode = UamExportUiModePolicy.resolve(settings).name
+            ),
+            enableUamAutoExportCap = settings.enableUamAutoExportCap,
+            uamAutoExportCapGrams = settings.uamAutoExportCapGrams,
             uamMinSnackG = settings.uamMinSnackG,
             uamMaxSnackG = settings.uamMaxSnackG,
             uamSnackStepG = settings.uamSnackStepG,
@@ -1719,6 +4610,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             circadianUseReplayResidualBias = settings.circadianUseReplayResidualBias,
             circadianForecastWeight30 = settings.circadianForecastWeight30,
             circadianForecastWeight60 = settings.circadianForecastWeight60,
+            sensorLagCorrectionMode = settings.sensorLagCorrectionMode.name,
+            targetManagerMode = settings.targetManagerMode.name,
+            targetManagerModeManualOverride = settings.targetManagerModeManualOverride,
+            targetManagerCopilotPriorityEnabled = settings.targetManagerCopilotPriorityEnabled,
+            targetManagerPolicyRevision = settings.targetManagerPolicyRevision,
+            adaptiveControllerRetargetMinutes = settings.adaptiveControllerRetargetMinutes,
+            rulePostHypoCooldownMinutes = settings.rulePostHypoCooldownMinutes,
+            rulePatternCooldownMinutes = settings.rulePatternCooldownMinutes,
+            ruleSegmentCooldownMinutes = settings.ruleSegmentCooldownMinutes,
+            softAlertEnabled = settings.softAlertEnabled,
+            watch60AlertEnabled = settings.watch60AlertEnabled,
+            warning30AlertEnabled = settings.warning30AlertEnabled,
+            softHighAlertEnabled = settings.softHighAlertEnabled,
+            critical5AlertEnabled = settings.critical5AlertEnabled,
+            lowNowAlertEnabled = settings.lowNowAlertEnabled,
+            softAlertLowMmol = settings.softAlertLowMmol,
+            softAlertHighMmol = settings.softAlertHighMmol,
+            urgentLowMmol = settings.urgentLowMmol,
+            softAlertClipLabel = softAudioSpec.label,
+            criticalAlertClip1Label = criticalAudio1Spec.label,
+            criticalAlertClip2Label = criticalAudio2Spec.label,
+            softAlertAudioStartSeconds = settings.softAlertAudioStartMs / 1_000,
+            softAlertAudioDurationSeconds = settings.softAlertAudioDurationMs / 1_000,
+            criticalAlertAudio1StartSeconds = settings.criticalAlertAudio1StartMs / 1_000,
+            criticalAlertAudio1DurationSeconds = settings.criticalAlertAudio1DurationMs / 1_000,
+            criticalAlertAudio2StartSeconds = settings.criticalAlertAudio2StartMs / 1_000,
+            criticalAlertAudio2DurationSeconds = settings.criticalAlertAudio2DurationMs / 1_000,
+            softAlertAudioValid = softAudioSpec.valid,
+            criticalAlertAudio1Valid = criticalAudio1Spec.valid,
+            criticalAlertAudio2Valid = criticalAudio2Spec.valid,
+            softAlertAudioPreviewing = previewState.isPreview && previewState.activeSlot == GlucoseAlertAudioSlot.SOFT,
+            criticalAlertAudio1Previewing = previewState.isPreview && previewState.activeSlot == GlucoseAlertAudioSlot.CRITICAL_PRIMARY,
+            criticalAlertAudio2Previewing = previewState.isPreview && previewState.activeSlot == GlucoseAlertAudioSlot.CRITICAL_SECONDARY,
+            isfRuntimeSourcePreference = settings.isfSourcePreference.name,
+            crRuntimeSourcePreference = settings.crSourcePreference.name,
             isfCrShadowMode = settings.isfCrShadowMode,
             isfCrConfidenceThreshold = settings.isfCrConfidenceThreshold,
             isfCrUseActivity = settings.isfCrUseActivity,
@@ -1779,8 +4705,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseTarget = 5.5,
                 nightscoutUrl = "",
                 aiApiUrl = "",
-                aiApiKey = "",
-                uiStyle = UiStyle.CLASSIC.name,
+                clinicalAi = clinicalAiSettingsUiState.value,
+                uiStyle = UiStyle.MIDNIGHT_GLASS.name,
                 resolvedNightscoutUrl = "",
                 insulinProfileId = "NOVORAPID",
                 localNightscoutEnabled = false,
@@ -1788,9 +4714,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 strictBroadcastSenderValidation = false,
                 enableUamInference = true,
                 enableUamBoost = true,
-                enableUamExportToAaps = false,
-                uamExportMode = UamExportMode.OFF.name,
-                dryRunExport = true,
+                uamExport = UamExportControlUi(),
+                enableUamAutoExportCap = false,
+                uamAutoExportCapGrams = 10,
                 uamMinSnackG = 15,
                 uamMaxSnackG = 60,
                 uamSnackStepG = 5,
@@ -1801,6 +4727,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 circadianUseReplayResidualBias = true,
                 circadianForecastWeight30 = 0.25,
                 circadianForecastWeight60 = 0.35,
+                sensorLagCorrectionMode = "OFF",
+                softAlertEnabled = true,
+                watch60AlertEnabled = true,
+                warning30AlertEnabled = true,
+                softHighAlertEnabled = true,
+                critical5AlertEnabled = true,
+                lowNowAlertEnabled = true,
+                softAlertLowMmol = 4.4,
+                softAlertHighMmol = 10.0,
+                urgentLowMmol = 3.9,
+                softAlertClipLabel = "Elk Creek.mp3",
+                criticalAlertClip1Label = "Night Waltz.mp3",
+                criticalAlertClip2Label = "Snowbirds.mp3",
+                softAlertAudioStartSeconds = 32,
+                softAlertAudioDurationSeconds = 18,
+                criticalAlertAudio1StartSeconds = 42,
+                criticalAlertAudio1DurationSeconds = 20,
+                criticalAlertAudio2StartSeconds = 36,
+                criticalAlertAudio2DurationSeconds = 20,
+                softAlertAudioValid = true,
+                criticalAlertAudio1Valid = true,
+                criticalAlertAudio2Valid = true,
+                softAlertAudioPreviewing = false,
+                criticalAlertAudio1Previewing = false,
+                criticalAlertAudio2Previewing = false,
+                isfRuntimeSourcePreference = "UNAVAILABLE",
+                crRuntimeSourcePreference = "UNAVAILABLE",
                 isfCrShadowMode = true,
                 isfCrConfidenceThreshold = 0.45,
                 isfCrUseActivity = true,
@@ -1846,13 +4799,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 postHypoThresholdMmol = 4.0,
                 postHypoTargetMmol = 4.4,
                 verboseLogsEnabled = false,
-                retentionDays = 365,
+                retentionDays = 30,
                 warningText = "Not a medical device. Verify all decisions."
             )
         )
 
+    val settingsUiState: StateFlow<SettingsUiState> = combine(
+        rawSettingsUiState,
+        baseTargetPresentationState,
+        uiState,
+        sensitivitySourceApplyState,
+        LocalNightscoutRuntimeState.snapshot
+    ) { state, targetPresentation, runtime, apply, localNightscout ->
+        state.copy(
+            baseTargetSchedule = targetPresentation.schedule,
+            effectiveBaseTargetMmol = targetPresentation.effectiveTargetMmol,
+            baseTargetAutoDeltaMmol = targetPresentation.autoDeltaMmol,
+            baseTargetAutoState = targetPresentation.autoState,
+            baseTargetAutoReason = targetPresentation.autoReason,
+            uamExport = runtime.toUamExportControlUi(),
+            isfRuntimeSourcePreference = sensitivitySourceSelection(
+                acceptedSource = runtime.isfRuntimeSourcePreference,
+                authoritativeSource = state.isfRuntimeSourcePreference,
+                metric = SensitivityMetricKind.ISF.name,
+                apply = apply
+            ),
+            crRuntimeSourcePreference = sensitivitySourceSelection(
+                acceptedSource = runtime.crRuntimeSourcePreference,
+                authoritativeSource = state.crRuntimeSourcePreference,
+                metric = SensitivityMetricKind.CR.name,
+                apply = apply
+            ),
+            sensitivitySourceApplying = apply.applying,
+            sensitivitySourcePendingMetric = apply.pendingMetric,
+            sensitivitySourcePendingValue = apply.pendingValue,
+            sensitivitySourceApplyError = apply.error ?: runtime.sensitivitySourceApplyError,
+            localNightscoutRuntimeStatus = localNightscout.status.name,
+            localNightscoutRuntimeReason = localNightscout.reason,
+            localNightscoutCaFingerprint = localNightscout.caFingerprint
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = rawSettingsUiState.value.copy(
+            baseTargetSchedule = baseTargetPresentationState.value.schedule,
+            effectiveBaseTargetMmol = baseTargetPresentationState.value.effectiveTargetMmol,
+            baseTargetAutoDeltaMmol = baseTargetPresentationState.value.autoDeltaMmol,
+            baseTargetAutoState = baseTargetPresentationState.value.autoState,
+            baseTargetAutoReason = baseTargetPresentationState.value.autoReason,
+            uamExport = uiState.value.toUamExportControlUi(),
+            isfRuntimeSourcePreference = uiState.value.isfRuntimeSourcePreference,
+            crRuntimeSourcePreference = uiState.value.crRuntimeSourcePreference
+        )
+    )
+
     fun setActiveRoute(route: String?) {
         val normalized = route?.takeIf { it.isNotBlank() } ?: ROUTE_OVERVIEW
+        val previousRoute = activeRouteState.value
         activeRouteState.value = normalized
         if (normalized == ROUTE_ANALYTICS || normalized == ROUTE_AI_ANALYSIS) {
             ensureProfileAnalyticsHealthyAsync(reasonHint = "route:$normalized")
@@ -1860,9 +4863,165 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refreshCircadianReplaySummaryAsync(force = false)
         }
         if (normalized == ROUTE_AI_ANALYSIS) {
+            if (shouldPrepareClinicalReportOnRouteTransition(previousRoute, normalized)) {
+                prepareClinicalReport()
+            }
             refreshCloudJobs(silent = true)
             refreshAnalysisInsights(silent = true)
             maybeGenerateLocalDailyAnalysis(silent = true)
+        }
+    }
+
+    fun prepareClinicalReport() {
+        viewModelScope.launch {
+            clinicalReportCommands.prepare()
+        }
+    }
+
+    fun retryLocalClinicalReportPreparation() {
+        viewModelScope.launch {
+            clinicalReportCommands.prepare()
+        }
+    }
+
+    fun reprepareClinicalReportPdf() {
+        viewModelScope.launch {
+            clinicalReportPdfReprepareCoordinator.reprepare()
+        }
+    }
+
+    fun beginClinicalReportPdfExport() = clinicalReportPdfExportCoordinator.begin()
+
+    fun claimClinicalReportPdfExportTicket(ticketId: Long): Boolean =
+        clinicalReportPdfExportCoordinator.claimReadyTicket(ticketId)
+
+    fun shareClinicalReportPdf() {
+        clinicalReportPdfExportCoordinator.beginShare { payload ->
+            runCatching {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = payload.mimeType
+                    putExtra(Intent.EXTRA_STREAM, payload.uri)
+                    clipData = ClipData.newRawUri("clinical-pdf", payload.uri)
+                    addFlags(payload.flags)
+                }
+                val chooser = Intent.createChooser(
+                    send,
+                    getApplication<Application>().getString(R.string.clinical_report_share_pdf)
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or payload.flags)
+                getApplication<Application>().startActivity(chooser)
+                true
+            }.getOrDefault(false)
+        }
+    }
+
+    fun resolveClinicalReportPdfExport(
+        ticketId: Long,
+        uri: Uri?
+    ) {
+        clinicalReportPdfExportCoordinator.resolvePicker(ticketId, uri)
+    }
+
+    fun sendClinicalReport(confirmedDisclosure: ClinicalReportDisclosureUi) {
+        clinicalReportRetryConfirmationState.value = false
+        clinicalReportRetryFeedbackState.value = null
+        viewModelScope.launch {
+            if (!clinicalAiRemoteSendPreflight()) return@launch
+            try {
+                clinicalReportDisclosureSendGuard.sendIfMatches(confirmedDisclosure) {
+                    clinicalReportCommands.send(confirmedDisclosure.configIdentity)
+                }
+            } catch (_: ClinicalReportConfigurationChangedException) {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_report_settings_changed
+                )
+            }
+        }
+    }
+
+    fun cancelClinicalReport() {
+        clinicalReportRetryConfirmationState.value = false
+        clinicalReportRetryFeedbackState.value = null
+        viewModelScope.launch {
+            clinicalReportCommands.cancel()
+        }
+    }
+
+    fun requestUnknownClinicalReportRetryConfirmation() {
+        val state = clinicalReportCommands.state.value as?
+            io.aaps.copilot.data.repository.ClinicalReportState.Failed
+        clinicalReportRetryConfirmationState.value =
+            state?.reason ==
+            io.aaps.copilot.data.repository.ClinicalReportFailureReason.UNKNOWN_REMOTE_OUTCOME &&
+            state.local != null
+        clinicalReportRetryFeedbackState.value = null
+    }
+
+    fun dismissUnknownClinicalReportRetryConfirmation() {
+        clinicalReportRetryConfirmationState.value = false
+        clinicalReportRetryFeedbackState.value = null
+    }
+
+    fun retryUnknownClinicalReport() {
+        val confirmed = clinicalReportRetryConfirmationState.value
+        if (
+            !confirmed ||
+            clinicalReportRetryFeedbackState.value == ClinicalReportRetryFeedbackUi.PENDING
+        ) {
+            return
+        }
+        clinicalReportRetryFeedbackState.value = ClinicalReportRetryFeedbackUi.PENDING
+        viewModelScope.launch {
+            if (!clinicalAiRemoteSendPreflight()) {
+                clinicalReportRetryConfirmationState.value = false
+                clinicalReportRetryFeedbackState.value = null
+                return@launch
+            }
+            val disposition = runCatching {
+                clinicalReportCommands.retryUnknown(confirmed)
+            }.getOrNull()
+            if (disposition == ClinicalReportRunDisposition.REMOTE_STARTED) {
+                clinicalReportRetryConfirmationState.value = false
+                clinicalReportRetryFeedbackState.value = null
+            } else {
+                clinicalReportRetryFeedbackState.value =
+                    if (
+                        disposition == ClinicalReportRunDisposition.LOCAL_IN_FLIGHT ||
+                        disposition == ClinicalReportRunDisposition.REMOTE_IN_FLIGHT
+                    ) {
+                        ClinicalReportRetryFeedbackUi.IN_FLIGHT
+                    } else {
+                        ClinicalReportRetryFeedbackUi.FAILED
+                    }
+            }
+        }
+    }
+
+    private fun clearClinicalReportRetryState() {
+        clinicalReportRetryConfirmationState.value = false
+        clinicalReportRetryFeedbackState.value = null
+    }
+
+    private suspend fun clinicalAiRemoteSendPreflight(): Boolean {
+        return when (clinicalAiRemotePreflight.check()) {
+            ClinicalAiRemotePreflightResult.READY -> true
+            ClinicalAiRemotePreflightResult.INVALID_CONFIGURATION -> {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_report_blocked_invalid
+                )
+                false
+            }
+            ClinicalAiRemotePreflightResult.PERSISTENCE_PENDING -> {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_report_blocked_saving
+                )
+                false
+            }
+            ClinicalAiRemotePreflightResult.PERSISTENCE_FAILED -> {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_config_save_failed
+                )
+                false
+            }
         }
     }
 
@@ -1874,7 +5033,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (circadianReplayRefreshRunning) return
         circadianReplayRefreshRunning = true
         circadianReplayRefreshStartedAt = nowTs
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val settings = container.settingsStore.settings.first()
                 container.analyticsRepository.buildCircadianReplaySummary(
@@ -1932,6 +5091,198 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runCycleNow() {
         runAutomationNow()
+    }
+
+    fun openAapsBolusDialog() {
+        val result = container.aapsBolusLauncher.open()
+        messageState.value = when (result) {
+            AapsBolusLaunchResult.OPENED ->
+                getApplication<Application>().getString(R.string.aaps_bolus_launch_opened)
+            AapsBolusLaunchResult.AAPS_NOT_INSTALLED ->
+                getApplication<Application>().getString(R.string.aaps_bolus_launch_not_installed)
+            AapsBolusLaunchResult.INCOMPATIBLE_BUILD ->
+                getApplication<Application>().getString(R.string.aaps_bolus_launch_incompatible_build)
+            AapsBolusLaunchResult.INCOMPATIBLE_SIGNATURE_OR_PERMISSION_DENIED ->
+                getApplication<Application>().getString(R.string.aaps_bolus_launch_incompatible)
+            AapsBolusLaunchResult.LAUNCH_FAILED ->
+                getApplication<Application>().getString(R.string.aaps_bolus_launch_failed)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            container.auditLogger.info(
+                "aaps_bolus_dialog_launch",
+                mapOf("result" to result.name)
+            )
+        }
+    }
+
+    fun muteGlucoseAlerts30m() {
+        muteGlucoseAlerts(GlucoseAlertMuteOption.MINUTES_30)
+    }
+
+    fun muteGlucoseAlerts60m() {
+        muteGlucoseAlerts(GlucoseAlertMuteOption.MINUTES_60)
+    }
+
+    fun refreshAlertsWindow(nowTs: Long = System.currentTimeMillis()) {
+        alertsHistoryWindow.value = AlertsRepository.historyWindowAt(nowTs)
+    }
+
+    fun selectAlertEpisode(episodeId: String?) {
+        selectedAlertEpisodeId.value = episodeId?.takeIf(AlertsRepository::isSafeEpisodeId)
+    }
+
+    fun acknowledgeAlertNavigation(token: Long): Boolean =
+        container.alertNavigationCoordinator.acknowledge(token)
+
+    fun resumeGlucoseAlerts() {
+        viewModelScope.launch(Dispatchers.IO) {
+            resumeGlucoseAlertsNow(System.currentTimeMillis())
+        }
+    }
+
+    fun toggleGlucoseAlerts() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val nowTs = System.currentTimeMillis()
+            val transition = container.episodeAlertDelivery.toggleFromOverview(nowTs)
+            when (transition.action) {
+                GlucoseAlertBellAction.MUTE_30_MINUTES -> {
+                    container.auditLogger.info(
+                        "glucose_alert_muted_from_overview",
+                        mapOf(
+                            "durationMinutes" to GlucoseAlertMuteOption.MINUTES_30.minutes,
+                            "mutedUntilTs" to transition.mutedUntilTs,
+                            "source" to "overview_bell",
+                            "sourceState" to overviewUiState.value.glucoseAlertState.orEmpty()
+                        )
+                    )
+                    messageState.value = getApplication<Application>().getString(
+                        R.string.alerts_muted_confirmation,
+                        GlucoseAlertMuteOption.MINUTES_30.minutes
+                    )
+                }
+                GlucoseAlertBellAction.RESUME -> {
+                    completeGlucoseAlertResume(transition.previousMutedUntilTs)
+                }
+            }
+        }
+    }
+
+    private suspend fun resumeGlucoseAlertsNow(nowTs: Long) {
+        val previousMutedUntilTs = container.episodeAlertDelivery.currentMutedUntil()
+        container.episodeAlertDelivery.resume(nowTs)
+        completeGlucoseAlertResume(previousMutedUntilTs)
+    }
+
+    private suspend fun completeGlucoseAlertResume(previousMutedUntilTs: Long) {
+        container.auditLogger.info(
+            "glucose_alert_resumed_from_overview",
+            mapOf(
+                "previousMutedUntilTs" to previousMutedUntilTs,
+                "sourceState" to overviewUiState.value.glucoseAlertState.orEmpty()
+            )
+        )
+        messageState.value = getApplication<Application>().getString(R.string.alerts_resumed_confirmation)
+        container.automationRepository.runAutomationCycle()
+    }
+
+    private fun muteGlucoseAlerts(option: GlucoseAlertMuteOption) {
+        viewModelScope.launch(Dispatchers.IO) {
+            applyGlucoseAlertMute(
+                option = option,
+                nowTs = System.currentTimeMillis(),
+                source = "overview_action"
+            )
+        }
+    }
+
+    private suspend fun applyGlucoseAlertMute(
+        option: GlucoseAlertMuteOption,
+        nowTs: Long,
+        source: String
+    ) {
+        val overview = overviewUiState.value
+        val mutedUntilTs = container.episodeAlertDelivery.muteFor(nowTs, option.durationMs)
+        container.auditLogger.info(
+            "glucose_alert_muted_from_overview",
+            mapOf(
+                "durationMinutes" to option.minutes,
+                "mutedUntilTs" to mutedUntilTs,
+                "source" to source,
+                "sourceState" to overview.glucoseAlertState.orEmpty()
+            )
+        )
+        messageState.value = getApplication<Application>().getString(
+            R.string.alerts_muted_confirmation,
+            option.minutes
+        )
+    }
+
+    fun addManualBloodGlucoseCheck(
+        valueRaw: String,
+        units: String,
+        timestamp: Long = System.currentTimeMillis(),
+        noteRaw: String = ""
+    ) {
+        viewModelScope.launch {
+            val value = parseFlexibleDouble(valueRaw)
+            if (value == null) {
+                messageState.value = "Blood check failed: invalid glucose value"
+                return@launch
+            }
+            val check = try {
+                container.glucoseCalibrationRepository.addManualBloodGlucoseCheck(
+                    value = value,
+                    units = units,
+                    timestamp = timestamp,
+                    note = noteRaw.trim().takeIf { it.isNotBlank() }
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (error: Exception) {
+                messageState.value = "Blood check failed: ${error.message}"
+                return@launch
+            }
+            messageState.value = "Blood check saved: ${String.format(Locale.US, "%.1f", check.mmol)} mmol/L"
+            runManualCalibrationFollowUp {
+                container.automationRepository.runAutomationCycle()
+            }?.let { failure ->
+                auditManualCalibrationFollowUpFailure("automation_cycle", failure)
+            }
+        }
+    }
+
+    fun resetManualGlucoseCalibration() {
+        viewModelScope.launch {
+            val result = try {
+                container.glucoseCalibrationRepository.resetManualCalibration()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (error: Exception) {
+                messageState.value = "Calibration reset failed: ${error.message}"
+                return@launch
+            }
+            messageState.value = if (result.retiredModelCount > 0 || result.resetCheckCount > 0) {
+                "Glucose calibration reset"
+            } else {
+                "No active glucose calibration"
+            }
+        }
+    }
+
+    private suspend fun auditManualCalibrationFollowUpFailure(stage: String, failure: Exception) {
+        runManualCalibrationFollowUp {
+            container.auditLogger.warn(
+                "manual_glucose_calibration_follow_up_failed",
+                mapOf(
+                    "stage" to stage,
+                    "error" to (failure.message ?: failure::class.java.simpleName)
+                )
+            )
+        }
     }
 
     fun setForecastRange(range: ForecastRangeUi) {
@@ -2008,35 +5359,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportUamEventToAaps(eventId: String) {
-        viewModelScope.launch {
-            val dao = db.uamInferenceEventDao()
-            val event = dao.byId(eventId)
-            if (event == null) {
-                messageState.value = "UAM event not found"
-                return@launch
-            }
-            if (!uiState.value.enableUamExportToAaps) {
-                messageState.value = "UAM export is disabled in settings"
-                return@launch
-            }
-            if (uiState.value.dryRunExport) {
-                messageState.value = "UAM export is in dry-run mode"
-                return@launch
-            }
-            val updated = if (event.state == UamInferenceState.SUSPECTED.name) {
-                event.copy(
-                    state = UamInferenceState.CONFIRMED.name,
-                    updatedAt = System.currentTimeMillis()
-                )
-            } else {
-                event
-            }
-            dao.upsert(updated)
-            runAutomationNow()
-        }
-    }
-
     private fun updateUamEvent(
         eventId: String,
         updater: (UamInferenceEventEntity) -> UamInferenceEventEntity
@@ -2078,17 +5400,279 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setBaseTarget(mmol: Double) {
         viewModelScope.launch {
-            container.settingsStore.update {
-                it.copy(
-                    baseTargetMmol = mmol.coerceIn(
-                        it.safetyMinTargetMmol,
-                        it.safetyMaxTargetMmol
-                    )
-                )
-            }
+            container.settingsStore.updateBaseTargetDefault(mmol)
             recalculateAnalyticsAsync()
             messageState.value = "Base target updated"
         }
+    }
+
+    fun saveBaseTargetSchedule(schedule: BaseTargetSchedule) {
+        viewModelScope.launch {
+            try {
+                container.settingsStore.saveBaseTargetSchedule(schedule)
+                recalculateAnalyticsAsync()
+                messageState.value = "Base target schedule updated"
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                messageState.value = error.message ?: "Unable to update base target schedule"
+            }
+        }
+    }
+
+    fun setGlucoseAlertSettings(
+        softEnabled: Boolean? = null,
+        watch60Enabled: Boolean? = null,
+        warning30Enabled: Boolean? = null,
+        softHighEnabled: Boolean? = null,
+        critical5Enabled: Boolean? = null,
+        lowNowEnabled: Boolean? = null,
+        softLowMmol: Double? = null,
+        softHighMmol: Double? = null,
+        urgentLowMmol: Double? = null
+    ) {
+        viewModelScope.launch {
+            container.settingsStore.update { current ->
+                val nextSoftLow = (softLowMmol ?: current.softAlertLowMmol).coerceIn(3.6, 6.0)
+                val nextSoftHigh = (softHighMmol ?: current.softAlertHighMmol).coerceIn(7.0, 13.9)
+                    .coerceAtLeast(nextSoftLow + 0.1)
+                val nextUrgentLow = (urgentLowMmol ?: current.urgentLowMmol).coerceIn(3.0, 4.4)
+                    .coerceAtMost(nextSoftLow)
+                current.copy(
+                    softAlertEnabled = softEnabled ?: current.softAlertEnabled,
+                    watch60AlertEnabled = watch60Enabled ?: current.watch60AlertEnabled,
+                    warning30AlertEnabled = warning30Enabled ?: current.warning30AlertEnabled,
+                    softHighAlertEnabled = softHighEnabled ?: current.softHighAlertEnabled,
+                    critical5AlertEnabled = critical5Enabled ?: current.critical5AlertEnabled,
+                    lowNowAlertEnabled = lowNowEnabled ?: current.lowNowAlertEnabled,
+                    softAlertLowMmol = nextSoftLow,
+                    softAlertHighMmol = nextSoftHigh,
+                    urgentLowMmol = nextUrgentLow
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "Glucose alert settings updated"
+        }
+    }
+
+    fun setSoftGlucoseAlertAudio(
+        startSeconds: Int,
+        durationSeconds: Int
+    ) {
+        viewModelScope.launch {
+            val nextSettings = container.settingsStore.settings.first().copy(
+                softAlertAudioStartMs = (startSeconds.coerceIn(0, 180) * 1_000),
+                softAlertAudioDurationMs = (durationSeconds.coerceIn(15, 30) * 1_000)
+            )
+            container.settingsStore.update { current ->
+                nextSettings
+            }
+            container.auditLogger.info(
+                "glucose_alert_audio_profile_updated",
+                mapOf(
+                    "slot" to "SOFT",
+                    "clip" to GlucoseAlertAudioProfiles.resolve(nextSettings, GlucoseAlertAudioSlot.SOFT).label,
+                    "startSeconds" to startSeconds,
+                    "durationSeconds" to durationSeconds
+                )
+            )
+            messageState.value = "Soft alert clip updated"
+        }
+    }
+
+    fun setCriticalGlucoseAlertAudio1(
+        startSeconds: Int,
+        durationSeconds: Int
+    ) {
+        viewModelScope.launch {
+            val nextSettings = container.settingsStore.settings.first().copy(
+                criticalAlertAudio1StartMs = (startSeconds.coerceIn(0, 180) * 1_000),
+                criticalAlertAudio1DurationMs = (durationSeconds.coerceIn(15, 30) * 1_000)
+            )
+            container.settingsStore.update { current ->
+                nextSettings
+            }
+            container.auditLogger.info(
+                "glucose_alert_audio_profile_updated",
+                mapOf(
+                    "slot" to "CRITICAL_PRIMARY",
+                    "clip" to GlucoseAlertAudioProfiles.resolve(nextSettings, GlucoseAlertAudioSlot.CRITICAL_PRIMARY).label,
+                    "startSeconds" to startSeconds,
+                    "durationSeconds" to durationSeconds
+                )
+            )
+            messageState.value = "Critical alert clip #1 updated"
+        }
+    }
+
+    fun setCriticalGlucoseAlertAudio2(
+        startSeconds: Int,
+        durationSeconds: Int
+    ) {
+        viewModelScope.launch {
+            val nextSettings = container.settingsStore.settings.first().copy(
+                criticalAlertAudio2StartMs = (startSeconds.coerceIn(0, 180) * 1_000),
+                criticalAlertAudio2DurationMs = (durationSeconds.coerceIn(15, 30) * 1_000)
+            )
+            container.settingsStore.update { current ->
+                nextSettings
+            }
+            container.auditLogger.info(
+                "glucose_alert_audio_profile_updated",
+                mapOf(
+                    "slot" to "CRITICAL_SECONDARY",
+                    "clip" to GlucoseAlertAudioProfiles.resolve(nextSettings, GlucoseAlertAudioSlot.CRITICAL_SECONDARY).label,
+                    "startSeconds" to startSeconds,
+                    "durationSeconds" to durationSeconds
+                )
+            )
+            messageState.value = "Critical alert clip #2 updated"
+        }
+    }
+
+    fun replaceGlucoseAlertAudioSource(
+        slotRaw: String,
+        uriString: String
+    ) {
+        viewModelScope.launch {
+            val slot = when (slotRaw.uppercase(Locale.US)) {
+                "SOFT" -> GlucoseAlertAudioSlot.SOFT
+                "CRITICAL_PRIMARY" -> GlucoseAlertAudioSlot.CRITICAL_PRIMARY
+                "CRITICAL_SECONDARY" -> GlucoseAlertAudioSlot.CRITICAL_SECONDARY
+                else -> null
+            }
+            if (slot == null) {
+                messageState.value = "Unknown alert audio slot"
+                return@launch
+            }
+            val uri = runCatching { Uri.parse(uriString) }.getOrNull()
+            if (uri == null) {
+                messageState.value = "Invalid alert audio file"
+                return@launch
+            }
+            val displayName = resolveAlertAudioDisplayName(uri)
+            val nextSettings = container.settingsStore.settings.first().copyWithAudioSource(
+                slot = slot,
+                uriString = uri.toString(),
+                displayName = displayName
+            )
+            container.settingsStore.update { nextSettings }
+            container.auditLogger.info(
+                "glucose_alert_audio_source_updated",
+                mapOf(
+                    "slot" to slot.name,
+                    "clip" to GlucoseAlertAudioProfiles.resolve(nextSettings, slot).label,
+                    "uri" to uri.toString()
+                )
+            )
+            messageState.value = "Alert clip file updated"
+        }
+    }
+
+    fun previewGlucoseAlertAudio(slotRaw: String) {
+        viewModelScope.launch {
+            val slot = when (slotRaw.uppercase(Locale.US)) {
+                "SOFT" -> GlucoseAlertAudioSlot.SOFT
+                "CRITICAL_PRIMARY" -> GlucoseAlertAudioSlot.CRITICAL_PRIMARY
+                "CRITICAL_SECONDARY" -> GlucoseAlertAudioSlot.CRITICAL_SECONDARY
+                else -> null
+            }
+            if (slot == null) {
+                messageState.value = "Unknown alert audio slot"
+                return@launch
+            }
+            val settings = container.settingsStore.settings.first()
+            val playback = container.glucoseAlertAudioController.preview(slot, settings)
+            container.auditLogger.info(
+                "glucose_alert_audio_preview",
+                mapOf(
+                    "slot" to slot.name,
+                    "clip" to playback.clipLabel,
+                    "fallbackUsed" to playback.fallbackUsed,
+                    "startMs" to playback.startMs,
+                    "durationMs" to playback.durationMs
+                )
+            )
+            messageState.value = "Preview: ${playback.clipLabel ?: GlucoseAlertAudioProfiles.displayLabel(settings, slot)}"
+        }
+    }
+
+    fun stopPreviewGlucoseAlertAudio() {
+        viewModelScope.launch {
+            val playbackState = container.glucoseAlertAudioController.playbackState.value
+            container.glucoseAlertAudioController.stopPreview()
+            container.auditLogger.info(
+                "glucose_alert_audio_preview_stopped",
+                mapOf(
+                    "slot" to playbackState.activeSlot?.name,
+                    "clip" to playbackState.clipLabel,
+                    "wasPreview" to playbackState.isPreview
+                )
+            )
+            messageState.value = "Alert audio preview stopped"
+        }
+    }
+
+    fun resetRecommendedGlucoseAlertAudio() {
+        viewModelScope.launch {
+            container.settingsStore.update { current ->
+                current.copy(
+                    softAlertAudioStartMs = GlucoseAlertAudioProfiles.recommendedStartMs(GlucoseAlertAudioSlot.SOFT),
+                    softAlertAudioDurationMs = GlucoseAlertAudioProfiles.recommendedDurationMs(GlucoseAlertAudioSlot.SOFT),
+                    softAlertAudioUri = null,
+                    softAlertAudioDisplayName = null,
+                    criticalAlertAudio1StartMs = GlucoseAlertAudioProfiles.recommendedStartMs(GlucoseAlertAudioSlot.CRITICAL_PRIMARY),
+                    criticalAlertAudio1DurationMs = GlucoseAlertAudioProfiles.recommendedDurationMs(GlucoseAlertAudioSlot.CRITICAL_PRIMARY),
+                    criticalAlertAudio1Uri = null,
+                    criticalAlertAudio1DisplayName = null,
+                    criticalAlertAudio2StartMs = GlucoseAlertAudioProfiles.recommendedStartMs(GlucoseAlertAudioSlot.CRITICAL_SECONDARY),
+                    criticalAlertAudio2DurationMs = GlucoseAlertAudioProfiles.recommendedDurationMs(GlucoseAlertAudioSlot.CRITICAL_SECONDARY),
+                    criticalAlertAudio2Uri = null,
+                    criticalAlertAudio2DisplayName = null
+                )
+            }
+            container.auditLogger.info(
+                "glucose_alert_audio_profile_reset",
+                mapOf(
+                    "softClip" to GlucoseAlertAudioProfiles.label(GlucoseAlertAudioSlot.SOFT),
+                    "criticalClip1" to GlucoseAlertAudioProfiles.label(GlucoseAlertAudioSlot.CRITICAL_PRIMARY),
+                    "criticalClip2" to GlucoseAlertAudioProfiles.label(GlucoseAlertAudioSlot.CRITICAL_SECONDARY)
+                )
+            )
+            messageState.value = "Alert audio reset to recommended clips"
+        }
+    }
+
+    private fun resolveAlertAudioDisplayName(uri: Uri): String {
+        val context = getApplication<Application>().applicationContext
+        val resolver = context.contentResolver
+        val queriedName = runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+        return queriedName?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+            ?: "Custom clip"
+    }
+
+    private fun AppSettings.copyWithAudioSource(
+        slot: GlucoseAlertAudioSlot,
+        uriString: String,
+        displayName: String
+    ): AppSettings = when (slot) {
+        GlucoseAlertAudioSlot.SOFT -> copy(
+            softAlertAudioUri = uriString,
+            softAlertAudioDisplayName = displayName
+        )
+        GlucoseAlertAudioSlot.CRITICAL_PRIMARY -> copy(
+            criticalAlertAudio1Uri = uriString,
+            criticalAlertAudio1DisplayName = displayName
+        )
+        GlucoseAlertAudioSlot.CRITICAL_SECONDARY -> copy(
+            criticalAlertAudio2Uri = uriString,
+            criticalAlertAudio2DisplayName = displayName
+        )
     }
 
     fun setNightscoutUrl(url: String) {
@@ -2098,16 +5682,477 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setAiApiSettings(apiUrl: String, apiKey: String) {
+    fun setAiApiSettings(apiUrl: String) {
         viewModelScope.launch {
             container.settingsStore.update {
-                it.copy(
-                    cloudBaseUrl = apiUrl.trim(),
-                    openAiApiKey = apiKey.trim()
+                it.copy(cloudBaseUrl = apiUrl.trim())
+            }
+            messageState.value = getApplication<Application>().getString(R.string.settings_ai_api_updated)
+        }
+    }
+
+    fun loadServerAiConnection() {
+        viewModelScope.launch {
+            container.serverAiConnectionManager.load()
+        }
+    }
+
+    fun activateServerAiConnection(code: String) {
+        viewModelScope.launch {
+            container.serverAiConnectionManager.activate(code)
+        }
+    }
+
+    fun resumeServerAiConnection() {
+        viewModelScope.launch {
+            container.serverAiConnectionManager.resume()
+        }
+    }
+
+    fun checkServerAiConnection() {
+        viewModelScope.launch {
+            container.serverAiConnectionManager.check()
+        }
+    }
+
+    fun replaceOpenAiCredential(value: String) {
+        viewModelScope.launch {
+            try {
+                container.openAiCredentialProvider.replace(value)
+                messageState.value = getApplication<Application>()
+                    .getString(R.string.settings_ai_credential_updated)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>()
+                    .getString(R.string.settings_ai_credential_update_failed)
+            }
+        }
+    }
+
+    fun deleteOpenAiCredential() {
+        viewModelScope.launch {
+            try {
+                container.openAiCredentialProvider.delete()
+                messageState.value = getApplication<Application>()
+                    .getString(R.string.settings_ai_credential_deleted)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>()
+                    .getString(R.string.settings_ai_credential_delete_failed)
+            }
+        }
+    }
+
+    fun setClinicalAiProvider(providerId: ClinicalAiProviderId) {
+        val current = clinicalAiSettingsUiState.value
+        val draft = if (providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE) {
+            ClinicalAiSettingsDraft.compatible(
+                modelDraft = current.customModelDraft
+                    .takeIf { current.selectedProvider == providerId }
+                    .orEmpty()
+                    .ifEmpty { current.effectiveConfig.modelId },
+                endpointDraft = current.endpointDraft
+                    .takeIf { current.selectedProvider == providerId }
+                    .orEmpty(),
+                protocol = current.selectedProtocol
+            )
+        } else {
+            val config = selectClinicalAiNativeConfig(
+                providerId = providerId,
+                currentConfig = current.effectiveConfig
+            )
+            ClinicalAiSettingsDraft.bounded(
+                providerId = providerId,
+                customModelSelected = false,
+                modelDraft = config.modelId,
+                endpointDraft = "",
+                protocol = OpenAiCompatibleProtocol.RESPONSES
+            )
+        }
+        updateClinicalAiDraft(draft)
+    }
+
+    fun setClinicalAiModel(modelId: String) {
+        val current = clinicalAiSettingsUiState.value
+        if (
+            current.selectedProvider == ClinicalAiProviderId.OPENAI_COMPATIBLE ||
+            current.modelPresets.none { it.id == modelId }
+        ) {
+            return
+        }
+        updateClinicalAiDraft(
+            ClinicalAiSettingsDraft.bounded(
+                providerId = current.selectedProvider,
+                customModelSelected = false,
+                modelDraft = modelId,
+                endpointDraft = "",
+                protocol = OpenAiCompatibleProtocol.RESPONSES
+            )
+        )
+    }
+
+    fun setClinicalAiCustomModel(modelId: String) {
+        val current = clinicalAiSettingsUiState.value
+        val activeDraft = clinicalAiPersistenceState.value.draft
+        updateClinicalAiDraft(
+            ClinicalAiSettingsDraft.bounded(
+                providerId = current.selectedProvider,
+                customModelSelected = true,
+                modelDraft = modelId,
+                endpointDraft = activeDraft
+                    ?.takeIf { it.providerId == current.selectedProvider }
+                    ?.endpointDraft
+                    ?: current.endpointDraft,
+                protocol = activeDraft
+                    ?.takeIf { it.providerId == current.selectedProvider }
+                    ?.protocol
+                    ?: current.selectedProtocol
+            )
+        )
+    }
+
+    fun setClinicalAiEndpoint(endpoint: String) {
+        val current = clinicalAiSettingsUiState.value
+        if (current.selectedProvider != ClinicalAiProviderId.OPENAI_COMPATIBLE) {
+            return
+        }
+        val activeDraft = clinicalAiPersistenceState.value.draft
+        updateClinicalAiDraft(
+            ClinicalAiSettingsDraft.compatible(
+                modelDraft = activeDraft
+                    ?.takeIf {
+                        it.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE
+                    }
+                    ?.modelDraft
+                    ?: current.customModelDraft,
+                endpointDraft = endpoint,
+                protocol = activeDraft
+                    ?.takeIf {
+                        it.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE
+                    }
+                    ?.protocol
+                    ?: current.selectedProtocol
+            )
+        )
+    }
+
+    fun setClinicalAiProtocol(protocol: OpenAiCompatibleProtocol) {
+        val current = clinicalAiSettingsUiState.value
+        if (current.selectedProvider != ClinicalAiProviderId.OPENAI_COMPATIBLE) {
+            return
+        }
+        val activeDraft = clinicalAiPersistenceState.value.draft
+        updateClinicalAiDraft(
+            ClinicalAiSettingsDraft.compatible(
+                modelDraft = activeDraft
+                    ?.takeIf {
+                        it.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE
+                    }
+                    ?.modelDraft
+                    ?: current.customModelDraft,
+                endpointDraft = activeDraft
+                    ?.takeIf {
+                        it.providerId == ClinicalAiProviderId.OPENAI_COMPATIBLE
+                    }
+                    ?.endpointDraft
+                    ?: current.endpointDraft,
+                protocol = protocol
+            )
+        )
+    }
+
+    override fun setAutomaticEventAiAnalysisEnabled(enabled: Boolean) {
+        automaticEventAiAnalysisSettingCommand.setAutomaticEventAiAnalysisEnabled(enabled)
+    }
+
+    fun replaceClinicalAiCredential(
+        providerId: ClinicalAiProviderId,
+        value: String
+    ) {
+        viewModelScope.launch {
+            try {
+                container.clinicalAiProviderManager.replace(providerId, value)
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_credential_updated
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_credential_update_failed
                 )
             }
-            messageState.value = "AI API settings updated"
         }
+    }
+
+    fun deleteClinicalAiCredential(providerId: ClinicalAiProviderId) {
+        viewModelScope.launch {
+            try {
+                container.clinicalAiProviderManager.delete(providerId)
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_credential_deleted
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_credential_delete_failed
+                )
+            }
+        }
+    }
+
+    fun testClinicalAiConnection() {
+        val current = clinicalAiSettingsUiState.value
+        if (
+            clinicalAiConnectionTestState.value.phase ==
+            ClinicalAiConnectionTestPhaseUi.RUNNING ||
+            !current.canTestConnection
+        ) {
+            return
+        }
+        val resolution = resolveClinicalAiSettings(
+            persistedState = ClinicalAiConfigState.Valid(current.effectiveConfig),
+            draft = clinicalAiPersistenceState.value.draft
+        )
+        val config = resolution.persistableConfig ?: return
+        if (
+            clinicalAiPersistenceState.value.pending ||
+            clinicalAiPersistenceState.value.saveFailed
+        ) {
+            return
+        }
+        val token = clinicalAiConnectionTestGuard.begin(config)
+        clinicalAiConnectionTestState.value = ClinicalAiConnectionTestUiState(
+            phase = ClinicalAiConnectionTestPhaseUi.RUNNING,
+            providerId = config.providerId,
+            modelId = config.modelId
+        )
+        clinicalAiConnectionTestJob = viewModelScope.launch {
+            try {
+                val result =
+                    container.clinicalAiProviderManager.testConnection(config)
+                clinicalAiConnectionTestGuard.publishIfCurrent(
+                    token = token,
+                    currentConfig = currentClinicalAiConnectionConfig(),
+                    value = ClinicalAiConnectionTestUiState(
+                        phase = if (result.successful) {
+                            ClinicalAiConnectionTestPhaseUi.SUCCESS
+                        } else {
+                            ClinicalAiConnectionTestPhaseUi.FAILURE
+                        },
+                        providerId = config.providerId,
+                        modelId = config.modelId
+                    ),
+                    publish = { clinicalAiConnectionTestState.value = it }
+                )
+            } catch (cancellation: CancellationException) {
+                clinicalAiConnectionTestGuard.publishIfCurrent(
+                    token = token,
+                    currentConfig = currentClinicalAiConnectionConfig(),
+                    value = ClinicalAiConnectionTestUiState(),
+                    publish = { clinicalAiConnectionTestState.value = it }
+                )
+                throw cancellation
+            } catch (fatal: Error) {
+                clinicalAiConnectionTestGuard.publishIfCurrent(
+                    token = token,
+                    currentConfig = currentClinicalAiConnectionConfig(),
+                    value = ClinicalAiConnectionTestUiState(),
+                    publish = { clinicalAiConnectionTestState.value = it }
+                )
+                throw fatal
+            } catch (_: Exception) {
+                clinicalAiConnectionTestGuard.publishIfCurrent(
+                    token = token,
+                    currentConfig = currentClinicalAiConnectionConfig(),
+                    value = ClinicalAiConnectionTestUiState(
+                        phase = ClinicalAiConnectionTestPhaseUi.FAILURE,
+                        providerId = config.providerId,
+                        modelId = config.modelId
+                    ),
+                    publish = { clinicalAiConnectionTestState.value = it }
+                )
+            }
+        }
+    }
+
+    private fun updateClinicalAiDraft(draft: ClinicalAiSettingsDraft) {
+        val currentConfig = clinicalAiSettingsUiState.value.effectiveConfig
+        val resolution = resolveClinicalAiSettings(
+            persistedState = ClinicalAiConfigState.Valid(currentConfig),
+            draft = draft
+        )
+        val config = resolution.persistableConfig
+        val started = clinicalAiPersistenceState.value.begin(
+            draft = draft,
+            persistable = config != null
+        )
+        clinicalAiPersistenceState.value = started
+        invalidateClinicalAiConnectionTest()
+        if (config == null) return
+
+        viewModelScope.launch {
+            val result = clinicalAiPersistenceCoordinator.persist(
+                version = started.version,
+                config = config,
+                currentVersion = { clinicalAiPersistenceState.value.version },
+                write = container.settingsStore::setClinicalAiConfig,
+                persistedState = {
+                    container.settingsStore.settings
+                        .map { it.clinicalAiConfigState }
+                        .first { persisted ->
+                            when (persisted) {
+                                is ClinicalAiConfigState.UnconfiguredDefault ->
+                                    persisted.config == config
+                                is ClinicalAiConfigState.Valid ->
+                                    persisted.config == config
+                                is ClinicalAiConfigState.Invalid -> false
+                            }
+                        }
+                }
+            )
+            val current = clinicalAiPersistenceState.value
+            clinicalAiPersistenceState.value = current.complete(
+                version = started.version,
+                result = result
+            )
+            if (
+                result == ClinicalAiPersistenceResult.FAILED &&
+                current.version == started.version
+            ) {
+                messageState.value = getApplication<Application>().getString(
+                    R.string.settings_clinical_ai_config_save_failed
+                )
+            }
+        }
+    }
+
+    private fun invalidateClinicalAiConnectionTest() {
+        clinicalAiConnectionTestGuard.invalidate()
+        clinicalAiConnectionTestJob?.cancel()
+        clinicalAiConnectionTestJob = null
+        clinicalAiConnectionTestState.value = ClinicalAiConnectionTestUiState()
+    }
+
+    private fun currentClinicalAiConnectionConfig(): ClinicalAiProviderConfig? {
+        val persistence = clinicalAiPersistenceState.value
+        if (persistence.pending || persistence.saveFailed) return null
+        val current = clinicalAiSettingsUiState.value
+        return current.effectiveConfig.takeIf {
+            current.localValidationError == null
+        }
+    }
+
+    private fun clinicalAiProviderOptions(): List<ClinicalAiProviderOptionUi> {
+        val application = getApplication<Application>()
+        return listOf(
+            ClinicalAiProviderOptionUi(
+                ClinicalAiProviderId.OPENAI,
+                application.getString(R.string.settings_clinical_ai_provider_openai)
+            ),
+            ClinicalAiProviderOptionUi(
+                ClinicalAiProviderId.ANTHROPIC,
+                application.getString(R.string.settings_clinical_ai_provider_anthropic)
+            ),
+            ClinicalAiProviderOptionUi(
+                ClinicalAiProviderId.GEMINI,
+                application.getString(R.string.settings_clinical_ai_provider_gemini)
+            ),
+            ClinicalAiProviderOptionUi(
+                ClinicalAiProviderId.OPENAI_COMPATIBLE,
+                application.getString(R.string.settings_clinical_ai_provider_compatible)
+            )
+        )
+    }
+
+    private fun clinicalAiProtocolOptions(): List<ClinicalAiProtocolOptionUi> {
+        val application = getApplication<Application>()
+        return listOf(
+            ClinicalAiProtocolOptionUi(
+                OpenAiCompatibleProtocol.RESPONSES,
+                application.getString(R.string.settings_clinical_ai_protocol_responses)
+            ),
+            ClinicalAiProtocolOptionUi(
+                OpenAiCompatibleProtocol.CHAT_COMPLETIONS,
+                application.getString(
+                    R.string.settings_clinical_ai_protocol_chat_completions
+                )
+            )
+        )
+    }
+
+    private fun clinicalAiLabels(): ClinicalAiSettingsLabels {
+        val application = getApplication<Application>()
+        return ClinicalAiSettingsLabels(
+            sectionTitle = application.getString(R.string.settings_clinical_ai_section),
+            provider = application.getString(R.string.settings_clinical_ai_provider),
+            model = application.getString(R.string.settings_clinical_ai_model),
+            customModel = application.getString(
+                R.string.settings_clinical_ai_custom_model
+            ),
+            customModelInput = application.getString(
+                R.string.settings_clinical_ai_custom_model_input
+            ),
+            endpoint = application.getString(R.string.settings_clinical_ai_endpoint),
+            protocol = application.getString(R.string.settings_clinical_ai_protocol),
+            automaticCauseAnalysis = application.getString(
+                R.string.settings_clinical_ai_automatic_cause_analysis
+            ),
+            credential = application.getString(R.string.settings_clinical_ai_credential),
+            credentialAddTitle = application.getString(
+                R.string.settings_clinical_ai_credential_add_title
+            ),
+            credentialReplaceTitle = application.getString(
+                R.string.settings_clinical_ai_credential_replace_title
+            ),
+            credentialDeleteTitle = application.getString(
+                R.string.settings_clinical_ai_credential_delete_title
+            ),
+            credentialDeleteMessage = application.getString(
+                R.string.settings_clinical_ai_credential_delete_message
+            ),
+            credentialResetTitle = application.getString(
+                R.string.settings_clinical_ai_credential_reset_title
+            ),
+            credentialResetMessage = application.getString(
+                R.string.settings_clinical_ai_credential_reset_message
+            ),
+            testConnection = application.getString(
+                R.string.settings_clinical_ai_test_connection
+            ),
+            testingConnection = application.getString(
+                R.string.settings_clinical_ai_testing_connection
+            ),
+            invalidEndpoint = application.getString(
+                R.string.settings_clinical_ai_invalid_endpoint
+            ),
+            invalidModel = application.getString(
+                R.string.settings_clinical_ai_invalid_model
+            ),
+            invalidConfiguration = application.getString(
+                R.string.settings_clinical_ai_invalid_configuration
+            ),
+            configSaveFailed = application.getString(
+                R.string.settings_clinical_ai_config_save_failed
+            ),
+            connectionSuccess = application.getString(
+                R.string.settings_clinical_ai_connection_success
+            ),
+            connectionFailure = application.getString(
+                R.string.settings_clinical_ai_connection_failure
+            )
+        )
     }
 
     fun setUiStyle(styleRaw: String) {
@@ -2118,21 +6163,271 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setEnergyProfileEnabled(enabled: Boolean) {
+        updateEnergyProfileSettings { current -> current.copy(enabled = enabled) }
+    }
+
+    fun saveEnergyProfileUserProfile(draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi) {
+        updateEnergyProfileSettings { current ->
+            current.copy(
+                birthDateEpochDay = draft.birthDateEpochDay,
+                physiologicalSex = draft.physiologicalSex,
+                heightCm = draft.heightCm,
+                weightKg = draft.weightKg
+            )
+        }
+    }
+
+    fun saveEnergyProfileFoodSettings(draft: io.aaps.copilot.ui.foundation.screens.FoodProfileSettingsUi) {
+        updateEnergyProfileSettings { current ->
+            current.copy(
+                foodProfileMode = draft.mode,
+                manualFoodProfile = draft.manualProfile
+            )
+        }
+    }
+
+    fun saveEnergyProfileActivitySettings(draft: io.aaps.copilot.ui.foundation.screens.ActivityProfileSettingsUi) {
+        updateEnergyProfileSettings { current ->
+            current.copy(
+                activityProfileMode = draft.mode,
+                manualActivityProfile = draft.manualProfile,
+                forecastActivityInfluenceEnabled = draft.forecastInfluenceEnabled
+            )
+        }
+    }
+
+    fun saveEnergyGoalSettings(draft: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi) {
+        updateEnergyProfileSettings { current ->
+            current.copy(
+                calorieGoalMode = draft.mode,
+                manualCalorieTargetKcal = draft.manualTargetKcal,
+                shareProfileWithAi = draft.shareProfileWithAi
+            )
+        }
+    }
+
+    fun savePlannedActivity(event: io.aaps.copilot.ui.foundation.screens.PlannedActivityEventUi) {
+        viewModelScope.launch {
+            val current = energyProfileSettingsState.value.plannedEvents
+            if (!PlannedActivityInvalidationPolicy.saveChangesDurableState(current, event)) {
+                energyProfileValidationMessage.value = null
+                messageState.value = "Activity schedule saved"
+                return@launch
+            }
+            val proposed = (current.filterNot { it.eventId == event.eventId } + event)
+                .mapNotNull { it.toPlannedActivityScheduleOrNull() }
+            if (proposed.size != current.filterNot { it.eventId == event.eventId }.size + 1) {
+                energyProfileValidationMessage.value = "Invalid activity schedule"
+                return@launch
+            }
+            when (val result = persistPlannedActivityClinicalInput(
+                persistence = { container.energyProfileRepository.savePlannedActivitySchedule(proposed) },
+                onClinicalInputPersisted = {
+                    container.clinicalInputInvalidationCoordinator.invalidatePersistedInput(
+                        ClinicalInputInvalidationSource.PLANNED_ACTIVITY
+                    )
+                }
+            )) {
+                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Saved -> {
+                    energyProfileValidationMessage.value = null
+                    messageState.value = "Activity schedule saved"
+                }
+                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Invalid -> {
+                    energyProfileValidationMessage.value = when (result.validation) {
+                        is io.aaps.copilot.domain.profile.ScheduleValidation.Overlap -> "Events overlap"
+                        is io.aaps.copilot.domain.profile.ScheduleValidation.Invalid -> "Invalid activity schedule"
+                        io.aaps.copilot.domain.profile.ScheduleValidation.Valid -> "Invalid activity schedule"
+                    }
+                    messageState.value = energyProfileValidationMessage.value
+                }
+            }
+        }
+    }
+
+    internal fun saveManualEvent(
+        event: CompensationEvent,
+        expectedRevision: Long?,
+        onCompleted: (ContextEventCommandUiDisposition) -> Unit
+    ) {
+        viewModelScope.launch {
+            val sex = container.settingsStore.settings.first().energyProfile.physiologicalSex
+            if (!CompensationEventProfilePolicy.canCreate(event.type, sex)) {
+                onCompleted(publishContextEventResult(ContextEventCommandAction.SAVE, ContextEventCommandResult.REJECTED))
+                return@launch
+            }
+            if (manualCompensationEventRoute(event.type) != ManualCompensationEventRoute.CONTEXT) {
+                onCompleted(publishContextEventResult(ContextEventCommandAction.SAVE, ContextEventCommandResult.REJECTED))
+                return@launch
+            }
+            val result = container.contextEventSyncCoordinator.save(event, expectedRevision)
+            onCompleted(publishContextEventResult(ContextEventCommandAction.SAVE, result))
+        }
+    }
+
+    fun closeManualEvent(event: CompensationEvent) {
+        if (event.source != EventSource.USER || !CompensationEventManualPolicy.isContextOnly(event.type)) return
+        viewModelScope.launch {
+            val result = container.contextEventSyncCoordinator.close(event.localId, event.revision)
+            publishContextEventResult(ContextEventCommandAction.CLOSE, result)
+        }
+    }
+
+    fun deleteManualEvent(event: CompensationEvent) {
+        if (event.source != EventSource.USER || !CompensationEventManualPolicy.isContextOnly(event.type)) return
+        viewModelScope.launch {
+            val result = container.contextEventSyncCoordinator.delete(event.localId, event.revision)
+            publishContextEventResult(ContextEventCommandAction.DELETE, result)
+        }
+    }
+
+    private fun publishContextEventResult(
+        action: ContextEventCommandAction,
+        result: ContextEventCommandResult
+    ): ContextEventCommandUiDisposition {
+        val disposition = ContextEventCommandUiPolicy.resolve(action, result)
+        messageState.value = getApplication<Application>().getString(disposition.messageRes)
+        return disposition
+    }
+
+    fun deletePlannedActivity(eventId: String) {
+        viewModelScope.launch {
+            val current = energyProfileSettingsState.value.plannedEvents
+            if (!PlannedActivityInvalidationPolicy.deleteChangesDurableState(current, eventId)) {
+                return@launch
+            }
+            val remaining = current
+                .filterNot { it.eventId == eventId }
+                .mapNotNull { it.toPlannedActivityScheduleOrNull() }
+            when (persistPlannedActivityClinicalInput(
+                persistence = { container.energyProfileRepository.savePlannedActivitySchedule(remaining) },
+                onClinicalInputPersisted = {
+                    container.clinicalInputInvalidationCoordinator.invalidatePersistedInput(
+                        ClinicalInputInvalidationSource.PLANNED_ACTIVITY
+                    )
+                }
+            )) {
+                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Saved -> {
+                    energyProfileValidationMessage.value = null
+                    messageState.value = "Activity schedule removed"
+                }
+                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Invalid -> {
+                    energyProfileValidationMessage.value = "Invalid activity schedule"
+                    messageState.value = energyProfileValidationMessage.value
+                }
+            }
+        }
+    }
+
+    private fun updateEnergyProfileSettings(
+        transform: (EnergyProfileSettings) -> EnergyProfileSettings
+    ) {
+        viewModelScope.launch {
+            val current = container.settingsStore.settings.first().energyProfile
+            when (
+                val decision = evaluateEnergyProfileSettingsUpdate(
+                    current = current,
+                    candidate = transform(current),
+                    today = LocalDate.now()
+                )
+            ) {
+                is EnergyProfileSettingsUpdate.Persist -> {
+                    try {
+                        if (current.physiologicalSex != decision.settings.physiologicalSex) {
+                            sensitivitySourceApplyCoordinator.run(
+                                metricLabel = "PHYSIOLOGICAL_SEX",
+                                requestedSource = decision.settings.physiologicalSex.name
+                            ) {
+                                container.automationRepository.applySensitivitySettings { settings ->
+                                    settings.copy(
+                                        energyProfile = settings.energyProfile.copy(
+                                            physiologicalSex = decision.settings.physiologicalSex
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        container.settingsStore.setEnergyProfileSettings(decision.settings)
+                        if (decision.pediatricGoalReset) {
+                            messageState.value = getApplication<Application>().getString(
+                                R.string.energy_activity_pediatric_goal_reset
+                            )
+                        }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Throwable) {
+                        messageState.value = "Energy profile update failed: " +
+                            (error.message ?: "runtime unavailable")
+                    }
+                }
+                is EnergyProfileSettingsUpdate.Reject -> {
+                    messageState.value = decision.violations
+                        .sortedBy(ProfileViolation::name)
+                        .joinToString(separator = " ") { violation ->
+                            getApplication<Application>().getString(
+                                energyProfilePolicyErrorRes(violation)
+                            )
+                        }
+                }
+            }
+        }
+    }
+
     fun setLocalNightscoutEnabled(enabled: Boolean) {
         viewModelScope.launch {
             val current = container.settingsStore.settings.first()
             val safePort = current.localNightscoutPort.coerceIn(1_024, 65_535)
+            val effectiveEnabled = LocalNightscoutUpgradeMigrationGate.canEnable(
+                requestedEnabled = enabled,
+                migrationAcknowledged = current.localNightscoutLegacyMigrationAcknowledged
+            )
             container.settingsStore.update {
                 it.copy(
-                    localNightscoutEnabled = enabled,
+                    localNightscoutEnabled = effectiveEnabled,
                     localNightscoutPort = safePort
                 )
             }
-            LocalNightscoutServiceController.reconcile(getApplication(), enabled)
-            messageState.value = if (enabled) {
-                "Local Nightscout enabled at https://127.0.0.1:$safePort"
+            LocalNightscoutServiceController.reconcile(getApplication(), effectiveEnabled)
+            if (enabled && !effectiveEnabled) {
+                LocalNightscoutRuntimeState.setup(
+                    safePort,
+                    LocalNightscoutRuntimeState.value.caFingerprint,
+                    LocalNightscoutRuntimeReason.LEGACY_MIGRATION_ACK_REQUIRED
+                )
+            }
+            messageState.value = if (enabled && !effectiveEnabled) {
+                "Remove the legacy CA and old AAPS credential, then acknowledge the Local Nightscout migration before enabling"
+            } else if (effectiveEnabled) {
+                "Local Nightscout requested on exact port $safePort; wait for SETUP/READY"
             } else {
                 "Local Nightscout disabled"
+            }
+        }
+    }
+
+    fun setLocalNightscoutLegacyMigrationAcknowledged(acknowledged: Boolean) {
+        viewModelScope.launch {
+            val current = container.settingsStore.settings.first()
+            container.settingsStore.update {
+                it.copy(
+                    localNightscoutLegacyMigrationAcknowledged = acknowledged,
+                    localNightscoutEnabled = if (acknowledged) {
+                        it.localNightscoutEnabled
+                    } else {
+                        false
+                    }
+                )
+            }
+            if (!acknowledged) {
+                LocalNightscoutServiceController.stop(
+                    getApplication(),
+                    LocalNightscoutRuntimeReason.LEGACY_MIGRATION_ACK_REQUIRED
+                )
+            }
+            messageState.value = if (acknowledged) {
+                "Legacy Local Nightscout CA and AAPS credential removal acknowledged; install/export and enablement are now available"
+            } else {
+                "Local Nightscout migration acknowledgment cleared; integration disabled"
             }
         }
     }
@@ -2146,36 +6441,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setUamExportMode(modeRaw: String) {
+    fun setUamExportUiMode(modeRaw: String) {
+        val mode = UamExportUiModeCommand.parse(modeRaw) ?: return
         viewModelScope.launch {
-            val mode = runCatching { UamExportMode.valueOf(modeRaw.trim().uppercase(Locale.US)) }
-                .getOrDefault(UamExportMode.CONFIRMED_ONLY)
-            container.settingsStore.update { it.copy(uamExportMode = mode) }
-            messageState.value = "UAM export mode updated: ${mode.name}"
+            container.settingsStore.update { current ->
+                UamExportUiModeCommand.apply(current, mode.name) ?: current
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = "UAM mode updated: ${mode.name}"
         }
     }
 
     fun setUamRuntimeConfig(
         enableInference: Boolean,
-        enableBoost: Boolean,
-        enableExport: Boolean,
-        exportModeRaw: String,
-        dryRunExport: Boolean
+        enableBoost: Boolean
     ) {
         viewModelScope.launch {
-            val mode = runCatching { UamExportMode.valueOf(exportModeRaw.trim().uppercase(Locale.US)) }
-                .getOrDefault(UamExportMode.OFF)
             container.settingsStore.update {
                 it.copy(
                     enableUamInference = enableInference,
-                    enableUamBoost = enableBoost,
-                    enableUamExportToAaps = enableExport,
-                    uamExportMode = mode,
-                    dryRunExport = dryRunExport
+                    enableUamBoost = enableBoost
                 )
             }
             triggerReactiveAutomationAsync()
             messageState.value = "UAM runtime config updated"
+        }
+    }
+
+    fun setUamInferenceEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(enableUamInference = enabled) }
+            triggerReactiveAutomationAsync()
+        }
+    }
+
+    fun setUamBoostEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(enableUamBoost = enabled) }
+            triggerReactiveAutomationAsync()
+        }
+    }
+
+    fun setUamAutoExportCap(enabled: Boolean, grams: Int) {
+        viewModelScope.launch {
+            val safeGrams = grams.coerceIn(1, UamExportPolicy.MAX_INCREMENT_G.toInt())
+            container.settingsStore.update {
+                it.copy(
+                    enableUamAutoExportCap = enabled,
+                    uamAutoExportCapGrams = safeGrams
+                )
+            }
+            triggerReactiveAutomationAsync()
+            messageState.value = if (enabled) {
+                "UAM automatic export cap set to ${safeGrams} g"
+            } else {
+                "UAM automatic export cap disabled"
+            }
         }
     }
 
@@ -2243,12 +6564,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setRetentionDays(days: Int) {
-        viewModelScope.launch {
-            val safeDays = days.coerceIn(30, 730)
-            container.settingsStore.update { it.copy(analyticsLookbackDays = safeDays) }
-            recalculateAnalyticsAsync()
-            messageState.value = "Retention days updated"
-        }
+        val safeDays = days.coerceIn(30, 730)
+        launchSensitivitySettingsChange(
+            operationLabel = "RETENTION",
+            requestedValue = safeDays.toString(),
+            successMessage = "Retention days updated",
+            updater = { it.copy(analyticsLookbackDays = safeDays) },
+            afterAccepted = ::recalculateAnalyticsAsync
+        )
     }
 
     fun setCircadianPatternsEnabled(enabled: Boolean) {
@@ -2335,61 +6658,211 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setIsfCrShadowMode(enabled: Boolean) {
+    fun setTargetManagerTiming(setting: TargetManagerTimingSetting, minutes: Int) {
         viewModelScope.launch {
-            container.settingsStore.update { it.copy(isfCrShadowMode = enabled) }
+            try {
+                container.settingsStore.update { it.withTargetManagerTiming(setting, minutes) }
+                triggerReactiveAutomationAsync()
+                messageState.value = getApplication<Application>().getString(R.string.settings_target_timing_saved)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(R.string.settings_target_timing_failed)
+            }
+        }
+    }
+
+    fun setTargetManagerMode(modeRaw: String) {
+        val mode = runCatching {
+            TargetManagerMode.valueOf(modeRaw.trim().uppercase(Locale.US))
+        }.getOrNull() ?: return
+        viewModelScope.launch {
+            val previous = container.settingsStore.settings.first().targetManagerMode
+            container.settingsStore.setTargetManagerModeManually(mode)
+            container.auditLogger.info(
+                "target_manager_mode_changed",
+                mapOf(
+                    "source" to "manual_ui",
+                    "previousMode" to previous.name,
+                    "mode" to mode.name,
+                    "manualOverride" to true
+                )
+            )
             triggerReactiveAutomationAsync()
-            messageState.value = if (enabled) {
+            messageState.value = "Target Manager: ${mode.name}"
+        }
+    }
+
+    fun setTargetManagerAutomaticMode() {
+        viewModelScope.launch {
+            val previous = container.settingsStore.settings.first().targetManagerMode
+            container.settingsStore.enableAutomaticTargetManagerMode()
+            container.auditLogger.info(
+                "target_manager_mode_changed",
+                mapOf(
+                    "source" to "manual_ui",
+                    "previousMode" to previous.name,
+                    "mode" to TargetManagerMode.SHADOW.name,
+                    "manualOverride" to false
+                )
+            )
+            triggerReactiveAutomationAsync()
+            messageState.value = "Target Manager: AUTO"
+        }
+    }
+
+    fun setTargetManagerCopilotPriorityEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val previous = container.settingsStore.settings.first()
+            container.settingsStore.setTargetManagerCopilotPriorityEnabled(enabled)
+            val saved = container.settingsStore.settings.first()
+            container.auditLogger.info(
+                "target_manager_copilot_priority_changed",
+                mapOf(
+                    "source" to "manual_ui",
+                    "previousEnabled" to previous.targetManagerCopilotPriorityEnabled,
+                    "enabled" to saved.targetManagerCopilotPriorityEnabled,
+                    "previousPolicyRevision" to previous.targetManagerPolicyRevision,
+                    "policyRevision" to saved.targetManagerPolicyRevision
+                )
+            )
+            triggerReactiveAutomationAsync()
+            messageState.value = if (saved.targetManagerCopilotPriorityEnabled) {
+                "Target Manager Copilot priority enabled"
+            } else {
+                "Target Manager Copilot priority disabled"
+            }
+        }
+    }
+
+    fun setIsfRuntimeSourcePreference(modeRaw: String) {
+        val preference = SensitivitySourcePreference.fromUserInput(modeRaw) ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            publishSensitivitySourceChange(
+                metric = SensitivityMetricKind.ISF,
+                requestedSource = preference
+            )
+        }
+    }
+
+    fun setCrRuntimeSourcePreference(modeRaw: String) {
+        val preference = SensitivitySourcePreference.fromUserInput(modeRaw) ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            publishSensitivitySourceChange(
+                metric = SensitivityMetricKind.CR,
+                requestedSource = preference
+            )
+        }
+    }
+
+    private suspend fun publishSensitivitySourceChange(
+        metric: SensitivityMetricKind,
+        requestedSource: SensitivitySourcePreference
+    ) {
+        val metricLabel = metric.name
+        try {
+            val snapshot = sensitivitySourceApplyCoordinator.run(metricLabel, requestedSource.name) {
+                applySensitivitySourceChange(
+                    metric = metric,
+                    requestedSource = requestedSource,
+                    applyAtomically = container.automationRepository::applySensitivitySettings
+                )
+            }
+            val decision = if (metric == SensitivityMetricKind.ISF) snapshot.isf else snapshot.cr
+            messageState.value = "$metricLabel: ${decision.effective} (${decision.resolved.name})"
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            val detail = error.message ?: "runtime unavailable"
+            messageState.value = "$metricLabel source update failed: $detail"
+        }
+    }
+
+    private fun launchSensitivitySettingsChange(
+        operationLabel: String,
+        requestedValue: String,
+        successMessage: String,
+        updater: (AppSettings) -> AppSettings,
+        afterAccepted: suspend () -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                sensitivitySourceApplyCoordinator.run(operationLabel, requestedValue) {
+                    container.automationRepository.applySensitivitySettings(updater)
+                }
+                afterAccepted()
+                messageState.value = successMessage
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                messageState.value = "$operationLabel update failed: ${error.message ?: "runtime unavailable"}"
+            }
+        }
+    }
+
+    fun setIsfCrShadowMode(enabled: Boolean) {
+        launchSensitivitySettingsChange(
+            operationLabel = "SHADOW_MODE",
+            requestedValue = enabled.toString(),
+            successMessage = if (enabled) {
                 "ISF/CR engine set to SHADOW mode"
             } else {
                 "ISF/CR engine set to ACTIVE mode"
-            }
-        }
+            },
+            updater = { it.copy(isfCrShadowMode = enabled) }
+        )
     }
 
     fun setIsfCrConfidenceThreshold(value: Double) {
-        viewModelScope.launch {
-            container.settingsStore.update { it.copy(isfCrConfidenceThreshold = value.coerceIn(0.2, 0.95)) }
-            triggerReactiveAutomationAsync()
-            messageState.value = "ISF/CR confidence threshold updated"
-        }
+        val normalized = value.coerceIn(0.2, 0.95)
+        launchSensitivitySettingsChange(
+            operationLabel = "CONFIDENCE_THRESHOLD",
+            requestedValue = normalized.toString(),
+            successMessage = "ISF/CR confidence threshold updated",
+            updater = { it.copy(isfCrConfidenceThreshold = normalized) }
+        )
     }
 
     fun setIsfCrUseActivity(enabled: Boolean) {
-        viewModelScope.launch {
-            container.settingsStore.update { it.copy(isfCrUseActivity = enabled) }
-            triggerReactiveAutomationAsync()
-            messageState.value = if (enabled) {
+        launchSensitivitySettingsChange(
+            operationLabel = "ACTIVITY_FACTOR",
+            requestedValue = enabled.toString(),
+            successMessage = if (enabled) {
                 "ISF/CR activity factor enabled"
             } else {
                 "ISF/CR activity factor disabled"
-            }
-        }
+            },
+            updater = { it.copy(isfCrUseActivity = enabled) }
+        )
     }
 
     fun setIsfCrUseManualTags(enabled: Boolean) {
-        viewModelScope.launch {
-            container.settingsStore.update { it.copy(isfCrUseManualTags = enabled) }
-            triggerReactiveAutomationAsync()
-            messageState.value = if (enabled) {
+        launchSensitivitySettingsChange(
+            operationLabel = "MANUAL_TAGS",
+            requestedValue = enabled.toString(),
+            successMessage = if (enabled) {
                 "ISF/CR manual tags enabled"
             } else {
                 "ISF/CR manual tags disabled"
-            }
-        }
+            },
+            updater = { it.copy(isfCrUseManualTags = enabled) }
+        )
     }
 
     fun setIsfCrMinEvidencePerHour(minIsfEvidence: Int, minCrEvidence: Int) {
-        viewModelScope.launch {
-            container.settingsStore.update {
+        val normalizedIsf = minIsfEvidence.coerceIn(0, 12)
+        val normalizedCr = minCrEvidence.coerceIn(0, 12)
+        launchSensitivitySettingsChange(
+            operationLabel = "MIN_EVIDENCE",
+            requestedValue = "$normalizedIsf:$normalizedCr",
+            successMessage = "ISF/CR hourly evidence minimums updated",
+            updater = {
                 it.copy(
-                    isfCrMinIsfEvidencePerHour = minIsfEvidence.coerceIn(0, 12),
-                    isfCrMinCrEvidencePerHour = minCrEvidence.coerceIn(0, 12)
+                    isfCrMinIsfEvidencePerHour = normalizedIsf,
+                    isfCrMinCrEvidencePerHour = normalizedCr
                 )
             }
-            triggerReactiveAutomationAsync()
-            messageState.value = "ISF/CR hourly evidence minimums updated"
-        }
+        )
     }
 
     fun setIsfCrCrIntegrityGateSettings(
@@ -2397,17 +6870,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         maxSensorBlockedRatePct: Double,
         maxUamAmbiguityRatePct: Double
     ) {
-        viewModelScope.launch {
-            container.settingsStore.update {
+        val normalizedGap = maxGapMinutes.coerceIn(10, 60)
+        val normalizedBlocked = maxSensorBlockedRatePct.coerceIn(0.0, 100.0)
+        val normalizedUam = maxUamAmbiguityRatePct.coerceIn(0.0, 100.0)
+        launchSensitivitySettingsChange(
+            operationLabel = "CR_INTEGRITY_GATES",
+            requestedValue = "$normalizedGap:$normalizedBlocked:$normalizedUam",
+            successMessage = "ISF/CR CR-window integrity thresholds updated",
+            updater = {
                 it.copy(
-                    isfCrCrMaxGapMinutes = maxGapMinutes.coerceIn(10, 60),
-                    isfCrCrMaxSensorBlockedRatePct = maxSensorBlockedRatePct.coerceIn(0.0, 100.0),
-                    isfCrCrMaxUamAmbiguityRatePct = maxUamAmbiguityRatePct.coerceIn(0.0, 100.0)
+                    isfCrCrMaxGapMinutes = normalizedGap,
+                    isfCrCrMaxSensorBlockedRatePct = normalizedBlocked,
+                    isfCrCrMaxUamAmbiguityRatePct = normalizedUam
                 )
             }
-            triggerReactiveAutomationAsync()
-            messageState.value = "ISF/CR CR-window integrity thresholds updated"
-        }
+        )
     }
 
     fun setIsfCrAutoActivationEnabled(enabled: Boolean) {
@@ -2591,41 +7068,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val safeType = normalizePhysioTagType(tagType).ifBlank { return@launch }
-            container.isfCrRepository.addOrUpdateTag(
-                tag = PhysioContextTag(
-                    id = "tag-${UUID.randomUUID()}",
-                    tsStart = now,
-                    tsEnd = now + durationHours.coerceIn(1, 48) * 60L * 60L * 1000L,
-                    tagType = safeType,
-                    severity = severity.coerceIn(0.1, 1.0),
-                    source = "user",
+            val safeSeverity = severity.coerceIn(0.1, 1.0)
+            val result = container.contextEventSyncCoordinator.save(
+                CompensationEvent(
+                    localId = "tag-${UUID.randomUUID()}",
+                    startTs = now,
+                    endTs = now + durationHours.coerceIn(1, 48) * 60L * 60L * 1000L,
+                    type = quickPhysioEventType(safeType),
+                    severity = when {
+                        safeSeverity >= 0.8 -> EventSeverity.HIGH
+                        safeSeverity >= 0.4 -> EventSeverity.MEDIUM
+                        else -> EventSeverity.LOW
+                    },
+                    source = EventSource.USER,
+                    attributes = mapOf(
+                        "physioTagType" to safeType,
+                        "physioSeverity" to safeSeverity.toString()
+                    ),
                     note = "quick_tag:$safeType"
-                )
+                ),
+                expectedRevision = null
             )
-            triggerReactiveAutomationAsync()
-            messageState.value = "Tag added: $safeType"
+            publishContextEventResult(ContextEventCommandAction.SAVE, result)
         }
     }
 
-    fun closePhysioTag(tagId: String) {
+    fun closePhysioTag(tagId: String, expectedRevision: Long) {
         val safeId = tagId.trim()
         if (safeId.isEmpty()) return
         viewModelScope.launch {
-            val closed = container.isfCrRepository.closeTag(tagId = safeId, nowTs = System.currentTimeMillis())
-            if (closed) {
-                triggerReactiveAutomationAsync()
-                messageState.value = "Tag closed"
-            } else {
-                messageState.value = "Tag not found"
-            }
+            val result = container.contextEventSyncCoordinator.close(safeId, expectedRevision)
+            publishContextEventResult(ContextEventCommandAction.CLOSE, result)
         }
     }
 
     fun clearActivePhysioTags() {
         viewModelScope.launch {
-            container.isfCrRepository.closeActiveTags(System.currentTimeMillis())
-            triggerReactiveAutomationAsync()
-            messageState.value = "Active physiology tags cleared"
+            val results = container.contextEventSyncCoordinator.closeAllActive()
+            val representative = when {
+                results.isEmpty() -> ContextEventCommandResult.NOT_FOUND
+                results.all {
+                    it == ContextEventCommandResult.ACKNOWLEDGED || it == ContextEventCommandResult.LOCAL_ONLY
+                } -> ContextEventCommandResult.ACKNOWLEDGED
+                ContextEventCommandResult.CONFLICT in results -> ContextEventCommandResult.CONFLICT
+                ContextEventCommandResult.PENDING in results -> ContextEventCommandResult.PENDING
+                ContextEventCommandResult.FAILED in results -> ContextEventCommandResult.FAILED
+                ContextEventCommandResult.REJECTED in results -> ContextEventCommandResult.REJECTED
+                else -> ContextEventCommandResult.NOT_FOUND
+            }
+            val disposition = ContextEventCommandUiPolicy.resolve(ContextEventCommandAction.CLOSE, representative)
+            messageState.value = getApplication<Application>().getString(disposition.messageRes)
         }
     }
 
@@ -2638,6 +7130,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 killSwitchOverrideState.value = null
             }
+        }
+    }
+
+    fun setShowEventsOnGraph(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { it.copy(showEventsOnGraph = enabled) }
+        }
+    }
+
+    fun enablePowerSave(durationMs: Long?) {
+        val untilMs = durationMs?.let {
+            PowerSaveController.untilForDuration(System.currentTimeMillis(), it)
+        } ?: PowerSaveController.INDEFINITE_UNTIL_MS
+        viewModelScope.launch(Dispatchers.IO) {
+            container.settingsStore.update { it.copy(powerSaveUntilMs = untilMs) }
+            PowerSaveRuntimeState.setUntil(untilMs)
+            WorkScheduler.cancelRuntimeWork(getApplication())
+            WorkScheduler.schedulePowerSaveResume(getApplication(), untilMs)
+            container.stopRuntimeControllers(LocalNightscoutRuntimeReason.POWER_SAVE_ACTIVE)
+            LocalNightscoutServiceController.stop(
+                getApplication(),
+                LocalNightscoutRuntimeReason.POWER_SAVE_ACTIVE
+            )
+            messageState.value = when (durationMs) {
+                PowerSaveController.ONE_HOUR_MS -> "Power Save enabled for 1 hour"
+                PowerSaveController.TWO_HOURS_MS -> "Power Save enabled for 2 hours"
+                PowerSaveController.FOUR_HOURS_MS -> "Power Save enabled for 4 hours"
+                else -> "Power Save enabled until manually turned on"
+            }
+        }
+    }
+
+    fun disablePowerSave() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val settings = container.settingsStore.settings.first()
+            container.settingsStore.update {
+                it.copy(powerSaveUntilMs = PowerSaveController.OFF_UNTIL_MS)
+            }
+            PowerSaveRuntimeState.clear()
+            WorkScheduler.cancelPowerSaveResume(getApplication())
+            WorkScheduler.schedule(getApplication())
+            if (settings.localNightscoutEnabled || settings.localBroadcastIngestEnabled) {
+                LocalNightscoutServiceController.start(getApplication())
+            }
+            messageState.value = "Power Save disabled"
         }
     }
 
@@ -2686,15 +7223,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLocalNightscoutConfig(enabled: Boolean, port: Int) {
         viewModelScope.launch {
             val safePort = port.coerceIn(1_024, 65_535)
+            val current = container.settingsStore.settings.first()
+            val effectiveEnabled = LocalNightscoutUpgradeMigrationGate.canEnable(
+                requestedEnabled = enabled,
+                migrationAcknowledged = current.localNightscoutLegacyMigrationAcknowledged
+            )
             container.settingsStore.update {
                 it.copy(
-                    localNightscoutEnabled = enabled,
+                    localNightscoutEnabled = effectiveEnabled,
                     localNightscoutPort = safePort
                 )
             }
-            LocalNightscoutServiceController.reconcile(getApplication(), enabled)
-            messageState.value = if (enabled) {
-                "Local Nightscout enabled at https://127.0.0.1:$safePort"
+            LocalNightscoutServiceController.reconcile(getApplication(), effectiveEnabled)
+            if (enabled && !effectiveEnabled) {
+                LocalNightscoutRuntimeState.setup(
+                    safePort,
+                    LocalNightscoutRuntimeState.value.caFingerprint,
+                    LocalNightscoutRuntimeReason.LEGACY_MIGRATION_ACK_REQUIRED
+                )
+            }
+            messageState.value = if (enabled && !effectiveEnabled) {
+                "Remove the legacy CA and old AAPS credential, then acknowledge the Local Nightscout migration before enabling"
+            } else if (effectiveEnabled) {
+                "Local Nightscout requested on exact port $safePort; wait for SETUP/READY"
             } else {
                 "Local Nightscout disabled"
             }
@@ -2703,10 +7254,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportLocalNightscoutCertificate() {
         viewModelScope.launch {
+            if (!container.settingsStore.settings.first().localNightscoutLegacyMigrationAcknowledged) {
+                messageState.value = "Acknowledge legacy CA and old AAPS credential removal before exporting the new CA"
+                return@launch
+            }
             runCatching {
                 val context = getApplication<Application>().applicationContext
                 val caCertificate = LocalNightscoutTls.loadCaCertificate(context)
                 val serverCertificate = LocalNightscoutTls.loadServerCertificate(context)
+                LocalNightscoutRuntimeState.fingerprintAvailable(
+                    LocalNightscoutTls.fingerprintSha256(caCertificate)
+                )
                 val caDerBytes = caCertificate.encoded
                 val caPemBytes = LocalNightscoutTls.toPem(caCertificate).toByteArray()
                 val serverPemBytes = LocalNightscoutTls.toPem(serverCertificate).toByteArray()
@@ -2758,11 +7316,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun copyLocalNightscoutApiSecret() {
+        viewModelScope.launch {
+            if (!container.settingsStore.settings.first().localNightscoutLegacyMigrationAcknowledged) {
+                messageState.value = "Acknowledge legacy CA and old AAPS credential removal before copying the new API secret"
+                return@launch
+            }
+            val context = getApplication<Application>().applicationContext
+            val secret = runCatching {
+                withContext(Dispatchers.IO) {
+                    LocalNightscoutTls.withApiSecretChars(context) { it.copyOf() }
+                }
+            }.getOrElse { error ->
+                messageState.value = "Local API secret unavailable: ${error.message}"
+                return@launch
+            }
+            try {
+                LocalNightscoutSecretClipboard.copy(context, secret)
+                messageState.value =
+                    "Local API secret copied as sensitive content; Copilot will make a best-effort owned-clip clear after about 60 seconds and on next startup."
+            } finally {
+                secret.fill('\u0000')
+            }
+        }
+    }
+
+    fun resetLocalNightscoutIdentity(confirmed: Boolean) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                container.resetLocalNightscoutIdentity(confirmed)
+            }
+            if (result != LocalNightscoutIdentityResetResult.CANCELLED) {
+                LocalNightscoutServiceController.stop(getApplication(), reason = null)
+            }
+            messageState.value = when (result) {
+                LocalNightscoutIdentityResetResult.CANCELLED ->
+                    "Local Nightscout identity reset cancelled"
+                LocalNightscoutIdentityResetResult.RESET ->
+                    "Local Nightscout identity reset. Export/install the new CA, copy the new API secret into AAPS, then reconnect NSClient."
+                LocalNightscoutIdentityResetResult.FAILED ->
+                    "Local Nightscout identity reset failed closed; integration remains disabled"
+            }
+        }
+    }
+
     fun installLocalNightscoutCertificate() {
         viewModelScope.launch {
+            if (!container.settingsStore.settings.first().localNightscoutLegacyMigrationAcknowledged) {
+                messageState.value = "Acknowledge legacy CA and old AAPS credential removal before installing the new CA"
+                return@launch
+            }
             runCatching {
                 val context = getApplication<Application>().applicationContext
                 val certificate = LocalNightscoutTls.loadCaCertificate(context)
+                LocalNightscoutRuntimeState.fingerprintAvailable(
+                    LocalNightscoutTls.fingerprintSha256(certificate)
+                )
                 val installIntent = KeyChain.createInstallIntent().apply {
                     putExtra(KeyChain.EXTRA_CERTIFICATE, certificate.encoded)
                     putExtra(KeyChain.EXTRA_NAME, "AAPS Copilot Loopback Root CA")
@@ -2832,44 +7441,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         carbComputationMaxGrams: Double? = null
     ) {
         viewModelScope.launch {
-            container.settingsStore.update {
-                val nextSafetyMax = (safetyMaxTargetMmol ?: it.safetyMaxTargetMmol).coerceIn(4.2, 10.0)
-                val nextSafetyMin = (safetyMinTargetMmol ?: it.safetyMinTargetMmol)
-                    .coerceIn(4.0, 9.8)
-                    .coerceAtMost(nextSafetyMax - 0.2)
-                it.copy(
-                    maxActionsIn6Hours = maxActionsIn6h.coerceIn(1, 10),
-                    staleDataMaxMinutes = staleDataMaxMinutes.coerceIn(5, 60),
-                    safetyMinTargetMmol = nextSafetyMin,
-                    safetyMaxTargetMmol = nextSafetyMax,
-                    baseTargetMmol = it.baseTargetMmol.coerceIn(nextSafetyMin, nextSafetyMax),
-                    postHypoThresholdMmol = it.postHypoThresholdMmol.coerceIn(nextSafetyMin, nextSafetyMax),
-                    postHypoTargetMmol = it.postHypoTargetMmol.coerceIn(nextSafetyMin, nextSafetyMax),
-                    carbAbsorptionMaxAgeMinutes = (carbAbsorptionMaxAgeMinutes
-                        ?: it.carbAbsorptionMaxAgeMinutes).coerceIn(60, 180),
-                    carbComputationMaxGrams = (carbComputationMaxGrams
-                        ?: it.carbComputationMaxGrams).coerceIn(20.0, 60.0)
-                )
-            }
+            container.settingsStore.updateSafetyLimits(
+                maxActionsIn6Hours = maxActionsIn6h,
+                staleDataMaxMinutes = staleDataMaxMinutes,
+                safetyMinTargetMmol = safetyMinTargetMmol,
+                safetyMaxTargetMmol = safetyMaxTargetMmol,
+                carbAbsorptionMaxAgeMinutes = carbAbsorptionMaxAgeMinutes,
+                carbComputationMaxGrams = carbComputationMaxGrams
+            )
             messageState.value = "Safety limits updated"
         }
     }
 
     fun setSafetyTargetBounds(minTargetMmol: Double, maxTargetMmol: Double) {
         viewModelScope.launch {
-            container.settingsStore.update {
-                val normalizedMax = maxTargetMmol.coerceIn(4.2, 10.0)
-                val normalizedMin = minTargetMmol
-                    .coerceIn(4.0, 9.8)
-                    .coerceAtMost(normalizedMax - 0.2)
-                it.copy(
-                    safetyMinTargetMmol = normalizedMin,
-                    safetyMaxTargetMmol = normalizedMax,
-                    baseTargetMmol = it.baseTargetMmol.coerceIn(normalizedMin, normalizedMax),
-                    postHypoThresholdMmol = it.postHypoThresholdMmol.coerceIn(normalizedMin, normalizedMax),
-                    postHypoTargetMmol = it.postHypoTargetMmol.coerceIn(normalizedMin, normalizedMax)
-                )
-            }
+            container.settingsStore.updateBaseTargetScheduleForBounds(
+                minTarget = minTargetMmol,
+                maxTarget = maxTargetMmol
+            )
             messageState.value = "Safety target bounds updated"
         }
     }
@@ -2902,19 +7491,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         highRateTrigger: Double,
         lookbackDays: Int
     ) {
-        viewModelScope.launch {
-            container.settingsStore.update {
-                it.copy(
-                    patternMinSamplesPerWindow = minSamplesPerWindow.coerceIn(10, 300),
-                    patternMinActiveDaysPerWindow = minActiveDaysPerWindow.coerceIn(3, 60),
-                    patternLowRateTrigger = lowRateTrigger.coerceIn(0.03, 0.60),
-                    patternHighRateTrigger = highRateTrigger.coerceIn(0.05, 0.80),
-                    analyticsLookbackDays = lookbackDays.coerceIn(30, 730)
-                )
+        val normalizedLookback = lookbackDays.coerceIn(30, 730)
+        launchSensitivitySettingsChange(
+            operationLabel = "PATTERN_LOOKBACK",
+            requestedValue = normalizedLookback.toString(),
+            successMessage = "Pattern tuning updated",
+            updater = { it.copy(analyticsLookbackDays = normalizedLookback) },
+            afterAccepted = {
+                container.settingsStore.update {
+                    it.copy(
+                        patternMinSamplesPerWindow = minSamplesPerWindow.coerceIn(10, 300),
+                        patternMinActiveDaysPerWindow = minActiveDaysPerWindow.coerceIn(3, 60),
+                        patternLowRateTrigger = lowRateTrigger.coerceIn(0.03, 0.60),
+                        patternHighRateTrigger = highRateTrigger.coerceIn(0.05, 0.80)
+                    )
+                }
+                recalculateAnalyticsAsync()
             }
-            recalculateAnalyticsAsync()
-            messageState.value = "Pattern tuning updated"
-        }
+        )
     }
 
     fun setAdaptiveControllerConfig(
@@ -2973,11 +7567,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun ensureProfileAnalyticsHealthyAsync(reasonHint: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val settings = container.settingsStore.settings.first()
-            container.analyticsRepository.ensureProfileStateHealthy(
-                settings = settings,
-                reasonHint = reasonHint
-            )
+            try {
+                if (container.analyticsRepository.isProfileEstimatorRevisionPending()) {
+                    container.automationRepository.runLocalReadOnlyCycle()
+                } else if (reasonHint != "startup") {
+                    val settings = container.settingsStore.settings.first()
+                    container.analyticsRepository.ensureProfileStateHealthy(
+                        settings = settings,
+                        reasonHint = reasonHint
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                runCatching {
+                    container.auditLogger.warn(
+                        "profile_analytics_health_check_failed",
+                        mapOf(
+                            "reasonHint" to reasonHint,
+                            "reason" to (failure.message ?: failure::class.simpleName.orEmpty())
+                        )
+                    )
+                }.onFailure { auditFailure ->
+                    if (auditFailure is CancellationException) throw auditFailure
+                }
+            }
         }
     }
 
@@ -3070,7 +7684,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendManualCarbs(carbsRaw: String, reasonRaw: String) {
+    fun sendManualCarbs(
+        carbsRaw: String,
+        reasonRaw: String,
+        foodProfile: io.aaps.copilot.domain.profile.MealAbsorptionProfile,
+        manualMealEnergyKcal: Double? = null,
+        eatingSoon: Boolean = false,
+        submissionId: String = UUID.randomUUID().toString()
+    ) {
         viewModelScope.launch {
             val settings = container.settingsStore.settings.first()
             val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
@@ -3079,24 +7700,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 messageState.value = "Manual carbs failed: invalid grams value (allowed 1..${String.format(Locale.US, "%.0f", safetyCapGrams)} g)"
                 return@launch
             }
+            if (!isManualMealEnergyInputValid(manualMealEnergyKcal)) {
+                messageState.value = "Manual carbs failed: invalid optional meal energy"
+                return@launch
+            }
 
             val reason = reasonRaw.trim().ifBlank { "manual_ui_carbs" }
-            val sent = runCatching {
+            if (!submissionId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) {
+                messageState.value = getApplication<Application>().getString(R.string.overview_meal_unconfirmed)
+                return@launch
+            }
+            val result = try {
                 val command = buildManualCommand(
                     type = "carbs",
                     params = mapOf(
                         "carbsGrams" to String.format(Locale.US, "%.1f", carbsGrams),
                         "reason" to reason
                     )
+                ).copy(idempotencyKey = "manual:meal:$submissionId")
+                manualCarbSubmission.submit(
+                    command = command,
+                    selection = io.aaps.copilot.domain.profile.MealAbsorptionSelection(foodProfile),
+                    mealEnergyKcal = manualMealEnergyKcal,
+                    eatingSoon = eatingSoon
                 )
-                container.actionRepository.submitCarbs(command)
-            }.getOrDefault(false)
-
-            messageState.value = if (sent) {
-                "Manual carbs sent (${String.format(Locale.US, "%.1f", carbsGrams)} g)"
-            } else {
-                "Manual carbs failed (check Action delivery / Audit Log)"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
+            val app = getApplication<Application>()
+            messageState.value = manualMealSubmissionMessage(app, carbsGrams, result)
         }
     }
 
@@ -3130,83 +7764,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 messageState.value = "Nightscout self-test failed: URL is not configured"
                 return@launch
             }
-            val nsApi = container.apiFactory.nightscoutApi(url, settings.apiSecret)
             val loopback = isLoopbackUrl(url)
 
             runCatching {
+                val nsApi = withContext(Dispatchers.IO) { container.apiFactory.nightscoutApi(url, settings) }
                 val status = nsApi.getStatus()
                 val statusText = status.status ?: "unknown"
                 if (!loopback) {
                     nsApi.getTreatments(mapOf("count" to "1"))
                     return@runCatching "Nightscout reachable ($statusText). Read-only check on external URL."
                 }
-
-                val nowIso = Instant.now().toString()
-                val nowMs = System.currentTimeMillis()
-                nsApi.postTreatment(
-                    NightscoutTreatmentRequest(
-                        createdAt = nowIso,
-                        eventType = "Temporary Target",
-                        duration = 30,
-                        targetTop = 100.0,
-                        targetBottom = 100.0,
-                        reason = "copilot_self_test_temp",
-                        notes = "copilot:self_test"
-                    )
-                )
-                nsApi.postTreatment(
-                    NightscoutTreatmentRequest(
-                        createdAt = nowIso,
-                        eventType = "Carb Correction",
-                        carbs = 1.0,
-                        reason = "copilot_self_test_carbs",
-                        notes = "copilot:self_test"
-                    )
-                )
-                nsApi.postSgvEntries(
-                    listOf(
-                        mapOf(
-                            "date" to nowMs,
-                            "sgv" to 108,
-                            "type" to "sgv",
-                            "device" to "copilot_self_test"
-                        )
-                    )
-                )
-                nsApi.postDeviceStatus(
-                    listOf(
-                        mapOf(
-                            "created_at" to nowIso,
-                            "openaps" to mapOf(
-                                "iob" to mapOf("iob" to 1.1),
-                                "suggested" to mapOf(
-                                    "COB" to 12,
-                                    "insulinReq" to 0.4,
-                                    "predBGs" to mapOf("UAM" to listOf(118, 125))
-                                ),
-                                "profile" to mapOf(
-                                    "dia" to 5,
-                                    "sens" to 45,
-                                    "carb_ratio" to 10
-                                )
-                            ),
-                            "uploader" to mapOf("battery" to 90)
-                        )
-                    )
-                )
                 val latest = nsApi.getTreatments(mapOf("count" to "6"))
                 val sgvEcho = nsApi.getSgvEntries(mapOf("count" to "3"))
-                val echoed = latest.count {
-                    it.reason?.contains("copilot_self_test", ignoreCase = true) == true ||
-                        it.notes?.contains("copilot:self_test", ignoreCase = true) == true
-                }
-                val telemetryEcho = db.telemetryDao()
-                    .since(nowMs - 5 * 60_000L)
-                    .count { it.source == "local_nightscout_devicestatus" }
-                "Local Nightscout self-test OK ($statusText). Echoed treatments: $echoed, sgv points: ${sgvEcho.size}, devicestatus telemetry: $telemetryEcho"
+                "Local Nightscout reachable ($statusText). Read-only check: ${latest.size} treatments, ${sgvEcho.size} glucose points."
             }.onSuccess { message ->
                 messageState.value = message
             }.onFailure { error ->
+                if (error is CancellationException || error is Error) throw error
                 messageState.value = "Nightscout self-test failed: ${error.message}"
             }
         }
@@ -3228,15 +7802,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runDailyAnalysisNow() {
         viewModelScope.launch {
-            val coverageHours = loadAiCoverageHours(nowTs = System.currentTimeMillis())
+            container.aapsCarbHistorySyncRepository.sync()
+            val nowTs = System.currentTimeMillis()
+            val coverageHours = loadAiCoverageHours(nowTs = nowTs)
+            container.auditLogger.info(
+                "daily_analysis_manual_requested",
+                mapOf(
+                    "coverageHours" to coverageHours,
+                    "activeRoute" to activeRouteState.value
+                )
+            )
             if (coverageHours < AI_MIN_DATA_HOURS.toDouble()) {
+                container.auditLogger.warn(
+                    "daily_analysis_manual_blocked",
+                    mapOf(
+                        "reason" to "insufficient_coverage",
+                        "coverageHours" to coverageHours,
+                        "requiredHours" to AI_MIN_DATA_HOURS
+                    )
+                )
                 messageState.value = "AI analysis requires at least 24h data (${String.format(Locale.US, "%.1f", coverageHours)}/24h)"
                 return@launch
             }
-            val result = container.insightsRepository.runDailyAnalysis()
-            messageState.value = result
-            refreshCloudJobs(silent = true)
-            refreshAnalysisInsights(silent = true)
+            messageState.value = "Daily analysis started"
+            runCatching {
+                container.insightsRepository.runDailyAnalysis()
+            }.onSuccess { result ->
+                container.auditLogger.info(
+                    "daily_analysis_manual_completed",
+                    mapOf("coverageHours" to coverageHours)
+                )
+                messageState.value = result
+                refreshCloudJobs(silent = true)
+                refreshAnalysisInsights(silent = true)
+            }.onFailure { error ->
+                val message = error.message ?: "unknown error"
+                container.auditLogger.error(
+                    "daily_analysis_manual_failed",
+                    mapOf(
+                        "coverageHours" to coverageHours,
+                        "error" to message.take(320)
+                    )
+                )
+                messageState.value = "Daily analysis failed: ${message.take(240)}"
+            }
         }
     }
 
@@ -3528,6 +8137,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        clinicalReportPdfExportCoordinator.close()
         runCatching { aiMediaRecorder?.release() }
         aiMediaRecorder = null
         aiRecordingFile = null
@@ -3718,13 +8328,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            val recentTelemetry = db.telemetryDao().since(nowTs - AI_REPORT_RECENT_WINDOW_MS)
-            val hasRecentLocalReport = recentTelemetry.any {
-                it.source == "forecast_daily_report" && it.key == "daily_report_matched_samples"
-            }
-            if (hasRecentLocalReport) {
+            val recentTelemetry = db.telemetryDao().latestByKeysSince(
+                nowTs - AI_REPORT_RECENT_WINDOW_MS,
+                DAILY_REPORT_REFRESH_TELEMETRY_KEYS
+            )
+            val refreshDecision = evaluateLocalDailyReportRefreshDecision(recentTelemetry)
+            if (!refreshDecision.shouldGenerate) {
                 return@launch
             }
+            refreshDecision.reason
+                ?.takeIf { it != DAILY_REPORT_REFRESH_REASON_MISSING_REPORT }
+                ?.let { reason ->
+                    container.auditLogger.info(
+                        "daily_forecast_report_refresh_requested",
+                        mapOf(
+                            "reason" to reason,
+                            "recentWindowHours" to (AI_REPORT_RECENT_WINDOW_MS / 3_600_000L),
+                            "sensorLagInputsPresent" to true
+                        )
+                    )
+                }
 
             runCatching {
                 container.insightsRepository.generateDailyForecastReport(hours = AI_MIN_DATA_HOURS)
@@ -3900,7 +8523,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             nowTs - latestGlucoseTs <= settings.staleDataMaxMinutes * 60_000L
         }
-        val actionsLast6h = container.actionRepository.countSentActionsLast6h()
+        val actionsLast6h = container.actionRepository.countSentActionsLast6h(nowTs)
         return ActionCommand(
             id = UUID.randomUUID().toString(),
             type = type,
@@ -3916,8 +8539,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun parseFlexibleDouble(raw: String): Double? {
-        val normalized = raw.trim().replace(',', '.')
-        return normalized.toDoubleOrNull()
+        return LocaleFriendlyDecimalParser.parse(raw)?.value
     }
 
     private fun isLoopbackUrl(url: String): Boolean {
@@ -3958,18 +8580,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val recentStartFailure = audits.firstOrNull {
-            it.message == "local_nightscout_start_failed" &&
-                nowTs - it.timestamp <= LOCAL_NS_START_FAILURE_WINDOW_MS
-        }
-        if (recentStartFailure != null) {
-            val failureReason = auditMetaField(recentStartFailure, "error") ?: "unknown"
+        val runtime = LocalNightscoutRuntimeState.value
+        if (runtime.status.name != "READY") {
+            val reason = runtime.reason ?: "RUNTIME_NOT_READY"
+            val transportState = if (runtime.status.name == "FAILED") "FAIL" else "SETUP"
             return withCompatibilityHints(
                 listOf(
-                "AAPS transport: FAIL (reason=NS_START_FAILED)",
-                "Source error: local Nightscout start failed ($failureReason)",
-                "Hint 1: free/change local port and tap Save local Nightscout",
-                "Hint 2: confirm loopback URL in AAPS is $loopbackUrl"
+                    "AAPS transport: $transportState (reason=$reason)",
+                    "Local Nightscout runtime: ${runtime.status.name} on exact port ${settings.localNightscoutPort}",
+                    "Clinical API routes remain unavailable until the pinned TLS handshake succeeds and AAPS authorizes its socket"
                 )
             )
         }
@@ -5613,7 +10232,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val key = sample.key
             val latest = latestByKey[key]
-            if (latest == null || sample.timestamp >= latest.timestamp) {
+            if (latest == null || TelemetrySampleSelector.isPreferred(sample, latest)) {
                 latestByKey[key] = sample
             }
 
@@ -6132,6 +10751,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun resolveLatestMetricByRecency(
+        vararg candidates: TelemetrySampleEntity?
+    ): Double? = candidates.asSequence()
+        .filterNotNull()
+        .mapNotNull { sample ->
+            sample.toNumericValue()
+                ?.takeIf(Double::isFinite)
+                ?.let { value -> sample to value }
+        }
+        .maxWithOrNull(compareBy<Pair<TelemetrySampleEntity, Double>> { it.first.timestamp }.thenBy { it.first.id })
+        ?.second
+
     private fun buildSmbContextSummary(
         telemetryByKey: Map<String, TelemetrySampleEntity>,
         baseTargetMmol: Double
@@ -6510,7 +11141,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ts = sample.timestamp,
                 key = sample.key,
                 valueDouble = sample.valueDouble,
-                valueText = sample.valueText
+                valueText = sample.valueText,
+                source = sample.source,
+                quality = sample.quality
             )
         }
         val calculated = estimator.estimate(
@@ -6618,7 +11251,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ts = sample.timestamp,
                         key = sample.key,
                         valueDouble = sample.valueDouble,
-                        valueText = sample.valueText
+                        valueText = sample.valueText,
+                        source = sample.source,
+                        quality = sample.quality
                     )
                 }
 
@@ -6834,6 +11469,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun quickPhysioEventType(tagType: String): CompensationEventType = when (tagType) {
+        "stress" -> CompensationEventType.STRESS
+        "illness" -> CompensationEventType.ILLNESS
+        "hormonal" -> CompensationEventType.HORMONAL
+        "steroid", "steroids" -> CompensationEventType.MEDICATION_STEROID
+        else -> CompensationEventType.CUSTOM
+    }
+
     private fun formatHealthConnectStatus(state: String?, missingPermissions: String?): String {
         return when {
             state == null -> "no data yet (grant Health Connect read permissions)"
@@ -6920,24 +11563,217 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    private companion object {
-        private const val PRIMARY_GLUCOSE_LATEST_LIMIT = 96
+    companion object {
+        internal suspend fun setAutomaticEventAiAnalysisEnabled(
+            enabled: Boolean,
+            updateSettings: suspend ((AppSettings) -> AppSettings) -> Unit
+        ) {
+            updateSettings { current ->
+                current.copy(automaticEventAiAnalysisEnabled = enabled)
+            }
+        }
+
+        internal fun resolveBaseTargetPresentationUamActiveStatic(state: MainUiState): Boolean =
+            state.uamRuntimeActive == true
+
+        internal fun isManualMealEnergyInputValid(value: Double?): Boolean =
+            value == null || value.isFinite() && value in 1.0..10_000.0
+
+        internal fun shouldPrepareClinicalReportOnRouteTransition(
+            currentRoute: String,
+            nextRoute: String
+        ): Boolean = currentRoute != nextRoute && nextRoute == ROUTE_AI_ANALYSIS
+
+        internal data class UiUamRuntimeSnapshot(
+            val active: Boolean,
+            val equivalentCarbsGrams: Double?,
+            val confidence: Double?,
+            val state: String?,
+            val reason: String?,
+            val source: String?
+        )
+
+        internal fun resolveFullUiUamRuntimeSnapshotStatic(
+            telemetryByKey: Map<String, TelemetrySampleEntity>,
+            nowTs: Long,
+            acceptedCycleId: String?
+        ): UiUamRuntimeSnapshot = resolveUiUamRuntimeSnapshotStatic(
+            telemetryByKey = telemetryByKey,
+            nowTs = nowTs,
+            acceptedCycleId = acceptedCycleId
+        )
+
+        internal fun resolvePrimaryUiUamRuntimeSnapshotStatic(
+            telemetryByKey: Map<String, TelemetrySampleEntity>,
+            nowTs: Long,
+            acceptedCycleId: String?
+        ): UiUamRuntimeSnapshot = resolveUiUamRuntimeSnapshotStatic(
+            telemetryByKey = telemetryByKey,
+            nowTs = nowTs,
+            acceptedCycleId = acceptedCycleId
+        )
+
+        private fun resolveUiUamRuntimeSnapshotStatic(
+            telemetryByKey: Map<String, TelemetrySampleEntity>,
+            nowTs: Long,
+            acceptedCycleId: String?
+        ): UiUamRuntimeSnapshot {
+            val telemetryCycleId = telemetryByKey["uam_runtime_sensitivity_cycle_id"]
+                ?.valueText
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+            if (acceptedCycleId.isNullOrBlank() || telemetryCycleId != acceptedCycleId) {
+                return UiUamRuntimeSnapshot(
+                    active = false,
+                    equivalentCarbsGrams = null,
+                    confidence = null,
+                    state = "INACTIVE",
+                    reason = UAM_RUNTIME_UI_ACCEPTED_CYCLE_MISMATCH_REASON,
+                    source = null
+                )
+            }
+            val snapshotTs = UAM_RUNTIME_UI_TIMESTAMP_KEYS
+                .mapNotNull { telemetryByKey[it]?.timestamp }
+                .maxOrNull()
+            val isFresh = snapshotTs != null &&
+                snapshotTs <= nowTs &&
+                nowTs - snapshotTs <= UAM_RUNTIME_UI_TTL_MS
+            if (!isFresh) {
+                return UiUamRuntimeSnapshot(
+                    active = false,
+                    equivalentCarbsGrams = null,
+                    confidence = null,
+                    state = "INACTIVE",
+                    reason = UAM_RUNTIME_UI_STALE_REASON,
+                    source = null
+                )
+            }
+
+            fun numericValue(key: String): Double? = telemetryByKey[key]?.let { sample ->
+                sample.valueDouble ?: sample.valueText?.trim()?.toDoubleOrNull()
+            }
+            val flag = numericValue("uam_runtime_flag")
+            val state = telemetryByKey["uam_runtime_state"]
+                ?.valueText
+                ?.trim()
+                ?.uppercase(Locale.US)
+                ?.takeIf { it.isNotBlank() }
+            return UiUamRuntimeSnapshot(
+                active = isUiActiveUamRuntime(flag = flag, state = state),
+                equivalentCarbsGrams = numericValue("uam_runtime_equivalent_carbs_grams")
+                    ?.takeIf { it.isFinite() && it >= 0.0 },
+                confidence = numericValue("uam_runtime_confidence")
+                    ?.takeIf { it.isFinite() }
+                    ?.coerceIn(0.0, 1.0),
+                state = state,
+                reason = telemetryByKey["uam_runtime_reason"]
+                    ?.valueText?.trim()?.takeIf { it.isNotBlank() },
+                source = telemetryByKey["uam_runtime_source"]
+                    ?.valueText?.trim()?.takeIf { it.isNotBlank() }
+            )
+        }
+
+        internal fun resolveUiUamImpactStatic(
+            runtimeImpactMmol5: Double?
+        ): Double? = runtimeImpactMmol5?.takeIf { it.isFinite() }
+
+        internal data class LocalDailyReportRefreshDecision(
+            val shouldGenerate: Boolean,
+            val reason: String?
+        )
+
+        internal fun evaluateLocalDailyReportRefreshDecision(
+            recentTelemetry: List<TelemetrySampleEntity>
+        ): LocalDailyReportRefreshDecision {
+            val reportRows = recentTelemetry.filter { it.source == DAILY_REPORT_TELEMETRY_SOURCE }
+            val latestReportByKey = reportRows
+                .groupBy { it.key.lowercase(Locale.US) }
+                .mapValues { (_, rows) -> rows.maxByOrNull { it.timestamp } }
+
+            val hasRecentLocalReport = (latestReportByKey["daily_report_matched_samples"]?.valueDouble ?: 0.0) > 0.0
+            if (!hasRecentLocalReport) {
+                return LocalDailyReportRefreshDecision(
+                    shouldGenerate = true,
+                    reason = DAILY_REPORT_REFRESH_REASON_MISSING_REPORT
+                )
+            }
+
+            val runtimeRows = recentTelemetry.filter { it.source != DAILY_REPORT_TELEMETRY_SOURCE }
+            val hasSensorLagAge = runtimeRows.any {
+                it.key.lowercase(Locale.US) in SENSOR_LAG_DAILY_REPORT_AGE_KEYS && it.valueDouble != null
+            }
+            val hasSensorLagForecast = runtimeRows.any {
+                it.key.lowercase(Locale.US) in SENSOR_LAG_DAILY_REPORT_FORECAST_KEYS && it.valueDouble != null
+            }
+            val hasSensorLagMode = runtimeRows.any {
+                it.key.equals("sensor_lag_mode", ignoreCase = true) &&
+                    (it.valueText.equals("ACTIVE", ignoreCase = true) ||
+                        it.valueText.equals("SHADOW", ignoreCase = true))
+            }
+            if (!(hasSensorLagAge && hasSensorLagForecast && hasSensorLagMode)) {
+                return LocalDailyReportRefreshDecision(shouldGenerate = false, reason = null)
+            }
+
+            val replayJson = latestReportByKey["daily_report_sensor_lag_bucket_json"]?.valueText
+            if (!hasMeaningfulDailyReportJson(replayJson)) {
+                return LocalDailyReportRefreshDecision(
+                    shouldGenerate = true,
+                    reason = DAILY_REPORT_REFRESH_REASON_SENSOR_LAG_REPLAY_MISSING
+                )
+            }
+
+            val needsShadowJson = runtimeRows.any {
+                it.key.equals("sensor_lag_mode", ignoreCase = true) &&
+                    it.valueText.equals("SHADOW", ignoreCase = true)
+            }
+            val shadowJson = latestReportByKey["daily_report_sensor_lag_shadow_json"]?.valueText
+            if (needsShadowJson && !hasMeaningfulDailyReportJson(shadowJson)) {
+                return LocalDailyReportRefreshDecision(
+                    shouldGenerate = true,
+                    reason = DAILY_REPORT_REFRESH_REASON_SENSOR_LAG_SHADOW_MISSING
+                )
+            }
+
+            return LocalDailyReportRefreshDecision(shouldGenerate = false, reason = null)
+        }
+
+        // Covers 24h at one-minute cadence with two source rows per timestamp plus margin.
+        private const val PRIMARY_GLUCOSE_LATEST_LIMIT = 3_600
         private const val PRIMARY_FORECAST_LATEST_LIMIT = 96
         private const val PRIMARY_ACTION_LATEST_LIMIT = 16
         private const val PRIMARY_TELEMETRY_LATEST_LIMIT = 1_000
+        private const val PRIMARY_TELEMETRY_OBSERVE_WINDOW_MS = 24L * 60L * 60L * 1000L
+        private const val EVENT_TIMELINE_PAST_WINDOW_MS = 30L * 24L * 60L * 60L * 1_000L
+        private const val EVENT_TIMELINE_FUTURE_WINDOW_MS = 30L * 24L * 60L * 60L * 1_000L
+        private const val EVENT_TIMELINE_THERAPY_LIMIT = 1_500
+        private const val EVENT_TIMELINE_CALIBRATION_LIMIT = 256
+        private const val EVENT_TIMELINE_PLANNED_DEFINITION_LIMIT = 256
+        private const val UAM_RUNTIME_UI_TTL_MS = 10L * 60L * 1000L
+        private const val UAM_RUNTIME_UI_STALE_REASON = "runtime_snapshot_stale"
+        private const val UAM_RUNTIME_UI_ACCEPTED_CYCLE_MISMATCH_REASON = "accepted_cycle_mismatch"
+        private val UAM_RUNTIME_UI_TIMESTAMP_KEYS = setOf(
+            "uam_runtime_flag",
+            "uam_runtime_state",
+            "uam_runtime_equivalent_carbs_grams",
+            "uam_runtime_confidence"
+        )
+        private const val BLOOD_GLUCOSE_CHECK_LATEST_LIMIT = 24
         private const val GLUCOSE_LATEST_LIMIT = 1_800
         private const val THERAPY_LATEST_LIMIT = 1_500
+        private const val PROBABLE_MEAL_CARB_LIMIT = 1_000
         private const val FORECAST_LATEST_LIMIT = 3_500
         private const val BASELINE_LATEST_LIMIT = 600
         private const val TELEMETRY_LATEST_LIMIT = 2_500
         private const val PROFILE_HISTORY_LIMIT = 9_000
         private const val ISF_CR_HISTORY_LIMIT = 9_000
         private const val ISF_CR_HISTORY_TELEMETRY_LIMIT = 9_000
+        private const val ISF_CR_HISTORY_TELEMETRY_WINDOW_MS = 31L * 24L * 60L * 60L * 1000L
         private const val AI_TUNING_TELEMETRY_LIMIT = 4_000
+        private const val AI_TUNING_TELEMETRY_WINDOW_MS = 72L * 60L * 60L * 1000L
+        private const val SENSOR_LAG_HISTORY_TELEMETRY_WINDOW_MS = 48L * 60L * 60L * 1000L
         private const val CIRCADIAN_REPLAY_REFRESH_TTL_MS = 15L * 60L * 1000L
         private const val TLS_DIAGNOSTIC_WINDOW_MINUTES = 15
         private const val TLS_DIAGNOSTIC_WINDOW_MS = TLS_DIAGNOSTIC_WINDOW_MINUTES * 60_000L
-        private const val LOCAL_NS_START_FAILURE_WINDOW_MS = 60 * 60_000L
         private const val HEALTH_CONNECT_ENABLED = false
         private const val ROUTE_OVERVIEW = "overview"
         private const val ROUTE_ANALYTICS = "analytics"
@@ -6947,11 +11783,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val AI_TUNING_MIN_CONFIDENCE = 0.45
         private const val AI_TUNING_MIN_MATCHED_SAMPLES = 36.0
         private const val AI_TUNING_BLOCK_RISK_LEVEL = 3.0
+        private const val TARGET_UI_TRUSTED_SENSOR_SCORE = 0.65
         private const val AI_TUNING_MAX_AGE_HOURS = 36L
         private const val AI_TUNING_MAX_AGE_MS = AI_TUNING_MAX_AGE_HOURS * 60L * 60L * 1000L
         private const val AI_TUNING_FUTURE_SKEW_TOLERANCE_MS = 5L * 60L * 1000L
         private const val AI_COVERAGE_LATEST_LIMIT = 2_000
         private const val AI_REPORT_RECENT_WINDOW_MS = 20L * 60L * 60L * 1000L
+        private const val DAILY_REPORT_TELEMETRY_SOURCE = "forecast_daily_report"
+        private const val DAILY_REPORT_REFRESH_REASON_MISSING_REPORT = "missing_daily_report"
+        private const val DAILY_REPORT_REFRESH_REASON_SENSOR_LAG_REPLAY_MISSING = "sensor_lag_replay_missing"
+        private const val DAILY_REPORT_REFRESH_REASON_SENSOR_LAG_SHADOW_MISSING = "sensor_lag_shadow_missing"
         private const val PHYSIO_TAG_JOURNAL_MAX_ROWS = 40
         private const val PHYSIO_TAG_JOURNAL_LOOKBACK_MS = 180L * 24 * 60 * 60 * 1000
         private const val ISFCR_REALTIME_UI_FRESHNESS_MS = 10L * 60L * 1000L
@@ -6961,36 +11802,150 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "active_minutes",
             "calories_active_kcal"
         )
-        private val PRIMARY_TELEMETRY_KEYS = listOf(
-            "iob_units",
-            "iob_real_units",
-            "cob_grams",
-            "cob_effective_grams",
-            "sensor_lag_corrected_glucose_mmol",
-            "sensor_lag_minutes",
-            "sensor_lag_mode",
-            "sensor_lag_disable_reason",
-            "insulin_real_onset_min",
-            "activity_ratio",
-            "steps_count",
-            "uam_uci0_mmol5",
-            "uam_calculated_flag",
-            "uam_calculated_confidence",
-            "uam_calculated_carbs_grams",
-            "uam_calculated_delta5_mmol",
-            "uam_calculated_rise15_mmol",
-            "uam_calculated_rise30_mmol",
-            "uam_inferred_flag",
-            "uam_inferred_confidence",
-            "uam_inferred_carbs_grams",
-            "uam_inferred_ingestion_ts",
-            "uam_inferred_boost_mode",
-            "uam_manual_cob_grams",
-            "uam_inferred_gabs_last5_g"
-        )
+        private val PRIMARY_TELEMETRY_KEYS = buildPrimaryTelemetryKeysForUi()
+        private val DAILY_REPORT_REFRESH_TELEMETRY_KEYS = buildList {
+            add("daily_report_matched_samples")
+            add("daily_report_sensor_lag_bucket_json")
+            add("daily_report_sensor_lag_shadow_json")
+            addAll(SENSOR_LAG_DAILY_REPORT_AGE_KEYS)
+            addAll(SENSOR_LAG_DAILY_REPORT_FORECAST_KEYS)
+            add("sensor_lag_mode")
+        }.distinct()
     }
 
 }
+
+internal suspend fun applySensitivitySourceChange(
+    metric: SensitivityMetricKind,
+    requestedSource: SensitivitySourcePreference,
+    applyAtomically: suspend ((AppSettings) -> AppSettings) -> SensitivityRuntimeSnapshot
+): SensitivityRuntimeSnapshot {
+    val accepted = applyAtomically { current ->
+        when (metric) {
+            SensitivityMetricKind.ISF -> current.copy(isfSourcePreference = requestedSource)
+            SensitivityMetricKind.CR -> current.copy(crSourcePreference = requestedSource)
+        }
+    }
+    val acceptedRequestedSource = when (metric) {
+        SensitivityMetricKind.ISF -> accepted.isf.requested
+        SensitivityMetricKind.CR -> accepted.cr.requested
+    }
+    require(acceptedRequestedSource == requestedSource) {
+        "accepted sensitivity requested source mismatch: expected=$requestedSource, " +
+            "actual=$acceptedRequestedSource"
+    }
+    return accepted
+}
+
+internal fun resolveAtomicInsulinRuntimeTelemetryForUi(
+    samples: List<TelemetrySampleEntity>
+): Map<String, TelemetrySampleEntity> = AtomicInsulinRuntimePacketContract.decodeNewest(samples)
+
+internal fun resolveEffectivePositiveIobForUi(
+    packet: Map<String, TelemetrySampleEntity>
+): Double? = AtomicInsulinRuntimePacketContract.effectivePositiveIob(packet)
+
+internal fun mergeAtomicInsulinRuntimeTelemetryForUi(
+    latestByKey: Map<String, TelemetrySampleEntity>,
+    samples: List<TelemetrySampleEntity>
+): Map<String, TelemetrySampleEntity> =
+    AtomicInsulinRuntimePacketContract.mergeWithLatest(latestByKey, samples)
+
+internal fun resolveTargetManagerLiveStatusForUi(
+    samples: List<TelemetrySampleEntity>
+): TargetManagerLiveStatus? = samples
+    .asSequence()
+    .filter { row ->
+        row.id == TargetManagerLiveStatusCodec.ROW_ID &&
+            row.source == TargetManagerLiveStatusCodec.SOURCE &&
+            row.key == TargetManagerLiveStatusCodec.KEY
+    }
+    .maxByOrNull(TelemetrySampleEntity::timestamp)
+    .let(TargetManagerLiveStatusCodec::decodeTelemetryRow)
+
+internal fun buildPrimaryTelemetryKeysForUi(): List<String> = listOf(
+    SENSITIVITY_ACCEPTED_CYCLE_ID_KEY,
+    SENSITIVITY_ACCEPTED_SETTINGS_REVISION_KEY,
+    SENSITIVITY_ACCEPTED_FORECAST_TIMESTAMP_KEY,
+    SENSITIVITY_ACCEPTED_FORECAST_DECOMPOSITION_KEY,
+    SENSITIVITY_ACCEPTED_FORECAST_DIGEST_KEY,
+    SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY,
+    ACCEPTED_CALIBRATION_MODEL_ID_KEY,
+    ACCEPTED_CALIBRATION_SESSION_KEY,
+    ACCEPTED_CALIBRATION_PREPARED_AT_KEY,
+    ACCEPTED_CALIBRATION_MODEL_FINGERPRINT_KEY,
+    ACCEPTED_CALIBRATION_AUTHORITY_TOKEN_KEY,
+    TargetManagerLiveStatusCodec.KEY
+) + AtomicInsulinRuntimePacketContract.PACKET_KEYS + listOf(
+    "cob_grams",
+    "raw_cob",
+    "cob_effective_grams",
+    "glucose_raw_mmol",
+    "glucose_calibrated_mmol",
+    "glucose_calibration_source_ts",
+    "glucose_calibration_gain",
+    "glucose_calibration_offset_mmol",
+    "glucose_calibration_confidence",
+    "glucose_calibration_last_check_age_minutes",
+    "glucose_calibration_model_type",
+    "glucose_calibration_status",
+    "glucose_calibration_sensor_session_key",
+    "glucose_alert_state",
+    "glucose_alert_direction",
+    "glucose_alert_disable_reason",
+    "glucose_alert_soft_active",
+    "glucose_alert_strong_active",
+    "sensor_quality_score",
+    "sensor_quality_blocked",
+    "sensor_quality_reason",
+    "sensor_quality_suspect_false_low",
+    "target_low_risk_latched",
+    "sensor_age_hours",
+    "isf_factor_sensor_age_hours",
+    "sensor_lag_age_hours",
+    "sensor_lag_corrected_glucose_mmol",
+    "sensor_lag_minutes",
+    "sensor_lag_mode",
+    "sensor_lag_disable_reason",
+    "insulin_real_onset_min",
+    "activity_ratio",
+    "steps_count",
+    "uam_uci0_mmol5",
+    "uam_calculated_flag",
+    "uam_calculated_confidence",
+    "uam_calculated_carbs_grams",
+    "uam_calculated_delta5_mmol",
+    "uam_calculated_rise15_mmol",
+    "uam_calculated_rise30_mmol",
+    "uam_inferred_flag",
+    "uam_inferred_confidence",
+    "uam_inferred_carbs_grams",
+    "uam_inferred_ingestion_ts",
+    "uam_inferred_boost_mode",
+    "uam_manual_cob_grams",
+    "uam_inferred_gabs_last5_g",
+    "uam_runtime_flag",
+    "uam_runtime_equivalent_carbs_grams",
+    "uam_runtime_confidence",
+    "uam_runtime_state",
+    "uam_runtime_reason",
+    "uam_runtime_source",
+    "uam_runtime_sensitivity_cycle_id",
+    "isf_realtime_value",
+    "cr_realtime_value",
+    "isf_realtime_confidence",
+    "isf_realtime_quality_score",
+    "isf_value",
+    "cr_value",
+    "isf_aaps_raw_value",
+    "cr_aaps_raw_value",
+    "isf_runtime_source_resolved",
+    "cr_runtime_source_resolved",
+    "isf_runtime_selected_value",
+    "cr_runtime_selected_value",
+    "isf_runtime_fallback_active",
+    "cr_runtime_fallback_active"
+)
 
 private fun buildIsfCrHistoryPoints(
     profileHistory: List<ProfileEstimateEntity>,
@@ -7139,7 +12094,7 @@ private fun buildIsfCrHistoryPoints(
     }
 }
 
-private fun buildIsfCrOverlayPoints(
+internal fun buildIsfCrOverlayPoints(
     historyPoints: List<IsfCrHistoryPointUi>,
     telemetry: List<TelemetrySampleEntity>
 ): List<IsfCrOverlayPointUi> {
@@ -7155,11 +12110,7 @@ private fun buildIsfCrOverlayPoints(
     )
     val uamSeries = buildTelemetrySeriesFromKeys(
         telemetry = telemetry,
-        preferredKeys = listOf(
-            "uam_runtime_carbs_grams",
-            "uam_inferred_carbs_grams",
-            "uam_calculated_carbs_grams"
-        ),
+        preferredKeys = listOf("uam_runtime_equivalent_carbs_grams"),
         min = 0.0,
         max = 200.0,
         minTs = minTs
@@ -7443,6 +12394,185 @@ private fun sanitizeIsfValue(value: Double?): Double? =
 private fun sanitizeCrValue(value: Double?): Double? =
     value?.takeIf { it.isFinite() && it in 2.0..60.0 }
 
+internal fun buildGlucoseHistoryPointsForUi(
+    glucose: List<GlucoseSampleEntity>,
+    nowTs: Long
+): List<GlucoseHistoryRowUi> {
+    val cutoffTs = nowTs - UI_GLUCOSE_HISTORY_WINDOW_MS
+    return glucose
+        .asSequence()
+        .filter { it.timestamp >= cutoffTs && it.timestamp <= nowTs && it.mmol.isFinite() }
+        .sortedBy { it.timestamp }
+        .map { GlucoseHistoryRowUi(timestamp = it.timestamp, valueMmol = it.mmol) }
+        .toList()
+}
+
+internal suspend fun runManualCalibrationFollowUp(
+    followUp: suspend () -> Unit
+): Exception? = try {
+    followUp()
+    null
+} catch (cancellation: CancellationException) {
+    throw cancellation
+} catch (fatal: Error) {
+    throw fatal
+} catch (operational: Exception) {
+    operational
+}
+
+internal fun selectOverviewCurrentGlucoseForUi(
+    glucose: List<GlucoseSampleEntity>,
+    nowTs: Long
+) = GlucoseSanitizer.selectCausalEntities(glucose, atTs = nowTs)
+
+internal fun buildCalibrationResolvedHistoryPointsForUi(
+    glucose: List<GlucoseHistoryRowUi>,
+    calibrate: ((timestamp: Long, rawMmol: Double) -> Double)?
+): List<ChartPointUi> = glucose.map { point ->
+    ChartPointUi(
+        ts = point.timestamp,
+        value = calibrate?.invoke(point.timestamp, point.valueMmol) ?: point.valueMmol
+    )
+}
+
+internal fun resolveUiCalibratedGlucose(
+    pointTs: Long?,
+    rawMmol: Double?,
+    telemetryCalibratedMmol: Double?,
+    telemetryCalibrationSourceTs: Long?,
+    activeModel: GlucoseCalibrationModel?
+): Double? {
+    if (
+        pointTs != null &&
+        rawMmol?.isFinite() == true &&
+        activeModel != null &&
+        isCalibrationModelApplicableForUi(pointTs, activeModel)
+    ) {
+        return applyGlucoseCalibrationModelForUi(
+            pointTs = pointTs,
+            rawMmol = rawMmol,
+            model = activeModel
+        )
+    }
+    return rawMmol?.takeIf { it.isFinite() }
+}
+
+internal fun resolveOverviewCalibrationModelForUi(
+    acceptedTuple: io.aaps.copilot.data.repository.AcceptedForecastTuple,
+    currentModel: GlucoseCalibrationModel?
+): GlucoseCalibrationModel? = if (acceptedTuple.error == null) {
+    acceptedTuple.calibrationModel
+} else {
+    currentModel
+}
+
+internal fun selectUiActiveCalibrationModel(
+    model: GlucoseCalibrationModel?,
+    nowTs: Long,
+    pointTs: Long? = nowTs,
+    sensorAgeSamples: List<TelemetrySampleEntity>,
+    evidenceTruncated: Boolean = false
+): GlucoseCalibrationModel? = CalibrationModelAuthority.selectApplicableModel(
+    model = model,
+    nowTs = nowTs,
+    pointTs = pointTs,
+    telemetry = sensorAgeSamples,
+    evidenceTruncated = evidenceTruncated
+)
+
+internal fun selectUiActiveCalibrationModelFromBoundedEvidence(
+    model: GlucoseCalibrationModel?,
+    nowTs: Long,
+    pointTs: Long?,
+    queriedSensorEvidence: List<TelemetrySampleEntity>,
+    authorityToken: String? = null
+): GlucoseCalibrationModel? = resolveUiCalibrationAuthorityFromBoundedEvidence(
+    model = model,
+    nowTs = nowTs,
+    pointTs = pointTs,
+    queriedSensorEvidence = queriedSensorEvidence,
+    authorityToken = authorityToken
+).activeModel
+
+internal suspend fun loadUiCalibrationAuthority(
+    db: io.aaps.copilot.data.local.CopilotDatabase,
+    nowTs: Long,
+    observedAuthorityToken: String?
+): UiCalibrationAuthoritySelection = db.withTransaction {
+    val authority = io.aaps.copilot.data.repository.loadCurrentGlucoseCalibrationAuthorityInTransaction(db, nowTs)
+    // An independently observed token must not authorize an older UI generation after reset/edit.
+    val tokenMatches = authority.authorityToken == observedAuthorityToken
+    UiCalibrationAuthoritySelection(
+        activeModel = authority.activeModel.takeIf { tokenMatches },
+        currentSessionKey = authority.context.currentSessionKey,
+        contextValid = authority.context.contextValid && tokenMatches
+    )
+}
+
+internal fun resolveUiCalibrationAuthorityFromBoundedEvidence(
+    model: GlucoseCalibrationModel?,
+    nowTs: Long,
+    pointTs: Long?,
+    queriedSensorEvidence: List<TelemetrySampleEntity>,
+    authorityToken: String? = null
+): UiCalibrationAuthoritySelection {
+    val evidence = CalibrationModelAuthority.selectBoundedSessionEvidence(
+        queriedTelemetry = queriedSensorEvidence,
+        nowTs = nowTs
+    )
+    val authorityContext = CalibrationModelAuthority.resolveAuthorityContext(
+        nowTs = nowTs,
+        pointTs = pointTs,
+        telemetry = evidence.telemetry,
+        evidenceTruncated = evidence.evidenceTruncated
+    )
+    val applicableModel = selectUiActiveCalibrationModel(
+        model = model,
+        nowTs = nowTs,
+        pointTs = pointTs,
+        sensorAgeSamples = evidence.telemetry,
+        evidenceTruncated = evidence.evidenceTruncated
+    )
+    val durableAuthority = CalibrationAuthorityStateCodec.resolve(
+        token = authorityToken,
+        applicableModel = applicableModel,
+        context = authorityContext
+    )
+    return UiCalibrationAuthoritySelection(
+        activeModel = durableAuthority.activeModel,
+        currentSessionKey = durableAuthority.currentSessionKey,
+        contextValid = durableAuthority.contextValid
+    )
+}
+
+internal data class UiCalibrationAuthoritySelection(
+    val activeModel: GlucoseCalibrationModel?,
+    val currentSessionKey: String?,
+    val contextValid: Boolean
+)
+
+private fun applyGlucoseCalibrationModelForUi(
+    pointTs: Long,
+    rawMmol: Double,
+    model: GlucoseCalibrationModel
+): Double {
+    if (!isCalibrationModelApplicableForUi(pointTs, model)) return rawMmol
+    return CalibrationModelAuthority.applyToGlucose(pointTs, rawMmol, model)
+}
+
+private fun isCalibrationModelApplicableForUi(
+    pointTs: Long,
+    model: GlucoseCalibrationModel
+): Boolean =
+    model.status == io.aaps.copilot.domain.model.GlucoseCalibrationModelStatus.ACTIVE &&
+        pointTs in model.validFromTs..model.validToTs &&
+        CalibrationModelAuthority.strengthAt(pointTs, model) > 0.0
+
+private fun isUiActiveUamRuntime(flag: Double?, state: String?): Boolean {
+    if (flag?.isFinite() != true || flag < 0.5) return false
+    return state?.trim()?.uppercase(Locale.US) in setOf("ACTIVE", "DECAYING")
+}
+
 private fun isAapsLikeTelemetrySource(source: String): Boolean {
     val normalized = source.lowercase(Locale.US)
     return normalized.contains("aaps") ||
@@ -7450,6 +12580,12 @@ private fun isAapsLikeTelemetrySource(source: String): Boolean {
         normalized.contains("openaps") ||
         normalized.contains("nightscout") ||
         normalized.contains("broadcast")
+}
+
+private fun SensitivityResolvedSource.uiCode(): Double = when (this) {
+    SensitivityResolvedSource.AAPS -> 1.0
+    SensitivityResolvedSource.EVIDENCE_BLEND -> 2.0
+    SensitivityResolvedSource.COPILOT_NATIVE -> 3.0
 }
 
 private fun findNearestTimedValue(
@@ -7525,6 +12661,7 @@ private const val ISFCR_HISTORY_BUCKET_MS = 5L * 60L * 1000L
 private const val ISFCR_ANALYTICS_WINDOW_MS = 30L * 24L * 60L * 60L * 1000L
 private const val RUNTIME_HISTORY_MATCH_MAX_DISTANCE_MS = 45L * 60L * 1000L
 private const val SENSOR_LAG_HISTORY_WINDOW_MS = 24L * 60L * 60L * 1000L
+private const val UI_GLUCOSE_HISTORY_WINDOW_MS = 24L * 60L * 60L * 1000L
 
 private const val PROFILE_HISTORY_MATCH_MAX_DISTANCE_MS = 45L * 60L * 1000L
 private const val ISFCR_REAL_CARRY_MAX_DISTANCE_MS = 90L * 60L * 1000L
@@ -7543,9 +12680,7 @@ private val ISFCR_HISTORY_TELEMETRY_KEYS = listOf(
     "cob_effective_grams",
     "cob_grams",
     "raw_cob",
-    "uam_runtime_carbs_grams",
-    "uam_inferred_carbs_grams",
-    "uam_calculated_carbs_grams",
+    "uam_runtime_equivalent_carbs_grams",
     "activity_ratio"
 )
 private val AI_TUNING_TELEMETRY_KEYS = listOf(
@@ -7574,6 +12709,24 @@ private val SENSOR_LAG_HISTORY_TELEMETRY_KEYS = listOf(
     "sensor_lag_age_hours",
     "sensor_lag_mode"
 )
+private val SENSOR_LAG_DAILY_REPORT_AGE_KEYS = setOf(
+    "sensor_lag_age_hours",
+    "sensor_age_hours",
+    "isf_factor_sensor_age_hours"
+)
+private val SENSOR_LAG_DAILY_REPORT_FORECAST_KEYS = setOf(
+    "sensor_lag_candidate_forecast_5m",
+    "sensor_lag_candidate_forecast_30m",
+    "sensor_lag_candidate_forecast_60m",
+    "sensor_lag_control_forecast_5m",
+    "sensor_lag_control_forecast_30m",
+    "sensor_lag_control_forecast_60m"
+)
+
+private fun hasMeaningfulDailyReportJson(value: String?): Boolean {
+    val normalized = value?.trim().orEmpty()
+    return normalized.isNotBlank() && normalized != "[]" && normalized != "{}" && normalized != "null"
+}
 
 private fun ForecastEntity.toDomainForecast(): io.aaps.copilot.domain.model.Forecast =
     io.aaps.copilot.domain.model.Forecast(
@@ -7621,12 +12774,13 @@ private data class AapsTlsCompatibility(
 class MainUiState {
     var nightscoutUrl: String = ""
     var cloudUrl: String = ""
-    var openAiApiKey: String = ""
-    var uiStyle: String = UiStyle.CLASSIC.name
+    var uiStyle: String = UiStyle.MIDNIGHT_GLASS.name
     var exportUri: String? = null
     var killSwitch: Boolean = false
+    var powerSaveUntilMs: Long = 0L
     var localNightscoutEnabled: Boolean = false
     var localNightscoutPort: Int = 17580
+    var localNightscoutLegacyMigrationAcknowledged: Boolean = false
     var resolvedNightscoutUrl: String = ""
     var localBroadcastIngestEnabled: Boolean = true
     var strictBroadcastSenderValidation: Boolean = false
@@ -7639,6 +12793,8 @@ class MainUiState {
     var enableUamExportToAaps: Boolean = true
     var uamExportMode: String = "CONFIRMED_ONLY"
     var dryRunExport: Boolean = false
+    var enableUamAutoExportCap: Boolean = false
+    var uamAutoExportCapGrams: Int = 10
     var uamLearnedMultiplier: Double = 1.0
     var uamMinSnackG: Int = 15
     var uamMaxSnackG: Int = 60
@@ -7647,6 +12803,11 @@ class MainUiState {
     var uamExportMinIntervalMin: Int = 10
     var uamExportMaxBackdateMin: Int = 180
     var sensorLagCorrectionMode: String = "OFF"
+    var targetManagerMode: String = TargetManagerMode.SHADOW.name
+    var targetManagerModeManualOverride: Boolean = false
+    var targetManagerCopilotPriorityEnabled: Boolean = false
+    var targetManagerPolicyRevision: Long = 0L
+    internal var targetManagerLiveStatus: TargetManagerLiveStatus? = null
     var circadianPatternsEnabled: Boolean = true
     var circadianStableLookbackDays: Int = 14
     var circadianRecencyLookbackDays: Int = 5
@@ -7654,6 +12815,43 @@ class MainUiState {
     var circadianUseReplayResidualBias: Boolean = true
     var circadianForecastWeight30: Double = 0.25
     var circadianForecastWeight60: Double = 0.35
+    var softAlertEnabled: Boolean = true
+    var watch60AlertEnabled: Boolean = true
+    var warning30AlertEnabled: Boolean = true
+    var softHighAlertEnabled: Boolean = true
+    var critical5AlertEnabled: Boolean = true
+    var lowNowAlertEnabled: Boolean = true
+    var softAlertLowMmol: Double = 4.4
+    var softAlertHighMmol: Double = 10.0
+    var urgentLowMmol: Double = 3.9
+    var softAlertAudioUri: String? = null
+    var softAlertAudioDisplayName: String? = null
+    var softAlertAudioStartMs: Int = 32_000
+    var softAlertAudioDurationMs: Int = 18_000
+    var criticalAlertAudio1Uri: String? = null
+    var criticalAlertAudio1DisplayName: String? = null
+    var criticalAlertAudio1StartMs: Int = 42_000
+    var criticalAlertAudio1DurationMs: Int = 20_000
+    var criticalAlertAudio2Uri: String? = null
+    var criticalAlertAudio2DisplayName: String? = null
+    var criticalAlertAudio2StartMs: Int = 36_000
+    var criticalAlertAudio2DurationMs: Int = 20_000
+    var isfRuntimeSourcePreference: String = "UNAVAILABLE"
+    var crRuntimeSourcePreference: String = "UNAVAILABLE"
+    var isfRuntimeResolved: Double? = null
+    var crRuntimeResolved: Double? = null
+    var isfRuntimeSelected: Double? = null
+    var crRuntimeSelected: Double? = null
+    var isfRuntimeAaps: Double? = null
+    var crRuntimeAaps: Double? = null
+    var isfRuntimeEvidence: Double? = null
+    var crRuntimeEvidence: Double? = null
+    var isfRuntimeFallbackActive: Boolean = false
+    var crRuntimeFallbackActive: Boolean = false
+    var sensitivitySourceApplying: Boolean = false
+    var sensitivitySourcePendingMetric: String? = null
+    var sensitivitySourcePendingValue: String? = null
+    var sensitivitySourceApplyError: String? = null
     var isfCrShadowMode: Boolean = true
     var isfCrConfidenceThreshold: Double = 0.55
     var isfCrUseActivity: Boolean = true
@@ -7717,11 +12915,48 @@ class MainUiState {
     var nightscoutSyncAgeMinutes: Long? = null
     var cloudPushBacklogMinutes: Long? = null
     var latestGlucoseMmol: Double? = null
+    var rawGlucoseMmol: Double? = null
+    var calibratedGlucoseMmol: Double? = null
+    var glucoseCalibrationGain: Double? = null
+    var glucoseCalibrationOffsetMmol: Double? = null
+    var glucoseCalibrationConfidence: Double? = null
+    var glucoseCalibrationLastCheckAgeMinutes: Double? = null
+    var glucoseCalibrationModelType: String? = null
+    var glucoseCalibrationStatus: String? = null
+    var glucoseAlertState: String? = null
+    var glucoseAlertDirection: String? = null
+    var glucoseAlertDisableReason: String? = null
+    var glucoseAlertSoftActive: Boolean? = null
+    var glucoseAlertStrongActive: Boolean? = null
+    var glucoseAlertSoftLastTs: Long? = null
+    var glucoseAlertStrongLastTs: Long? = null
+    var glucoseAlertPred30: Double? = null
+    var glucoseAlertCiLow30: Double? = null
+    var glucoseAlertCiHigh30: Double? = null
+    var glucoseAlertLowThreshold: Double? = null
+    var glucoseAlertHighThreshold: Double? = null
+    var glucoseAlertUrgentLowThreshold: Double? = null
+    var glucoseCalibrationChecks: List<BloodGlucoseCheck> = emptyList()
+    var glucoseCalibrationModel: GlucoseCalibrationModel? = null
+    var glucoseCalibrationRawHistoryPoints: List<ChartPointUi> = emptyList()
+    var glucoseCalibrationResolvedHistoryPoints: List<ChartPointUi> = emptyList()
+    var glucoseCalibrationCheckPoints: List<ChartPointUi> = emptyList()
     var correctedGlucoseMmol: Double? = null
     var glucoseDelta: Double? = null
     var latestIobUnits: Double? = null
     var latestIobRealUnits: Double? = null
+    var latestIobBolusUnits: Double? = null
+    var latestIobBasalUnits: Double? = null
+    var latestInsulinActivity: Double? = null
+    var latestIobRuntimeSource: String? = null
+    var latestIobRuntimeConfidence: Double? = null
+    var latestIobRuntimeTimestamp: Long? = null
+    var latestIobEvidenceTimestamp: Long? = null
+    var latestIobTherapyCoverage: Double? = null
+    var latestIobRuntimeFallbackReason: String? = null
     var latestCobGrams: Double? = null
+    var latestExternalCobGrams: Double? = null
+    var latestExternalCobTimestamp: Long? = null
     var insulinRealOnsetMinutes: Double? = null
     var insulinRealProfileCurveCompact: String? = null
     var insulinRealProfileUpdatedTs: Long? = null
@@ -7742,6 +12977,9 @@ class MainUiState {
     var forecast60m: Double? = null
     var forecast60mCiLow: Double? = null
     var forecast60mCiHigh: Double? = null
+    var forecastTupleError: String? = null
+    var forecastAcceptedGenerationTs: Long? = null
+    var acceptedSensitivityRuntimeSnapshot: SensitivityRuntimeSnapshot? = null
     var calculatedUamActive: Boolean? = null
     var calculatedUamConfidence: Double? = null
     var calculatedUamCarbsGrams: Double? = null
@@ -7756,15 +12994,42 @@ class MainUiState {
     var inferredUamBoostMode: Boolean? = null
     var inferredUamManualCobGrams: Double? = null
     var inferredUamLastGAbsGrams: Double? = null
+    var uamRuntimeActive: Boolean? = null
+    var uamRuntimeEquivalentCarbsGrams: Double? = null
+    var uamRuntimeConfidence: Double? = null
+    var uamRuntimeState: String? = null
+    var uamRuntimeReason: String? = null
+    var uamRuntimeSource: String? = null
     var uamEventRows: List<UamEventRowUi> = emptyList()
     var sensorQualityScore: Double? = null
     var sensorQualityBlocked: Boolean? = null
     var sensorQualityReason: String? = null
     var sensorQualitySuspectFalseLow: Boolean? = null
+    var targetLowRiskLatched: Boolean? = null
     var sensorLagMinutes: Double? = null
     var sensorAgeHours: Double? = null
     var sensorAgeSource: String? = null
     var sensorLagConfidence: Double? = null
+    var sensorLagWearBucket: String? = null
+    var sensorLagSourceConfidence: Double? = null
+    var sensorLagTrendConsistency: Double? = null
+    var sensorLagReplayMultiplier: Double? = null
+    var sensorLagEffectiveLagMinutes: Double? = null
+    var sensorLagEffectiveCorrectionCap: Double? = null
+    var therapyHistorySourceMode: String? = null
+    var therapyHistoryRawInsulin30d: Int? = null
+    var therapyHistoryInferredInsulin30d: Int? = null
+    var therapyHistoryRealFetchedInsulin30d: Int? = null
+    var therapyHistoryRecoveredInsulin30d: Int? = null
+    var therapyHistoryUsableInsulin30d: Int? = null
+    var therapyHistoryBootstrapNeeded: Boolean? = null
+    var therapyHistoryPlateauOnly: Boolean? = null
+    var therapyHistorySyntheticRatioPct: Double? = null
+    var therapyHistoryLastSyncTreatmentCount: Int? = null
+    var therapyHistoryLastSyncInsulinLikeCount: Int? = null
+    var therapyHistoryLastSyncCarbLikeCount: Int? = null
+    var therapyHistoryLastSyncLocalActionCount: Int? = null
+    var therapyHistoryUpstreamTempTargetOnly: Boolean? = null
     var sensorLagMode: String? = null
     var sensorLagDisableReason: String? = null
     var sensorLagTrendLagPoints: List<ChartPointUi> = emptyList()
@@ -7851,6 +13116,8 @@ class MainUiState {
     var isfCrWearImpact24hLines: List<String> = emptyList()
     var isfCrWearImpact7dLines: List<String> = emptyList()
     var isfCrActiveTags: List<String> = emptyList()
+    var events: List<CompensationEvent> = emptyList()
+    var physiologicalSex: io.aaps.copilot.domain.profile.PhysiologicalSex = io.aaps.copilot.domain.profile.PhysiologicalSex.UNSPECIFIED
     var isfCrHistoryPoints: List<IsfCrHistoryPointUi> = emptyList()
     var isfCrHistoryOverlayPoints: List<IsfCrOverlayPointUi> = emptyList()
     var isfCrHistoryLastUpdatedTs: Long? = null
@@ -7878,7 +13145,7 @@ class MainUiState {
     var patternMinActiveDaysPerWindow: Int = 7
     var patternLowRateTrigger: Double = 0.12
     var patternHighRateTrigger: Double = 0.18
-    var analyticsLookbackDays: Int = 365
+    var analyticsLookbackDays: Int = 30
     var maxActionsIn6Hours: Int = 3
     var staleDataMaxMinutes: Int = 10
     var safetyMinTargetMmol: Double = 4.0
@@ -7950,6 +13217,117 @@ class MainUiState {
     var auditLines: List<String> = emptyList()
     var message: String? = null
 }
+
+internal fun MainUiState.applyPrimaryUamSettingsForUi(settings: AppSettings): MainUiState = apply {
+    enableUamInference = settings.enableUamInference
+    enableUamBoost = settings.enableUamBoost
+    enableUamExportToAaps = settings.enableUamExportToAaps
+    uamExportMode = settings.uamExportMode.name
+    dryRunExport = settings.dryRunExport
+    enableUamAutoExportCap = settings.enableUamAutoExportCap
+    uamAutoExportCapGrams = settings.uamAutoExportCapGrams
+}
+
+/**
+ * Keeps persistence of optional profile fields safe without making incomplete
+ * demographic drafts unusable. This function has no writer and is unit-tested.
+ */
+internal sealed interface EnergyProfileSettingsUpdate {
+    data class Persist(
+        val settings: EnergyProfileSettings,
+        val pediatricGoalReset: Boolean = false
+    ) : EnergyProfileSettingsUpdate
+
+    data class Reject(val violations: Set<ProfileViolation>) : EnergyProfileSettingsUpdate
+}
+
+internal fun evaluateEnergyProfileSettingsUpdate(
+    current: EnergyProfileSettings,
+    candidate: EnergyProfileSettings,
+    today: LocalDate,
+    policy: EnergyProfilePolicy = EnergyProfilePolicy()
+): EnergyProfileSettingsUpdate {
+    val candidateAge = candidate.birthDateEpochDay
+        ?.let { epochDay -> runCatching { LocalDate.ofEpochDay(epochDay) }.getOrNull() }
+        ?.let { birthDate -> policy.ageOn(birthDate, today) }
+    val pediatricGoalReset = candidateAge in 3..18 &&
+        candidate.calorieGoalMode in setOf(CalorieGoalMode.LOSS, CalorieGoalMode.GAIN)
+    val normalized = if (pediatricGoalReset) {
+        candidate.copy(
+            calorieGoalMode = CalorieGoalMode.OFF,
+            manualCalorieTargetKcal = null
+        )
+    } else {
+        candidate
+    }
+    return when (val resolution = policy.resolve(normalized, today)) {
+        is ProfileResolution.Invalid -> EnergyProfileSettingsUpdate.Reject(resolution.violations)
+        is ProfileResolution.Complete,
+        is ProfileResolution.Incomplete -> EnergyProfileSettingsUpdate.Persist(
+            settings = normalized,
+            pediatricGoalReset = pediatricGoalReset && current != normalized
+        )
+    }
+}
+
+internal fun energyProfilePolicyErrorRes(violation: ProfileViolation): Int = when (violation) {
+    ProfileViolation.AGE_OUT_OF_RANGE -> R.string.energy_activity_policy_age_invalid
+    ProfileViolation.HEIGHT_OUT_OF_RANGE -> R.string.energy_activity_policy_height_invalid
+    ProfileViolation.WEIGHT_OUT_OF_RANGE -> R.string.energy_activity_policy_weight_invalid
+    ProfileViolation.MANUAL_CALORIE_TARGET_OUT_OF_RANGE ->
+        R.string.energy_activity_policy_manual_calories_invalid
+    ProfileViolation.PEDIATRIC_CALORIE_GOAL_RESTRICTED ->
+        R.string.energy_activity_pediatric_restriction
+}
+
+private fun io.aaps.copilot.ui.foundation.screens.PlannedActivityEventUi.toPlannedActivityScheduleOrNull():
+    io.aaps.copilot.domain.profile.PlannedActivitySchedule? {
+    val type = runCatching {
+        io.aaps.copilot.domain.profile.PlannedActivityType.valueOf(activityType)
+    }.getOrNull() ?: return null
+    val intensity = runCatching {
+        io.aaps.copilot.domain.profile.PlannedActivityIntensity.valueOf(intensity)
+    }.getOrNull() ?: return null
+    val start = runCatching { java.time.LocalDateTime.parse(localStartIso) }.getOrNull() ?: return null
+    val zone = runCatching { ZoneId.of(timezoneId) }.getOrNull() ?: return null
+    val days = java.time.DayOfWeek.entries.filter { day ->
+        recurrenceDaysMask and (1 shl (day.value - 1)) != 0
+    }.toSet()
+    val recurrenceEnd = recurrenceEndEpochDay?.let { epochDay ->
+        runCatching { LocalDate.ofEpochDay(epochDay) }.getOrNull() ?: return null
+    }
+    if (
+        eventId.isBlank() ||
+        title.isBlank() ||
+        durationMinutes <= 0 ||
+        revision < 0L ||
+        recurrenceEnd?.isBefore(start.toLocalDate()) == true
+    ) {
+        return null
+    }
+    return io.aaps.copilot.domain.profile.PlannedActivitySchedule(
+        eventId = eventId.trim(),
+        enabled = enabled,
+        title = title.trim(),
+        type = type,
+        intensity = intensity,
+        localStart = start,
+        durationMinutes = durationMinutes,
+        timezoneId = zone.id,
+        recurrenceDays = days,
+        recurrenceEndEpochDay = recurrenceEnd?.toEpochDay(),
+        revision = revision,
+        createdAtMs = createdAtMs,
+        updatedAtMs = updatedAtMs
+    )
+}
+
+internal fun resolvePrimaryAapsMetricValue(
+    rawValue: Double?,
+    directAapsValue: Double?
+): Double? = rawValue
+    ?.takeIf { it.isFinite() }
+    ?: directAapsValue?.takeIf { it.isFinite() }
 
 data class QualityMetricUi(
     val horizonMinutes: Int,

@@ -25,4 +25,7 @@ interface AuditLogDao {
 
     @Query("DELETE FROM audit_logs WHERE timestamp < :olderThan")
     suspend fun deleteOlderThan(olderThan: Long): Int
+
+    @Query("DELETE FROM audit_logs WHERE timestamp < :olderThan AND level = 'INFO' AND message IN (:messages)")
+    suspend fun deleteOlderThanInfoMessages(olderThan: Long, messages: List<String>): Int
 }

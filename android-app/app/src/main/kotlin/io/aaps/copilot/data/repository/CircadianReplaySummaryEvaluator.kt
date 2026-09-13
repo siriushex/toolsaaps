@@ -533,6 +533,8 @@ internal class CircadianReplaySummaryEvaluator(
             "sensor_quality_suspect_false_low"
         )
 
+        internal fun requiredTelemetryKeys(): List<String> = TELEMETRY_KEYS
+
         internal fun replayBucketStatus(
             dayType: CircadianDayType,
             sampleCount: Int,

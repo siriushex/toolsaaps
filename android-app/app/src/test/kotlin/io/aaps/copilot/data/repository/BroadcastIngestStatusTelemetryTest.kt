@@ -51,6 +51,17 @@ class BroadcastIngestStatusTelemetryTest {
             .isEqualTo("tm-$source-status_insulin_units-$ts")
     }
 
+    @Test
+    fun normalizeHighFrequencyStatusTimestamp_bucketsToFiveMinuteCadence() {
+        val base = 300_000L * 5_666_666L
+        val bucket = BroadcastIngestRepository.normalizeHighFrequencyStatusTimestamp(base)
+        val sameBucket = BroadcastIngestRepository.normalizeHighFrequencyStatusTimestamp(base + 4 * 60_000L + 59_999L)
+        val nextBucket = BroadcastIngestRepository.normalizeHighFrequencyStatusTimestamp(base + 5 * 60_000L)
+
+        assertThat(sameBucket).isEqualTo(bucket)
+        assertThat(nextBucket).isEqualTo(bucket + 5 * 60_000L)
+    }
+
     private fun sample(
         id: String,
         key: String,

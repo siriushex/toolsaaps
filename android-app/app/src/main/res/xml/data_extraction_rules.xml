@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="server_ai_connection.xml" />
+        <exclude
+            domain="database"
+            path="." />
+        <exclude
+            domain="sharedpref"
+            path="openai_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="clinical_ai_anthropic_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="clinical_ai_gemini_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="clinical_ai_compatible_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="local_nightscout_tls_identity.xml" />
+        <exclude
+            domain="sharedpref"
+            path="local_nightscout_tls_identity_reset_tombstone.xml" />
+        <exclude
+            domain="file"
+            path="datastore/copilot_settings.preferences_pb" />
+        <exclude
+            domain="file"
+            path="datastore/copilot_settings.preferences_pb.preferences_pb" />
+        <exclude domain="file" path="copilot_snapshot.db" />
+        <exclude domain="file" path="copilot_snapshot.db-wal" />
+        <exclude domain="file" path="copilot_snapshot.db-shm" />
+        <exclude domain="file" path="copilot-backup.db" />
+        <exclude domain="file" path="copilot-backup.db-wal" />
+        <exclude domain="file" path="copilot-backup.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="server_ai_connection.xml" />
+        <exclude
+            domain="database"
+            path="." />
+        <exclude
+            domain="sharedpref"
+            path="openai_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="clinical_ai_anthropic_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="clinical_ai_gemini_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="clinical_ai_compatible_credentials.xml" />
+        <exclude
+            domain="sharedpref"
+            path="local_nightscout_tls_identity.xml" />
+        <exclude
+            domain="sharedpref"
+            path="local_nightscout_tls_identity_reset_tombstone.xml" />
+        <exclude
+            domain="file"
+            path="datastore/copilot_settings.preferences_pb" />
+        <exclude
+            domain="file"
+            path="datastore/copilot_settings.preferences_pb.preferences_pb" />
+        <exclude domain="file" path="copilot_snapshot.db" />
+        <exclude domain="file" path="copilot_snapshot.db-wal" />
+        <exclude domain="file" path="copilot_snapshot.db-shm" />
+        <exclude domain="file" path="copilot-backup.db" />
+        <exclude domain="file" path="copilot-backup.db-wal" />
+        <exclude domain="file" path="copilot-backup.db-shm" />
+    </device-transfer>
+</data-extraction-rules>

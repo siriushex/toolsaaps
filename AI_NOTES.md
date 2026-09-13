@@ -1,3 +1,33 @@
+# Source Publication and Phone Verification - 2026-09-13
+
+- Prepared an isolated software snapshot for main without merging private
+  development history, credentials, patient data or diagnostic artifacts.
+  Existing public presentation and documentation are preserved.
+- Added the one-code activation release boundary and verification procedure in
+  `docs/RELEASE_2026-09-13.md`. Live Codex inference remains unavailable until
+  production identity policy, deployment and job transport are completed.
+- Accepted NORMAL and SENSITIVITY_SOURCE_CHANGE cycles invoke the widget callback; LOCAL_READ_ONLY does not.
+- Exact candidate verification: backend 252 tests passed; Android 4341 tests,
+  zero failures/errors, three conditional environment/database checks skipped.
+  Main, isolated UI and instrumentation APKs assembled. Lint completed online:
+  zero errors, 295 warnings and four hints. No new suppression was added.
+- The first full run caught a retained legacy TLS container from old main.
+  Removed it, then reproduced and fixed the packaging test's empty-directory
+  assumption for clean checkouts. Focused RED/GREEN and the full rerun passed.
+  All three APKs contain zero credential-container files. The production APK
+  signer matches the installed application; no signing key was changed.
+- Publication checks use exact file hashes, synthetic-only fixtures, a redacted
+  secret scan, and a full staged-tree inventory. Six scanner matches in runtime
+  delimiters, SQL/schema text, test identifiers and a historical Figma file ID
+  were reviewed as false positives. Review prompted an unfiltered forbidden-file guard;
+  a synthetic retained-file test confirms refusal before publication.
+- USB rejected the isolated target installation with
+  `INSTALL_FAILED_USER_RESTRICTED`. The existing production Overview opened,
+  but the new version is not installed. Full phone UI tests, coherent database
+  backup/migration verification and before/after resource comparison remain
+  pending. No therapy setting, therapeutic command, real activation code or
+  clinical AI upload was used for release testing.
+
 # Изменения — Этап 1: Governance baseline
 
 ## Что сделано

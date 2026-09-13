@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <queries tools:node="remove" />
+
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.VIBRATE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.MODIFY_AUDIO_SETTINGS"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACTIVITY_RECOGNITION"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.RECORD_AUDIO"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.RECEIVE_BOOT_COMPLETED"
+        tools:node="remove" />
+    <uses-permission
+        android:name="info.nightscout.androidaps.permission.OPEN_BOLUS_DIALOG"
+        tools:node="remove" />
+    <uses-permission
+        android:name="info.nightscout.androidaps.permission.RELAY_COPILOT_DATA"
+        tools:node="remove" />
+    <uses-permission
+        android:name="info.nightscout.androidaps.permission.READ_COPILOT_CLINICAL_SUMMARY"
+        tools:node="remove" />
+    <uses-permission
+        android:name="info.nightscout.androidaps.permission.WRITE_COPILOT_CONTEXT_NOTE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.WAKE_LOCK"
+        tools:node="remove" />
+
+    <application
+        android:name=".UiTestApplication"
+        tools:replace="android:name">
+        <activity
+            android:name=".ClinicalPdfPickerRecreationActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MainActivity"
+            tools:node="remove" />
+        <activity
+            android:name=".AlertNotificationEntryActivity"
+            tools:node="remove" />
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            tools:node="remove" />
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.clinical-pdf"
+            tools:node="remove" />
+        <service
+            android:name=".service.LocalNightscoutForegroundService"
+            tools:node="remove" />
+        <service
+            android:name="androidx.health.platform.client.impl.sdkservice.HealthDataSdkService"
+            tools:node="remove" />
+        <service
+            android:name="androidx.work.impl.background.systemjob.SystemJobService"
+            tools:node="remove" />
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            tools:node="remove" />
+        <service
+            android:name="androidx.room.MultiInstanceInvalidationService"
+            tools:node="remove" />
+        <receiver
+            android:name=".receiver.BootCompletedReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name=".receiver.LocalDataBroadcastReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name=".receiver.PumpLinkHealthReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name=".receiver.GlucoseAlertActionReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name=".widget.CopilotGlucoseWidgetProvider"
+            tools:node="remove" />
+        <receiver
+            android:name=".receiver.DebugActionReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="androidx.work.impl.background.systemalarm.RescheduleReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="androidx.work.impl.diagnostics.DiagnosticsReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            tools:node="remove" />
+    </application>
+
+</manifest>

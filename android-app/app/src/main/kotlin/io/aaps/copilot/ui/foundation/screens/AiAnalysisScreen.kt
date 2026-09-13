@@ -8,6 +8,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -16,7 +19,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,11 +33,14 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +48,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -53,6 +63,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -61,14 +73,23 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.config.ClinicalAiProviderId
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
@@ -86,6 +107,19 @@ private val AiSectionShape = RoundedCornerShape(18.dp)
 @Composable
 fun AiAnalysisScreen(
     state: AiAnalysisUiState,
+    onPrepareClinicalReport: () -> Unit = {},
+    onRetryLocalClinicalReportPreparation: () -> Unit = {},
+    onReprepareClinicalReportPdf: () -> Unit = {},
+    onSendClinicalReport: (ClinicalReportDisclosureUi) -> Unit = {},
+    onCancelClinicalReport: () -> Unit = {},
+    onRequestUnknownClinicalReportRetry: () -> Unit = {},
+    onDismissUnknownClinicalReportRetry: () -> Unit = {},
+    onConfirmUnknownClinicalReportRetry: () -> Unit = {},
+    onOpenClinicalReportSettings: () -> Unit = {},
+    onBeginClinicalReportPdfExport: () -> Unit = {},
+    onClaimClinicalReportPdfExportTicket: (Long) -> Boolean = { false },
+    onResolveClinicalReportPdfExport: (Long, Uri?) -> Unit = { _, _ -> },
+    onShareClinicalReportPdf: () -> Unit = {},
     onRunDailyAnalysis: () -> Unit = {},
     onRefreshCloudJobs: () -> Unit = {},
     onRefreshInsights: () -> Unit = {},
@@ -108,8 +142,34 @@ fun AiAnalysisScreen(
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val context = LocalContext.current
     var selectedDays by rememberSaveable { mutableIntStateOf(state.windowDays) }
+    var pendingPdfTicketId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val currentResolvePdfExport by rememberUpdatedState(onResolveClinicalReportPdfExport)
+    val resolvePdfPickerResult: (Uri?) -> Unit = { uri ->
+        val ticketId = pendingPdfTicketId
+        if (ticketId != null) {
+            pendingPdfTicketId = null
+            currentResolvePdfExport(ticketId, uri)
+        }
+    }
+    val createClinicalReportPdf = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        resolvePdfPickerResult(uri)
+    }
     LaunchedEffect(state.windowDays) {
         selectedDays = state.windowDays
+    }
+    val pdfTicket = state.clinicalReport.pdfExportTicket
+    LaunchedEffect(pdfTicket?.id) {
+        val ticket = pdfTicket ?: return@LaunchedEffect
+        if (!onClaimClinicalReportPdfExportTicket(ticket.id)) return@LaunchedEffect
+        pendingPdfTicketId = ticket.id
+        try {
+            createClinicalReportPdf.launch(ticket.suggestedFilename)
+        } catch (_: Exception) {
+            pendingPdfTicketId = null
+            currentResolvePdfExport(ticket.id, null)
+        }
     }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
@@ -159,6 +219,22 @@ fun AiAnalysisScreen(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
+            item {
+                ClinicalReportSection(
+                    state = state.clinicalReport,
+                    onPrepare = onPrepareClinicalReport,
+                    onRetryLocalPreparation = onRetryLocalClinicalReportPreparation,
+                    onRepreparePdf = onReprepareClinicalReportPdf,
+                    onSend = onSendClinicalReport,
+                    onCancel = onCancelClinicalReport,
+                    onRequestUnknownRetry = onRequestUnknownClinicalReportRetry,
+                    onDismissUnknownRetry = onDismissUnknownClinicalReportRetry,
+                    onConfirmUnknownRetry = onConfirmUnknownClinicalReportRetry,
+                    onOpenSettings = onOpenClinicalReportSettings,
+                    onSavePdf = onBeginClinicalReportPdfExport,
+                    onSharePdf = onShareClinicalReportPdf
+                )
+            }
             item {
                 AiChatHeroCard(
                     state = state,
@@ -887,6 +963,1315 @@ fun AiAnalysisScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ClinicalReportSection(
+    state: ClinicalReportUiState,
+    onPrepare: () -> Unit,
+    onRetryLocalPreparation: () -> Unit,
+    onRepreparePdf: () -> Unit,
+    onSend: (ClinicalReportDisclosureUi) -> Unit,
+    onCancel: () -> Unit,
+    onRequestUnknownRetry: () -> Unit,
+    onDismissUnknownRetry: () -> Unit,
+    onConfirmUnknownRetry: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onSavePdf: () -> Unit,
+    onSharePdf: () -> Unit
+) {
+    val title = stringResource(id = R.string.clinical_report_title)
+    var disclosureSnapshot by remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
+    var eventPreviewSnapshot by remember { mutableStateOf<String?>(null) }
+    var disclosureConfirming by remember { mutableStateOf(false) }
+    var submittedDisclosure by remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
+    LaunchedEffect(state.disclosure, state.remoteEventPreviewText, state.canSend) {
+        val snapshot = disclosureSnapshot
+        if (
+            snapshot != null && (
+                !state.canSend ||
+                    state.disclosure != snapshot ||
+                    state.remoteEventPreviewText != eventPreviewSnapshot
+                )
+        ) {
+            disclosureSnapshot = null
+            eventPreviewSnapshot = null
+            disclosureConfirming = false
+        }
+        val submitted = submittedDisclosure
+        if (submitted != null && (!state.canSend || state.disclosure != submitted)) {
+            submittedDisclosure = null
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("clinical_report_section")
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = stringResource(id = R.string.clinical_report_advisory_only),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        if (state.summary24h != null) {
+            ClinicalPeriodSummaryRow(
+                summary = state.summary24h,
+                modifier = Modifier.testTag("clinical_report_summary_1")
+            )
+        }
+        if (state.summary24h != null && (state.summary7d != null || state.summary30d != null)) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+        if (state.summary7d != null) {
+            ClinicalPeriodSummaryRow(
+                summary = state.summary7d,
+                modifier = Modifier.testTag("clinical_report_summary_7")
+            )
+        }
+        if (state.summary7d != null && state.summary30d != null) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+        if (state.summary30d != null) {
+            ClinicalPeriodSummaryRow(
+                summary = state.summary30d,
+                modifier = Modifier.testTag("clinical_report_summary_30")
+            )
+            if (
+                state.summary30d.probableMealWindows.isNotEmpty() ||
+                state.summary30d.recentProbableMealWindows.isNotEmpty()
+            ) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ClinicalProbableMealWindows(
+                    recentWindows = state.summary30d.recentProbableMealWindows,
+                    stableWindows = state.summary30d.probableMealWindows
+                )
+            }
+        }
+
+        when (state.phase) {
+            ClinicalReportPhaseUi.IDLE -> {
+                Text(
+                    text = stringResource(id = R.string.clinical_report_idle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                ClinicalPrimaryButton(
+                    text = stringResource(id = R.string.clinical_report_prepare),
+                    tag = "clinical_report_prepare",
+                    onClick = onPrepare
+                )
+            }
+            ClinicalReportPhaseUi.BUILDING -> ClinicalReportBuilding()
+            ClinicalReportPhaseUi.UPLOADING -> {
+                val progressDescription = when (state.progressStage) {
+                    ClinicalReportProgressStageUi.PREPARING ->
+                        stringResource(id = R.string.clinical_report_progress_preparing)
+                    ClinicalReportProgressStageUi.ANALYZING ->
+                        stringResource(
+                            id = R.string.clinical_report_progress_analyzing,
+                            state.completedChunks,
+                            state.totalChunks
+                        )
+                    ClinicalReportProgressStageUi.REDUCING ->
+                        stringResource(
+                            id = R.string.clinical_report_progress_reducing,
+                            state.progressLevel,
+                            state.completedChunks,
+                            state.totalChunks
+                        )
+                    ClinicalReportProgressStageUi.SYNTHESIZING ->
+                        stringResource(id = R.string.clinical_report_progress_synthesizing)
+                    ClinicalReportProgressStageUi.VALIDATING ->
+                        stringResource(id = R.string.clinical_report_progress_validating)
+                    ClinicalReportProgressStageUi.COMPLETED ->
+                        stringResource(id = R.string.clinical_report_progress_completed)
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clearAndSetSemantics {
+                            contentDescription = progressDescription
+                            text = AnnotatedString(progressDescription)
+                            progressBarRangeInfo = ProgressBarRangeInfo(
+                                current = state.progress,
+                                range = 0f..1f
+                            )
+                        }
+                        .testTag("clinical_report_progress_stage")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { state.progress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = progressDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("clinical_report_cancel"),
+                    enabled = state.canCancel
+                ) {
+                    Text(text = stringResource(id = R.string.clinical_report_cancel))
+                }
+            }
+            ClinicalReportPhaseUi.COMPLETE -> {
+                state.complete?.let { ClinicalCompleteReport(report = it) }
+            }
+            ClinicalReportPhaseUi.CANCELLED -> {
+                ClinicalSecondaryStatus(
+                    text = stringResource(id = R.string.clinical_report_cancelled),
+                    warning = false
+                )
+            }
+            ClinicalReportPhaseUi.FAILED,
+            ClinicalReportPhaseUi.UNKNOWN_OUTCOME -> {
+                state.failure?.let {
+                    ClinicalSecondaryStatus(
+                        text = stringResource(id = clinicalFailureString(it)),
+                        warning = true
+                    )
+                }
+            }
+            ClinicalReportPhaseUi.LOCAL_READY -> Unit
+        }
+
+        if (state.canSavePdf) {
+            OutlinedButton(
+                onClick = onSavePdf,
+                enabled = state.pdfExportState != ClinicalPdfExportUiState.PREPARING &&
+                    state.pdfExportState != ClinicalPdfExportUiState.WRITING,
+                modifier = Modifier
+                    .heightIn(min = 40.dp)
+                    .testTag("clinical_report_save_pdf")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PictureAsPdf,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.size(Spacing.xs))
+                Text(text = stringResource(id = R.string.clinical_report_save_pdf))
+            }
+        }
+        if (state.canSharePdf) {
+            OutlinedButton(
+                onClick = onSharePdf,
+                modifier = Modifier
+                    .heightIn(min = 40.dp)
+                    .testTag("clinical_report_share_pdf")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.size(Spacing.xs))
+                Text(text = stringResource(id = R.string.clinical_report_share_pdf))
+            }
+        }
+        if (
+            (state.canSavePdf || state.pdfRequiresReprepare) &&
+            state.pdfExportState != ClinicalPdfExportUiState.IDLE
+        ) {
+            Text(
+                text = stringResource(
+                    id = when (state.pdfExportState) {
+                        ClinicalPdfExportUiState.IDLE ->
+                            R.string.clinical_report_pdf_preparing
+                        ClinicalPdfExportUiState.PREPARING ->
+                            R.string.clinical_report_pdf_preparing
+                        ClinicalPdfExportUiState.READY ->
+                            R.string.clinical_report_pdf_ready
+                        ClinicalPdfExportUiState.WRITING ->
+                            R.string.clinical_report_pdf_saving
+                        ClinicalPdfExportUiState.COMPLETE ->
+                            R.string.clinical_report_pdf_saved
+                        ClinicalPdfExportUiState.FAILED ->
+                            R.string.clinical_report_pdf_failed
+                        ClinicalPdfExportUiState.TOO_LARGE ->
+                            R.string.clinical_report_pdf_too_large
+                        ClinicalPdfExportUiState.CANCELLED ->
+                            R.string.clinical_report_pdf_cancelled
+                    }
+                ),
+                modifier = Modifier.testTag("clinical_report_pdf_status"),
+                style = MaterialTheme.typography.bodySmall,
+                color = when (state.pdfExportState) {
+                    ClinicalPdfExportUiState.FAILED,
+                    ClinicalPdfExportUiState.TOO_LARGE -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+        if (state.pdfRequiresReprepare) {
+            OutlinedButton(
+                onClick = onRepreparePdf,
+                modifier = Modifier
+                    .heightIn(min = 40.dp)
+                    .testTag("clinical_report_pdf_reprepare")
+            ) {
+                Text(text = stringResource(id = R.string.clinical_report_pdf_reprepare))
+            }
+        }
+
+        if (state.pointsToSettings) {
+            OutlinedButton(
+                onClick = onOpenSettings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("clinical_report_settings")
+            ) {
+                Text(text = stringResource(id = R.string.clinical_report_open_settings))
+            }
+        }
+        if (state.canRequestGuardedRetry) {
+            OutlinedButton(
+                onClick = onRequestUnknownRetry,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("clinical_report_review_retry")
+            ) {
+                Text(text = stringResource(id = R.string.clinical_report_review_retry))
+            }
+        } else if (state.canRetryLocalPreparation) {
+            ClinicalPrimaryButton(
+                text = stringResource(id = R.string.clinical_report_retry_local),
+                tag = "clinical_report_retry_local",
+                onClick = onRetryLocalPreparation
+            )
+        } else if (state.canSend) {
+            ClinicalPrimaryButton(
+                text = stringResource(id = R.string.clinical_report_send),
+                tag = "clinical_report_send",
+                enabled =
+                    state.disclosure != null &&
+                        submittedDisclosure != state.disclosure,
+                onClick = {
+                    state.disclosure?.let { disclosure ->
+                        if (submittedDisclosure == disclosure) return@let
+                        disclosureConfirming = false
+                        disclosureSnapshot = disclosure
+                        eventPreviewSnapshot = state.remoteEventPreviewText
+                    }
+                }
+            )
+        }
+    }
+
+    disclosureSnapshot?.let { snapshot ->
+        val disclosureBodyMaxHeight = (
+            LocalConfiguration.current.screenHeightDp.dp * 0.4f
+            ).coerceIn(96.dp, 320.dp)
+        AlertDialog(
+            onDismissRequest = {
+                if (!disclosureConfirming) {
+                    disclosureSnapshot = null
+                    eventPreviewSnapshot = null
+                }
+            },
+            modifier = Modifier.testTag("clinical_report_send_disclosure"),
+            shape = RoundedCornerShape(8.dp),
+            title = {
+                Text(text = stringResource(id = R.string.clinical_report_disclosure_title))
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = disclosureBodyMaxHeight)
+                        .verticalScroll(rememberScrollState())
+                        .testTag("clinical_report_disclosure_scroll"),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.clinical_report_disclosure_data),
+                        modifier = Modifier.testTag("clinical_report_disclosure_data"),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = stringResource(
+                            id = R.string.clinical_report_disclosure_provider,
+                            clinicalAiProviderLabel(snapshot.providerId)
+                        ),
+                        modifier = Modifier.testTag("clinical_report_disclosure_provider"),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = stringResource(
+                            id = R.string.clinical_report_disclosure_model,
+                            snapshot.model
+                        ),
+                        modifier = Modifier.testTag("clinical_report_disclosure_model"),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    snapshot.endpointHost?.let { host ->
+                        Text(
+                            text = stringResource(
+                                id = R.string.clinical_report_disclosure_endpoint_host,
+                                host
+                            ),
+                            modifier = Modifier.testTag("clinical_report_disclosure_endpoint"),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Text(
+                        text = stringResource(id = R.string.clinical_report_remote_event_preview),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Text(
+                        text = eventPreviewSnapshot.orEmpty(),
+                        modifier = Modifier.testTag("clinical_report_remote_event_preview"),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        if (!disclosureConfirming) {
+                            disclosureSnapshot = null
+                            eventPreviewSnapshot = null
+                        }
+                    },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("clinical_report_disclosure_cancel"),
+                    enabled = !disclosureConfirming
+                ) {
+                    Text(text = stringResource(id = R.string.action_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (disclosureConfirming) return@TextButton
+                        if (
+                            !state.canSend ||
+                            state.disclosure != snapshot ||
+                            state.remoteEventPreviewText != eventPreviewSnapshot
+                        ) {
+                            disclosureSnapshot = null
+                            eventPreviewSnapshot = null
+                            return@TextButton
+                        }
+                        disclosureConfirming = true
+                        submittedDisclosure = snapshot
+                        disclosureSnapshot = null
+                        eventPreviewSnapshot = null
+                        onSend(snapshot)
+                    },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("clinical_report_disclosure_confirm"),
+                    enabled =
+                        !disclosureConfirming &&
+                            state.canSend &&
+                            state.disclosure == snapshot
+                ) {
+                    Text(
+                        text = stringResource(
+                            id = R.string.clinical_report_disclosure_confirm
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    if (state.showRetryConfirmation) {
+        AlertDialog(
+            onDismissRequest = onDismissUnknownRetry,
+            shape = RoundedCornerShape(8.dp),
+            title = {
+                Text(text = stringResource(id = R.string.clinical_report_retry_title))
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text(text = stringResource(id = R.string.clinical_report_retry_body))
+                    state.retryFeedback?.let { feedback ->
+                        Text(
+                            text = stringResource(
+                                id = when (feedback) {
+                                    ClinicalReportRetryFeedbackUi.PENDING ->
+                                        R.string.clinical_report_retry_pending
+                                    ClinicalReportRetryFeedbackUi.IN_FLIGHT ->
+                                        R.string.clinical_report_retry_in_flight
+                                    ClinicalReportRetryFeedbackUi.FAILED ->
+                                        R.string.clinical_report_retry_failed
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = onDismissUnknownRetry,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("clinical_report_retry_cancel")
+                ) {
+                    Text(text = stringResource(id = R.string.action_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = onConfirmUnknownRetry,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("clinical_report_retry_confirm"),
+                    enabled = state.retryFeedback != ClinicalReportRetryFeedbackUi.PENDING
+                ) {
+                    Text(text = stringResource(id = R.string.clinical_report_retry_confirm))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ClinicalProbableMealWindows(
+    recentWindows: List<ProbableMealWindowUi>,
+    stableWindows: List<ProbableMealWindowUi>
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("clinical_report_probable_meal_windows"),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+    ) {
+        Text(
+            text = stringResource(id = R.string.analytics_probable_meal_windows),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = stringResource(id = R.string.analytics_probable_meal_windows_info),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        ClinicalMealWindowHorizon(
+            label = stringResource(id = R.string.analytics_probable_meal_windows_recent),
+            windows = recentWindows
+        )
+        ClinicalMealWindowHorizon(
+            label = stringResource(id = R.string.analytics_probable_meal_windows_stable),
+            windows = stableWindows
+        )
+    }
+}
+
+@Composable
+private fun ClinicalMealWindowHorizon(
+    label: String,
+    windows: List<ProbableMealWindowUi>
+) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary
+    )
+    if (windows.isEmpty()) {
+        Text(
+            text = stringResource(id = R.string.analytics_probable_meal_windows_horizon_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    } else {
+        windows.sortedBy(ProbableMealWindowUi::medianMinuteOfDay).forEach { window ->
+            Text(
+                text = stringResource(
+                    id = R.string.clinical_report_probable_meal_window_row,
+                    clinicalMealWindowClock(window.medianMinuteOfDay),
+                    clinicalMealWindowClock(window.startMinuteOfDay),
+                    clinicalMealWindowClock(window.endMinuteOfDay),
+                    window.supportDays,
+                    window.lookbackDays,
+                    window.enteredEpisodeCount,
+                    window.uamEpisodeCount
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+private fun clinicalMealWindowClock(minuteOfDay: Int): String {
+    val bounded = minuteOfDay.coerceIn(0, 24 * 60 - 1)
+    return String.format(Locale.US, "%02d:%02d", bounded / 60, bounded % 60)
+}
+
+@Composable
+private fun ClinicalPeriodSummaryRow(
+    summary: ClinicalPeriodSummaryUi,
+    modifier: Modifier = Modifier
+) {
+    val periodLabel = if (summary.days == 1) {
+        stringResource(id = R.string.clinical_text_period_last_24_hours)
+    } else {
+        stringResource(id = R.string.clinical_report_period_days, summary.days)
+    }
+    val coverageLabel = stringResource(id = R.string.clinical_report_coverage)
+    val coverageValue = clinicalNumericValue(
+        value = summary.coveragePct,
+        decimals = 1,
+        unit = ClinicalNumericUnitUi.PERCENT
+    )
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = periodLabel,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = stringResource(id = clinicalLocalQualityString(summary.quality)),
+                style = MaterialTheme.typography.labelMedium,
+                color = when (summary.quality) {
+                    ClinicalLocalDataQualityUi.GOOD -> MaterialTheme.colorScheme.primary
+                    ClinicalLocalDataQualityUi.LIMITED -> MaterialTheme.colorScheme.tertiary
+                    ClinicalLocalDataQualityUi.INSUFFICIENT -> MaterialTheme.colorScheme.error
+                }
+            )
+        }
+        LinearProgressIndicator(
+            progress = { summary.coverageProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .semantics {
+                    contentDescription = listOfNotNull(
+                        periodLabel,
+                        coverageLabel,
+                        coverageValue
+                    ).joinToString(", ")
+                    progressBarRangeInfo = ProgressBarRangeInfo(
+                        current = summary.coverageProgress,
+                        range = 0f..1f
+                    )
+                }
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_mean),
+            firstValue = clinicalNumericValue(
+                summary.meanGlucose,
+                1,
+                ClinicalNumericUnitUi.MMOL_L
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_median),
+            secondValue = clinicalNumericValue(
+                summary.medianGlucose,
+                1,
+                ClinicalNumericUnitUi.MMOL_L
+            )
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_variability),
+            firstValue = clinicalNumericValue(
+                summary.variability,
+                1,
+                ClinicalNumericUnitUi.PERCENT
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_below_4),
+            secondValue = clinicalNumericValue(
+                summary.belowRange,
+                1,
+                ClinicalNumericUnitUi.PERCENT
+            )
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_in_range),
+            firstValue = clinicalNumericValue(
+                summary.inRange,
+                1,
+                ClinicalNumericUnitUi.PERCENT
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_above_range),
+            secondValue = clinicalNumericValue(
+                summary.aboveRange,
+                1,
+                ClinicalNumericUnitUi.PERCENT
+            )
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(
+                id = if (summary.therapyTotalsAuthoritative) {
+                    R.string.clinical_report_total_insulin
+                } else {
+                    R.string.clinical_report_copilot_events_insulin
+                }
+            ),
+            firstValue = clinicalNumericValue(
+                summary.recordedInsulin,
+                1,
+                ClinicalNumericUnitUi.INSULIN_UNITS
+            ),
+            secondLabel = stringResource(
+                id = if (summary.therapyTotalsAuthoritative) {
+                    R.string.clinical_report_total_carbs
+                } else {
+                    R.string.clinical_report_copilot_events_carbs
+                }
+            ),
+            secondValue = clinicalNumericValue(
+                summary.realCarbs,
+                1,
+                ClinicalNumericUnitUi.GRAMS
+            )
+        )
+        if (summary.deliveredBasalInsulin != null || summary.deliveredBolusInsulin != null) {
+            ClinicalMetricPair(
+                firstLabel = stringResource(id = R.string.clinical_report_basal_insulin),
+                firstValue = clinicalNumericValue(
+                    summary.deliveredBasalInsulin,
+                    1,
+                    ClinicalNumericUnitUi.INSULIN_UNITS
+                ),
+                secondLabel = stringResource(id = R.string.clinical_report_bolus_insulin),
+                secondValue = clinicalNumericValue(
+                    summary.deliveredBolusInsulin,
+                    1,
+                    ClinicalNumericUnitUi.INSULIN_UNITS
+                )
+            )
+        }
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_entered_carbs),
+            firstValue = clinicalNumericValue(
+                summary.enteredCarbs,
+                1,
+                ClinicalNumericUnitUi.GRAMS
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_uam_carbs),
+            secondValue = clinicalNumericValue(
+                summary.uamCarbs,
+                1,
+                ClinicalNumericUnitUi.GRAMS
+            )
+        )
+        ClinicalMetric(
+            label = stringResource(id = R.string.clinical_report_aaps_carbs_diagnostic),
+            value = clinicalNumericValue(
+                summary.aapsCarbs,
+                1,
+                ClinicalNumericUnitUi.GRAMS
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("clinical_report_aaps_carbs_${summary.days}")
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_iob_derived_insulin),
+            firstValue = clinicalNumericValue(
+                summary.iobDerivedInsulin,
+                1,
+                ClinicalNumericUnitUi.INSULIN_UNITS
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_steps),
+            secondValue = clinicalNumericValue(
+                summary.steps,
+                0,
+                ClinicalNumericUnitUi.COUNT
+            )
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_active_minutes),
+            firstValue = clinicalNumericValue(
+                summary.activeMinutes,
+                0,
+                ClinicalNumericUnitUi.MINUTES
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_activity_coverage),
+            secondValue = clinicalNumericValue(
+                summary.activityCoveragePct,
+                1,
+                ClinicalNumericUnitUi.PERCENT
+            )
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_carbohydrate_energy),
+            firstValue = clinicalNumericValue(
+                summary.carbohydrateEnergyKcal,
+                0,
+                ClinicalNumericUnitUi.KILOCALORIES
+            ),
+            secondLabel = stringResource(id = R.string.clinical_report_active_calories),
+            secondValue = clinicalNumericValue(
+                summary.activeCaloriesKcal,
+                0,
+                ClinicalNumericUnitUi.KILOCALORIES
+            )
+        )
+        ClinicalMetricPair(
+            firstLabel = stringResource(id = R.string.clinical_report_coverage),
+            firstValue = coverageValue,
+            secondLabel = stringResource(id = R.string.clinical_report_max_gap),
+            secondValue = clinicalNumericValue(
+                summary.maxGapMinutes?.toDouble(),
+                0,
+                ClinicalNumericUnitUi.MINUTES
+            )
+        )
+    }
+}
+
+@Composable
+private fun ClinicalMetricPair(
+    firstLabel: String,
+    firstValue: String?,
+    secondLabel: String,
+    secondValue: String?
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+    ) {
+        ClinicalMetric(
+            label = firstLabel,
+            value = firstValue,
+            modifier = Modifier.weight(1f)
+        )
+        ClinicalMetric(
+            label = secondLabel,
+            value = secondValue,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun ClinicalMetric(
+    label: String,
+    value: String?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value ?: stringResource(id = R.string.clinical_report_unavailable),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun ClinicalReportBuilding() {
+    val progressDescription = stringResource(id = R.string.clinical_report_building)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {
+                contentDescription = progressDescription
+                progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+            },
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            strokeWidth = 2.dp
+        )
+        Text(
+            text = progressDescription,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+        repeat(2) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClinicalPrimaryButton(
+    text: String,
+    tag: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .testTag(tag),
+        enabled = enabled,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(text = text)
+    }
+}
+
+@Composable
+private fun ClinicalSecondaryStatus(
+    text: String,
+    warning: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (warning) Icons.Default.Warning else Icons.Default.Info,
+            contentDescription = null,
+            tint = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ClinicalCompleteReport(report: ClinicalCompleteReportUi) {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    ClinicalReportSubsection(
+        title = stringResource(id = R.string.clinical_report_summary_status),
+        modifier = Modifier.testTag("clinical_report_complete_status"),
+        rows = listOf(
+            stringResource(
+                id = R.string.clinical_report_status_line,
+                7,
+                stringResource(id = clinicalTextString(report.summary7dStatus))
+            ),
+            stringResource(
+                id = R.string.clinical_report_status_line,
+                30,
+                stringResource(id = clinicalTextString(report.summary30dStatus))
+            )
+        )
+    )
+    ClinicalReportSubsection(
+        title = stringResource(id = R.string.clinical_report_data_quality),
+        modifier = Modifier.testTag("clinical_report_complete_quality"),
+        rows = report.dataQuality.map { stringResource(id = clinicalTextString(it)) }
+    )
+    if (report.patterns.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("clinical_report_complete_observations"),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            Text(
+                text = stringResource(id = R.string.clinical_report_observations),
+                style = MaterialTheme.typography.titleSmall
+            )
+            report.patterns.forEach { finding ->
+                Text(
+                    text = stringResource(
+                        id = R.string.clinical_report_finding_line,
+                        stringResource(id = clinicalTextString(finding.topic)),
+                        stringResource(id = clinicalTextString(finding.period)),
+                        stringResource(id = clinicalTextString(finding.direction)),
+                        stringResource(id = clinicalTextString(finding.timeBand)),
+                        stringResource(id = clinicalTextString(finding.confidence))
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = stringResource(
+                        id = R.string.clinical_report_evidence_line,
+                        stringResource(id = clinicalTextString(finding.evidence.metric)),
+                        clinicalNumericValue(
+                            finding.evidence.value,
+                            finding.evidence.decimals,
+                            finding.evidence.unit
+                        ).orEmpty()
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+    ClinicalReportSubsection(
+        title = stringResource(id = R.string.clinical_report_safety_observations),
+        modifier = Modifier.testTag("clinical_report_complete_safety"),
+        rows = report.safetyObservations.map { stringResource(id = clinicalTextString(it)) }
+    )
+    if (report.recommendations.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("clinical_report_complete_recommendations"),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            Text(
+                text = stringResource(id = R.string.clinical_report_topics_care_team),
+                style = MaterialTheme.typography.titleSmall
+            )
+            report.recommendations.forEach { recommendation ->
+                Text(
+                    text = stringResource(
+                        id = R.string.clinical_report_recommendation_line,
+                        stringResource(id = clinicalTextString(recommendation.topic)),
+                        stringResource(id = clinicalTextString(recommendation.priority)),
+                        stringResource(id = clinicalTextString(recommendation.period))
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                recommendation.linkedEvidence.forEach { finding ->
+                    Text(
+                        text = stringResource(
+                            id = R.string.clinical_report_recommendation_evidence_line,
+                            stringResource(id = clinicalTextString(finding.topic)),
+                            stringResource(id = clinicalTextString(finding.evidence.metric)),
+                            clinicalNumericValue(
+                                finding.evidence.value,
+                                finding.evidence.decimals,
+                                finding.evidence.unit
+                            ).orEmpty()
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+    ClinicalReportSubsection(
+        title = stringResource(id = R.string.clinical_report_questions_care_team),
+        modifier = Modifier.testTag("clinical_report_complete_questions"),
+        rows = report.careTeamQuestions.map { stringResource(id = clinicalTextString(it)) }
+    )
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("clinical_report_complete_metadata"),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+    ) {
+        Text(
+            text = stringResource(
+                id = R.string.clinical_report_generated,
+                clinicalTimestamp(report.metadata.generatedAtTs)
+                    ?: stringResource(id = R.string.clinical_report_unavailable)
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        report.metadata.model?.let {
+            Text(
+                text = stringResource(id = R.string.clinical_report_model, it),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = stringResource(
+                id = R.string.clinical_report_provider,
+                clinicalAiProviderLabel(report.metadata.providerId)
+            ),
+            modifier = Modifier.testTag("clinical_report_complete_provider"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (
+            report.metadata.schemaName != null &&
+            report.metadata.schemaVersion != null
+        ) {
+            Text(
+                text = stringResource(
+                    id = R.string.clinical_report_schema,
+                    report.metadata.schemaName,
+                    report.metadata.schemaVersion
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun clinicalNumericValue(
+    value: Double?,
+    decimals: Int,
+    unit: ClinicalNumericUnitUi
+): String? {
+    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    if (unit == ClinicalNumericUnitUi.PERCENT) {
+        return value?.let {
+            ClinicalReportFormatter.formatPercent(it / 100.0, decimals, locale)
+        }
+    }
+    val number = value?.let {
+        ClinicalReportFormatter.formatNumber(it, decimals, locale)
+    } ?: return null
+    if (unit == ClinicalNumericUnitUi.COUNT) return number
+    val unitText = stringResource(
+        id = when (unit) {
+            ClinicalNumericUnitUi.MMOL_L -> R.string.unit_mmol_l
+            ClinicalNumericUnitUi.PERCENT -> error("Percent uses locale-native formatting")
+            ClinicalNumericUnitUi.INSULIN_UNITS -> R.string.unit_u
+            ClinicalNumericUnitUi.GRAMS -> R.string.unit_g
+            ClinicalNumericUnitUi.MINUTES -> R.string.unit_minutes
+            ClinicalNumericUnitUi.KILOCALORIES -> R.string.unit_kcal
+            ClinicalNumericUnitUi.COUNT -> error("Count has no unit")
+        }
+    )
+    return stringResource(
+        id = R.string.clinical_report_value_with_unit,
+        number,
+        unitText
+    )
+}
+
+@Composable
+private fun clinicalTimestamp(timestamp: Long?): String? {
+    val value = timestamp ?: return null
+    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    return ClinicalReportFormatter.formatTimestamp(
+        timestamp = value,
+        locale = locale,
+        zoneId = ZoneId.systemDefault()
+    )
+}
+
+@Composable
+private fun ClinicalReportSubsection(
+    title: String,
+    rows: List<String>,
+    modifier: Modifier = Modifier
+) {
+    if (rows.isEmpty()) return
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+    ) {
+        Text(text = title, style = MaterialTheme.typography.titleSmall)
+        rows.forEach { row ->
+            Text(
+                text = row,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private fun clinicalLocalQualityString(value: ClinicalLocalDataQualityUi): Int = when (value) {
+    ClinicalLocalDataQualityUi.GOOD -> R.string.clinical_report_quality_good
+    ClinicalLocalDataQualityUi.LIMITED -> R.string.clinical_report_quality_limited
+    ClinicalLocalDataQualityUi.INSUFFICIENT -> R.string.clinical_report_quality_insufficient
+}
+
+@Composable
+private fun clinicalAiProviderLabel(providerId: ClinicalAiProviderId): String =
+    stringResource(
+        id = when (providerId) {
+            ClinicalAiProviderId.OPENAI -> R.string.settings_clinical_ai_provider_openai
+            ClinicalAiProviderId.ANTHROPIC -> R.string.settings_clinical_ai_provider_anthropic
+            ClinicalAiProviderId.GEMINI -> R.string.settings_clinical_ai_provider_gemini
+            ClinicalAiProviderId.OPENAI_COMPATIBLE ->
+                R.string.settings_clinical_ai_provider_compatible
+        }
+    )
+
+private fun clinicalFailureString(value: ClinicalReportFailureUi): Int = when (value) {
+    ClinicalReportFailureUi.LOCAL_BUILD -> R.string.clinical_report_failure_local_build
+    ClinicalReportFailureUi.CREDENTIAL_UNAVAILABLE ->
+        R.string.clinical_report_failure_credential
+    ClinicalReportFailureUi.UNAUTHORIZED -> R.string.clinical_report_failure_unauthorized
+    ClinicalReportFailureUi.RATE_LIMITED -> R.string.clinical_report_failure_rate_limited
+    ClinicalReportFailureUi.SERVER -> R.string.clinical_report_failure_server
+    ClinicalReportFailureUi.HTTP -> R.string.clinical_report_failure_http
+    ClinicalReportFailureUi.TIMEOUT -> R.string.clinical_report_failure_timeout
+    ClinicalReportFailureUi.NETWORK -> R.string.clinical_report_failure_network
+    ClinicalReportFailureUi.REFUSAL -> R.string.clinical_report_failure_refusal
+    ClinicalReportFailureUi.INCOMPLETE -> R.string.clinical_report_failure_incomplete
+    ClinicalReportFailureUi.INVALID_RESPONSE -> R.string.clinical_report_failure_invalid_response
+    ClinicalReportFailureUi.OVERSIZED_RESPONSE ->
+        R.string.clinical_report_failure_oversized_response
+    ClinicalReportFailureUi.REQUEST_TOO_LARGE ->
+        R.string.clinical_report_failure_request_too_large
+    ClinicalReportFailureUi.DATASET_TOO_LARGE ->
+        R.string.clinical_report_failure_dataset_too_large
+    ClinicalReportFailureUi.INVALID_INPUT -> R.string.clinical_report_failure_invalid_input
+    ClinicalReportFailureUi.PARTIAL_CHUNK -> R.string.clinical_report_failure_partial_chunk
+    ClinicalReportFailureUi.UNKNOWN_REMOTE_OUTCOME ->
+        R.string.clinical_report_failure_unknown_outcome
+    ClinicalReportFailureUi.PROCESS_INTERRUPTED_PRE_REQUEST ->
+        R.string.clinical_report_failure_interrupted
+    ClinicalReportFailureUi.CANCELLED -> R.string.clinical_report_cancelled
+    ClinicalReportFailureUi.OTHER -> R.string.clinical_report_failure_other
+}
+
+private fun clinicalTextString(value: ClinicalReportTextKey): Int = when (value) {
+    ClinicalReportTextKey.SUMMARY_STABLE -> R.string.clinical_text_summary_stable
+    ClinicalReportTextKey.SUMMARY_HIGH_VARIABILITY ->
+        R.string.clinical_text_summary_high_variability
+    ClinicalReportTextKey.SUMMARY_LOW_EXPOSURE -> R.string.clinical_text_summary_low_exposure
+    ClinicalReportTextKey.SUMMARY_HIGH_EXPOSURE -> R.string.clinical_text_summary_high_exposure
+    ClinicalReportTextKey.SUMMARY_MIXED -> R.string.clinical_text_summary_mixed
+    ClinicalReportTextKey.SUMMARY_INSUFFICIENT_DATA ->
+        R.string.clinical_text_summary_insufficient_data
+    ClinicalReportTextKey.QUALITY_COMPLETE -> R.string.clinical_text_quality_complete
+    ClinicalReportTextKey.QUALITY_PARTIAL_COVERAGE ->
+        R.string.clinical_text_quality_partial_coverage
+    ClinicalReportTextKey.QUALITY_MISSING_INTERVALS ->
+        R.string.clinical_text_quality_missing_intervals
+    ClinicalReportTextKey.QUALITY_SENSOR_GAPS -> R.string.clinical_text_quality_sensor_gaps
+    ClinicalReportTextKey.QUALITY_THERAPY_GAPS -> R.string.clinical_text_quality_therapy_gaps
+    ClinicalReportTextKey.QUALITY_TARGET_GAPS -> R.string.clinical_text_quality_target_gaps
+    ClinicalReportTextKey.QUALITY_FORECAST_GAPS -> R.string.clinical_text_quality_forecast_gaps
+    ClinicalReportTextKey.QUALITY_TELEMETRY_GAPS ->
+        R.string.clinical_text_quality_telemetry_gaps
+    ClinicalReportTextKey.QUALITY_INSUFFICIENT_DATA ->
+        R.string.clinical_text_quality_insufficient_data
+    ClinicalReportTextKey.OBSERVATION_GLUCOSE_STABILITY ->
+        R.string.clinical_text_observation_glucose_stability
+    ClinicalReportTextKey.OBSERVATION_GLUCOSE_VARIABILITY ->
+        R.string.clinical_text_observation_glucose_variability
+    ClinicalReportTextKey.OBSERVATION_LOW_EXPOSURE ->
+        R.string.clinical_text_observation_low_exposure
+    ClinicalReportTextKey.OBSERVATION_HIGH_EXPOSURE ->
+        R.string.clinical_text_observation_high_exposure
+    ClinicalReportTextKey.OBSERVATION_MEAL_ASSOCIATION ->
+        R.string.clinical_text_observation_meal_association
+    ClinicalReportTextKey.OBSERVATION_OVERNIGHT_PATTERN ->
+        R.string.clinical_text_observation_overnight_pattern
+    ClinicalReportTextKey.OBSERVATION_TARGET_ALIGNMENT ->
+        R.string.clinical_text_observation_target_alignment
+    ClinicalReportTextKey.OBSERVATION_SENSOR_RELIABILITY ->
+        R.string.clinical_text_observation_sensor_reliability
+    ClinicalReportTextKey.OBSERVATION_INFUSION_SET_SIGNAL ->
+        R.string.clinical_text_observation_infusion_set_signal
+    ClinicalReportTextKey.OBSERVATION_DATA_COVERAGE ->
+        R.string.clinical_text_observation_data_coverage
+    ClinicalReportTextKey.DIRECTION_STABLE -> R.string.clinical_text_direction_stable
+    ClinicalReportTextKey.DIRECTION_INCREASING -> R.string.clinical_text_direction_increasing
+    ClinicalReportTextKey.DIRECTION_DECREASING -> R.string.clinical_text_direction_decreasing
+    ClinicalReportTextKey.DIRECTION_INTERMITTENT ->
+        R.string.clinical_text_direction_intermittent
+    ClinicalReportTextKey.DIRECTION_MIXED -> R.string.clinical_text_direction_mixed
+    ClinicalReportTextKey.DIRECTION_NOT_APPLICABLE ->
+        R.string.clinical_text_direction_not_applicable
+    ClinicalReportTextKey.TIME_ALL_DAY -> R.string.clinical_text_time_all_day
+    ClinicalReportTextKey.TIME_OVERNIGHT -> R.string.clinical_text_time_overnight
+    ClinicalReportTextKey.TIME_MORNING -> R.string.clinical_text_time_morning
+    ClinicalReportTextKey.TIME_AFTERNOON -> R.string.clinical_text_time_afternoon
+    ClinicalReportTextKey.TIME_EVENING -> R.string.clinical_text_time_evening
+    ClinicalReportTextKey.CONFIDENCE_LOW -> R.string.clinical_text_confidence_low
+    ClinicalReportTextKey.CONFIDENCE_MEDIUM -> R.string.clinical_text_confidence_medium
+    ClinicalReportTextKey.CONFIDENCE_HIGH -> R.string.clinical_text_confidence_high
+    ClinicalReportTextKey.EVIDENCE_MEAN_GLUCOSE -> R.string.clinical_report_mean
+    ClinicalReportTextKey.EVIDENCE_MEDIAN_GLUCOSE -> R.string.clinical_report_median
+    ClinicalReportTextKey.EVIDENCE_MEAN_TARGET -> R.string.clinical_text_evidence_mean_target
+    ClinicalReportTextKey.EVIDENCE_VARIABILITY -> R.string.clinical_report_variability
+    ClinicalReportTextKey.EVIDENCE_BELOW_RANGE -> R.string.clinical_report_below_4
+    ClinicalReportTextKey.EVIDENCE_IN_RANGE -> R.string.clinical_report_in_range
+    ClinicalReportTextKey.EVIDENCE_ABOVE_RANGE -> R.string.clinical_report_above_range
+    ClinicalReportTextKey.EVIDENCE_COVERAGE -> R.string.clinical_report_coverage
+    ClinicalReportTextKey.EVIDENCE_MAX_GAP -> R.string.clinical_report_max_gap
+    ClinicalReportTextKey.EVIDENCE_DURATION -> R.string.clinical_text_evidence_duration
+    ClinicalReportTextKey.EVIDENCE_RECORDED_INSULIN ->
+        R.string.clinical_report_recorded_insulin
+    ClinicalReportTextKey.EVIDENCE_RECORDED_CARBS -> R.string.clinical_report_real_carbs
+    ClinicalReportTextKey.EVIDENCE_SAMPLE_COUNT ->
+        R.string.clinical_text_evidence_sample_count
+    ClinicalReportTextKey.DISCUSSION_SENSOR_RELIABILITY ->
+        R.string.clinical_text_discussion_sensor_reliability
+    ClinicalReportTextKey.DISCUSSION_INFUSION_SET_REVIEW ->
+        R.string.clinical_text_discussion_infusion_set_review
+    ClinicalReportTextKey.DISCUSSION_MEAL_TIMING_REVIEW ->
+        R.string.clinical_text_discussion_meal_timing_review
+    ClinicalReportTextKey.DISCUSSION_ISF_CR_REVIEW ->
+        R.string.clinical_text_discussion_isf_cr_review
+    ClinicalReportTextKey.DISCUSSION_TARGET_PATTERN_REVIEW ->
+        R.string.clinical_text_discussion_target_pattern_review
+    ClinicalReportTextKey.DISCUSSION_DATA_QUALITY_REVIEW ->
+        R.string.clinical_text_discussion_data_quality_review
+    ClinicalReportTextKey.DISCUSSION_LOW_RISK_REVIEW ->
+        R.string.clinical_text_discussion_low_risk_review
+    ClinicalReportTextKey.DISCUSSION_OTHER_CLINICAL_REVIEW ->
+        R.string.clinical_text_discussion_other_clinical_review
+    ClinicalReportTextKey.PRIORITY_LOW -> R.string.clinical_text_priority_low
+    ClinicalReportTextKey.PRIORITY_MEDIUM -> R.string.clinical_text_priority_medium
+    ClinicalReportTextKey.PRIORITY_HIGH -> R.string.clinical_text_priority_high
+    ClinicalReportTextKey.PERIOD_LAST_24_HOURS -> R.string.clinical_text_period_last_24_hours
+    ClinicalReportTextKey.PERIOD_LAST_7_DAYS -> R.string.clinical_text_period_last_7_days
+    ClinicalReportTextKey.PERIOD_LAST_30_DAYS -> R.string.clinical_text_period_last_30_days
+    ClinicalReportTextKey.PERIOD_COMPARATIVE_7D_30D ->
+        R.string.clinical_text_period_comparative
+    ClinicalReportTextKey.SAFETY_RECURRENT_LOW_PATTERN ->
+        R.string.clinical_text_safety_recurrent_low_pattern
+    ClinicalReportTextKey.SAFETY_PROLONGED_LOW_PATTERN ->
+        R.string.clinical_text_safety_prolonged_low_pattern
+    ClinicalReportTextKey.SAFETY_HIGH_EXPOSURE_PATTERN ->
+        R.string.clinical_text_safety_high_exposure_pattern
+    ClinicalReportTextKey.SAFETY_HIGH_VARIABILITY_PATTERN ->
+        R.string.clinical_text_safety_high_variability_pattern
+    ClinicalReportTextKey.SAFETY_SENSOR_RELIABILITY_CONCERN ->
+        R.string.clinical_text_safety_sensor_reliability_concern
+    ClinicalReportTextKey.SAFETY_INFUSION_SET_REVIEW_SIGNAL ->
+        R.string.clinical_text_safety_infusion_set_review_signal
+    ClinicalReportTextKey.SAFETY_INSUFFICIENT_DATA ->
+        R.string.clinical_text_safety_insufficient_data
+    ClinicalReportTextKey.SAFETY_NONE_IDENTIFIED ->
+        R.string.clinical_text_safety_none_identified
+    ClinicalReportTextKey.QUESTION_SENSOR_RELIABILITY_CONTEXT ->
+        R.string.clinical_text_question_sensor_reliability_context
+    ClinicalReportTextKey.QUESTION_INFUSION_SET_CONTEXT ->
+        R.string.clinical_text_question_infusion_set_context
+    ClinicalReportTextKey.QUESTION_MEAL_TIMING_CONTEXT ->
+        R.string.clinical_text_question_meal_timing_context
+    ClinicalReportTextKey.QUESTION_ISF_CR_CONTEXT -> R.string.clinical_text_question_isf_cr_context
+    ClinicalReportTextKey.QUESTION_TARGET_PATTERN_CONTEXT ->
+        R.string.clinical_text_question_target_pattern_context
+    ClinicalReportTextKey.QUESTION_LOW_PATTERN_CONTEXT ->
+        R.string.clinical_text_question_low_pattern_context
+    ClinicalReportTextKey.QUESTION_HIGH_PATTERN_CONTEXT ->
+        R.string.clinical_text_question_high_pattern_context
+    ClinicalReportTextKey.QUESTION_DATA_COMPLETENESS_CONTEXT ->
+        R.string.clinical_text_question_data_completeness_context
 }
 
 @Composable

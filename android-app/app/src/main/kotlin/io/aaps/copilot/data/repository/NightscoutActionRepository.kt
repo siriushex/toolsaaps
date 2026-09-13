@@ -4,7 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.room.withTransaction
+import io.aaps.copilot.domain.target.EatingSoonPolicy
 import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonParseException
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
@@ -13,11 +17,22 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.domain.model.ActionCommand
+import io.aaps.copilot.domain.predict.UamTagCodec
+import io.aaps.copilot.domain.target.TargetIntent
+import io.aaps.copilot.domain.target.TargetManagerMode
+import io.aaps.copilot.security.TherapyActionTransportGate
+import io.aaps.copilot.security.TherapyActionsNotArmedException
 import io.aaps.copilot.service.ApiFactory
+import io.aaps.copilot.service.isOwnedLocalNightscoutEndpoint
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
 import java.util.LinkedHashSet
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class NightscoutActionRepository(
     private val context: Context,
@@ -28,7 +43,7 @@ class NightscoutActionRepository(
     private val tempTargetSendThrottle: TempTargetSendThrottle,
     private val gson: Gson,
     private val auditLogger: AuditLogger
-) {
+) : AapsCarbGateway {
 
     suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
         val since = System.currentTimeMillis() - lookbackMs
@@ -70,10 +85,144 @@ class NightscoutActionRepository(
         return updated
     }
 
-    suspend fun submitTempTarget(command: ActionCommand): Boolean {
-        registerPendingCommand(command)?.let { return it }
+    suspend fun submitTempTarget(
+        command: ActionCommand,
+        deliveryGuard: (suspend () -> String?)? = null
+    ): Boolean = TEMP_TARGET_WRITE_MUTEX.withLock {
+        val registration = registerPendingCommand(command)
+        when (registration.kind) {
+            PendingCommandRegistrationKind.EXISTING_SENT -> return@withLock true
+            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> return@withLock false
+            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> return@withLock false
+            PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
+        }
+        val registeredCommand = registration.command
+        val settings = settingsStore.settings.first()
+        if (
+            blockIfTherapyActionsNotArmed(
+                command = registeredCommand,
+                settings = settings,
+                preservePendingMeal = false
+            )
+        ) return@withLock false
+        automaticTargetOwnershipBlockReasonStatic(
+            mode = settings.targetManagerMode,
+            idempotencyKey = registeredCommand.idempotencyKey
+        )?.let { reason ->
+            blockLegacyAutomaticCommand(registeredCommand, reason)
+            return@withLock false
+        }
+        deliverFirstReservedTempTarget(registeredCommand, deliveryGuard)
+    }
+
+    suspend fun submitOrRetryTempTarget(
+        command: ActionCommand,
+        deliveryGuard: (suspend () -> String?)? = null
+    ): Boolean {
+        val retryOwner = CompletableDeferred<Unit>()
+        val activeOwner = TEMP_TARGET_RETRY_OWNERS.putIfAbsent(command.idempotencyKey, retryOwner)
+        if (activeOwner != null) {
+            activeOwner.await()
+            return TEMP_TARGET_WRITE_MUTEX.withLock {
+                db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status == STATUS_SENT
+            }
+        }
+        try {
+            return TEMP_TARGET_WRITE_MUTEX.withLock {
+                val existing = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+                if (existing?.status == STATUS_SENT) return@withLock true
+                if (existing != null && existing.status !in setOf(STATUS_PENDING, STATUS_FAILED)) {
+                    return@withLock false
+                }
+                val settings = settingsStore.settings.first()
+                if (
+                    blockIfTherapyActionsNotArmed(
+                        command = command,
+                        settings = settings,
+                        preserveExistingCommand = existing != null
+                    )
+                ) return@withLock false
+                automaticTargetOwnershipBlockReasonStatic(
+                    mode = settings.targetManagerMode,
+                    idempotencyKey = command.idempotencyKey
+                )?.let { reason ->
+                    blockLegacyAutomaticCommand(
+                        command = command,
+                        reason = reason,
+                        preserveExistingCommand = existing != null
+                    )
+                    return@withLock false
+                }
+                deliveryGuard?.invoke()?.let { reason ->
+                    auditLogger.warn(
+                        "target_manager_dispatch_preflight_blocked",
+                        mapOf("reason" to reason, "idempotencyKey" to command.idempotencyKey)
+                    )
+                    return@withLock false
+                }
+                val registration = registerPendingCommand(
+                    command = command,
+                    allowReconciliationRetry = true
+                )
+                when (registration.kind) {
+                    PendingCommandRegistrationKind.EXISTING_SENT -> return@withLock true
+                    PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> return@withLock false
+                    PendingCommandRegistrationKind.FIRST_RESERVED,
+                    PendingCommandRegistrationKind.RECONCILIATION_RETRY -> Unit
+                }
+                deliverRegisteredTempTarget(
+                    command = registration.command,
+                    deliveryGuard = deliveryGuard,
+                    isFirstReservation = registration.kind == PendingCommandRegistrationKind.FIRST_RESERVED
+                )
+            }
+        } finally {
+            retryOwner.complete(Unit)
+            TEMP_TARGET_RETRY_OWNERS.remove(command.idempotencyKey, retryOwner)
+        }
+    }
+
+    suspend fun reconcileTempTargetDelivery(idempotencyKey: String): TempTargetDeliveryReconciliation {
+        val local = db.actionCommandDao().byIdempotencyKey(idempotencyKey)
+        if (local?.status == STATUS_SENT) return TempTargetDeliveryReconciliation.SENT
 
         val settings = settingsStore.settings.first()
+        val targets = nightscoutWriteTargets(settings)
+        if (targets.isEmpty()) return TempTargetDeliveryReconciliation.UNKNOWN
+        val expectedNote = "copilot:$idempotencyKey"
+        var everyTargetChecked = true
+        for (targetUrl in targets) {
+            val treatments = try {
+                apiFactory.nightscoutApi(targetUrl, settings).getTreatments(
+                    mapOf(
+                        "find[notes]" to expectedNote,
+                        "count" to "10"
+                    )
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (_: Throwable) {
+                everyTargetChecked = false
+                emptyList()
+            }
+            if (treatments.any { it.notes == expectedNote }) {
+                return TempTargetDeliveryReconciliation.SENT
+            }
+        }
+        return if (everyTargetChecked) {
+            TempTargetDeliveryReconciliation.CONFIRMED_ABSENT
+        } else {
+            TempTargetDeliveryReconciliation.UNKNOWN
+        }
+    }
+
+    private suspend fun deliverRegisteredTempTarget(
+        command: ActionCommand,
+        deliveryGuard: (suspend () -> String?)? = null,
+        isFirstReservation: Boolean = true
+    ): Boolean {
         val target = command.params["targetMmol"]?.toDoubleOrNull()
         val duration = command.params["durationMinutes"]?.toIntOrNull()
         val reason = command.params["reason"].orEmpty().ifBlank { "copilot_temp_target" }
@@ -86,7 +235,10 @@ class NightscoutActionRepository(
         val throttle = tempTargetSendThrottle.evaluate(
             nowMs = nowMs,
             idempotencyKey = command.idempotencyKey,
-            targetMmol = target
+            targetMmol = target,
+            actionReason = reason,
+            targetIntent = command.params["targetIntent"]
+                ?.let { raw -> runCatching { TargetIntent.valueOf(raw) }.getOrNull() }
         )
         if (!throttle.allowed) {
             markBlocked(command, "temp_target_rate_limit_30m")
@@ -103,6 +255,36 @@ class NightscoutActionRepository(
             )
             return false
         }
+        val settings = settingsStore.settings.first()
+        if (
+            blockIfTherapyActionsNotArmed(
+                command = command,
+                settings = settings,
+                preservePendingMeal = false
+            )
+        ) {
+            return false
+        }
+        automaticTargetOwnershipBlockReasonStatic(
+            mode = settings.targetManagerMode,
+            idempotencyKey = command.idempotencyKey
+        )?.let { reason ->
+            blockLegacyAutomaticCommand(command, reason)
+            return false
+        }
+        deliveryGuard?.invoke()?.let { reason ->
+            val durableReason = "managed_preflight:$reason"
+            if (isFirstAllowlistedEatingSoonRefusal(command, isFirstReservation, durableReason)) {
+                markBlocked(command, durableReason)
+            } else {
+                markFailed(command, durableReason)
+            }
+            auditLogger.warn(
+                "target_manager_delivery_preflight_blocked",
+                mapOf("reason" to reason, "idempotencyKey" to command.idempotencyKey)
+            )
+            return false
+        }
         val nowIso = Instant.now().toString()
         val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
         val request = NightscoutTreatmentRequest(
@@ -111,19 +293,72 @@ class NightscoutActionRepository(
             duration = duration,
             targetTop = targetMgdl,
             targetBottom = targetMgdl,
-            reason = reason,
+            reason = reason.take(256),
             notes = "copilot:${command.idempotencyKey}"
         )
+        val failurePolicy = tempTargetFailurePolicyStatic(command.idempotencyKey)
+        val requiresReconciliation = failurePolicy == TempTargetFailurePolicy.RECONCILE_UNKNOWN
 
         val nightscoutTargets = nightscoutWriteTargets(settings)
         var lastError = if (nightscoutTargets.isEmpty()) "missing_nightscout_url" else "nightscout_post_failed"
+        if (
+            nightscoutTargets.isEmpty() &&
+            isFirstAllowlistedEatingSoonRefusal(command, isFirstReservation, lastError)
+        ) {
+            markBlocked(command, lastError)
+            return false
+        }
         for (targetUrl in nightscoutTargets) {
-            val nsApi = apiFactory.nightscoutApi(targetUrl, settings.apiSecret)
-            val nsSuccess = runCatching {
-                nsApi.postTreatment(request)
-            }.onFailure { error ->
+            val nsSuccess = try {
+                if (isLocalNightscoutTarget(targetUrl, settings)) {
+                    val localDeliverySettings = settingsStore.settings.first()
+                    if (
+                        blockIfTherapyActionsNotArmed(
+                            command = command,
+                            settings = localDeliverySettings,
+                            preservePendingMeal = false
+                        )
+                    ) {
+                        return false
+                    }
+                    // Route classification and its credentials must share one settings snapshot.
+                    val nsApi = apiFactory.nightscoutApi(targetUrl, settings)
+                    nsApi.postTreatment(request)
+                } else {
+                    val nsApi = apiFactory.nightscoutApi(targetUrl, settings)
+                    TherapyActionTransportGate.withArmedLease(
+                        verifyPersistedState = {
+                            settingsStore.settings.first().therapyActionsArmed
+                        }
+                    ) {
+                        nsApi.postTreatment(request)
+                    }
+                }
+                true
+            } catch (_: TherapyActionsNotArmedException) {
+                markBlocked(command, "therapy_actions_not_armed")
+                return false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (error: Throwable) {
                 lastError = error.message ?: "nightscout_unknown_error"
-            }.isSuccess
+                if (requiresReconciliation) {
+                    auditLogger.warn(
+                        "target_manager_delivery_unknown",
+                        mapOf(
+                            "idempotencyKey" to command.idempotencyKey,
+                            "failureType" to error.javaClass.simpleName
+                        )
+                    )
+                    throw TempTargetDeliveryUnknownException(
+                        message = "Guarded temporary target delivery requires reconciliation",
+                        cause = error
+                    )
+                }
+                false
+            }
 
             if (nsSuccess) {
                 val channel = if (isLocalNightscoutTarget(targetUrl, settings)) {
@@ -146,37 +381,48 @@ class NightscoutActionRepository(
             }
         }
 
-        if (settings.localCommandFallbackEnabled) {
-            val relayResult = sendLocalTreatmentFallbackChain(
-                payload = LocalTreatmentPayload(
-                    eventType = "Temporary Target",
-                    basePayload = mapOf(
-                        "created_at" to nowIso,
-                        "duration" to duration,
-                        "targetTop" to UnitConverter.mmolToMgdl(target).toDouble(),
-                        "targetBottom" to UnitConverter.mmolToMgdl(target).toDouble(),
-                        "targetTopMmol" to target,
-                        "targetBottomMmol" to target,
-                        "reason" to reason,
-                        "notes" to "copilot:${command.idempotencyKey}"
-                    ),
-                    treatmentPayload = mapOf(
-                        "eventType" to "Temporary Target",
-                        "created_at" to nowIso,
-                        "mills" to nowMs,
-                        "date" to nowMs,
-                        "duration" to duration,
-                        "targetTop" to target,
-                        "targetBottom" to target,
-                        "units" to "mmol",
-                        "reason" to reason,
-                        "notes" to "copilot:${command.idempotencyKey}",
-                        "_id" to buildTreatmentId("tt", command.idempotencyKey)
-                    ),
-                    idempotencyKey = command.idempotencyKey
-                ),
-                settings = settings
-            )
+        if (settings.localCommandFallbackEnabled && !requiresReconciliation) {
+            val relayResult = try {
+                TherapyActionTransportGate.withArmedLease(
+                    verifyPersistedState = {
+                        settingsStore.settings.first().therapyActionsArmed
+                    }
+                ) {
+                    sendLocalTreatmentFallbackChain(
+                        payload = LocalTreatmentPayload(
+                            eventType = "Temporary Target",
+                            basePayload = mapOf(
+                                "created_at" to nowIso,
+                                "duration" to duration,
+                                "targetTop" to UnitConverter.mmolToMgdl(target).toDouble(),
+                                "targetBottom" to UnitConverter.mmolToMgdl(target).toDouble(),
+                                "targetTopMmol" to target,
+                                "targetBottomMmol" to target,
+                                "reason" to reason,
+                                "notes" to "copilot:${command.idempotencyKey}"
+                            ),
+                            treatmentPayload = mapOf(
+                                "eventType" to "Temporary Target",
+                                "created_at" to nowIso,
+                                "mills" to nowMs,
+                                "date" to nowMs,
+                                "duration" to duration,
+                                "targetTop" to target,
+                                "targetBottom" to target,
+                                "units" to "mmol",
+                                "reason" to reason,
+                                "notes" to "copilot:${command.idempotencyKey}",
+                                "_id" to buildTreatmentId("tt", command.idempotencyKey)
+                            ),
+                            idempotencyKey = command.idempotencyKey
+                        ),
+                        settings = settings
+                    )
+                }
+            } catch (_: TherapyActionsNotArmedException) {
+                markBlocked(command, "therapy_actions_not_armed")
+                return false
+            }
             if (relayResult.delivered) {
                 markSent(command, channel = relayResult.channel ?: "local_broadcast_fallback")
                 auditLogger.warn(
@@ -199,10 +445,105 @@ class NightscoutActionRepository(
         return false
     }
 
-    suspend fun submitCarbs(command: ActionCommand): Boolean {
-        registerPendingCommand(command)?.let { return it }
+    private suspend fun deliverFirstReservedTempTarget(
+        command: ActionCommand,
+        deliveryGuard: (suspend () -> String?)?
+    ): Boolean {
+        return deliverRegisteredTempTarget(command, deliveryGuard)
+    }
 
+    private suspend fun blockLegacyAutomaticCommand(
+        command: ActionCommand,
+        reason: String,
+        preserveExistingCommand: Boolean = false
+    ) {
+        val existing = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+        val blockedCommand = existing?.let { command.copy(id = it.id) } ?: command
+        if (existing?.status != STATUS_SENT && !preserveExistingCommand) {
+            markBlocked(blockedCommand, reason)
+        } else {
+            auditLogger.warn(
+                "action_delivery_blocked",
+                mapOf(
+                    "reason" to reason,
+                    "commandId" to blockedCommand.id,
+                    "type" to blockedCommand.type,
+                    "preservedStatus" to existing?.status.orEmpty()
+                )
+            )
+        }
+    }
+
+    private suspend fun blockIfTherapyActionsNotArmed(
+        command: ActionCommand,
+        settings: AppSettings,
+        preserveExistingCommand: Boolean = false,
+        preservePendingMeal: Boolean = true
+    ): Boolean {
+        val reason = therapyActionBootstrapBlockReasonStatic(settings.therapyActionsArmed)
+            ?: return false
+        val existing = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+        val blockedCommand = existing?.let { command.copy(id = it.id) } ?: command
+        // Disarming cannot prove that an earlier uncertain meal POST did not commit.
+        val preserveUnknownMeal = preservePendingMeal &&
+            command.idempotencyKey.startsWith("manual:meal:") &&
+            existing?.status == STATUS_PENDING
+        if (existing?.status != STATUS_SENT && !preserveExistingCommand && !preserveUnknownMeal) {
+            markBlocked(blockedCommand, reason)
+        }
+        auditLogger.warn(
+            "action_delivery_blocked",
+            mapOf(
+                "reason" to reason,
+                "commandId" to blockedCommand.id,
+                "type" to blockedCommand.type,
+                "preservedStatus" to existing?.status.orEmpty()
+            )
+        )
+        return true
+    }
+
+    suspend fun submitManualMealTarget(
+        command: ActionCommand,
+        deliveryGuard: suspend () -> String?
+    ): EatingSoonResult {
+        if (command.type != "temp_target" || !command.idempotencyKey.startsWith("manual:meal:") ||
+            !command.idempotencyKey.endsWith(":eating-soon")) {
+            return EatingSoonResult(MealDeliveryStatus.BLOCKED, "invalid_meal_identity")
+        }
+        var blockReason: String? = null
+        val sent = try {
+            submitTempTarget(command) { deliveryGuard().also { blockReason = it } }
+        } catch (_: TempTargetDeliveryUnknownException) {
+            false
+        }
+        if (sent) return EatingSoonResult(MealDeliveryStatus.SENT)
+        val record = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+        return manualMealTargetResult(record, blockReason)
+    }
+
+    private fun manualMealTargetResult(record: ActionCommandEntity?, blockReason: String? = null): EatingSoonResult {
+        return when (record?.status) {
+            STATUS_SENT -> EatingSoonResult(MealDeliveryStatus.SENT)
+            STATUS_BLOCKED, STATUS_FAILED -> EatingSoonResult(
+                MealDeliveryStatus.BLOCKED,
+                canonicalEatingSoonFailureCode(blockReason) ?: storedEatingSoonFailureCode(record) ?: "target_not_sent"
+            )
+            else -> EatingSoonResult(MealDeliveryStatus.UNKNOWN, "delivery_unconfirmed")
+        }
+    }
+
+    suspend fun submitCarbs(command: ActionCommand): Boolean {
+        val guardedMeal = command.idempotencyKey.startsWith("manual:meal:")
         val settings = settingsStore.settings.first()
+        if (blockIfTherapyActionsNotArmed(command, settings)) return false
+        when (registerPendingCommand(command).kind) {
+            PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
+            PendingCommandRegistrationKind.EXISTING_SENT -> return true
+            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL,
+            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> return false
+        }
+
         val carbs = command.params["carbsGrams"]?.toDoubleOrNull()
             ?: command.params["carbs"]?.toDoubleOrNull()
             ?: command.params["grams"]?.toDoubleOrNull()
@@ -248,17 +589,45 @@ class NightscoutActionRepository(
             notes = "copilot:${command.idempotencyKey}"
         )
 
-        val nightscoutTargets = nightscoutWriteTargets(settings)
+        var deliverySettings = settingsStore.settings.first()
+        if (blockIfTherapyActionsNotArmed(command, deliverySettings)) return false
+        val nightscoutTargets = nightscoutWriteTargets(deliverySettings)
         var lastError = if (nightscoutTargets.isEmpty()) "missing_nightscout_url" else "nightscout_post_failed"
         for (targetUrl in nightscoutTargets) {
-            val nsApi = apiFactory.nightscoutApi(targetUrl, settings.apiSecret)
+            deliverySettings = settingsStore.settings.first()
+            if (blockIfTherapyActionsNotArmed(command, deliverySettings)) return false
             val nsSuccess = runCatching {
-                nsApi.postTreatment(request)
+                val nsApi = apiFactory.nightscoutApi(targetUrl, deliverySettings)
+                if (isLocalNightscoutTarget(targetUrl, deliverySettings)) {
+                    nsApi.postTreatment(request)
+                } else {
+                    TherapyActionTransportGate.withArmedLease(
+                        verifyPersistedState = {
+                            settingsStore.settings.first().therapyActionsArmed
+                        }
+                    ) {
+                        nsApi.postTreatment(request)
+                    }
+                }
             }.onFailure { error ->
+                if (error is CancellationException || error is Error) throw error
+                if (guardedMeal) {
+                    if (error !is Exception) throw error
+                    if (error is TherapyActionsNotArmedException) {
+                        markBlocked(command, "therapy_actions_not_armed")
+                    } else {
+                        // A committed POST can lose its response. Keep PENDING; never send this meal again.
+                        auditLogger.warn("manual_meal_delivery_unknown", mapOf(
+                            "idempotencyKey" to command.idempotencyKey,
+                            "failureType" to error.javaClass.simpleName
+                        ))
+                    }
+                    return false
+                }
                 lastError = error.message ?: "nightscout_unknown_error"
             }.isSuccess
             if (nsSuccess) {
-                val channel = if (isLocalNightscoutTarget(targetUrl, settings)) {
+                val channel = if (isLocalNightscoutTarget(targetUrl, deliverySettings)) {
                     "nightscout_local"
                 } else {
                     "nightscout"
@@ -277,31 +646,44 @@ class NightscoutActionRepository(
             }
         }
 
-        if (settings.localCommandFallbackEnabled) {
-            val relayResult = sendLocalTreatmentFallbackChain(
-                payload = LocalTreatmentPayload(
-                    eventType = "Carb Correction",
-                    basePayload = mapOf(
-                        "created_at" to nowIso,
-                        "carbs" to carbs,
-                        "grams" to carbs,
-                        "reason" to reason,
-                        "notes" to "copilot:${command.idempotencyKey}"
-                    ),
-                    treatmentPayload = mapOf(
-                        "eventType" to "Carb Correction",
-                        "created_at" to nowIso,
-                        "mills" to nowMs,
-                        "date" to nowMs,
-                        "carbs" to carbs,
-                        "reason" to reason,
-                        "notes" to "copilot:${command.idempotencyKey}",
-                        "_id" to buildTreatmentId("carbs", command.idempotencyKey)
-                    ),
-                    idempotencyKey = command.idempotencyKey
-                ),
-                settings = settings
-            )
+        deliverySettings = settingsStore.settings.first()
+        if (blockIfTherapyActionsNotArmed(command, deliverySettings)) return false
+        if (deliverySettings.localCommandFallbackEnabled && !guardedMeal) {
+            val relayResult = try {
+                TherapyActionTransportGate.withArmedLease(
+                    verifyPersistedState = {
+                        settingsStore.settings.first().therapyActionsArmed
+                    }
+                ) {
+                    sendLocalTreatmentFallbackChain(
+                        payload = LocalTreatmentPayload(
+                            eventType = "Carb Correction",
+                            basePayload = mapOf(
+                                "created_at" to nowIso,
+                                "carbs" to carbs,
+                                "grams" to carbs,
+                                "reason" to reason,
+                                "notes" to "copilot:${command.idempotencyKey}"
+                            ),
+                            treatmentPayload = mapOf(
+                                "eventType" to "Carb Correction",
+                                "created_at" to nowIso,
+                                "mills" to nowMs,
+                                "date" to nowMs,
+                                "carbs" to carbs,
+                                "reason" to reason,
+                                "notes" to "copilot:${command.idempotencyKey}",
+                                "_id" to buildTreatmentId("carbs", command.idempotencyKey)
+                            ),
+                            idempotencyKey = command.idempotencyKey
+                        ),
+                        settings = deliverySettings
+                    )
+                }
+            } catch (_: TherapyActionsNotArmedException) {
+                markBlocked(command, "therapy_actions_not_armed")
+                return false
+            }
             if (relayResult.delivered) {
                 markSent(command, channel = relayResult.channel ?: "local_broadcast_fallback")
                 auditLogger.warn(
@@ -309,8 +691,8 @@ class NightscoutActionRepository(
                     mapOf(
                         "carbsGrams" to carbs,
                         "channel" to relayResult.channel,
-                        "package" to settings.localCommandPackage,
-                        "action" to settings.localCommandAction,
+                        "package" to deliverySettings.localCommandPackage,
+                        "action" to deliverySettings.localCommandAction,
                         "attempts" to relayResult.attemptsSummary
                     )
                 )
@@ -323,34 +705,142 @@ class NightscoutActionRepository(
         return false
     }
 
-    suspend fun countSentActionsLast6h(): Int {
-        val since = System.currentTimeMillis() - 6 * 60 * 60 * 1000L
-        return db.actionCommandDao().countByStatusSinceExcludingTwoPrefixes(
+    override suspend fun postCarbEntry(
+        tsMs: Long,
+        grams: Double,
+        note: String
+    ): Result<String> {
+        val settings = settingsStore.settings.first()
+        return postUamCarbEntryStatic(
+            settings = settings,
+            apiFactory = apiFactory,
+            tsMs = tsMs,
+            grams = grams,
+            note = note,
+            deliveryGuard = {
+                therapyActionBootstrapBlockReasonStatic(
+                    settingsStore.settings.first().therapyActionsArmed
+                )
+            }
+        )
+    }
+
+    override suspend fun fetchCarbEntries(sinceTsMs: Long): Result<List<AapsCarbEntry>> {
+        return fetchUamCarbEntriesStatic(
+            settings = settingsStore.settings.first(),
+            apiFactory = apiFactory,
+            sinceTsMs = sinceTsMs
+        )
+    }
+
+    suspend fun countSentActionsLast6h(nowTs: Long): Int {
+        val window = LocalTargetSafetyTimeWindow.at(nowTs)
+        return db.actionCommandDao().countByStatusBetweenExcludingTwoPrefixes(
             status = STATUS_SENT,
-            since = since,
+            since = window.actionSinceInclusive,
+            through = window.nowTs,
             excludedPrefix1 = "$MANUAL_IDEMPOTENCY_PREFIX%",
             excludedPrefix2 = "$KEEPALIVE_IDEMPOTENCY_PREFIX%"
         )
     }
 
-    private suspend fun registerPendingCommand(command: ActionCommand): Boolean? {
-        val existing = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
-        if (existing != null) {
-            auditLogger.info("action_deduplicated", mapOf("idempotencyKey" to command.idempotencyKey))
-            return existing.status == STATUS_SENT
+    private suspend fun registerPendingCommand(
+        command: ActionCommand,
+        allowReconciliationRetry: Boolean = false
+    ): PendingCommandRegistration {
+        val now = System.currentTimeMillis()
+        val payloadJson = gson.toJson(command.params)
+        val safetyJson = gson.toJson(command.safetySnapshot)
+        val registration = db.withTransaction {
+            val existing = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+            when {
+                existing == null -> {
+                    db.actionCommandDao().upsert(
+                        ActionCommandEntity(
+                            id = command.id,
+                            timestamp = now,
+                            type = command.type,
+                            payloadJson = payloadJson,
+                            safetyJson = safetyJson,
+                            idempotencyKey = command.idempotencyKey,
+                            status = STATUS_PENDING
+                        )
+                    )
+                    PendingCommandRegistration(
+                        kind = PendingCommandRegistrationKind.FIRST_RESERVED,
+                        command = command
+                    )
+                }
+                existing.status == STATUS_SENT -> PendingCommandRegistration(
+                    kind = PendingCommandRegistrationKind.EXISTING_SENT,
+                    command = command.copy(id = existing.id)
+                )
+                allowReconciliationRetry && existing.status in setOf(STATUS_PENDING, STATUS_FAILED) -> {
+                    val retryCommand = command.copy(id = existing.id)
+                    db.actionCommandDao().upsert(
+                        existing.copy(
+                            timestamp = now,
+                            payloadJson = payloadJson,
+                            safetyJson = safetyJson,
+                            status = STATUS_PENDING
+                        )
+                    )
+                    PendingCommandRegistration(
+                        kind = PendingCommandRegistrationKind.RECONCILIATION_RETRY,
+                        command = retryCommand
+                    )
+                }
+                else -> PendingCommandRegistration(
+                    kind = PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL,
+                    command = command.copy(id = existing.id)
+                )
+            }
         }
-        db.actionCommandDao().upsert(
-            ActionCommandEntity(
-                id = command.id,
-                timestamp = System.currentTimeMillis(),
-                type = command.type,
-                payloadJson = gson.toJson(command.params),
-                safetyJson = gson.toJson(command.safetySnapshot),
-                idempotencyKey = command.idempotencyKey,
-                status = STATUS_PENDING
-            )
-        )
-        return null
+        when (registration.kind) {
+            PendingCommandRegistrationKind.EXISTING_SENT,
+            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> {
+                auditLogger.info("action_deduplicated", mapOf("idempotencyKey" to command.idempotencyKey))
+            }
+            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> {
+                auditLogger.info(
+                    "action_delivery_retry",
+                    mapOf(
+                        "idempotencyKey" to registration.command.idempotencyKey,
+                        "commandId" to registration.command.id
+                    )
+                )
+            }
+            PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
+        }
+        return registration
+    }
+
+    private fun isFirstAllowlistedEatingSoonRefusal(
+        command: ActionCommand,
+        isFirstReservation: Boolean,
+        reason: String
+    ): Boolean = isFirstReservation &&
+        isExactEatingSoonCommand(command) &&
+        canonicalEatingSoonFailureCode(reason) != null
+
+    private fun isExactEatingSoonCommand(command: ActionCommand): Boolean =
+        command.type == "temp_target" &&
+            command.idempotencyKey.startsWith("manual:meal:") &&
+            command.idempotencyKey.endsWith(":eating-soon") &&
+            command.params["targetMmol"]?.toDoubleOrNull() == EatingSoonPolicy.TARGET_MMOL &&
+            command.params["durationMinutes"]?.toIntOrNull() == EatingSoonPolicy.DURATION_MINUTES &&
+            command.params["reason"] == "Eating Soon"
+
+    private data class PendingCommandRegistration(
+        val kind: PendingCommandRegistrationKind,
+        val command: ActionCommand
+    )
+
+    private enum class PendingCommandRegistrationKind {
+        FIRST_RESERVED,
+        EXISTING_SENT,
+        EXISTING_UNCERTAIN_OR_TERMINAL,
+        RECONCILIATION_RETRY
     }
 
     private suspend fun markFailed(command: ActionCommand, reason: String) {
@@ -359,7 +849,7 @@ class NightscoutActionRepository(
                 id = command.id,
                 timestamp = System.currentTimeMillis(),
                 type = command.type,
-                payloadJson = gson.toJson(command.params),
+                payloadJson = failurePayloadJson(command, reason),
                 safetyJson = gson.toJson(command.safetySnapshot),
                 idempotencyKey = command.idempotencyKey,
                 status = STATUS_FAILED
@@ -377,7 +867,7 @@ class NightscoutActionRepository(
                 id = command.id,
                 timestamp = System.currentTimeMillis(),
                 type = command.type,
-                payloadJson = gson.toJson(command.params),
+                payloadJson = failurePayloadJson(command, reason),
                 safetyJson = gson.toJson(command.safetySnapshot),
                 idempotencyKey = command.idempotencyKey,
                 status = STATUS_BLOCKED
@@ -387,6 +877,36 @@ class NightscoutActionRepository(
             "action_delivery_blocked",
             mapOf("reason" to reason, "commandId" to command.id, "type" to command.type)
         )
+    }
+
+    private fun failurePayloadJson(command: ActionCommand, reason: String): String {
+        if (command.type != "temp_target" || !command.idempotencyKey.startsWith("manual:meal:") ||
+            !command.idempotencyKey.endsWith(":eating-soon")) return gson.toJson(command.params)
+        return gson.toJson(command.params + (EATING_SOON_FAILURE_CODE to
+            (canonicalEatingSoonFailureCode(reason) ?: "target_not_sent")))
+    }
+
+    private fun storedEatingSoonFailureCode(record: ActionCommandEntity): String? {
+        val payload = try {
+            gson.fromJson(record.payloadJson, JsonObject::class.java)
+        } catch (_: JsonParseException) {
+            null
+        }
+        val value = payload?.get(EATING_SOON_FAILURE_CODE)
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+        return canonicalEatingSoonFailureCode(value)
+    }
+
+    private fun canonicalEatingSoonFailureCode(reason: String?): String? {
+        if (reason == null || reason.length > 96) return null
+        val code = reason.removePrefix("managed_preflight:")
+        if (code == "therapy_actions_not_armed") return "actions_disarmed"
+        if (code in EATING_SOON_FAILURE_CODES) return code
+        for (minutes in listOf(5, 30, 60)) {
+            if (code in listOf("forecast_${minutes}m_missing", "forecast_${minutes}m_invalid",
+                    "forecast_${minutes}m_too_low", "forecast_${minutes}m_ci_low")) return code
+        }
+        return null
     }
 
     private suspend fun markSent(command: ActionCommand, channel: String) {
@@ -487,23 +1007,11 @@ class NightscoutActionRepository(
         )
     }
 
-    private fun nightscoutWriteTargets(settings: AppSettings): List<String> {
-        val targets = LinkedHashSet<String>()
-        val resolved = normalizeTargetUrl(settings.resolvedNightscoutUrl())
-        if (resolved.isNotEmpty()) targets += resolved
-        if (settings.localNightscoutEnabled) {
-            targets += normalizeTargetUrl(localNightscoutUrl(settings))
-        }
-        return targets.toList()
-    }
-
-    private fun localNightscoutUrl(settings: AppSettings): String =
-        "https://127.0.0.1:${settings.localNightscoutPort}"
+    private fun nightscoutWriteTargets(settings: AppSettings): List<String> =
+        nightscoutWriteTargetsStatic(settings)
 
     private fun isLocalNightscoutTarget(url: String, settings: AppSettings): Boolean =
-        normalizeTargetUrl(url) == normalizeTargetUrl(localNightscoutUrl(settings))
-
-    private fun normalizeTargetUrl(url: String): String = url.trim().trimEnd('/')
+        isOwnedLocalNightscoutEndpoint(url, settings)
 
     private fun buildBroadcastChannels(
         aapsPackage: String?,
@@ -567,8 +1075,20 @@ class NightscoutActionRepository(
     }
 
     companion object {
+        private const val EATING_SOON_FAILURE_CODE = "eatingSoonFailureCode"
+        private val EATING_SOON_FAILURE_CODES = setOf(
+            "kill_switch_active", "actions_disarmed", "target_bounds_invalid", "target_out_of_bounds",
+            "chronology_unresolved", "sensor_untrusted", "glucose_timestamp_missing", "glucose_timestamp_invalid",
+            "glucose_timestamp_future", "glucose_stale", "glucose_missing", "glucose_invalid", "glucose_too_low",
+            "forecast_timestamp_missing", "forecast_timestamp_invalid", "forecast_timestamp_future", "forecast_stale",
+            "accepted_forecast_unavailable", "settings_changed", "safety_read_expired", "safety_lookup_failed",
+            "target_authority_read_timeout", "invalid_action_payload", "missing_nightscout_url", "target_not_sent"
+        )
+        private val TEMP_TARGET_WRITE_MUTEX = Mutex()
+        private val TEMP_TARGET_RETRY_OWNERS = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
         const val MANUAL_IDEMPOTENCY_PREFIX = "manual:"
         const val KEEPALIVE_IDEMPOTENCY_PREFIX = "adaptive_keepalive:"
+        const val TARGET_MANAGER_IDEMPOTENCY_PREFIX = "TargetManager.v1:"
         const val STATUS_PENDING = "PENDING"
         const val STATUS_SENT = "SENT"
         const val STATUS_BLOCKED = "BLOCKED"
@@ -578,7 +1098,184 @@ class NightscoutActionRepository(
         const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
         const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
         const val AAPS_PACKAGE_MODERN = "app.aaps"
+
+        internal fun automaticTargetOwnershipBlockReasonStatic(
+            mode: TargetManagerMode,
+            idempotencyKey: String
+        ): String? {
+            if (mode != TargetManagerMode.ACTIVE) return null
+            if (idempotencyKey.startsWith(TARGET_MANAGER_IDEMPOTENCY_PREFIX)) return null
+            if (idempotencyKey.startsWith(MANUAL_IDEMPOTENCY_PREFIX)) return null
+            return "legacy_automatic_writer_blocked_active_manager"
+        }
+
+        internal fun therapyActionBootstrapBlockReasonStatic(
+            therapyActionsArmed: Boolean
+        ): String? = if (therapyActionsArmed) null else "therapy_actions_not_armed"
+
+        internal fun tempTargetFailurePolicyStatic(
+            idempotencyKey: String
+        ): TempTargetFailurePolicy = if (
+            idempotencyKey.startsWith(TARGET_MANAGER_IDEMPOTENCY_PREFIX) ||
+            (idempotencyKey.startsWith("manual:meal:") && idempotencyKey.endsWith(":eating-soon"))
+        ) {
+            TempTargetFailurePolicy.RECONCILE_UNKNOWN
+        } else {
+            TempTargetFailurePolicy.LEGACY_FALLBACK_ALLOWED
+        }
+
+        internal suspend fun postUamCarbEntryStatic(
+            settings: AppSettings,
+            apiFactory: ApiFactory,
+            tsMs: Long,
+            grams: Double,
+            note: String,
+            deliveryGuard: (suspend () -> String?)? = null
+        ): Result<String> {
+            therapyActionBootstrapBlockReasonStatic(settings.therapyActionsArmed)?.let { reason ->
+                return Result.failure(IllegalStateException(reason))
+            }
+            if (tsMs <= 0L) return Result.failure(IllegalArgumentException("invalid_uam_treatment_timestamp"))
+            if (!grams.isFinite() || grams < 0.1) {
+                return Result.failure(IllegalArgumentException("invalid_uam_carbs"))
+            }
+            val tag = UamTagCodec.parseUamTag(note)
+            if (tag?.ver != 2) return Result.failure(IllegalArgumentException("invalid_uam_v2_tag"))
+
+            val targets = nightscoutWriteTargetsStatic(settings)
+            if (targets.isEmpty()) return Result.failure(IllegalStateException("missing_nightscout_url"))
+            val request = NightscoutTreatmentRequest(
+                createdAt = Instant.ofEpochMilli(tsMs).toString(),
+                date = tsMs,
+                mills = tsMs,
+                eventType = "Carb Correction",
+                carbs = grams,
+                notes = note,
+                reason = "uam_engine"
+            )
+            deliveryGuard?.invoke()?.let { reason ->
+                return Result.failure(IllegalStateException(reason))
+            }
+
+            val response = try {
+                if (isLocalNightscoutTargetStatic(targets.first(), settings)) {
+                    apiFactory.nightscoutApi(targets.first(), settings).postTreatment(request)
+                } else {
+                    TherapyActionTransportGate.withArmedLease(
+                        verifyPersistedState = {
+                            deliveryGuard?.invoke() == null
+                        }
+                    ) {
+                        apiFactory.nightscoutApi(targets.first(), settings).postTreatment(request)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (fatal: Error) {
+                throw fatal
+            } catch (error: Throwable) {
+                return Result.failure(error)
+            }
+            val remoteId = response.id?.takeIf { it.isNotBlank() }
+                ?: return Result.failure(IllegalStateException("nightscout_post_missing_remote_id"))
+            return Result.success(remoteId)
+        }
+
+        internal suspend fun fetchUamCarbEntriesStatic(
+            settings: AppSettings,
+            apiFactory: ApiFactory,
+            sinceTsMs: Long
+        ): Result<List<AapsCarbEntry>> {
+            if (sinceTsMs <= 0L) {
+                return Result.failure(IllegalArgumentException("invalid_uam_fetch_timestamp"))
+            }
+            val targets = nightscoutWriteTargetsStatic(settings)
+            if (targets.isEmpty()) return Result.failure(IllegalStateException("missing_nightscout_url"))
+            val sinceIso = Instant.ofEpochMilli(sinceTsMs).toString()
+            var lastError: Throwable? = null
+            for (target in targets) {
+                val rows = try {
+                    apiFactory.nightscoutApi(target, settings).getTreatments(
+                        mapOf(
+                            "count" to "2000",
+                            "find[created_at][\$gte]" to sinceIso
+                        )
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (fatal: Error) {
+                    throw fatal
+                } catch (error: Throwable) {
+                    lastError = error
+                    continue
+                }
+                return Result.success(
+                    rows.mapNotNull { treatment ->
+                        val grams = treatment.carbs ?: return@mapNotNull null
+                        if (!grams.isFinite() || grams <= 0.0) return@mapNotNull null
+                        val tsMs = parseUamTreatmentTimestamp(
+                            createdAt = treatment.createdAt,
+                            mills = treatment.mills,
+                            date = treatment.date
+                        ) ?: return@mapNotNull null
+                        AapsCarbEntry(
+                            remoteId = treatment.id,
+                            tsMs = tsMs,
+                            grams = grams,
+                            note = treatment.notes
+                        )
+                    }
+                )
+            }
+            return Result.failure(lastError ?: IllegalStateException("nightscout_fetch_failed"))
+        }
+
+        private fun nightscoutWriteTargetsStatic(settings: AppSettings): List<String> {
+            val targets = LinkedHashSet<String>()
+            val resolved = normalizeTargetUrlStatic(settings.resolvedNightscoutUrl())
+            if (resolved.isNotEmpty()) targets += resolved
+            if (settings.localNightscoutEnabled) {
+                targets += normalizeTargetUrlStatic("https://127.0.0.1:${settings.localNightscoutPort}")
+            }
+            return targets.toList()
+        }
+
+        private fun isLocalNightscoutTargetStatic(
+            url: String,
+            settings: AppSettings
+        ): Boolean = isOwnedLocalNightscoutEndpoint(url, settings)
+
+        private fun normalizeTargetUrlStatic(url: String): String = url.trim().trimEnd('/')
+
+        private fun parseUamTreatmentTimestamp(
+            createdAt: String?,
+            mills: Long?,
+            date: Long?
+        ): Long? {
+            val parsedCreatedAt = runCatching {
+                createdAt?.let { Instant.parse(it).toEpochMilli() }
+            }.getOrNull()
+            if (parsedCreatedAt != null && parsedCreatedAt > 0L) return parsedCreatedAt
+            val raw = mills?.takeIf { it > 0L } ?: date?.takeIf { it > 0L } ?: return null
+            return if (raw < 1_000_000_000_000L) raw * 1000L else raw
+        }
     }
+
+    enum class TempTargetFailurePolicy {
+        RECONCILE_UNKNOWN,
+        LEGACY_FALLBACK_ALLOWED
+    }
+
+    enum class TempTargetDeliveryReconciliation {
+        SENT,
+        CONFIRMED_ABSENT,
+        UNKNOWN
+    }
+
+    class TempTargetDeliveryUnknownException(
+        message: String,
+        cause: Throwable
+    ) : IllegalStateException(message, cause)
 
     private fun Intent.putTypedExtra(key: String, value: Any) {
         when (value) {

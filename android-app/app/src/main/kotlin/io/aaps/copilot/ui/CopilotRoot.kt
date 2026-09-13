@@ -45,6 +45,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.aaps.copilot.config.UamExportUiMode
+import io.aaps.copilot.config.UamExportUiModeCommand
+import io.aaps.copilot.ui.foundation.screens.UamExportModeSelector
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -721,9 +724,6 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
     var postHypoLookback by remember(state.postHypoLookbackMinutes) { mutableStateOf(state.postHypoLookbackMinutes.toString()) }
     var uamInferenceEnabled by remember(state.enableUamInference) { mutableStateOf(state.enableUamInference) }
     var uamBoostEnabled by remember(state.enableUamBoost) { mutableStateOf(state.enableUamBoost) }
-    var uamExportEnabled by remember(state.enableUamExportToAaps) { mutableStateOf(state.enableUamExportToAaps) }
-    var uamExportMode by remember(state.uamExportMode) { mutableStateOf(state.uamExportMode) }
-    var uamDryRun by remember(state.dryRunExport) { mutableStateOf(state.dryRunExport) }
     var uamMinSnack by remember(state.uamMinSnackG) { mutableStateOf(state.uamMinSnackG.toString()) }
     var uamMaxSnack by remember(state.uamMaxSnackG) { mutableStateOf(state.uamMaxSnackG.toString()) }
     var uamSnackStep by remember(state.uamSnackStepG) { mutableStateOf(state.uamSnackStepG.toString()) }
@@ -806,19 +806,18 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
             Text("UAM boost")
             Switch(checked = uamBoostEnabled, onCheckedChange = { uamBoostEnabled = it })
         }
-        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Text("Export inferred carbs to AAPS")
-            Switch(checked = uamExportEnabled, onCheckedChange = { uamExportEnabled = it })
-        }
-        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Text("Dry-run export (no send)")
-            Switch(checked = uamDryRun, onCheckedChange = { uamDryRun = it })
-        }
-        OutlinedTextField(
-            value = uamExportMode,
-            onValueChange = { uamExportMode = it.uppercase(Locale.US) },
-            label = { Text("Export mode (OFF/CONFIRMED_ONLY/INCREMENTAL)") },
-            modifier = Modifier.fillMaxWidth()
+        UamExportModeSelector(
+            mode = if (uamInferenceEnabled) {
+                UamExportUiModeCommand.resolve(
+                    enabled = state.enableUamExportToAaps,
+                    persistedModeRaw = state.uamExportMode,
+                    dryRun = state.dryRunExport
+                ).name
+            } else {
+                UamExportUiMode.OFF.name
+            },
+            onModeSelected = vm::setUamExportUiMode,
+            enabled = uamInferenceEnabled
         )
         Text(
             "Learned multiplier: ${String.format("%.2f", state.uamLearnedMultiplier)} " +
@@ -873,10 +872,7 @@ private fun SafetyScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = {
             vm.setUamRuntimeConfig(
                 enableInference = uamInferenceEnabled,
-                enableBoost = uamBoostEnabled,
-                enableExport = uamExportEnabled,
-                exportModeRaw = uamExportMode,
-                dryRunExport = uamDryRun
+                enableBoost = uamBoostEnabled
             )
         }) {
             Text("Apply UAM runtime config")

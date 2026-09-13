@@ -2,9 +2,113 @@ package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class AnalyticsRepositoryProfileHealthTest {
+
+    @Test
+    fun revisionFailureNeverDefersInputRecovery() {
+        assertThat(AnalyticsRepository.shouldDeferProfileRevisionRetryStatic()).isFalse()
+    }
+
+    @Test
+    fun profileStateMutationCoordinatorSerializesPublishers() = runTest {
+        val coordinator = ProfileStateMutationCoordinator()
+        val ownerEntered = CompletableDeferred<Unit>()
+        val releaseOwner = CompletableDeferred<Unit>()
+        val order = mutableListOf<String>()
+
+        val owner = async(start = CoroutineStart.UNDISPATCHED) {
+            coordinator.runExclusive {
+                order += "revision"
+                ownerEntered.complete(Unit)
+                releaseOwner.await()
+            }
+        }
+        ownerEntered.await()
+        val recalculation = async(start = CoroutineStart.UNDISPATCHED) {
+            coordinator.runExclusive {
+                order += "recalculate"
+            }
+        }
+
+        assertThat(order).containsExactly("revision").inOrder()
+        assertThat(recalculation.isCompleted).isFalse()
+
+        releaseOwner.complete(Unit)
+        owner.await()
+        recalculation.await()
+        assertThat(order).containsExactly("revision", "recalculate").inOrder()
+    }
+
+    @Test
+    fun profilePublicationRevisionIsStrictlyMonotonicAtTheSameClockMillisecond() {
+        assertThat(
+            nextStrictlyMonotonicPublicationRevision(
+                requestedRevision = 1_000L,
+                currentRevisions = listOf(999L, 1_000L)
+            )
+        ).isEqualTo(1_001L)
+        assertThat(
+            nextStrictlyMonotonicPublicationRevision(
+                requestedRevision = 900L,
+                currentRevisions = listOf(1_000L)
+            )
+        ).isEqualTo(1_001L)
+        assertThat(
+            nextStrictlyMonotonicPublicationRevision(
+                requestedRevision = 1_100L,
+                currentRevisions = listOf(1_000L)
+            )
+        ).isEqualTo(1_100L)
+    }
+
+    @Test
+    fun publicationRevisionFailsClosedAtLongOverflow() {
+        val failure = runCatching {
+            nextStrictlyMonotonicPublicationRevision(
+                requestedRevision = Long.MAX_VALUE,
+                currentRevisions = listOf(Long.MAX_VALUE)
+            )
+        }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(ArithmeticException::class.java)
+    }
+
+    @Test
+    fun recalculationProfilePublicationWaitsForRevisionMarker() {
+        assertThat(AnalyticsRepository.profileRecalculationPublicationAllowedStatic(null)).isFalse()
+        assertThat(AnalyticsRepository.profileRecalculationPublicationAllowedStatic(1L)).isFalse()
+        assertThat(
+            AnalyticsRepository.profileRecalculationPublicationAllowedStatic(
+                AnalyticsRepository.PROFILE_ESTIMATOR_ALGORITHM_REVISION
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun segmentOnlyDerivedStateStillRequiresEstimatorRevision() {
+        assertThat(
+            AnalyticsRepository.hasLegacyProfileDerivedStateStatic(
+                hasProfile = false,
+                hasModel = false,
+                hasRealtimeSnapshot = false,
+                segmentCount = 1
+            )
+        ).isTrue()
+        assertThat(
+            AnalyticsRepository.hasLegacyProfileDerivedStateStatic(
+                hasProfile = false,
+                hasModel = false,
+                hasRealtimeSnapshot = false,
+                segmentCount = 0
+            )
+        ).isFalse()
+    }
 
     @Test
     fun rebuildRequestedWhenActiveProfileMissing() {
@@ -48,10 +152,24 @@ class AnalyticsRepositoryProfileHealthTest {
             active = activeProfile(timestamp = NOW_TS - 60 * 60_000L),
             segmentCount = 8,
             latestSegmentUpdatedAt = NOW_TS - 30 * 60_000L,
-            nowTs = NOW_TS
+            nowTs = NOW_TS,
+            storedEstimatorRevision = AnalyticsRepository.PROFILE_ESTIMATOR_ALGORITHM_REVISION
         )
 
         assertThat(reason).isNull()
+    }
+
+    @Test
+    fun rebuildRequestedWhenEstimatorRevisionWasNotApplied() {
+        val reason = AnalyticsRepository.determineProfileStateRebuildReason(
+            active = activeProfile(timestamp = NOW_TS - 60 * 60_000L),
+            segmentCount = 8,
+            latestSegmentUpdatedAt = NOW_TS - 30 * 60_000L,
+            nowTs = NOW_TS,
+            storedEstimatorRevision = null
+        )
+
+        assertThat(reason).isEqualTo("profile_estimator_revision_changed")
     }
 
     @Test

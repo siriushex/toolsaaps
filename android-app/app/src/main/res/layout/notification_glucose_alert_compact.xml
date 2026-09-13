@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp">
+
+    <TextView
+        android:id="@+id/glucose_alert_compact_message"
+        style="@style/TextAppearance.Compat.Notification.Title"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:gravity="center_vertical"
+        android:maxLines="1"
+        android:paddingEnd="4dp" />
+
+    <TextView
+        android:id="@+id/glucose_alert_compact_off_30"
+        style="@style/TextAppearance.Compat.Notification.Title"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:minWidth="64dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:text="@string/glucose_alert_action_mute_30m_compact" />
+
+    <TextView
+        android:id="@+id/glucose_alert_compact_off_60"
+        style="@style/TextAppearance.Compat.Notification.Title"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:minWidth="64dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:text="@string/glucose_alert_action_mute_60m_compact" />
+
+</LinearLayout>

@@ -1,14 +1,211 @@
 package io.aaps.copilot.domain.isfcr
 
 import com.google.common.truth.Truth.assertThat
+import com.google.gson.Gson
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
+import io.aaps.copilot.data.repository.toDomain
+import io.aaps.copilot.data.repository.EventTimelineRepository
+import io.aaps.copilot.data.repository.EventTimelineSources
+import io.aaps.copilot.data.repository.DeliveryDiagnosticTimelineSample
 import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.domain.model.resolveTherapyComponents
 import io.aaps.copilot.domain.predict.TelemetrySignal
+import io.aaps.copilot.domain.predict.UamMode
+import io.aaps.copilot.domain.predict.UamTagCodec
+import io.aaps.copilot.domain.events.CompensationEvent
+import io.aaps.copilot.domain.events.CompensationEventType
+import io.aaps.copilot.domain.target.DeliveryTrustState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class IsfCrWindowExtractorTest {
+
+    @Test
+    fun compensationEventReachesEvidenceContextAndWeightWithoutChangingValue() {
+        val correctionTs = 1_700_000_000_000L
+        val therapy = listOf(TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0")))
+        val base = IsfCrWindowExtractor().extract(
+            IsfCrHistoryBundle(buildCorrectionGlucose(correctionTs), therapy, emptyList(), emptyList()), IsfCrSettings(), 2.5
+        ).evidence.first { it.sampleType == IsfCrSampleType.ISF }
+        val contextual = IsfCrWindowExtractor().extract(
+            IsfCrHistoryBundle(
+                buildCorrectionGlucose(correctionTs), therapy, emptyList(), emptyList(),
+                events = listOf(CompensationEvent("stress", correctionTs, correctionTs + 4 * 60 * 60_000L, CompensationEventType.STRESS))
+            ), IsfCrSettings(), 2.5
+        ).evidence.first { it.sampleType == IsfCrSampleType.ISF }
+        assertThat(contextual.context["eventContext"]).contains("STRESS")
+        assertThat(contextual.weight).isLessThan(base.weight)
+        assertThat(contextual.value).isEqualTo(base.value)
+    }
+
+    @Test
+    fun threeDayDeliveryIntervalStillBlocksIsfEvidenceOnDayTwo() {
+        val day = 24L * 60L * 60L * 1_000L
+        val eventStart = 40L * day
+        val correctionTs = eventStart + 2L * day
+        val events = EventTimelineRepository().aggregate(
+            EventTimelineSources(
+                therapyEvents = listOf(
+                    TherapyEvent(
+                        eventStart,
+                        "infusion_problem",
+                        mapOf(
+                            "eventId" to "three-day-delivery-gate",
+                            "endTs" to (eventStart + 3L * day).toString()
+                        )
+                    )
+                )
+            ),
+            nowTs = correctionTs
+        )
+
+        val extraction = IsfCrWindowExtractor().extract(
+            IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = listOf(
+                    TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0"))
+                ),
+                telemetry = emptyList(),
+                tags = emptyList(),
+                events = events
+            ),
+            IsfCrSettings(),
+            2.5
+        )
+
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+        assertThat(extraction.droppedReasonCounts["isf_low_quality"]).isEqualTo(1)
+    }
+
+    @Test
+    fun recoveredDeliveryEpisodeStopsBlockingLaterIsfEvidence() {
+        val correctionTs = 1_700_000_000_000L
+        val events = EventTimelineRepository().deliveryDiagnosticEvents(
+            listOf(
+                DeliveryDiagnosticTimelineSample(
+                    correctionTs - 100L * 60_000L,
+                    "runtime",
+                    DeliveryTrustState.SUSPECTED_NONRESPONSE
+                ),
+                DeliveryDiagnosticTimelineSample(
+                    correctionTs - 60L * 60_000L,
+                    "runtime",
+                    DeliveryTrustState.SUSPECTED_NONRESPONSE
+                ),
+                DeliveryDiagnosticTimelineSample(
+                    correctionTs - 30L * 60_000L,
+                    "runtime",
+                    DeliveryTrustState.NORMAL
+                )
+            )
+        )
+
+        val extraction = IsfCrWindowExtractor().extract(
+            IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = listOf(TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0"))),
+                telemetry = emptyList(),
+                tags = emptyList(),
+                events = events
+            ),
+            IsfCrSettings(),
+            2.5
+        )
+
+        assertThat(extraction.evidence.any { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+        assertThat(extraction.droppedReasonCounts["isf_low_quality"]).isNull()
+    }
+
+    @Test
+    fun overlappingHormonalEventsUseMaximumPenaltyInsteadOfProduct() {
+        val correctionTs = 1_700_000_500_000L
+        val therapy = listOf(TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0")))
+        fun extract(events: List<CompensationEvent>) = IsfCrWindowExtractor().extract(
+            IsfCrHistoryBundle(
+                buildCorrectionGlucose(correctionTs),
+                therapy,
+                emptyList(),
+                emptyList(),
+                events = events
+            ),
+            IsfCrSettings(),
+            2.5
+        ).evidence.first { it.sampleType == IsfCrSampleType.ISF }
+        val strongest = CompensationEvent(
+            "strongest",
+            correctionTs,
+            correctionTs + 24L * 60L * 60_000L,
+            CompensationEventType.HORMONAL,
+            attributes = mapOf("factor" to "0.7")
+        )
+        val weaker = strongest.copy(
+            localId = "weaker",
+            type = CompensationEventType.MENSTRUAL_CYCLE,
+            attributes = mapOf("factor" to "0.3")
+        )
+
+        assertThat(extract(listOf(strongest, weaker)).weight)
+            .isWithin(0.000_001)
+            .of(extract(listOf(strongest)).weight)
+    }
+
+    @Test
+    fun extract_resolvesEachInputTherapyEventOnceAcrossLearningScans() {
+        var resolverCalls = 0
+        val correctionTs = 1_700_050_000_000L
+        val therapy = listOf(
+            TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "1.0")),
+            TherapyEvent(
+                correctionTs + 6L * 60L * 60L * 1_000L,
+                "meal_bolus",
+                mapOf("grams" to "24", "bolusUnits" to "2.0")
+            )
+        )
+        val extractor = IsfCrWindowExtractor(
+            componentResolver = { type, payload ->
+                resolverCalls += 1
+                resolveTherapyComponents(type, payload)
+            }
+        )
+
+        extractor.extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = therapy,
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(resolverCalls).isEqualTo(therapy.size)
+    }
+
+    @Test
+    fun extractionKeyCanonicalizationPreservesLegacyAliasesWithoutRegex() {
+        assertThat(canonicalizeIsfCrExtractionKey("enteredCarbs")).isEqualTo("entered_carbs")
+        assertThat(canonicalizeIsfCrExtractionKey("Entered carbs (g)")).isEqualTo("entered_carbs_g")
+        assertThat(canonicalizeIsfCrExtractionKey("__IOB--Units__")).isEqualTo("iob_units")
+        assertThat(canonicalizeIsfCrExtractionKey("openAPS_IOB")).isEqualTo("open_aps_iob")
+    }
+
+    @Test
+    fun conflictingPayloadAliasesKeepOriginalEntryOrder() {
+        val payload = linkedMapOf(
+            "enteredCarbs" to "20",
+            "grams" to "10"
+        )
+
+        val selected = firstCanonicalIsfCrPayloadDouble(
+            payload = payload,
+            acceptedKeys = setOf("grams", "carbs", "entered_carbs", "meal_carbs")
+        )
+
+        assertThat(selected).isEqualTo(20.0)
+    }
 
     @Test
     fun extract_isfSampleCanBeInferredFromImplicitIobCorrectionWithoutTherapyEvents() {
@@ -33,6 +230,31 @@ class IsfCrWindowExtractorTest {
         val isfSample = extraction.evidence.firstOrNull { it.sampleType == IsfCrSampleType.ISF }
         assertThat(isfSample).isNotNull()
         assertThat(isfSample!!.value).isAtLeast(0.2)
+    }
+
+    @Test
+    fun extract_rejectsIsfSamplesWhenAnotherBolusOverlapsTheResponseWindow() {
+        val correctionTs = 1_700_050_000_000L
+        val extraction = IsfCrWindowExtractor().extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = listOf(
+                    TherapyEvent(correctionTs, "correction_bolus", mapOf("units" to "0.5")),
+                    TherapyEvent(
+                        correctionTs + 30L * 60_000L,
+                        "correction_bolus",
+                        mapOf("units" to "0.5")
+                    )
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+        assertThat(extraction.droppedReasonCounts["isf_competing_insulin"]).isEqualTo(2)
     }
 
     @Test
@@ -163,6 +385,143 @@ class IsfCrWindowExtractorTest {
 
         assertThat(extraction.evidence.any { it.sampleType == IsfCrSampleType.ISF }).isTrue()
         assertThat(extraction.droppedReasonCounts["isf_carbs_around"] ?: 0).isEqualTo(0)
+    }
+
+    @Test
+    fun extract_canonicalUamAndInvalidCombinedCarbsAreExcludedButCombinedInsulinRemains() {
+        val correctionTs = 1_700_125_000_000L
+        val extraction = IsfCrWindowExtractor().extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(correctionTs),
+                therapy = listOf(
+                    TherapyEvent(
+                        ts = correctionTs,
+                        type = "meal_bolus",
+                        payload = mapOf(
+                            "units" to "1.0",
+                            "carbs" to "40",
+                            "isValid" to "false",
+                            "aapsCarbId" to "401",
+                            "aapsCarbAmount" to "40",
+                            "aapsCarbIsValid" to "false",
+                            "aapsCarbClassification" to "AAPS_REAL",
+                            "aapsCarbSynthetic" to "false",
+                            "aapsCarbSuperseded" to "false"
+                        )
+                    ),
+                    TherapyEvent(
+                        ts = correctionTs + 10L * 60L * 1_000L,
+                        type = "carbs",
+                        payload = mapOf(
+                            "carbs" to "18",
+                            "synthetic" to "false",
+                            "aapsCarbId" to "402",
+                            "aapsCarbAmount" to "18",
+                            "aapsCarbIsValid" to "true",
+                            "aapsCarbClassification" to "UAM_SYNTHETIC",
+                            "aapsCarbSynthetic" to "true",
+                            "aapsCarbSuperseded" to "false"
+                        )
+                    )
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(extraction.evidence.any { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.CR }).isTrue()
+        assertThat(extraction.droppedReasonCounts["isf_carbs_around"] ?: 0).isEqualTo(0)
+    }
+
+    @Test
+    fun extract_deduplicatedCanonicalCarbCannotBeRestoredWhileBothInsulinComponentsRemain() {
+        val mealTs = 1_700_150_000_000L
+        fun reconciledMeal(id: String, units: String) = TherapyEventEntity(
+            id = id,
+            timestamp = mealTs,
+            type = "meal_bolus",
+            payloadJson =
+                """{"units":$units,"carbs":90,"aapsCarbId":451,"aapsCarbAmount":30,"aapsCarbIsValid":true,"aapsCarbClassification":"AAPS_REAL","aapsCarbSynthetic":false,"aapsCarbSuperseded":false}"""
+        ).toDomain(Gson())
+        val extraction = IsfCrWindowExtractor().extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildMealGlucose(mealTs),
+                therapy = listOf(reconciledMeal("survivor", "3.0"), reconciledMeal("duplicate", "1.0")),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(extraction.evidence.count { it.sampleType == IsfCrSampleType.CR }).isEqualTo(1)
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+        assertThat(extraction.droppedReasonCounts["isf_carbs_around"]).isNull()
+    }
+
+    @Test
+    fun extract_deduplicatedRealMealDoesNotReclassifyItsInsulinAsCorrection() {
+        val firstMealTs = 1_700_160_000_000L
+        val duplicateMealTs = firstMealTs + 6L * 60L * 60L * 1_000L
+        fun reconciledMeal(id: String, ts: Long, units: String, amount: String) = TherapyEventEntity(
+            id = id,
+            timestamp = ts,
+            type = "meal_bolus",
+            payloadJson =
+                """{"units":$units,"aapsCarbId":452,"aapsCarbAmount":$amount,"aapsCarbIsValid":true,"aapsCarbClassification":"AAPS_REAL","aapsCarbSynthetic":false,"aapsCarbSuperseded":false}"""
+        ).toDomain(Gson())
+        val extraction = IsfCrWindowExtractor().extract(
+            history = IsfCrHistoryBundle(
+                glucose = (buildMealGlucose(firstMealTs) + buildCorrectionGlucose(duplicateMealTs))
+                    .distinctBy(GlucosePoint::ts)
+                    .sortedBy(GlucosePoint::ts),
+                therapy = listOf(
+                    reconciledMeal("survivor", firstMealTs, units = "3.0", amount = "30"),
+                    reconciledMeal("duplicate", duplicateMealTs, units = "1.0", amount = "31")
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(extraction.evidence.count { it.sampleType == IsfCrSampleType.CR }).isEqualTo(1)
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.ISF }).isTrue()
+    }
+
+    @Test
+    fun extract_combinedCanonicalUamMealDoesNotBecomeCorrectionEvidence() {
+        val mealTs = 1_700_190_000_000L
+        val extraction = IsfCrWindowExtractor().extract(
+            history = IsfCrHistoryBundle(
+                glucose = buildCorrectionGlucose(mealTs),
+                therapy = listOf(
+                    TherapyEvent(
+                        ts = mealTs,
+                        type = "meal_bolus",
+                        payload = mapOf(
+                            "units" to "1.0",
+                            "aapsCarbAmount" to "18",
+                            "aapsCarbIsValid" to "true",
+                            "aapsCarbClassification" to "UAM_SYNTHETIC",
+                            "aapsCarbSynthetic" to "true",
+                            "aapsCarbSuperseded" to "false"
+                        )
+                    )
+                ),
+                telemetry = emptyList(),
+                tags = emptyList()
+            ),
+            settings = IsfCrSettings(),
+            isfReference = 2.5
+        )
+
+        assertThat(extraction.evidence).isEmpty()
+        assertThat(extraction.droppedCount).isEqualTo(0)
     }
 
     @Test
@@ -472,7 +831,7 @@ class IsfCrWindowExtractorTest {
     }
 
     @Test
-    fun extract_crSampleAllowsUamEngineMealWithoutBolusOrIobContext() {
+    fun extract_uamTaggedCarbsDoNotCreateCrEvidence() {
         val extractor = IsfCrWindowExtractor()
         val mealTs = 1_700_433_000_000L
         val extraction = extractor.extract(
@@ -484,8 +843,12 @@ class IsfCrWindowExtractorTest {
                         type = "carbs",
                         payload = mapOf(
                             "grams" to "16",
-                            "reason" to "uam_engine",
-                            "notes" to "UAM_ENGINE|id=test|seq=1|ver=1|mode=BOOST|"
+                            "notes" to UamTagCodec.buildTag(
+                                eventId = "test",
+                                seq = 1,
+                                mode = UamMode.NORMAL,
+                                version = 2
+                            )
                         )
                     )
                 ),
@@ -496,15 +859,11 @@ class IsfCrWindowExtractorTest {
             isfReference = 2.5
         )
 
-        val crSample = extraction.evidence.firstOrNull { it.sampleType == IsfCrSampleType.CR }
-        assertThat(crSample).isNotNull()
-        assertThat(crSample?.context?.get("mealBolusSource")).isEqualTo("carbs_only_uam_tag")
-        assertThat(crSample?.context?.get("mealFromUamEngine")).isEqualTo("1")
-        assertThat(extraction.droppedReasonCounts["cr_no_bolus_nearby"]).isNull()
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.CR }).isTrue()
     }
 
     @Test
-    fun extract_deduplicatesDuplicateUamMealsInSameFiveMinuteBucket() {
+    fun extract_structuredSyntheticUamCarbsDoNotCreateCrEvidence() {
         val extractor = IsfCrWindowExtractor()
         val mealTs = 1_700_434_000_000L
         val extraction = extractor.extract(
@@ -514,12 +873,12 @@ class IsfCrWindowExtractorTest {
                     TherapyEvent(
                         ts = mealTs,
                         type = "carbs",
-                        payload = mapOf("grams" to "60", "reason" to "uam_engine")
-                    ),
-                    TherapyEvent(
-                        ts = mealTs + 60_000L,
-                        type = "carbs",
-                        payload = mapOf("grams" to "60", "reason" to "uam_engine")
+                        payload = mapOf(
+                            "grams" to "60",
+                            "synthetic" to "true",
+                            "syntheticType" to "uam",
+                            "source" to "uam_engine"
+                        )
                     )
                 ),
                 telemetry = emptyList(),
@@ -529,48 +888,58 @@ class IsfCrWindowExtractorTest {
             isfReference = 2.5
         )
 
-        val crEvidence = extraction.evidence.filter { it.sampleType == IsfCrSampleType.CR }
-        assertThat(crEvidence).hasSize(1)
+        assertThat(extraction.evidence.none { it.sampleType == IsfCrSampleType.CR }).isTrue()
     }
 
     @Test
-    fun extract_crSampleForUamTagCanPassHighUamAmbiguityWithPenalty() {
+    fun extract_adjacentSyntheticUamExportDoesNotChangeRealMealCrEvidence() {
         val extractor = IsfCrWindowExtractor()
         val mealTs = 1_700_436_000_000L
-        val telemetry = (0..8).map { idx ->
-            TelemetrySignal(
-                ts = mealTs + idx * 5L * 60L * 1_000L,
-                key = "uam_value",
-                valueDouble = 1.0
+        val realMeal = TherapyEvent(
+            ts = mealTs,
+            type = "carbs",
+            payload = mapOf("grams" to "40")
+        )
+        val mealBolus = TherapyEvent(
+            ts = mealTs - 10L * 60L * 1_000L,
+            type = "bolus",
+            payload = mapOf("units" to "4.0")
+        )
+        val syntheticExport = TherapyEvent(
+            ts = mealTs + 10L * 60L * 1_000L,
+            type = "carbs",
+            payload = mapOf(
+                "grams" to "15",
+                "source" to "uam_engine",
+                "synthetic" to "true",
+                "notes" to UamTagCodec.buildTag(
+                    eventId = "adjacent",
+                    seq = 1,
+                    mode = UamMode.NORMAL,
+                    version = 2
+                )
             )
-        }
+        )
 
-        val extraction = extractor.extract(
+        fun extractWith(therapy: List<TherapyEvent>) = extractor.extract(
             history = IsfCrHistoryBundle(
                 glucose = buildMealGlucose(mealTs),
-                therapy = listOf(
-                    TherapyEvent(
-                        ts = mealTs,
-                        type = "carbs",
-                        payload = mapOf(
-                            "grams" to "20",
-                            "reason" to "uam_engine",
-                            "notes" to "UAM_ENGINE|id=test|seq=1|ver=1|mode=BOOST|"
-                        )
-                    )
-                ),
-                telemetry = telemetry,
+                therapy = therapy,
+                telemetry = emptyList(),
                 tags = emptyList()
             ),
             settings = IsfCrSettings(),
             isfReference = 2.5
         )
 
-        val crSample = extraction.evidence.firstOrNull { it.sampleType == IsfCrSampleType.CR }
-        assertThat(crSample).isNotNull()
-        assertThat(extraction.droppedReasonCounts["cr_uam_ambiguity"]).isNull()
-        assertThat(crSample?.context?.get("mealBolusSource")).isEqualTo("carbs_only_uam_tag")
-        assertThat(crSample!!.weight).isLessThan(0.3)
+        val baseline = extractWith(listOf(realMeal, mealBolus))
+            .evidence
+            .single { it.sampleType == IsfCrSampleType.CR }
+        val withSynthetic = extractWith(listOf(realMeal, mealBolus, syntheticExport))
+            .evidence
+            .single { it.sampleType == IsfCrSampleType.CR }
+
+        assertThat(withSynthetic).isEqualTo(baseline)
     }
 
     @Test

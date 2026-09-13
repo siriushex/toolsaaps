@@ -1,5 +1,20 @@
 # ARCHITECTURE
 
+## September 2026 Source Release
+
+The current publication and server-AI boundaries are documented in
+[RELEASE_2026-09-13.md](RELEASE_2026-09-13.md). The baseline sections below
+describe the earlier architecture and are not an exhaustive specification of
+the current controller or its thresholds.
+
+Accepted NORMAL and SENSITIVITY_SOURCE_CHANGE cycles invoke the widget callback; LOCAL_READ_ONLY does not.
+The callback requires accepted Room read-back and a committed runtime snapshot;
+ISF/CR settings identity and forecast generation must match.
+
+Server activation is user-initiated and does not add polling. Subscription
+validity is independent of inference readiness. The identity factory does not
+yet run live Codex jobs, and AI output must never become a therapy command.
+
 ## Context
 AAPS Predictive Copilot is a two-part system:
 - Android app (`android-app`) for ingest, local forecasting, safety/rules, automation, and UI.

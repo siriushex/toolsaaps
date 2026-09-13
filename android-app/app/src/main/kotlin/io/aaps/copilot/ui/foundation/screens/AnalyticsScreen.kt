@@ -29,6 +29,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
@@ -207,6 +208,15 @@ fun AnalyticsScreen(
                                 Text(text = stringResource(id = R.string.analytics_run_daily_analysis))
                             }
                         }
+                    }
+                    item {
+                        GlucoseCalibrationCard(state = state)
+                    }
+                    item {
+                        ProbableMealWindowsCard(
+                            recentWindows = state.recentProbableMealWindows,
+                            stableWindows = state.probableMealWindows
+                        )
                     }
                     state.sensorLagDiagnostics?.let { diagnostics ->
                         item {
@@ -387,6 +397,306 @@ fun AnalyticsScreen(
 }
 
 @Composable
+private fun ProbableMealWindowsCard(
+    recentWindows: List<ProbableMealWindowUi>,
+    stableWindows: List<ProbableMealWindowUi>
+) {
+    AnalyticsSectionCard {
+        AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_probable_meal_windows))
+        Text(
+            text = stringResource(id = R.string.analytics_probable_meal_windows_info),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (recentWindows.isEmpty() && stableWindows.isEmpty()) {
+            Text(
+                text = stringResource(id = R.string.analytics_probable_meal_windows_empty),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            MealWindowHorizon(
+                label = stringResource(id = R.string.analytics_probable_meal_windows_recent),
+                windows = recentWindows
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            MealWindowHorizon(
+                label = stringResource(id = R.string.analytics_probable_meal_windows_stable),
+                windows = stableWindows
+            )
+        }
+    }
+}
+
+@Composable
+private fun MealWindowHorizon(
+    label: String,
+    windows: List<ProbableMealWindowUi>
+) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary
+    )
+    if (windows.isEmpty()) {
+        Text(
+            text = stringResource(id = R.string.analytics_probable_meal_windows_horizon_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    windows.forEachIndexed { index, window ->
+        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+            ) {
+                Text(
+                    text = mealWindowClock(window.medianMinuteOfDay),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_probable_meal_window_iqr,
+                        mealWindowClock(window.startMinuteOfDay),
+                        mealWindowClock(window.endMinuteOfDay),
+                        window.iqrMinutes
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_probable_meal_window_support,
+                        window.supportDays,
+                        window.lookbackDays
+                    ),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = stringResource(
+                        id = R.string.analytics_probable_meal_window_sources,
+                        window.enteredEpisodeCount,
+                        window.uamEpisodeCount
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+private fun mealWindowClock(minuteOfDay: Int): String {
+    val bounded = minuteOfDay.coerceIn(0, 24 * 60 - 1)
+    return String.format(Locale.US, "%02d:%02d", bounded / 60, bounded % 60)
+}
+
+@Composable
+private fun GlucoseCalibrationCard(
+    state: AnalyticsUiState
+) {
+    AnalyticsSectionCard {
+        AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_glucose_calibration))
+        Text(
+            text = stringResource(id = R.string.analytics_glucose_calibration_info),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+        ) {
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_raw),
+                value = UiFormatters.formatMmol(state.calibrationRawCurrentMmol, decimals = 2)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_calibrated),
+                value = UiFormatters.formatMmol(state.calibrationCalibratedCurrentMmol, decimals = 2)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_model),
+                value = state.calibrationModelType ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_status),
+                value = state.calibrationStatus ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_gain),
+                value = state.calibrationGain?.let { String.format(Locale.US, "%.3f", it) } ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_offset),
+                value = UiFormatters.formatSignedDelta(state.calibrationOffsetMmol, 2)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_confidence),
+                value = UiFormatters.formatPercent(state.calibrationConfidence)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_glucose_calibration_last_check),
+                value = state.calibrationLastCheckAgeMinutes?.let { UiFormatters.formatMinutes(it.toLong()) } ?: "--"
+            )
+        }
+        GlucoseCalibrationChart(
+            rawPoints = state.calibrationRawHistoryPoints,
+            calibratedPoints = state.calibrationResolvedHistoryPoints,
+            fingerstickPoints = state.calibrationCheckPoints
+        )
+    }
+}
+
+@Composable
+private fun GlucoseCalibrationChart(
+    rawPoints: List<ChartPointUi>,
+    calibratedPoints: List<ChartPointUi>,
+    fingerstickPoints: List<ChartPointUi>
+) {
+    val allPoints = rawPoints + calibratedPoints + fingerstickPoints
+    if (allPoints.size < 2) {
+        Text(
+            text = stringResource(id = R.string.analytics_glucose_calibration_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+
+    val minTs = allPoints.minOf { it.ts }
+    val maxTs = max(minTs + 1L, allPoints.maxOf { it.ts })
+    val values = allPoints.map { it.value.toFloat() }
+    val minValueRaw = values.minOrNull() ?: 0f
+    val maxValueRaw = values.maxOrNull() ?: 0f
+    val spanRaw = max(0.1f, maxValueRaw - minValueRaw)
+    val minValue = minValueRaw - spanRaw * 0.12f
+    val maxValue = maxValueRaw + spanRaw * 0.12f
+    val span = max(0.1f, maxValue - minValue)
+    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+    val rawColor = MaterialTheme.colorScheme.outline
+    val calibratedColor = MaterialTheme.colorScheme.primary
+    val fingerstickColor = MaterialTheme.colorScheme.tertiary
+    val chartDescription = stringResource(
+        id = R.string.analytics_glucose_calibration_chart_accessibility,
+        UiFormatters.formatMmol(rawPoints.lastOrNull()?.value, 2),
+        UiFormatters.formatMmol(calibratedPoints.lastOrNull()?.value, 2),
+        fingerstickPoints.size
+    )
+
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
+    ) {
+        AnalyticsLegendItem(
+            text = stringResource(id = R.string.analytics_glucose_calibration_raw_legend),
+            color = rawColor,
+            icon = Icons.Default.ShowChart
+        )
+        AnalyticsLegendItem(
+            text = stringResource(id = R.string.analytics_glucose_calibration_calibrated_legend),
+            color = calibratedColor,
+            icon = Icons.Default.CheckCircle
+        )
+        AnalyticsLegendItem(
+            text = stringResource(id = R.string.analytics_glucose_calibration_fingerstick_legend),
+            color = fingerstickColor,
+            icon = Icons.Default.Info
+        )
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .semantics { contentDescription = chartDescription }
+    ) {
+        val width = size.width
+        val height = size.height
+
+        fun xFor(ts: Long): Float {
+            val ratio = (ts - minTs).toFloat() / (maxTs - minTs).toFloat()
+            return ratio.coerceIn(0f, 1f) * width
+        }
+
+        fun yFor(value: Float): Float {
+            val ratio = (value - minValue) / span
+            return height - ratio * height
+        }
+
+        repeat(4) { index ->
+            val y = height * index / 3f
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, y),
+                end = Offset(width, y),
+                strokeWidth = 1f
+            )
+        }
+
+        fun drawSeries(
+            points: List<ChartPointUi>,
+            color: Color,
+            dashed: Boolean = false
+        ) {
+            if (points.size < 2) return
+            val path = Path()
+            points.forEachIndexed { index, point ->
+                val x = xFor(point.ts)
+                val y = yFor(point.value.toFloat())
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(
+                path = path,
+                color = color,
+                style = Stroke(
+                    width = 4f,
+                    cap = StrokeCap.Round,
+                    pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(14f, 10f)) else null
+                )
+            )
+        }
+
+        drawSeries(rawPoints, rawColor, dashed = true)
+        drawSeries(calibratedPoints, calibratedColor, dashed = false)
+
+        fingerstickPoints.forEach { point ->
+            drawCircle(
+                color = fingerstickColor,
+                radius = 6f,
+                center = Offset(xFor(point.ts), yFor(point.value.toFloat()))
+            )
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = formatHistoryAxisTick(minTs, maxTs - minTs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = formatHistoryAxisTick(maxTs, maxTs - minTs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
 private fun DroppedReasonsSummaryCard(
     lines24h: List<String>,
     lines7d: List<String>
@@ -458,7 +768,10 @@ private fun IsfCrRealtimeCard(
 ) {
     AnalyticsSectionCard {
         AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_isfcr_realtime))
-        val mode = state.realtimeMode ?: "N/A"
+        val mode = when (state.realtimeMode?.uppercase(Locale.US)) {
+            "SPARSE_REAL_FETCHED" -> stringResource(id = R.string.analytics_isfcr_mode_sparse_real_fetched)
+            else -> state.realtimeMode ?: "N/A"
+        }
         Text(
             text = stringResource(
                 id = R.string.analytics_isfcr_realtime_status_template,
@@ -1343,61 +1656,7 @@ private fun IsfCrOverviewCard(
 
     AnalyticsSectionCard {
         AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_isfcr_overview))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-        ) {
-            AnalyticsMetricTile(
-                title = stringResource(id = R.string.analytics_isf_real),
-                value = state.currentIsfReal,
-                unit = stringResource(id = R.string.unit_mmol_l) + "/U",
-                modifier = Modifier.weight(1f)
-            )
-            AnalyticsMetricTile(
-                title = stringResource(id = R.string.analytics_cr_real),
-                value = state.currentCrReal,
-                unit = stringResource(id = R.string.unit_g) + "/U",
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-        ) {
-            AnalyticsMetricTile(
-                title = stringResource(id = R.string.analytics_isf_merged),
-                value = state.currentIsfMerged,
-                unit = stringResource(id = R.string.unit_mmol_l) + "/U",
-                iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-            AnalyticsMetricTile(
-                title = stringResource(id = R.string.analytics_cr_merged),
-                value = state.currentCrMerged,
-                unit = stringResource(id = R.string.unit_g) + "/U",
-                iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-        ) {
-            AnalyticsMetricTile(
-                title = stringResource(id = R.string.analytics_isf_aaps_raw),
-                value = state.currentIsfAapsRaw,
-                unit = stringResource(id = R.string.unit_mmol_l) + "/U",
-                iconColor = Color(0xFFCC6A00),
-                modifier = Modifier.weight(1f)
-            )
-            AnalyticsMetricTile(
-                title = stringResource(id = R.string.analytics_cr_aaps_raw),
-                value = state.currentCrAapsRaw,
-                unit = stringResource(id = R.string.unit_g) + "/U",
-                iconColor = Color(0xFFCC6A00),
-                modifier = Modifier.weight(1f)
-            )
-        }
+        IsfCrCompactMatrix(state = state)
         Text(
             text = stringResource(id = R.string.analytics_series_priority_hint),
             style = MaterialTheme.typography.bodySmall,
@@ -1444,6 +1703,89 @@ private fun IsfCrOverviewCard(
             ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun IsfCrCompactMatrix(state: AnalyticsUiState) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val isfUnit = stringResource(id = R.string.unit_mmol_l) + "/U"
+    val crUnit = stringResource(id = R.string.unit_g) + "/U"
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = AnalyticsInfoShape,
+        color = if (midnightGlass) Color(0xFF152641) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            AnalyticsMatrixRow(
+                source = stringResource(id = R.string.analytics_table_source),
+                isf = stringResource(id = R.string.analytics_table_isf),
+                cr = stringResource(id = R.string.analytics_table_cr),
+                isHeader = true,
+                accent = if (midnightGlass) Color(0xFFBFD0EA) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            AnalyticsMatrixRow(
+                source = stringResource(id = R.string.analytics_source_compensation),
+                isf = "${UiFormatters.formatMmol(state.currentIsfReal, 2)} $isfUnit",
+                cr = "${UiFormatters.formatMmol(state.currentCrReal, 2)} $crUnit",
+                accent = if (midnightGlass) Color(0xFF7FB3FF) else MaterialTheme.colorScheme.primary
+            )
+            AnalyticsMatrixRow(
+                source = stringResource(id = R.string.analytics_source_copilot_fallback),
+                isf = "${UiFormatters.formatMmol(state.currentIsfMerged, 2)} $isfUnit",
+                cr = "${UiFormatters.formatMmol(state.currentCrMerged, 2)} $crUnit",
+                accent = if (midnightGlass) Color(0xFFBFD0EA) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            AnalyticsMatrixRow(
+                source = stringResource(id = R.string.analytics_source_aaps_raw),
+                isf = "${UiFormatters.formatMmol(state.currentIsfAapsRaw, 2)} $isfUnit",
+                cr = "${UiFormatters.formatMmol(state.currentCrAapsRaw, 2)} $crUnit",
+                accent = if (midnightGlass) Color(0xFFFFC94A) else Color(0xFFCC6A00)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnalyticsMatrixRow(
+    source: String,
+    isf: String,
+    cr: String,
+    accent: Color,
+    isHeader: Boolean = false
+) {
+    val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val textColor = if (isHeader) {
+        if (midnightGlass) Color(0xFFBFD0EA) else MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = source,
+            modifier = Modifier.weight(1.2f),
+            style = if (isHeader) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
+            color = if (isHeader) textColor else accent
+        )
+        Text(
+            text = isf,
+            modifier = Modifier.weight(1f),
+            style = if (isHeader) MaterialTheme.typography.labelSmall else LocalNumericTypography.current.valueSmall,
+            color = textColor
+        )
+        Text(
+            text = cr,
+            modifier = Modifier.weight(1f),
+            style = if (isHeader) MaterialTheme.typography.labelSmall else LocalNumericTypography.current.valueSmall,
+            color = textColor
         )
     }
 }
@@ -2353,7 +2695,7 @@ private fun SensorLagDiagnosticsCard(
         replayBuckets = replayBuckets,
         shadowBuckets = shadowBuckets
     )
-    val currentBucket = diagnostics.ageHours?.let(::sensorLagAgeBucket)
+    val currentBucket = diagnostics.wearBucket ?: diagnostics.ageHours?.let(::sensorLagAgeBucket)
     val currentGuidance = currentBucket
         ?.let { bucket -> rolloutGuidance.firstOrNull { guidance -> guidance.bucket == bucket } }
     val stateSummary = when {
@@ -2402,7 +2744,9 @@ private fun SensorLagDiagnosticsCard(
             )
             AnalyticsMetricChip(
                 label = stringResource(id = R.string.analytics_sensor_lag_metric_bucket),
-                value = currentBucket?.let { sensorLagBucketDisplayName(it) } ?: "--"
+                value = diagnostics.wearBucket?.let { sensorLagBucketDisplayName(it) }
+                    ?: currentBucket?.let { sensorLagBucketDisplayName(it) }
+                    ?: "--"
             )
             AnalyticsMetricChip(
                 label = stringResource(id = R.string.analytics_sensor_lag_metric_lag),
@@ -2415,6 +2759,26 @@ private fun SensorLagDiagnosticsCard(
             AnalyticsMetricChip(
                 label = stringResource(id = R.string.analytics_sensor_lag_metric_confidence),
                 value = UiFormatters.formatPercent(diagnostics.confidence, decimals = 0)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_source_confidence),
+                value = UiFormatters.formatPercent(diagnostics.sourceConfidence, decimals = 0)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_trend_consistency),
+                value = UiFormatters.formatPercent(diagnostics.trendConsistency, decimals = 0)
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_replay_multiplier),
+                value = diagnostics.replayMultiplier?.let { String.format(Locale.US, "%.2fx", it) } ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_effective_lag),
+                value = diagnostics.effectiveLagMinutes?.let { "${UiFormatters.formatDecimalOrPlaceholder(it, 1)}m" } ?: "--"
+            )
+            AnalyticsMetricChip(
+                label = stringResource(id = R.string.analytics_sensor_lag_metric_correction_cap),
+                value = UiFormatters.formatMmol(diagnostics.effectiveCorrectionCap, decimals = 2)
             )
             AnalyticsMetricChip(
                 label = stringResource(id = R.string.analytics_sensor_lag_metric_raw_glucose),
@@ -3956,8 +4320,12 @@ private fun sensorLagBucketDisplayName(raw: String): String {
 @Composable
 private fun sensorLagAgeSourceDisplayName(raw: String): String {
     return when (raw.lowercase(Locale.US)) {
+        "devicestatus" -> stringResource(id = R.string.analytics_sensor_lag_age_source_devicestatus)
+        "explicit_event" -> stringResource(id = R.string.analytics_sensor_lag_age_source_explicit)
         "explicit" -> stringResource(id = R.string.analytics_sensor_lag_age_source_explicit)
+        "inferred_boundary" -> stringResource(id = R.string.analytics_sensor_lag_age_source_inferred)
         "inferred" -> stringResource(id = R.string.analytics_sensor_lag_age_source_inferred)
+        "missing" -> stringResource(id = R.string.analytics_sensor_lag_age_source_missing)
         "unknown" -> stringResource(id = R.string.analytics_sensor_lag_age_source_unknown)
         else -> raw
     }
@@ -4049,13 +4417,13 @@ private fun AnalyticsSectionCard(
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = if (midnightGlass) RoundedCornerShape(28.dp) else AnalyticsSectionShape,
-        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
+        shape = AnalyticsSectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.md),
+            modifier = Modifier.padding(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             content = content
         )

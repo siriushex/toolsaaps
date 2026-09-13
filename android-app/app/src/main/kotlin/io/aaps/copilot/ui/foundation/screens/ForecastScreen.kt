@@ -58,6 +58,8 @@ import io.aaps.copilot.ui.foundation.components.DebugRow
 import io.aaps.copilot.ui.foundation.design.AppElevation
 import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.format.UiFormatters
+import io.aaps.copilot.ui.foundation.components.ClinicalForecastChart
+import io.aaps.copilot.ui.foundation.components.ClinicalForecastComponent
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import io.aaps.copilot.ui.foundation.theme.LocalUiStyle
 import kotlin.math.max
@@ -92,15 +94,21 @@ fun ForecastScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             item {
+                ScreenHeroHeader(
+                    subtitle = stringResource(id = R.string.forecast_subtitle),
+                    midnightGlass = midnightGlass
+                )
+            }
+            item {
+                ClinicalForecastChartCard(state = state, midnightGlass = midnightGlass)
+            }
+            item {
                 ForecastControlsCard(
                     state = state,
                     onSelectRange = onSelectRange,
                     onLayerChange = onLayerChange,
                     midnightGlass = midnightGlass
                 )
-            }
-            item {
-                ForecastChartCard(state = state, midnightGlass = midnightGlass)
             }
             item {
                 ForecastHorizonsCard(horizons = state.horizons, midnightGlass = midnightGlass)
@@ -122,6 +130,23 @@ fun ForecastScreen(
 }
 
 @Composable
+private fun ScreenHeroHeader(
+    subtitle: String,
+    midnightGlass: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (midnightGlass) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
 private fun ForecastControlsCard(
     state: ForecastUiState,
     onSelectRange: (ForecastRangeUi) -> Unit,
@@ -134,7 +159,12 @@ private fun ForecastControlsCard(
             infoText = stringResource(id = R.string.forecast_info_range_section)
         )
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            val ranges = listOf(ForecastRangeUi.H3, ForecastRangeUi.H6, ForecastRangeUi.H24)
+            val ranges = listOf(
+                ForecastRangeUi.H3,
+                ForecastRangeUi.H6,
+                ForecastRangeUi.H12,
+                ForecastRangeUi.H24
+            )
             ranges.forEachIndexed { index, range ->
                 SegmentedButton(
                     selected = state.range == range,
@@ -160,6 +190,7 @@ private fun ForecastControlsCard(
                             text = when (range) {
                                 ForecastRangeUi.H3 -> "3h"
                                 ForecastRangeUi.H6 -> "6h"
+                                ForecastRangeUi.H12 -> "12h"
                                 ForecastRangeUi.H24 -> "24h"
                             }
                         )
@@ -219,6 +250,78 @@ private fun ForecastControlsCard(
                     onContainer = if (midnightGlass) Color(0xFFDCEBFF) else Color(0xFF104D8C),
                     border = if (midnightGlass) Color(0x334A82BF) else Color(0xFF4A82BF)
                 )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClinicalForecastChartCard(state: ForecastUiState, midnightGlass: Boolean) {
+    val nowValue = state.historyPoints.lastOrNull()?.value
+    val pred30 = state.horizons.firstOrNull { it.horizonMinutes == 30 }?.pred
+    val pred60 = state.horizons.firstOrNull { it.horizonMinutes == 60 }?.pred
+    val chartDescription = stringResource(
+        id = R.string.forecast_chart_accessibility_values,
+        UiFormatters.formatMmol(nowValue, 2),
+        UiFormatters.formatMmol(pred60, 2)
+    )
+    ForecastSectionCard {
+        ForecastSectionLabel(
+            text = stringResource(id = R.string.nav_forecast),
+            infoText = stringResource(id = R.string.forecast_info_chart_section)
+        )
+        ClinicalForecastChart(
+            state = ClinicalForecastChartUiState(
+                historyPoints = state.historyPoints,
+                futurePath = state.futurePath,
+                futureCi = state.futureCi
+            ),
+            contentDescription = chartDescription,
+            emptyText = stringResource(id = R.string.forecast_chart_empty),
+            nowLabel = stringResource(id = R.string.overview_chart_now),
+            plus30Label = stringResource(id = R.string.overview_chart_plus_30),
+            components = listOf(
+                ClinicalForecastComponent(
+                    enabled = state.layers.showTrend,
+                    delta60Mmol = state.decomposition.trend60,
+                    color = Color(0xFF1565C0)
+                ),
+                ClinicalForecastComponent(
+                    enabled = state.layers.showTherapy,
+                    delta60Mmol = state.decomposition.therapy60,
+                    color = Color(0xFF2E7D32)
+                ),
+                ClinicalForecastComponent(
+                    enabled = state.layers.showUam,
+                    delta60Mmol = state.decomposition.uam60,
+                    color = Color(0xFFEF6C00)
+                )
+            )
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            ForecastSummaryCell(
+                modifier = Modifier.weight(1f),
+                label = stringResource(id = R.string.forecast_axis_now),
+                value = nowValue,
+                accent = if (midnightGlass) Color(0xFF7FB3FF) else MaterialTheme.colorScheme.primary,
+                midnightGlass = midnightGlass
+            )
+            ForecastSummaryCell(
+                modifier = Modifier.weight(1f),
+                label = stringResource(id = R.string.forecast_axis_30m),
+                value = pred30,
+                accent = if (midnightGlass) Color(0xFFFFC94A) else MaterialTheme.colorScheme.tertiary,
+                midnightGlass = midnightGlass
+            )
+            ForecastSummaryCell(
+                modifier = Modifier.weight(1f),
+                label = stringResource(id = R.string.forecast_axis_60m),
+                value = pred60,
+                accent = if (midnightGlass) Color(0xFFFF8A80) else MaterialTheme.colorScheme.error,
+                midnightGlass = midnightGlass
             )
         }
     }
@@ -291,7 +394,7 @@ private fun ForecastChartCard(state: ForecastUiState, midnightGlass: Boolean) {
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
+                .height(300.dp)
                 .semantics { contentDescription = chartDescription }
         ) {
             val width = size.width
@@ -492,7 +595,7 @@ private fun ForecastHorizonsCard(
                         )
                         Text(
                             text = UiFormatters.formatMmol(horizon.pred, 2),
-                            style = MaterialTheme.typography.titleLarge.copy(letterSpacing = (-0.4).sp),
+                            style = MaterialTheme.typography.titleLarge.copy(letterSpacing = 0.sp),
                             color = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
@@ -602,7 +705,7 @@ private fun DecompositionCard(
                 )
                 Text(
                     text = "${UiFormatters.formatSignedDelta(netChange, 2)} ${stringResource(id = R.string.unit_mmol_l)}",
-                    style = MaterialTheme.typography.titleMedium.copy(letterSpacing = (-0.2).sp),
+                    style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 0.sp),
                     color = if (midnightGlass) {
                         if ((netChange ?: 0.0) >= 0.0) Color(0xFF9FFFB0) else Color(0xFFFF8A80)
                     } else {
@@ -700,7 +803,7 @@ private fun DecompositionRow(
         }
         Text(
             text = "${UiFormatters.formatSignedDelta(value, 2)} ${stringResource(id = R.string.unit_mmol_l)}",
-            style = MaterialTheme.typography.bodyMedium.copy(letterSpacing = (-0.1).sp),
+            style = MaterialTheme.typography.bodyMedium.copy(letterSpacing = 0.sp),
             color = MaterialTheme.colorScheme.onSurface
         )
     }
@@ -732,13 +835,13 @@ private fun ForecastSectionCard(content: @Composable ColumnScope.() -> Unit) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = if (midnightGlass) RoundedCornerShape(28.dp) else ForecastSectionShape,
-        border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xCC0E1C36) else MaterialTheme.colorScheme.surface),
+        shape = ForecastSectionShape,
+        border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.md),
+            modifier = Modifier.padding(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             content = content
         )
@@ -816,7 +919,7 @@ private fun ForecastSummaryCell(
             )
             Text(
                 text = UiFormatters.formatMmol(value, 2),
-                style = MaterialTheme.typography.titleMedium.copy(letterSpacing = (-0.2).sp),
+                style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 0.sp),
                 color = accent
             )
         }

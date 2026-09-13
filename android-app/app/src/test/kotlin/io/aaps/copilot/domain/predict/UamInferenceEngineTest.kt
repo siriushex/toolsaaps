@@ -184,6 +184,41 @@ class UamInferenceEngineTest {
         assertThat(out.activeEvent).isNull()
     }
 
+    @Test
+    fun staleConfirmedEventWithCalmTailFinalizesToReleaseRuntimeUam() {
+        val nowTs = 1_760_000_000_000L
+        val confirmed = UamInferenceEvent(
+            state = UamInferenceState.CONFIRMED,
+            mode = UamMode.NORMAL,
+            createdAt = nowTs - 80 * 60 * 1000L,
+            updatedAt = nowTs - 10 * 60 * 1000L,
+            ingestionTs = nowTs - 85 * 60 * 1000L,
+            carbsModelG = 18.0,
+            carbsDisplayG = 18.0,
+            confidence = 0.42
+        )
+
+        val out = engine.infer(
+            UamInferenceEngine.Input(
+                nowTs = nowTs,
+                glucose = flatGlucose(nowTs),
+                therapyEvents = emptyList(),
+                existingEvents = listOf(confirmed),
+                isfMmolPerUnit = 2.3,
+                crGramPerUnit = 10.0,
+                insulinProfileId = "NOVORAPID",
+                enableUamInference = true,
+                enableUamBoost = false,
+                learnedMultiplier = 1.0,
+                userSettings = UamUserSettings()
+            )
+        )
+
+        assertThat(out.events).hasSize(1)
+        assertThat(out.events.single().state).isEqualTo(UamInferenceState.FINAL)
+        assertThat(out.activeEvent).isNull()
+    }
+
     private fun mildlyRisingGlucose(nowTs: Long): List<GlucosePoint> {
         val start = nowTs - 120 * 60_000L
         return (0..120).map { index ->

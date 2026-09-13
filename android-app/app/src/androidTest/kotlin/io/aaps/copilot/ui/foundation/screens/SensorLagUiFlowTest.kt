@@ -31,14 +31,10 @@ class SensorLagUiFlowTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun overviewScreen_rolloutVerdictClickInvokesAnalyticsCallback() {
+    fun overviewScreen_sensorWarningClickInvokesAnalyticsCallback() {
         var clicked = false
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val verdictText = context.getString(
-            R.string.overview_sensor_lag_rollout_template,
-            context.getString(R.string.analytics_daily_report_sensor_lag_rollout_active),
-            context.getString(R.string.analytics_daily_report_sensor_lag_bucket_10_12d)
-        )
+        val warningText = context.getString(R.string.overview_warning_sensor)
 
         composeRule.setContent {
             AapsCopilotTheme {
@@ -46,12 +42,15 @@ class SensorLagUiFlowTest {
                     state = overviewState(),
                     onRunCycleNow = {},
                     onSetKillSwitch = {},
+                    onDisablePowerSave = {},
+                    onAddBloodCheck = { _, _, _, _ -> },
+                    onOpenClinicalReport = {},
                     onOpenSensorLagAnalytics = { clicked = true }
                 )
             }
         }
 
-        composeRule.onNodeWithContentDescription(verdictText).assertIsDisplayed().performClick()
+        composeRule.onNodeWithContentDescription(warningText).assertIsDisplayed().performClick()
         composeRule.runOnIdle {
             assertTrue(clicked)
         }
@@ -89,13 +88,9 @@ class SensorLagUiFlowTest {
     }
 
     @Test
-    fun sensorLagNavigationHarness_clickVerdictOpensAnalyticsDetail() {
+    fun sensorLagNavigationHarness_clickWarningOpensAnalyticsDetail() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val verdictText = context.getString(
-            R.string.overview_sensor_lag_rollout_template,
-            context.getString(R.string.analytics_daily_report_sensor_lag_rollout_active),
-            context.getString(R.string.analytics_daily_report_sensor_lag_bucket_10_12d)
-        )
+        val warningText = context.getString(R.string.overview_warning_sensor)
 
         composeRule.setContent {
             AapsCopilotTheme {
@@ -103,7 +98,7 @@ class SensorLagUiFlowTest {
             }
         }
 
-        composeRule.onNodeWithContentDescription(verdictText).assertIsDisplayed().performClick()
+        composeRule.onNodeWithContentDescription(warningText).assertIsDisplayed().performClick()
         composeRule.onNodeWithText(
             context.getString(R.string.analytics_sensor_lag_detail_title)
         ).assertIsDisplayed()
@@ -122,6 +117,10 @@ class SensorLagUiFlowTest {
             sensorLagRolloutVerdict = SensorLagRolloutVerdictUi(
                 status = "ACTIVE_CANDIDATE",
                 bucket = "10-12d"
+            ),
+            warning = OverviewWarningUi(
+                kind = OverviewWarningKind.SENSOR_OR_STALE,
+                detail = "sensor_quality_blocked"
             ),
             horizons = listOf(
                 HorizonPredictionUi(5, 8.92, 8.60, 9.22),
@@ -223,6 +222,9 @@ class SensorLagUiFlowTest {
                     state = overviewState(),
                     onRunCycleNow = {},
                     onSetKillSwitch = {},
+                    onDisablePowerSave = {},
+                    onAddBloodCheck = { _, _, _, _ -> },
+                    onOpenClinicalReport = {},
                     onOpenSensorLagAnalytics = {
                         openSensorLagTrendDetailRequest = true
                         navController.navigate("analytics")

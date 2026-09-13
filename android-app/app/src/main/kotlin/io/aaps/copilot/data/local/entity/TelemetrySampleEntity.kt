@@ -9,7 +9,8 @@ import androidx.room.PrimaryKey
     indices = [
         Index("timestamp"),
         Index("key"),
-        Index(value = ["key", "timestamp"])
+        Index(value = ["key", "timestamp"]),
+        Index(value = ["timestamp", "source", "key"])
     ]
 )
 data class TelemetrySampleEntity(

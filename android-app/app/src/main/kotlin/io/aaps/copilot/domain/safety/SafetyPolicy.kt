@@ -20,11 +20,15 @@ class SafetyPolicy {
         proposal: ActionProposal,
         config: SafetyPolicyConfig,
         dataFresh: Boolean,
-        actionsLast6h: Int
+        actionsLast6h: Int,
+        actionChronologyResolved: Boolean = true,
+        sensorBlocked: Boolean
     ): SafetyDecision {
         val reasons = mutableListOf<String>()
         if (config.killSwitch) reasons += "kill_switch"
         if (!dataFresh) reasons += "stale_data"
+        if (!actionChronologyResolved) reasons += "action_chronology_unresolved"
+        if (sensorBlocked) reasons += "sensor_blocked"
         if (!proposal.type.equals("temp_target", ignoreCase = true) &&
             actionsLast6h >= config.maxActionsIn6Hours
         ) {

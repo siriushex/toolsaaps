@@ -2,7 +2,10 @@ package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.data.local.dao.ActionCommandDao
+import io.aaps.copilot.data.local.dao.AutomaticSentCommandEvidence
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
+import io.aaps.copilot.domain.target.TargetIntent
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -59,6 +62,22 @@ class TempTargetSendThrottleTest {
     }
 
     @Test
+    fun manualBypassDoesNotReadAutomaticHistory() = runBlocking {
+        val dao = FakeActionCommandDao(lastSent = null, throwOnLatest = true)
+        val throttle = TempTargetSendThrottle(dao)
+
+        val decision = throttle.evaluate(
+            nowMs = 1_800_000_000_000L,
+            idempotencyKey = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}current",
+            targetMmol = 5.5
+        )
+
+        assertThat(decision.allowed).isTrue()
+        assertThat(decision.reason).isEqualTo("manual_bypass")
+        assertThat(dao.latestCalls.get()).isEqualTo(0)
+    }
+
+    @Test
     fun allowsMateriallyChangedTargetInsideThirtyMinuteWindow() = runBlocking {
         val now = 1_800_000_000_000L
         val throttle = TempTargetSendThrottle(
@@ -82,6 +101,159 @@ class TempTargetSendThrottleTest {
         assertThat(decision.lastTargetMmol).isWithin(1e-6).of(4.65)
     }
 
+    @Test
+    fun allowsUrgentHypoRetargetInsideThirtyMinuteWindowForSmallUpwardChange() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            actionCommandDao = FakeActionCommandDao(
+                lastSent = actionEntity(
+                    timestamp = now - 5 * 60_000L,
+                    idempotencyKey = "AdaptiveTargetController.v1:bucket:5.80:hypo_preemptive_guard",
+                    payloadJson = """{"targetMmol":"5.80","durationMinutes":"30","reason":"hypo_preemptive_guard"}"""
+                )
+            )
+        )
+
+        val decision = throttle.evaluate(
+            nowMs = now,
+            idempotencyKey = "AdaptiveTargetController.v1:${now / 300_000L}:5.85:hypo_preemptive_force_high",
+            targetMmol = 5.85,
+            actionReason = "adaptive_pi_ci_v2|mode=hypo_preemptive_force_high"
+        )
+
+        assertThat(decision.allowed).isTrue()
+        assertThat(decision.reason).isEqualTo("urgent_hypo_target_changed")
+    }
+
+    @Test
+    fun keepsBlockingExactUrgentHypoDuplicateInsideThirtyMinuteWindow() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            actionCommandDao = FakeActionCommandDao(
+                lastSent = actionEntity(
+                    timestamp = now - 5 * 60_000L,
+                    idempotencyKey = "AdaptiveTargetController.v1:bucket:6.40:hypo_preemptive_force_high",
+                    payloadJson = """{"targetMmol":"6.40","durationMinutes":"30","reason":"hypo_preemptive_force_high"}"""
+                )
+            )
+        )
+
+        val decision = throttle.evaluate(
+            nowMs = now,
+            idempotencyKey = "AdaptiveTargetController.v1:${now / 300_000L}:6.40:hypo_preemptive_force_high",
+            targetMmol = 6.40,
+            actionReason = "adaptive_pi_ci_v2|mode=hypo_preemptive_force_high"
+        )
+
+        assertThat(decision.allowed).isFalse()
+        assertThat(decision.reason).isEqualTo("duplicate_target_within_window")
+    }
+
+    @Test
+    fun typedHypoIntentUsesSharedUrgentCadence() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            FakeActionCommandDao(
+                actionEntity(
+                    now - 5 * 60_000L,
+                    "TargetManager.v1:old",
+                    """{"targetMmol":"5.80"}"""
+                )
+            )
+        )
+
+        val decision = throttle.evaluate(
+            nowMs = now,
+            idempotencyKey = "TargetManager.v1:new",
+            targetMmol = 5.85,
+            targetIntent = TargetIntent.HYPO_PROTECTION
+        )
+
+        assertThat(decision.allowed).isTrue()
+        assertThat(decision.reason).isEqualTo("urgent_hypo_target_changed")
+    }
+
+    @Test
+    fun arbitraryUrgentReasonCannotGainHypoBypass() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            FakeActionCommandDao(
+                actionEntity(now - 5 * 60_000L, "other:old", """{"targetMmol":"5.80"}""")
+            )
+        )
+
+        val decision = throttle.evaluate(
+            nowMs = now,
+            idempotencyKey = "other:new",
+            targetMmol = 5.85,
+            actionReason = "hypo_preemptive_force_high"
+        )
+
+        assertThat(decision.allowed).isFalse()
+    }
+
+    @Test
+    fun trustedLegacyAdaptiveProducerRetainsHypoCompatibilityBypass() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            FakeActionCommandDao(
+                actionEntity(now - 5 * 60_000L, "AdaptiveTargetController.v1:old", """{"targetMmol":"5.80"}""")
+            )
+        )
+
+        val decision = throttle.evaluate(
+            nowMs = now,
+            idempotencyKey = "AdaptiveTargetController.v1:new",
+            targetMmol = 5.85,
+            actionReason = "adaptive_pi_ci_v2|mode=hypo_preemptive_force_high"
+        )
+
+        assertThat(decision.allowed).isTrue()
+        assertThat(decision.reason).isEqualTo("urgent_hypo_target_changed")
+    }
+
+    @Test
+    fun unparseableHistoricalSendFailsClosedUntilWindowExpires() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            FakeActionCommandDao(
+                actionEntity(now - 5 * 60_000L, "legacy-without-target", "{}")
+            )
+        )
+
+        val blocked = throttle.evaluate(nowMs = now, targetMmol = 5.5)
+        val elapsed = throttle.evaluate(nowMs = now + 31 * 60_000L, targetMmol = 5.5)
+
+        assertThat(blocked.allowed).isFalse()
+        assertThat(blocked.reason).isEqualTo("duplicate_target_within_window")
+        assertThat(elapsed.allowed).isTrue()
+        assertThat(elapsed.reason).isEqualTo("window_elapsed")
+    }
+
+    @Test
+    fun futureAutomaticSendCannotReserveNormalDispatchCadence() = runBlocking {
+        val now = 1_800_000_000_000L
+        val throttle = TempTargetSendThrottle(
+            FakeActionCommandDao(
+                lastSent = actionEntity(
+                    now + 10 * 60_000L,
+                    "TargetManager.v1:future",
+                    """{"targetMmol":"5.80"}"""
+                )
+            )
+        )
+
+        val decision = throttle.evaluate(
+            nowMs = now,
+            idempotencyKey = "TargetManager.v1:causal-cycle",
+            targetMmol = 5.80
+        )
+
+        assertThat(decision.allowed).isTrue()
+        assertThat(decision.lastSentTs).isNull()
+        assertThat(decision.reason).isEqualTo("no_previous_send")
+    }
+
     private fun actionEntity(
         timestamp: Long,
         idempotencyKey: String,
@@ -97,11 +269,24 @@ class TempTargetSendThrottleTest {
     )
 
     private class FakeActionCommandDao(
-        private val lastSent: ActionCommandEntity?
+        private val lastSent: ActionCommandEntity?,
+        private val throwOnLatest: Boolean = false
     ) : ActionCommandDao {
+        val latestCalls = AtomicInteger()
+
         override suspend fun upsert(command: ActionCommandEntity) = Unit
 
         override suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity? = null
+
+        override suspend fun deleteByIdempotencyKeyTypeAndStatus(
+            idempotencyKey: String,
+            type: String,
+            status: String
+        ): Int = 0
+
+        override suspend fun automaticSentTargetEvidenceBefore(
+            beforeTimestamp: Long
+        ): AutomaticSentCommandEvidence = AutomaticSentCommandEvidence(0, null, null)
 
         override suspend fun countByStatusSince(status: String, since: Long): Int = 0
 
@@ -111,26 +296,39 @@ class TempTargetSendThrottleTest {
             excludedPrefix: String
         ): Int = 0
 
-        override suspend fun countByStatusSinceExcludingTwoPrefixes(
+        override suspend fun countByStatusBetweenExcludingTwoPrefixes(
             status: String,
             since: Long,
+            through: Long,
             excludedPrefix1: String,
             excludedPrefix2: String
         ): Int = 0
 
-        override suspend fun latestTimestampByTypeAndStatusExcludingPrefix(
+        override suspend fun latestTimestampByTypeAndStatusAtOrBeforeExcludingPrefix(
             type: String,
             status: String,
+            through: Long,
             excludedPrefix: String
-        ): Long? = lastSent?.timestamp
+        ): Long? = lastSent?.timestamp?.takeIf { it <= through }
 
-        override suspend fun latestByTypeAndStatusExcludingPrefix(
+        override suspend fun latestByTypeAndStatusAtOrBeforeExcludingPrefix(
             type: String,
             status: String,
+            through: Long,
             excludedPrefix: String
-        ): ActionCommandEntity? = lastSent
+        ): ActionCommandEntity? {
+            latestCalls.incrementAndGet()
+            if (throwOnLatest) error("automatic history unavailable")
+            return lastSent?.takeIf { it.timestamp <= through }
+        }
 
         override suspend fun latestTimestampByTypeAndStatus(type: String, status: String): Long? = null
+
+        override suspend fun byTypeAndIdempotencyPrefixSince(
+            type: String,
+            idempotencyPrefix: String,
+            since: Long
+        ): List<ActionCommandEntity> = emptyList()
 
         override suspend fun latest(limit: Int): List<ActionCommandEntity> = emptyList()
 
@@ -141,5 +339,7 @@ class TempTargetSendThrottleTest {
         ): Int = 0
 
         override fun observeLatest(limit: Int): Flow<List<ActionCommandEntity>> = flowOf(emptyList())
+
+        override suspend fun deleteOlderThan(olderThan: Long): Int = 0
     }
 }

@@ -35,6 +35,44 @@ class AdaptiveTargetControllerRuleTest {
     }
 
     @Test
+    fun looseTelemetryIobCannotAuthorizeLoweringWithoutCycleSafetyIob() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = System.currentTimeMillis()
+        val highForecasts = listOf(
+            Forecast(now + 5 * 60_000, 5, 8.0, 7.6, 8.4, "test"),
+            Forecast(now + 30 * 60_000, 30, 9.0, 8.4, 9.6, "test"),
+            Forecast(now + 60 * 60_000, 60, 10.0, 9.2, 10.8, "test")
+        )
+        val glucose = listOf(
+            GlucosePoint(now - 5 * 60_000, 6.8, "test", DataQuality.OK),
+            GlucosePoint(now, 7.2, "test", DataQuality.OK)
+        )
+
+        val blocked = rule.evaluate(
+            context(
+                now = now,
+                glucose = glucose,
+                forecasts = highForecasts,
+                telemetry = mapOf("iob_effective_units" to 0.0),
+                safetyIobUnits = null
+            )
+        )
+        val allowed = AdaptiveTargetControllerRule().evaluate(
+            context(
+                now = now,
+                glucose = glucose,
+                forecasts = highForecasts,
+                telemetry = mapOf("iob_effective_units" to 9.0),
+                safetyIobUnits = 0.0
+            )
+        )
+
+        assertThat(blocked.actionProposal?.targetMmol ?: 5.5).isAtLeast(5.5)
+        assertThat(blocked.reasons.any { it.contains("safety_iob") }).isTrue()
+        assertThat(allowed.actionProposal?.targetMmol).isLessThan(5.5)
+    }
+
+    @Test
     fun raisesTarget_whenForecastsAreLow() {
         val rule = AdaptiveTargetControllerRule()
         val now = System.currentTimeMillis()
@@ -107,7 +145,7 @@ class AdaptiveTargetControllerRuleTest {
     }
 
     @Test
-    fun lowersTarget_whenCobIsSignificant() {
+    fun significantCobDoesNotForceManualBaseToLegacy4_2() {
         val rule = AdaptiveTargetControllerRule()
         val now = System.currentTimeMillis()
         val decision = rule.evaluate(
@@ -128,14 +166,14 @@ class AdaptiveTargetControllerRuleTest {
 
         assertThat(decision.state).isEqualTo(RuleState.TRIGGERED)
         assertThat(decision.actionProposal).isNotNull()
-        assertThat(decision.actionProposal!!.targetMmol).isAtMost(4.2)
+        assertThat(decision.actionProposal!!.targetMmol).isGreaterThan(4.2)
         val tbValue = decision.reasons
             .firstOrNull { it.startsWith("Tb=") }
             ?.substringAfter("=")
             ?.replace(",", ".")
             ?.toDoubleOrNull()
         assertThat(tbValue).isNotNull()
-        assertThat(tbValue!!).isWithin(0.01).of(4.2)
+        assertThat(tbValue!!).isWithin(0.01).of(5.5)
     }
 
     @Test
@@ -258,7 +296,7 @@ class AdaptiveTargetControllerRuleTest {
     }
 
     @Test
-    fun returnsNoMatch_whenComputedTargetAlreadyMatchesActiveTempTarget() {
+    fun raisesRoutineFourPointZeroTargetWhenFastRiseIsNotConfirmed() {
         val rule = AdaptiveTargetControllerRule()
         val now = System.currentTimeMillis()
         val decision = rule.evaluate(
@@ -277,8 +315,138 @@ class AdaptiveTargetControllerRuleTest {
             )
         )
 
-        assertThat(decision.state).isEqualTo(RuleState.NO_MATCH)
-        assertThat(decision.reasons).contains("target_equals_active")
+        assertThat(decision.state).isEqualTo(RuleState.TRIGGERED)
+        assertThat(decision.actionProposal?.targetMmol).isEqualTo(4.5)
+        assertThat(decision.reasons.any { it.startsWith("aggressiveRiseEligible=0") }).isTrue()
+    }
+
+    @Test
+    fun rapidFarTermFallRequiresTwoDistinctGlucoseSamplesBeforeProtectiveRaise() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = System.currentTimeMillis()
+        val firstContext = context(
+            now = now,
+            glucose = listOf(
+                GlucosePoint(now - 5 * 60_000, 7.62, "test", DataQuality.OK),
+                GlucosePoint(now, 7.20, "test", DataQuality.OK)
+            ),
+            forecasts = listOf(
+                Forecast(now + 5 * 60_000, 5, 6.90, 6.31, 7.49, "test"),
+                Forecast(now + 30 * 60_000, 30, 6.32, 4.42, 8.22, "test"),
+                Forecast(now + 60 * 60_000, 60, 5.95, 3.12, 8.78, "test")
+            ),
+            activeTempTargetMmol = 4.77,
+            adaptiveMaxTargetMmol = 10.0
+        )
+
+        val first = rule.evaluate(firstContext)
+        val repeatedSameSample = rule.evaluate(firstContext)
+
+        assertThat(first.reasons).contains("reason=control_pi")
+        assertThat(first.reasons.any { it.startsWith("rapidFallFarTermLowCandidate=1") }).isTrue()
+        assertThat(first.reasons.any { it.startsWith("rapidFallFarTermLowConfirmed=0") }).isTrue()
+        assertThat(repeatedSameSample.reasons).doesNotContain("reason=hypo_preemptive_guard")
+
+        val secondNow = now + 5 * 60_000
+        val confirmed = rule.evaluate(
+            context(
+                now = secondNow,
+                glucose = listOf(
+                    GlucosePoint(now, 7.20, "test", DataQuality.OK),
+                    GlucosePoint(secondNow, 6.78, "test", DataQuality.OK)
+                ),
+                forecasts = listOf(
+                    Forecast(secondNow + 5 * 60_000, 5, 6.48, 5.90, 7.06, "test"),
+                    Forecast(secondNow + 30 * 60_000, 30, 5.90, 4.42, 7.38, "test"),
+                    Forecast(secondNow + 60 * 60_000, 60, 5.53, 3.12, 7.94, "test")
+                ),
+                activeTempTargetMmol = 4.77,
+                adaptiveMaxTargetMmol = 10.0
+            )
+        )
+
+        assertThat(confirmed.reasons).contains("reason=hypo_preemptive_guard")
+        assertThat(confirmed.reasons.any { it.startsWith("rapidFallFarTermLowConfirmed=1") }).isTrue()
+        assertThat(confirmed.actionProposal?.targetMmol).isAtLeast(7.0)
+    }
+
+    @Test
+    fun sensorBlockBetweenCandidatesBreaksRapidFallConfirmation() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = System.currentTimeMillis()
+
+        rule.evaluate(rapidFallContext(now = now, previousTs = now - 5 * 60_000, previous = 7.62, current = 7.20))
+        rule.evaluate(
+            rapidFallContext(
+                now = now + 60_000,
+                previousTs = now,
+                previous = 7.20,
+                current = 7.10,
+                sensorBlocked = true
+            )
+        )
+        val afterBlock = rule.evaluate(
+            rapidFallContext(
+                now = now + 5 * 60_000,
+                previousTs = now,
+                previous = 7.20,
+                current = 6.78
+            )
+        )
+
+        assertThat(afterBlock.reasons).contains("reason=control_pi")
+        assertThat(afterBlock.reasons.any { it.startsWith("rapidFallFarTermLowCandidate=1") }).isTrue()
+        assertThat(afterBlock.reasons.any { it.startsWith("rapidFallFarTermLowConfirmed=0") }).isTrue()
+    }
+
+    @Test
+    fun rapidFallCandidateOlderThanSixMinutesCannotConfirmNewCandidate() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = System.currentTimeMillis()
+
+        rule.evaluate(rapidFallContext(now = now, previousTs = now - 5 * 60_000, previous = 7.62, current = 7.20))
+        val afterGap = rule.evaluate(
+            rapidFallContext(
+                now = now + 7 * 60_000,
+                previousTs = now,
+                previous = 7.20,
+                current = 6.61
+            )
+        )
+
+        assertThat(afterGap.reasons).doesNotContain("reason=hypo_preemptive_guard")
+        assertThat(afterGap.reasons.any { it.startsWith("rapidFallFarTermLowConfirmed=0") }).isTrue()
+    }
+
+    @Test
+    fun uamRuntimeExplicitZeroOverridesAllStaleLegacyFlags() {
+        val active = AdaptiveTargetControllerRule.resolveUamActiveStatic(
+            mapOf(
+                "uam_runtime_control_flag" to 0.0,
+                "uam_runtime_flag" to 0.0,
+                "uam_active" to 1.0,
+                "uam_value" to 1.0,
+                "uam_calculated_flag" to 1.0,
+                "uam_detected" to 1.0,
+                "some_uam_alias" to 1.0
+            )
+        )
+
+        assertThat(active).isFalse()
+    }
+
+    @Test
+    fun uamRuntimeControlFlagIsPreferredAndRuntimeForecastFlagIsFallback() {
+        assertThat(
+            AdaptiveTargetControllerRule.resolveUamActiveStatic(
+                mapOf("uam_runtime_control_flag" to 1.0, "uam_runtime_flag" to 0.0)
+            )
+        ).isTrue()
+        assertThat(
+            AdaptiveTargetControllerRule.resolveUamActiveStatic(
+                mapOf("uam_runtime_flag" to 1.0, "uam_calculated_flag" to 0.0)
+            )
+        ).isTrue()
     }
 
     private fun defaultGlucose(now: Long): List<GlucosePoint> = listOf(
@@ -292,6 +460,28 @@ class AdaptiveTargetControllerRuleTest {
         Forecast(now + 60 * 60_000, 60, 5.8, 5.0, 6.4, "test")
     )
 
+    private fun rapidFallContext(
+        now: Long,
+        previousTs: Long,
+        previous: Double,
+        current: Double,
+        sensorBlocked: Boolean = false
+    ): RuleContext = context(
+        now = now,
+        glucose = listOf(
+            GlucosePoint(previousTs, previous, "test", DataQuality.OK),
+            GlucosePoint(now, current, "test", DataQuality.OK)
+        ),
+        forecasts = listOf(
+            Forecast(now + 5 * 60_000, 5, current - 0.30, current - 0.89, current + 0.29, "test"),
+            Forecast(now + 30 * 60_000, 30, current - 0.88, 4.42, current + 1.02, "test"),
+            Forecast(now + 60 * 60_000, 60, current - 1.25, 3.12, current + 1.58, "test")
+        ),
+        activeTempTargetMmol = 4.77,
+        adaptiveMaxTargetMmol = 10.0,
+        sensorBlocked = sensorBlocked
+    )
+
     private fun context(
         now: Long,
         glucose: List<GlucosePoint>,
@@ -300,7 +490,9 @@ class AdaptiveTargetControllerRuleTest {
         baseTarget: Double = 5.5,
         activeTempTargetMmol: Double? = null,
         adaptiveMinTargetMmol: Double = 4.0,
-        adaptiveMaxTargetMmol: Double = 9.0
+        adaptiveMaxTargetMmol: Double = 9.0,
+        sensorBlocked: Boolean = false,
+        safetyIobUnits: Double? = 0.0
     ): RuleContext = RuleContext(
         nowTs = now,
         glucose = glucose,
@@ -311,7 +503,8 @@ class AdaptiveTargetControllerRuleTest {
         dataFresh = true,
         activeTempTargetMmol = activeTempTargetMmol,
         actionsLast6h = 0,
-        sensorBlocked = false,
+        sensorBlocked = sensorBlocked,
+        safetyIobUnits = safetyIobUnits,
         latestTelemetry = telemetry,
         adaptiveMaxStepMmol = 0.25,
         adaptiveMinTargetMmol = adaptiveMinTargetMmol,
