@@ -885,6 +885,76 @@ def test_session_readiness_matches_optional_job_service(transport, service):
     assert signed_get(client, key, tokens, path).json()["inference_enabled"] is False
 
 
+@pytest.mark.parametrize("evict_result", [False, True])
+def test_stale_running_read_reconciles_with_completed_publication(transport, service, evict_result):
+    from concurrent.futures import ThreadPoolExecutor
+    client, jobs, ledger, factory, _ = transport
+    _, key, tokens = activate(client, service)
+    started, captured, release_snapshot, published = Event(), Event(), Event(), Event()
+    allow_run = asyncio.Event()
+    original_factory, original_get, original_collect = jobs.worker_factory, ledger.get, jobs._collect_active
+
+    def controlled_factory(work):
+        worker = original_factory(work)
+        original_run = worker.run
+        async def run():
+            started.set()
+            await allow_run.wait()
+            return await original_run()
+        worker.run = run
+        return worker
+
+    jobs.worker_factory = controlled_factory
+    accepted = submit(client, key, tokens, b'{"text":"synthetic coherent snapshot"}',
+                      request_id=str(uuid4()), deadline_ms=NOW + 120_000)
+    job_id = accepted.json()["job_id"]
+    path = f"/api/ai/v1/jobs/{job_id}"
+    assert started.wait(3)
+
+    def gated_get(*args, **kwargs):
+        snapshot = original_get(*args, **kwargs)
+        if kwargs.get("session_id") is not None and not captured.is_set():
+            assert snapshot.state == "RUNNING"
+            captured.set()
+            assert release_snapshot.wait(3)
+        return snapshot
+
+    async def observe_publication():
+        result = await original_collect()
+        if job_id in jobs._results:
+            published.set()
+        return result
+
+    async def evict():
+        async with jobs._lock:
+            jobs._results.pop(job_id)
+
+    ledger.get, jobs._collect_active = gated_get, observe_publication
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                reading = pool.submit(signed_get, client, key, tokens, path)
+                assert captured.wait(3)
+                client.portal.call(allow_run.set)
+                assert published.wait(3)
+                if evict_result:
+                    client.portal.call(evict)
+                release_snapshot.set()
+                response = reading.result(timeout=3)
+                assert response.status_code == 200
+                assert response.json()["state"] == "SUCCEEDED"
+                assert response.json()["finished_ms"] is not None
+                assert response.json()["result_available"] is not evict_result
+                if not evict_result:
+                    assert response.json()["result"] == {"text": "synthetic response"}
+                assert factory.runs == [job_id]
+            finally:
+                release_snapshot.set()
+                client.portal.call(allow_run.set)
+    finally:
+        ledger.get, jobs._collect_active, jobs.worker_factory = original_get, original_collect, original_factory
+
+
 def test_graceful_close_stops_active_and_restart_never_replays(service, tmp_path):
     from app.ai.job_ledger import JobLedger
     from app.ai.job_service import AiJobService

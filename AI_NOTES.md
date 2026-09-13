@@ -28,7 +28,10 @@
   session readiness also follows the actual optional job service.
 - An expiry test now waits for both the DB commit and event-loop RAM cleanup,
   rather than mistaking the intermediate commit for completed cleanup.
-- Final backend verification after quality fixes: `311 passed` in `27.13s`;
+- Reverse publication interleaving also reproduced an old RUNNING DB snapshot
+  paired with a newer cache. Completed metadata/result are now one immutable
+  tuple; a bounded reread handles retirement or eviction. Both regressions pass.
+- Final backend verification after quality fixes: `313 passed` in `27.79s`;
   the focused feature suite passed `141` tests. The only warning is the
   existing Starlette test-client AnyIO alias deprecation.
 - Earlier unsuccessful runs are retained in private artifacts. They exposed the

@@ -49,6 +49,7 @@ class _Payload:
 class _CachedResult:
     value: ChatResult
     expires_ms: int
+    job: Job
 
 
 class _ValidatingWorker:
@@ -252,6 +253,15 @@ class AiJobService:
                 self._results.pop(job_id, None)
                 cached = None
             available = (job_id in self._payloads or job_id == self._active_job_id)
+            if cached is not None:
+                # Publish completed metadata and its result as one immutable tuple.
+                job = cached.job
+            elif not available and job.state in {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}:
+                # Retirement/eviction may have happened while the first DB read awaited.
+                job = await asyncio.to_thread(self.ledger.get, device.owner_id, job_id,
+                    session_id=device.session_id, key_hash=device.key_fingerprint)
+                if job is None:
+                    raise JobServiceError(404, "not_found")
         return self._receipt(job, cached=cached, unavailable=not available,
                              pending_result=available and cached is None and job.state == "SUCCEEDED")
 
@@ -375,7 +385,7 @@ class AiJobService:
             self._payloads.pop(job_id, None)
             if outcome.job.state == "SUCCEEDED" and isinstance(outcome.result, ChatResult):
                 expires = min(self.clock_ms() + self.policy.result_ttl_ms, 2**63 - 1)
-                self._results[job_id] = _CachedResult(outcome.result, expires)
+                self._results[job_id] = _CachedResult(outcome.result, expires, outcome.job)
                 while len(self._results) > self.MAX_VOLATILE_RESULTS:
                     self._results.popitem(last=False)
         return True

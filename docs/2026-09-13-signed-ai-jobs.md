@@ -176,6 +176,11 @@ executor outcome still awaits publication into the volatile result cache. POST
 recovery and GET use the same status path. A client cannot mistake this brief
 publication interval for a terminal success with a lost result. After actual TTL
 expiry or process loss, terminal success with result_available=false remains valid.
+Completed metadata and its result are cached as one immutable tuple. If an older
+DB read overlaps publication, the tuple supplies the matching completed status.
+If the runtime has already retired/evicted the result, an older non-terminal DB
+snapshot is rechecked once before UNKNOWN can be reported. Normal reads do not
+add a second query or new polling loop.
 
 Claim completion and bounded stop/settlement are protected from caller
 cancellation. Cancel remains effective, but it cannot interrupt receipt collection
