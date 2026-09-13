@@ -52,15 +52,27 @@ class _CachedResult:
 
 
 class _ValidatingWorker:
-    def __init__(self, worker: ContainedWorker):
-        self._worker = worker
-        self.route_revision = worker.route_revision
-        self.request_digest = worker.request_digest
+    def __init__(self, work: JobWork, factory: Callable[[JobWork], ContainedWorker]):
+        self._work = work
+        self._factory = factory
+        self._worker: ContainedWorker | None = None
+        self._construction_attempted = False
+        self.route_revision = work.route_revision
+        self.request_digest = work.request_digest
 
     async def run(self):
+        # JobExecutor calls run only after acquiring the durable global claim.
+        self._construction_attempted = True
+        self._worker = self._factory(self._work)
+        if (self._worker.route_revision != self.route_revision
+                or self._worker.request_digest != self.request_digest):
+            raise ValueError("worker_binding_mismatch")
         return ChatResult.decode(await self._worker.run())
 
     async def stop_and_confirm(self) -> bool:
+        if self._worker is None:
+            # A failed constructor may have started resources before raising.
+            return not self._construction_attempted
         return await self._worker.stop_and_confirm()
 
 
@@ -347,14 +359,7 @@ class AiJobService:
                 async with self._lock:
                     self._payloads.pop(job_id, None)
                 continue
-            try:
-                worker = _ValidatingWorker(self.worker_factory(payload.work))
-            except Exception:
-                await asyncio.to_thread(self.ledger.cancel, payload.owner_id,
-                                        job_id, now_ms=self.clock_ms())
-                async with self._lock:
-                    self._payloads.pop(job_id, None)
-                continue
+            worker = _ValidatingWorker(payload.work, self.worker_factory)
             async with self._lock:
                 if self._closing:
                     return

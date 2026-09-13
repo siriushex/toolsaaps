@@ -16,7 +16,11 @@
 - RED/GREEN used synthetic activation, P-256 proofs and injected synthetic
   contained workers. No Codex call, external server/phone action, secret,
   medical payload or therapy command was used.
-- Final backend verification: `280 passed` in `26.38s`; the only warning is the
+- Independent spec review found constructor-before-claim, unconsumed GET/DELETE
+  body bytes, encoded-path aliases and omitted policy digest fields. All were
+  reproduced RED and corrected with eight GREEN checks, including constructor
+  failure retaining capacity without a fabricated stop receipt.
+- Final backend verification after these fixes: `287 passed` in `31.32s`; the only warning is the
   existing Starlette test-client AnyIO alias deprecation.
 - Exact contract and pending R1b/production gates are documented in
   `docs/2026-09-13-signed-ai-jobs.md`. Online launcher, independent OS stop

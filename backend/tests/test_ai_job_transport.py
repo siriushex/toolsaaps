@@ -364,6 +364,7 @@ def test_unconfirmed_stop_stays_unknown_and_blocks_global_capacity(transport, se
     assert queued.status_code == 202
     time.sleep(0.05)
     assert "synthetic queued" not in factory.run_texts
+    assert [work.job_id for work in factory.works] == [job_id]
     assert ledger.get(service[1].authenticate_attested(
         next_tokens["access_token"],
         key_fingerprint=key_fingerprint(next_key),
@@ -704,6 +705,70 @@ def test_http_envelope_limits_duplicate_headers_and_canonical_paths(transport, s
 
     clock.value = tokens["access_expires_ms"]
     assert signed_get(client, key, tokens, path, now=clock.value).status_code == 401
+
+
+@pytest.mark.parametrize("method", ["GET", "DELETE"])
+@pytest.mark.parametrize("violation", ["body", "encoded_path"])
+def test_signed_job_rejects_raw_asgi_body_and_path_alias(transport, service, method, violation):
+    client, _, _, _, _ = transport
+    _, key, tokens = activate(client, service)
+    job = submit(client, key, tokens, b'{"text":"synthetic raw frame"}',
+                 request_id=str(uuid4()), deadline_ms=NOW + 120_000)
+    path = f"/api/ai/v1/jobs/{job.json()['job_id']}"
+    proof = signed(key, method=method, path=path, body=b"",
+                   credential=tokens["access_token"])
+    headers = proof_headers(proof, key, access_token=tokens["access_token"])
+
+    async def request():
+        messages = iter([
+            {"type": "http.request", "body": b"", "more_body": True},
+            {"type": "http.request", "body": b"{}" if violation == "body" else b"", "more_body": False},
+        ])
+        responses = []
+        scope = dict(type="http", asgi={"version": "3.0"}, http_version="1.1",
+                     method=method, scheme="https", path=path, root_path="",
+                     raw_path=(path.replace("/api/", "/%61pi/") if violation == "encoded_path" else path).encode(),
+                     query_string=b"", server=("testserver", 443), client=("127.0.0.1", 1),
+                     headers=[(name.lower().encode(), value.encode()) for name, value in headers.items()])
+        async def receive():
+            return next(messages, {"type": "http.disconnect"})
+        async def send(message):
+            responses.append(message)
+        await client.app(scope, receive, send)
+        return responses
+
+    responses = client.portal.call(request)
+    response = next(item for item in responses if item["type"] == "http.response.start")
+    assert response["status"] == 400
+    assert (b"cache-control", b"no-store") in response["headers"]
+
+
+def test_worker_factory_only_called_after_durable_claim(transport, service):
+    client, jobs, ledger, factory, _ = transport
+    owner, key, tokens = activate(client, service)
+    observed = []
+    def claimed_factory(work):
+        observed.append(ledger.get(owner, work.job_id).state)
+        return factory(work)
+    jobs.worker_factory = claimed_factory
+    accepted = submit(client, key, tokens, b'{"text":"synthetic claim check"}',
+                      request_id=str(uuid4()), deadline_ms=NOW + 120_000)
+    terminal = wait_for_terminal(client, key, tokens, accepted.json()["job_id"])
+    assert terminal.json()["state"] == "SUCCEEDED"
+    assert observed == ["RUNNING"]
+
+
+def test_factory_exception_retains_capacity_without_stop_receipt(transport, service):
+    client, jobs, ledger, _, _ = transport
+    owner, key, tokens = activate(client, service)
+    def uncertain_factory(work):
+        raise RuntimeError("synthetic construction outcome unknown")
+    jobs.worker_factory = uncertain_factory
+    accepted = submit(client, key, tokens, b'{"text":"synthetic uncertain constructor"}',
+                      request_id=str(uuid4()), deadline_ms=NOW + 120_000)
+    terminal = wait_for_terminal(client, key, tokens, accepted.json()["job_id"])
+    assert terminal.json()["state"] == "UNKNOWN"
+    assert ledger.get(owner, accepted.json()["job_id"]).state == "RUNNING"
 
 
 def test_graceful_close_stops_active_and_restart_never_replays(service, tmp_path):

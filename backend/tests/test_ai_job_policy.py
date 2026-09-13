@@ -61,6 +61,21 @@ def test_request_digest_binds_full_request_and_trusted_route_policy():
     assert all(request_digest(**(baseline | variant)) != digest for variant in variants)
 
 
+def test_every_trusted_policy_field_changes_the_digest():
+    from dataclasses import fields
+    from app.ai.job_policy import CHAT_POLICY, request_digest
+    from app.ai.schemas import ChatRequest
+
+    args = dict(request_id=str(uuid4()), deadline_ms=1_800_000_120_000,
+                request=ChatRequest("synthetic"), body=b'{"text":"synthetic"}')
+    expected = request_digest(CHAT_POLICY, **args)
+    for field in fields(CHAT_POLICY):
+        value = getattr(CHAT_POLICY, field.name)
+        changed = (not value if type(value) is bool else
+                   value + 1 if type(value) is int else value + "-changed")
+        assert request_digest(replace(CHAT_POLICY, **{field.name: changed}), **args) != expected, field.name
+
+
 def test_policy_is_closed_to_chat_text_and_advisory_execution():
     from app.ai.job_policy import CHAT_POLICY
 

@@ -59,7 +59,9 @@ not already rejectable from headers. The exact body proof is checked after the
 bounded read, then authentication/revocation/subscription is checked again.
 Duplicate authentication/proof headers, content encoding, a body on GET/DELETE,
 query strings, mismatched declared/actual size and unsupported content type are
-rejected.
+rejected. GET/DELETE consume bounded ASGI frames and reject non-empty bytes even
+without Content-Length. When the ASGI server supplies raw_path, it must exactly
+match the ASCII path; percent-encoded aliases are rejected before routing.
 
 Stable generic failures are `400 invalid_request`, `401 unauthorized`,
 `404 not_found`, `405 method_not_allowed`, `409 request_conflict`,
@@ -115,9 +117,10 @@ The request digest is SHA-256 of UTF-8 canonical JSON (`sort_keys=true`, compact
 separators, `ensure_ascii=false`) containing exactly:
 
 ```text
-allow_actions, allow_tools, body_sha256, deadline_ms, input:{text}, kind,
-max_response_bytes, max_result_bytes, max_result_chars, model,
-prompt_revision, request_id, route_revision, schema_revision,
+allow_actions, allow_tools, body_sha256, deadline_ms, input:{text},
+input_modality, output_modality, kind, max_text_chars, max_text_bytes,
+max_deadline_ms, result_ttl_ms, max_response_bytes, max_result_bytes,
+max_result_chars, model, prompt_revision, request_id, route_revision, schema_revision,
 system_prompt_sha256, version:1
 ```
 
@@ -146,6 +149,11 @@ Dispatch rechecks the stable session/key grant, revocation and subscription
 without depending on the admission access token. The ledger permits one
 executing worker globally, at most five waiting globally and at most one active
 job per owner. FIFO is preserved in the volatile queue.
+
+The worker factory is deferred until JobExecutor holds a durable claim. Neither
+construction nor run is permitted behind an unknown-stop slot. If construction
+raises before returning a worker, its resource outcome is unknown and the claim
+remains occupied; no stop receipt is invented for that case.
 
 Cancellation, deadline and shutdown cancel the execution task and require the
 worker's independent positive `stop_and_confirm()` receipt before releasing the

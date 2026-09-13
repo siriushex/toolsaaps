@@ -94,6 +94,12 @@ class _Admission:
         if not self._admit():
             return await fail(429, "rate_limited")
         path, method = scope["path"], scope["method"]
+        try:
+            canonical_path = path.encode("ascii")
+        except UnicodeError:
+            return await fail(400, "invalid_request")
+        if scope.get("raw_path", canonical_path) != canonical_path:
+            return await fail(400, "invalid_request")
         detail = self._detail(path)
         if path not in self.post_fields and path not in self.get_paths and not detail:
             return await fail(404, "not_found")
@@ -188,6 +194,18 @@ class _Admission:
                     scope.setdefault("state", {})["credential"] = auth[0][7:].decode("ascii")
                 except UnicodeError:
                     return await fail(401, "unauthorized")
+            try:
+                async with asyncio.timeout(self.timeout):
+                    while True:
+                        message = await receive()
+                        if message["type"] == "http.disconnect":
+                            return
+                        if message["type"] != "http.request" or message.get("body", b""):
+                            return await fail(400, "invalid_request")
+                        if not message.get("more_body", False):
+                            break
+            except TimeoutError:
+                return await fail(408, "request_timeout")
         started = False
         async def safe_send(message):
             nonlocal started
