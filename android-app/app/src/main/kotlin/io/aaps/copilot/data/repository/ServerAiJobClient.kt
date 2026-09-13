@@ -111,9 +111,9 @@ class ServerAiJobClient internal constructor(
     private val requestJson = Json
 
     fun prepareChat(text: String, deadlineMs: Long): ServerAiChatSubmission = try {
-        val inputBytes = strictUtf8(text)
-        require(text.isNotEmpty())
+        require(text.length in 1..MAX_TEXT_CHARS * 2)
         require(text.codePointCount(0, text.length) <= MAX_TEXT_CHARS)
+        val inputBytes = strictUtf8(text)
         require(inputBytes.size <= MAX_TEXT_BYTES)
         val now = connection.currentServerTimeMs()
         val deadlineWindow = Math.subtractExact(deadlineMs, now)

@@ -165,6 +165,33 @@ class ServerAiJobClientTest {
     }
 
     @Test
+    fun oversizedLocalTextIsRejectedWithoutProportionalEncodingAllocation() {
+        val client = ServerAiJobClient(manager { _, _, _, _, _ -> error("no network") })
+        val deadline = initialNow + 120_000L
+        val oversized = "a".repeat(1_000_000)
+        client.prepareChat("warmup", deadline)
+        assertInvalidRequest { client.prepareChat("a".repeat(8_193), deadline) }
+        // The local JVM exposes allocation counters, but Android's compile classpath does not.
+        val allocation = Class.forName("java.lang.management.ManagementFactory")
+            .getMethod("getThreadMXBean").invoke(null)
+        val type = Class.forName("com.sun.management.ThreadMXBean")
+        assertEquals(true, type.getMethod("isThreadAllocatedMemorySupported").invoke(allocation))
+        val enabledBefore = type.getMethod("isThreadAllocatedMemoryEnabled").invoke(allocation)
+        val setEnabled = type.getMethod("setThreadAllocatedMemoryEnabled", Boolean::class.javaPrimitiveType)
+        val allocatedBytes = type.getMethod("getThreadAllocatedBytes", Long::class.javaPrimitiveType)
+        try {
+            setEnabled.invoke(allocation, true)
+            val thread = Thread.currentThread().id
+            val before = allocatedBytes.invoke(allocation, thread) as Long
+            assertInvalidRequest { client.prepareChat(oversized, deadline) }
+            val allocated = (allocatedBytes.invoke(allocation, thread) as Long) - before
+            assertTrue("Oversized rejection allocated $allocated bytes", allocated in 0 until 65_536)
+        } finally {
+            setEnabled.invoke(allocation, enabledBefore)
+        }
+    }
+
+    @Test
     fun refreshRunsBeforeSubmitAndKeepsSubscriptionAndPreparedBytes() = runTest {
         var now = initialNow
         val deadline = initialNow + 120_000L

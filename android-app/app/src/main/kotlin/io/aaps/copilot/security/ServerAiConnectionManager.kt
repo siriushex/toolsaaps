@@ -1,6 +1,7 @@
 package io.aaps.copilot.security
 
 import android.content.Context
+import io.aaps.copilot.data.repository.OneShotJsonRequestBody
 import java.io.IOException
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
@@ -17,10 +18,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 
 enum class ServerAiConnectionPhase { DISCONNECTED, SAVED, CONNECTING, ACTIVE, ERROR }
 enum class ServerAiConnectionError { INVALID_CODE, NETWORK, UNAUTHORIZED, DEVICE_KEY, STORAGE, INVALID_RESPONSE }
@@ -391,7 +390,13 @@ private class HardwareConnectionIdentity(private val key: ServerAiDeviceKey = Se
 
 private class HttpsConnectionTransport : ServerAiConnectionTransport {
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-        .retryOnConnectionFailure(false).callTimeout(20, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS).build()
+        .retryOnConnectionFailure(false)
+        .addNetworkInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            // OkHttp otherwise replays 503 + Retry-After: 0, including GET/DELETE single-use proofs.
+            if (response.code == 503) response.newBuilder().removeHeader("Retry-After").build() else response
+        }
+        .callTimeout(20, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS).build()
 
     override suspend fun exchange(
         method: String,
@@ -407,7 +412,7 @@ private class HttpsConnectionTransport : ServerAiConnectionTransport {
             headers.forEach { (name, value) -> header(name, value) }
             when (method) {
                 "GET" -> get()
-                "POST" -> post(body.toRequestBody("application/json".toMediaType()))
+                "POST" -> post(OneShotJsonRequestBody(body))
                 "DELETE" -> delete()
             }
         }.build()
