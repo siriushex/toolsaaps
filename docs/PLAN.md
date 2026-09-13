@@ -1,5 +1,20 @@
 # PLAN
 
+## R1b Android Signed AI Client (2026-09-13)
+
+- Minimal CHAT capabilities/submit/status/cancel client implemented over the
+  existing connection manager and hardware request proof.
+- Focused 36 tests and full Android verification passed: 4392 tests with three
+  conditional skips, no failures/errors; lint and all three APK builds passed.
+- Spec review accepted the clock-recovery correction. Quality findings were
+  reproduced RED and fixed; independent recheck accepted both fixes.
+- Phone read-only baseline completed. Isolated installation was rejected by
+  the system; device tests require installer approval, without bypassing it.
+- The connected phone later changed to a device without Copilot. Confirm the
+  target before any installation; do not reuse the previous phone's baseline.
+- No existing clinical callers, photo inference, server deployment or therapy
+  behavior changed. [Client scope and gates](2026-09-13-android-ai-jobs.md).
+
 ## R1a Signed Server AI Job Transport (2026-09-13)
 
 - Implemented an optional owner-scoped, app-key-signed `CHAT`/`TEXT` transport

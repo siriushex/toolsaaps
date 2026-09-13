@@ -41,6 +41,13 @@ its numeric controller thresholds require current-code verification before use.
   staging and deployment remain separate release gates.
 - The exact R1a wire and digest rules are in
   [signed server AI jobs](2026-09-13-signed-ai-jobs.md).
+- The minimal Android job client reuses connection identity and encrypted
+  credentials. It cannot select another host, fall back to personal keys or
+  issue an automatic repeat after an ambiguous send. An explicit retry retains
+  the exact prepared UUID, deadline and body; only its access proof is renewed.
+- Job responses have a separate 64 KiB cap; activation/status retain 16 KiB.
+  Neither the isolated test APK nor this optional client stage authorizes
+  clinical uploads or changes an existing therapy/AI caller.
 
 ## Safety invariants
 Telegram forwarding starts disabled and needs explicit trusted-private-chat enrollment.

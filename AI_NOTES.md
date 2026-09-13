@@ -1,3 +1,59 @@
+# R1b Android Signed AI Client and USB Preflight - 2026-09-13
+
+- Added the minimal signed CHAT client on top of the existing connection
+  manager. No new secret store, host setting, provider fallback or worker.
+- Request bytes, UUID and deadline remain stable across an explicit retry;
+  fresh proofs use the current session. Expired refresh recovery is rejected
+  before signing. Bounded strict parsing preserves lifecycle/result distinction.
+- Candidate `877df0ad`: 17 new client and nine existing connection tests passed;
+  full unit/lint/debug/uiTest/instrumentation assembly passed in 13m 7s. There
+  were 4382 tests, zero failures/errors, three conditional phone-copy skips;
+  lint had zero errors, 295 warnings and four hints.
+- Spec review found two backend-authoritative wall-clock cases rejected by the
+  Android decoder. Both reproduced RED; narrow fix `29379708` passed 19 client
+  and nine connection tests. Independent spec recheck accepted the correction;
+  full verification at that revision passed 4384 tests with zero failures/errors
+  and three conditional skips.
+- Quality review found native OkHttp 503 follow-up retries and an input encoding
+  allocation before length validation. Four tests reproduced the defects RED.
+  Fix `e5432c52` adds a pre-encoding bound, reuses one-shot JSON bodies and
+  suppresses 503 retry hints for signed GET/DELETE as well as POST.
+  All 36 focused tests pass, including seven real-OkHttp tests for one wire
+  attempt, stream limits, cancellation and redirects.
+- Final full verification at `e5432c52` passed in 6m 4s: 4392 tests in 359
+  suites, zero failures/errors, three conditional phone-copy skips. Lint:
+  zero errors, 295 warnings, four hints, no new findings versus `29379708`.
+  Debug, isolated UI-test and instrumentation APKs all assembled and verified.
+  Independent quality recheck accepted both fixes with no concrete blockers.
+  Implementer and both independent reviewers used `gpt-5.6-sol` / `xhigh`.
+- Final debug APK SHA-256:
+  `d95da44c114786960854684b02e03a41b4b72852528a6b4cc297614b481fbfa8`.
+  Isolated target SHA-256:
+  `10a6fd1cbc9903cd72df6e057fd90e01f66e45aafd4278caa726f845dc16b286`.
+  Instrumentation SHA-256:
+  `36b28b2d2634f4237d4c47c2b070b610ad81b53bcf93dc69b58239fc44f45627`.
+  All use signer SHA-256
+  `bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db`.
+  The isolated APK declares only its own dynamic-receiver permission, not
+  Internet or AAPS access. No credential containers in the three APKs; bounded
+  added-line scanning found no provider/Telegram/private-key literals.
+- USB phone baseline: production last updated September 6; installed APK backed
+  up privately and signer matched the isolated test candidate. Overview opened
+  with current data and a forecast; this is not proof of clinical accuracy.
+- Isolated target installation returned `INSTALL_FAILED_USER_RESTRICTED`.
+  No bypass/retry after denial, production update or instrumentation performed.
+- During verification the USB target changed. The replacement device has AAPS
+  but no Copilot package; no installation attempted, user target confirmation
+  requested. Earlier baseline evidence is not attributed to that phone.
+- Bounded resource samples and system cleanup exit records retained privately.
+  Different foreground/background states are not an optimization comparison.
+- No server mutation, medical upload, real authorization code or AI call.
+  Unauthenticated server status returned 503 with valid TLS.
+- Contract, missing caller/online gates: `docs/2026-09-13-android-ai-jobs.md`.
+- Private evidence: `/Users/mac/Andoidaps/artifacts/server-ai-usb-r1b-20260913-9a1jYB`.
+  Baseline screenshots and diagnostics stay outside Git. Feature commits remain
+  on `codex/server-ai-jobs-20260913`; no main merge or remote push in this stage.
+
 # R1a Signed Server AI Job Transport - 2026-09-13
 
 - Added optional signed `CHAT`/`TEXT` capabilities, submit, status and cancel

@@ -96,8 +96,8 @@ NaN/Infinity, malformed UTF-8/JSON and excessive nesting are invalid.
 Worker output has exactly the same one-field shape. Result `text` is non-empty,
 at most `8192` Unicode code points and at most `16384` UTF-8 bytes. A malformed
 or oversized worker output fails the job and is never returned. The complete
-status response is bounded to `65536` bytes; R1b must raise its current 16 KiB
-response reader before integration.
+status response is bounded to `65536` bytes. The R1b Android reader enforces
+that job-specific limit while retaining 16 KiB for activation/session responses.
 
 `GET` returns lifecycle metadata and, only while available, nested
 `"result":{"text":"..."}` plus `result_expires_ms`. Volatile result content
@@ -206,8 +206,10 @@ An injected ledger must allow at most five waiting jobs.
 
 ## Remaining gates
 
-R1b still needs the typed Android exchange, its larger response bound and
-device-level activation/refresh/job/cancel behavior tests. Production remains
+The [R1b Android client](2026-09-13-android-ai-jobs.md) now supplies the typed
+exchange and separate larger response bound. Independent local reviews and full
+Android verification are complete. Device-level activation/refresh/job/cancel
+tests and caller integration still require verification before rollout. Production remains
 blocked on explicit server authority, current attestation and release-signer
 policy, device enrollment/revocation operations, a real contained launcher and
 independent OS stop receipt, route/model validation, deployment configuration,
