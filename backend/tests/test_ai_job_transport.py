@@ -649,7 +649,9 @@ def test_idle_drain_expires_queued_payload_behind_unknown_stop(transport, servic
         f"/api/ai/v1/jobs/{first.json()['job_id']}").json()["state"] == "UNKNOWN"
     clock.value = NOW + 20
     for _ in range(100):
-        if ledger.get(bound.owner_id, queued.json()["job_id"]).state == "EXPIRED":
+        # The DB commit precedes the event-loop cleanup of volatile content.
+        if (ledger.get(bound.owner_id, queued.json()["job_id"]).state == "EXPIRED"
+                and queued.json()["job_id"] not in jobs._payloads):
             break
         time.sleep(0.01)
     assert ledger.get(bound.owner_id, queued.json()["job_id"]).state == "EXPIRED"
@@ -769,6 +771,118 @@ def test_factory_exception_retains_capacity_without_stop_receipt(transport, serv
     terminal = wait_for_terminal(client, key, tokens, accepted.json()["job_id"])
     assert terminal.json()["state"] == "UNKNOWN"
     assert ledger.get(owner, accepted.json()["job_id"]).state == "RUNNING"
+
+
+@pytest.mark.parametrize("field", [
+    "max_text_chars", "max_text_bytes", "max_result_chars", "max_result_bytes",
+    "max_response_bytes", "max_deadline_ms",
+])
+@pytest.mark.parametrize("change", ["tighter", "larger", "float"])
+def test_transport_rejects_unimplemented_policy_limits(service, tmp_path, field, change):
+    from app.ai.job_ledger import JobLedger
+    from app.ai.job_policy import CHAT_POLICY
+    from app.ai.job_service import AiJobService
+
+    value = getattr(CHAT_POLICY, field)
+    changed = 1 if change == "tighter" else value + 1 if change == "larger" else float(value)
+    ledger = JobLedger(tmp_path / "invalid-policy.sqlite")
+    try:
+        with pytest.raises(ValueError, match="^invalid_job_service$"):
+            AiJobService(service[1], service[0].proofs, ledger, SyntheticFactory(),
+                         policy=replace(CHAT_POLICY, **{field: changed}))
+    finally:
+        ledger.engine.dispose()
+
+
+def test_success_is_not_public_until_result_cache_is_published(transport, service):
+    client, jobs, ledger, factory, _ = transport
+    owner, key, tokens = activate(client, service)
+    publication_pending = Event()
+    allow_publication = asyncio.Event()
+    collect = jobs._collect_active
+
+    async def gated_collect():
+        if jobs._active_task is not None and jobs._active_task.done():
+            publication_pending.set()
+            await allow_publication.wait()
+        return await collect()
+
+    jobs._collect_active = gated_collect
+    request_id = str(uuid4())
+    body = b'{"text":"synthetic publication boundary"}'
+    try:
+        accepted = submit(client, key, tokens, body, request_id=request_id,
+                          deadline_ms=NOW + 120_000)
+        job_id = accepted.json()["job_id"]
+        assert publication_pending.wait(2)
+        assert ledger.get(owner, job_id).state == "SUCCEEDED"
+        pending = signed_get(client, key, tokens, f"/api/ai/v1/jobs/{job_id}")
+        assert pending.json()["state"] == "RUNNING"
+        assert pending.json()["finished_ms"] is None
+        retry = submit(client, key, tokens, body, request_id=request_id,
+                       deadline_ms=NOW + 120_000)
+        assert retry.json()["job_id"] == job_id
+        assert retry.json()["state"] == "RUNNING"
+    finally:
+        client.portal.call(allow_publication.set)
+        jobs._collect_active = collect
+    finished = wait_for_terminal(client, key, tokens, job_id)
+    assert finished.json()["result_available"] is True
+    assert finished.json()["result"] == {"text": "synthetic response"}
+    assert factory.runs == [job_id]
+
+
+def test_transport_refuses_ledger_capacity_above_five(service, tmp_path):
+    from app.ai.job_ledger import JobLedger
+    from app.ai.job_service import AiJobService
+    ledger = JobLedger(tmp_path / "oversized-queue.sqlite", max_waiting=6)
+    try:
+        with pytest.raises(ValueError, match="^invalid_job_service$"):
+            AiJobService(service[1], service[0].proofs, ledger, SyntheticFactory())
+    finally:
+        ledger.engine.dispose()
+
+
+def test_drain_failure_clears_content_and_refuses_new_admission(transport, service):
+    client, jobs, ledger, factory, _ = transport
+    _, key, tokens = activate(client, service)
+    accepted = submit(client, key, tokens, b'{"text":"synthetic failure supervision"}',
+                      request_id=str(uuid4()), deadline_ms=NOW + 120_000)
+    wait_for_terminal(client, key, tokens, accepted.json()["job_id"])
+    original = ledger.expire_queued
+    def failed_expiry(*, now_ms):
+        raise RuntimeError("synthetic private ledger error")
+    ledger.expire_queued = failed_expiry
+    try:
+        client.portal.call(jobs._event.set)
+        for _ in range(100):
+            if jobs._drain_task.done():
+                break
+            time.sleep(0.01)
+        assert jobs.capabilities()["inference_enabled"] is False
+        assert not jobs._results and not jobs._payloads
+        refused = submit(client, key, tokens, b'{"text":"synthetic must not queue"}',
+                         request_id=str(uuid4()), deadline_ms=NOW + 120_000)
+        assert refused.status_code == 503
+        assert refused.json() == {"error": "service_unavailable"}
+        assert factory.runs == [accepted.json()["job_id"]]
+    finally:
+        ledger.expire_queued = original
+        if jobs._drain_task is not None and jobs._drain_task.done():
+            # Consume the old defective task failure so RED has clean teardown.
+            try:
+                jobs._drain_task.result()
+            except RuntimeError:
+                jobs._drain_task = None
+
+
+def test_session_readiness_matches_optional_job_service(transport, service):
+    client, jobs, _, _, _ = transport
+    _, key, tokens = activate(client, service)
+    path = "/api/ai/v1/session/status"
+    assert signed_get(client, key, tokens, path).json()["inference_enabled"] is True
+    client.portal.call(jobs.close)
+    assert signed_get(client, key, tokens, path).json()["inference_enabled"] is False
 
 
 def test_graceful_close_stops_active_and_restart_never_replays(service, tmp_path):

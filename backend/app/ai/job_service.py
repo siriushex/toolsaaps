@@ -86,11 +86,16 @@ class AiJobService:
                  policy: JobPolicy = CHAT_POLICY, clock_ms=None):
         if (not isinstance(auth, ClientAuth) or not isinstance(proofs, RequestProofVerifier)
                 or not isinstance(ledger, JobLedger) or not callable(worker_factory)
+                or not 1 <= ledger.max_waiting <= 5
+                or not isinstance(policy, JobPolicy)
                 or policy.kind != "CHAT" or policy.input_modality != "TEXT"
                 or policy.output_modality != "TEXT" or policy.allow_tools
-                or policy.allow_actions or not 0 < policy.result_ttl_ms <= 900_000
-                or not 0 < policy.max_deadline_ms <= 900_000
-                or not 0 < policy.max_result_bytes < policy.max_response_bytes):
+                or policy.allow_actions or type(policy.result_ttl_ms) is not int
+                or not 0 < policy.result_ttl_ms <= 900_000
+                or any(type(getattr(policy, name)) is not int
+                       or getattr(policy, name) != getattr(CHAT_POLICY, name)
+                       for name in ("max_text_chars", "max_text_bytes", "max_result_chars",
+                                    "max_result_bytes", "max_response_bytes", "max_deadline_ms"))):
             raise ValueError("invalid_job_service")
         self.auth = auth
         self.proofs = proofs
@@ -107,6 +112,12 @@ class AiJobService:
         self._active_task: asyncio.Task | None = None
         self._active_job_id: str | None = None
         self._closing = False
+        self._failed = False
+
+    @property
+    def inference_ready(self) -> bool:
+        return (not self._closing and not self._failed and self._drain_task is not None
+                and not self._drain_task.done())
 
     def preauthorize(self, access_token: str, key_fingerprint: str,
                      now_ms: int) -> AttestedDevice:
@@ -135,6 +146,8 @@ class AiJobService:
         return current
 
     async def start(self) -> None:
+        if self._closing or self._failed:
+            raise RuntimeError("job_service_closed")
         if self._drain_task is not None:
             return
         await asyncio.to_thread(self.ledger.abandon_queued, now_ms=self.clock_ms())
@@ -168,7 +181,7 @@ class AiJobService:
     def capabilities(self) -> dict[str, object]:
         return {
             "revision": self.policy.route_revision,
-            "inference_enabled": True,
+            "inference_enabled": self.inference_ready,
             "task_kinds": [self.policy.kind],
             "input_modalities": [self.policy.input_modality],
             "output_modalities": [self.policy.output_modality],
@@ -182,6 +195,8 @@ class AiJobService:
 
     async def submit(self, device: AttestedDevice, *, request_id: str,
                      deadline_ms: int, body: bytes, now_ms: int) -> dict[str, object]:
+        if not self.inference_ready:
+            raise JobServiceError(503, "service_unavailable")
         try:
             request = ChatRequest.decode(body)
             digest = request_digest(self.policy, request_id=request_id,
@@ -205,19 +220,24 @@ class AiJobService:
             work = JobWork(job_id=job.id, request=request, request_digest=digest,
                            route_revision=self.policy.route_revision,
                            deadline_ms=deadline_ms, policy=self.policy)
-            overflow = False
+            rejection = None
             async with self._lock:
-                if len(self._payloads) >= self.MAX_VOLATILE_PAYLOADS:
-                    overflow = True
+                if not self.inference_ready:
+                    rejection = JobServiceError(503, "service_unavailable")
+                elif len(self._payloads) >= self.MAX_VOLATILE_PAYLOADS:
+                    rejection = JobServiceError(429, "queue_full")
                 else:
                     self._payloads[job.id] = _Payload(device.owner_id, device.session_id,
                                                      device.key_fingerprint, work)
-            if overflow:
-                await asyncio.to_thread(self.ledger.cancel, device.owner_id,
-                                        job.id, now_ms=now_ms)
-                raise JobServiceError(429, "queue_full")
+            if rejection is not None:
+                try:
+                    await asyncio.to_thread(self.ledger.cancel, device.owner_id,
+                                            job.id, now_ms=now_ms)
+                except Exception:
+                    pass
+                raise rejection
             self._event.set()
-        return self._receipt(job)
+        return await self.get(device, job.id, now_ms=now_ms)
 
     async def get(self, device: AttestedDevice, job_id: str,
                   *, now_ms: int) -> dict[str, object]:
@@ -232,7 +252,8 @@ class AiJobService:
                 self._results.pop(job_id, None)
                 cached = None
             available = (job_id in self._payloads or job_id == self._active_job_id)
-        return self._receipt(job, cached=cached, unavailable=not available)
+        return self._receipt(job, cached=cached, unavailable=not available,
+                             pending_result=available and cached is None and job.state == "SUCCEEDED")
 
     async def cancel(self, device: AttestedDevice, job_id: str,
                      *, now_ms: int) -> dict[str, object]:
@@ -266,8 +287,8 @@ class AiJobService:
             raise JobServiceError(404, "not_found") from None
 
     def _receipt(self, job: Job, *, cached: _CachedResult | None = None,
-                 unavailable: bool = False) -> dict[str, object]:
-        state = "UNKNOWN" if unavailable and job.state in {
+                 unavailable: bool = False, pending_result: bool = False) -> dict[str, object]:
+        state = "RUNNING" if pending_result else "UNKNOWN" if unavailable and job.state in {
             "QUEUED", "RUNNING", "CANCEL_REQUESTED"
         } else job.state
         result = {
@@ -278,7 +299,7 @@ class AiJobService:
             "created_ms": job.created_ms,
             "deadline_ms": job.deadline_ms,
             "started_ms": job.started_ms,
-            "finished_ms": job.finished_ms,
+            "finished_ms": None if pending_result else job.finished_ms,
             "result_available": cached is not None and state == "SUCCEEDED",
         }
         if cached is not None and state == "SUCCEEDED":
@@ -287,6 +308,26 @@ class AiJobService:
         return result
 
     async def _drain(self) -> None:
+        try:
+            await self._drain_until_closed()
+        except (Exception, asyncio.CancelledError):
+            self._failed = True
+            async with self._lock:
+                self._results.clear()
+                self._payloads.clear()
+                active = self._active_task
+            if active is not None:
+                if not active.done():
+                    active.cancel()
+                try:
+                    await active
+                except (Exception, asyncio.CancelledError):
+                    pass
+            async with self._lock:
+                self._active_task = None
+                self._active_job_id = None
+
+    async def _drain_until_closed(self) -> None:
         while True:
             self._event.clear()
             await self._expire_volatile()

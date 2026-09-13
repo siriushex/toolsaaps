@@ -20,8 +20,20 @@
   body bytes, encoded-path aliases and omitted policy digest fields. All were
   reproduced RED and corrected with eight GREEN checks, including constructor
   failure retaining capacity without a fabricated stop receipt.
-- Final backend verification after these fixes: `287 passed` in `31.32s`; the only warning is the
+- Quality hardening rejects unsupported policy/queue limits, supervises drain
+  failure with admission disabled and volatile content cleared, and protects
+  claim completion plus bounded stop receipts against repeated cancellation.
+- A deterministic publication barrier reproduced terminal success before result
+  availability. GET and POST recovery now retain RUNNING until cache publication;
+  session readiness also follows the actual optional job service.
+- An expiry test now waits for both the DB commit and event-loop RAM cleanup,
+  rather than mistaking the intermediate commit for completed cleanup.
+- Final backend verification after quality fixes: `311 passed` in `27.13s`;
+  the focused feature suite passed `141` tests. The only warning is the
   existing Starlette test-client AnyIO alias deprecation.
+- Earlier unsuccessful runs are retained in private artifacts. They exposed the
+  publication/cleanup races and unchanged CLI subprocess timeouts during host
+  load near 100. No CLI timeout was increased; the final complete rerun passed.
 - Exact contract and pending R1b/production gates are documented in
   `docs/2026-09-13-signed-ai-jobs.md`. Online launcher, independent OS stop
   receipt, authority/attestation/device/routing setup, staging and deployment

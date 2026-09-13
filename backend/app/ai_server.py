@@ -337,8 +337,11 @@ def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
 
     @api.get(BASE + "/session/status")
     async def status(request: Request):
-        return await run_in_threadpool(activation.status, access_token=request.state.credential,
-                                       now_ms=clock_ms(), **proof(request, bound=True))
+        result = await run_in_threadpool(activation.status, access_token=request.state.credential,
+                                         now_ms=clock_ms(), **proof(request, bound=True))
+        if jobs is not None:
+            result["inference_enabled"] = jobs.inference_ready
+        return result
 
     post_fields = {
         BASE + "/activation/start": {"code", "request_id"},

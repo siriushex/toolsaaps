@@ -113,6 +113,12 @@ The model label is local route metadata, not evidence that an online model is
 configured. A future launcher/model choice must update the trusted revision and
 must not become a client field.
 
+R1a accepts only the pinned integer input, result, response and deadline limits
+listed above. Alternate limits are rejected at service construction, not merely
+advertised while the parsers or ledger enforce something else. A shorter integer
+result TTL is supported and actually enforced; it cannot exceed 15 minutes.
+Dynamic byte/character/deadline configuration is not part of this transport slice.
+
 The request digest is SHA-256 of UTF-8 canonical JSON (`sort_keys=true`, compact
 separators, `ensure_ascii=false`) containing exactly:
 
@@ -162,6 +168,31 @@ slot. An unconfirmed stop stays internally occupied and is reported as
 become `UNKNOWN`, and running/cancel-pending metadata is reported unavailable
 without automatic replay. Graceful close cancels queued work and stops active
 work before the service lifecycle ends.
+
+## Publication and failure supervision
+
+The public status remains RUNNING, with no finished timestamp, while a succeeded
+executor outcome still awaits publication into the volatile result cache. POST
+recovery and GET use the same status path. A client cannot mistake this brief
+publication interval for a terminal success with a lost result. After actual TTL
+expiry or process loss, terminal success with result_available=false remains valid.
+
+Claim completion and bounded stop/settlement are protected from caller
+cancellation. Cancel remains effective, but it cannot interrupt receipt collection
+and strand a slot after a confirmed stop. Unknown stops and uncertain constructor
+outcomes still retain capacity; cancellation never fabricates a stop receipt.
+
+A drain failure immediately disables admission and clears volatile content, then
+requests active execution cleanup. It does not retry inference or keep accepting
+jobs into an unserviced queue. Capabilities and session status expose the same
+readiness; new submissions receive a generic 503 while unavailable. Recovery
+requires a fresh service instance and the existing startup reconciliation rules.
+
+This volatile runtime requires one API process and one AiJobService per ledger.
+Concurrent replicas, multiple Uvicorn workers and overlapping rolling restarts
+are unsupported. Deployment must stop the old service before starting a replacement;
+multi-process leasing is a separate design, not supplied by the SQLite job claim.
+An injected ledger must allow at most five waiting jobs.
 
 ## Remaining gates
 
