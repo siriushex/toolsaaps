@@ -30,6 +30,8 @@ jobs = Table(
     "ai_jobs", metadata,
     Column("id", String(36), primary_key=True),
     Column("owner_id", String(36), nullable=False),
+    Column("session_id", String(36)),
+    Column("key_hash", String(64)),
     Column("request_id", String(36), nullable=False),
     Column("kind", String(32), nullable=False),
     Column("digest", String(64), nullable=False),
@@ -50,6 +52,8 @@ jobs = Table(
 class Job:
     id: str
     owner_id: str
+    session_id: str | None
+    key_hash: str | None
     request_id: str
     kind: str
     digest: str
@@ -92,6 +96,12 @@ class JobLedger:
             self.engine.dispose()
             raise ValueError("dedicated_database_required")
         metadata.create_all(self.engine)
+        columns = {column["name"] for column in inspect(self.engine).get_columns("ai_jobs")}
+        with self.engine.begin() as db:
+            if "session_id" not in columns:
+                db.exec_driver_sql("ALTER TABLE ai_jobs ADD COLUMN session_id VARCHAR(36)")
+            if "key_hash" not in columns:
+                db.exec_driver_sql("ALTER TABLE ai_jobs ADD COLUMN key_hash VARCHAR(64)")
 
     @contextmanager
     def _write(self):
@@ -105,21 +115,38 @@ class JobLedger:
                 raise
 
     @staticmethod
-    def _find(db, owner_id, job_id):
-        return db.execute(select(jobs).where(jobs.c.owner_id == owner_id,
-                                            jobs.c.id == job_id)).mappings().first()
+    def _find(db, owner_id, job_id, *, session_id=None, key_hash=None):
+        conditions = [jobs.c.owner_id == owner_id, jobs.c.id == job_id]
+        if session_id is not None or key_hash is not None:
+            conditions.extend((jobs.c.session_id == session_id, jobs.c.key_hash == key_hash))
+        return db.execute(select(jobs).where(*conditions)).mappings().first()
 
     @staticmethod
     def _expire(db, now_ms):
-        db.execute(update(jobs).where(jobs.c.state == "QUEUED", jobs.c.deadline_ms <= now_ms)
-                   .values(state="EXPIRED", finished_ms=now_ms))
+        return db.execute(update(jobs).where(
+            jobs.c.state == "QUEUED", jobs.c.deadline_ms <= now_ms
+        ).values(state="EXPIRED", finished_ms=now_ms)).rowcount
 
     def reserve(self, *, owner_id: str, request_id: str, kind: str, digest: str,
                 route_revision: str, deadline_ms: int, now_ms: int) -> Job:
+        return self.reserve_once(owner_id=owner_id, request_id=request_id, kind=kind,
+            digest=digest, route_revision=route_revision, deadline_ms=deadline_ms,
+            now_ms=now_ms)[0]
+
+    def reserve_once(self, *, owner_id: str, request_id: str, kind: str, digest: str,
+                     route_revision: str, deadline_ms: int, now_ms: int,
+                     session_id: str | None = None,
+                     key_hash: str | None = None) -> tuple[Job, bool]:
         _uuid(owner_id)
         _uuid(request_id)
         _time(now_ms)
         _time(deadline_ms)
+        if (session_id is None) != (key_hash is None):
+            raise ValueError("invalid_request_binding")
+        if session_id is not None:
+            _uuid(session_id)
+            if not isinstance(key_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", key_hash):
+                raise ValueError("invalid_request_binding")
         if (not isinstance(kind, str) or kind not in KINDS
                 or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest)):
             raise ValueError("invalid_request_metadata")
@@ -132,9 +159,11 @@ class JobLedger:
                 jobs.c.kind == kind, jobs.c.request_id == request_id)).mappings().first()
             if existing:
                 if any(existing[key] != value for key, value in
-                       (("digest", digest), ("route_revision", route_revision), ("deadline_ms", deadline_ms))):
+                       (("digest", digest), ("route_revision", route_revision),
+                        ("deadline_ms", deadline_ms), ("session_id", session_id),
+                        ("key_hash", key_hash))):
                     raise LedgerError("request_conflict")
-                return _job(existing)
+                return _job(existing), False
             if not now_ms < deadline_ms <= now_ms + 900000:
                 raise ValueError("invalid_deadline")
             if db.scalar(select(func.count()).select_from(jobs).where(
@@ -144,15 +173,33 @@ class JobLedger:
                 raise LedgerError("queue_full")
             job_id = str(uuid4())
             db.execute(jobs.insert().values(id=job_id, owner_id=owner_id, request_id=request_id,
-                kind=kind, digest=digest, route_revision=route_revision, deadline_ms=deadline_ms,
+                session_id=session_id, key_hash=key_hash, kind=kind, digest=digest,
+                route_revision=route_revision, deadline_ms=deadline_ms,
                 created_ms=now_ms, state="QUEUED"))
-            return _job(self._find(db, owner_id, job_id))
+            return _job(self._find(db, owner_id, job_id)), True
 
-    def get(self, owner_id: str, job_id: str) -> Job | None:
+    def abandon_queued(self, *, now_ms: int) -> int:
+        """Mark payload-less jobs unavailable when a volatile runtime starts."""
+        _time(now_ms)
+        with self._write() as db:
+            result = db.execute(update(jobs).where(jobs.c.state == "QUEUED").values(
+                state="UNKNOWN", finished_ms=now_ms))
+            return result.rowcount
+
+    def expire_queued(self, *, now_ms: int) -> int:
+        _time(now_ms)
+        with self._write() as db:
+            return self._expire(db, now_ms)
+
+    def get(self, owner_id: str, job_id: str, *, session_id: str | None = None,
+            key_hash: str | None = None) -> Job | None:
         _uuid(owner_id)
         _uuid(job_id)
+        if (session_id is None) != (key_hash is None):
+            raise ValueError("invalid_request_binding")
         with self.engine.connect() as db:
-            return _job(self._find(db, owner_id, job_id))
+            return _job(self._find(db, owner_id, job_id, session_id=session_id,
+                                   key_hash=key_hash))
 
     def claim(self, owner_id: str, job_id: str, *, now_ms: int) -> Claim | None:
         _uuid(owner_id)
@@ -172,12 +219,16 @@ class JobLedger:
                 state="RUNNING", started_ms=now_ms, claim_token=token))
             return Claim(_job(self._find(db, owner_id, job_id)), token)
 
-    def cancel(self, owner_id: str, job_id: str, *, now_ms: int) -> Job | None:
+    def cancel(self, owner_id: str, job_id: str, *, now_ms: int,
+               session_id: str | None = None, key_hash: str | None = None) -> Job | None:
         _uuid(owner_id)
         _uuid(job_id)
         _time(now_ms)
+        if (session_id is None) != (key_hash is None):
+            raise ValueError("invalid_request_binding")
         with self._write() as db:
-            row = self._find(db, owner_id, job_id)
+            row = self._find(db, owner_id, job_id, session_id=session_id,
+                             key_hash=key_hash)
             if not row:
                 return None
             if now_ms < (row["started_ms"] or row["created_ms"]):

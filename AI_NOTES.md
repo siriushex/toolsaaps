@@ -1,3 +1,28 @@
+# R1a Signed Server AI Job Transport - 2026-09-13
+
+- Added optional signed `CHAT`/`TEXT` capabilities, submit, status and cancel
+  routes to the bound app factory. Without an injected `AiJobService`, the
+  existing activation/status-only surface remains closed.
+- Reused app attestation, session credentials and exact P-256 request proofs.
+  Dispatch rechecks the stable session/key subscription grant independently of
+  access-token rotation; result/cancel access is owner plus session/key scoped.
+- Added strict DTO/policy limits, deterministic exact-body plus trusted-policy
+  digest, durable idempotency, owner-wide quota across sessions, FIFO draining,
+  one global worker, five waiting, confirmed-stop capacity release and truthful
+  restart/unknown behavior.
+- Raw text/results are bounded volatile memory only. One event-driven expiry
+  wakeup purges waiting payloads at deadline and results within 15 minutes;
+  metadata remains content-free and terminal jobs never rerun.
+- RED/GREEN used synthetic activation, P-256 proofs and injected synthetic
+  contained workers. No Codex call, external server/phone action, secret,
+  medical payload or therapy command was used.
+- Final backend verification: `280 passed` in `26.38s`; the only warning is the
+  existing Starlette test-client AnyIO alias deprecation.
+- Exact contract and pending R1b/production gates are documented in
+  `docs/2026-09-13-signed-ai-jobs.md`. Online launcher, independent OS stop
+  receipt, authority/attestation/device/routing setup, staging and deployment
+  remain pending; R1a is not a production inference release.
+
 # Gentle Alerts and Trusted Telegram Integration - 2026-09-13
 
 - Integrated the isolated soft-alert/Telegram feature onto September main source

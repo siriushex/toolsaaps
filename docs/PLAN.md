@@ -1,5 +1,18 @@
 # PLAN
 
+## R1a Signed Server AI Job Transport (2026-09-13)
+
+- Implemented an optional owner-scoped, app-key-signed `CHAT`/`TEXT` transport
+  over the existing activation, proof, metadata ledger and executor modules.
+- The route is injected only; the default bound app remains inference-closed.
+- Local tests use synthetic contained workers only. No real Codex call, server,
+  phone, secret or medical payload is part of R1a verification.
+- Exact wire, byte, status, schema, digest, ownership and lifecycle contract:
+  [signed server AI jobs](2026-09-13-signed-ai-jobs.md).
+- R1b Android transport, production authority/attestation/device operations,
+  online contained launcher, route validation, staging and deployment remain
+  pending gates. R1a is not a production inference release.
+
 ## Gentle Alerts and Telegram Integration (2026-09-13)
 
 - Integrate the isolated alert/Telegram candidate on the published September source.

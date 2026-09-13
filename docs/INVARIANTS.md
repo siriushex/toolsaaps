@@ -14,6 +14,34 @@ its numeric controller thresholds require current-code verification before use.
 - No release test may submit insulin, carbohydrates, targets or calibration to
   a real therapy endpoint.
 
+## Optional server AI job invariants
+
+- The default bound app has no job routes and reports inference unavailable;
+  R1a routes require an explicitly injected service and contained-worker factory.
+- R1a accepts only strict bounded `CHAT` text. Model, prompt, route, tools,
+  actions, argv, owner and containment configuration are server-controlled.
+- Every job route requires current attested bound access and one exact P-256
+  method/path/body/credential/nonce proof. Dispatch and result read recheck
+  revocation and subscription; dispatch binds the stable session/key grant so
+  access-token refresh alone cannot cancel work.
+- Quota and idempotency are scoped to the subscription owner across sessions;
+  read/cancel and request reuse remain bound to the accepting session/key.
+- Exact-body and trusted-policy digests are durable metadata. Exact retries
+  recover one job even after deadline/result expiry; mismatches return conflict
+  and terminal jobs never execute again.
+- Raw input/result/provider/error content is volatile only. Idle expiry must
+  purge it within 15 minutes without deleting ledger metadata.
+- There is one worker globally, no more than five waiting, no more than one
+  active job per owner, and no unbounded per-request task/timer creation.
+- Cancellation, deadline and shutdown release capacity only after independent
+  positive stop confirmation. Unconfirmed stop retains capacity and is exposed
+  as unavailable/unknown. Process restart never automatically replays a job.
+- Server AI output is advisory text only and never a therapy command. Online
+  launcher, OS containment, production authority/attestation, device, routing,
+  staging and deployment remain separate release gates.
+- The exact R1a wire and digest rules are in
+  [signed server AI jobs](2026-09-13-signed-ai-jobs.md).
+
 ## Safety invariants
 Telegram forwarding starts disabled and needs explicit trusted-private-chat enrollment.
 Recipients are addressed by verified numeric chat ID, never an unverified username.
