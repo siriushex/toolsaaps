@@ -395,6 +395,37 @@ class ServerAiJobClientTest {
     }
 
     @Test
+    fun restartedUnknownReceiptPreservesBackendClockRollback() = runTest {
+        val completedAt = initialNow - 100_000L
+        val unknown = receipt(requestId, initialNow + 120_000L)
+            .replace("\"QUEUED\"", "\"UNKNOWN\"")
+            .replace("\"finished_ms\":null", "\"finished_ms\":$completedAt")
+        val client = ServerAiJobClient(manager { _, _, _, _, _ -> response(200, unknown) })
+
+        val snapshot = client.status(jobId)
+
+        assertEquals(ServerAiJobState.UNKNOWN, snapshot.state)
+        assertEquals(completedAt, snapshot.finishedMs)
+        assertFalse(snapshot.resultAvailable)
+        assertNull(snapshot.result)
+    }
+
+    @Test
+    fun availableResultPreservesPublicationExpiryAfterBackendClockRollback() = runTest {
+        val expiresAt = initialNow - 70L
+        val receipt = succeededReceipt()
+            .replace("\"result_expires_ms\":${initialNow + 900_002L}", "\"result_expires_ms\":$expiresAt")
+        val client = ServerAiJobClient(manager { _, _, _, _, _ -> response(200, receipt) })
+
+        val snapshot = client.status(jobId)
+
+        assertEquals(ServerAiJobState.SUCCEEDED, snapshot.state)
+        assertEquals(expiresAt, snapshot.resultExpiresMs)
+        assertTrue(snapshot.resultAvailable)
+        assertEquals("synthetic response", snapshot.result?.text)
+    }
+
+    @Test
     fun resultUsesUnicodeCodePointsAndRejectsInvalidOrOversizedText() = runTest {
         val accepted = "\uD83D\uDE00".repeat(4_096)
         assertEquals(4_096, accepted.codePointCount(0, accepted.length))

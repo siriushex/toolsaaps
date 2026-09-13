@@ -339,8 +339,12 @@ class ServerAiJobClient internal constructor(
         require(value.createdMs > 0 && value.deadlineMs > value.createdMs)
         value.startedMs?.let { require(it in value.createdMs until value.deadlineMs) }
         value.finishedMs?.let { finished ->
-            require(finished >= value.createdMs)
-            value.startedMs?.let { require(finished >= it) }
+            require(finished > 0)
+            // Restart abandonment uses the current wall clock, not a monotonic timer.
+            if (value.state != ServerAiJobState.UNKNOWN) {
+                require(finished >= value.createdMs)
+                value.startedMs?.let { require(finished >= it) }
+            }
         }
         when (value.state) {
             ServerAiJobState.QUEUED -> require(value.startedMs == null && value.finishedMs == null)
@@ -354,7 +358,8 @@ class ServerAiJobClient internal constructor(
         if (value.resultAvailable) {
             require(value.state == ServerAiJobState.SUCCEEDED)
             require(value.result != null && value.resultExpiresMs != null)
-            require(value.finishedMs != null && value.resultExpiresMs > value.finishedMs)
+            // Publication TTL comes from a separate wall-clock read on the server.
+            require(value.finishedMs != null && value.resultExpiresMs > 0)
         } else {
             require(value.result == null && value.resultExpiresMs == null)
         }
