@@ -2,6 +2,11 @@
 
 ## Status and boundary
 
+Local transport implementation and its independent spec/quality reviews are
+complete at code commit `2e3525a2149332146915f9d49d2794b0bda5f84b`.
+The backend suite passed 313 tests; the final independent race recheck passed
+six tests. This does not close the online executor or Android integration gates.
+
 R1a is an optional, local/injected transport implementation. The default
 `create_bound_ai_app(activation)` factory still exposes activation and session
 status only, and reports `inference_enabled=false`. Job routes exist only when a
