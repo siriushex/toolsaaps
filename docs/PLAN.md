@@ -1,5 +1,15 @@
 # PLAN
 
+## Photo Meal Nutrition (2026-09-13)
+
+- Local nutrition models, deterministic calculations and validation are complete
+  for the current bounded contract; photo image preparation and strict typed
+  response parsing are also implemented with focused tests.
+- Server photo jobs, camera/picker wiring, editable confirmation, Room
+  persistence, the shared food effect chart layer and device verification remain
+  separate dependent stages.
+- [Implementation status and acceptance boundaries](2026-09-13-photo-meal-implementation.md).
+
 ## R1b Android Signed AI Client (2026-09-13)
 
 - Minimal CHAT capabilities/submit/status/cancel client implemented over the
@@ -14,8 +24,9 @@
   target before any installation; do not reuse the previous phone's baseline.
 - The confirmed original Copilot phone was updated with `adb install -r`, with
   matching read-back APK hash, preserved package data directory and successful
-  cold start. Device data-flow and live-AI checks remain pending because no
-  glucose data was present and the server was not authorized for a real request.
+  cold start. Device data-flow and live-AI checks remain pending. The immediate
+  empty-state screenshot does not establish whether the glucose database was
+  empty; the contained live-AI route was not verified during that check.
 - No existing clinical callers, photo inference, server deployment or therapy
   behavior changed. [Client scope and gates](2026-09-13-android-ai-jobs.md).
 

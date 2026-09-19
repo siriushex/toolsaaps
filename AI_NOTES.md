@@ -1,3 +1,32 @@
+# Photo meal nutrition and bounded photo input - 2026-09-19
+
+- Added the first local nutrition contract under `domain/nutrition`: explicit
+  nutrient provenance, nullable unknowns versus known zero, raw/cooked state,
+  total/available/unknown carbohydrate basis, per-100-g/per-serving references,
+  source energy in kcal/kJ, immutable AI estimate and revisioned confirmation.
+- Added deterministic calculation and validation with partial coverage, ranges,
+  physical-mass checks, no double fiber deduction and no therapy/action access.
+  Explicit therapy carbohydrate grams remain separate from the food estimate.
+- Added strict `MealPhotoEstimateParser`: max 64 KiB UTF-8 JSON, exact closed
+  food-only schema, bounded 20 ingredients, mass ranges requiring later user
+  selection, AI provenance only, explicit preparation/carbohydrate basis and
+  optional profile/duration. Target, insulin, calibration and command fields are
+  rejected; catalog authority is not promoted by AI output.
+- Added `MealPhotoPreparation`: bounds decode dimensions, resizes to a 1280 px
+  longest edge, re-encodes to metadata-free JPEG at <=1 MiB and exposes defensive
+  byte copies. It does not call AI, persist a meal or send therapy.
+- Added a foreground-only `MealPhotoAnalysisRepository` with an injected gateway,
+  stable request-ID deduplication, one-active-request policy, defensive request
+  bytes and typed-response rejection. It never stores the photo or calls AAPS.
+- Focused Android verification: nutrition domain, photo parser, preparation and
+  coordinator tests pass (`27` tests in the selected run, zero failures). A transient parser
+  test failure caused by enum token consumption and a Robolectric test setup
+  issue were fixed; no debug logging remains.
+- Remaining: camera/picker and lifecycle wiring, server `MEAL_PHOTO` route or
+  explicit personal vision adapter, editable confirmation UI, Room migration,
+  canonical reconciliation, shared yellow food-effect timeline, reports,
+  independent reviews, full build/lint and device verification.
+
 # R1b Android Signed AI Client and USB Preflight - 2026-09-13
 
 - Added the minimal signed CHAT client on top of the existing connection
