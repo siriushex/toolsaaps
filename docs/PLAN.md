@@ -4,10 +4,13 @@
 
 - Local nutrition models, deterministic calculations and validation are complete
   for the current bounded contract; photo image preparation and strict typed
-  response parsing are also implemented with focused tests.
+  response parsing are also implemented with focused tests. A foreground-only
+  gateway coordinator, explicit draft editor and accepted-runtime food-effect
+  timeline boundary are now covered by focused tests as well.
 - Server photo jobs, camera/picker wiring, editable confirmation, Room
-  persistence, the shared food effect chart layer and device verification remain
-  separate dependent stages.
+  persistence, the chart/UI layer and device verification remain separate
+  dependent stages. The existing server job route is still text-only and is not
+  used for images.
 - [Implementation status and acceptance boundaries](2026-09-13-photo-meal-implementation.md).
 
 ## R1b Android Signed AI Client (2026-09-13)

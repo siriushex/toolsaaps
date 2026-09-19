@@ -30,28 +30,35 @@ Confirmed source baseline on 2026-09-13:
 1. **Completed: local nutrition contract.** Explicit quantities, nutrient
    provenance, reference portions, unknown values, editable revisions and
    confirmed snapshots; deterministic calculation and validation; no actions.
-2. **Partially completed: bounded photo preparation, typed recognition and
-   foreground coordinator.** The strict typed parser, bounded image preparation
-   and one-shot coordinator with an injected gateway are implemented and tested.
+2. **Partially completed: bounded photo preparation, typed recognition,
+   foreground coordinator and draft boundary.** The strict typed parser, bounded
+   image preparation, one-shot coordinator with an injected gateway and pure
+   editor for explicit mass/profile/preparation confirmation are implemented and
+   tested.
    The coordinator is deliberately foreground-only, deduplicates successful
    request IDs, rejects concurrent different requests and never writes therapy.
    Camera/picker wiring, the real server photo job or personal route remain.
    Server vision requires a separately validated route and contained online
    executor; the current text-only server contract is not used as an implicit
    image fallback.
-3. **Pending: editable food confirmation.** Ingredients, grams, source values,
-   portion eaten, food state, time and absorption profile; clear estimate status.
-   Catalog values require a verified identifier/version; AI cannot certify them.
+3. **Partially completed: editable food confirmation boundary.** The pure editor
+   validates ingredients, grams, portion eaten, food state and profile while
+   retaining estimate provenance. The Compose sheet, catalog lookup, time field,
+   clear estimate status and final confirmation UI remain pending. Catalog values
+   require a verified identifier/version; AI cannot certify them.
 4. **Pending: durable nutrition records and reconciliation.** Revalidate the
    current Room version before creating a non-destructive migration. Persist
    confirmation before delivery, then link canonical therapy identity/revision.
    Support local-only zero-carbohydrate food without an AAPS command.
-5. **Pending: shared food effect timeline.** Retain existing legacy/enhanced
-   prediction behavior and separate rescue-carbohydrate handling; preserve
-   mass balance and accepted forecast/sensitivity revision consistency.
-6. **Pending: yellow chart layer.** Expected announced-food contribution over
-   the next 30 minutes in delta mmol/L, with its own zero-based scale. This is
-   not an absolute glucose forecast. Incomplete future coverage is not zero.
+5. **Partially completed: shared food effect timeline boundary.** An immutable
+   builder now consumes the accepted `announcedCarbStep` from the prediction
+   runtime, carries as-of/generation/ISF/CR/curve revisions and rejects unknown
+   coverage. Runtime wiring must still preserve legacy behavior, rescue
+   carbohydrates and reconciliation.
+6. **Pending: yellow chart layer.** The future layer will render the timeline's
+   expected announced-food contribution over the next 30 minutes in delta
+   mmol/L, with its own zero-based scale. This is not an absolute glucose
+   forecast. Incomplete future coverage is not zero.
 7. **Pending: COB/UAM reconciliation and reports.** Do not add duplicate meal
    carbohydrates or infer protein, fat and calories from UAM. Show nutrition
    completeness and provenance explicitly in local and AI reports.
@@ -85,8 +92,8 @@ or glucose effects precisely.
 Stage-specific evidence is kept outside the repository in
 `/Users/mac/Andoidaps/artifacts/photo-meal-nutrition-20260913-pf8cSR`.
 Focused evidence currently includes the successful Android unit test run for the
-nutrition domain, strict photo parser, image preparation and foreground
-coordinator. Independent
+nutrition domain, strict photo parser, image preparation, foreground coordinator,
+draft editor and accepted food-effect timeline builder. Independent
 requirement/quality reviews and full build results are still required before
 marking the feature or release complete.
 

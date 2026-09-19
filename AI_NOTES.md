@@ -18,8 +18,14 @@
 - Added a foreground-only `MealPhotoAnalysisRepository` with an injected gateway,
   stable request-ID deduplication, one-active-request policy, defensive request
   bytes and typed-response rejection. It never stores the photo or calls AAPS.
+- Added a pure `MealPhotoDraftEditor` that requires explicit mass confirmation,
+  validates eaten fraction/profile duration and keeps edits in a revisioned draft.
+- Added an immutable `MealEffectTimelineBuilder` that consumes accepted
+  `announcedCarbStep` values with runtime/ISF/CR/curve provenance; unknown
+  coverage or invalid steps are rejected instead of rendered as zero.
 - Focused Android verification: nutrition domain, photo parser, preparation and
-  coordinator tests pass (`27` tests in the selected run, zero failures). A transient parser
+  coordinator, draft editor and food-effect timeline tests pass (`34` tests in
+  the selected run, zero failures). A transient parser
   test failure caused by enum token consumption and a Robolectric test setup
   issue were fixed; no debug logging remains.
 - Remaining: camera/picker and lifecycle wiring, server `MEAL_PHOTO` route or
