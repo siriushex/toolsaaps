@@ -1,3 +1,23 @@
+# Sustained-Rise Target Integration - 2026-09-27
+
+- Transferred only the guarded sustained-rise rule, manager/factory integration
+  and 12 regression tests from the development worktree onto main.
+- Preserve all safety gates; 4.1 lasts 30 minutes and renewal requires fresh
+  evidence. Calculated-base and ownership-confirmed small upward release are
+  no longer discarded by ordinary no-op/cadence checks.
+- No unrelated meal-planner, UI, backend or database changes imported.
+- Main still uses Room v26. Do not install this APK on a v27 device. USB release
+  must use the separately verified compatible build and record its hash.
+- Main verification: 4377 tests, zero failures/errors, 3 skipped; APK assembled.
+  Serial lint completed successfully: 295 warnings, 4 hints, zero errors.
+  Initial combined run was interrupted during slow concurrent lint; the retry
+  used one worker and an ephemeral 6GB JVM heap, without project config edits.
+- USB installed the compatible development APK with schema 27, preserving data.
+  SHA-256: d6779da866f3bd05beed0518cc4afaf205a639549e0cf5e1cad68f3d5ea41277.
+  Signature matched and installed bytes were verified by read-back. ACTIVE
+  cycles and fresh forecasts continued; no forced therapy command was used.
+- Design: docs/2026-09-27-sustained-rise-target.md.
+
 # Gentle Alerts and Trusted Telegram Integration - 2026-09-13
 
 - Integrated the isolated soft-alert/Telegram feature onto September main source

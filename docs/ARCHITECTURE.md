@@ -1,5 +1,12 @@
 # ARCHITECTURE
 
+## Sustained-Rise Target
+
+The adaptive controller can issue a guarded 4.1 mmol/L, 30-minute proposal
+after a qualified ten-minute rise above 8.5. Target Manager owns delivery,
+fresh requalification and release; no additional writer or polling is added.
+See [conditions and release boundary](2026-09-27-sustained-rise-target.md).
+
 ## September 2026 Source Release
 
 The current publication and server-AI boundaries are documented in
