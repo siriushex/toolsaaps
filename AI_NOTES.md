@@ -1,3 +1,11 @@
+# Linux HTTPS CI diagnostics - 2026-09-30
+
+- Remote Android verification failed38 HTTPS integration tests with EOF;
+  the same source passed on macOS. Root cause is not established yet.
+- Preserve only synthetic JUnit XML reports after every Android CI outcome,
+  with a pinned upload action and three-day retention. No private phone logs,
+  databases or APKs are included. Test gates remain unchanged.
+
 # GitHub publication workflow - 2026-09-30
 
 - First remote CI exposed missing sdkmanager on PATH before compilation.
