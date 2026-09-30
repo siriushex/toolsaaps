@@ -1,5 +1,7 @@
 # GitHub publication workflow - 2026-09-30
 
+- First remote CI exposed missing sdkmanager on PATH before compilation.
+  Added pinned Android SDK setup instead of relying on runner image defaults.
 - User selected publication after each verified stage, not background sync.
   Added persistent AGENTS guidance, DEVOPS procedure and read-only Verify CI
   for Android unit/lint/build and backend tests. No automatic merge/deployment.
