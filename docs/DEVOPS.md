@@ -14,7 +14,31 @@
 ## Gaps to close
 - Backend lint is not standardized (recommended: `ruff check` + `ruff format --check`).
 - Backend typecheck is not standardized (recommended: `mypy`).
-- Unified CI workflow file is not yet documented here.
+
+## GitHub Workflow
+
+Repository: https://github.com/siriushex/toolsaaps (public).
+
+After each locally verified stage: fetch origin, inspect divergence and the
+complete diff, scan for secrets/private data, explicitly stage reviewed paths,
+commit and push the feature branch to its upstream. Use a PR against main;
+merging remains a separate decision. Do not use force-push, background auto-commit
+or automatic pull over a dirty worktree. If new upstream changes overlap with
+local edits, stop publication and reconcile them explicitly without losing work.
+
+`.github/workflows/verify.yml` runs on push, PR and manual dispatch:
+- Python3.12: install pinned backend requirements and run the backend suite.
+- Java17 / Android SDK36: unit tests, lint and debug APK build.
+- Read-only repository permissions, pinned action SHAs, bounded job durations.
+- No provider keys, production connections, phone databases, signing keys or
+  deployment steps. CI debug APKs are not uploaded and are not phone releases.
+
+Confirm the remote branch SHA matches the local commit, then inspect the Verify
+result. A successful push with queued/failed CI is not a passed verification.
+CI does not prove device migration, delivery or clinical correctness. Retain
+private device evidence locally and link only non-sensitive summaries in PRs.
+Required-check branch protection is not enabled by this file; it must be
+configured separately before claiming main is protected.
 
 ## Rollback basics
 - Android: reinstall last known-good apk artifact on device.

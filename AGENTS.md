@@ -13,6 +13,23 @@
 4. Не дублируй логику. Если что-то уже есть — переиспользуй. Если нужно — выдели понятную абстракцию.
 5. Всегда проверяемость. Любое изменение должно иметь понятный способ проверки (команды/шаги).
 
+## GitHub After Each Verified Stage
+
+- GitHub is the shared source of version history. After each completed, locally
+  verified stage, commit its reviewed source, tests and documentation and push
+  the current feature branch to its upstream. This is standing user authorization
+  for per-stage publication, not for unattended background synchronization.
+- Before staging, inspect the diff and current branch, fetch origin and check for
+  divergence. Stage explicit reviewed paths only. Never force-push, auto-merge,
+  blanket-stage an unknown dirty tree, or overwrite another contributor's edits.
+- Run the relevant quality commands below. Verify the pushed SHA on GitHub and
+  inspect its Verify workflow; report pending/failed CI honestly. Fix failures
+  before calling a stage complete. Maintain a PR against main for integration.
+- Never publish phone databases, real medical payloads, logs, credentials,
+  signing keys, or private artifacts. A gitignore match alone is not a secret scan.
+- A push does not authorize deployment, phone updates, therapy changes, main
+  merges or enabling unfinished clinical features. See docs/DEVOPS.md.
+
 ## Долгая память проекта (файлы-опоры)
 Держи решения и контекст в файлах. Это источник правды между задачами/threads.
 
