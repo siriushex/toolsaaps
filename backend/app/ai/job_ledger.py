@@ -128,15 +128,17 @@ class JobLedger:
         ).values(state="EXPIRED", finished_ms=now_ms)).rowcount
 
     def reserve(self, *, owner_id: str, request_id: str, kind: str, digest: str,
-                route_revision: str, deadline_ms: int, now_ms: int) -> Job:
+                route_revision: str, deadline_ms: int, now_ms: int,
+                max_deadline_ms: int = 900_000) -> Job:
         return self.reserve_once(owner_id=owner_id, request_id=request_id, kind=kind,
             digest=digest, route_revision=route_revision, deadline_ms=deadline_ms,
-            now_ms=now_ms)[0]
+            now_ms=now_ms, max_deadline_ms=max_deadline_ms)[0]
 
     def reserve_once(self, *, owner_id: str, request_id: str, kind: str, digest: str,
                      route_revision: str, deadline_ms: int, now_ms: int,
                      session_id: str | None = None,
-                     key_hash: str | None = None) -> tuple[Job, bool]:
+                     key_hash: str | None = None,
+                     max_deadline_ms: int = 900_000) -> tuple[Job, bool]:
         _uuid(owner_id)
         _uuid(request_id)
         _time(now_ms)
@@ -150,6 +152,8 @@ class JobLedger:
         if (not isinstance(kind, str) or kind not in KINDS
                 or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest)):
             raise ValueError("invalid_request_metadata")
+        if type(max_deadline_ms) is not int or not 0 < max_deadline_ms <= 900_000:
+            raise ValueError("invalid_deadline")
         if (not isinstance(route_revision, str)
                 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", route_revision)):
             raise ValueError("invalid_route_revision")
@@ -164,7 +168,7 @@ class JobLedger:
                         ("key_hash", key_hash))):
                     raise LedgerError("request_conflict")
                 return _job(existing), False
-            if not now_ms < deadline_ms <= now_ms + 900000:
+            if not now_ms < deadline_ms <= now_ms + max_deadline_ms:
                 raise ValueError("invalid_deadline")
             if db.scalar(select(func.count()).select_from(jobs).where(
                     jobs.c.owner_id == owner_id, jobs.c.state.in_(ACTIVE))):

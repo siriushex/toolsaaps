@@ -267,20 +267,21 @@ def create_ai_app(auth: ClientAuth, *, requests_per_minute: int = 60,
     return _Admission(api, requests_per_minute, body_timeout_seconds)
 
 
-def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
+def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, clock_ms=None):
     """App-bound identity with optional injected jobs; never mounts bearer-only auth."""
     if clock_ms is None:
         clock_ms = lambda: time.time_ns() // 1_000_000
 
     @asynccontextmanager
     async def lifespan(app):
-        if jobs is not None:
-            await jobs.start()
+        services = tuple(item for item in (jobs, meal_photo_jobs) if item is not None)
+        for service in services:
+            await service.start()
         try:
             yield
         finally:
-            if jobs is not None:
-                await jobs.close()
+            for service in reversed(services):
+                await service.close()
 
     api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None,
                   redirect_slashes=False, lifespan=lifespan)
@@ -339,8 +340,9 @@ def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
     async def status(request: Request):
         result = await run_in_threadpool(activation.status, access_token=request.state.credential,
                                          now_ms=clock_ms(), **proof(request, bound=True))
-        if jobs is not None:
-            result["inference_enabled"] = jobs.inference_ready
+        if jobs is not None or meal_photo_jobs is not None:
+            result["inference_enabled"] = any(service.inference_ready for service in
+                                               (jobs, meal_photo_jobs) if service is not None)
         return result
 
     post_fields = {
@@ -352,11 +354,11 @@ def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
     body_limits = {BASE + "/activation/complete": 96_000}
     protected_paths = set()
 
-    if jobs is not None:
-        post_fields[BASE + "/jobs"] = {"text"}
+    job_services = tuple(item for item in (jobs, meal_photo_jobs) if item is not None)
+    detail_prefixes = []
+    if job_services:
         get_paths.add(BASE + "/capabilities")
-        body_limits[BASE + "/jobs"] = jobs.MAX_HTTP_BODY_BYTES
-        protected_paths.update({BASE + "/jobs", BASE + "/capabilities"})
+        protected_paths.add(BASE + "/capabilities")
 
         def request_metadata(request):
             request_ids = request.headers.getlist("x-copilot-request-id")
@@ -368,7 +370,7 @@ def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
                 raise JobServiceError(400, "invalid_request")
             return request_ids[0], int(deadline)
 
-        async def authorize(request, *, method, path, body=b"", submit=False):
+        async def authorize(job_service, request, *, method, path, body=b"", submit=False):
             values = proof(request, bound=True)
             request_id = deadline_ms = None
             proof_credential = request.state.credential
@@ -380,7 +382,7 @@ def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
                         deadline_ms=deadline_ms)
                 except ValueError:
                     raise JobServiceError(400, "invalid_request") from None
-            device = await run_in_threadpool(jobs.verify_request,
+            device = await run_in_threadpool(job_service.verify_request,
                 preauthorized=request.state.bound_device,
                 access_token=request.state.credential,
                 key_fingerprint=values.pop("key_fingerprint"), method=method,
@@ -390,30 +392,65 @@ def create_bound_ai_app(activation, *, jobs=None, clock_ms=None):
 
         @api.get(BASE + "/capabilities")
         async def capabilities(request: Request):
-            await authorize(request, method="GET", path=BASE + "/capabilities")
-            return jobs.capabilities()
+            await authorize(job_services[0], request, method="GET",
+                            path=BASE + "/capabilities")
+            capabilities_by_kind = {service.policy.kind: service.capabilities()
+                                     for service in job_services}
+            if len(capabilities_by_kind) == 1:
+                return next(iter(capabilities_by_kind.values()))
+            return {
+                "revision": "server-codex-ai-capabilities-r1",
+                "inference_enabled": any(item["inference_enabled"]
+                                          for item in capabilities_by_kind.values()),
+                "task_kinds": list(capabilities_by_kind),
+                "input_modalities": [item["input_modalities"][0]
+                                      for item in capabilities_by_kind.values()],
+                "output_modalities": [item["output_modalities"][0]
+                                       for item in capabilities_by_kind.values()],
+                "routes": capabilities_by_kind,
+            }
 
-        @api.post(BASE + "/jobs", status_code=202)
-        async def submit_job(request: Request):
-            device, request_id, deadline_ms = await authorize(request, method="POST",
-                path=BASE + "/jobs", body=request.state.body, submit=True)
-            return await jobs.submit(device, request_id=request_id,
-                                     deadline_ms=deadline_ms,
-                                     body=request.state.body, now_ms=clock_ms())
+        def register_job_routes(job_service, path):
+            detail_prefixes.append(path + "/")
+            if job_service.policy.kind == "CHAT":
+                post_fields[path] = {"text"}
+            else:
+                post_fields[path] = {"schemaVersion", "mimeType", "imageBase64"}
+            body_limits[path] = job_service.max_http_body_bytes
+            protected_paths.add(path)
 
-        @api.get(BASE + "/jobs/{job_id}")
-        async def get_job(job_id: str, request: Request):
-            path = BASE + "/jobs/" + job_id
-            device, _, _ = await authorize(request, method="GET", path=path)
-            return await jobs.get(device, job_id, now_ms=clock_ms())
+            async def submit_job(request: Request):
+                device, request_id, deadline_ms = await authorize(job_service, request,
+                    method="POST", path=path, body=request.state.body, submit=True)
+                return await job_service.submit(device, request_id=request_id,
+                    deadline_ms=deadline_ms, body=request.state.body, now_ms=clock_ms())
 
-        @api.delete(BASE + "/jobs/{job_id}")
-        async def cancel_job(job_id: str, request: Request):
-            path = BASE + "/jobs/" + job_id
-            device, _, _ = await authorize(request, method="DELETE", path=path)
-            return await jobs.cancel(device, job_id, now_ms=clock_ms())
+            async def get_job(job_id: str, request: Request):
+                job_path = path + "/" + job_id
+                device, _, _ = await authorize(job_service, request, method="GET",
+                                               path=job_path)
+                return await job_service.get(device, job_id, now_ms=clock_ms())
+
+            async def cancel_job(job_id: str, request: Request):
+                job_path = path + "/" + job_id
+                device, _, _ = await authorize(job_service, request, method="DELETE",
+                                               path=job_path)
+                return await job_service.cancel(device, job_id, now_ms=clock_ms())
+
+            api.add_api_route(path, submit_job, methods=["POST"], status_code=202,
+                              name=f"submit_{job_service.policy.kind.lower()}")
+            api.add_api_route(path + "/{job_id}", get_job, methods=["GET"],
+                              name=f"get_{job_service.policy.kind.lower()}")
+            api.add_api_route(path + "/{job_id}", cancel_job, methods=["DELETE"],
+                              name=f"cancel_{job_service.policy.kind.lower()}")
+
+        if jobs is not None:
+            register_job_routes(jobs, BASE + "/jobs")
+        if meal_photo_jobs is not None:
+            register_job_routes(meal_photo_jobs, BASE + "/meal-photo/jobs")
 
     return _Admission(api, 60, 5, post_fields=post_fields, get_paths=get_paths,
-        body_limits=body_limits, detail_prefixes=(BASE + "/jobs/",) if jobs is not None else (),
-        protected_paths=protected_paths, bound_auth=jobs.preauthorize if jobs is not None else None,
+        body_limits=body_limits, detail_prefixes=tuple(detail_prefixes),
+        protected_paths=protected_paths,
+        bound_auth=job_services[0].preauthorize if job_services else None,
         clock_ms=clock_ms)

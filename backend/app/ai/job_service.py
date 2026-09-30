@@ -15,8 +15,9 @@ from uuid import UUID
 from .client_auth import AttestedDevice, AuthError, ClientAuth
 from .job_executor import ContainedWorker, JobExecutor
 from .job_ledger import Job, JobLedger, LedgerError
-from .job_policy import CHAT_POLICY, JobPolicy, request_digest
+from .job_policy import CHAT_POLICY, MEAL_PHOTO_POLICY, JobPolicy, request_digest
 from .request_proof import RequestProofVerifier
+from .meal_photo import MealPhotoEstimate, MealPhotoRequest, MealPhotoSchemaError
 from .schemas import ChatRequest, ChatResult, SchemaError
 
 
@@ -30,7 +31,7 @@ class JobServiceError(Exception):
 @dataclass(frozen=True)
 class JobWork:
     job_id: str
-    request: ChatRequest
+    request: ChatRequest | MealPhotoRequest
     request_digest: str
     route_revision: str
     deadline_ms: int
@@ -47,7 +48,7 @@ class _Payload:
 
 @dataclass(frozen=True)
 class _CachedResult:
-    value: ChatResult
+    value: ChatResult | MealPhotoEstimate
     expires_ms: int
     job: Job
 
@@ -68,7 +69,12 @@ class _ValidatingWorker:
         if (self._worker.route_revision != self.route_revision
                 or self._worker.request_digest != self.request_digest):
             raise ValueError("worker_binding_mismatch")
-        return ChatResult.decode(await self._worker.run())
+        output = await self._worker.run()
+        if self._work.policy.kind == "CHAT":
+            return ChatResult.decode(output)
+        if self._work.policy.kind == "MEAL_PHOTO":
+            return MealPhotoEstimate.decode(output)
+        raise ValueError("invalid_job_policy")
 
     async def stop_and_confirm(self) -> bool:
         if self._worker is None:
@@ -85,24 +91,31 @@ class AiJobService:
     def __init__(self, auth: ClientAuth, proofs: RequestProofVerifier, ledger: JobLedger,
                  worker_factory: Callable[[JobWork], ContainedWorker], *,
                  policy: JobPolicy = CHAT_POLICY, clock_ms=None):
+        expected_policy = {
+            "CHAT": CHAT_POLICY,
+            "MEAL_PHOTO": MEAL_PHOTO_POLICY,
+        }.get(policy.kind if isinstance(policy, JobPolicy) else None)
         if (not isinstance(auth, ClientAuth) or not isinstance(proofs, RequestProofVerifier)
                 or not isinstance(ledger, JobLedger) or not callable(worker_factory)
                 or not 1 <= ledger.max_waiting <= 5
-                or not isinstance(policy, JobPolicy)
-                or policy.kind != "CHAT" or policy.input_modality != "TEXT"
-                or policy.output_modality != "TEXT" or policy.allow_tools
-                or policy.allow_actions or type(policy.result_ttl_ms) is not int
+                or expected_policy is None
+                or policy.input_modality != expected_policy.input_modality
+                or policy.output_modality != expected_policy.output_modality
+                or policy.allow_tools or policy.allow_actions
+                or type(policy.result_ttl_ms) is not int
                 or not 0 < policy.result_ttl_ms <= 900_000
                 or any(type(getattr(policy, name)) is not int
-                       or getattr(policy, name) != getattr(CHAT_POLICY, name)
+                       or getattr(policy, name) != getattr(expected_policy, name)
                        for name in ("max_text_chars", "max_text_bytes", "max_result_chars",
-                                    "max_result_bytes", "max_response_bytes", "max_deadline_ms"))):
+                                    "max_result_bytes", "max_response_bytes", "max_deadline_ms",
+                                    "max_request_body_bytes"))):
             raise ValueError("invalid_job_service")
         self.auth = auth
         self.proofs = proofs
         self.ledger = ledger
         self.worker_factory = worker_factory
         self.policy = policy
+        self.max_http_body_bytes = policy.max_request_body_bytes
         self.clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self.executor = JobExecutor(ledger, clock_ms=self.clock_ms)
         self._payloads: OrderedDict[str, _Payload] = OrderedDict()
@@ -180,34 +193,48 @@ class AiJobService:
         self._drain_task = None
 
     def capabilities(self) -> dict[str, object]:
-        return {
+        result = {
             "revision": self.policy.route_revision,
             "inference_enabled": self.inference_ready,
             "task_kinds": [self.policy.kind],
             "input_modalities": [self.policy.input_modality],
             "output_modalities": [self.policy.output_modality],
-            "max_text_chars": self.policy.max_text_chars,
-            "max_text_bytes": self.policy.max_text_bytes,
             "max_result_chars": self.policy.max_result_chars,
             "max_result_bytes": self.policy.max_result_bytes,
             "max_response_bytes": self.policy.max_response_bytes,
             "max_deadline_ms": self.policy.max_deadline_ms,
         }
+        if self.policy.kind == "MEAL_PHOTO":
+            result["max_request_body_bytes"] = self.policy.max_request_body_bytes
+            result["max_image_bytes"] = 1 * 1024 * 1024
+            result["max_ingredients"] = 20
+        else:
+            result.update({
+                "max_text_chars": self.policy.max_text_chars,
+                "max_text_bytes": self.policy.max_text_bytes,
+            })
+        return result
 
     async def submit(self, device: AttestedDevice, *, request_id: str,
                      deadline_ms: int, body: bytes, now_ms: int) -> dict[str, object]:
         if not self.inference_ready:
             raise JobServiceError(503, "service_unavailable")
         try:
-            request = ChatRequest.decode(body)
+            if self.policy.kind == "CHAT":
+                request = ChatRequest.decode(body)
+            elif self.policy.kind == "MEAL_PHOTO":
+                request = MealPhotoRequest.decode(body)
+            else:
+                raise ValueError("invalid_job_policy")
             digest = request_digest(self.policy, request_id=request_id,
                                     deadline_ms=deadline_ms, request=request, body=body)
             job, created = await asyncio.to_thread(self.ledger.reserve_once,
                 owner_id=device.owner_id, request_id=request_id, kind=self.policy.kind,
                 digest=digest, route_revision=self.policy.route_revision,
                 deadline_ms=deadline_ms, now_ms=now_ms,
+                max_deadline_ms=self.policy.max_deadline_ms,
                 session_id=device.session_id, key_hash=device.key_fingerprint)
-        except SchemaError:
+        except (SchemaError, MealPhotoSchemaError):
             raise JobServiceError(400, "invalid_request") from None
         except ValueError:
             raise JobServiceError(400, "invalid_request") from None
@@ -383,7 +410,8 @@ class AiJobService:
             if outcome.job.state == "QUEUED":
                 return False
             self._payloads.pop(job_id, None)
-            if outcome.job.state == "SUCCEEDED" and isinstance(outcome.result, ChatResult):
+            if outcome.job.state == "SUCCEEDED" and isinstance(
+                    outcome.result, (ChatResult, MealPhotoEstimate)):
                 expires = min(self.clock_ms() + self.policy.result_ttl_ms, 2**63 - 1)
                 self._results[job_id] = _CachedResult(outcome.result, expires, outcome.job)
                 while len(self._results) > self.MAX_VOLATILE_RESULTS:
