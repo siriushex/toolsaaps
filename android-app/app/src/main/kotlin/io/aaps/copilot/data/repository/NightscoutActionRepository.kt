@@ -533,6 +533,17 @@ class NightscoutActionRepository(
         }
     }
 
+    suspend fun manualCarbBlockReason(command: ActionCommand): String? {
+        if (command.type != "carbs" || !command.idempotencyKey.startsWith("manual:meal:")) return null
+        val record = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey) ?: return null
+        if (record.status != STATUS_BLOCKED) return null
+        return runCatching {
+            gson.fromJson(record.payloadJson, com.google.gson.JsonObject::class.java)
+                .get("carbBlockReason")?.asString
+        }.getOrNull()?.takeIf { it in setOf("carbs_rate_limit_30m", "therapy_actions_not_armed") }
+            ?: "carbs_blocked"
+    }
+
     suspend fun submitCarbs(command: ActionCommand): Boolean {
         val guardedMeal = command.idempotencyKey.startsWith("manual:meal:")
         val settings = settingsStore.settings.first()
@@ -880,6 +891,11 @@ class NightscoutActionRepository(
     }
 
     private fun failurePayloadJson(command: ActionCommand, reason: String): String {
+        if (command.type == "carbs" && command.idempotencyKey.startsWith("manual:meal:")) {
+            val code = reason.takeIf { it in setOf("carbs_rate_limit_30m", "therapy_actions_not_armed") }
+                ?: "carbs_blocked"
+            return gson.toJson(command.params + ("carbBlockReason" to code))
+        }
         if (command.type != "temp_target" || !command.idempotencyKey.startsWith("manual:meal:") ||
             !command.idempotencyKey.endsWith(":eating-soon")) return gson.toJson(command.params)
         return gson.toJson(command.params + (EATING_SOON_FAILURE_CODE to

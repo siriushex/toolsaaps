@@ -2,6 +2,9 @@ package io.aaps.copilot.domain.target
 
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
+import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.domain.rules.SustainedRiseTargetPolicy
+import kotlin.math.abs
 
 class TargetProposalFactory {
 
@@ -16,8 +19,12 @@ class TargetProposalFactory {
             return null
         }
         val intent = inferIntent(decision.ruleId, action.reason, decision.reasons)
+        val sustainedRise = decision.ruleId == AdaptiveTargetControllerRule.RULE_ID &&
+            action.reason == "adaptive_pi_ci_v2|mode=${SustainedRiseTargetPolicy.MODE}" &&
+            abs(action.targetMmol - SustainedRiseTargetPolicy.TARGET_MMOL) < 1e-9 &&
+            action.durationMinutes == SustainedRiseTargetPolicy.DURATION_MINUTES
         return TargetProposal(
-            sourceRuleId = decision.ruleId,
+            sourceRuleId = if (sustainedRise) SustainedRiseTargetPolicy.SOURCE else decision.ruleId,
             intent = intent,
             targetMmol = action.targetMmol,
             durationMinutes = action.durationMinutes,

@@ -12,9 +12,15 @@ internal data class KalmanHistoryUpdate(
 )
 
 internal class RevisionAwareKalmanFilter {
-    private val filter = KalmanGlucoseFilterV3()
+    private var filter = KalmanGlucoseFilterV3()
     private var previous = emptyList<KalmanHistoryInput>()
     private var previousSource = emptyList<GlucosePoint>()
+
+    internal fun copyForSimulation(): RevisionAwareKalmanFilter = RevisionAwareKalmanFilter().also {
+        it.filter = filter.copyForSimulation()
+        it.previous = previous.toList()
+        it.previousSource = previousSource.toList()
+    }
 
     fun update(
         inputs: List<KalmanHistoryInput>,

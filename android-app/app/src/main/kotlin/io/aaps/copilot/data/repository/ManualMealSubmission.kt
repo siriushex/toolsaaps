@@ -13,13 +13,16 @@ data class EatingSoonResult(val status: MealDeliveryStatus, val reason: String? 
 data class ManualMealResult(
     val carbs: MealDeliveryStatus,
     val eatingSoon: EatingSoonResult,
-    val profileSaved: Boolean = true
+    val profileSaved: Boolean = true,
+    val carbBlockReason: String? = null
 )
 
 internal class ManualMealSubmission(
     private val sendCarbs: suspend (ActionCommand) -> Boolean,
     private val stageSelection: suspend (ActionCommand, MealAbsorptionSelection, Double?) -> Unit,
-    private val sendEatingSoon: suspend (String) -> EatingSoonResult
+    private val sendEatingSoon: suspend (String) -> EatingSoonResult,
+    private val readCarbBlockReason: suspend (ActionCommand) -> String? = { null },
+    private val onMealInput: suspend (ActionCommand) -> Unit = {}
 ) {
     private data class Input(
         val params: Map<String, String>,
@@ -48,9 +51,15 @@ internal class ManualMealSubmission(
         // Reserve before I/O; cancellation/unknown delivery must not replay a meal.
         // Persisted action idempotency still protects operations after eviction/restart.
         val entry = Entry(input, ManualMealResult(
-            MealDeliveryStatus.UNKNOWN, EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED)
+            MealDeliveryStatus.UNKNOWN, EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED),
+            profileSaved = false
         ))
         completed[key] = entry
+        // Persist research intent only. An unavailable research observer must not
+        // prevent the existing user-authorized carbohydrate submission.
+        try { onMealInput(command) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { }
         val sent = try {
             sendCarbs(command)
         } catch (cancelled: CancellationException) {
@@ -58,7 +67,19 @@ internal class ManualMealSubmission(
         } catch (_: Exception) {
             false
         }
-        if (!sent) return@withLock entry.result
+        if (!sent) {
+            val reason = try {
+                readCarbBlockReason(command)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (reason != null) entry.result = entry.result.copy(
+                carbs = MealDeliveryStatus.BLOCKED, carbBlockReason = reason
+            )
+            return@withLock entry.result
+        }
         entry.result = ManualMealResult(
             MealDeliveryStatus.SENT,
             EatingSoonResult(if (eatingSoon) MealDeliveryStatus.UNKNOWN else MealDeliveryStatus.NOT_REQUESTED),

@@ -279,6 +279,25 @@ class EnergyProfileRepositoryTest {
     }
 
     @Test
+    fun portionProvenanceSurvivesPendingReconciliation() = runBlocking {
+        val dao = RecordingEnergyProfileDao()
+        val repository = EnergyProfileRepository(dao, clock = { 123L })
+        val command = copilotCarbCommand("manual:portion-origin")
+        repository.stageSelectionAfterSubmittedCarbAction(
+            command, MealAbsorptionSelection(MealAbsorptionProfile.MIXED),
+            portion = io.aaps.copilot.domain.nutrition.MealPortion.MEDIUM,
+            portionProvenance = io.aaps.copilot.domain.nutrition.MealPortionProvenance.USER_CORRECTED
+        )
+        assertThat(dao.pendingIntents.getValue(command.idempotencyKey).portion).isEqualTo("MEDIUM")
+        repository.refreshPendingSelections(listOf(trustedImportedEvent("902", "r1", command)))
+        val stored = dao.mealOverrides.getValue("902")
+        assertThat(stored.portion).isEqualTo("MEDIUM")
+        assertThat(stored.portionProvenance).isEqualTo("USER_CORRECTED")
+        assertThat(stored.confirmedCarbsGrams).isEqualTo(20.0)
+        assertThat(dao.pendingIntents).isEmpty()
+    }
+
+    @Test
     fun changedTherapyRevisionInvalidatesMealOverride() = runBlocking {
         val dao = RecordingEnergyProfileDao()
         val repository = EnergyProfileRepository(dao)

@@ -31,16 +31,19 @@ Confirmed source baseline on 2026-09-13:
    provenance, reference portions, unknown values, editable revisions and
    confirmed snapshots; deterministic calculation and validation; no actions.
 2. **Partially completed: bounded photo preparation, typed recognition,
-   foreground coordinator and draft boundary.** The strict typed parser, bounded
-   image preparation, one-shot coordinator with an injected gateway and pure
-   editor for explicit mass/profile/preparation confirmation are implemented and
-   tested.
+   foreground coordinator, draft boundary and server transport.** The strict
+   typed parser, bounded image preparation, one-shot coordinator with an
+   injected gateway and pure editor for explicit mass/profile/preparation
+   confirmation are implemented and tested. The backend now has an isolated
+   `MEAL_PHOTO` policy and `/api/ai/v1/meal-photo/jobs` route for a synthetic
+   contained worker. Its request is one canonical JPEG and its output is the
+   same food-only estimate schema used by Android.
    The coordinator is deliberately foreground-only, deduplicates successful
    request IDs, rejects concurrent different requests and never writes therapy.
-   Camera/picker wiring, the real server photo job or personal route remain.
-   Server vision requires a separately validated route and contained online
-   executor; the current text-only server contract is not used as an implicit
-   image fallback.
+   Camera/picker wiring, the real vision launcher/normalizer and personal route
+   remain. The route is transport-only until a separately validated contained
+   vision executor is connected; the current text-only server contract is not
+   used as an implicit image fallback.
 3. **Partially completed: editable food confirmation boundary.** The pure editor
    validates ingredients, grams, portion eaten, food state and profile while
    retaining estimate provenance. The Compose sheet, catalog lookup, time field,
@@ -93,9 +96,12 @@ Stage-specific evidence is kept outside the repository in
 `/Users/mac/Andoidaps/artifacts/photo-meal-nutrition-20260913-pf8cSR`.
 Focused evidence currently includes the successful Android unit test run for the
 nutrition domain, strict photo parser, image preparation, foreground coordinator,
-draft editor and accepted food-effect timeline builder. Independent
-requirement/quality reviews and full build results are still required before
-marking the feature or release complete.
+draft editor and accepted food-effect timeline builder. Backend focused
+transport/policy checks pass, and the full backend suite passes (`327` tests,
+zero failures/errors). The backend route uses a synthetic worker only; there was
+no real AI call, photo upload, server mutation or phone update. Independent
+requirement/quality reviews and full Android build/device results are still
+required before marking the feature or release complete.
 
 The previous phone update verified package replacement, signature/hash and cold
 start. Its immediate empty-state screenshot does not establish that the local

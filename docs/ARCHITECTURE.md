@@ -1,5 +1,287 @@
 # ARCHITECTURE
 
+## Meal Timing Research Kernel
+
+ManualMealSubmission persists an immutable input before its existing therapy
+send; no simulation runs on this path. An input persistence failure is diagnosed
+but does not block the user's carbohydrate send, so this failure is NOT covered
+by a lossless-intent claim. The protected AAPS importer persists minimal receipts
+inside the SAME Room transaction as therapy import, then signals only after
+commit. Room29->30 adds meal_state_receipts; it keeps latest canonical record
+versions/tombstones and exact input linkage, not free notes or page hashes.
+Receipts arriving before the input wait durably. A newer note-free correction
+can receive the exact identity from an older acknowledgement without losing its
+newer values. Conflicting revisions/identities are durably quarantined, not guessed.
+Unchanged receipts are not rewritten. Existing canonical ownership and receipts
+are read in batches. Original input alone creates no fabricated prior.
+
+AppContainer owns one conflated wakeup channel. Events are never stored in the
+channel: committed inputs/receipts survive signal loss and restart. Startup and
+new source events drain up to64 eligible receipts per transaction, yielding
+between batches; state reconciliation and applied markers commit together.
+Storage failures leave work pending until the next event/startup; there is no
+timer, polling or new wake lock. Failure/rejection counters and persisted conflict
+counts feed throttled diagnostics without identifiers. Negative/invalid input
+pages still reject from the research path. Unknown input IDs are not reconstructed.
+Pre-commit input failure, legacy backfill, source-instance changes, merge/split,
+conflict resolution/eligibility and retention need release review. The journal
+keeps one compact snapshot per canonical record, not every callback. Accepted
+runtime orchestration and clinical readiness are not implemented.
+
+`MealStateRepository` persists original input, explicit AAPS identity/revision and
+the research posterior separately in normalized Room tables (migration28->29).
+It does not infer that food was eaten from its input or acknowledgement. Original
+timestamps/gram ranges remain unchanged, inferred onset belongs to the scenarios.
+Canonical identity has a unique owner; nearby meals are not matched by time.
+Every accepted AAPS revision, including tombstones, invalidates the old posterior.
+Older callbacks are ignored and contradictory equal revisions reject. A storage
+revision CAS spans both reconciliation and posterior updates. Duplicate samples,
+stale results and updates to deleted records cannot overwrite the current state.
+All parent/child writes and reads are transactional; bounded reads validate full
+distributions/model versions rather than inventing a fallback prior on corruption.
+Pending inputs can be stored without any fabricated probabilities. This local
+repository has no dependency on therapy writers or notification senders. Runtime
+belief updates, merge/split reconciliation and clinical release remain separate work.
+
+`MealStateRepository.observe` adds a transactional posterior update boundary:
+storage CAS, exact applied AAPS receipt, conflict quarantine, sample receive age
+and causal estimator checks run before the posterior can be written. A staged
+correction blocks writes even before the inbox drains. `saveBelief` also checks
+known receipts/quarantine, while retaining the offline initialization path with
+no receipt. Corrections never invent a replacement prior. SQL failure rolls back
+all posterior rows; rejection returns a typed reason without a partial update.
+The expected-observation map is copied before suspension. This is persistence,
+not authenticated runtime capture: the future producer must supply distributions
+made before the CGM sample and verify runtime/calibration provenance. The current
+accepted forecast already contains the current CGM and cannot serve as independent
+likelihood evidence for that sample. No live caller or notification is added here.
+
+`MealObservationForecast.prepare` now produces a passive, one-step conditional
+prediction from the frozen engine. It preserves each discrete hypothesis onset,
+including future onset, rather than borrowing the planner's start/delay
+interventions. The canonical announced meal is replaced once; original therapy
+is untouched. Exact scenario keys and explicit runtime-bound error scales are
+required, available no later than the input anchor. Scales have no default and
+are not inferred from an ordinary forecast CI. This is not empirical calibration.
+All predictions must finish before the next five-minute sample; completion is
+checked with the supplied clock. Only that exact sample can form an observation,
+with matching runtime/belief and a fresh, trusted value. No rounding/interpolation
+or delayed reuse occurs. Equivalent projections share work, without merging their
+hypothesis identities. Unexpanded ranges, missing links, clipped paths and excess
+work reject rather than drop evidence. A real-engine-to-Room test covers the path.
+The passive producer is still conditional on known therapy and fixed historical
+state; it does not model unknown future AAPS control or nuisance causes. Production
+runtime provenance, error-model calibration, prior initialization and stage
+transitions remain pending. It has no live worker, sender or clinical authorization.
+
+The research scenario matrix accepts up to four explicit `MealInsulinScenario`
+schedules. Each meal/start/delay trajectory carries its insulin scenario ID;
+the batch retains immutable schedules. No probability is invented for these
+schedules. A null argument retains the old known-insulin-only projection and
+does not assert that the pump stops. An explicitly empty scenario list rejects.
+The product of expanded meal cases and insulin schedules is capped at24 (96 with
+reaction-delay variants); work admission includes future insulin convolution.
+All anchors/horizons/IDs are checked before matrix execution. Cache identity
+includes the actual delivery sequence, not just the scenario label. Identical
+schedules reuse calculation but keep separate output identities. These are still
+conditional means, not generated/validated AAPS controller scenarios; no safety
+or notification gate is relaxed.
+
+`MealFutureInsulinPlan` describes bounded hypothetical delivered impulses,
+not commands, basal rates or confirmed AAPS events. The frozen forward engine
+uses its existing insulin profile/DIA/onset/ISF kernel to convolve these impulses
+on the five-minute grid, adding only future insulin steps. It preserves historical
+therapy/Kalman/AR and the original cold-start trend. Null/empty plans retain the
+baseline path. Scenario output reports hypotheticalFutureInsulinUnits and the
+remaining known plus hypothetical insulin at the horizon. A shifted kernel with
+nonzero cumulative effect at age zero rejects nonempty plans rather than implying
+effect before delivery. Wrong anchors, omitted out-of-horizon delivery, duplicate
+offsets, nonfinite values and more than145 impulses reject, not truncate.
+No new projection executes in ordinary production prediction. This is a research
+primitive for explicit schedules, not a future AAPS controller/pump simulator;
+futureControlSimulated and trajectoryUncertaintyValidated remain false. Automatic
+schedule generation, continuous basal semantics and delivery uncertainty remain
+pending. No therapy records are fabricated or written.
+
+`MealScenarioExpansion` preserves hypothesis probability mass while expanding
+carbohydrate/onset endpoints and each supplied absorption alternative into
+explicit cases. Profile weights remain supplied weights; equal endpoint weights
+are the versioned research policy `equal-boundary-support-v1`, not learned
+probabilities or a guarantee that interior timings are bounded by the endpoints.
+Original input, evidence revision and observation metadata are retained. Stable
+case IDs map to their immediate parent; output lists/maps are immutable. Budget
+overflow, identity collision and probability underflow reject the whole result.
+No ranges are silently replaced by their midpoint or discarded. Expanded cases
+still need context/reconciliation, intervention semantics and calibrated
+uncertainty. The research-only `MealScenarioSimulator.simulateUncertain` entry
+expands and simulates as one cancellable operation, returning the expansion and
+complete batch together. This retains case weights and immediate parent IDs;
+candidate times/reaction delays do not multiply probability mass. Its budget is
+at most 24 expanded cases, matching the simulator, with no silent truncation.
+An uncertain UPCOMING onset still rejects: intervention time cannot silently
+replace the hypothesized future timing. Past onset intervals can be expanded.
+There is no production caller or notification authorization.
+
+`MealScenarioSimulator` builds a bounded conditional-mean matrix using the same
+start/delay grid as MealTimingPlanner. It requires all six hypothesis kinds and
+explicit discrete grams/onset/profile cases linked to one reconciled canonical
+meal. It rejects unresolved ranges rather than selecting a midpoint. Upcoming
+cases use the candidate time plus reaction delay; past cases keep their supplied
+past onset; NOT_HAPPENING/NO_NEW_MEAL contribute zero new food. These last cases
+do not model the alternative cause of a glucose change. PREVIOUS_MEAL requires
+an explicit past onset and the same canonical linkage; cross-record alias
+resolution and historical refitting are not performed here.
+Equivalent immutable forecasts are cached only within a batch. Allocation/work
+admission occurs before engine execution, cancellation is checked between calls,
+and no partial batch is returned. Output carries source cycle/settings and belief
+revision, but is deliberately not a MealTimingEnvelope with fabricated CI.
+Controller/nuisance scenarios, complete intervention semantics and validated
+uncertainty remain separate prerequisites before runtime use.
+
+`MealSimulationContext.forwardForecast` uses a disposable frozen engine and the
+existing V3 glucose calculation for a conditional path (60 minutes by default,
+bounded to 720 minutes for research). Replacement
+is assembled internally from trusted announced-food components by canonical ID.
+Future announced steps and residual COB are replaced before meal-pressure
+reconciliation; historical known inputs, Kalman updates and AR trend remain
+conditioned on observed history (including the cold-start baseline correction).
+The requested tail length does not change the first-hour AR scaling, CI or path.
+The existing fitted AR parameters, sensitivity and numerical clamps are held
+fixed into the conditional tail. This extrapolation is not a validated long-term
+glucose model. Nonzero modeled UAM steps reject an extended request because no
+long UAM tail is available. Insulin projection checks for known active delivery
+outside the engine lookback before simulation. Remaining modeled food/insulin
+and numericLimitsReached are explicit; completion of these curves does not prove
+complete therapy history, actual absorption or safe timing.
+No extra projection is run in ordinary production prediction. Results are immutable;
+the normal three pointwise forecast intervals are NOT calibrated scenario-wide
+uncertainty. Explicit hypothetical insulin impulses can be supplied separately;
+future AAPS control is not simulated. This API does not infer past
+onset or reconcile residual UAM identities. It supplies a conditional mean tail,
+not the planner's required validated uncertainty/control envelope. Only
+research/test callers exist; it cannot authorize notifications.
+
+`MealScenarioFoodProjection` replaces the selected canonical meal's projected
+food components, including explicitly linked UAM, before summing the retained
+meals and replacement. Unresolved linkage and overlapping retained canonical
+meals reject the scenario; time proximity is never used as identity. It does
+not discover links or resolve UAM attribution itself. Input curves share one
+anchor/grid, results are immutable and work is bounded. Past absorption and
+unfinished tails remain separate. `MealComponentProjection` can overlay this
+aggregate with the same modeled insulin/CSF without modifying therapy records.
+Only test callers currently exist; this is not the full scenario simulator.
+
+Frozen MealSimulationContext now exposes announcedFoodProjection from the engine.
+It reuses profileCarbEvents and carbCumulativeWithCutoff, including legacy curves,
+per-meal revision overrides and synthetic-UAM exclusion. Trusted canonical IDs
+and nonblank revisions are required; duplicate canonical meals reject rather than
+sum. MealAbsorptionProjection.fromCumulative validates a bounded monotone CDF and
+separates past absorption from future steps. This adapter covers only the existing
+announced-food component and existing lookback, not residual UAM, missing therapy
+history, future pump actions or complete glucose/scenario uncertainty.
+
+`domain/meal` is not wired to runtime or therapy. MealStateEstimator consumes
+scenario predictions made before the observed CGM sample, preserves original
+input time and rejects duplicate/correlated or revision-mismatched evidence.
+MealTimingPlanner validates a complete scenario/start/delay matrix and its tail,
+checks low-risk trajectories before ranking and abstains on incompatible optima.
+Conditional eating paths retain low-risk checks even for low-weight worlds.
+NOT_HAPPENING is assessed separately: its earliest low-CI point is returned as
+noFoodRisk, and a low within the maximum modeled reaction delay yields
+NO_FOOD_URGENCY rather than routine meal advice. Candidate waiting cannot consume
+that reaction margin. Among mutually near-equivalent feasible starts the earliest
+wins; a tiny numerical improvement is not a reason to postpone food. These are
+research policy rules, not calibrated clinical thresholds or a live hypo sender.
+Its only positive research result is SHADOW_READY, never permission to notify.
+The envelope must declare causal, same-cycle/runtime uncertainty support over
+the entire evaluated five-minute trajectory and delayed meal tail. Missing,
+pointwise-only or shorter support yields UNCERTAINTY_UNSUPPORTED. Provenance is
+a producer contract, not proof of calibration: no production producer exists.
+The existing AutomationRepository per-horizon residual calibration must not be
+relabeled as simultaneous long-horizon coverage. No extrapolation is provided.
+The 120-minute clock policy is pure eligibility, not a durable atomic claim.
+Room, frozen-engine simulation, calibrated policy and production wiring remain
+required. No clinical performance or notification-delivery guarantee is claimed.
+
+`HybridPredictionEngine.forkForMealSimulation()` now copies configured insulin
+profile/DIA/onset, sensitivity overrides, carb limits, meal absorption and UAM
+contexts, Kalman state/covariance/revision history and residual AR buckets.
+The stateless profile estimator retains its captured timezone. Each candidate
+must fork the untouched seed; diagnostics and the live logger are not shared.
+Capture requires exclusive ownership of the source engine, not concurrent
+setters/prediction. The existing dry-run factory is unchanged. This primitive
+does not freeze therapy input lists, extend the 60-minute horizon, generate
+scenarios, guarantee clinical safety or enable notifications by itself.
+
+`MealSimulationContext.capture` freezes CGM, therapy payload maps and the local
+baseline forecast, then reproduces that forecast in a disposable engine copy.
+Mismatches, future evidence, unordered samples, stale capture, invalid revision
+labels and allocation-budget excess are rejected without truncation. The caller
+must own the cycle lock and supply the same cycle's accepted local output and
+revision labels; the context does not independently authenticate those labels.
+Cancellation is checked before capture, during therapy copying and after the
+baseline calculation. No runtime capture call site is wired yet.
+
+`MealAbsorptionProjection` reuses MealAbsorptionCurve for a hypothetical onset,
+including a future onset. It keeps already-absorbed grams separate from future
+five-minute absorption and reports unabsorbed tail mass explicitly. Up to 720
+minutes may be inspected for this carbohydrate component only; this does not
+extend the glucose engine's validated horizon or model future insulin delivery.
+No future food is inserted into therapy history or treated as an observed CGM.
+
+`MealSimulationContext.insulinProjection` reuses the frozen engine's canonical
+CGM processing, sensitivity estimator, event eligibility, insulin profile and
+DIA/onset transformation. The first 60-minute insulin steps match the existing
+V3 component exactly. Longer component tails report remaining modeled units;
+inferred entries remain explicitly counted, not relabelled confirmed delivery.
+An active known event outside the engine's 8-hour lookback or an exceeded work
+budget rejects the projection. Missing older history cannot be inferred from
+this check; input coverage remains an independent runtime admission requirement.
+`MealComponentProjection` combines one hypothetical food curve with this insulin
+component using the same CSF and requires identical time anchors and horizons.
+It is a delta decomposition, not absolute glucose, not future AAPS control and
+not an uncertainty envelope. Complete modeled tails do not grant notification
+permission or prove adequate therapy coverage. Existing live forecasts unchanged.
+
+## Food Impact Chart
+
+Overview projects the accepted engine's announced-carbohydrate five-minute steps
+into cumulative deltas at offsets 0..30 minutes, added to the latest displayed
+glucose sample. Yellow starts at that sample and shares the glucose axis; it is
+a food-only projection, not the net glucose forecast. Accepted-cycle-tagged telemetry is
+published only after acceptance; UI requires matching forecastCycleId, sensitivity
+identity and freshness. Missing steps remain unavailable, not a fabricated zero.
+No extra inferred UAM contribution, insulin effect, polling or therapy writer is
+introduced. Legacy stored forecasts need a new accepted cycle to supply this layer.
+
+## Meal Portion Configuration
+
+MealPortionSettings holds independent SMALL/MEDIUM/LARGE ranges and default
+amounts plus a showCalories preference (false by default). AppSettingsStore
+validates the complete configuration before its atomic edit; invalid input
+leaves prior settings unchanged. Shared historical boundaries select the larger
+category. These settings do not override submission caps, Auto UAM limits or
+target policy. The advanced settings editor and Overview consume the same saved
+settings via MainUiState. MealEntryDialog owns a local, saveable draft with two
+radio-choice rows and optional calories. Picture taps never dispatch therapy.
+The Food dialog's Send button freezes grams, profile, energy, Eating soon and a
+submission ID and invokes Overview's existing manual-meal callback immediately.
+There is no secondary confirmation. Manual carbs starts unchecked and exposes
+an inline numeric input only when selected; its value is ignored when unchecked.
+The exact grams are shown on Send and validated against the existing cap.
+Over-cap defaults require explicit correction, not silent clamping. These UI
+changes do not add a new writer or a background task. Independent historical
+learning and the reviewed manual 80g path remain separate, unfinished stages.
+
+Confirmation also freezes portion provenance: unchanged numeric proposals are
+ACCEPTED_SUGGESTION, edited quantities are USER_CORRECTED, and callers without
+a proposal remain UNKNOWN. Metadata follows the existing ManualMealSubmission
+and EnergyProfileRepository pending-to-canonical reconciliation path. A retry
+cannot change provenance under the same operation ID. Room v27 adds nullable
+metadata without retroactively labelling legacy records. The inactive estimator
+requires independent evidence matched to canonical identity, revision and grams;
+accepted suggestions cannot become training labels.
+
 ## September 2026 Source Release
 
 The current publication and server-AI boundaries are documented in

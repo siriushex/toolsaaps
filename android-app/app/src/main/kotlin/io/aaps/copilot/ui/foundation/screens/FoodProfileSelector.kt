@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
@@ -25,13 +29,31 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
+import io.aaps.copilot.ui.foundation.components.MealPictureChoice
 
 @Composable
 fun FoodProfileSelector(
     selected: MealAbsorptionProfile,
     onSelected: (MealAbsorptionProfile) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
+    if (compact) {
+        Row(modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FoodProfileOption.entries.forEach { option ->
+                val image = when (option.profile) {
+                    MealAbsorptionProfile.FAST -> R.drawable.meal_profile_fast
+                    MealAbsorptionProfile.MIXED -> R.drawable.meal_profile_mixed
+                    MealAbsorptionProfile.FAT_PROTEIN -> R.drawable.meal_profile_slow
+                }
+                MealPictureChoice(selected == option.profile, stringResource(option.labelRes),
+                    image, "mealProfile_${option.profile.name}", { onSelected(option.profile) },
+                    Modifier.weight(1f).fillMaxHeight(), stringResource(option.contentDescriptionRes))
+            }
+        }
+        return
+    }
     Row(
         modifier = modifier.selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)

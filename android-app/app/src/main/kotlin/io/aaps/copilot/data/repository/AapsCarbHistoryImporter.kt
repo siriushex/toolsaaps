@@ -10,6 +10,7 @@ import io.aaps.copilot.data.local.dao.TherapyDao
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import java.security.MessageDigest
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 
 internal fun interface AapsCarbImportTransactionRunner {
     suspend fun runInTransaction(block: suspend () -> Unit)
@@ -25,7 +26,9 @@ private object DirectAapsCarbImportTransactionRunner : AapsCarbImportTransaction
 internal class AapsCarbHistoryImporter(
     private val therapyDao: TherapyDao,
     private val transactionRunner: AapsCarbImportTransactionRunner,
-    private val gson: Gson = Gson()
+    private val gson: Gson = Gson(),
+    private val onCommittedPage: (AapsCarbHistoryPage) -> Unit = {},
+    private val persistMealPage: suspend (AapsCarbHistoryPage) -> Unit = {}
 ) {
 
     /**
@@ -84,10 +87,15 @@ internal class AapsCarbHistoryImporter(
             if (changed.isNotEmpty()) {
                 therapyDao.upsertAll(changed)
             }
+            persistMealPage(page)
             if (!commitGuard()) {
                 throw AapsCarbImportSupersededException()
             }
         }
+        // Notification is observational and outside the therapy transaction.
+        try { onCommittedPage(page) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { }
     }
 
     private fun overlayCandidates(

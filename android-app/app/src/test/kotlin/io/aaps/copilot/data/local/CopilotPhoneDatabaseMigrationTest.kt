@@ -12,7 +12,7 @@ import org.junit.Test
 class CopilotPhoneDatabaseMigrationTest {
 
     @Test
-    fun migrationFromSupportedVersionTo26_preservesDisposablePhoneCopy() {
+    fun migrationFromSupportedVersionTo30_preservesDisposablePhoneCopy() {
         val copyPath = System.getenv("COPILOT_PHONE_DB_COPY")?.takeIf(String::isNotBlank)
         Assume.assumeTrue(
             "COPILOT_PHONE_DB_COPY must point to a disposable SQLite database copy",
@@ -35,6 +35,12 @@ class CopilotPhoneDatabaseMigrationTest {
             assertThat(allStrings(connection, "PRAGMA integrity_check")).containsExactly("ok")
             assertThat(queryHasRows(connection, "PRAGMA foreign_key_check")).isFalse()
             assertThat(singleLong(connection, "PRAGMA user_version")).isEqualTo(CURRENT_VERSION.toLong())
+            if (sourceVersion < 27) {
+                assertThat(queryHasRows(connection,
+                    "SELECT 1 FROM meal_profile_overrides WHERE portion IS NOT NULL " +
+                        "OR portionProvenance IS NOT NULL OR confirmedCarbsGrams IS NOT NULL LIMIT 1"
+                )).isFalse()
+            }
             assertThat(schemaObjectNames(connection, "table"))
                 .containsAtLeastElementsIn(KEY_V26_TABLES)
             assertThat(schemaObjectNames(connection, "index"))
@@ -43,7 +49,7 @@ class CopilotPhoneDatabaseMigrationTest {
     }
 
     @Test
-    fun officialMigrationTailSupportsEverySourceVersionFrom21Through26() {
+    fun officialMigrationTailSupportsEverySourceVersionFrom21Through30() {
         for (sourceVersion in MIN_SUPPORTED_VERSION..CURRENT_VERSION) {
             val expectedStarts = (sourceVersion until CURRENT_VERSION).toList()
             val tail = requiredMigrationTail(sourceVersion)
@@ -134,7 +140,7 @@ class CopilotPhoneDatabaseMigrationTest {
 
     private companion object {
         const val MIN_SUPPORTED_VERSION = 21
-        const val CURRENT_VERSION = 26
+        const val CURRENT_VERSION = 30
 
         val KEY_V26_TABLES = setOf(
             "sensitivity_runtime_snapshots",

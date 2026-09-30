@@ -801,6 +801,10 @@ internal fun MainUiState.toOverviewUiState(
         eventTimelineNowTs = eventTimelineNowTs,
         physiologicalSex = profileSex,
         chart = ClinicalForecastChartUiState(
+            mealImpactPoints = if (acceptedIdentityMatches) mealImpactChartPoints(
+                mealImpactStepsJson, acceptedSnapshot?.forecastCycleId, forecastAcceptedGenerationTs,
+                history.maxByOrNull { it.ts }
+            ) else emptyList(),
             historyPoints = history,
             futurePath = if (acceptedIdentityMatches) buildInterpolatedFuturePath(nowTs = chartNowTs) else emptyList(),
             futureCi = if (acceptedIdentityMatches) buildInterpolatedFutureCi(nowTs = chartNowTs) else emptyList(),
@@ -846,6 +850,7 @@ internal fun MainUiState.toOverviewUiState(
         sensitivitySourcePendingValue = sensitivitySourcePendingValue,
         sensitivitySourceApplyError = sensitivitySourceApplyError,
         carbComputationMaxGrams = carbComputationMaxGrams,
+        mealPortions = mealPortions,
         isfRuntime = metricRuntimeSourceUi(
             requested = displayedIsfSource,
             acceptedSnapshot = acceptedSnapshot,

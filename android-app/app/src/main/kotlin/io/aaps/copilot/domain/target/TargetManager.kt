@@ -2,6 +2,7 @@ package io.aaps.copilot.domain.target
 
 import io.aaps.copilot.domain.profile.ActivityTargetProposalDirection
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.domain.rules.SustainedRiseTargetPolicy
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -108,7 +109,7 @@ class TargetManager(
             )
         }
 
-        val cadence = cadencePolicy.decide(
+        val ordinaryCadence = cadencePolicy.decide(
             TargetCadenceRequest(
                 nowTs = input.nowTs,
                 targetMmol = winner.targetMmol,
@@ -117,6 +118,10 @@ class TargetManager(
                 lastAutomaticSent = input.lastAutomaticSent
             )
         )
+        val cadence = if (!ordinaryCadence.allowed && ordinaryCadence.reason == "duplicate_target_within_window" &&
+            isConfirmedSustainedRiseRelease(input, active, winner)
+        ) TargetCadenceDecision(true, TempTargetCadenceOutcome.ALLOW_EPISODE_RELEASE, "sustained_rise_upward_release")
+        else ordinaryCadence
         val evaluatedRuntime = runtime.copy(lastDecisionFingerprint = semanticFingerprint)
         if (!cadence.allowed) {
             return blocked(
@@ -225,7 +230,17 @@ class TargetManager(
         ) {
             return CandidateEvaluation(proposal, false, "safety_iob_blocks_target_decrease")
         }
-        val isDecrease = proposal.targetMmol < anchor
+        val sustainedRise = proposal.sourceRuleId == SustainedRiseTargetPolicy.SOURCE
+        if (sustainedRise && (proposal.generatedAt != input.nowTs ||
+                abs(proposal.targetMmol - SustainedRiseTargetPolicy.TARGET_MMOL) > EPSILON ||
+                proposal.durationMinutes != SustainedRiseTargetPolicy.DURATION_MINUTES ||
+                proposal.intent != TargetIntent.NORMAL_CONTROL ||
+                input.safety.currentGlucoseMmol?.let { it.isFinite() && it > 8.5 } != true ||
+                input.safety.deliveryTrust != DeliveryTrustState.NORMAL)) {
+            return CandidateEvaluation(proposal, false, "invalid_sustained_rise_context")
+        }
+        // Continuing this low target is a fresh risk decision, not a neutral hold.
+        val isDecrease = proposal.targetMmol < anchor || sustainedRise
         if (proposal.intent == TargetIntent.PLANNED_ACTIVITY_ADAPTATION) {
             validatePlannedActivityProposal(input, proposal)?.let { reason ->
                 return CandidateEvaluation(proposal, false, reason)
@@ -471,6 +486,12 @@ class TargetManager(
         proposal: TargetProposal
     ): Boolean {
         val accepted = input.runtimeState.acceptedTarget ?: return false
+        if (accepted.ownerRuleId == SustainedRiseTargetPolicy.SOURCE && input.proposals.none { candidate ->
+                candidate.sourceRuleId == SustainedRiseTargetPolicy.SOURCE &&
+                    candidate.generatedAt == input.nowTs &&
+                    abs(candidate.targetMmol - accepted.targetMmol) < EPSILON &&
+                    evaluateCandidate(input, candidate, accepted.targetMmol, priorityTakeover = false).eligible
+            }) return false
         if (accepted.ownerRuleId == TargetProposalFactory.PLANNED_ACTIVITY_RETURN_SOURCE) return false
         if (accepted.intent == TargetIntent.HYPO_PROTECTION && !hasCurrentHypoProtection(input, accepted)) {
             return false
@@ -520,6 +541,24 @@ class TargetManager(
                 candidate.durationMinutes == accepted.durationMinutes &&
                 evaluateCandidate(input, candidate, accepted.targetMmol, priorityTakeover = false).eligible
         }
+    }
+
+    private fun isConfirmedSustainedRiseRelease(
+        input: TargetManagerInput,
+        active: ActiveAapsTarget?,
+        winner: TargetProposal
+    ): Boolean {
+        val accepted = input.runtimeState.acceptedTarget ?: return false
+        val last = input.lastAutomaticSent ?: return false
+        return accepted.ownerRuleId == SustainedRiseTargetPolicy.SOURCE &&
+            accepted.lastCommandStatus == "sent" && accepted.lastCommandId != null &&
+            active?.ownership == ActiveTargetOwnership.TARGET_MANAGER &&
+            active.idempotencyKey == accepted.lastCommandId &&
+            last.idempotencyKey == accepted.lastCommandId &&
+            abs(active.targetMmol - accepted.targetMmol) < EPSILON &&
+            abs(last.targetMmol - accepted.targetMmol) < EPSILON &&
+            winner.sourceRuleId == AdaptiveTargetControllerRule.RULE_ID &&
+            winner.generatedAt == input.nowTs && winner.targetMmol > accepted.targetMmol + EPSILON
     }
 
     private fun isBelowBaseWithoutQualifiedIob(

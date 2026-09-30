@@ -1,0 +1,4 @@
+<resources>
+    <string name="meal_impact_legend">Yellow: current glucose + food impact · 30 min · without insulin</string>
+    <string name="meal_impact_unavailable">Food impact: awaiting current calculation</string>
+</resources>

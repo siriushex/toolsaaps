@@ -515,7 +515,8 @@ class AutomationRepository(
         val residualRoc0Mmol5: Double,
         val sigmaEMmol5: Double,
         val kfSigmaGMmol: Double,
-        val modelVersion: String
+        val modelVersion: String,
+        val announcedCarbSteps: List<Double> = emptyList()
     )
 
     data class IsfCrRuntimeGate(
@@ -1770,7 +1771,8 @@ class AutomationRepository(
         )
         persistForecastDecompositionTelemetry(
             nowTs = nowTs,
-            decomposition = forecastRuntime.forecastDecomposition
+            decomposition = forecastRuntime.forecastDecomposition,
+            acceptedCycleId = acceptedSnapshot.forecastCycleId
         )
         db.telemetryDao().upsertAll(
             buildAcceptedClinicalForecastTelemetryRowsStatic(
@@ -1799,13 +1801,8 @@ class AutomationRepository(
                 mapOf("removedRows" to removedInvalidTelemetryTs)
             )
         }
-        val removedForecastDuplicates = db.forecastDao().deleteDuplicateByTimestampAndHorizon()
-        if (removedForecastDuplicates > 0) {
-            auditLogger.warn(
-                "forecast_storage_duplicates_cleaned",
-                mapOf("removedRows" to removedForecastDuplicates)
-            )
-        }
+        // Accepted publication already replaces each timestamp/horizon in one transaction.
+        // Do not scan all forecast history for duplicates on the realtime path.
         db.forecastDao().deleteOlderThan(nowTs - resolveHistoryRetentionMs(settings))
         refreshRealInsulinProfileTelemetry(nowTs = nowTs, settings = settings)
         require(therapy.none { it.ts > nowTs }) { "accepted maintenance therapy must be causal" }
@@ -7440,7 +7437,8 @@ class AutomationRepository(
 
     private suspend fun persistForecastDecompositionTelemetry(
         nowTs: Long,
-        decomposition: ForecastDecompositionSnapshot?
+        decomposition: ForecastDecompositionSnapshot?,
+        acceptedCycleId: String
     ) {
         val source = "copilot_forecast_decomposition"
         val rows = mutableListOf<TelemetrySampleEntity>()
@@ -7480,6 +7478,14 @@ class AutomationRepository(
         addNumeric("forecast_kf_sigma_g_mmol", decomposition?.kfSigmaGMmol, "mmol/L")
         addNumeric("forecast_decomp_available", if (decomposition != null) 1.0 else 0.0)
         addText("forecast_decomp_model_version", decomposition?.modelVersion)
+        val foodSteps = decomposition?.announcedCarbSteps.orEmpty()
+        if (io.aaps.copilot.domain.predict.MealRollingImpact.nextThirtyMinutes(foodSteps).isNotEmpty()) {
+            addText("forecast_meal_steps", gson.toJson(mapOf(
+                "cycle" to acceptedCycleId, "steps" to foodSteps.take(13)
+            )))
+        } else {
+            addText("forecast_meal_steps", null)
+        }
 
         db.telemetryDao().upsertAll(rows)
     }
@@ -11981,7 +11987,8 @@ class AutomationRepository(
                 residualRoc0Mmol5 = diagnostics.residualRoc0,
                 sigmaEMmol5 = diagnostics.arSigmaE,
                 kfSigmaGMmol = diagnostics.kfSigmaG,
-                modelVersion = modelVersion
+                modelVersion = modelVersion,
+                announcedCarbSteps = diagnostics.announcedCarbStep.toList()
             )
         }
 

@@ -1809,10 +1809,14 @@ class MainViewModel(application: Application) :
             container.energyProfileRepository.stageSelectionAfterSubmittedCarbAction(
                 command = command,
                 selection = selection,
-                manualMealEnergyKcal = manualMealEnergyKcal
+                manualMealEnergyKcal = manualMealEnergyKcal,
+                portion = selection.portionMetadata?.portion,
+                portionProvenance = selection.portionMetadata?.provenance
             )
         },
-        sendEatingSoon = container::submitManualEatingSoon
+        sendEatingSoon = container::submitManualEatingSoon,
+        readCarbBlockReason = container.actionRepository::manualCarbBlockReason,
+        onMealInput = { container.mealStateIngestion.offerInput(it) }
     )
     private val clinicalReportCommands = ClinicalReportUiCommands(
         state = container.clinicalReportRepository.state,
@@ -3325,6 +3329,7 @@ class MainViewModel(application: Application) :
             this.forecastAcceptedGenerationTs = acceptedForecastTuple.generationTimestamp
             this.acceptedSensitivityRuntimeSnapshot = acceptedForecastTuple.sensitivity
             this.trend60ComponentMmol = acceptedForecastTuple.decomposition?.trend60Mmol
+            this.mealImpactStepsJson = telemetryByKey["forecast_meal_steps"]?.valueText
             this.therapy60ComponentMmol = acceptedForecastTuple.decomposition?.therapy60Mmol
             this.uam60ComponentMmol = acceptedForecastTuple.decomposition?.uam60Mmol
             this.residualRoc0Mmol5m = acceptedForecastTuple.decomposition?.residualRoc0Mmol5
@@ -3509,6 +3514,7 @@ class MainViewModel(application: Application) :
             this.safetyMaxTargetMmol = settings.safetyMaxTargetMmol
             this.carbAbsorptionMaxAgeMinutes = settings.carbAbsorptionMaxAgeMinutes
             this.carbComputationMaxGrams = settings.carbComputationMaxGrams
+            this.mealPortions = settings.mealPortions
             this.weekdayHotHours = patterns
                 .filter { it.dayType == DayType.WEEKDAY.name && it.isRiskWindow }
                 .sortedBy { it.hour }
@@ -3851,6 +3857,7 @@ class MainViewModel(application: Application) :
             this.safetyMaxTargetMmol = settings.safetyMaxTargetMmol
             this.staleDataMaxMinutes = settings.staleDataMaxMinutes
             this.carbComputationMaxGrams = settings.carbComputationMaxGrams
+            this.mealPortions = settings.mealPortions
             this.isfRuntimeSourcePreference = publishedSensitivity?.isf?.requested?.name ?: "UNAVAILABLE"
             this.crRuntimeSourcePreference = publishedSensitivity?.cr?.requested?.name ?: "UNAVAILABLE"
             this.latestDataAgeMinutes = latestDataAgeMinutes
@@ -3915,6 +3922,7 @@ class MainViewModel(application: Application) :
             this.forecastAcceptedGenerationTs = acceptedForecastTuple.generationTimestamp
             this.acceptedSensitivityRuntimeSnapshot = acceptedForecastTuple.sensitivity
             this.trend60ComponentMmol = acceptedForecastTuple.decomposition?.trend60Mmol
+            this.mealImpactStepsJson = telemetryByKey["forecast_meal_steps"]?.valueText
             this.therapy60ComponentMmol = acceptedForecastTuple.decomposition?.therapy60Mmol
             this.uam60ComponentMmol = acceptedForecastTuple.decomposition?.uam60Mmol
             this.residualRoc0Mmol5m = acceptedForecastTuple.decomposition?.residualRoc0Mmol5
@@ -4583,6 +4591,7 @@ class MainViewModel(application: Application) :
                 legacyCleanupPending = credentialStatus.legacyCleanupPending
             ),
             energyProfile = energyProfile,
+            mealPortions = settings.mealPortions,
             clinicalAi = clinicalAi,
             uiStyle = settings.uiStyle.name,
             resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
@@ -6171,6 +6180,18 @@ class MainViewModel(application: Application) :
         updateEnergyProfileSettings { current -> current.copy(enabled = enabled) }
     }
 
+    fun saveMealPortionSettings(value: io.aaps.copilot.domain.nutrition.MealPortionSettings) {
+        viewModelScope.launch {
+            try {
+                container.settingsStore.setMealPortionSettings(value)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(R.string.meal_portions_save_failed)
+            }
+        }
+    }
+
     fun saveEnergyProfileUserProfile(draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi) {
         updateEnergyProfileSettings { current ->
             current.copy(
@@ -7694,7 +7715,8 @@ class MainViewModel(application: Application) :
         foodProfile: io.aaps.copilot.domain.profile.MealAbsorptionProfile,
         manualMealEnergyKcal: Double? = null,
         eatingSoon: Boolean = false,
-        submissionId: String = UUID.randomUUID().toString()
+        submissionId: String = UUID.randomUUID().toString(),
+        portionMetadata: io.aaps.copilot.domain.nutrition.MealPortionMetadata? = null
     ) {
         viewModelScope.launch {
             val settings = container.settingsStore.settings.first()
@@ -7718,13 +7740,15 @@ class MainViewModel(application: Application) :
                 val command = buildManualCommand(
                     type = "carbs",
                     params = mapOf(
-                        "carbsGrams" to String.format(Locale.US, "%.1f", carbsGrams),
+                        "carbsGrams" to serializeConfirmedMealGrams(carbsGrams),
                         "reason" to reason
                     )
                 ).copy(idempotencyKey = "manual:meal:$submissionId")
                 manualCarbSubmission.submit(
                     command = command,
-                    selection = io.aaps.copilot.domain.profile.MealAbsorptionSelection(foodProfile),
+                    selection = io.aaps.copilot.domain.profile.MealAbsorptionSelection(
+                        foodProfile, portionMetadata = portionMetadata
+                    ),
                     mealEnergyKcal = manualMealEnergyKcal,
                     eatingSoon = eatingSoon
                 )
@@ -11583,6 +11607,11 @@ class MainViewModel(application: Application) :
         internal fun isManualMealEnergyInputValid(value: Double?): Boolean =
             value == null || value.isFinite() && value in 1.0..10_000.0
 
+        internal fun serializeConfirmedMealGrams(value: Double): String {
+            require(value.isFinite() && value > 0.0)
+            return value.toString()
+        }
+
         internal fun shouldPrepareClinicalReportOnRouteTransition(
             currentRoute: String,
             nextRoute: String
@@ -11868,6 +11897,7 @@ internal fun resolveTargetManagerLiveStatusForUi(
     .let(TargetManagerLiveStatusCodec::decodeTelemetryRow)
 
 internal fun buildPrimaryTelemetryKeysForUi(): List<String> = listOf(
+    "forecast_meal_steps",
     SENSITIVITY_ACCEPTED_CYCLE_ID_KEY,
     SENSITIVITY_ACCEPTED_SETTINGS_REVISION_KEY,
     SENSITIVITY_ACCEPTED_FORECAST_TIMESTAMP_KEY,
@@ -13156,6 +13186,8 @@ class MainUiState {
     var safetyMaxTargetMmol: Double = 10.0
     var carbAbsorptionMaxAgeMinutes: Int = 180
     var carbComputationMaxGrams: Double = 60.0
+    var mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
+        io.aaps.copilot.domain.nutrition.MealPortionSettings()
     var weekdayHotHours: List<PatternWindow> = emptyList()
     var weekendHotHours: List<PatternWindow> = emptyList()
     var qualityMetrics: List<QualityMetricUi> = emptyList()
@@ -13203,6 +13235,7 @@ class MainUiState {
     var glucoseHistoryPoints: List<GlucoseHistoryRowUi> = emptyList()
     var lastAction: LastActionRowUi? = null
     var trend60ComponentMmol: Double? = null
+    var mealImpactStepsJson: String? = null
     var therapy60ComponentMmol: Double? = null
     var uam60ComponentMmol: Double? = null
     var residualRoc0Mmol5m: Double? = null

@@ -116,6 +116,7 @@ data class EnergyActivityStatusUi(
 )
 
 data class ClinicalForecastChartUiState(
+    val mealImpactPoints: List<ChartPointUi> = emptyList(),
     val historyPoints: List<ChartPointUi> = emptyList(),
     val futurePath: List<ChartPointUi> = emptyList(),
     val futureCi: List<ChartCiPointUi> = emptyList(),
@@ -317,6 +318,8 @@ data class OverviewUiState(
     val sensitivitySourcePendingValue: String? = null,
     val sensitivitySourceApplyError: String? = null,
     val carbComputationMaxGrams: Double = 60.0,
+    val mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
+        io.aaps.copilot.domain.nutrition.MealPortionSettings(),
     val isfRuntime: MetricRuntimeSourceUi = MetricRuntimeSourceUi(),
     val crRuntime: MetricRuntimeSourceUi = MetricRuntimeSourceUi(),
     val calculatedUamCarbsGrams: Double? = null,
@@ -1563,6 +1566,8 @@ data class SettingsUiState(
     val aiApiUrl: String,
     val aiCredential: AiCredentialUiState = AiCredentialUiState(),
     val energyProfile: EnergyProfileSettingsUiState = EnergyProfileSettingsUiState(),
+    val mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
+        io.aaps.copilot.domain.nutrition.MealPortionSettings(),
     val clinicalAi: ClinicalAiSettingsUiState =
         ClinicalAiSettingsUiState.defaultOpenAi(aiCredential),
     val uiStyle: String,

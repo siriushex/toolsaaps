@@ -24,6 +24,20 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class EatingSoonDeliveryRoomTest {
+    @Test fun manualCarbRateLimitRetainsReasonAndDoesNotPost() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val first = command("carbs-first").copy(type = "carbs", params = mapOf("carbsGrams" to "10"))
+            val second = command("carbs-second").copy(type = "carbs", params = mapOf("carbsGrams" to "10"))
+            assertThat(repository.submitCarbs(first)).isTrue()
+            assertThat(repository.submitCarbs(second)).isFalse()
+            assertThat(repository.manualCarbBlockReason(second)).isEqualTo("carbs_rate_limit_30m")
+            assertThat(repository.manualCarbBlockReason(first)).isNull()
+            assertThat(server.requestCount).isEqualTo(1)
+        }
+    }
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private lateinit var db: CopilotDatabase
     private lateinit var settings: AppSettingsStore

@@ -27,6 +27,13 @@ import org.junit.Test
 class MainViewModelManualMealEnergyTest {
 
     @Test
+    fun confirmedGramsAreNotRoundedBeforeSubmission() {
+        listOf(59.25, 10.125, 25.0, 60.0).forEach { grams ->
+            assertThat(MainViewModel.serializeConfirmedMealGrams(grams).toDouble()).isEqualTo(grams)
+        }
+    }
+
+    @Test
     fun manualMealEnergyValidationAcceptsAnAbsentValueAndRejectsInvalidValues() {
         assertThat(MainViewModel.isManualMealEnergyInputValid(null)).isEqualTo(true)
         assertThat(MainViewModel.isManualMealEnergyInputValid(540.0)).isEqualTo(true)

@@ -69,6 +69,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -204,7 +205,7 @@ fun OverviewScreen(
     onOpenSensorLagAnalytics: (() -> Unit)? = null,
     onOpenClinicalReport: () -> Unit,
     onBaseTargetScheduleSave: (BaseTargetSchedule) -> Unit = {},
-    onManualCarbs: (String, String, MealAbsorptionProfile, Double?, Boolean, String) -> Unit = { _, _, _, _, _, _ -> },
+    onManualCarbs: (String, String, MealAbsorptionProfile, Double?, Boolean, String, io.aaps.copilot.domain.nutrition.MealPortionMetadata) -> Unit = { _, _, _, _, _, _, _ -> },
     onOpenAapsBolus: () -> Unit = {},
     onUamExportUiModeChange: (String) -> Unit = {},
     onIsfRuntimeSourceChange: (String) -> Unit = {},
@@ -218,21 +219,12 @@ fun OverviewScreen(
     var showBloodCheckDialog by rememberSaveable { mutableStateOf(false) }
     var showTargetDialog by remember { mutableStateOf(false) }
     var showCobDialog by remember { mutableStateOf(false) }
-    var showCobConfirmation by remember { mutableStateOf(false) }
     var showIobDialog by rememberSaveable { mutableStateOf(false) }
     var showUamDialog by rememberSaveable { mutableStateOf(false) }
-    var cobGramsRaw by rememberSaveable { mutableStateOf("10") }
-    var manualMealEnergyKcalRaw by remember { mutableStateOf("") }
-    var selectedFoodProfile by rememberSaveable { mutableStateOf(MealAbsorptionProfile.MIXED) }
-    var eatingSoon by rememberSaveable { mutableStateOf(true) }
-    var mealSubmissionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var sourceSheet by rememberSaveable { mutableStateOf<MetricSourceSheetKind?>(null) }
     var valueAnimationsReady by remember { mutableStateOf(false) }
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val openCobDialog = {
-        manualMealEnergyKcalRaw = ""
-        eatingSoon = true
-        mealSubmissionId = UUID.randomUUID().toString()
         showCobDialog = true
     }
 
@@ -336,133 +328,18 @@ fun OverviewScreen(
         )
     }
 
-    val pendingCobGrams = cobGramsRaw.replace(',', '.').toDoubleOrNull()
-    val cobIsValid = pendingCobGrams?.isFinite() == true &&
-        pendingCobGrams in 1.0..state.carbComputationMaxGrams.coerceIn(20.0, 60.0)
-    val pendingManualMealEnergyKcal = manualMealEnergyKcalRaw.replace(',', '.').toDoubleOrNull()
-    val manualMealEnergyIsValid = manualMealEnergyKcalRaw.isBlank() ||
-        pendingManualMealEnergyKcal?.isFinite() == true &&
-        pendingManualMealEnergyKcal in 1.0..10_000.0
-    val closeCobDialog = {
-        showCobConfirmation = false
-        showCobDialog = false
-        manualMealEnergyKcalRaw = ""
-    }
-
     if (showCobDialog) {
-        AlertDialog(
-            onDismissRequest = closeCobDialog,
-            title = { Text(stringResource(R.string.overview_cob_dialog_title)) },
-            text = {
-                Column(
-                    modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
-                ) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                        listOf(10, 20, 40).forEach { grams ->
-                            OutlinedButton(onClick = { cobGramsRaw = grams.toString() }) {
-                                Text(stringResource(R.string.overview_cob_preset, grams))
-                            }
-                        }
-                    }
-                    OutlinedTextField(
-                        value = cobGramsRaw,
-                        onValueChange = { cobGramsRaw = it },
-                        label = { Text(stringResource(R.string.overview_cob_custom)) },
-                        singleLine = true,
-                        isError = cobGramsRaw.isNotBlank() && !cobIsValid
-                    )
-                    OutlinedTextField(
-                        value = manualMealEnergyKcalRaw,
-                        onValueChange = { manualMealEnergyKcalRaw = it },
-                        label = { Text(stringResource(R.string.overview_cob_manual_energy_optional)) },
-                        supportingText = {
-                            if (!manualMealEnergyIsValid) {
-                                Text(stringResource(R.string.overview_cob_manual_energy_error))
-                            }
-                        },
-                        singleLine = true,
-                        isError = manualMealEnergyKcalRaw.isNotBlank() && !manualMealEnergyIsValid,
-                        modifier = Modifier.testTag("overviewManualMealEnergyKcal")
-                    )
-                    FoodProfileSelector(
-                        selected = selectedFoodProfile,
-                        onSelected = { selectedFoodProfile = it }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .testTag("overviewEatingSoon")
-                            .toggleable(value = eatingSoon, role = Role.Checkbox, onValueChange = { eatingSoon = it }),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(checked = eatingSoon, onCheckedChange = null)
-                        Column {
-                            Text(stringResource(R.string.overview_eating_soon))
-                            Text(
-                                stringResource(R.string.overview_eating_soon_target),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = cobIsValid && manualMealEnergyIsValid,
-                    modifier = Modifier.testTag("overviewPrepareMeal"),
-                    onClick = { showCobConfirmation = true }
-                ) {
-                    Text(
-                        stringResource(
-                            R.string.overview_add_carbs,
-                            UiFormatters.formatGrams(pendingCobGrams, 1)
-                        )
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = closeCobDialog) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            }
-        )
-    }
-
-    if (showCobConfirmation && cobIsValid) {
-        AlertDialog(
-            onDismissRequest = { showCobConfirmation = false },
-            title = { Text(stringResource(R.string.overview_confirm_carbs_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        if (eatingSoon) R.string.overview_confirm_carbs_eating_soon else R.string.overview_confirm_carbs_message,
-                        UiFormatters.formatGrams(pendingCobGrams, 1)
-                    )
+        io.aaps.copilot.ui.foundation.components.MealEntryDialog(
+            settings = state.mealPortions,
+            maximumGrams = state.carbComputationMaxGrams.coerceIn(20.0, 60.0),
+            onDismiss = { showCobDialog = false },
+            onConfirm = { meal ->
+                showCobDialog = false
+                onManualCarbs(
+                    meal.grams.toString(), "overview_cob", meal.profile,
+                    meal.energyKcal, meal.eatingSoon, meal.submissionId,
+                    io.aaps.copilot.domain.nutrition.MealPortionMetadata(meal.portion, meal.provenance)
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    modifier = Modifier.testTag("overviewConfirmMeal"),
-                    onClick = {
-                        if (showCobConfirmation) {
-                            closeCobDialog()
-                            onManualCarbs(
-                                UiFormatters.formatGrams(pendingCobGrams, 1),
-                                "overview_cob",
-                                selectedFoodProfile,
-                                pendingManualMealEnergyKcal,
-                                eatingSoon,
-                                mealSubmissionId
-                            )
-                        }
-                    }
-                ) { Text(stringResource(R.string.action_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCobConfirmation = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
             }
         )
     }
@@ -896,7 +773,9 @@ private fun EnergyActivityStatusRow(
             .testTag("energy_activity_status")
             .semantics { contentDescription = text },
         shape = RoundedCornerShape(8.dp),
-        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f),
+        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f)
+            .compositeOver(MaterialTheme.colorScheme.surface),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, tone.copy(alpha = 0.34f))
     ) {
         Row(
@@ -963,7 +842,9 @@ private fun OverviewWarningBanner(
             .fillMaxWidth()
             .semantics { contentDescription = text },
         shape = RoundedCornerShape(8.dp),
-        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f),
+        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f)
+            .compositeOver(MaterialTheme.colorScheme.surface),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, tone.copy(alpha = 0.34f))
     ) {
         Row(
@@ -1834,6 +1715,13 @@ private fun OverviewForecastSection(
                     resetLabel = stringResource(id = R.string.overview_chart_reset_view)
                 )
             }
+            Text(
+                text = stringResource(if (state.chart.mealImpactPoints.isEmpty())
+                    R.string.meal_impact_unavailable else R.string.meal_impact_legend),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
         }
     }
 }

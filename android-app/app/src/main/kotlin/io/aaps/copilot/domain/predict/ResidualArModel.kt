@@ -17,6 +17,10 @@ internal class ResidualArModel {
 
     private val historyByBucket = LinkedHashMap<Long, Double>()
 
+    internal fun copyForSimulation(): ResidualArModel = ResidualArModel().also {
+        it.historyByBucket.putAll(historyByBucket)
+    }
+
     fun appendOrUpdate(nowTs: Long, residualRocPer5: Double) {
         val bucket = nowTs / BUCKET_MS
         historyByBucket[bucket] = residualRocPer5.coerceIn(-1.2, 1.2)

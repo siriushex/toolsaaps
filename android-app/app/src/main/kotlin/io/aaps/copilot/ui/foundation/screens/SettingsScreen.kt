@@ -219,6 +219,7 @@ fun SettingsScreen(
     onPostHypoTargetChange: (Double) -> Unit = {},
     onRetentionDaysChange: (Int) -> Unit = {},
     onEnergyProfileEnabledChange: (Boolean) -> Unit = {},
+    onMealPortionsSave: (io.aaps.copilot.domain.nutrition.MealPortionSettings) -> Unit = {},
     onEnergyProfileUserProfileSave: (UserProfileDraftUi) -> Unit = {},
     onEnergyProfileFoodSettingsSave: (FoodProfileSettingsUi) -> Unit = {},
     onEnergyProfileActivitySettingsSave: (ActivityProfileSettingsUi) -> Unit = {},
@@ -443,6 +444,11 @@ fun SettingsScreen(
                 }
 
                 SettingsTab.ADVANCED -> {
+                    item {
+                        SettingsSectionCard {
+                            MealPortionSettingsEditor(value = state.mealPortions, onSave = onMealPortionsSave)
+                        }
+                    }
                     item {
                         EnergyActivitySettingsSection(
                             state = state.energyProfile,
@@ -3717,7 +3723,10 @@ private fun SettingsSectionCard(
         modifier = Modifier.fillMaxWidth(),
         shape = SettingsSectionShape,
         border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (midnightGlass) Color(0xFF1D2D49) else MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
