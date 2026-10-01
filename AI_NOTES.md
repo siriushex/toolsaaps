@@ -1,3 +1,18 @@
+# PDF lease test completion barrier - 2026-10-01
+
+- Push CI on fb1630c passed all32 new meal/Room cases but an existing PDF lease
+  test saw FAILED instead of its assumed intermediate PREPARING state. Independent
+  PR Verify on the same SHA passed. The source builder/stage can complete quickly;
+  the assertion must not depend on Dispatchers.Default delaying completion.
+- A forced immediate dispatcher reproduced exactly that assertion. Add an explicit
+  staging barrier before terminal completion; retain real lease/release assertions,
+  Default dispatcher and existing timeout. No production export/UI change.
+- Forced-fast RED/GREEN observed. Temporary100-repetition probe passed13s and was
+  removed before final checks. Final focused107 tests passed17s,0 failures/skips.
+  Full Android unit/lint/APK passed3m33s:4717 tests,0 failures/errors,3 existing
+  skips; lint305 warnings/4 hints,0 errors. APK unchanged; source matches the
+  tested copy. Remote publication results remain a separate verification gate.
+
 # Accepted meal research runtime capture - 2026-10-01
 
 - Added a bounded, replay-free research stream to AutomationRepository. Invalidate
