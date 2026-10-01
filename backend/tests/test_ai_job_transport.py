@@ -24,15 +24,6 @@ class MutableClock:
         return self.value
 
 
-class AdvancingClock:
-    def __init__(self, value=NOW + 2):
-        self.value = value
-        self.started = time.monotonic()
-
-    def __call__(self):
-        return self.value + int((time.monotonic() - self.started) * 1000)
-
-
 @dataclass
 class SyntheticWorker:
     work: object
@@ -182,6 +173,14 @@ def wait_for_terminal(client, key, tokens, job_id, *, now=NOW + 2):
             return response
         time.sleep(0.01)
     raise AssertionError("synthetic job did not reach terminal state")
+
+
+def wait_for_background_state(predicate):
+    deadline = time.monotonic() + 5
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise AssertionError("synthetic background state did not converge")
+        time.sleep(0.01)
 
 
 @pytest.fixture
@@ -555,7 +554,7 @@ def test_idle_drain_purges_result_without_status_read(service, tmp_path):
     from app.ai.job_policy import CHAT_POLICY
     from app.ai.job_service import AiJobService
 
-    clock = AdvancingClock()
+    clock = MutableClock()
     factory = SyntheticFactory()
     ledger = JobLedger(tmp_path / "idle-jobs.sqlite")
     jobs = AiJobService(service[1], service[0].proofs, ledger, factory,
@@ -570,12 +569,10 @@ def test_idle_drain_purges_result_without_status_read(service, tmp_path):
                               deadline_ms=now + 120_000, now=now)
             assert accepted.status_code == 202
             job_id = accepted.json()["job_id"]
-            for _ in range(100):
-                if job_id in jobs._results:
-                    break
-                time.sleep(0.01)
+            wait_for_background_state(lambda: job_id in jobs._results)
             assert job_id in jobs._results
-            time.sleep(0.1)
+            clock.value = jobs._results[job_id].expires_ms
+            wait_for_background_state(lambda: job_id not in jobs._results)
             assert job_id not in jobs._results
     finally:
         ledger.engine.dispose()
@@ -586,7 +583,7 @@ def test_single_drain_expires_content_while_worker_is_active(service, tmp_path):
     from app.ai.job_policy import CHAT_POLICY
     from app.ai.job_service import AiJobService
 
-    clock = AdvancingClock()
+    clock = MutableClock()
     factory = SyntheticFactory()
     ledger = JobLedger(tmp_path / "active-expiry-jobs.sqlite")
     jobs = AiJobService(service[1], service[0].proofs, ledger, factory,
@@ -599,6 +596,7 @@ def test_single_drain_expires_content_while_worker_is_active(service, tmp_path):
                 deadline_ms=clock() + 120_000, now=clock())
             result_id = result.json()["job_id"]
             wait_for_terminal(client, result_key, result_tokens, result_id, now=clock())
+            wait_for_background_state(lambda: result_id in jobs._results)
             assert result_id in jobs._results
 
             started = Event()
@@ -613,12 +611,16 @@ def test_single_drain_expires_content_while_worker_is_active(service, tmp_path):
             queued_owner = service[1].authenticate_attested(
                 queued_tokens["access_token"], key_fingerprint=key_fingerprint(queued_key),
                 now_ms=clock()).owner_id
+            queued_deadline = clock() + 50
             queued = submit(client, queued_key, queued_tokens,
                 b'{"text":"synthetic queued active expiry"}', request_id=str(uuid4()),
-                deadline_ms=clock() + 50, now=clock())
+                deadline_ms=queued_deadline, now=clock())
             assert queued.status_code == 202
 
-            time.sleep(0.15)
+            clock.value = queued_deadline
+            wait_for_background_state(lambda: result_id not in jobs._results and
+                queued.json()["job_id"] not in jobs._payloads and
+                ledger.get(queued_owner, queued.json()["job_id"]).state == "EXPIRED")
             assert result_id not in jobs._results
             assert queued.json()["job_id"] not in jobs._payloads
             assert ledger.get(queued_owner, queued.json()["job_id"]).state == "EXPIRED"

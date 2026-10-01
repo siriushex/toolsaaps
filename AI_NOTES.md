@@ -1,3 +1,14 @@
+# Deterministic backend expiry tests - 2026-10-01
+
+- Linux push verification exposed a race in the active-worker expiry test:
+  its50ms result TTL elapsed during real-time test preparation. The independent
+  PR run on the same SHA passed. Production retention was not changed.
+- Both idle/active drain tests now use the existing injected MutableClock.
+  Wait for cache publication, advance exactly to expiry/deadline, then wait
+  for actual background removal. No expiry-triggering status read or drain call.
+- Backend full suite:327 passed,1 upstream warning,32.54s. Python3.12 stability
+  check:20 repetitions of each changed test,40 passed,13.87s. No runtime changes.
+
 # Host TLS integration test provider - 2026-10-01
 
 - Make the real-socket HTTPS suite use JVM TLS on every host, via the scoped
@@ -8,7 +19,9 @@
   cases; the optional private phone-copy case remains locally gated.
 - Local Android verification:4708 tests,0 failures/errors,3 existing skips;
   HTTPS suite45 tests,0 failures,1 existing skip; lint and APK build passed2m41s.
-- Linux verification must pass before accepting this provider hypothesis.
+- Linux verification on8b93534d:4708 tests,0 failures/errors,3 existing skips;
+  lint/APK succeeded. PR36826868808 passed both jobs. Push36826866087 passed
+  Android but exposed the independent backend expiry-test race described above.
 
 # Linux HTTPS CI diagnostics - 2026-09-30
 
