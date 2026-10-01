@@ -73,6 +73,17 @@
 
 ## Compact Meal Portions (2026-09-27)
 
+Current follow-up, 2026-10-01: manual80g cap separation and immutable exact
+submission/restart guards are implemented. Normal/enlarged1.8x Russian light/dark
+rendering and local exact80g/error callbacks pass Robolectric tests. Canonical
+read-only history, revision-aware cache and walk-forward comparison are implemented
+as inactive research APIs. Full quality checks are recorded in AI_NOTES.md.
+Independent real held-out scores and a new phone/font acceptance remain unavailable;
+phone UI is blocked by keyguard pending user unlock. Only approved isolated test
+packages were updated, and their isolation test passed. No learner activation,
+working-app update, therapy test send or database backfill.
+The older numbered evidence below is historical, not current installed-state proof.
+
 - Selected visual direction: variant 2 with the revised porridge-and-bread large
   portion. See [spec](superpowers/specs/2026-09-27-compact-meal-portions.md) and
   [staged plan](superpowers/plans/2026-09-27-compact-meal-portions.md).
@@ -86,9 +97,9 @@
   and immutable confirmation implemented locally. Full4440 tests have no
   failures/errors (3 skipped); lint has no errors,301 warnings/5 hints. All APK
   variants build. Device UI/contrast/font checks remain pending.
-- Pending: device editor/dialog checks, full manual submission retry/provenance
-  integration, manual 80g validation independent of Auto UAM,
-  provenance-aware history suggestions, tests and eventual phone verification.
+- Remaining gates: independent real held-out validation, activation decision and
+  current phone/font acceptance. Manual80g/retry/provenance code and inactive
+  history reader/cache/evaluation tests are implemented; no activation is implied.
 - Follow-up evidence supersedes the initial device blockers above: compact dialog
   was installed and 33 isolated UI tests passed in earlier runs. Provenance now
   flows through confirmation to persistence in local source, not the installed APK.

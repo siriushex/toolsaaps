@@ -69,6 +69,7 @@ kotlin {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.12.01")
     implementation(composeBom)
+    testImplementation(composeBom)
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.17.0")
@@ -112,6 +113,7 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("org.xerial:sqlite-jdbc:3.50.3.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")

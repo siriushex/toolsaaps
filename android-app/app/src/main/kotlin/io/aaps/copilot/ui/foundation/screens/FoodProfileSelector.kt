@@ -7,10 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -31,6 +31,7 @@ import io.aaps.copilot.R
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.ui.foundation.components.MealPictureChoice
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FoodProfileSelector(
     selected: MealAbsorptionProfile,
@@ -39,8 +40,11 @@ fun FoodProfileSelector(
     compact: Boolean = false
 ) {
     if (compact) {
-        Row(modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        val enlargedText = LocalDensity.current.fontScale > 1.3f
+        FlowRow(modifier.fillMaxWidth().selectableGroup(),
+            maxItemsInEachRow = if (enlargedText) 1 else 3,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
             FoodProfileOption.entries.forEach { option ->
                 val image = when (option.profile) {
                     MealAbsorptionProfile.FAST -> R.drawable.meal_profile_fast
@@ -49,7 +53,8 @@ fun FoodProfileSelector(
                 }
                 MealPictureChoice(selected == option.profile, stringResource(option.labelRes),
                     image, "mealProfile_${option.profile.name}", { onSelected(option.profile) },
-                    Modifier.weight(1f).fillMaxHeight(), stringResource(option.contentDescriptionRes))
+                    Modifier.weight(1f).fillMaxRowHeight(), stringResource(option.contentDescriptionRes),
+                    horizontal = enlargedText)
             }
         }
         return

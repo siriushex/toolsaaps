@@ -285,10 +285,46 @@ The Food dialog's Send button freezes grams, profile, energy, Eating soon and a
 submission ID and invokes Overview's existing manual-meal callback immediately.
 There is no secondary confirmation. Manual carbs starts unchecked and exposes
 an inline numeric input only when selected; its value is ignored when unchecked.
-The exact grams are shown on Send and validated against the existing cap.
+The exact grams are shown on Send without one-decimal rounding and validated
+against the separate manual-meal limit of 80g.
 Over-cap defaults require explicit correction, not silent clamping. These UI
 changes do not add a new writer or a background task. Independent historical
-learning and the reviewed manual 80g path remain separate, unfinished stages.
+learning remains an inactive, independently validated stage.
+
+MealCarbLimits separates explicit manual:meal submissions from the configured
+20..60g automatic/UAM cap. Only trusted, non-conflicting, valid canonical real
+food can raise announced-food modelling and causal recent COB bounds to 80g;
+unknown references keep the computation cap. Synthetic UAM generation and
+automatic writer bounds are unchanged. This is not clinical validation of the
+larger manual amount and does not authorize a phone update.
+
+ManualMealSubmission copies and freezes its command parameters before I/O,
+including local profile, portion/provenance, energy and Eating soon metadata.
+These fields are persisted locally, not sent as Nightscout treatment fields.
+An existing submission ID with changed input is blocked, including after restart;
+an exact already-SENT request is acknowledged without a second POST. Existing
+arm, target preflight, throttling and uncertain-delivery reconciliation remain.
+
+At enlarged font scales, the compact picture choices use full-width horizontal
+rows with stable64dp image frames; normal font retains three equal columns.
+The choices and checkbox rows remain scrollable above the fixed Send action.
+
+MealPortionSuggestionRepository is an explicit offline candidate reader, not
+registered in AppContainer, Compose or background work. It reads the existing
+bounded therapy timeline and matching overrides atomically without resolving or
+deleting stale evidence. Conflicts/tombstones are grouped before label conversion.
+Only exact canonical revision/quantity and supported COPILOT_UI confirmation
+metadata with independent origin can produce labels; legacy origins stay unknown.
+The single-entry cache includes usable therapy/evidence revisions, settings,
+zone, portion/profile and minute. Availability time is the override confirmation
+time, not the meal timestamp. Overflow (>5000 rows) falls back without sampling.
+
+MealPortionValidation performs walk-forward scoring against fixed configured
+presets using only labels available before each target. Target categories must
+be explicit. It reports MAE and mean positive overestimation by portion and
+six-hour local-time block; no labels means absent scores, not zero error.
+Neither synthetic tests nor this report enable the learner. Independent real
+held-out validation, adequate support and phone acceptance remain open gates.
 
 Confirmation also freezes portion provenance: unchanged numeric proposals are
 ACCEPTED_SUGGESTION, edited quantities are USER_CORRECTED, and callers without

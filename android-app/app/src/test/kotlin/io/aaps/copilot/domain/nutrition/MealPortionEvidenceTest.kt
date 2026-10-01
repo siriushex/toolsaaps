@@ -5,6 +5,7 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.model.TherapyEventComponentTrust
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import org.junit.Test
+import java.time.Instant
 
 class MealPortionEvidenceTest {
     private val event = TherapyEvent(
@@ -18,7 +19,7 @@ class MealPortionEvidenceTest {
     )
     private val evidence = MealPortionEvidence(
         "41", "r1", 25.0, MealPortion.MEDIUM, MealAbsorptionProfile.MIXED,
-        MealPortionProvenance.USER_CORRECTED
+        MealPortionProvenance.USER_CORRECTED, Instant.ofEpochMilli(1000)
     )
 
     @Test fun matchedIndependentEvidenceCreatesObservation() {
@@ -51,5 +52,21 @@ class MealPortionEvidenceTest {
         assertThat(event.copy(componentTrust = TherapyEventComponentTrust(
             canonicalCarbId = 41L, canonicalCarbRevision = "r1", canonicalSemanticConflict = true
         )).toPortionObservation(evidence)).isNull()
+    }
+
+    @Test fun observationKeepsActualConfirmationTimeAndTherapyRevision() {
+        val result = event.toPortionObservation(evidence.copy(confirmedAt = Instant.ofEpochMilli(3000)))
+        assertThat(result?.availableAt).isEqualTo(Instant.ofEpochMilli(3000))
+        assertThat(result?.therapyRevision).isEqualTo("r1")
+        assertThat(event.toPortionObservation(evidence.copy(confirmedAt = Instant.ofEpochMilli(999)))).isNull()
+    }
+
+    @Test fun unknownConfirmationTimeCannotBeInventedFromMealTimestamp() {
+        assertThat(event.toPortionObservation(evidence.copy(confirmedAt = null))).isNull()
+    }
+
+    @Test fun explicitLearningSuppressionExcludesOtherwiseRealIndependentMeal() {
+        val suppressed = event.copy(payload = event.payload + ("copilotLearningCarbsSuppressed" to "true"))
+        assertThat(suppressed.toPortionObservation(evidence)).isNull()
     }
 }

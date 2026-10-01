@@ -1,3 +1,47 @@
+# Compact meal portions completion follow-up - 2026-10-01
+
+- Reviewed the named compact-portions plan against current source. Direct Send
+  and canonical provenance already existed; the plan's status was historical.
+- Separated exact manual1..80g meals from configured automatic/UAM20..60g caps.
+  Trusted valid canonical real food may retain80g in V3 announced-food/causal
+  recent COB modelling. Unknown and synthetic inputs retain existing constraints.
+  No arm/throttle/target gate, UAM generation or legacy engine flag was changed.
+- ManualMealSubmission copies immutable input before observer/transport; local
+  profile, portion/provenance, energy and Eating soon intent are persisted before
+  POST, not included in the outbound treatment body. Changed input under one ID
+  is blocked, including quantity/origin changes after restart; exact SENT requests
+  remain read-only acknowledgements. Exact localized Send/receipt grams no longer
+  round to one decimal. Focused154 tests passed,0 failures/errors/skips.
+- Actual Russian1.0/1.8 font-scale light/dark Robolectric draws are nonblank and
+  visually inspected. Stable64dp images and enlarged horizontal choice/checkbox
+  rows prevent word splitting/overflow. Six UI cases cover scrolling, hidden
+  calories,80.001g rejection and exact80g callback once without a therapy call.
+- Added an inactive canonical read-only history factory, atomic exact override
+  matching, independent-origin checks, conflict/tombstone exclusion and a bounded
+  revision/settings/zone/minute cache. Existing timeline/parser are reused; stale
+  evidence is not deleted and legacy unknown rows are not backfilled.
+- Confirmation availability is now distinct from meal time. Walk-forward research
+  scores only explicit independent targets against fixed presets and excludes
+  labels unavailable before prediction. MAE and mean positive overestimation are
+  grouped by portion/local six-hour block. Missing labels produce absent scores.
+- Missing reader/evaluator API RED and assertion-level future-confirmation,
+  missing-availability, learning-suppression and pre-cache-conflict RED observed.
+  Final full run includes39 feature tests with0 failures/errors/skips. No adequate
+  independent real labels are available for held-out accuracy; no learner is wired
+  into UI/runtime, saved settings, therapy or background work.
+- Final full Android unit/lint/debug/isolated target/test APK run passed7m16s:
+  4757 total tests,0 failures/errors,3 existing skips; lint0 errors,305 warnings,
+  4 hints. Final named feature suites contain39 tests with no failures or skips.
+  Debug, isolated target and instrumentation APK signatures were verified.
+  The user approved only isolated target/test APK updates on the reconnected phone.
+  Isolation passed1 test (no INTERNET/runtime/production components). Meal UI
+  execution was stopped because keyguard/NotificationShade prevented focus;
+  no device/font acceptance is claimed. The working APK baseline is unchanged.
+  Publication verification remains separate from local checks.
+  Local evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/.
+  No working-phone update, test carb/target/calibration write,
+  clinical readiness claim, backend change or Room schema migration in this stage.
+
 # PDF lease test completion barrier - 2026-10-01
 
 - Push CI on fb1630c passed all32 new meal/Room cases but an existing PDF lease

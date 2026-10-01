@@ -2660,7 +2660,7 @@ class MainViewModel(application: Application) :
             preferred = telemetryByKey["cob_effective_grams"],
             fallback = telemetryByKey["cob_grams"]
         )
-            ?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
+            ?.coerceIn(0.0, io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS)
         val insulinRealOnsetMinutes = telemetryByKey["insulin_real_onset_min"].toNumericValue()
         val insulinRealProfileCurveCompact = telemetryByKey["insulin_profile_real_curve_compact"]
             ?.valueText
@@ -3691,7 +3691,7 @@ class MainViewModel(application: Application) :
         val latestCobGrams = resolveMetricByRecency(
             preferred = telemetryByKey["cob_effective_grams"],
             fallback = telemetryByKey["cob_grams"]
-        )?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
+        )?.coerceIn(0.0, io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS)
         val correctedGlucoseMmol = telemetryByKey["sensor_lag_corrected_glucose_mmol"].toNumericValue()
         val rawGlucoseMmol = latest?.mmol
         val currentCalibrationAuthorityForUi = loadUiCalibrationAuthority(
@@ -7719,9 +7719,8 @@ class MainViewModel(application: Application) :
         portionMetadata: io.aaps.copilot.domain.nutrition.MealPortionMetadata? = null
     ) {
         viewModelScope.launch {
-            val settings = container.settingsStore.settings.first()
-            val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
-            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it in 1.0..safetyCapGrams }
+            val safetyCapGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS
+            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it.isFinite() && it in 1.0..safetyCapGrams }
             if (carbsGrams == null) {
                 messageState.value = "Manual carbs failed: invalid grams value (allowed 1..${String.format(Locale.US, "%.0f", safetyCapGrams)} g)"
                 return@launch

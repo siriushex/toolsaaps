@@ -21,7 +21,9 @@ data class MealPortionObservation(
     val profile: MealAbsorptionProfile,
     val provenance: MealPortionProvenance = MealPortionProvenance.UNKNOWN,
     val portion: MealPortion? = null,
-    val deleted: Boolean = false
+    val deleted: Boolean = false,
+    val availableAt: Instant = timestamp,
+    val therapyRevision: String? = null
 )
 
 data class MealPortionEstimate(
@@ -51,6 +53,7 @@ class MealPortionEstimator(private val clock: Clock) {
         }.filter {
             it.canonicalId.isNotBlank() && !it.deleted &&
                 it.timestamp >= start && it.timestamp < now &&
+                it.availableAt >= it.timestamp && it.availableAt <= now &&
                 it.grams.isFinite() && it.grams > 0.0 &&
                 (it.provenance == MealPortionProvenance.USER_ENTERED ||
                     it.provenance == MealPortionProvenance.USER_CORRECTED)

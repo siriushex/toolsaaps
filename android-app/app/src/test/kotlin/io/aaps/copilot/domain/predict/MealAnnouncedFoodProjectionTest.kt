@@ -13,6 +13,21 @@ class MealAnnouncedFoodProjectionTest {
         componentTrust = TherapyEventComponentTrust(canonicalCarbId = id, canonicalCarbRevision = "r1"))
     private fun engine() = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
 
+    @Test fun canonicalEightyGramMealIsNotModelledAsSixtyOrSyntheticFood() = runBlocking {
+        val event = meal().copy(payload = mapOf("carbs" to "80.0", "aapsCarbAmount" to "80.0",
+            "aapsCarbIsValid" to "true", "aapsCarbClassification" to "AAPS_REAL",
+            "aapsCarbSynthetic" to "false", "aapsCarbSuperseded" to "false"))
+        val engine = engine().apply { setCarbSafetyLimits(180, 20.0) }
+        val food = engine.projectMealTimingAnnouncedFood(glucose, listOf(event), 360).single()
+        assertEquals(80.0, food.projection.alreadyAbsorbedGrams +
+            food.projection.points.last().cumulativeFutureGrams, 1e-9)
+        engine.predict(glucose, listOf(event))
+        val insulin = engine.projectMealTimingInsulin(glucose, listOf(event), 360)
+        engine.diagnosticsSnapshot()!!.announcedCarbStep.zip(food.projection.points.take(13)).forEach { (value, p) ->
+            assertEquals(p.absorbedStepGrams * insulin.csfMmolPerGram, value, 1e-9)
+        }
+    }
+
     @Test fun modernAndLegacyCurvesMatchLiveAnnouncedComponent() = runBlocking {
         for (context in listOf(MealAbsorptionContext.DISABLED, MealAbsorptionContext(enabled = true,
             manual = MealAbsorptionSelection(MealAbsorptionProfile.FAT_PROTEIN, 360)))) {

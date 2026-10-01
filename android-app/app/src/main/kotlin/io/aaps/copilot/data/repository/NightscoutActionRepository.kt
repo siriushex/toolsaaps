@@ -536,6 +536,7 @@ class NightscoutActionRepository(
     suspend fun manualCarbBlockReason(command: ActionCommand): String? {
         if (command.type != "carbs" || !command.idempotencyKey.startsWith("manual:meal:")) return null
         val record = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey) ?: return null
+        if (!sameManualCarbPayload(record, command)) return "submission_changed"
         if (record.status != STATUS_BLOCKED) return null
         return runCatching {
             gson.fromJson(record.payloadJson, com.google.gson.JsonObject::class.java)
@@ -547,6 +548,11 @@ class NightscoutActionRepository(
     suspend fun submitCarbs(command: ActionCommand): Boolean {
         val guardedMeal = command.idempotencyKey.startsWith("manual:meal:")
         val settings = settingsStore.settings.first()
+        if (guardedMeal) {
+            val prior = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+            if (prior != null && !sameManualCarbPayload(prior, command)) return false
+            if (prior?.status == STATUS_SENT) return true
+        }
         if (blockIfTherapyActionsNotArmed(command, settings)) return false
         when (registerPendingCommand(command).kind) {
             PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
@@ -558,11 +564,13 @@ class NightscoutActionRepository(
         val carbs = command.params["carbsGrams"]?.toDoubleOrNull()
             ?: command.params["carbs"]?.toDoubleOrNull()
             ?: command.params["grams"]?.toDoubleOrNull()
-        if (carbs == null || carbs <= 0.0) {
+        if (carbs == null || !carbs.isFinite() || carbs <= 0.0) {
             markFailed(command, "invalid_carbs_payload")
             return false
         }
-        val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        val safetyCapGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.submissionMaximum(
+            command.idempotencyKey, settings.carbComputationMaxGrams
+        )
         if (carbs > safetyCapGrams) {
             markFailed(command, "carbs_above_safety_cap")
             auditLogger.warn(
@@ -782,6 +790,11 @@ class NightscoutActionRepository(
                         command = command
                     )
                 }
+                command.type == "carbs" && command.idempotencyKey.startsWith("manual:meal:") &&
+                    !sameManualCarbPayload(existing, command) -> PendingCommandRegistration(
+                    kind = PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL,
+                    command = command.copy(id = existing.id)
+                )
                 existing.status == STATUS_SENT -> PendingCommandRegistration(
                     kind = PendingCommandRegistrationKind.EXISTING_SENT,
                     command = command.copy(id = existing.id)
@@ -825,6 +838,14 @@ class NightscoutActionRepository(
         }
         return registration
     }
+
+    private fun sameManualCarbPayload(record: ActionCommandEntity, command: ActionCommand): Boolean =
+        record.type == command.type && runCatching {
+            val stored = gson.fromJson(record.payloadJson, com.google.gson.JsonObject::class.java)
+            stored.remove("carbBlockReason")
+            stored.remove("deliveryChannel")
+            stored == gson.toJsonTree(command.params)
+        }.getOrDefault(false)
 
     private fun isFirstAllowlistedEatingSoonRefusal(
         command: ActionCommand,

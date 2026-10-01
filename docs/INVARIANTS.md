@@ -1,5 +1,25 @@
 # INVARIANTS
 
+## Compact Meal Safety And Research
+
+- The Food dialog confirms exact1..80g manual meals. This separate maximum never
+  increases automatic/UAM writer limits or bypasses arm, throttle or target gates.
+- A manual submission ID binds immutable grams, profile, portion/provenance,
+  energy and Eating soon intent before I/O. Changed input cannot receive a false
+  SENT acknowledgement or overwrite the original, including after restart.
+- Hidden calories are null. Picture taps and cancellation cannot dispatch therapy.
+- Only trusted non-conflicting canonical REAL food can use the larger model/COB
+  bound. Synthetic and unknown inputs retain existing computation constraints.
+- Portion training requires matching canonical identity, revision, amount and
+  independent confirmation. Accepted suggestions, unknown legacy origins,
+  synthetic/rescue/preparatory carbs, invalid records and tombstones are excluded.
+- Confirmation availability must not precede the meal or leak into earlier
+  predictions. Held-out target categories cannot be inferred from target grams.
+- Offline history candidates never alter saved defaults, dispatch therapy or
+  register polling/workers. Cache entries are revision/settings/time-zone scoped.
+- Missing real labels produce no accuracy claim and never activate learning.
+- Robolectric rendering is local UI evidence, not phone/deployment acceptance.
+
 ## September 2026 Publication Contract
 
 See [RELEASE_2026-09-13.md](RELEASE_2026-09-13.md) for the current release

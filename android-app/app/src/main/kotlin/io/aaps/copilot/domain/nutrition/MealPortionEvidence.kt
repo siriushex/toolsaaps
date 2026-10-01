@@ -20,7 +20,8 @@ data class MealPortionEvidence(
     val confirmedGrams: Double,
     val portion: MealPortion,
     val profile: MealAbsorptionProfile,
-    val provenance: MealPortionProvenance
+    val provenance: MealPortionProvenance,
+    val confirmedAt: Instant? = null
 )
 
 /** Read-only boundary for the offline estimator; missing evidence excludes the meal. */
@@ -35,13 +36,19 @@ fun TherapyEvent.toPortionObservation(evidence: MealPortionEvidence?): MealPorti
     val components = resolveTherapyComponents(this)
     val grams = components.carbsG ?: return null
     if (!components.canonicalCarbAuthoritative || components.carbKind != TherapyCarbComponentKind.REAL ||
+        components.learningCarbsSuppressed ||
         !grams.isFinite() || grams <= 0.0 || grams != evidence.confirmedGrams) return null
+    val timestamp = Instant.ofEpochMilli(ts)
+    val availableAt = evidence.confirmedAt ?: return null
+    if (availableAt < timestamp) return null
     return MealPortionObservation(
         canonicalId = reference.identity,
-        timestamp = Instant.ofEpochMilli(ts),
+        timestamp = timestamp,
         grams = grams,
         profile = evidence.profile,
         provenance = evidence.provenance,
-        portion = evidence.portion
+        portion = evidence.portion,
+        availableAt = availableAt,
+        therapyRevision = reference.revision
     )
 }

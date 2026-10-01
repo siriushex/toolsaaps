@@ -5440,7 +5440,10 @@ class AutomationRepository(
         settings: AppSettings,
         effectiveDiaHours: Double
     ): RuntimeCobIobInputs {
-        val carbMax = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        val carbMax = io.aaps.copilot.domain.nutrition.MealCarbLimits.effectiveCobMaximum(
+            therapy, causalReferenceTimestamp, settings.carbAbsorptionMaxAgeMinutes,
+            settings.carbComputationMaxGrams
+        )
         val telemetryCobRaw = telemetry["cob_grams"]?.takeIf { it.isFinite() }?.coerceIn(0.0, carbMax)
         val syntheticUamCob = estimateSyntheticUamExportCob(
             nowTs = cycleTimestamp,
@@ -5681,7 +5684,9 @@ class AutomationRepository(
         effectiveDiaHours: Double
     ): LocalCobIobEstimate {
         val carbCutoffMinutes = settings.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180).toDouble()
-        val carbMaxGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        val carbMaxGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.effectiveCobMaximum(
+            therapy, nowTs, settings.carbAbsorptionMaxAgeMinutes, settings.carbComputationMaxGrams
+        )
         val profile = InsulinActionProfiles.profile(InsulinActionProfileId.fromRaw(settings.insulinProfileId))
         val baseOnsetMinutes = profileOnsetMinutes(profile)
         val recentEvents = therapy.asSequence()
@@ -5748,14 +5753,10 @@ class AutomationRepository(
         }
         recentEvents.forEach { event ->
             val ageMin = ((nowTs - event.ts).coerceAtLeast(0L)) / 60_000.0
-            val carbsGramsRaw = if (isSyntheticUamCarbEvent(event)) {
-                null
-            } else {
-                payloadDouble(event, "grams", "carbs", "enteredCarbs", "mealCarbs")
-            }
-                ?.takeIf { it in 0.5..400.0 }
-            if (carbsGramsRaw != null && ageMin <= carbCutoffMinutes) {
-                val carbsGrams = carbsGramsRaw.coerceAtMost(carbMaxGrams)
+            val carbsGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.announcedGrams(
+                event, settings.carbComputationMaxGrams
+            )
+            if (carbsGrams != null && ageMin <= carbCutoffMinutes) {
                 val carbType = CarbAbsorptionProfiles.classifyCarbEvent(
                     event = event,
                     glucose = glucose,

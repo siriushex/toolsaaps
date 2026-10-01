@@ -15,6 +15,20 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class ManualMealSubmissionTest {
+    @Test fun mutableCallerPayloadCannotChangeReservedQuantityDuringObserverOrSend() = runTest {
+        val params = mutableMapOf("carbsGrams" to "20.0")
+        val amounts = mutableListOf<String?>()
+        val subject = ManualMealSubmission(
+            { sent -> amounts += sent.params["carbsGrams"]; params["carbsGrams"] = "40.0"; true },
+            { staged, _, _ -> amounts += staged.params["carbsGrams"] },
+            { error("target not requested") },
+            onMealInput = { params["carbsGrams"] = "80.0" }
+        )
+        assertThat(subject.submit(command.copy(params = params), selection, null, false).carbs)
+            .isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(amounts).containsExactly("20.0", "20.0").inOrder()
+    }
+
     @Test fun inputObserverRunsOnceBeforeSendAndCannotBreakTherapyOnFailure() = runTest {
         val calls = mutableListOf<String>()
         val subject = ManualMealSubmission(
@@ -154,6 +168,9 @@ class ManualMealSubmissionTest {
         subject.submit(command, selection, null, false)
         val changed = subject.submit(command.copy(params = mapOf("carbsGrams" to "40.0")), selection, null, true)
         assertThat(changed.eatingSoon.reason).isEqualTo("submission_changed")
+        assertThat(changed.carbs).isEqualTo(MealDeliveryStatus.BLOCKED)
+        assertThat(changed.carbBlockReason).isEqualTo("submission_changed")
+        assertThat(changed.profileSaved).isFalse()
         assertThat(calls).isEqualTo(1)
     }
 

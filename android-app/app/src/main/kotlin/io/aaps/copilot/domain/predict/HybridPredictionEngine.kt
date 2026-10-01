@@ -361,6 +361,10 @@ class HybridPredictionEngine(
         val canonical = Glucose5mCanonicalizer.build(raw).points.ifEmpty { raw }
         val nowTs = canonical.last().ts
         require(therapyEvents.all { it.ts > 0 && it.ts <= nowTs })
+        // Filtering invalid components must not turn conflicting research input into a partial baseline.
+        require(therapyEvents.none { event -> with(event.componentTrust) {
+            canonicalSemanticConflict || canonicalReferenceConflict || legacyValidityConflict
+        } }) { "Conflicting meal input" }
         val profiled = profileCarbEvents(therapyEvents, canonical, nowTs)
         val components = profiled.map { food ->
             val reference = food.event.toMealTherapyReference()
@@ -1418,6 +1422,9 @@ class HybridPredictionEngine(
 
     private fun extractCarbsGramsForPrediction(event: TherapyEvent): Double? {
         if (isSyntheticUamCarbEvent(event)) return null
+        if (enableEnhancedPredictionV3) {
+            return io.aaps.copilot.domain.nutrition.MealCarbLimits.announcedGrams(event, carbComputationMaxGrams)
+        }
         return extractCarbsGrams(event)?.coerceAtMost(carbComputationMaxGrams)
     }
 

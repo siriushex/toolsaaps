@@ -331,7 +331,7 @@ fun OverviewScreen(
     if (showCobDialog) {
         io.aaps.copilot.ui.foundation.components.MealEntryDialog(
             settings = state.mealPortions,
-            maximumGrams = state.carbComputationMaxGrams.coerceIn(20.0, 60.0),
+            maximumGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
             onDismiss = { showCobDialog = false },
             onConfirm = { meal ->
                 showCobDialog = false

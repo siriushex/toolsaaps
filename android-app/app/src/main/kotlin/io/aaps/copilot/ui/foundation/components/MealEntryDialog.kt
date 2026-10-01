@@ -14,6 +14,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -26,6 +28,7 @@ import io.aaps.copilot.ui.foundation.screens.FoodProfileSelector
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import java.util.UUID
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun MealEntryDialog(
     settings: MealPortionSettings,
@@ -51,6 +54,7 @@ internal fun MealEntryDialog(
     )
     val energyValid = !settings.showCalories || energyRaw.isBlank() ||
         energyRaw.replace(',', '.').toDoubleOrNull()?.let { it.isFinite() && it in 1.0..10_000.0 } == true
+    val enlargedText = LocalDensity.current.fontScale > 1.3f
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -64,8 +68,10 @@ internal fun MealEntryDialog(
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(Modifier.fillMaxWidth().selectableGroup(),
+                    maxItemsInEachRow = if (enlargedText) 1 else 3,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     MealPortion.entries.forEach { candidate ->
                         val label = when(candidate) {
                             MealPortion.SMALL -> R.string.meal_portion_small
@@ -78,11 +84,15 @@ internal fun MealEntryDialog(
                             MealPortion.LARGE -> R.drawable.meal_portion_large
                         }
                         MealPictureChoice(portion == candidate, stringResource(label), icon,
-                            "mealPortion_${candidate.name}", { portion = candidate }, Modifier.weight(1f).fillMaxHeight())
+                            "mealPortion_${candidate.name}", { portion = candidate },
+                            Modifier.weight(1f).fillMaxRowHeight(), horizontal = enlargedText)
                     }
                 }
                 FoodProfileSelector(profile, { profile = it }, compact = true)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                FlowRow(Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = if (enlargedText) 1 else 2,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.weight(1f).heightIn(min = 48.dp).testTag("overviewEatingSoon")
                     .toggleable(eatingSoon, role = Role.Checkbox, onValueChange = { eatingSoon = it }),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -120,7 +130,8 @@ internal fun MealEntryDialog(
                         onConfirm(finalMeal)
                     }
                 }) { Text(stringResource(R.string.meal_prepare_amount,
-                    finalMeal?.grams?.toString() ?: "?")) }
+                    finalMeal?.grams?.let { UiFormatters.formatExactGrams(it, LocalConfiguration.current.locales[0]) }
+                        ?: "?")) }
         }
     )
 }

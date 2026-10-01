@@ -16,6 +16,14 @@ import java.util.Locale
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class ManualEatingSoonMessageTest {
+    @Test fun sentMealMessagePreservesExactQuantityInBothLanguages() {
+        val result = ManualMealResult(MealDeliveryStatus.SENT,
+            EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED))
+        for ((language, exact) in listOf("en" to "59.25", "ru" to "59,25")) {
+            assertThat(manualMealSubmissionMessage(context(language), 59.25, result)).contains(exact)
+        }
+    }
+
     @Test fun rateLimitIsNotReportedAsUnknownInEitherLanguage() {
         for (language in listOf("en", "ru")) {
             val context = context(language)

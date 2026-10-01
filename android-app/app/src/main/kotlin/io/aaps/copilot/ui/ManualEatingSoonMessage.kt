@@ -4,7 +4,7 @@ import android.content.Context
 import io.aaps.copilot.R
 import io.aaps.copilot.data.repository.ManualMealResult
 import io.aaps.copilot.data.repository.MealDeliveryStatus
-import java.util.Locale
+import io.aaps.copilot.ui.foundation.format.UiFormatters
 
 internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, result: ManualMealResult?): String {
     if (result?.carbs == MealDeliveryStatus.BLOCKED) return context.getString(
@@ -16,7 +16,8 @@ internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, r
     )
     if (result?.carbs != MealDeliveryStatus.SENT) return context.getString(R.string.overview_meal_unconfirmed)
     return buildString {
-        append(context.getString(R.string.overview_meal_sent, String.format(Locale.getDefault(), "%.1f", carbsGrams)))
+        append(context.getString(R.string.overview_meal_sent,
+            UiFormatters.formatExactGrams(carbsGrams, context.resources.configuration.locales[0])))
         when (result.eatingSoon.status) {
             MealDeliveryStatus.SENT -> append("\n" + context.getString(R.string.overview_eating_soon_sent))
             MealDeliveryStatus.BLOCKED -> append("\n" + manualEatingSoonBlockedMessage(context, result.eatingSoon.reason))

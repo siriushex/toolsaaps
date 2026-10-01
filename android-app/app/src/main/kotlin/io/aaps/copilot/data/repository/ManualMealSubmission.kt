@@ -2,6 +2,7 @@ package io.aaps.copilot.data.repository
 
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.profile.MealAbsorptionSelection
+import java.util.Collections
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,11 +41,24 @@ internal class ManualMealSubmission(
         mealEnergyKcal: Double?,
         eatingSoon: Boolean
     ): ManualMealResult = mutex.withLock {
-        val key = command.idempotencyKey
-        val input = Input(command.params.toMap(), selection, mealEnergyKcal, eatingSoon)
+        val frozenParams = command.params.toMutableMap().apply {
+            put("mealProfile", selection.profile.name)
+            put("mealDurationMinutes", selection.durationMinutes?.toString().orEmpty())
+            put("mealTherapyRevision", selection.therapyRevision.orEmpty())
+            put("mealPortion", selection.portionMetadata?.portion?.name.orEmpty())
+            put("mealPortionProvenance", selection.portionMetadata?.provenance?.name.orEmpty())
+            put("mealEnergyKcal", mealEnergyKcal?.toString().orEmpty())
+            put("mealEatingSoon", eatingSoon.toString())
+        }
+        val reservedCommand = command.copy(params = Collections.unmodifiableMap(frozenParams))
+        val key = reservedCommand.idempotencyKey
+        val input = Input(reservedCommand.params, selection, mealEnergyKcal, eatingSoon)
         completed[key]?.let { prior ->
-            return@withLock if (prior.input == input) prior.result else prior.result.copy(
-                eatingSoon = EatingSoonResult(MealDeliveryStatus.BLOCKED, "submission_changed")
+            return@withLock if (prior.input == input) prior.result else ManualMealResult(
+                carbs = MealDeliveryStatus.BLOCKED,
+                eatingSoon = EatingSoonResult(MealDeliveryStatus.BLOCKED, "submission_changed"),
+                profileSaved = false,
+                carbBlockReason = "submission_changed"
             )
         }
         if (completed.size >= 64) completed.remove(completed.keys.first())
@@ -57,11 +71,11 @@ internal class ManualMealSubmission(
         completed[key] = entry
         // Persist research intent only. An unavailable research observer must not
         // prevent the existing user-authorized carbohydrate submission.
-        try { onMealInput(command) }
+        try { onMealInput(reservedCommand) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { }
         val sent = try {
-            sendCarbs(command)
+            sendCarbs(reservedCommand)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -69,7 +83,7 @@ internal class ManualMealSubmission(
         }
         if (!sent) {
             val reason = try {
-                readCarbBlockReason(command)
+                readCarbBlockReason(reservedCommand)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -86,7 +100,7 @@ internal class ManualMealSubmission(
             profileSaved = false
         )
         try {
-            stageSelection(command, selection, mealEnergyKcal)
+            stageSelection(reservedCommand, selection, mealEnergyKcal)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

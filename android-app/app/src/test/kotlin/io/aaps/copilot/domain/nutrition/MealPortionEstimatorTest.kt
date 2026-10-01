@@ -96,8 +96,10 @@ class MealPortionEstimatorTest {
 
     @Test fun repeatedDstHourDoesNotCountOneMealOrDayTwice() {
         val autumn = Instant.parse("2026-11-02T00:30:00Z")
-        val row = history().first().copy(timestamp = Instant.parse("2026-10-25T00:30:00Z"))
-        val repeatedHour = row.copy(canonicalId = "second", timestamp = Instant.parse("2026-10-25T01:30:00Z"))
+        val row = history().first().copy(timestamp = Instant.parse("2026-10-25T00:30:00Z"),
+            availableAt = Instant.parse("2026-10-25T00:30:00Z"))
+        val repeatedHour = row.copy(canonicalId = "second", timestamp = Instant.parse("2026-10-25T01:30:00Z"),
+            availableAt = Instant.parse("2026-10-25T01:30:00Z"))
         val result = MealPortionEstimator(Clock.fixed(autumn, ZoneOffset.UTC)).estimate(
             listOf(row, row, repeatedHour), settings, MealPortion.MEDIUM,
             MealAbsorptionProfile.MIXED, ZoneId.of("Europe/Berlin")
@@ -105,5 +107,16 @@ class MealPortionEstimatorTest {
         assertThat(result.supportDays).isEqualTo(1)
         assertThat(result.supportMeals).isEqualTo(2)
         assertThat(result.fromHistory).isFalse()
+    }
+
+    @Test fun futureConfirmationCannotSupplyHistoricalSupport() {
+        val rows = history().map { it.copy(availableAt = now.plusSeconds(60)) }
+        assertThat(estimate(rows).fromHistory).isFalse()
+        assertThat(estimate(rows).supportMeals).isEqualTo(0)
+    }
+
+    @Test fun confirmationBeforeMealIsNotUsableEvidence() {
+        val rows = history().map { it.copy(availableAt = it.timestamp.minusSeconds(1)) }
+        assertThat(estimate(rows).supportMeals).isEqualTo(0)
     }
 }

@@ -45,7 +45,7 @@ Files: new `ui/foundation/components/MealEntryDialog.kt`; `ui/foundation/screens
 - [x] Extract only the existing meal dialog presentation from Overview into the new component. Leave source selection, calibration, target calculations and other Overview sections untouched.
 - [x] Reuse FoodProfileSelector profile mapping with an explicit compact presentation that hides durations only here; preserve other call sites.
 - [x] Show proposed grams in the confirmation action. Retain numeric correction in the secondary confirmation rather than permanently displaying a field. Show precise submitted grams and Eating soon action there.
-- [ ] Verify light/dark, 48/64dp icons and enlarged font; use opaque color pairs, not alpha-over-unknown-background text colors.
+- [x] Verify light/dark, 48/64dp icons and enlarged font locally; use opaque color pairs, not alpha-over-unknown-background text colors. Actual1.8x Russian Robolectric rendering passes; phone acceptance remains separate below.
 
 Stage 2 local evidence (2026-09-27): six transparent 192px assets visually
 checked after deterministic cropping/centering. Draft reads saved defaults and
@@ -62,19 +62,19 @@ No production deployment, therapy test write or history learner activation.
 
 Files: `ui/MainViewModel.kt`; `data/repository/ManualMealSubmission.kt`; `data/repository/ManualMealSubmissionTest.kt`; `ui/MainViewModelManualMealEnergyTest.kt`.
 
-- [ ] Add regressions for frozen quantity during live settings/history changes, cancellation, double taps, failure/retry and independent carb/target outcomes. Retain submission ID across ambiguous retries.
-- [ ] Trace all manual cap checks before supporting the requested 80g. Separate the manual limit from automated UAM limits; test that an 80g manual draft cannot silently become 60g or multiple sends.
-- [ ] Preserve existing reconciliation and per-meal absorption metadata. Hidden calories must submit null; a hidden stale text field must not submit an old energy value.
-- [ ] Run `rtk ./gradlew :app:testDebugUnitTest --tests '*ManualMealSubmissionTest' --tests '*MainViewModelManualMealEnergyTest'`.
+- [x] Add regressions for frozen quantity during live settings/history changes, cancellation, double taps, failure/retry and independent carb/target outcomes. Retain submission ID across ambiguous retries.
+- [x] Trace all manual cap checks before supporting the requested 80g. Separate the manual limit from automated UAM limits; test that an 80g manual draft cannot silently become 60g or multiple sends.
+- [x] Preserve existing reconciliation and per-meal absorption metadata. Hidden calories must submit null; a hidden stale text field must not submit an old energy value.
+- [x] Run `rtk ./gradlew :app:testDebugUnitTest --tests '*ManualMealSubmissionTest' --tests '*MainViewModelManualMealEnergyTest'`.
 
 ## 4. History suggestion, independent validation stage
 
 New proposed files: `domain/nutrition/MealPortionEstimator.kt`, corresponding unit tests and `data/repository/MealPortionSuggestionRepository.kt`. Reuse canonical therapy data and existing meal-profile overrides; do not add a competing AAPS import path.
 
-- [ ] Define provenance for user-entered/corrected amounts versus accepted suggestions. Exclude synthetic UAM, cancelled/deleted records, duplicates, rescue carbs and preparatory fictitious carbs from ordinary-meal labels.
-- [ ] Add deterministic tests with an injected clock: fewer than five usable days returns configured fallback; insufficient comparable meals also returns fallback; future records are excluded; 15/40 boundaries are stable; no timezone/DST duplicate meal; previous predictions cannot train themselves.
-- [ ] Estimate a bounded weighted median of comparable confirmed meals near the local time, with fallback toward the configured default when support is weak. Five-day availability is necessary, not sufficient. A candidate support rule is five independent comparable meals across three distinct days, pending retrospective evaluation.
-- [ ] Cache by therapy/settings revision and local-time bucket. Recompute when relevant data change or a draft opens, not on every Compose recomposition or periodic polling.
+- [x] Define provenance for user-entered/corrected amounts versus accepted suggestions. Exclude synthetic UAM, cancelled/deleted records, duplicates, rescue carbs and preparatory fictitious carbs from ordinary-meal labels.
+- [x] Add deterministic tests with an injected clock: fewer than five usable days returns configured fallback; insufficient comparable meals also returns fallback; future records and future confirmations are excluded; 15/40 boundaries are stable; no timezone/DST duplicate meal; previous predictions cannot train themselves.
+- [x] Estimate a bounded weighted median of comparable confirmed meals near the local time, with fallback toward the configured default when support is weak. Five-day availability is necessary, not sufficient. A candidate support rule is five independent comparable meals across three distinct days, pending retrospective evaluation.
+- [x] Cache by therapy/settings revision and local-time bucket. Recompute on an explicit offline candidate request, not on Compose recomposition or periodic polling. No UI activation without the next validation gate.
 - [ ] Validate on temporally held-out independently confirmed meals against fixed presets; report absolute error and overestimation by category/time, not glucose smoothness as proof of carb accuracy. Keep the learner inactive if it fails the baseline or has inadequate labels.
 
 ## 5. Verification and delivery
@@ -108,13 +108,46 @@ passed in isolation. An earlier version-pinned alert test was updated from26
 to27. APK builds. This is not a clean full-suite claim. Not installed on phone;
 real database-copy migration and UI provenance wiring remain required.
 
-- [ ] Run `rtk ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` from `android-app`; record actual pass/fail counts.
+- [x] Run `rtk ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` from `android-app`; record actual pass/fail counts. Final totals and APK verification are recorded in AI_NOTES.md.
 - [ ] Run interaction tests on an emulator or isolated test build. Do not send test carbs, targets or calibration records to the real therapy app.
 - [ ] Check APK signature, update only in place when deployment is requested, and verify the rendered dialog on the phone without confirming a test meal.
 - [ ] Save screenshots, check initial/selected/error/loading states, and verify no new long-running service, worker or periodic timer was introduced.
-- [ ] Update AI_NOTES and PLAN with actual stage completion, not planned behavior. Preserve existing unrelated backend/performance changes and stage only reviewed feature files.
+- [x] Update AI_NOTES and PLAN with actual stage completion, not planned behavior. Preserve existing unrelated backend/performance changes and stage only reviewed feature files.
 
 ## Status
+
+### Current Code Follow-Up, 2026-10-01
+
+Stage3 code is implemented: exact1..80g manual limit, finite-value checks,
+unmodified automatic/UAM caps, canonical real-food model/COB handling and exact
+localized Send/receipt quantities. Inputs and local provenance are frozen before
+transport and compared with persisted commands across restart. A changed ID input
+is blocked rather than falsely acknowledged; existing unknown-delivery guards stay.
+Focused154 manual/model/UI-format tests passed without failures/errors/skips.
+
+Stage2 local rendering now covers real font scales1.0 and1.8 in Russian,
+light/dark, whole-word captions, scroll reachability, hidden calories, over-cap
+error and exact80g callback-once behavior. Stable64dp images use horizontal rows
+only at enlarged scale. Screenshots are local native Robolectric draws, not phone
+acceptance. Six UI cases pass; no test callback writes therapy.
+
+Stage4 infrastructure is implemented but inactive: existing canonical timeline
+reader, atomic matching independent evidence, conflict/tombstone exclusion,
+confirmation availability, revision-aware bounded cache and temporally held-out
+MAE/positive-overestimation comparison by portion/time. Historical unknown records
+are not relabelled. The final full run includes39 feature tests with no failures.
+API RED for the absent reader/evaluator and assertion RED for future-confirmation,
+missing-availability, learning-suppression and pre-cache-conflict guards observed.
+No sufficient independent real labels are available in the existing consistent
+September30 snapshot, so real accuracy scores and activation remain unavailable.
+
+Full current checks and publication evidence are recorded in AI_NOTES.md.
+The phone reconnected and the user approved isolated target/test APK updates only.
+Their isolation test passed1 case. Keyguard/NotificationShade prevented UI focus;
+the UI run was stopped and device/font acceptance remains pending user unlock.
+The working app is not updated, no test meal/target/calibration is sent, and no
+worker/timer/active learner is introduced.
+The older status below is preserved as historical evidence, not current completion.
 
 USB follow-up: new confirmation/provenance assertions now executed successfully
 on isolated device target. Final6 tests pass including isolation and two theme
