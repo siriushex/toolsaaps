@@ -1,3 +1,15 @@
+# Host TLS integration test provider - 2026-10-01
+
+- Make the real-socket HTTPS suite use JVM TLS on every host, via the scoped
+  Robolectric ConscryptMode.OFF annotation. The framework default is OFF on
+  ARM macOS and ON on Linux; tests must not silently change their TLS provider.
+- No production TLS code, certificate trust, request authorization or therapy
+  logic changed. All45 integration cases remain registered, including negative access
+  cases; the optional private phone-copy case remains locally gated.
+- Local Android verification:4708 tests,0 failures/errors,3 existing skips;
+  HTTPS suite45 tests,0 failures,1 existing skip; lint and APK build passed2m41s.
+- Linux verification must pass before accepting this provider hypothesis.
+
 # Linux HTTPS CI diagnostics - 2026-09-30
 
 - Remote Android verification failed38 HTTPS integration tests with EOF;
