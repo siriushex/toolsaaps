@@ -1,8 +1,29 @@
+# Accepted meal research runtime capture - 2026-10-01
+
+- Added a bounded, replay-free research stream to AutomationRepository. Invalidate
+  at cycle entry; capture under the existing exclusive lease only after exact
+  accepted Room readback/finalization. No subscriber means no clock/engine copy.
+- Revalidate snapshot/entity, accepted forecasts/digest, generation, freshness and
+  calibration model/session. Freeze local engine input/output separately from
+  accepted adjusted control output. Require exact baseline reproduction.
+- Capture rejection is typed and cannot abort existing clinical writers;
+  coroutine cancellation still propagates. No timer, worker, therapy call,
+  observation consumer, UI or meal notification was enabled.
+- Seven capture tests and two real-cycle Room cases added. Missing API/hook RED
+  observed; focused32 tests passed,0 failures/errors/skips,45s. Full unit/lint/APK
+  checks passed8m14s:4717 tests,0 failures/errors,3 existing skips; lint305 warnings,
+  4 hints,0 errors. Four source/test files match the tested copy byte-for-byte.
+  APK contains the capture classes; no phone update. Gitleaks found no secrets in
+  this stage or the previous expiry-test commit. CI is a separate publication gate.
+- Priors, duration transitions, calibrated observation error and future-controller
+  uncertainty remain pending. Accepted control CI is not scenario calibration.
+
 # Deterministic backend expiry tests - 2026-10-01
 
 - Linux push verification exposed a race in the active-worker expiry test:
-  its50ms result TTL elapsed during real-time test preparation. The independent
-  PR run on the same SHA passed. Production retention was not changed.
+  it mixed a50ms real-time TTL with an unguarded cache-publication assumption.
+  Expiry versus late publication was not independently distinguished. The PR
+  run on the same SHA passed. Production retention was not changed.
 - Both idle/active drain tests now use the existing injected MutableClock.
   Wait for cache publication, advance exactly to expiry/deadline, then wait
   for actual background removal. No expiry-triggering status read or drain call.

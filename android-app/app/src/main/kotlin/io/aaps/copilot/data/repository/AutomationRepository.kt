@@ -303,6 +303,8 @@ class AutomationRepository(
     ) : IllegalStateException("accepted sensitivity forecast generation is not fresh")
 
     private val cycleMutex = Mutex()
+    private val mealRuntimeCapture = MealRuntimeCaptureRelay()
+    internal val mealRuntimeUpdates = mealRuntimeCapture.updates
     private val isfCrRealtimeDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val isfCrRealtimeScope = CoroutineScope(SupervisorJob() + isfCrRealtimeDispatcher)
     @Volatile
@@ -1046,6 +1048,7 @@ class AutomationRepository(
         expectedSettings: SensitivitySettingsAcceptanceExpectation?,
         beforeClinicalSideEffects: (suspend () -> Unit)? = null
     ): SensitivityRuntimeSnapshot? {
+        mealRuntimeCapture.invalidate()
         var settings = settingsStore.settings.first()
         runRemoteRefreshStatic(bootstrapPolicy) {
             runCycleStep("auto_connect_bootstrap") {
@@ -1310,6 +1313,15 @@ class AutomationRepository(
                     requireNotNull(authenticatedRoomTuple) {
                         "accepted clinical forecast readback was not retained"
                     }
+                )
+                mealRuntimeCapture.publish(
+                    engine = predictionEngine,
+                    glucose = glucose,
+                    therapy = therapy,
+                    localForecasts = forecastRuntime.rawLocalForecasts,
+                    sourceSensitivity = sensitivitySnapshot,
+                    sourceCalibration = forecastRuntime.calibrationIdentity,
+                    roomTuple = requireNotNull(authenticatedRoomTuple)
                 )
                 val acceptedForecasts = acceptedClinicalForecasts.forecasts
                 val acceptedUnifiedUam = bindUnifiedUamToAcceptedForecastsStatic(
@@ -2464,6 +2476,7 @@ class AutomationRepository(
     )
 
     private data class ForecastRuntimeContext(
+        val rawLocalForecasts: List<Forecast>,
         val mergedForecasts: List<Forecast>,
         val controlForecasts: List<Forecast>,
         val lagCorrectedForecasts: List<Forecast>,
@@ -3237,6 +3250,7 @@ class AutomationRepository(
             cycleSnapshot = sensitivityRuntime.snapshot
         )
         return ForecastRuntimeContext(
+            rawLocalForecasts = localForecasts,
             mergedForecasts = mergedForecasts,
             controlForecasts = sensorLagControlPlan.controlForecasts,
             lagCorrectedForecasts = lagCorrectedForecasts,

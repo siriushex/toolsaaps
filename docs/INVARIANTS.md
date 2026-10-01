@@ -13,6 +13,12 @@ its numeric controller thresholds require current-code verification before use.
 - Refresh and recovery cannot extend the fixed subscription expiry.
 - No release test may submit insulin, carbohydrates, targets or calibration to
   a real therapy endpoint.
+- Meal research capture occurs under the cycle lease only after exact accepted
+  Room readback. Raw local baseline and adjusted control forecasts are separate.
+  No observer means no engine copy; new cycles invalidate old research context.
+  The bounded, replay-free stream and its snapshots never authorize notifications
+  or therapy. Cancellation propagates; ordinary rejection does not block existing
+  clinical publication. Consumers must revalidate freshness and revision.
 
 ## Optional server AI job invariants
 

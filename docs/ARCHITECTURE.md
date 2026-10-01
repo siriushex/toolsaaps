@@ -70,9 +70,25 @@ or delayed reuse occurs. Equivalent projections share work, without merging thei
 hypothesis identities. Unexpanded ranges, missing links, clipped paths and excess
 work reject rather than drop evidence. A real-engine-to-Room test covers the path.
 The passive producer is still conditional on known therapy and fixed historical
-state; it does not model unknown future AAPS control or nuisance causes. Production
-runtime provenance, error-model calibration, prior initialization and stage
-transitions remain pending. It has no live worker, sender or clinical authorization.
+state; it does not model unknown future AAPS control or nuisance causes. Runtime
+capture is available as described below, but error-model calibration, prior
+initialization and stage transitions remain pending. No observation worker or
+clinical sender is connected.
+
+`AutomationRepository.mealRuntimeUpdates` is a research-only, bounded SharedFlow.
+Under the existing cycle lease it invalidates previous context at cycle entry and
+captures only after exact Room readback/finalization. Without a subscriber it
+does not read the capture clock, fork the engine or reproduce a forecast. Capture
+rechecks sensitivity values/entity, accepted rows/digest, generation/freshness and
+calibration model/session identity. Frozen local engine input/output remains
+separate from accepted calibrated/control output; reproduction never compares
+the raw local forecast to adjusted control forecasts. Cancellation propagates;
+ordinary capture rejection cannot abort the existing clinical writers.
+The stream has no replay and one DROP_OLDEST buffer slot: it is not a delivery
+ledger, a historical sample source or clinical authorization. A late observer
+waits for a new cycle. Consumers must independently recheck age/cycle/revision
+before using retained work; a snapshot is not permanently current. No production
+consumer, background polling, scenario calibration or meal notification is added.
 
 The research scenario matrix accepts up to four explicit `MealInsulinScenario`
 schedules. Each meal/start/delay trajectory carries its insulin scenario ID;
@@ -180,7 +196,8 @@ separates past absorption from future steps. This adapter covers only the existi
 announced-food component and existing lookback, not residual UAM, missing therapy
 history, future pump actions or complete glucose/scenario uncertainty.
 
-`domain/meal` is not wired to runtime or therapy. MealStateEstimator consumes
+`domain/meal` has research runtime capture, but no production estimator/planner
+consumer or therapy writer. MealStateEstimator consumes
 scenario predictions made before the observed CGM sample, preserves original
 input time and rejects duplicate/correlated or revision-mismatched evidence.
 MealTimingPlanner validates a complete scenario/start/delay matrix and its tail,
@@ -200,7 +217,7 @@ a producer contract, not proof of calibration: no production producer exists.
 The existing AutomationRepository per-horizon residual calibration must not be
 relabeled as simultaneous long-horizon coverage. No extrapolation is provided.
 The 120-minute clock policy is pure eligibility, not a durable atomic claim.
-Room, frozen-engine simulation, calibrated policy and production wiring remain
+The integrated planner, calibrated policy and production delivery wiring remain
 required. No clinical performance or notification-delivery guarantee is claimed.
 
 `HybridPredictionEngine.forkForMealSimulation()` now copies configured insulin
