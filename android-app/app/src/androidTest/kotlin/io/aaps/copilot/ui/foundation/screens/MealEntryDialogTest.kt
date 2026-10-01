@@ -30,6 +30,7 @@ import io.aaps.copilot.domain.nutrition.MealPortionSettings
 import io.aaps.copilot.domain.nutrition.MealPortionProvenance
 import io.aaps.copilot.domain.nutrition.MealCarbLimits
 import io.aaps.copilot.R
+import io.aaps.copilot.IsolatedUiHostRule
 import io.aaps.copilot.ui.foundation.components.MealEntryDialog
 import io.aaps.copilot.ui.foundation.components.MealEntryConfirmation
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
@@ -37,19 +38,24 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
+import org.junit.rules.RuleChain
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MealEntryDialogTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private val compose = createAndroidComposeRule<ComponentActivity>()
+    private val host = IsolatedUiHostRule()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(host).around(compose)
 
     @Test fun lightThemeChoicesAndActionAreReachable() = verifyAppearance(false)
     @Test fun darkThemeChoicesAndActionAreReachable() = verifyAppearance(true)
     @Test fun enlargedLightLabelsUseActualFontScaleWithoutOverflow() = verifyAppearance(false, 1.8f)
     @Test fun enlargedDarkLabelsUseActualFontScaleWithoutOverflow() = verifyAppearance(true, 1.8f)
 
-    private fun verifyAppearance(isDark: Boolean, fontScale: Float = 1f) {
+    private fun verifyAppearance(isDark: Boolean, fontScale: Float = 1f) = host.withFontScale(
+        compose.activity, fontScale
+    ) {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
                 AapsCopilotTheme(darkTheme = isDark, dynamicColor = false) {
@@ -64,6 +70,12 @@ class MealEntryDialogTest {
             compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
         }
         compose.onNodeWithTag("overviewPrepareMeal").assertIsDisplayed()
+        assertCaptionLayouts(fontScale)
+        compose.onNodeWithTag("mealPortion_SMALL").performScrollTo()
+        capture("device-meal-${if (isDark) "dark" else "light"}-$fontScale")
+    }
+
+    private fun assertCaptionLayouts(fontScale: Float) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         for (id in listOf(R.string.meal_portion_small, R.string.meal_portion_medium,
             R.string.meal_portion_large, R.string.food_profile_fast_label,
@@ -78,8 +90,6 @@ class MealEntryDialogTest {
             assertTrue("Caption must not split a word", layout.getLineEnd(0, visibleEnd = true) >=
                 context.getString(id).substringBefore(' ').length)
         }
-        compose.onNodeWithTag("mealPortion_SMALL").performScrollTo()
-        capture("device-meal-${if (isDark) "dark" else "light"}-$fontScale")
     }
 
     private fun capture(name: String) {
@@ -91,7 +101,7 @@ class MealEntryDialogTest {
     @Test fun enlargedLightManualEightyIsExactAndOverCapIsBlocked() = verifyEighty(false)
     @Test fun enlargedDarkManualEightyIsExactAndOverCapIsBlocked() = verifyEighty(true)
 
-    private fun verifyEighty(isDark: Boolean) {
+    private fun verifyEighty(isDark: Boolean) = host.withFontScale(compose.activity, 1.8f) {
         val sent = mutableListOf<MealEntryConfirmation>()
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.8f)) {
@@ -100,6 +110,7 @@ class MealEntryDialogTest {
                 }
             }
         }
+        assertCaptionLayouts(1.8f)
         compose.onNodeWithTag("mealManualCarbs").performScrollTo().performClick()
         compose.onNodeWithTag("mealConfirmGrams").performScrollTo().performTextReplacement("80,001")
         compose.onNodeWithTag("overviewPrepareMeal").assertIsNotEnabled()

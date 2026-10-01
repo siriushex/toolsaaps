@@ -78,10 +78,13 @@ submission/restart guards are implemented. Normal/enlarged1.8x Russian light/dar
 rendering and local exact80g/error callbacks pass Robolectric tests. Canonical
 read-only history, revision-aware cache and walk-forward comparison are implemented
 as inactive research APIs. Full quality checks are recorded in AI_NOTES.md.
-Independent real held-out scores and a new phone/font acceptance remain unavailable;
-phone UI is blocked by keyguard pending user unlock. Only approved isolated test
-packages were updated, and their isolation test passed. No learner activation,
-working-app update, therapy test send or database backfill.
+Phone/font acceptance now passes11 UI tests plus1 isolation test on the approved
+isolated build. Eight fresh Russian light/dark1.0/1.8/error/80g images were inspected;
+actual font density and exact callback-once behavior are asserted. Systemfont0.81
+and the working APK remain unchanged. Independent real held-out scores remain
+unavailable and the learner stays inactive. No working-app update, therapy test
+send or database backfill. Extra isolated-variant lint has6 pre-existing errors
+from intentionally stripped permissions/components; debug lint has0 errors.
 The older numbered evidence below is historical, not current installed-state proof.
 
 - Selected visual direction: variant 2 with the revised porridge-and-bread large
@@ -97,8 +100,9 @@ The older numbered evidence below is historical, not current installed-state pro
   and immutable confirmation implemented locally. Full4440 tests have no
   failures/errors (3 skipped); lint has no errors,301 warnings/5 hints. All APK
   variants build. Device UI/contrast/font checks remain pending.
-- Remaining gates: independent real held-out validation, activation decision and
-  current phone/font acceptance. Manual80g/retry/provenance code and inactive
+- Remaining gates: independent real held-out validation and activation decision.
+  Current phone/font acceptance is verified only for the isolated build.
+  Manual80g/retry/provenance code and inactive
   history reader/cache/evaluation tests are implemented; no activation is implied.
 - Follow-up evidence supersedes the initial device blockers above: compact dialog
   was installed and 33 isolated UI tests passed in earlier runs. Provenance now

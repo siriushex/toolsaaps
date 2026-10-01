@@ -12,15 +12,18 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.aaps.copilot.domain.nutrition.MealPortionSettings
+import io.aaps.copilot.IsolatedUiHostRule
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
+import org.junit.rules.RuleChain
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MealPortionSettingsTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(IsolatedUiHostRule()).around(compose)
 
     @Test fun invalidInputNeverSavesAndValidEditPreservesOtherRanges() {
         val saved = mutableListOf<MealPortionSettings>()

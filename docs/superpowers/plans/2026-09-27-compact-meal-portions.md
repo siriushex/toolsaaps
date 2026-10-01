@@ -41,7 +41,7 @@ settings yet; calorie hiding and picture selection are stages 2/3.
 Files: new `ui/foundation/components/MealEntryDialog.kt`; `ui/foundation/screens/OverviewScreen.kt`; `ui/foundation/screens/FoodProfileSelector.kt`; new local drawable assets; values/values-ru strings; new `src/androidTest/kotlin/io/aaps/copilot/ui/foundation/screens/MealEntryDialogTest.kt`.
 
 - [x] Generate the selected flat icon family from the middle column: three porridge portion sizes, large with two bread slices; fast/mixed/fat-protein food. Do not crop text and selection borders into production icons.
-- [x] Add UI tests first: exactly one selected option per row, radio semantics, labels, hidden calories, cancelling and picture taps never call the send callback. Tests compile; device execution remains pending.
+- [x] Add UI tests first: exactly one selected option per row, radio semantics, labels, hidden calories, cancelling and picture taps never call the send callback. Current isolated-device execution passes; see phone acceptance below.
 - [x] Extract only the existing meal dialog presentation from Overview into the new component. Leave source selection, calibration, target calculations and other Overview sections untouched.
 - [x] Reuse FoodProfileSelector profile mapping with an explicit compact presentation that hides durations only here; preserve other call sites.
 - [x] Show proposed grams in the confirmation action. Retain numeric correction in the secondary confirmation rather than permanently displaying a field. Show precise submitted grams and Eating soon action there.
@@ -109,9 +109,9 @@ to27. APK builds. This is not a clean full-suite claim. Not installed on phone;
 real database-copy migration and UI provenance wiring remain required.
 
 - [x] Run `rtk ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` from `android-app`; record actual pass/fail counts. Final totals and APK verification are recorded in AI_NOTES.md.
-- [ ] Run interaction tests on an emulator or isolated test build. Do not send test carbs, targets or calibration records to the real therapy app.
-- [ ] Check APK signature, update only in place when deployment is requested, and verify the rendered dialog on the phone without confirming a test meal.
-- [ ] Save screenshots, check initial/selected/error/loading states, and verify no new long-running service, worker or periodic timer was introduced.
+- [x] Run interaction tests on an emulator or isolated test build. Do not send test carbs, targets or calibration records to the real therapy app.
+- [x] Check APK signature and verify the rendered dialog on the phone using only approved isolated test packages and in-memory callbacks. A working-app deployment requires separate authorization.
+- [x] Save screenshots, check initial/selected/error/confirmed-close states, and verify no new long-running service, worker or periodic timer was introduced.
 - [x] Update AI_NOTES and PLAN with actual stage completion, not planned behavior. Preserve existing unrelated backend/performance changes and stage only reviewed feature files.
 
 ## Status
@@ -142,11 +142,20 @@ No sufficient independent real labels are available in the existing consistent
 September30 snapshot, so real accuracy scores and activation remain unavailable.
 
 Full current checks and publication evidence are recorded in AI_NOTES.md.
-The phone reconnected and the user approved isolated target/test APK updates only.
-Their isolation test passed1 case. Keyguard/NotificationShade prevented UI focus;
-the UI run was stopped and device/font acceptance remains pending user unlock.
-The working app is not updated, no test meal/target/calibration is sent, and no
-worker/timer/active learner is introduced.
+Phone acceptance, 2026-10-01: after user unlock and screen-on, all11 UI cases
+passed in34.243s, followed by1 isolation case in0.017s. Native Dialog captions
+assert actual1.0/1.8 density, no overflow/split words and scroll reachability.
+Eight fresh light/dark/normal/enlarged/invalid/ready80 images were inspected.
+Exact80g is confirmed once only to an in-memory callback;80.001g is rejected.
+The per-test isolated host handles Android background-start restrictions; its
+read-only guard rejects sleeping/locked phones without waking/unlocking them.
+Font resources are overridden only in the isolated process and restored in
+finally; globalfont0.81 and the working APK hash are unchanged.
+Debug lint passes0 errors; extra isolated-variant lint remains failed with6
+pre-existing errors due to intentionally stripped permissions/components.
+Only isolated target/test APK updates were authorized. The working app is not
+updated, no test meal/target/calibration is sent to therapy, and no worker/timer
+or active learner is introduced. Independent real held-out accuracy remains open.
 The older status below is preserved as historical evidence, not current completion.
 
 USB follow-up: new confirmation/provenance assertions now executed successfully

@@ -1,3 +1,36 @@
+# Compact meal portions isolated phone acceptance - 2026-10-01
+
+- Actual phone run passed11 UI cases in34.243s, followed by1 isolation case
+  in0.017s. Russian light/dark captions assert actual TextLayoutResult font
+  scales1.0/1.8, no overflow and no split words; choices remain scroll-reachable.
+  Eight fresh synthetic dialog images were pulled and visually inspected.
+  Manual80.001g is blocked; exact80g produces one in-memory callback, closes
+  the dialog, preserves USER_CORRECTED provenance, Eating soon=false and no
+  hidden energy. Selection/cancel, frozen settings and settings validation pass.
+- Android background-start restrictions required a per-test outer host rule,
+  restricted to the exact isolated package. It opens only its inert existing
+  ComponentActivity and preserves AndroidX cleanup/accessibility services.
+  A read-only interactive/keyguard precondition rejects sleeping/locked phones;
+  it does not wake/unlock them, adopt shell permissions or change system settings.
+- Outer LocalDensity alone does not reach the native Dialog: the first real
+  run passed7 cases but4 actual-density assertions returned system scale0.81.
+  The test-only scope snapshots isolated Activity/application resources before
+  overriding font scale and restores/checks them in finally on the main thread.
+  Exact font assertions are retained and added to manual80g cases, not weakened.
+- Instrumentation APK built and v2 signature verified; only approved isolated
+  test packages were installed. Globalfont0.81 and the working APK SHA256 are
+  unchanged. No production source/manifest, therapy data, backend or schema edit.
+- Debug unit/build/compile checks reused the prior verified4757-test result
+  (0 failures/errors,3 skips); debug lint passed with0 errors/305 warnings/4 hints.
+  Extra lintUiTest remains failed with6 errors/306 warnings/4 hints in unchanged
+  files: one removed receiver reference, four notification calls and one removed
+  foreground-service call conflict with deliberately stripped isolated permissions
+  and components. No production permission was restored or production lint muted.
+- Phone UI/font acceptance is now verified for the isolated build, not a working
+  app deployment or clinical readiness claim. Independent real held-out labels
+  are still inadequate; learner activation remains forbidden by that open gate.
+  Private evidence: /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/.
+
 # Outbox retry test startup barrier - 2026-10-01
 
 - Push Verify on51f080a failed an existing explicit retry assertion while PR
