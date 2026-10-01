@@ -103,16 +103,26 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
     fun callbackFailureLeavesOutboxAndDuplicateRetriesThenAcknowledges() = runBlocking {
         var callbackAttempts = 0
         var failCallback = true
+        val startupAttempt = CompletableDeferred<Unit>()
+        db.syncStateDao().upsert(
+            io.aaps.copilot.data.local.entity.SyncStateEntity(
+                source = BROADCAST_INVALIDATION_OUTBOX_SOURCE,
+                lastSyncedTimestamp = NOW
+            )
+        )
         val repository = BroadcastIngestRepository(
             context = ApplicationProvider.getApplicationContext(),
             db = db,
             auditLogger = AuditLogger(db.auditLogDao(), gson, clock = { NOW }),
             onClinicalInputPersisted = {
                 callbackAttempts += 1
+                startupAttempt.complete(Unit)
                 if (failCallback) error("invalidation_failed")
                 true
             }
         )
+        // Finish startup recovery before testing explicit ingest retries.
+        withTimeout(5_000L) { startupAttempt.await() }
         val sensorChange = Intent(AAPS_STATUS_ACTION)
             .putExtra("timestamp", NOW)
             .putExtra("eventType", "Sensor Change")
@@ -120,7 +130,7 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
         val failed = runCatching { repository.ingest(sensorChange) }
 
         assertThat(failed.exceptionOrNull()).hasMessageThat().isEqualTo("invalidation_failed")
-        assertThat(callbackAttempts).isEqualTo(1)
+        assertThat(callbackAttempts).isEqualTo(2)
         assertThat(db.therapyDao().since(0L)).hasSize(1)
         assertThat(db.syncStateDao().bySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE)).isNotNull()
 
@@ -129,7 +139,7 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
 
         assertThat(duplicate.therapyImported).isEqualTo(0)
         assertThat(duplicate.reactiveInvalidationRequested).isTrue()
-        assertThat(callbackAttempts).isAtLeast(2)
+        assertThat(callbackAttempts).isEqualTo(3)
         assertThat(db.syncStateDao().bySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE)).isNull()
         val attemptsAfterAcknowledgement = callbackAttempts
 
@@ -142,15 +152,25 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
     fun productionCallbackFalseLeavesOutboxAndDoesNotClaimReactiveThrottle() = runBlocking {
         var callbackAttempts = 0
         var acceptInvalidation = false
+        val startupAttempt = CompletableDeferred<Unit>()
+        db.syncStateDao().upsert(
+            io.aaps.copilot.data.local.entity.SyncStateEntity(
+                source = BROADCAST_INVALIDATION_OUTBOX_SOURCE,
+                lastSyncedTimestamp = NOW
+            )
+        )
         val repository = BroadcastIngestRepository(
             context = ApplicationProvider.getApplicationContext(),
             db = db,
             auditLogger = AuditLogger(db.auditLogDao(), gson, clock = { NOW }),
             onClinicalInputPersisted = {
                 callbackAttempts += 1
+                startupAttempt.complete(Unit)
                 acceptInvalidation
             }
         )
+        // Finish startup recovery before changing callback acceptance.
+        withTimeout(5_000L) { startupAttempt.await() }
         val sensorChange = Intent(AAPS_STATUS_ACTION)
             .putExtra("timestamp", NOW)
             .putExtra("eventType", "Sensor Change")
@@ -159,7 +179,7 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
 
         assertThat(rejected.therapyImported).isEqualTo(1)
         assertThat(rejected.reactiveInvalidationRequested).isFalse()
-        assertThat(callbackAttempts).isAtLeast(1)
+        assertThat(callbackAttempts).isEqualTo(2)
         assertThat(db.syncStateDao().bySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE)).isNotNull()
         val rejectedAttempts = callbackAttempts
 

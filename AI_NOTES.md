@@ -1,3 +1,20 @@
+# Outbox retry test startup barrier - 2026-10-01
+
+- Push Verify on51f080a failed an existing explicit retry assertion while PR
+  Verify on the same SHA passed. The preserved synthetic XML confirms failure
+  at the expected reactive acknowledgement, not in a compact-portions test.
+- Constructor startup recovery can acknowledge the pending outbox between
+  changing callback acceptance and the explicit duplicate ingest. Seed a pending
+  outbox and await its rejected startup callback in both retry tests, before the
+  first explicit ingest. The existing mutex serializes callback completion.
+- Retain exact callback counts, false/failed outbox retention, explicit retry
+  acknowledgement and duplicate suppression. No production code, runtime
+  dispatching, timeout, therapy or phone APK change.
+- Focused5 tests passed25s; a temporary100-invocation probe passed15s and was
+  removed. Full Android unit/lint/build passed6m13s:4757 tests,0 failures/errors,
+  3 existing skips; lint0 errors,305 warnings,4 hints. No APK was updated on the
+  phone. Remote publication and the next Verify run remain separate checks.
+
 # Compact meal portions completion follow-up - 2026-10-01
 
 - Reviewed the named compact-portions plan against current source. Direct Send
