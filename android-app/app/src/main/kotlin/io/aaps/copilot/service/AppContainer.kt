@@ -1014,6 +1014,14 @@ class AppContainer(context: Context) {
                 throughTs = evidence.causalThroughTs,
                 evidenceResolved = evidence.chronologyResolved
             )
+        },
+        managedReleaseReader = { key ->
+            val fingerprint = key.removePrefix(NightscoutActionRepository.TARGET_MANAGER_IDEMPOTENCY_PREFIX)
+            TempTargetSendThrottle.managedReleaseFromJournal(
+                entity = db.targetManagerDao().decisionByFingerprint(TargetManagerMode.ACTIVE.name, fingerprint),
+                idempotencyKey = key,
+                gson = gson
+            )
         }
     )
 

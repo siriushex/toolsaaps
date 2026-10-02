@@ -2,7 +2,9 @@ package io.aaps.copilot.domain.target
 
 import io.aaps.copilot.domain.profile.ActivityTargetProposalDirection
 import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.domain.rules.AdaptiveTempTargetController
 import io.aaps.copilot.domain.rules.SustainedRiseTargetPolicy
+import io.aaps.copilot.util.UnitConverter
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -118,10 +120,16 @@ class TargetManager(
                 lastAutomaticSent = input.lastAutomaticSent
             )
         )
-        val cadence = if (!ordinaryCadence.allowed && ordinaryCadence.reason == "duplicate_target_within_window" &&
-            isConfirmedSustainedRiseRelease(input, active, winner)
-        ) TargetCadenceDecision(true, TempTargetCadenceOutcome.ALLOW_EPISODE_RELEASE, "sustained_rise_upward_release")
-        else ordinaryCadence
+        val releaseReason = if (!ordinaryCadence.allowed && ordinaryCadence.reason == "duplicate_target_within_window") {
+            when {
+                isConfirmedSustainedRiseRelease(input, active, winner) -> "sustained_rise_upward_release"
+                isForecastConfirmedTrendRelease(input, active, winner) -> "forecast_confirmed_trend_release"
+                else -> null
+            }
+        } else null
+        val cadence = releaseReason?.let {
+            TargetCadenceDecision(true, TempTargetCadenceOutcome.ALLOW_EPISODE_RELEASE, it)
+        } ?: ordinaryCadence
         val evaluatedRuntime = runtime.copy(lastDecisionFingerprint = semanticFingerprint)
         if (!cadence.allowed) {
             return blocked(
@@ -555,10 +563,59 @@ class TargetManager(
             active?.ownership == ActiveTargetOwnership.TARGET_MANAGER &&
             active.idempotencyKey == accepted.lastCommandId &&
             last.idempotencyKey == accepted.lastCommandId &&
-            abs(active.targetMmol - accepted.targetMmol) < EPSILON &&
+            UnitConverter.matchesTempTargetObservation(accepted.targetMmol, active.targetMmol) &&
             abs(last.targetMmol - accepted.targetMmol) < EPSILON &&
             winner.sourceRuleId == AdaptiveTargetControllerRule.RULE_ID &&
             winner.generatedAt == input.nowTs && winner.targetMmol > accepted.targetMmol + EPSILON
+    }
+
+    private fun isForecastConfirmedTrendRelease(
+        input: TargetManagerInput,
+        active: ActiveAapsTarget?,
+        winner: TargetProposal
+    ): Boolean {
+        val accepted = input.runtimeState.acceptedTarget ?: return false
+        val last = input.lastAutomaticSent ?: return false
+        val source = AdaptiveTargetControllerRule.RULE_ID
+        if (accepted.ownerRuleId != source || accepted.intent != TargetIntent.NORMAL_CONTROL ||
+            accepted.lastCommandStatus != "sent" || accepted.lastCommandId == null ||
+            accepted.expiresAt <= input.nowTs || active?.ownership != ActiveTargetOwnership.TARGET_MANAGER ||
+            !active.evidenceResolved || active.idempotencyKey != accepted.lastCommandId ||
+            last.idempotencyKey != accepted.lastCommandId ||
+            !UnitConverter.matchesTempTargetObservation(accepted.targetMmol, active.targetMmol) ||
+            abs(last.targetMmol - accepted.targetMmol) >= EPSILON ||
+            winner.sourceRuleId != source || winner.intent != TargetIntent.NORMAL_CONTROL ||
+            winner.generatedAt != input.nowTs ||
+            input.safety.sensorTrust != SensorTrustState.TRUSTED ||
+            input.safety.deliveryTrust != DeliveryTrustState.NORMAL ||
+            input.glucoseTimestamp <= last.timestamp || input.glucoseTimestamp <= 0L ||
+            input.nowTs - input.glucoseTimestamp !in 0L..5 * 60_000L
+        ) return false
+
+        val anchor = accepted.targetMmol
+        val base = input.safety.baseTargetMmol
+        val delta = winner.targetMmol - anchor
+        if (abs(delta) + EPSILON < AdaptiveTargetControllerRule.TARGET_STEP_MMOL ||
+            UnitConverter.mmolToMgdl(winner.targetMmol) == UnitConverter.mmolToMgdl(anchor) ||
+            delta * (base - anchor) <= 0.0 ||
+            winner.targetMmol !in minOf(anchor, base)..maxOf(anchor, base)
+        ) return false
+
+        // This context also carries the canonical trend and accepted control forecasts outside activity mode.
+        val trend = input.activitySafety.observedDelta5Mmol ?: return false
+        val current = input.safety.currentGlucoseMmol ?: return false
+        if (!trend.isFinite() || !current.isFinite() ||
+            abs(trend) < AdaptiveTempTargetController.TREND_STOP_THRESHOLD_MMOL5 ||
+            trend * delta >= 0.0
+        ) return false
+        val forecasts = listOf(5, 30, 60).map { horizon ->
+            input.activitySafety.forecasts[horizon]?.takeIf {
+                it.horizonMinutes == horizon && it.valueMmol.isFinite() &&
+                    it.ciLowMmol.isFinite() && it.ciHighMmol.isFinite() &&
+                    it.ciLowMmol <= it.valueMmol && it.valueMmol <= it.ciHighMmol
+            } ?: return false
+        }
+        return (forecasts.first().valueMmol - current) * trend > 0.0
     }
 
     private fun isBelowBaseWithoutQualifiedIob(

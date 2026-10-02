@@ -238,7 +238,8 @@ class NightscoutActionRepository(
             targetMmol = target,
             actionReason = reason,
             targetIntent = command.params["targetIntent"]
-                ?.let { raw -> runCatching { TargetIntent.valueOf(raw) }.getOrNull() }
+                ?.let { raw -> runCatching { TargetIntent.valueOf(raw) }.getOrNull() },
+            managedDeliveryGuardPresent = deliveryGuard != null
         )
         if (!throttle.allowed) {
             markBlocked(command, "temp_target_rate_limit_30m")

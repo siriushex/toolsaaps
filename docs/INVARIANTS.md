@@ -91,7 +91,9 @@ A durable pre-send claim prevents automatic retry after an uncertain HTTP outcom
 7. Automatic outbound `temp_target` writes must obey a repository-level duplicate throttle:
    - repeated or near-identical targets are blocked inside `30 minutes`,
    - materially changed targets may pass immediately,
-   - bypass is allowed only for explicit manual commands carrying the manual idempotency prefix.
+   - manual bypass requires the explicit manual idempotency prefix,
+   - an eligible manager episode release may pass only with its exact pending ACTIVE journal, a fresh decision, unchanged confirmed previous automatic command, exact target binding and the managed delivery preflight. Labels or reason strings alone cannot authorize a release,
+   - ordinary adaptive trend releases only move an exactly owned NORMAL_CONTROL target toward, never across, the effective base. A new glucose observation beyond the previous send, trusted sensor/delivery, non-flat canonical trend and concordant same-cycle 5m forecast are required. All decrease reliability/low-risk/ownership/arm/freshness gates remain in force. Protective targets are not released by this exception.
 
 ## Prediction invariants
 1. Forecast output must include 5m/30m/60m horizons.

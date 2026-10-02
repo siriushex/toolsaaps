@@ -1,3 +1,44 @@
+# Forecast-confirmed target release latency - 2026-10-02
+
+- Recent private read-only evidence separated proposal latency, duplicate cadence
+  holds, forecast reliability refusals and delivery. Calibrated cycle glucose,
+  not the uncalibrated sensor trace, was compared with forecasts at issuance.
+  Stored forecasts are not substituted for accepted same-cycle authority.
+- Small already-computed adaptive releases toward effective base could be
+  blocked by the30-minute near-duplicate policy. Permit a single existing0.05
+  controller step only for exactly confirmed ordinary adaptive ownership, a
+  newer fresh glucose point, non-flat observed trend and concordant5m forecast.
+  Do not change controller gains, numeric safety bounds, ordinary repeat window,
+  urgent hypo rules, protective ownership, forecast reliability or low-risk gates.
+- The delivery throttle independently applies the same repeat window. It now
+  recognizes only an exact pending ACTIVE manager release journal with a managed
+  delivery guard, unchanged previous sent command and exact payload binding.
+  Arbitrary labels, reason strings, absent/shadow/old/malformed journals and
+  changed history cannot bypass it. Existing sustained-rise release delivery
+  uses this same durable authorization; no new therapy transport or retry path.
+- Exact mg/dL round-trip recognition fixes the owned observation comparison;
+  arbitrary nearby values still fail. Unchanged command identity remains mandatory,
+  and the new ordinary release must also change the integer wire target.
+- TDD reproduced2 manager SEND expectations as BLOCK_CADENCE,1 guarded
+  transport refusal and2 rounded-observation failures. Final focused185 tests
+  passed with0 failures/errors. Full Android build/unit/compile/lint passed in
+  7m38s:4767 tests,0 failures/errors,3 existing skips; lint0 errors,
+  305 warnings and4 hints. The tested Android source exactly matches the primary
+  source diff. Working-device installation then passed in place with matching
+  debug certificate, installed APK SHA256 prefix36dda4e607c8 and unchanged
+  settings hash. Schema30 and the oldest glucose timestamp are retained;
+  existing audited duplicate cleanup explains the changing glucose row count.
+- Coherent private backup passed integrity_check and foreign-key validation;
+  old APK and settings were retained. The actual dashboard rendered fresh data
+  and forecast, and natural post-install cycles completed without a forced cycle.
+  Natural target deliveries were confirmed in the AndroidAPS target table, not
+  just a sender status. A qualifying small trend-release event has not yet been
+  observed on-device; neither its real reaction latency nor clinical benefit is
+  established by installation, tests or ordinary delivery alone.
+- No clinical efficacy claim, synthetic real-device therapy command, numerical
+  therapy setting change, backend change or learner activation. Private phone
+  data, graphs, backups and APKs must remain outside publication.
+
 # Compact meal portions isolated phone acceptance - 2026-10-01
 
 - Actual phone run passed11 UI cases in34.243s, followed by1 isolation case
