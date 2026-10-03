@@ -101,6 +101,7 @@ A durable pre-send claim prevents automatic retry after an uncertain HTTP outcom
 3. Legacy mode behavior must remain stable when enhanced flags are disabled.
 4. Enhanced local prediction must derive trend/volatility/UAM inputs from a canonical 5-minute CGM series rather than directly from raw minute-level points.
 5. Forecast/runtime computation must be strictly causal: therapy events with `ts > prediction_now` must not influence prediction or replay metrics.
+   - Recent therapy and sensor-lag therapy histories must use the same frozen cycle clock as an inclusive Room query upper bound, including after slow calibration preparation. Later arrivals stay stored for subsequent cycles; accepted maintenance keeps its causal assertion and must not substitute a later wall clock.
 6. UAM contribution must not be double-counted with positive residual trend when UAM is active.
 7. Synthetic/exported UAM carbs must never become announced-carb ground truth for forecast physiology or ISF/CR learning.
 8. External/AAPS raw `COB` is a reference signal only; runtime `effective COB` used by forecast/controller must subtract residual synthetic `UAM_ENGINE` carbs before merge so exported UAM does not re-enter prediction through `COB` bias.

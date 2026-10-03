@@ -2377,7 +2377,7 @@ class AutomationRepository(
         )
         val resolvedGlucose = preparedCalibration.resolvedGlucose
         val glucose = resolvedGlucose.map { it.toDomain() }
-        val therapy = syncRepository.recentTherapyEvents(hoursBack = 24)
+        val therapy = syncRepository.recentTherapyEvents(hoursBack = 24, nowTs = nowTs)
         val sensorLagGlucoseHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
             preparedCalibration.additionalResolvedGlucose.map { it.toDomain() }
         } else {
@@ -2385,7 +2385,7 @@ class AutomationRepository(
         }
         val sensorLagTherapyHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
             TherapySanitizer.filterEntities(
-                db.therapyDao().since(nowTs - SENSOR_LAG_HISTORY_LOOKBACK_MS)
+                db.therapyDao().between(nowTs - SENSOR_LAG_HISTORY_LOOKBACK_MS, nowTs)
             ).map { it.toDomain(gson) }
         } else {
             therapy

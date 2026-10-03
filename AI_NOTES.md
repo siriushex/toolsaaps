@@ -1,3 +1,27 @@
+# Frozen-cycle therapy history cutoff - 2026-10-04
+
+- Private read-only follow-up found accepted local maintenance failures before
+  Target Manager evaluation. The cycle freezes its clock before calibration,
+  but recent therapy was loaded afterward using a later wall clock and an
+  unbounded-upper history query. A concurrent real arrival could therefore
+  violate the existing accepted-maintenance causal assertion and abort the cycle.
+- Require the caller's frozen timestamp in SyncRepository.recentTherapyEvents
+  and reuse TherapyDao.between for both 24-hour and sensor-lag histories.
+  Preserve sanitization and the maintenance assertion. Excluded future rows
+  remain in Room and become available to subsequent cycles; no deletion,
+  swallowing of safety failures, new retry or therapy threshold adjustment.
+- A real Room regression first failed because the future row was returned.
+  Five regression tests cover future exclusion, concurrent arrivals after the
+  frozen clock, inclusive lookback boundaries, unchanged sanitization and both
+  runtime caller bindings. Related focused suites passed 182 tests with 0 errors.
+- Full Android build/unit/compile/lint passed: 4772 tests, 0 failures/errors,
+  3 existing skips; lint 0 errors, 305 warnings and 4 hints. Both production
+  files and the test match the verified build copy byte-for-byte. Candidate
+  signature verifies and matches the existing debug package certificate.
+- Working-device installation remains pending an available authorized transport.
+  No device or clinical efficacy acceptance is implied by local checks or the
+  signed APK. Private graphs/logs/backups/APKs remain unpublished.
+
 # Forecast-confirmed target release latency - 2026-10-02
 
 - Recent private read-only evidence separated proposal latency, duplicate cadence
