@@ -115,7 +115,7 @@ internal fun InteractiveClinicalForecastChart(
                     clinicalChartPlotHorizontalBounds(
                         totalWidthPx = size.width.toFloat(),
                         leftInsetPx = 34.dp.toPx(),
-                        rightInsetPx = 4.dp.toPx()
+                        rightInsetPx = 40.dp.toPx()
                     )
                 }
             }

@@ -14,18 +14,21 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.aaps.copilot.R
+import io.aaps.copilot.IsolatedUiHostRule
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
+import org.junit.rules.RuleChain
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class FoodProfileSelectorTest {
 
+    private val composeRule = createAndroidComposeRule<ComponentActivity>()
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val rules: RuleChain = RuleChain.outerRule(IsolatedUiHostRule()).around(composeRule)
 
     @Test
     fun selectorUsesOneAccessibleSelectionAndMinimumTouchTargets() {

@@ -24,6 +24,106 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class EatingSoonDeliveryRoomTest {
+    @Test fun restartCannotTurnAcceptedSuggestionIntoIndependentTrainingLabel() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val firstRepository = repository(server)
+            var profiles = 0
+            fun submission(repository: NightscoutActionRepository) = ManualMealSubmission(
+                repository::submitCarbs, { _, _, _ -> profiles++ }, { error("target not requested") },
+                readCarbBlockReason = repository::manualCarbBlockReason
+            )
+            val meal = command("origin-restart").copy(type = "carbs",
+                params = mapOf("carbsGrams" to "20.0"), idempotencyKey = "manual:meal:origin-restart")
+            val accepted = io.aaps.copilot.domain.profile.MealAbsorptionSelection(
+                io.aaps.copilot.domain.profile.MealAbsorptionProfile.MIXED,
+                portionMetadata = io.aaps.copilot.domain.nutrition.MealPortionMetadata(
+                    io.aaps.copilot.domain.nutrition.MealPortion.MEDIUM,
+                    io.aaps.copilot.domain.nutrition.MealPortionProvenance.ACCEPTED_SUGGESTION))
+            assertThat(submission(firstRepository).submit(meal, accepted, null, false).carbs)
+                .isEqualTo(MealDeliveryStatus.SENT)
+            val stored = db.actionCommandDao().byIdempotencyKey(meal.idempotencyKey)
+            val restarted = repository(server, reuseSettings = true)
+            val corrected = accepted.copy(portionMetadata = accepted.portionMetadata!!.copy(
+                provenance = io.aaps.copilot.domain.nutrition.MealPortionProvenance.USER_CORRECTED))
+            val rejected = submission(restarted).submit(meal, corrected, null, false)
+            assertThat(rejected.carbs).isEqualTo(MealDeliveryStatus.BLOCKED)
+            assertThat(rejected.carbBlockReason).isEqualTo("submission_changed")
+            assertThat(db.actionCommandDao().byIdempotencyKey(meal.idempotencyKey)).isEqualTo(stored)
+            assertThat(profiles).isEqualTo(1)
+            assertThat(server.requestCount).isEqualTo(1)
+            assertThat(submission(restarted).submit(meal, accepted, null, false).carbs)
+                .isEqualTo(MealDeliveryStatus.SENT)
+            assertThat(server.requestCount).isEqualTo(1)
+        }
+    }
+
+    @Test fun restartCannotAcknowledgeChangedQuantityUnderAlreadySentMealId() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val firstRepository = repository(server)
+            val original = command("immutable-restart").copy(type = "carbs",
+                params = mapOf("carbsGrams" to "20.0"), idempotencyKey = "manual:meal:immutable-restart")
+            assertThat(firstRepository.submitCarbs(original)).isTrue()
+            val originalRow = db.actionCommandDao().byIdempotencyKey(original.idempotencyKey)
+            val restarted = repository(server, reuseSettings = true)
+            val changed = original.copy(params = mapOf("carbsGrams" to "40.0"))
+            assertThat(restarted.submitCarbs(changed)).isFalse()
+            assertThat(restarted.manualCarbBlockReason(changed)).isEqualTo("submission_changed")
+            assertThat(db.actionCommandDao().byIdempotencyKey(original.idempotencyKey)).isEqualTo(originalRow)
+            assertThat(restarted.submitCarbs(original)).isTrue()
+            assertThat(server.requestCount).isEqualTo(1)
+        }
+    }
+
+    @Test fun manualEightyGramsPostsExactlyOnceWithoutChangingAutomaticCap() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            settings.update { it.copy(carbComputationMaxGrams = 20.0) }
+            val meal = command("eighty-grams").copy(type = "carbs",
+                params = mapOf("carbsGrams" to "80.0"), idempotencyKey = "manual:meal:eighty-grams")
+            assertThat(repository.submitCarbs(meal)).isTrue()
+            val body = Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)
+            assertThat(body["carbs"]).isEqualTo(80.0)
+            assertThat(repository.submitCarbs(meal)).isTrue()
+            assertThat(server.requestCount).isEqualTo(1)
+            val automatic = meal.copy(id = "automatic-eighty-grams", idempotencyKey = "automatic:eighty-grams")
+            assertThat(repository.submitCarbs(automatic)).isFalse()
+            assertThat(server.requestCount).isEqualTo(1)
+            assertThat(db.actionCommandDao().byIdempotencyKey(automatic.idempotencyKey)?.status)
+                .isEqualTo("FAILED")
+        }
+    }
+
+    @Test fun invalidManualGramsNeverReachTransportOrBecomeSmallerMeals() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server)
+            listOf("80.01", "NaN", "Infinity", "-Infinity", "0", "-1").forEachIndexed { i, grams ->
+                val meal = command("invalid-$i").copy(type = "carbs",
+                    params = mapOf("carbsGrams" to grams), idempotencyKey = "manual:meal:invalid-$i")
+                assertThat(repository.submitCarbs(meal)).isFalse()
+                assertThat(db.actionCommandDao().byIdempotencyKey(meal.idempotencyKey)?.status)
+                    .isEqualTo("FAILED")
+            }
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
+    @Test fun manualCarbRateLimitRetainsReasonAndDoesNotPost() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val first = command("carbs-first").copy(type = "carbs", params = mapOf("carbsGrams" to "10"))
+            val second = command("carbs-second").copy(type = "carbs", params = mapOf("carbsGrams" to "10"))
+            assertThat(repository.submitCarbs(first)).isTrue()
+            assertThat(repository.submitCarbs(second)).isFalse()
+            assertThat(repository.manualCarbBlockReason(second)).isEqualTo("carbs_rate_limit_30m")
+            assertThat(repository.manualCarbBlockReason(first)).isNull()
+            assertThat(server.requestCount).isEqualTo(1)
+        }
+    }
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private lateinit var db: CopilotDatabase
     private lateinit var settings: AppSettingsStore
@@ -247,8 +347,8 @@ class EatingSoonDeliveryRoomTest {
         }
     }
 
-    private suspend fun repository(server: MockWebServer): NightscoutActionRepository {
-        settings = AppSettingsStore(context)
+    private suspend fun repository(server: MockWebServer, reuseSettings: Boolean = false): NightscoutActionRepository {
+        if (!reuseSettings) settings = AppSettingsStore(context)
         settings.update {
             it.copy(nightscoutUrl = server.url("/").toString(), localNightscoutEnabled = false,
                 localCommandFallbackEnabled = true, localNightscoutLegacyMigrationAcknowledged = true)

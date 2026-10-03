@@ -44,6 +44,37 @@ import org.junit.rules.TemporaryFolder
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppSettingsStoreTest {
 
+    @Test
+    fun mealPortionDefaultsAndEditsSurviveStoreRecreation() = runTest {
+        val harness = newHarness(backgroundScope)
+        val initial = harness.store.settings.first()
+        assertThat(initial.mealPortions).isEqualTo(io.aaps.copilot.domain.nutrition.MealPortionSettings())
+        val changed = initial.mealPortions.copy(
+            small = io.aaps.copilot.domain.nutrition.MealPortionRange(6.0, 14.0, 9.0),
+            showCalories = true
+        )
+        harness.store.setMealPortionSettings(changed)
+        val recreated = AppSettingsStore(harness.dataStore, "test-install-id-v1").settings.first()
+        assertThat(recreated.mealPortions).isEqualTo(changed)
+        assertThat(recreated.carbComputationMaxGrams).isEqualTo(initial.carbComputationMaxGrams)
+        assertThat(recreated.uamMaxTotalG).isEqualTo(initial.uamMaxTotalG)
+        assertThat(recreated.sensitivitySettingsRevision).isEqualTo(initial.sensitivitySettingsRevision)
+    }
+
+    @Test
+    fun invalidPortionsRollBackEntireSettingsUpdate() = runTest {
+        val harness = newHarness(backgroundScope)
+        val before = harness.store.settings.first()
+        val invalid = before.mealPortions.copy(
+            small = io.aaps.copilot.domain.nutrition.MealPortionRange(7.0, 30.0, 10.0)
+        )
+        val failure = runCatching {
+            harness.store.update { it.copy(mealPortions = invalid, killSwitch = !it.killSwitch) }
+        }.exceptionOrNull()
+        assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(harness.store.settings.first()).isEqualTo(before)
+    }
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

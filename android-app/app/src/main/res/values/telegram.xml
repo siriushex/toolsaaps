@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="telegram_info">Trusted Telegram delivery</string>
+    <string name="telegram_configured">Token configured · @%1$s</string>
+    <string name="telegram_not_configured">Not configured</string>
+    <string name="telegram_token">Bot token</string>
+    <string name="telegram_verify_save">Verify and save token</string>
+    <string name="telegram_enabled">Send to trusted recipients</string>
+    <string name="telegram_soft">Include early warnings</string>
+    <string name="telegram_auto_reports">Send newly completed summaries</string>
+    <string name="telegram_recipients">Trusted recipients</string>
+    <string name="telegram_alerts">Alerts</string>
+    <string name="telegram_reports">Reports</string>
+    <string name="telegram_remove">Remove recipient</string>
+    <string name="telegram_add">Create invitation</string>
+    <string name="telegram_username">Recipient @username</string>
+    <string name="telegram_pair_instruction">Share the invitation privately. The recipient opens it and taps Start. Valid for 15 minutes.</string>
+    <string name="telegram_copy_link">Copy invitation link</string>
+    <string name="telegram_check_pairing">Check connection</string>
+    <string name="telegram_confirm">Trust this chat</string>
+    <string name="telegram_no_delivery">No deliveries</string>
+    <string name="telegram_delivery_unknown">Delivery unknown; no automatic retry</string>
+    <string name="telegram_delivered">Accepted by Telegram; reading is not confirmed</string>
+    <string name="telegram_send_summary">Send current 7/30-day summary</string>
+    <string name="telegram_disconnect">Disconnect and delete token</string>
+    <string name="telegram_disconnect_confirm">Remove the token and all recipients? Delivery will stop. Messages already sent remain in Telegram.</string>
+    <string name="telegram_working">Checking…</string>
+    <string name="telegram_invalid_token">Invalid bot token.</string>
+    <string name="telegram_network_error">Telegram is unavailable. Check the connection.</string>
+    <string name="telegram_rejected">Telegram rejected the request. Check bot permissions or an existing webhook.</string>
+    <string name="telegram_response_error">The Telegram response could not be verified.</string>
+    <string name="telegram_pair_expired">Invitation expired. Create a new invitation.</string>
+    <string name="telegram_no_match">No matching private Start message found.</string>
+    <string name="telegram_storage_error">Secure storage is unavailable. Delivery is disabled.</string>
+    <string name="telegram_not_ready">Check the username and recipient, enable delivery, and open a fresh clinical report before sending a summary.</string>
+    <string name="telegram_privacy">Use a dedicated bot from @BotFather. Enable delivery only for people you trust with your health data. Bot chats are not end-to-end encrypted. Recipients cannot change therapy or silence local alarms. OFF also pauses Telegram alerts. Telegram needs an internet connection and does not replace local alerts. Report consent is separate for each recipient. Disconnect before changing the bot token; this clears the trusted recipient list.</string>
+    <string name="telegram_delivery_risk">Possible insulin delivery problem</string>
+    <string name="telegram_contact_patient">Please check in with the person. This message does not confirm the cause.</string>
+    <string name="telegram_summary_title">AAPS Copilot · Compensation summary</string>
+    <string name="telegram_summary_body">Period: %1$d d\nMean glucose: %2$s mmol/L\nBelow 4: %3$s%% · 4&#8211;10 mmol/L: %4$s%% · Above 10: %5$s%%\nGlucose coverage: %6$s%%\nTotal recorded insulin: %13$s U\nInsulin events: confirmed %7$s U, estimated %8$s U\nTotal carbohydrates: %14$s g (entered %9$s g, UAM %10$s g)\nSteps: %11$s · Active energy: %12$s kcal\nThese are recorded data; coverage and estimates affect interpretation.</string>
+</resources>

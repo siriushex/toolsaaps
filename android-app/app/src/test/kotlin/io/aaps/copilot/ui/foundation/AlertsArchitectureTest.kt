@@ -43,7 +43,8 @@ class AlertsArchitectureTest {
         assertThat(repository).doesNotContain("okhttp")
         assertThat(repository).doesNotContain("retrofit")
         assertThat(repository).doesNotContain("WorkManager")
-        assertThat(database).contains("version = 26")
+        // Version 30 adds meal receipts; the alert read path still adds no schema.
+        assertThat(database).contains("version = 30")
     }
 
     @Test

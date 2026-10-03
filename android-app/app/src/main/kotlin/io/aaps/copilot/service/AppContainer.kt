@@ -175,6 +175,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -319,6 +321,12 @@ class AppContainer(context: Context) {
     val apiFactory = ApiFactory { LocalNightscoutTls.loadClientIdentity(appContext) }
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mealStateInbox = io.aaps.copilot.data.repository.MealStateInbox(db)
+    internal val mealStateIngestion = io.aaps.copilot.data.repository.MealStateIngestionQueue(
+        scope = appScope,
+        process = mealStateInbox::persist,
+        drain = mealStateInbox::drainBatch
+    )
     internal val clinicalInvalidationExecutionEvidenceStore =
         DataStoreClinicalInvalidationExecutionEvidenceStore(appContext)
     internal val clinicalInputInvalidationCoordinator = ClinicalInputInvalidationCoordinator(
@@ -349,6 +357,19 @@ class AppContainer(context: Context) {
         }
     )
     init {
+        appScope.launch {
+            mealStateIngestion.health.map { Triple(it.failedBatches, it.quarantinedReceipts, it.rejectedBatches) }
+                .distinctUntilChanged().collect { (failed, quarantined, rejected) ->
+                    if (failed == 0L && quarantined == 0 && rejected == 0L) return@collect
+                    try {
+                        auditLogger.warnThrottled("meal_state_ingestion", 300_000L,
+                            "meal_state_ingestion_incomplete", mapOf(
+                                "failedBatches" to failed, "quarantinedReceipts" to quarantined,
+                                "rejectedBatches" to rejected))
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { }
+                }
+        }
         appScope.launch {
             clinicalInputInvalidationCoordinator.hydrateAndRedriveSafely()
         }
@@ -499,7 +520,9 @@ class AppContainer(context: Context) {
             therapyDao = db.therapyDao(),
             transactionRunner = AapsCarbImportTransactionRunner { block ->
                 db.withTransaction { block() }
-            }
+            },
+            persistMealPage = { mealStateIngestion.offerPage(it, wakeAfterPersist = false) },
+            onCommittedPage = { mealStateIngestion.wake() }
         ),
         syncStateDao = db.syncStateDao(),
         auditLogger = auditLogger
@@ -697,6 +720,17 @@ class AppContainer(context: Context) {
         context = context.applicationContext,
         audioController = glucoseAlertAudioController,
         episodeDelivery = episodeAlertDelivery
+    )
+
+    val telegramRepository = io.aaps.copilot.telegram.TelegramRepository(
+        io.aaps.copilot.telegram.EncryptedTelegramPersistence(
+            io.aaps.copilot.security.KeystoreSecretStorage(appContext,
+                io.aaps.copilot.security.RuntimeSecretStorageNamespaces.TELEGRAM)
+        ),
+        io.aaps.copilot.telegram.TelegramHttpApi()
+    )
+    val telegramDeliveryController = io.aaps.copilot.telegram.TelegramDeliveryController(
+        appContext, telegramRepository, db.alertEventDao(), episodeAlertDelivery, clinicalReportRepository
     )
 
     private val pumpLinkNotifier = PumpLinkNotifier(appContext)
@@ -980,6 +1014,14 @@ class AppContainer(context: Context) {
                 throughTs = evidence.causalThroughTs,
                 evidenceResolved = evidence.chronologyResolved
             )
+        },
+        managedReleaseReader = { key ->
+            val fingerprint = key.removePrefix(NightscoutActionRepository.TARGET_MANAGER_IDEMPOTENCY_PREFIX)
+            TempTargetSendThrottle.managedReleaseFromJournal(
+                entity = db.targetManagerDao().decisionByFingerprint(TargetManagerMode.ACTIVE.name, fingerprint),
+                idempotencyKey = key,
+                gson = gson
+            )
         }
     )
 
@@ -1049,7 +1091,7 @@ class AppContainer(context: Context) {
             if (finished.wallNowTs < now || finished.monotonicNowTs - started.monotonicNowTs !in 0..5_000L) {
                 return@withManagedTargetAuthorityProof "safety_read_expired"
             }
-            EatingSoonPolicy.blockReason(EatingSoonEvidence(
+            val blockReason = EatingSoonPolicy.blockReason(EatingSoonEvidence(
                 nowTs = finished.wallNowTs,
                 killSwitch = finalSettings.killSwitch,
                 actionsArmed = finalSettings.therapyActionsArmed,
@@ -1064,6 +1106,15 @@ class AppContainer(context: Context) {
                 sensorTrusted = sensorTrusted,
                 chronologyResolved = localSafety.chronologyResolved
             ))
+            if (blockReason != null) auditLogger.info(
+                "manual_meal_target_preflight_evidence",
+                mapOf(
+                    "reason" to blockReason,
+                    "glucoseAgeMs" to sample?.let { finished.wallNowTs - it.timestamp },
+                    "forecastAgeMs" to tuple.accepted.generationTimestamp?.let { finished.wallNowTs - it }
+                )
+            )
+            blockReason
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
@@ -1416,6 +1467,7 @@ class AppContainer(context: Context) {
 
     init {
         clinicalReportRepository.initialize()
+        telegramDeliveryController.start(appScope)
 
         appScope.launch {
             try {

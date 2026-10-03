@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="meal_entry_title">Еда</string>
+    <string name="meal_prepare_amount">Отправить %1$s г</string>
+    <string name="meal_manual_carbs">Ручные углеводы</string>
+    <string name="meal_amount_limit">Введите 1–%1$s г. Действует текущий ручной лимит.</string>
+    <string name="meal_confirm_energy">Калорийность: %1$s ккал</string>
+    <string name="meal_portions_title">Порции еды</string>
+    <string name="meal_portion_small">Маленькая</string>
+    <string name="meal_portion_medium">Средняя</string>
+    <string name="meal_portion_large">Большая</string>
+    <string name="meal_portion_min">От, г</string>
+    <string name="meal_portion_max">До, г</string>
+    <string name="meal_portion_default">Обычно, г</string>
+    <string name="meal_portion_error">Нужны положительные числа, возрастающие диапазоны без пересечений и значение внутри своего диапазона.</string>
+    <string name="meal_portion_calories">Показывать калории при вводе еды</string>
+    <string name="meal_portions_save">Сохранить порции</string>
+    <string name="meal_portions_saved">Сохранено</string>
+    <string name="meal_portions_save_failed">Не удалось сохранить порции</string>
+</resources>

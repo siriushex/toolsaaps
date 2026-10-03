@@ -185,7 +185,9 @@ class EnergyProfileRepository(
     suspend fun stageSelectionAfterSubmittedCarbAction(
         command: ActionCommand,
         selection: MealAbsorptionSelection,
-        manualMealEnergyKcal: Double? = null
+        manualMealEnergyKcal: Double? = null,
+        portion: io.aaps.copilot.domain.nutrition.MealPortion? = null,
+        portionProvenance: io.aaps.copilot.domain.nutrition.MealPortionProvenance? = null
     ) {
         val idempotencyKey = command.idempotencyKey.trim()
         val expectedCarbsGrams = command.expectedCarbsGramsOrNull()
@@ -208,7 +210,9 @@ class EnergyProfileRepository(
                 expectedCarbsGrams = expectedCarbsGrams,
                 manualMealEnergyKcal = manualMealEnergyKcal,
                 submittedAtMs = submittedAtMs,
-                expiresAtMs = submittedAtMs + PENDING_INTENT_TTL_MS
+                expiresAtMs = submittedAtMs + PENDING_INTENT_TTL_MS,
+                portion = portion?.name,
+                portionProvenance = portionProvenance?.name
             )
         )
     }
@@ -240,7 +244,13 @@ class EnergyProfileRepository(
             if (!saveManualMealEnergyIfPresent(intent, result)) return@forEach
             energyProfileDao.promotePendingMealProfileIntent(
                 expectedIntent = intent,
-                override = overrideEntity(selection, result, nowMs),
+                override = overrideEntity(selection, result, nowMs).copy(
+                    portion = intent.portion,
+                    portionProvenance = intent.portionProvenance,
+                    confirmedCarbsGrams = intent.expectedCarbsGrams.takeIf {
+                        intent.portion != null && intent.portionProvenance != null
+                    }
+                ),
                 nowMs = nowMs
             )
         }

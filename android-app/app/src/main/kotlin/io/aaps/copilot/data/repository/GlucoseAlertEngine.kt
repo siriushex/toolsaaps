@@ -76,9 +76,18 @@ class GlucoseAlertEngine {
         val requiresConfirmation = candidateStage.requiresSoftConfirmation()
         val samePending = candidateStage != GlucoseAlertState.NONE &&
             persisted.pendingRiskKey == riskKey(candidateStage, candidateDirection, lowThreshold, highThreshold)
+        val evidenceTs = input.currentGlucoseTimestamp
+        val previousEvidenceTs = persisted.pendingEvidenceTimestamp
+        val evidenceValid = evidenceTs == null || (evidenceTs >= 0 && evidenceTs <= input.nowTs)
+        val newEvidence = evidenceValid && (evidenceTs == null || previousEvidenceTs == null ||
+            evidenceTs > previousEvidenceTs)
         val pendingCount = when {
             candidateStage == GlucoseAlertState.NONE -> 0
-            requiresConfirmation && samePending -> persisted.pendingRiskCount + 1
+            requiresConfirmation && !evidenceValid -> 0
+            requiresConfirmation && samePending && !newEvidence -> persisted.pendingRiskCount
+            requiresConfirmation && samePending && evidenceTs != null && previousEvidenceTs != null &&
+                evidenceTs - previousEvidenceTs > 10 * 60_000L -> 1
+            requiresConfirmation && samePending -> (persisted.pendingRiskCount + 1).coerceAtMost(SOFT_CONFIRMATION_REQUIRED)
             requiresConfirmation -> 1
             else -> 0
         }
@@ -185,6 +194,11 @@ class GlucoseAlertEngine {
                 candidateStage == GlucoseAlertState.NONE || confirmationSatisfied -> 0
                 else -> pendingCount
             },
+            pendingEvidenceTimestamp = when {
+                candidateStage == GlucoseAlertState.NONE || confirmationSatisfied -> null
+                newEvidence -> evidenceTs
+                else -> previousEvidenceTs
+            },
             safeSamplesCount = if (resolvedStage == GlucoseAlertState.NONE) 0 else safeSamplesCount,
             safeSinceTs = if (resolvedStage == GlucoseAlertState.NONE) 0L else safeSinceTs,
             lastStageChangeTs = nextStageChangeTs,
@@ -257,6 +271,7 @@ class GlucoseAlertEngine {
         val points = buildList {
             input.currentGlucoseMmol?.let { add(0 to it) }
             input.pred5?.let { add(5 to it) }
+            input.pred10?.let { add(10 to it) }
             val low30 = if (useConfidenceBand) input.ciLow30 ?: input.pred30 else input.pred30
             low30?.let { add(30 to it) }
             input.pred60?.let { add(60 to it) }
@@ -318,7 +333,9 @@ data class GlucoseAlertInput(
     val trendDelta5Mmol: Double?,
     val staleData: Boolean,
     val sensorBlocked: Boolean,
-    val sensorSuspectFalseLow: Boolean
+    val sensorSuspectFalseLow: Boolean,
+    val currentGlucoseTimestamp: Long? = null,
+    val pred10: Double? = null
 )
 
 data class GlucoseAlertDecision(

@@ -1,5 +1,25 @@
 # INVARIANTS
 
+## Compact Meal Safety And Research
+
+- The Food dialog confirms exact1..80g manual meals. This separate maximum never
+  increases automatic/UAM writer limits or bypasses arm, throttle or target gates.
+- A manual submission ID binds immutable grams, profile, portion/provenance,
+  energy and Eating soon intent before I/O. Changed input cannot receive a false
+  SENT acknowledgement or overwrite the original, including after restart.
+- Hidden calories are null. Picture taps and cancellation cannot dispatch therapy.
+- Only trusted non-conflicting canonical REAL food can use the larger model/COB
+  bound. Synthetic and unknown inputs retain existing computation constraints.
+- Portion training requires matching canonical identity, revision, amount and
+  independent confirmation. Accepted suggestions, unknown legacy origins,
+  synthetic/rescue/preparatory carbs, invalid records and tombstones are excluded.
+- Confirmation availability must not precede the meal or leak into earlier
+  predictions. Held-out target categories cannot be inferred from target grams.
+- Offline history candidates never alter saved defaults, dispatch therapy or
+  register polling/workers. Cache entries are revision/settings/time-zone scoped.
+- Missing real labels produce no accuracy claim and never activate learning.
+- Robolectric rendering is local UI evidence, not phone/deployment acceptance.
+
 ## September 2026 Publication Contract
 
 See [RELEASE_2026-09-13.md](RELEASE_2026-09-13.md) for the current release
@@ -13,8 +33,55 @@ its numeric controller thresholds require current-code verification before use.
 - Refresh and recovery cannot extend the fixed subscription expiry.
 - No release test may submit insulin, carbohydrates, targets or calibration to
   a real therapy endpoint.
+- Meal research capture occurs under the cycle lease only after exact accepted
+  Room readback. Raw local baseline and adjusted control forecasts are separate.
+  No observer means no engine copy; new cycles invalidate old research context.
+  The bounded, replay-free stream and its snapshots never authorize notifications
+  or therapy. Cancellation propagates; ordinary rejection does not block existing
+  clinical publication. Consumers must revalidate freshness and revision.
+
+## Optional server AI job invariants
+
+- The default bound app has no job routes and reports inference unavailable;
+  R1a routes require an explicitly injected service and contained-worker factory.
+- R1a accepts only strict bounded `CHAT` text. Model, prompt, route, tools,
+  actions, argv, owner and containment configuration are server-controlled.
+- Every job route requires current attested bound access and one exact P-256
+  method/path/body/credential/nonce proof. Dispatch and result read recheck
+  revocation and subscription; dispatch binds the stable session/key grant so
+  access-token refresh alone cannot cancel work.
+- Quota and idempotency are scoped to the subscription owner across sessions;
+  read/cancel and request reuse remain bound to the accepting session/key.
+- Exact-body and trusted-policy digests are durable metadata. Exact retries
+  recover one job even after deadline/result expiry; mismatches return conflict
+  and terminal jobs never execute again.
+- Raw input/result/provider/error content is volatile only. Idle expiry must
+  purge it within 15 minutes without deleting ledger metadata.
+- There is one worker globally, no more than five waiting, no more than one
+  active job per owner, and no unbounded per-request task/timer creation.
+- Cancellation, deadline and shutdown release capacity only after independent
+  positive stop confirmation. Unconfirmed stop retains capacity and is exposed
+  as unavailable/unknown. Process restart never automatically replays a job.
+- Server AI output is advisory text only and never a therapy command. Online
+  launcher, OS containment, production authority/attestation, device, routing,
+  staging and deployment remain separate release gates.
+- The exact R1a wire and digest rules are in
+  [signed server AI jobs](2026-09-13-signed-ai-jobs.md).
+- The minimal Android job client reuses connection identity and encrypted
+  credentials. It cannot select another host, fall back to personal keys or
+  issue an automatic repeat after an ambiguous send. An explicit retry retains
+  the exact prepared UUID, deadline and body; only its access proof is renewed.
+- Job responses have a separate 64 KiB cap; activation/status retain 16 KiB.
+  Neither the isolated test APK nor this optional client stage authorizes
+  clinical uploads or changes an existing therapy/AI caller.
 
 ## Safety invariants
+Telegram forwarding starts disabled and needs explicit trusted-private-chat enrollment.
+Recipients are addressed by verified numeric chat ID, never an unverified username.
+There are no incoming Telegram therapy commands. Global alert mute suppresses new
+automatic Telegram sends; cancellation cannot recall an already accepted message.
+A durable pre-send claim prevents automatic retry after an uncertain HTTP outcome.
+
 1. Kill switch blocks automatic actions only; manual actions remain available.
 2. No automatic action is sent when data freshness/sensor policy blocks execution.
 3. Every outbound action must have idempotency semantics.
@@ -24,7 +91,9 @@ its numeric controller thresholds require current-code verification before use.
 7. Automatic outbound `temp_target` writes must obey a repository-level duplicate throttle:
    - repeated or near-identical targets are blocked inside `30 minutes`,
    - materially changed targets may pass immediately,
-   - bypass is allowed only for explicit manual commands carrying the manual idempotency prefix.
+   - manual bypass requires the explicit manual idempotency prefix,
+   - an eligible manager episode release may pass only with its exact pending ACTIVE journal, a fresh decision, unchanged confirmed previous automatic command, exact target binding and the managed delivery preflight. Labels or reason strings alone cannot authorize a release,
+   - ordinary adaptive trend releases only move an exactly owned NORMAL_CONTROL target toward, never across, the effective base. A new glucose observation beyond the previous send, trusted sensor/delivery, non-flat canonical trend and concordant same-cycle 5m forecast are required. All decrease reliability/low-risk/ownership/arm/freshness gates remain in force. Protective targets are not released by this exception.
 
 ## Prediction invariants
 1. Forecast output must include 5m/30m/60m horizons.
@@ -32,6 +101,7 @@ its numeric controller thresholds require current-code verification before use.
 3. Legacy mode behavior must remain stable when enhanced flags are disabled.
 4. Enhanced local prediction must derive trend/volatility/UAM inputs from a canonical 5-minute CGM series rather than directly from raw minute-level points.
 5. Forecast/runtime computation must be strictly causal: therapy events with `ts > prediction_now` must not influence prediction or replay metrics.
+   - Recent therapy and sensor-lag therapy histories must use the same frozen cycle clock as an inclusive Room query upper bound, including after slow calibration preparation. Later arrivals stay stored for subsequent cycles; accepted maintenance keeps its causal assertion and must not substitute a later wall clock.
 6. UAM contribution must not be double-counted with positive residual trend when UAM is active.
 7. Synthetic/exported UAM carbs must never become announced-carb ground truth for forecast physiology or ISF/CR learning.
 8. External/AAPS raw `COB` is a reference signal only; runtime `effective COB` used by forecast/controller must subtract residual synthetic `UAM_ENGINE` carbs before merge so exported UAM does not re-enter prediction through `COB` bias.

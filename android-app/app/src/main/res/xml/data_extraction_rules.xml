@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="telegram_trusted_delivery.xml" />
         <exclude domain="sharedpref" path="server_ai_connection.xml" />
         <exclude
             domain="database"
@@ -37,6 +38,7 @@
         <exclude domain="file" path="copilot-backup.db-shm" />
     </cloud-backup>
     <device-transfer>
+        <exclude domain="sharedpref" path="telegram_trusted_delivery.xml" />
         <exclude domain="sharedpref" path="server_ai_connection.xml" />
         <exclude
             domain="database"

@@ -135,7 +135,8 @@ def test_worker_timeout_and_stop_exception_remain_claimed(tmp_path):
     ledger.engine.dispose()
 
 
-def test_second_cancel_during_stop_never_frees_capacity(tmp_path):
+def test_second_cancel_during_stop_never_frees_capacity(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.ai.job_executor.STOP_TIMEOUT_SECONDS", 0.02)
     ledger, job, executor = setup(tmp_path)
     async def run():
         running, stopping = asyncio.Event(), asyncio.Event()
@@ -156,3 +157,67 @@ def test_second_cancel_during_stop_never_frees_capacity(tmp_path):
         assert ledger.get(job.owner_id, job.id).state == "CANCEL_REQUESTED"
     asyncio.run(run())
     ledger.engine.dispose()
+
+
+def test_cancel_after_claim_commit_finishes_cleanup_without_running_worker(tmp_path):
+    from threading import Event
+    ledger, job, executor = setup(tmp_path)
+    original = ledger.claim
+    release = Event()
+    async def run():
+        committed = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        def gated_claim(*args, **kwargs):
+            claim = original(*args, **kwargs)
+            loop.call_soon_threadsafe(committed.set)
+            assert release.wait(3)
+            return claim
+        ledger.claim = gated_claim
+        worker = Worker()
+        task = asyncio.create_task(executor.execute(job.owner_id, job.id, worker))
+        try:
+            await asyncio.wait_for(committed.wait(), 3)
+            task.cancel()
+            await asyncio.sleep(0)
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert worker.runs == 0
+            assert worker.stops == 1
+            assert ledger.get(job.owner_id, job.id).state == "CANCELLED"
+        finally:
+            release.set()
+    try:
+        asyncio.run(run())
+    finally:
+        ledger.engine.dispose()
+
+
+def test_cancel_during_positive_stop_does_not_interrupt_receipt(tmp_path):
+    ledger, job, executor = setup(tmp_path)
+    async def run():
+        stopping, release = asyncio.Event(), asyncio.Event()
+        class ControlledWorker(Worker):
+            async def stop_and_confirm(self):
+                stopping.set()
+                await release.wait()
+                self.stops += 1
+                return True
+        worker = ControlledWorker()
+        task = asyncio.create_task(executor.execute(job.owner_id, job.id, worker))
+        try:
+            await asyncio.wait_for(stopping.wait(), 3)
+            ledger.cancel(job.owner_id, job.id, now_ms=2000)
+            task.cancel()
+            await asyncio.sleep(0)
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert worker.stops == 1
+            assert ledger.get(job.owner_id, job.id).state == "CANCELLED"
+        finally:
+            release.set()
+    try:
+        asyncio.run(run())
+    finally:
+        ledger.engine.dispose()

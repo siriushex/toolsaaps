@@ -303,6 +303,8 @@ class AutomationRepository(
     ) : IllegalStateException("accepted sensitivity forecast generation is not fresh")
 
     private val cycleMutex = Mutex()
+    private val mealRuntimeCapture = MealRuntimeCaptureRelay()
+    internal val mealRuntimeUpdates = mealRuntimeCapture.updates
     private val isfCrRealtimeDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val isfCrRealtimeScope = CoroutineScope(SupervisorJob() + isfCrRealtimeDispatcher)
     @Volatile
@@ -515,7 +517,8 @@ class AutomationRepository(
         val residualRoc0Mmol5: Double,
         val sigmaEMmol5: Double,
         val kfSigmaGMmol: Double,
-        val modelVersion: String
+        val modelVersion: String,
+        val announcedCarbSteps: List<Double> = emptyList()
     )
 
     data class IsfCrRuntimeGate(
@@ -1045,6 +1048,7 @@ class AutomationRepository(
         expectedSettings: SensitivitySettingsAcceptanceExpectation?,
         beforeClinicalSideEffects: (suspend () -> Unit)? = null
     ): SensitivityRuntimeSnapshot? {
+        mealRuntimeCapture.invalidate()
         var settings = settingsStore.settings.first()
         runRemoteRefreshStatic(bootstrapPolicy) {
             runCycleStep("auto_connect_bootstrap") {
@@ -1309,6 +1313,15 @@ class AutomationRepository(
                     requireNotNull(authenticatedRoomTuple) {
                         "accepted clinical forecast readback was not retained"
                     }
+                )
+                mealRuntimeCapture.publish(
+                    engine = predictionEngine,
+                    glucose = glucose,
+                    therapy = therapy,
+                    localForecasts = forecastRuntime.rawLocalForecasts,
+                    sourceSensitivity = sensitivitySnapshot,
+                    sourceCalibration = forecastRuntime.calibrationIdentity,
+                    roomTuple = requireNotNull(authenticatedRoomTuple)
                 )
                 val acceptedForecasts = acceptedClinicalForecasts.forecasts
                 val acceptedUnifiedUam = bindUnifiedUamToAcceptedForecastsStatic(
@@ -1770,7 +1783,8 @@ class AutomationRepository(
         )
         persistForecastDecompositionTelemetry(
             nowTs = nowTs,
-            decomposition = forecastRuntime.forecastDecomposition
+            decomposition = forecastRuntime.forecastDecomposition,
+            acceptedCycleId = acceptedSnapshot.forecastCycleId
         )
         db.telemetryDao().upsertAll(
             buildAcceptedClinicalForecastTelemetryRowsStatic(
@@ -1799,13 +1813,8 @@ class AutomationRepository(
                 mapOf("removedRows" to removedInvalidTelemetryTs)
             )
         }
-        val removedForecastDuplicates = db.forecastDao().deleteDuplicateByTimestampAndHorizon()
-        if (removedForecastDuplicates > 0) {
-            auditLogger.warn(
-                "forecast_storage_duplicates_cleaned",
-                mapOf("removedRows" to removedForecastDuplicates)
-            )
-        }
+        // Accepted publication already replaces each timestamp/horizon in one transaction.
+        // Do not scan all forecast history for duplicates on the realtime path.
         db.forecastDao().deleteOlderThan(nowTs - resolveHistoryRetentionMs(settings))
         refreshRealInsulinProfileTelemetry(nowTs = nowTs, settings = settings)
         require(therapy.none { it.ts > nowTs }) { "accepted maintenance therapy must be causal" }
@@ -1927,6 +1936,8 @@ class AutomationRepository(
                 settings = settings,
                 currentGlucoseMmol = currentGlucoseMmol,
                 currentGlucoseAgeMinutes = currentAgeMinutes,
+                currentGlucoseTimestamp = latestGlucose.ts,
+                pred10 = controlForecasts.firstOrNull { it.horizonMinutes == 10 }?.valueMmol,
                 pred5 = pred5,
                 pred30 = pred30,
                 pred60 = pred60,
@@ -2366,7 +2377,7 @@ class AutomationRepository(
         )
         val resolvedGlucose = preparedCalibration.resolvedGlucose
         val glucose = resolvedGlucose.map { it.toDomain() }
-        val therapy = syncRepository.recentTherapyEvents(hoursBack = 24)
+        val therapy = syncRepository.recentTherapyEvents(hoursBack = 24, nowTs = nowTs)
         val sensorLagGlucoseHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
             preparedCalibration.additionalResolvedGlucose.map { it.toDomain() }
         } else {
@@ -2374,7 +2385,7 @@ class AutomationRepository(
         }
         val sensorLagTherapyHistory = if (settings.sensorLagCorrectionMode != SensorLagCorrectionMode.OFF) {
             TherapySanitizer.filterEntities(
-                db.therapyDao().since(nowTs - SENSOR_LAG_HISTORY_LOOKBACK_MS)
+                db.therapyDao().between(nowTs - SENSOR_LAG_HISTORY_LOOKBACK_MS, nowTs)
             ).map { it.toDomain(gson) }
         } else {
             therapy
@@ -2465,6 +2476,7 @@ class AutomationRepository(
     )
 
     private data class ForecastRuntimeContext(
+        val rawLocalForecasts: List<Forecast>,
         val mergedForecasts: List<Forecast>,
         val controlForecasts: List<Forecast>,
         val lagCorrectedForecasts: List<Forecast>,
@@ -3238,6 +3250,7 @@ class AutomationRepository(
             cycleSnapshot = sensitivityRuntime.snapshot
         )
         return ForecastRuntimeContext(
+            rawLocalForecasts = localForecasts,
             mergedForecasts = mergedForecasts,
             controlForecasts = sensorLagControlPlan.controlForecasts,
             lagCorrectedForecasts = lagCorrectedForecasts,
@@ -5427,7 +5440,10 @@ class AutomationRepository(
         settings: AppSettings,
         effectiveDiaHours: Double
     ): RuntimeCobIobInputs {
-        val carbMax = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        val carbMax = io.aaps.copilot.domain.nutrition.MealCarbLimits.effectiveCobMaximum(
+            therapy, causalReferenceTimestamp, settings.carbAbsorptionMaxAgeMinutes,
+            settings.carbComputationMaxGrams
+        )
         val telemetryCobRaw = telemetry["cob_grams"]?.takeIf { it.isFinite() }?.coerceIn(0.0, carbMax)
         val syntheticUamCob = estimateSyntheticUamExportCob(
             nowTs = cycleTimestamp,
@@ -5668,7 +5684,9 @@ class AutomationRepository(
         effectiveDiaHours: Double
     ): LocalCobIobEstimate {
         val carbCutoffMinutes = settings.carbAbsorptionMaxAgeMinutes.coerceIn(60, 180).toDouble()
-        val carbMaxGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        val carbMaxGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.effectiveCobMaximum(
+            therapy, nowTs, settings.carbAbsorptionMaxAgeMinutes, settings.carbComputationMaxGrams
+        )
         val profile = InsulinActionProfiles.profile(InsulinActionProfileId.fromRaw(settings.insulinProfileId))
         val baseOnsetMinutes = profileOnsetMinutes(profile)
         val recentEvents = therapy.asSequence()
@@ -5735,14 +5753,10 @@ class AutomationRepository(
         }
         recentEvents.forEach { event ->
             val ageMin = ((nowTs - event.ts).coerceAtLeast(0L)) / 60_000.0
-            val carbsGramsRaw = if (isSyntheticUamCarbEvent(event)) {
-                null
-            } else {
-                payloadDouble(event, "grams", "carbs", "enteredCarbs", "mealCarbs")
-            }
-                ?.takeIf { it in 0.5..400.0 }
-            if (carbsGramsRaw != null && ageMin <= carbCutoffMinutes) {
-                val carbsGrams = carbsGramsRaw.coerceAtMost(carbMaxGrams)
+            val carbsGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.announcedGrams(
+                event, settings.carbComputationMaxGrams
+            )
+            if (carbsGrams != null && ageMin <= carbCutoffMinutes) {
                 val carbType = CarbAbsorptionProfiles.classifyCarbEvent(
                     event = event,
                     glucose = glucose,
@@ -7438,7 +7452,8 @@ class AutomationRepository(
 
     private suspend fun persistForecastDecompositionTelemetry(
         nowTs: Long,
-        decomposition: ForecastDecompositionSnapshot?
+        decomposition: ForecastDecompositionSnapshot?,
+        acceptedCycleId: String
     ) {
         val source = "copilot_forecast_decomposition"
         val rows = mutableListOf<TelemetrySampleEntity>()
@@ -7478,6 +7493,14 @@ class AutomationRepository(
         addNumeric("forecast_kf_sigma_g_mmol", decomposition?.kfSigmaGMmol, "mmol/L")
         addNumeric("forecast_decomp_available", if (decomposition != null) 1.0 else 0.0)
         addText("forecast_decomp_model_version", decomposition?.modelVersion)
+        val foodSteps = decomposition?.announcedCarbSteps.orEmpty()
+        if (io.aaps.copilot.domain.predict.MealRollingImpact.nextThirtyMinutes(foodSteps).isNotEmpty()) {
+            addText("forecast_meal_steps", gson.toJson(mapOf(
+                "cycle" to acceptedCycleId, "steps" to foodSteps.take(13)
+            )))
+        } else {
+            addText("forecast_meal_steps", null)
+        }
 
         db.telemetryDao().upsertAll(rows)
     }
@@ -11979,7 +12002,8 @@ class AutomationRepository(
                 residualRoc0Mmol5 = diagnostics.residualRoc0,
                 sigmaEMmol5 = diagnostics.arSigmaE,
                 kfSigmaGMmol = diagnostics.kfSigmaG,
-                modelVersion = modelVersion
+                modelVersion = modelVersion,
+                announcedCarbSteps = diagnostics.announcedCarbStep.toList()
             )
         }
 

@@ -13,6 +13,9 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import io.aaps.copilot.domain.profile.ActivityProfile
+import io.aaps.copilot.domain.nutrition.MealPortion
+import io.aaps.copilot.domain.nutrition.MealPortionRange
+import io.aaps.copilot.domain.nutrition.MealPortionSettings
 import io.aaps.copilot.domain.profile.ActivityProfileMode
 import io.aaps.copilot.domain.profile.CalorieGoalMode
 import io.aaps.copilot.domain.profile.EnergyProfileSettings
@@ -389,7 +392,8 @@ class AppSettingsStore internal constructor(
             softAlertUseConfidenceBand = prefs[KEY_SOFT_ALERT_USE_CONFIDENCE_BAND]
                 ?: DEFAULT_SOFT_ALERT_USE_CONFIDENCE_BAND,
             softAlertAudioStartMs = prefs[KEY_SOFT_ALERT_AUDIO_START_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_START_MS,
-            softAlertAudioDurationMs = prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS,
+            softAlertAudioDurationMs = (prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS)
+                .takeIf { it in 1_000..5_000 } ?: DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS,
             softAlertAudioUri = prefs[KEY_SOFT_ALERT_AUDIO_URI],
             softAlertAudioDisplayName = prefs[KEY_SOFT_ALERT_AUDIO_DISPLAY_NAME],
             criticalAlertAudio1StartMs = prefs[KEY_CRITICAL_ALERT_AUDIO1_START_MS] ?: DEFAULT_CRITICAL_ALERT_AUDIO1_START_MS,
@@ -403,7 +407,8 @@ class AppSettingsStore internal constructor(
             maxActionsIn6Hours = prefs[KEY_MAX_ACTIONS_6H] ?: DEFAULT_MAX_ACTIONS_6H,
             staleDataMaxMinutes = prefs[KEY_STALE_DATA_MAX_MINUTES] ?: DEFAULT_STALE_DATA_MAX_MINUTES,
             exportFolderUri = prefs[KEY_EXPORT_URI],
-            energyProfile = resolveEnergyProfileSettings(prefs)
+            energyProfile = resolveEnergyProfileSettings(prefs),
+            mealPortions = resolveMealPortionSettings(prefs)
         )
     }
 
@@ -421,6 +426,7 @@ class AppSettingsStore internal constructor(
             requireCurrentSafetyTargetBounds(prefs)
             val current = readSettings(prefs)
             val next = updater(current)
+            require(next.mealPortions.isValid()) { "Invalid meal portion ranges or defaults" }
             val sensitivityRuntimeChanged =
                 current.sensitivityRuntimeFingerprint() != next.sensitivityRuntimeFingerprint()
             require(allowSensitivityRuntimeChange || !sensitivityRuntimeChanged) {
@@ -628,7 +634,7 @@ class AppSettingsStore internal constructor(
             prefs[KEY_STRONG_LOW_REPEAT_MINUTES] = next.strongLowRepeatMinutes.coerceIn(1, 10)
             prefs[KEY_SOFT_ALERT_USE_CONFIDENCE_BAND] = next.softAlertUseConfidenceBand
             prefs[KEY_SOFT_ALERT_AUDIO_START_MS] = next.softAlertAudioStartMs.coerceAtLeast(0)
-            prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] = next.softAlertAudioDurationMs.coerceIn(15_000, 30_000)
+            prefs[KEY_SOFT_ALERT_AUDIO_DURATION_MS] = next.softAlertAudioDurationMs.coerceIn(1_000, 5_000)
             if (next.softAlertAudioUri.isNullOrBlank()) {
                 prefs.remove(KEY_SOFT_ALERT_AUDIO_URI)
             } else {
@@ -678,6 +684,7 @@ class AppSettingsStore internal constructor(
                 prefs[KEY_EXPORT_URI] = next.exportFolderUri
             }
             writeEnergyProfileSettings(prefs, next.energyProfile)
+            writeMealPortionSettings(prefs, next.mealPortions)
             before = current
             applied = readSettings(prefs)
         }
@@ -711,6 +718,36 @@ class AppSettingsStore internal constructor(
 
     suspend fun setEnergyProfileSettings(value: EnergyProfileSettings) {
         update { current -> current.copy(energyProfile = value) }
+    }
+
+    suspend fun setMealPortionSettings(value: MealPortionSettings) {
+        update { it.copy(mealPortions = value) }
+    }
+
+    private fun writeMealPortionSettings(prefs: MutablePreferences, value: MealPortionSettings) {
+        for (portion in MealPortion.entries) {
+            val range = value.range(portion)
+            prefs[doublePreferencesKey("meal_portion_${portion.name}_min")] = range.minGrams
+            prefs[doublePreferencesKey("meal_portion_${portion.name}_max")] = range.maxGrams
+            prefs[doublePreferencesKey("meal_portion_${portion.name}_default")] = range.defaultGrams
+        }
+        prefs[KEY_MEAL_SHOW_CALORIES] = value.showCalories
+    }
+
+    private fun resolveMealPortionSettings(prefs: Preferences): MealPortionSettings {
+        val defaults = MealPortionSettings()
+        fun range(portion: MealPortion): MealPortionRange {
+            val fallback = defaults.range(portion)
+            return MealPortionRange(
+                prefs[doublePreferencesKey("meal_portion_${portion.name}_min")] ?: fallback.minGrams,
+                prefs[doublePreferencesKey("meal_portion_${portion.name}_max")] ?: fallback.maxGrams,
+                prefs[doublePreferencesKey("meal_portion_${portion.name}_default")] ?: fallback.defaultGrams
+            )
+        }
+        return MealPortionSettings(
+            range(MealPortion.SMALL), range(MealPortion.MEDIUM), range(MealPortion.LARGE),
+            prefs[KEY_MEAL_SHOW_CALORIES] ?: false
+        ).takeIf { it.isValid() } ?: defaults
     }
 
     private fun writeEnergyProfileSettings(prefs: MutablePreferences, value: EnergyProfileSettings) {
@@ -1447,6 +1484,7 @@ class AppSettingsStore internal constructor(
         private val KEY_HEIGHT_CM = doublePreferencesKey("height_cm")
         private val KEY_WEIGHT_KG = doublePreferencesKey("weight_kg")
         private val KEY_FOOD_PROFILE_MODE = stringPreferencesKey("food_profile_mode")
+        private val KEY_MEAL_SHOW_CALORIES = booleanPreferencesKey("meal_show_calories")
         private val KEY_MANUAL_FOOD_PROFILE = stringPreferencesKey("manual_food_profile")
         private val KEY_ACTIVITY_PROFILE_MODE = stringPreferencesKey("activity_profile_mode")
         private val KEY_MANUAL_ACTIVITY_PROFILE = stringPreferencesKey("manual_activity_profile")
@@ -1722,7 +1760,7 @@ class AppSettingsStore internal constructor(
         private const val DEFAULT_STRONG_LOW_REPEAT_MINUTES = 2
         private const val DEFAULT_SOFT_ALERT_USE_CONFIDENCE_BAND = true
         private const val DEFAULT_SOFT_ALERT_AUDIO_START_MS = 32_000
-        private const val DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS = 18_000
+        private const val DEFAULT_SOFT_ALERT_AUDIO_DURATION_MS = 2_000
         private const val DEFAULT_CRITICAL_ALERT_AUDIO1_START_MS = 42_000
         private const val DEFAULT_CRITICAL_ALERT_AUDIO1_DURATION_MS = 20_000
         private const val DEFAULT_CRITICAL_ALERT_AUDIO2_START_MS = 36_000
@@ -1966,7 +2004,7 @@ data class AppSettings(
     val strongLowRepeatMinutes: Int = 2,
     val softAlertUseConfidenceBand: Boolean = true,
     val softAlertAudioStartMs: Int = 32_000,
-    val softAlertAudioDurationMs: Int = 18_000,
+    val softAlertAudioDurationMs: Int = 2_000,
     val softAlertAudioUri: String? = null,
     val softAlertAudioDisplayName: String? = null,
     val criticalAlertAudio1StartMs: Int = 42_000,
@@ -1981,7 +2019,8 @@ data class AppSettings(
     val staleDataMaxMinutes: Int,
     val exportFolderUri: String?,
     val therapyActionsArmed: Boolean = false,
-    val energyProfile: EnergyProfileSettings = EnergyProfileSettings()
+    val energyProfile: EnergyProfileSettings = EnergyProfileSettings(),
+    val mealPortions: MealPortionSettings = MealPortionSettings()
 )
 
 /**

@@ -138,7 +138,7 @@ private val MidnightGlassDarkColors = darkColorScheme(
     outline = Color(0x26FFFFFF),
     outlineVariant = Color(0x1AFFFFFF),
     error = Color(0xFFFF6B74),
-    onError = Color(0xFFF8FAFC),
+    onError = Color(0xFF350C12),
     errorContainer = Color(0xFF5A1E25),
     onErrorContainer = Color(0xFFFFD0D3)
 )
@@ -331,24 +331,12 @@ fun CopilotStyledBackground(
         }
 
         UiStyle.MIDNIGHT_GLASS -> {
-            val base = listOf(
-                Color(0xFFF4F8FC),
-                Color(0xFFEAF2F7),
-                Color(0xFFE7EEF6)
-            )
+            val backgroundColor = MaterialTheme.colorScheme.background
             Box(
                 modifier = modifier
                     .fillMaxSize()
                     .drawBehind {
-                        val w = size.width
-                        val h = size.height
-                        drawRect(
-                            brush = Brush.linearGradient(
-                                colors = base,
-                                start = Offset(0f, 0f),
-                                end = Offset(w, h)
-                            )
-                        )
+                        drawRect(color = backgroundColor)
                     }
             ) {
                 content()
