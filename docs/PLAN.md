@@ -10,10 +10,25 @@
 - Focused results and implementation checklist are in
   `superpowers/plans/2026-10-04-full-carbohydrate-curve.md`; design in
   `superpowers/specs/2026-10-04-full-carbohydrate-curve-design.md`.
-- Full Android quality, exact-source publication/CI and fresh working-phone
-  backup/update/acceptance must pass before this stage is complete. No synthetic
-  therapy/GI injection is allowed for device evidence. Natural missing GI remains
-  a device-test limitation, not grounds to invent a measured value.
+- Full Android quality and exact-source publication/CI passed at88b14bc7. Fresh
+  coherent backup, disposable Room30->31 migration and working APK installation
+  passed; installed hash, protected settings and runtime checks were verified.
+  Awake Overview/full-tail visual acceptance awaits human unlock. No synthetic
+  therapy/GI injection is allowed; natural missing GI remains a device-test
+  limitation, not grounds to invent a measured value. The stage is not complete.
+
+## Phone Resource Review (2026-10-05)
+
+- Passive before/after CPU/RAM series and source/query review are complete;
+  detailed evidence stays private. Different workload, foreground and restart
+  state prevent claiming an update benefit. No optimization has been deployed.
+- Prioritize UI input coalescing before expensive mapping, exactly bounded
+  sensor-block telemetry for daily diagnostic inference, and profiling bounded
+  housekeeping batches. Confirm query/method attribution and old/new result
+  equivalence before implementation. These are candidates, not proven savings.
+- Preserve every-new-current-CGM recalculation, accepted provenance and all
+  target/therapy safety gates. No AAPS change, reduced clinical cadence, shorter
+  medical retention or phone power-policy change is authorized by this analysis.
 
 ## Meal Timing Research (2026-09-27)
 

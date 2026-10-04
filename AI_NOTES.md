@@ -1,3 +1,27 @@
+# Working APK acceptance and resource review - 2026-10-05
+
+- Runtime revision88b14bc7 is published; both exact-source push/PR Verify runs
+  passed Android/backend checks. Fresh coherent private backup, disposable-copy
+  Room30->31 migration and matching-signature in-place working APK update passed.
+  Independently pulled APK hash matches; protected settings are byte-identical.
+- Read-only runtime checks passed. Recent history timestamps are retained;
+  older aging is explained by the existing retention audit, not this migration.
+  No data clear, old snapshot restore, synthetic therapy, forced clinical cycle
+  or AAPS update. Awake Overview/full-tail visual acceptance still awaits human
+  unlock; missing natural confirmed GI remains a device-test limitation.
+- Passive resource series and read-only source/query review are retained only
+  as private evidence. Foreground, restart and real workload differ, so no CPU,
+  RAM, battery or clinical-response improvement is established.
+- Candidate work: coalesce immutable UI inputs before expensive mapping; bound
+  daily diagnostic telemetry reads to their exact sensor-block/time requirements;
+  profile bounded maintenance batches. Do not change current-CGM recalculation,
+  target authority, clinical safety gates or history retention to save resources.
+  No optimization code or power-policy change was deployed in this review.
+- Verification: existing exact-runtime Android quality/CI, inspected disposable
+  migration JUnit (2 passes), installed hash/settings/schema and passive series.
+  This status update changes documentation only; private device artifacts and
+  medical payloads are not published. Manual SENT correction stays excluded.
+
 # Full food display implementation - 2026-10-04
 
 - Human approved the written bounded GI display-shape design. Implemented the
@@ -31,10 +55,12 @@
   during final review were compile RED, repaired only for the appended optional
   argument, then isolated UI/Android-test APK assembly passed. No test APK was
   installed and instrumentation execution is not claimed.
-- Publication/CI/fresh coherent phone backup/migration/signature/update and
-  natural UI checks are not yet complete.
-  No working APK, setting or real therapy action changed in this task so far.
-  Manual SENT ownership correction remains outside the approved scope.
+- Reviewed source is published at88b14bc7; push37226372000 and PR37226375104
+  both passed exact-source Verify checks. Fresh backup, disposable migration and
+  authorized working APK installation passed. Awake device graph acceptance is
+  still pending; local tests and runtime protocol checks do not replace it.
+  No therapy settings or test therapy actions changed. Manual SENT ownership
+  correction remains outside the approved scope.
 
 # GI-dependent display shape design revision - 2026-10-04
 

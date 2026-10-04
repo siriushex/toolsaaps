@@ -174,11 +174,11 @@ External full-width label fixed those, and all6 UI cases passed at actual
 fontScale1.0/1.8 in both themes. First full4821-case run found3 diagnostic
 value-equality failures and1 stale schema expectation. Two additional actual
 RED tests confirmed GI-copy context loss and missing value equality; contracts
-are fixed and full quality is being repeated. No test assertion was removed.
+are fixed and final full quality passed. No test assertion was removed.
 
 ## Task 6: Review, Publication And Authorized Device Update
 
-- [ ] Update architecture/invariants/plan/AI_NOTES for actual code and explicit estimate limits. Review numerical/authority/retention/migration changes; search for secrets and forbidden generated identifiers in new probes/fixtures/comments.
+- [x] Update architecture/invariants/plan/AI_NOTES for actual code and explicit estimate limits. Review numerical/authority/retention/migration changes; search for secrets and forbidden generated identifiers in new probes/fixtures/comments.
 - [x] Run `rtk proxy ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:compileDebugKotlin --console=plain` on the exact reviewed source. Count JUnit failures/errors/skips and inspect lint errors, not merely exit status.
 
 Final debug quality:4823 tests/417 suites,0 failures/errors,3 existing skips;
@@ -186,7 +186,23 @@ lint0 errors/305 warnings/4 hints, all requested tasks successful. Instrumental
 UI review found five old callback signatures; actual compile RED then minimal
 fixture arity repair and isolated UI/Android-test APK assembly GREEN12s. No
 instrumentation execution or test APK installation is claimed.
-- [ ] Promote explicit tested paths only; inspect primary diff, fetch origin, check divergence and clean diff. Commit/push current feature branch under standing repository authorization; inspect exact SHA and both Verify jobs. Do not merge main.
-- [ ] Obtain fresh coherent private backup with the existing reviewed working-phone helper; check DB integrity, settings/history and signing certificate. Update APK in place only after source/tests/CI are verified.
+- [x] Promote explicit tested paths only; inspect primary diff, fetch origin, check divergence and clean diff. Commit/push current feature branch under standing repository authorization; inspect exact SHA and both Verify jobs. Do not merge main.
+- [x] Obtain fresh coherent private backup with the existing reviewed working-phone helper; check DB integrity, settings/history and signing certificate. Update APK in place only after source/tests/CI are verified.
+
+Reviewed runtime88b14bc7 was published with49 explicit paths. Push37226372000
+and PR37226375104 both passed Android/backend Verify; each Android JUnit artifact
+contained4823 tests/417 suites,0 failures/errors and3 conditional phone-copy skips.
+Fresh disposable-copy migration additionally passed2 tests with0 skips. The
+working APK was installed in place and its pulled hash matched; actual schema31,
+byte-identical protected settings and read-only retained-history/runtime checks
+passed. Existing retention explains older timestamp aging. No test package,
+synthetic GI/therapy action, forced clinical cycle or AAPS update was performed.
 - [ ] Verify installed APK hash, migration31, unchanged settings/retained history, natural accepted forecasts and awake real Overview. Check full visible food tail, GI estimate legend when real confirmed GI exists, narrow layout, both themes/large font via safe UI tests. Do not insert fake carbs or GI into real therapy data merely for screenshots; missing real GI evidence stays an explicit device-test limit.
 - [ ] Save private evidence/checkpoint, mark each criterion passed only with inspected results, and report code/CI/device status and remaining medical-model limits honestly.
+
+Remaining device gate: the screen is locked/covered by NotificationShade; awake
+Overview/full-tail graphical acceptance awaits human unlock. Confirmed natural
+GI was absent, so device GI-shape rendering is unobserved. Private CPU/RAM series
+and a prioritized resource review were added without deploying an optimization
+or changing clinical cadence. Neither a performance nor clinical benefit is
+claimed from unmatched before/after phone workloads.
