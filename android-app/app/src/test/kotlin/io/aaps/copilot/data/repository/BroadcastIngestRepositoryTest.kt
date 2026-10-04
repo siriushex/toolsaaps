@@ -44,7 +44,7 @@ class BroadcastIngestRepositoryTest {
     }
 
     @Test
-    fun relevantGlucoseAndTherapyRetainExistingPolicyWithoutTelemetryBypass() {
+    fun everyCurrentGlucoseObservationAndTherapyInvalidatesWithoutWaiting() {
         var now = 1_000_000L
         val policy = BroadcastReactiveInvalidationPolicy(nowMs = { now })
         val moderateGlucose = BroadcastIngestRepository.IngestResult(
@@ -52,16 +52,33 @@ class BroadcastIngestRepositoryTest {
             therapyImported = 0,
             telemetryImported = 4,
             warning = null,
-            latestGlucoseMmol = 7.0
+            latestGlucoseMmol = 7.0,
+            currentGlucoseChanged = true
         )
         val criticalGlucose = moderateGlucose.copy(latestGlucoseMmol = 3.8)
         val therapy = moderateGlucose.copy(glucoseImported = 0, therapyImported = 1)
 
         assertThat(policy.shouldInvalidate(moderateGlucose, telemetryOnlyCoalescedAction = true)).isTrue()
         now += 60_000L
-        assertThat(policy.shouldInvalidate(moderateGlucose, telemetryOnlyCoalescedAction = true)).isFalse()
+        assertThat(policy.shouldInvalidate(moderateGlucose, telemetryOnlyCoalescedAction = true)).isTrue()
         assertThat(policy.shouldInvalidate(criticalGlucose, telemetryOnlyCoalescedAction = true)).isTrue()
         assertThat(policy.shouldInvalidate(therapy, telemetryOnlyCoalescedAction = true)).isTrue()
+    }
+
+    @Test
+    fun historicalOrFutureGlucoseCannotBypassPolicyByValueOrIncidentalTelemetry() {
+        val policy = BroadcastReactiveInvalidationPolicy(nowMs = { 1_000_000L })
+        val historical = BroadcastIngestRepository.IngestResult(
+            glucoseImported = 1,
+            therapyImported = 0,
+            telemetryImported = 4,
+            warning = null,
+            latestGlucoseMmol = 3.8
+        )
+
+        assertThat(policy.shouldInvalidate(historical, telemetryOnlyCoalescedAction = true)).isFalse()
+        assertThat(policy.shouldInvalidate(historical.copy(latestGlucoseMmol = 15.0), true)).isFalse()
+        assertThat(policy.shouldInvalidate(historical.copy(therapyImported = 1), true)).isTrue()
     }
 
     @Test

@@ -1,5 +1,24 @@
 # ARCHITECTURE
 
+## Current Clinical Input Recalculation
+
+Broadcast ingestion compares the latest valid, source-prioritized current glucose
+before and after a write inside one Room transaction, using one ingest clock.
+A new timestamp or corrected current value/provenance persists the existing
+clinical invalidation outbox without a glucose scheduling interval. Generated
+row IDs alone, exact duplicates, older history and future-only samples do not
+count as new current observations. Therapy and telemetry invalidation policies
+are retained; Local Nightscout continues its existing input-change routes.
+
+The existing durable coordinator coalesces bursts and keeps newer pending input.
+Reactive WorkManager execution waits cancellably for the automation cycle lease
+inside its existing deadline/evidence boundary, then reads current settings and
+clinical inputs and runs the full accepted forecast/Target Manager pipeline.
+Periodic/manual cycles retain idle-only execution. No second prediction engine,
+trend threshold, overlapping calculation or therapy transport is introduced.
+Recalculation alone cannot authorize a target: all existing protective, ownership,
+forecast reliability, arm, sensor and dispatch freshness checks remain mandatory.
+
 ## Meal Timing Research Kernel
 
 ManualMealSubmission persists an immutable input before its existing therapy

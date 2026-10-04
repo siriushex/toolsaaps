@@ -725,6 +725,15 @@ class AutomationRepository(
     suspend fun runLocalReadOnlyCycle(): SensitivityRuntimeSnapshot? =
         runCycle(AutomationCycleIntent.LOCAL_READ_ONLY)
 
+    internal suspend fun runReactiveCycle(intent: AutomationCycleIntent): SensitivityRuntimeSnapshot? {
+        require(intent != AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) {
+            "reactive work cannot start a sensitivity source-change cycle"
+        }
+        return runReactiveCycleUnderLeaseStatic(cycleMutex) {
+            runCycle(intent, cycleLeaseOwned = true)
+        }
+    }
+
     internal suspend fun applySensitivitySettings(
         updater: (AppSettings) -> AppSettings
     ): SensitivityRuntimeSnapshot {
@@ -827,7 +836,10 @@ class AutomationRepository(
         return true
     }
 
-    private suspend fun runCycle(intent: AutomationCycleIntent): SensitivityRuntimeSnapshot? {
+    private suspend fun runCycle(
+        intent: AutomationCycleIntent,
+        cycleLeaseOwned: Boolean = false
+    ): SensitivityRuntimeSnapshot? {
         val bootstrapSettings = settingsStore.settings.first()
         val bootstrapPolicy = resolveCyclePolicyStatic(
             intent = intent,
@@ -858,12 +870,17 @@ class AutomationRepository(
         if (!revisionPreparation.ready) return null
 
         val now = System.currentTimeMillis()
-        val execution = runNormalCycleIfIdleStatic(cycleMutex) {
+        val calculate: suspend () -> SensitivityRuntimeSnapshot? = {
             runAcquiredCycleAfterProfileRevisionPreparation(
                 intent = intent,
                 bootstrapPolicy = bootstrapPolicy,
                 markEstimatorRevisionOnAcceptance = revisionPreparation.wasPending
             )
+        }
+        val execution = if (cycleLeaseOwned) {
+            NormalCycleExecution(acquired = true, value = calculate())
+        } else {
+            runNormalCycleIfIdleStatic(cycleMutex, calculate)
         }
         if (!execution.acquired) {
             val startedAtTs = currentCycleStartedAtTs
@@ -9347,6 +9364,11 @@ class AutomationRepository(
                 mutex.unlock(owner)
             }
         }
+
+        internal suspend fun <T> runReactiveCycleUnderLeaseStatic(
+            mutex: Mutex,
+            block: suspend () -> T
+        ): T = mutex.withLock { block() }
 
         internal suspend fun <T> runSerializedSensitivitySourceChangeStatic(
             mutex: Mutex,

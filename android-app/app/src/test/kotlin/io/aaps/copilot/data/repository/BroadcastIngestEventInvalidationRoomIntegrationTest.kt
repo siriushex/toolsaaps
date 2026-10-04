@@ -41,6 +41,129 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
     }
 
     @Test
+    fun eachNewCurrentGlucosePointInvalidatesInsideFormerFourMinuteWindow() = runBlocking {
+        val observedTimestamps = mutableListOf<Long>()
+        val repository = BroadcastIngestRepository(
+            context = ApplicationProvider.getApplicationContext(),
+            db = db,
+            auditLogger = AuditLogger(db.auditLogDao(), gson, clock = { NOW }),
+            onClinicalInputPersisted = {
+                observedTimestamps += db.glucoseDao().latestOne()!!.timestamp
+                true
+            }
+        )
+
+        val first = repository.ingest(glucoseStatus(NOW, 126))
+        val rising = repository.ingest(glucoseStatus(NOW + 60_000L, 130))
+        val reversal = repository.ingest(glucoseStatus(NOW + 120_000L, 128))
+
+        assertThat(first.reactiveInvalidationRequested).isTrue()
+        assertThat(rising.reactiveInvalidationRequested).isTrue()
+        assertThat(reversal.reactiveInvalidationRequested).isTrue()
+        assertThat(observedTimestamps).containsExactly(NOW, NOW + 60_000L, NOW + 120_000L).inOrder()
+        assertThat(db.syncStateDao().bySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE)).isNull()
+    }
+
+    @Test
+    fun sameValueAtNewTimestampStillInvalidatesButExactDuplicateDoesNot() = runBlocking {
+        var callbacks = 0
+        val repository = BroadcastIngestRepository(
+            context = ApplicationProvider.getApplicationContext(),
+            db = db,
+            auditLogger = AuditLogger(db.auditLogDao(), gson, clock = { NOW }),
+            onClinicalInputPersisted = { callbacks += 1; true }
+        )
+
+        repository.ingest(glucoseStatus(NOW, 126))
+        val newObservation = repository.ingest(glucoseStatus(NOW + 60_000L, 126))
+        val duplicate = repository.ingest(glucoseStatus(NOW + 60_000L, 126))
+
+        assertThat(newObservation.reactiveInvalidationRequested).isTrue()
+        assertThat(duplicate.reactiveInvalidationRequested).isFalse()
+        assertThat(callbacks).isEqualTo(2)
+    }
+
+    @Test
+    fun correctionOfCurrentPointInvalidatesWithoutWaiting() = runBlocking {
+        var callbacks = 0
+        val repository = glucoseRepository { callbacks += 1; true }
+        repository.ingest(glucoseStatus(NOW, 126))
+
+        val corrected = repository.ingest(glucoseStatus(NOW, 130))
+
+        assertThat(corrected.currentGlucoseChanged).isTrue()
+        assertThat(corrected.reactiveInvalidationRequested).isTrue()
+        assertThat(callbacks).isEqualTo(2)
+    }
+
+    @Test
+    fun historicalPointDoesNotMasqueradeAsNewCurrentObservation() = runBlocking {
+        var callbacks = 0
+        val repository = glucoseRepository { callbacks += 1; true }
+        repository.ingest(glucoseStatus(NOW, 126))
+
+        val historical = repository.ingest(glucoseStatus(NOW - 300_000L, 130))
+
+        assertThat(historical.glucoseImported).isEqualTo(1)
+        assertThat(historical.currentGlucoseChanged).isFalse()
+        assertThat(historical.reactiveInvalidationRequested).isFalse()
+        assertThat(callbacks).isEqualTo(1)
+    }
+
+    @Test
+    fun futurePointIsStoredButCannotInvalidateAtFrozenIngestClock() = runBlocking {
+        var callbacks = 0
+        val repository = glucoseRepository { callbacks += 1; true }
+        repository.ingest(glucoseStatus(NOW, 126))
+
+        val future = repository.ingest(glucoseStatus(NOW + 60_000L, 130))
+
+        assertThat(future.glucoseImported).isEqualTo(1)
+        assertThat(future.currentGlucoseChanged).isFalse()
+        assertThat(future.reactiveInvalidationRequested).isFalse()
+        assertThat(callbacks).isEqualTo(1)
+        assertThat(db.glucoseDao().latestOne()!!.timestamp).isEqualTo(NOW + 60_000L)
+    }
+
+    @Test
+    fun lowerPriorityRelayCannotReplaceCurrentCanonicalInput() = runBlocking {
+        var callbacks = 0
+        val repository = glucoseRepository { callbacks += 1; true }
+        repository.ingest(glucoseStatus(NOW, 126))
+
+        val relay = repository.ingest(
+            Intent("com.eveningoutpost.dexdrip.BgEstimate")
+                .putExtra("timestamp", NOW)
+                .putExtra("sgv", 130)
+                .putExtra("units", "mg/dL")
+        )
+
+        assertThat(relay.glucoseImported).isEqualTo(1)
+        assertThat(relay.currentGlucoseChanged).isFalse()
+        assertThat(relay.reactiveInvalidationRequested).isFalse()
+        assertThat(callbacks).isEqualTo(1)
+        assertThat(db.glucoseDao().latestValidDistinctAtOrBefore(NOW, 1).single().source)
+            .isEqualTo("aaps_broadcast")
+    }
+
+    @Test
+    fun invalidPointCannotReplaceCurrentGlucoseButRetainsTelemetryPolicy() = runBlocking {
+        var callbacks = 0
+        val repository = glucoseRepository { callbacks += 1; true }
+        repository.ingest(glucoseStatus(NOW, 126))
+
+        val invalid = repository.ingest(glucoseStatus(NOW, 999))
+
+        assertThat(invalid.glucoseImported).isEqualTo(0)
+        assertThat(invalid.currentGlucoseChanged).isFalse()
+        assertThat(invalid.telemetryImported).isGreaterThan(0)
+        assertThat(invalid.reactiveInvalidationRequested).isTrue()
+        assertThat(callbacks).isEqualTo(2)
+        assertThat(db.glucoseDao().latestValidDistinctAtOrBefore(NOW, 1).single().mmol)
+            .isWithin(0.01).of(7.0)
+    }
+
+    @Test
     fun sensorChangePersistsProjectsThenInvalidatesExactlyOnce() = runBlocking {
         val callbackSources = mutableListOf<ClinicalInputInvalidationSource>()
         val rowsObservedByCallback = mutableListOf<Int>()
@@ -254,6 +377,21 @@ class BroadcastIngestIntegratedClinicalRuntimeRoomTest {
         assertThat(db.syncStateDao().bySource(BROADCAST_INVALIDATION_OUTBOX_SOURCE)).isNull()
         assertThat(callbacks).isEqualTo(0)
     }
+
+    private fun glucoseStatus(timestamp: Long, mgdl: Int): Intent = Intent(AAPS_STATUS_ACTION)
+        .putExtra("timestamp", timestamp)
+        .putExtra("date", timestamp)
+        .putExtra("sgv", mgdl)
+        .putExtra("units", "mg/dL")
+
+    private fun glucoseRepository(callback: suspend () -> Boolean): BroadcastIngestRepository =
+        BroadcastIngestRepository(
+            context = ApplicationProvider.getApplicationContext(),
+            db = db,
+            auditLogger = AuditLogger(db.auditLogDao(), gson, clock = { NOW }),
+            onClinicalInputPersisted = { callback() },
+            clock = { NOW }
+        )
 
     private companion object {
         const val NOW = 1_780_000_000_000L

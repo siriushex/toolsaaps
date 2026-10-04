@@ -24,6 +24,76 @@ import org.junit.Test
 class AutomationCyclePolicyTest {
 
     @Test
+    fun reactiveCycleWaitsThenReadsNewestInputWithoutOverlappingCurrentOwner() = runTest {
+        val mutex = Mutex(locked = true)
+        var latestGlucose = 7.0
+        var calls = 0
+        val reaction = async {
+            AutomationRepository.runReactiveCycleUnderLeaseStatic(mutex) {
+                calls += 1
+                latestGlucose
+            }
+        }
+        runCurrent()
+        assertThat(reaction.isCompleted).isFalse()
+        assertThat(calls).isEqualTo(0)
+
+        latestGlucose = 7.8
+        mutex.unlock()
+        runCurrent()
+
+        assertThat(reaction.await()).isEqualTo(7.8)
+        assertThat(calls).isEqualTo(1)
+        assertThat(mutex.isLocked).isFalse()
+    }
+
+    @Test
+    fun cancellingWaitingReactiveCycleDoesNotReleaseAnotherOwnersLease() = runTest {
+        val mutex = Mutex(locked = true)
+        var calls = 0
+        val waiting = launch {
+            AutomationRepository.runReactiveCycleUnderLeaseStatic(mutex) { calls += 1 }
+        }
+        runCurrent()
+        waiting.cancelAndJoin()
+
+        assertThat(calls).isEqualTo(0)
+        assertThat(mutex.isLocked).isTrue()
+        mutex.unlock()
+        assertThat(AutomationRepository.runNormalCycleIfIdleStatic(mutex) { "next" }.value)
+            .isEqualTo("next")
+    }
+
+    @Test
+    fun cancellingOwnedReactiveCycleReleasesLeaseForNextCycle() = runTest {
+        val mutex = Mutex()
+        val owned = launch {
+            AutomationRepository.runReactiveCycleUnderLeaseStatic(mutex) { awaitCancellation() }
+        }
+        runCurrent()
+        assertThat(mutex.isLocked).isTrue()
+
+        owned.cancelAndJoin()
+
+        assertThat(mutex.isLocked).isFalse()
+        assertThat(AutomationRepository.runNormalCycleIfIdleStatic(mutex) { "next" }.value)
+            .isEqualTo("next")
+    }
+
+    @Test
+    fun ordinaryPeriodicCycleStillSkipsWhenLeaseIsBusy() = runTest {
+        val mutex = Mutex(locked = true)
+        var calls = 0
+
+        val skipped = AutomationRepository.runNormalCycleIfIdleStatic(mutex) { calls += 1 }
+
+        assertThat(skipped.acquired).isFalse()
+        assertThat(calls).isEqualTo(0)
+        assertThat(mutex.isLocked).isTrue()
+        mutex.unlock()
+    }
+
+    @Test
     fun profileRevisionPendingReadFailureIsFailClosed() = runTest {
         var rebuildCalls = 0
         var failureReason = ""

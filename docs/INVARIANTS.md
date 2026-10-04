@@ -96,6 +96,14 @@ A durable pre-send claim prevents automatic retry after an uncertain HTTP outcom
    - ordinary adaptive trend releases only move an exactly owned NORMAL_CONTROL target toward, never across, the effective base. A new glucose observation beyond the previous send, trusted sensor/delivery, non-flat canonical trend and concordant same-cycle 5m forecast are required. All decrease reliability/low-risk/ownership/arm/freshness gates remain in force. Protective targets are not released by this exception.
 
 ## Prediction invariants
+New current CGM mutations request the existing durable clinical recalculation
+without a four-minute glucose scheduling hold. The mutation comparison and
+outbox write are transactional and share a frozen ingest clock; duplicate row
+IDs, older history and future-only records cannot claim a new current input.
+Reactive cycles wait cancellably for the existing cycle lease, bounded by the
+worker deadline, and read settings/inputs after acquisition. Periodic/manual
+idle-only behavior, atomic accepted tuples and all target guards are unchanged.
+
 1. Forecast output must include 5m/30m/60m horizons.
 2. Prediction values and CI are bounded to physiologic app clamp range.
 3. Legacy mode behavior must remain stable when enhanced flags are disabled.

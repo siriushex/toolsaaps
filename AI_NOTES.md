@@ -1,3 +1,33 @@
+# Current-CGM forecast recalculation - 2026-10-04
+
+- The user approved full5/30/60-minute forecast recalculation for each new current
+  CGM observation, including rising onset and reversal. Reuse the existing
+  clinical pipeline and durable coordinator rather than another trend detector.
+- Broadcast's four-minute moderate-glucose scheduling interval suppressed fresh
+  observations. Two real Room regressions failed on unchanged source. Current
+  valid/distinct input comparison and outbox persistence now share one Room
+  transaction and ingest clock; row IDs, duplicates, historical, lower-priority
+  relays and future-only samples cannot masquerade as new current input.
+- Reactive work previously used an idle-only cycle entrypoint; a route-binding
+  regression failed on unchanged source. It now waits cancellably for the existing
+  lease under the worker deadline/evidence boundary, reads current settings and
+  inputs after acquisition and keeps normal periodic/manual idle-only behavior.
+- Focused498 tests in26 suites passed with0 failures/errors/skips, including
+  Room correction/duplicate/causal/rollback, real mutex wait/cancellation and
+  related coordinator/evidence/target safety cases. Invalid CGM is not promoted
+  to current input; its separately persisted valid status telemetry retains the
+  existing invalidation policy. Full Android build/unit/compile/lint passed in
+  10m08s:4787 tests in412 suites,0 failures/errors,3 existing skips; lint0 errors,
+  305 warnings and4 hints. APK signature verifies against the installed debug
+  certificate. Full main/test source and private results were inspected.
+- Prediction gains, calibration, canonical five-minute trend logic, numeric
+  target limits, protective ownership, cadence and sensor/reliability/arm/freshness
+  gates are unchanged. No schema/backend change, learner activation, forced
+  phone cycle or synthetic therapy send. New APK/device latency acceptance remains
+  pending; source tests alone do not establish clinical benefit.
+- Approved design and execution plan: docs/superpowers/specs and
+  docs/superpowers/plans/2026-10-04-fresh-glucose-recalculation.md.
+
 # Frozen-cycle therapy history cutoff - 2026-10-04
 
 - Private read-only follow-up found accepted local maintenance failures before
