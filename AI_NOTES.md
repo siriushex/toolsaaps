@@ -1,3 +1,21 @@
+# Full carbohydrate display design - 2026-10-04
+
+- User requested the full carbohydrate absorption curve with GI and approved
+  proceeding with confirmed/manual provenance and unknown-data fallback.
+- Read-only inspection confirmed the current cumulative food layer ends at30m,
+  telemetry is limited to13 five-minute steps, and chart domain excludes food
+  points. Existing timing functions and bounded component projection can support
+  a longer display without extending clinical glucose forecasts.
+- Wrote and self-reviewed the display/GI provenance contract in
+  docs/superpowers/specs/2026-10-04-full-carbohydrate-curve-design.md.
+  Written review is still pending. GI context is not a validated GI-to-hours
+  model; the spec explicitly requires confirmation of this distinction.
+- No Kotlin, Room, backend, therapy inputs/settings, targets or APK changes in
+  this documentation stage. No phone data or test therapy actions used.
+- Verification for this stage is documentation/diff review. Android behavior
+  remains at the previously verified revision; no new runtime test result is
+  claimed. Implementation and real-device verification are not complete.
+
 # Current-CGM forecast recalculation - 2026-10-04
 
 - The user approved full5/30/60-minute forecast recalculation for each new current
