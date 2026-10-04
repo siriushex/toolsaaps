@@ -1,3 +1,41 @@
+# Full food display implementation - 2026-10-04
+
+- Human approved the written bounded GI display-shape design. Implemented the
+  full remaining food-only tail from accepted events/profiles/CSF, not a longer
+  net glucose forecast. GI provenance is manual USER or referenced CATALOG;
+  unknown remains unadjusted, with no AI/name/photo guess or mixed-meal average.
+- Room30->31 adds nullable GI fields to canonical overrides/pending intents.
+  Exact promotion/revision checks and restart preserve metadata. Optional read
+  exceptions fall back without GI and cancellation still propagates. Invalid
+  optional editor input shows an error but does not block valid real carbs.
+- GI shape is a separate uncalibrated `food_gi_shape_v1` estimate. Current
+  remainder, finish time, clinical forecasts/pressure/insulin/UAM and target
+  inputs stay unchanged. No clinical accuracy or dosing claim is justified.
+- Existing accepted `forecast_meal_steps` now carries schemaVersion2 full tail,
+  completion and GI-shaped status, bounded to720m/145 points/16 KiB. The parser
+  checks accepted identity and clock; chart follow-live/reset includes the tail.
+  Legacy30m and unavailable/incomplete states remain explicitly distinguishable.
+- TDD evidence: original chart assertion RED; pure/profile GREEN24 tests;
+  real migration31 and optional-read-failure assertion RED; metadata GREEN63
+  tests/one phone-copy skip; real engine GREEN76 tests. Combined runtime/chart
+  run had364 passes and2 normal-font label-overflow failures; fixed the field
+  label and all6 light/dark/large-font UI cases passed, with real rendered images.
+- First full unit run found3 display-value comparison failures in engine-copy
+  tests and1 stale schema30 assertion (4821 tests,3 existing skips). Two further
+  RED regressions confirmed missing value equality and GI copy context; both
+  contracts were repaired without changing clinical math or weakening assertions.
+- Full Android assemble/unit/compile/lint passed:4823 tests in417 suites,
+  no failures/errors,3 existing skips; lint0 errors,305 warnings,4 hints.
+  Display equality and GI-fork regressions passed without changing clinical math.
+  Debug APK signature verifies. Five outdated instrumental UI callbacks found
+  during final review were compile RED, repaired only for the appended optional
+  argument, then isolated UI/Android-test APK assembly passed. No test APK was
+  installed and instrumentation execution is not claimed.
+- Publication/CI/fresh coherent phone backup/migration/signature/update and
+  natural UI checks are not yet complete.
+  No working APK, setting or real therapy action changed in this task so far.
+  Manual SENT ownership correction remains outside the approved scope.
+
 # GI-dependent display shape design revision - 2026-10-04
 
 - Written review clarified that GI must change the curve's shape, not merely

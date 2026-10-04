@@ -1,5 +1,30 @@
 # ARCHITECTURE
 
+## Full Food Display Projection
+
+The accepted V3 cycle builds a separate `MealFoodDisplayProjection` from its
+actual announced-food events, resolved cumulative profiles and frozen CSF.
+It covers the remaining modeled tail on a five-minute grid, bounded to720m and
+145 points. Current glucose is the origin; this is food-only influence without
+insulin, not a longer clinical glucose forecast. Clinical announced steps,
+5/30/60 forecasts, pressure, UAM, residual COB and target inputs are unchanged.
+
+Optional `MealGlycemicIndex` has explicit USER or referenced CATALOG provenance.
+Room30->31 adds nullable metadata to canonical meal overrides and pending
+intents, preserving the existing exact-identity/revision promotion. Old meals
+remain unknown. Failed optional reads fall back without GI; cancellation is
+not swallowed. No photograph/profile/name inference or averaged mixed-meal GI.
+
+`food_gi_shape_v1` redistributes each modeled remainder through a bounded
+normalized-fraction exponent. High GI moves influence earlier, low GI later;
+current mass and finish time stay fixed. Reference60/strength0.25 are uncalibrated
+display coefficients. This separate result cannot authorize clinical action.
+The existing `forecast_meal_steps` publishes accepted schemaVersion2 data,
+cycle/prediction clock, completion and GI-adjusted count, at most16 KiB. The UI
+requires matching accepted identity and glucose origin, includes the full tail
+in follow-live/reset domain and marks incomplete estimates. Legacy13-step data
+retains its30m limit and unknown completeness. No new observer or worker.
+
 ## Current Clinical Input Recalculation
 
 Broadcast ingestion compares the latest valid, source-prioritized current glucose

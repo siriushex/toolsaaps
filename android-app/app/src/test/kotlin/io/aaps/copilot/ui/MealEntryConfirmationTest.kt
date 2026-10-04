@@ -7,6 +7,18 @@ import io.aaps.copilot.ui.foundation.components.confirmedMealFromInput
 import org.junit.Test
 
 class MealEntryConfirmationTest {
+    @Test fun giIsOptionalAndCannotChangeOrBlockConfirmedCarbs() {
+        fun confirm(raw: String) = confirmedMealFromInput("25,25", MealPortion.MEDIUM,
+            MealAbsorptionProfile.MIXED, "", false, false, "meal-gi-input", 60.0,
+            glycemicIndexRaw = raw)!!
+        assertThat(confirm("80").glycemicIndex!!.value).isEqualTo(80.0)
+        for (raw in listOf("", "bad", "NaN", "-1", "201")) {
+            assertThat(confirm(raw).grams).isEqualTo(25.25)
+            assertThat(confirm(raw).glycemicIndex).isNull()
+            assertThat(confirm(raw).profile).isEqualTo(MealAbsorptionProfile.MIXED)
+        }
+    }
+
     @Test fun distinguishesAcceptedSuggestionFromNumericCorrection() {
         fun confirm(value: String) = confirmedMealFromInput(
             value, MealPortion.MEDIUM, MealAbsorptionProfile.MIXED,

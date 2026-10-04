@@ -46,3 +46,18 @@ configured separately before claiming main is protected.
 
 ## Migration basics
 - Any DB schema change must include migration strategy and rollback note in PR + docs.
+
+### Room 30 To 31
+
+Migration31 adds three nullable GI metadata columns to meal profile overrides
+and pending meal intents. Existing therapy/history/settings and profile timing
+are not rewritten; old GI remains unknown. Synthetic migration/restart tests
+cover retention, foreign keys and integrity. Verify a fresh disposable working
+database copy before the authorized in-place phone update, never the live DB
+through a test harness. Retain a coherent private backup and signed old APK.
+
+The old schema30 APK does not support a database already migrated to31. Do not
+blindly reinstall it or restore an old backup over later therapy. Recovery
+requires a reviewed forward fix or separately reviewed non-destructive downgrade
+with a fresh current-data backup. The generic APK rollback above is insufficient
+for this schema transition. No destructive fallback is added for30/31.

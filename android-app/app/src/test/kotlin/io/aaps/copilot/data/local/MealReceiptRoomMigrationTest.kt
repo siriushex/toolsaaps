@@ -26,6 +26,7 @@ class MealReceiptRoomMigrationTest {
                     "(episodeId,recordedAtMs,minimumGrams,maximumGrams,storageRevision) VALUES ('existing',1000,20,20,0)")
             } finally { seed.close() }
             SQLiteDatabase.openDatabase(context.getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use {
+                it.dropGiColumnsForLegacyFixture()
                 it.execSQL("DROP TABLE meal_state_receipts")
                 it.version = 29
             }
@@ -33,7 +34,7 @@ class MealReceiptRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sql = migrated.openHelper.writableDatabase
-                assertEquals(30, sql.version)
+                assertEquals(31, sql.version)
                 sql.query("SELECT episodeId,minimumGrams FROM meal_states").use {
                     assertTrue(it.moveToFirst()); assertEquals("existing", it.getString(0)); assertEquals(20.0, it.getDouble(1), 0.0)
                 }

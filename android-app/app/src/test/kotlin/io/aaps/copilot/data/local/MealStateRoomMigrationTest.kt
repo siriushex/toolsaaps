@@ -27,6 +27,7 @@ class MealStateRoomMigrationTest {
                 seed.openHelper.writableDatabase.execSQL("INSERT INTO meal_notification_claim_aliases VALUES ('existing',1)")
             } finally { seed.close() }
             SQLiteDatabase.openDatabase(context.getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use {
+                it.dropGiColumnsForLegacyFixture()
                 it.execSQL("DROP TABLE meal_state_absorption")
                 it.execSQL("DROP TABLE meal_state_scenarios")
                 it.execSQL("DROP TABLE meal_states")
@@ -36,7 +37,7 @@ class MealStateRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sqlite = migrated.openHelper.writableDatabase
-                assertEquals(30, sqlite.version)
+                assertEquals(31, sqlite.version)
                 sqlite.query("SELECT episodeId FROM meal_notification_claims").use {
                     assertTrue(it.moveToFirst()); assertEquals("existing", it.getString(0)); assertFalse(it.moveToNext())
                 }

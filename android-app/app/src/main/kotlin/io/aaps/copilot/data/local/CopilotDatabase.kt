@@ -131,7 +131,7 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         MealStateAbsorptionEntity::class,
         MealReceiptEntity::class
     ],
-    version = 30,
+    version = 31,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {

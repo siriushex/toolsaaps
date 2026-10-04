@@ -1,5 +1,25 @@
 # INVARIANTS
 
+## Food Display And GI
+
+- GI is optional confirmed metadata, not a clinical absorption calibration.
+  It changes only the separate display shape, never clinical5/30/60, announced
+  pressure, insulin, UAM, current COB, target bounds or dispatch authority.
+- Each GI is bound to the exact trusted canonical meal identity/revision.
+  Pending, missing, conflicting and guessed values cannot become accepted GI.
+  Unknown preserves baseline; unrelated meals receive no invented shared GI.
+- Display shaping conserves each current modeled remainder and finish time.
+  Engineering coefficients cannot be described as physiologically validated.
+- The complete remaining curve is bounded to720m/145 points/16 KiB. Invalid
+  display inputs are unavailable, not clinical failures or fake zero food.
+  Nonzero capped remainder is incomplete, not fully absorbed.
+- The accepted cycle and glucose clock must match. Food cannot fabricate actual
+  glucose history or advance chart now; explored viewports retain their state.
+- Invalid optional GI does not block a valid real-carb confirmation. Editing,
+  screenshots and tests cannot send real therapy; no new dosing authority.
+- Room31 is additive. Preserve fresh data before any recovery; an old schema30
+  APK is not an automatic rollback path for an already migrated database.
+
 ## Compact Meal Safety And Research
 
 - The Food dialog confirms exact1..80g manual meals. This separate maximum never

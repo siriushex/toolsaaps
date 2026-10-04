@@ -25,6 +25,9 @@ import io.aaps.copilot.domain.profile.MealAbsorptionCurve
 import io.aaps.copilot.domain.profile.MealAbsorptionContext
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.domain.profile.MealAbsorptionSelection
+import io.aaps.copilot.domain.profile.MealGlycemicIndex
+import io.aaps.copilot.domain.profile.MealGlycemicIndexContext
+import io.aaps.copilot.domain.profile.MealGlycemicIndexOverride
 import io.aaps.copilot.domain.profile.MealTherapyReferenceTrust
 import io.aaps.copilot.domain.profile.PlannedActivitySchedule
 import io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult
@@ -32,6 +35,7 @@ import io.aaps.copilot.domain.profile.ScheduleValidation
 import io.aaps.copilot.domain.profile.toMealTherapyReference
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 
 data class EnergyProfileInferenceDataSource(
@@ -152,8 +156,34 @@ class EnergyProfileRepository(
         return MealAbsorptionSelection(
             profile = curve.profile,
             durationMinutes = curve.durationMinutes,
-            therapyRevision = override.therapyRevisionHash
+            therapyRevision = override.therapyRevisionHash,
+            glycemicIndex = MealGlycemicIndex.fromStored(override.glycemicIndexValue,
+                override.glycemicIndexSource, override.glycemicIndexReference)
         )
+    }
+
+    suspend fun mealGlycemicIndexContext(therapy: List<TherapyEvent>): MealGlycemicIndexContext {
+        if (therapy.size > 5000) return MealGlycemicIndexContext.EMPTY
+        return try {
+            val references = therapy.filterNot { it.componentTrust.legacyValidityConflict }
+                .map(TherapyEvent::toMealTherapyReference)
+                .filter { it.trust == MealTherapyReferenceTrust.TRUSTED && !it.revision.isNullOrBlank() }
+                .groupBy { it.identity }
+            val overrides = linkedMapOf<String, MealGlycemicIndexOverride>()
+            for ((identity, meals) in references) {
+                val revision = meals.mapNotNull { it.revision }.distinct().singleOrNull() ?: continue
+                val row = energyProfileDao.matchingMealOverrideForIdentity(identity, revision) ?: continue
+                val gi = MealGlycemicIndex.fromStored(row.glycemicIndexValue,
+                    row.glycemicIndexSource, row.glycemicIndexReference) ?: continue
+                overrides[identity] = MealGlycemicIndexOverride(revision, gi)
+            }
+            MealGlycemicIndexContext(overrides)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional display metadata must never block the clinical calculation.
+            MealGlycemicIndexContext.EMPTY
+        }
     }
 
     suspend fun mealAbsorptionContext(
@@ -212,7 +242,10 @@ class EnergyProfileRepository(
                 submittedAtMs = submittedAtMs,
                 expiresAtMs = submittedAtMs + PENDING_INTENT_TTL_MS,
                 portion = portion?.name,
-                portionProvenance = portionProvenance?.name
+                portionProvenance = portionProvenance?.name,
+                glycemicIndexValue = selection.glycemicIndex?.value,
+                glycemicIndexSource = selection.glycemicIndex?.source?.name,
+                glycemicIndexReference = selection.glycemicIndex?.reference
             )
         )
     }
@@ -321,7 +354,9 @@ class EnergyProfileRepository(
     private fun PendingMealProfileIntentEntity.toSelectionOrNull(): MealAbsorptionSelection? {
         val profile = runCatching { MealAbsorptionProfile.valueOf(profile) }.getOrNull() ?: return null
         val curve = MealAbsorptionCurve(profile, durationMinutes)
-        return MealAbsorptionSelection(curve.profile, curve.durationMinutes)
+        return MealAbsorptionSelection(curve.profile, curve.durationMinutes,
+            glycemicIndex = MealGlycemicIndex.fromStored(glycemicIndexValue,
+                glycemicIndexSource, glycemicIndexReference))
     }
 
     private fun PlannedActivitySchedule.toEntity(): PlannedActivityEventEntity =
@@ -356,7 +391,10 @@ class EnergyProfileRepository(
             durationMinutes = curve.durationMinutes,
             source = SOURCE_COPILOT_UI,
             revision = OVERRIDE_SCHEMA_REVISION,
-            updatedAtMs = updatedAtMs
+            updatedAtMs = updatedAtMs,
+            glycemicIndexValue = selection.glycemicIndex?.value,
+            glycemicIndexSource = selection.glycemicIndex?.source?.name,
+            glycemicIndexReference = selection.glycemicIndex?.reference
         )
     }
 

@@ -36,6 +36,71 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class EnergyProfileRepositoryTest {
+    @Test fun optionalGiReadDoesNotSwallowCancellation() = runBlocking {
+        val cancellation = kotlinx.coroutines.CancellationException("display read cancelled")
+        val dao = object : EnergyProfileDao by RecordingEnergyProfileDao() {
+            override suspend fun matchingMealOverrideForIdentity(
+                canonicalTherapyIdentity: String, expectedTherapyRevisionHash: String
+            ): MealProfileOverrideEntity? = throw cancellation
+        }
+        val event = trustedImportedEvent("902", "r1", copilotCarbCommand("manual:meal-gi-cancel"))
+        val result = runCatching { EnergyProfileRepository(dao).mealGlycemicIndexContext(listOf(event)) }
+        org.junit.Assert.assertSame(cancellation, result.exceptionOrNull())
+    }
+
+    @Test fun optionalGiReadFailureDoesNotBecomeAClinicalFailure() = runBlocking {
+        val dao = object : EnergyProfileDao by RecordingEnergyProfileDao() {
+            override suspend fun matchingMealOverrideForIdentity(
+                canonicalTherapyIdentity: String, expectedTherapyRevisionHash: String
+            ): MealProfileOverrideEntity? = error("optional GI metadata unavailable")
+        }
+        val event = trustedImportedEvent("902", "r1", copilotCarbCommand("manual:meal-gi-error"))
+        val result = runCatching { EnergyProfileRepository(dao).mealGlycemicIndexContext(listOf(event)) }
+        org.junit.Assert.assertNull("GI read must not fail the clinical cycle", result.exceptionOrNull())
+        assertThat(result.getOrThrow().indexFor(event.toGiReference())).isNull()
+    }
+
+    @Test
+    fun glycemicIndexSurvivesExactCanonicalPromotionAndRepositoryRestart() = runBlocking {
+        val dao = RecordingEnergyProfileDao()
+        val repository = EnergyProfileRepository(dao, clock = { 123L })
+        val command = copilotCarbCommand("manual:meal-gi")
+        val gi = io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput("80")!!
+        val event = trustedImportedEvent("902", "r1", command)
+        repository.stageSelectionAfterSubmittedCarbAction(command,
+            MealAbsorptionSelection(MealAbsorptionProfile.MIXED, glycemicIndex = gi))
+        assertThat(dao.pendingIntents.getValue(command.idempotencyKey).glycemicIndexValue).isEqualTo(80.0)
+        assertThat(dao.mealOverrides).isEmpty()
+        assertThat(repository.mealGlycemicIndexContext(listOf(event)).indexFor(
+            event.toGiReference())).isNull()
+        repository.refreshPendingSelections(listOf(event))
+        val restarted = EnergyProfileRepository(dao)
+        assertThat(restarted.mealGlycemicIndexContext(listOf(event)).indexFor(
+            event.toGiReference())).isEqualTo(gi)
+        assertThat(dao.mealOverrides.getValue("902").profile).isEqualTo("MIXED")
+        assertThat(dao.pendingIntents).isEmpty()
+    }
+
+    @Test
+    fun giDisplayContextDoesNotDeleteAnotherRevisionOrTrustConflict() = runBlocking {
+        val dao = RecordingEnergyProfileDao()
+        dao.mealOverrides["902"] = MealProfileOverrideEntity("902", "r1", "MIXED", 120,
+            "COPILOT_UI", 1, 100, glycemicIndexValue = 80.0, glycemicIndexSource = "USER")
+        val repository = EnergyProfileRepository(dao)
+        val event = trustedImportedEvent("902", "r2", copilotCarbCommand("manual:meal-gi-read"))
+        assertThat(repository.mealGlycemicIndexContext(listOf(event)).indexFor(event.toGiReference())).isNull()
+        assertThat(dao.mealOverrides).containsKey("902")
+        val conflict = event.copy(componentTrust = TherapyEventComponentTrust(
+            canonicalCarbId = 902L, canonicalCarbRevision = "r1", canonicalReferenceConflict = true))
+        assertThat(repository.mealGlycemicIndexContext(listOf(conflict)).indexFor(
+            io.aaps.copilot.domain.profile.MealTherapyReference("902", "r1",
+                io.aaps.copilot.domain.profile.MealTherapyReferenceTrust.TRUSTED))).isNull()
+    }
+
+    private fun TherapyEvent.toGiReference() = io.aaps.copilot.domain.profile.MealTherapyReference(
+        componentTrust.canonicalCarbId.toString(), componentTrust.canonicalCarbRevision,
+        io.aaps.copilot.domain.profile.MealTherapyReferenceTrust.TRUSTED)
+
 
     @Test
     fun continuousSixHourCgmUsesSettledGlucoseInsteadOfLastSampleAsAbsorptionDuration() = runBlocking {

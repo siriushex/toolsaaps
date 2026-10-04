@@ -1,4 +1,7 @@
 <resources>
-    <string name="meal_impact_legend">Yellow: current glucose + food impact · 30 min · without insulin</string>
+    <string name="meal_impact_legend">Yellow: current glucose + modelled food effect · without insulin</string>
+    <string name="meal_impact_gi_legend">Yellow: current glucose + GI-shaped food estimate · without insulin</string>
+    <string name="meal_impact_legacy_legend">Yellow: current glucose + food estimate · 30 min · without insulin</string>
+    <string name="meal_impact_incomplete">Tail limited to 12 h; modelled absorption is not complete</string>
     <string name="meal_impact_unavailable">Food impact: awaiting current calculation</string>
 </resources>

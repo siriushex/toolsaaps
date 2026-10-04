@@ -7716,7 +7716,8 @@ class MainViewModel(application: Application) :
         manualMealEnergyKcal: Double? = null,
         eatingSoon: Boolean = false,
         submissionId: String = UUID.randomUUID().toString(),
-        portionMetadata: io.aaps.copilot.domain.nutrition.MealPortionMetadata? = null
+        portionMetadata: io.aaps.copilot.domain.nutrition.MealPortionMetadata? = null,
+        glycemicIndex: io.aaps.copilot.domain.profile.MealGlycemicIndex? = null
     ) {
         viewModelScope.launch {
             val safetyCapGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS
@@ -7746,7 +7747,7 @@ class MainViewModel(application: Application) :
                 manualCarbSubmission.submit(
                     command = command,
                     selection = io.aaps.copilot.domain.profile.MealAbsorptionSelection(
-                        foodProfile, portionMetadata = portionMetadata
+                        foodProfile, portionMetadata = portionMetadata, glycemicIndex = glycemicIndex
                     ),
                     mealEnergyKcal = manualMealEnergyKcal,
                     eatingSoon = eatingSoon

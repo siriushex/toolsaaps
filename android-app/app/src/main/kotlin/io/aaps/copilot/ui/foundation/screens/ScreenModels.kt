@@ -124,7 +124,9 @@ data class ClinicalForecastChartUiState(
     val displayRangeHighMmol: Double = 6.7,
     val events: List<CompensationEvent> = emptyList(),
     val eventTimelineNowTs: Long = 0L,
-    val showEvents: Boolean = true
+    val showEvents: Boolean = true,
+    val mealImpactGiAdjusted: Boolean = false,
+    val mealImpactComplete: Boolean? = null
 )
 
 data class HorizonPredictionUi(

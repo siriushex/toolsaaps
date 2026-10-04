@@ -205,7 +205,7 @@ fun OverviewScreen(
     onOpenSensorLagAnalytics: (() -> Unit)? = null,
     onOpenClinicalReport: () -> Unit,
     onBaseTargetScheduleSave: (BaseTargetSchedule) -> Unit = {},
-    onManualCarbs: (String, String, MealAbsorptionProfile, Double?, Boolean, String, io.aaps.copilot.domain.nutrition.MealPortionMetadata) -> Unit = { _, _, _, _, _, _, _ -> },
+    onManualCarbs: (String, String, MealAbsorptionProfile, Double?, Boolean, String, io.aaps.copilot.domain.nutrition.MealPortionMetadata, io.aaps.copilot.domain.profile.MealGlycemicIndex?) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onOpenAapsBolus: () -> Unit = {},
     onUamExportUiModeChange: (String) -> Unit = {},
     onIsfRuntimeSourceChange: (String) -> Unit = {},
@@ -338,7 +338,8 @@ fun OverviewScreen(
                 onManualCarbs(
                     meal.grams.toString(), "overview_cob", meal.profile,
                     meal.energyKcal, meal.eatingSoon, meal.submissionId,
-                    io.aaps.copilot.domain.nutrition.MealPortionMetadata(meal.portion, meal.provenance)
+                    io.aaps.copilot.domain.nutrition.MealPortionMetadata(meal.portion, meal.provenance),
+                    meal.glycemicIndex
                 )
             }
         )
@@ -1716,8 +1717,18 @@ private fun OverviewForecastSection(
                 )
             }
             Text(
-                text = stringResource(if (state.chart.mealImpactPoints.isEmpty())
-                    R.string.meal_impact_unavailable else R.string.meal_impact_legend),
+                text = stringResource(when {
+                    state.chart.mealImpactPoints.isEmpty() -> R.string.meal_impact_unavailable
+                    state.chart.mealImpactGiAdjusted -> R.string.meal_impact_gi_legend
+                    state.chart.mealImpactComplete == null -> R.string.meal_impact_legacy_legend
+                    else -> R.string.meal_impact_legend
+                }),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            if (state.chart.mealImpactComplete == false && state.chart.mealImpactPoints.isNotEmpty()) Text(
+                text = stringResource(R.string.meal_impact_incomplete),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp)

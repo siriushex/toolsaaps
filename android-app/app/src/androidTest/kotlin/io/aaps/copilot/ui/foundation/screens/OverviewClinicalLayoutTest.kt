@@ -463,7 +463,7 @@ class OverviewClinicalLayoutTest {
                     onDisablePowerSave = {},
                     onAddBloodCheck = { _, _, _, _ -> },
                     onOpenClinicalReport = {},
-                    onManualCarbs = { grams, reason, profile, caloriesKcal, _, _, _ ->
+                    onManualCarbs = { grams, reason, profile, caloriesKcal, _, _, _, _ ->
                         sentCarbs = grams to reason
                         sentProfile = profile
                         sentCalories = caloriesKcal
@@ -511,7 +511,7 @@ class OverviewClinicalLayoutTest {
                     onDisablePowerSave = {},
                     onAddBloodCheck = { _, _, _, _ -> },
                     onOpenClinicalReport = {},
-                    onManualCarbs = { _, _, _, caloriesKcal, _, _, _ ->
+                    onManualCarbs = { _, _, _, caloriesKcal, _, _, _, _ ->
                         callbackCount += 1
                         sentCalories = caloriesKcal
                     }
@@ -1016,7 +1016,7 @@ class OverviewClinicalLayoutTest {
                 OverviewScreen(
                     state = clinicalState(), onRunCycleNow = {}, onSetKillSwitch = {},
                     onDisablePowerSave = {}, onAddBloodCheck = { _, _, _, _ -> },
-                    onManualCarbs = { _, _, _, _, _, _, _ -> submissions++ },
+                    onManualCarbs = { _, _, _, _, _, _, _, _ -> submissions++ },
                     onOpenClinicalReport = {}
                 )
             }
@@ -1039,7 +1039,7 @@ class OverviewClinicalLayoutTest {
                 OverviewScreen(
                     state = clinicalState(), onRunCycleNow = {}, onSetKillSwitch = {},
                     onDisablePowerSave = {}, onAddBloodCheck = { _, _, _, _ -> },
-                    onManualCarbs = { _, _, _, _, selected, id, _ -> submissions += selected to id },
+                    onManualCarbs = { _, _, _, _, selected, id, _, _ -> submissions += selected to id },
                     onOpenClinicalReport = {}
                 )
             }
@@ -1063,7 +1063,7 @@ class OverviewClinicalLayoutTest {
                 OverviewScreen(
                     state = clinicalState(), onRunCycleNow = {}, onSetKillSwitch = {},
                     onDisablePowerSave = {}, onAddBloodCheck = { _, _, _, _ -> },
-                    onManualCarbs = { _, _, _, _, selected, _, _ -> options += selected },
+                    onManualCarbs = { _, _, _, _, selected, _, _, _ -> options += selected },
                     onOpenClinicalReport = {}
                 )
             }

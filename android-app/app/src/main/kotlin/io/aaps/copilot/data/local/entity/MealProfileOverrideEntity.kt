@@ -14,5 +14,8 @@ data class MealProfileOverrideEntity(
     val updatedAtMs: Long,
     val portion: String? = null,
     val portionProvenance: String? = null,
-    val confirmedCarbsGrams: Double? = null
+    val confirmedCarbsGrams: Double? = null,
+    val glycemicIndexValue: Double? = null,
+    val glycemicIndexSource: String? = null,
+    val glycemicIndexReference: String? = null
 )

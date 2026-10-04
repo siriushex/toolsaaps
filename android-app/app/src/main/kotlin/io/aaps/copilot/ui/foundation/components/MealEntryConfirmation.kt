@@ -12,7 +12,8 @@ internal data class MealEntryConfirmation(
     val energyKcal: Double?,
     val eatingSoon: Boolean,
     val submissionId: String,
-    val provenance: MealPortionProvenance = MealPortionProvenance.UNKNOWN
+    val provenance: MealPortionProvenance = MealPortionProvenance.UNKNOWN,
+    val glycemicIndex: io.aaps.copilot.domain.profile.MealGlycemicIndex? = null
 ) : Serializable
 
 internal fun confirmedMealFromInput(
@@ -24,7 +25,8 @@ internal fun confirmedMealFromInput(
     eatingSoon: Boolean,
     submissionId: String,
     maximumGrams: Double,
-    proposedGrams: Double? = null
+    proposedGrams: Double? = null,
+    glycemicIndexRaw: String = ""
 ): MealEntryConfirmation? {
     val grams = gramsRaw.trim().replace(',', '.').toDoubleOrNull() ?: return null
     if (!maximumGrams.isFinite() || !grams.isFinite() || grams !in 1.0..maximumGrams || submissionId.isBlank()) return null
@@ -38,5 +40,6 @@ internal fun confirmedMealFromInput(
         grams == proposedGrams -> MealPortionProvenance.ACCEPTED_SUGGESTION
         else -> MealPortionProvenance.USER_CORRECTED
     }
-    return MealEntryConfirmation(grams, portion, profile, energy, eatingSoon, submissionId, provenance)
+    return MealEntryConfirmation(grams, portion, profile, energy, eatingSoon, submissionId, provenance,
+        io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput(glycemicIndexRaw))
 }

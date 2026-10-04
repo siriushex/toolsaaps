@@ -518,7 +518,8 @@ class AutomationRepository(
         val sigmaEMmol5: Double,
         val kfSigmaGMmol: Double,
         val modelVersion: String,
-        val announcedCarbSteps: List<Double> = emptyList()
+        val announcedCarbSteps: List<Double> = emptyList(),
+        val foodDisplayProjection: io.aaps.copilot.domain.predict.MealFoodDisplayProjection? = null
     )
 
     data class IsfCrRuntimeGate(
@@ -3008,6 +3009,9 @@ class AutomationRepository(
             ?.setUamSensitivityRuntimeContext(uamSensitivityRuntime)
         (predictionEngine as? HybridPredictionEngine)?.setMealAbsorptionContext(
             energyProfileRepository.mealAbsorptionContext(settings, therapy)
+        )
+        (predictionEngine as? HybridPredictionEngine)?.setMealGlycemicIndexContext(
+            energyProfileRepository.mealGlycemicIndexContext(therapy)
         )
         val activityEffectContext = resolveActivityEffectContext(
             settings = settings,
@@ -7510,14 +7514,8 @@ class AutomationRepository(
         addNumeric("forecast_kf_sigma_g_mmol", decomposition?.kfSigmaGMmol, "mmol/L")
         addNumeric("forecast_decomp_available", if (decomposition != null) 1.0 else 0.0)
         addText("forecast_decomp_model_version", decomposition?.modelVersion)
-        val foodSteps = decomposition?.announcedCarbSteps.orEmpty()
-        if (io.aaps.copilot.domain.predict.MealRollingImpact.nextThirtyMinutes(foodSteps).isNotEmpty()) {
-            addText("forecast_meal_steps", gson.toJson(mapOf(
-                "cycle" to acceptedCycleId, "steps" to foodSteps.take(13)
-            )))
-        } else {
-            addText("forecast_meal_steps", null)
-        }
+        addText("forecast_meal_steps", foodDisplayTelemetryPayloadStatic(
+            decomposition?.foodDisplayProjection, acceptedCycleId, gson))
 
         db.telemetryDao().upsertAll(rows)
     }
@@ -12001,6 +11999,23 @@ class AutomationRepository(
             return prepared.last().first
         }
 
+        internal fun foodDisplayTelemetryPayloadStatic(
+            projection: io.aaps.copilot.domain.predict.MealFoodDisplayProjection?,
+            acceptedCycleId: String,
+            gson: Gson
+        ): String? {
+            if (projection == null || acceptedCycleId.isBlank() || acceptedCycleId.length > 256) return null
+            return gson.toJson(mapOf(
+                "schemaVersion" to 2,
+                "cycle" to acceptedCycleId,
+                "predictionAtMs" to projection.predictionAtMs,
+                "complete" to projection.completeByHorizon,
+                "modelVersion" to projection.modelVersion,
+                "giAdjustedMeals" to projection.giAdjustedMeals,
+                "steps" to projection.stepsMmol
+            )).takeIf { it.toByteArray(Charsets.UTF_8).size <= 16_384 }
+        }
+
         internal fun extractForecastDecompositionSnapshotStatic(
             diagnostics: HybridPredictionEngine.V3Diagnostics?,
             localForecasts: List<Forecast>
@@ -12025,7 +12040,8 @@ class AutomationRepository(
                 sigmaEMmol5 = diagnostics.arSigmaE,
                 kfSigmaGMmol = diagnostics.kfSigmaG,
                 modelVersion = modelVersion,
-                announcedCarbSteps = diagnostics.announcedCarbStep.toList()
+                announcedCarbSteps = diagnostics.announcedCarbStep.toList(),
+                foodDisplayProjection = diagnostics.foodDisplayProjection
             )
         }
 

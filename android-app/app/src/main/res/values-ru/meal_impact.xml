@@ -1,4 +1,7 @@
 <resources>
-    <string name="meal_impact_legend">Жёлтая: текущий сахар + вклад еды · 30 мин · без инсулина</string>
+    <string name="meal_impact_legend">Жёлтая: текущая глюкоза + модельное влияние еды · без инсулина</string>
+    <string name="meal_impact_gi_legend">Жёлтая: текущая глюкоза + модельная кривая еды с поправкой ГИ · без инсулина</string>
+    <string name="meal_impact_legacy_legend">Жёлтая: текущая глюкоза + модельное влияние еды · 30 мин · без инсулина</string>
+    <string name="meal_impact_incomplete">Хвост ограничен 12 ч; модельное усвоение ещё не завершено</string>
     <string name="meal_impact_unavailable">Вклад еды: ожидается актуальный расчёт</string>
 </resources>

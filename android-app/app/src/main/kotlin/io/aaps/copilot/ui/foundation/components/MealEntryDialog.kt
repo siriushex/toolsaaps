@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
@@ -40,6 +42,7 @@ internal fun MealEntryDialog(
     var profile by rememberSaveable { mutableStateOf(MealAbsorptionProfile.MIXED) }
     var eatingSoon by rememberSaveable { mutableStateOf(true) }
     var energyRaw by rememberSaveable { mutableStateOf("") }
+    var glycemicIndexRaw by rememberSaveable { mutableStateOf("") }
     val submissionId = rememberSaveable { UUID.randomUUID().toString() }
     var manualCarbs by rememberSaveable { mutableStateOf(false) }
     var correction by rememberSaveable { mutableStateOf("") }
@@ -50,7 +53,7 @@ internal fun MealEntryDialog(
     val finalMeal = confirmedMealFromInput(
         if (manualCarbs) correction else proposedGrams.toString(), portion, profile,
         energyRaw, settings.showCalories, eatingSoon, submissionId, maximumGrams,
-        proposedGrams = proposedGrams
+        proposedGrams = proposedGrams, glycemicIndexRaw = glycemicIndexRaw
     )
     val energyValid = !settings.showCalories || energyRaw.isBlank() ||
         energyRaw.replace(',', '.').toDoubleOrNull()?.let { it.isFinite() && it in 1.0..10_000.0 } == true
@@ -89,6 +92,17 @@ internal fun MealEntryDialog(
                     }
                 }
                 FoodProfileSelector(profile, { profile = it }, compact = true)
+                val giInvalid = glycemicIndexRaw.isNotBlank() &&
+                    io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput(glycemicIndexRaw) == null
+                val giLabel = stringResource(R.string.meal_glycemic_index_optional)
+                Text(giLabel, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(glycemicIndexRaw, { glycemicIndexRaw = it }, singleLine = true,
+                    isError = giInvalid,
+                    supportingText = if (giInvalid) { { Text(stringResource(R.string.meal_glycemic_index_invalid)) } } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth().testTag("mealGlycemicIndex")
+                        .semantics { contentDescription = giLabel })
                 FlowRow(Modifier.fillMaxWidth(),
                     maxItemsInEachRow = if (enlargedText) 1 else 2,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

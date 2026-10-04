@@ -33,6 +33,7 @@ class MealPortionRoomMigrationTest {
                 seed.close()
             }
             SQLiteDatabase.openDatabase(context.getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                db.dropGiColumnsForLegacyFixture()
                 listOf("portion", "portionProvenance", "confirmedCarbsGrams").forEach {
                     db.execSQL("ALTER TABLE meal_profile_overrides DROP COLUMN $it")
                 }
@@ -46,7 +47,7 @@ class MealPortionRoomMigrationTest {
                 .allowMainThreadQueries().build()
             try {
                     val sqlite = migrated.openHelper.writableDatabase
-                    assertThat(sqlite.version).isEqualTo(30)
+                    assertThat(sqlite.version).isEqualTo(31)
                     sqlite.query("SELECT profile,portion,portionProvenance,confirmedCarbsGrams FROM meal_profile_overrides").use {
                         assertThat(it.moveToFirst()).isTrue()
                         assertThat(it.getString(0)).isEqualTo("MIXED")

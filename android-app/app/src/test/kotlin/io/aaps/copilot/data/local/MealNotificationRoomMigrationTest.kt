@@ -27,6 +27,7 @@ class MealNotificationRoomMigrationTest {
                     "VALUES ('retained-meal','r1','MIXED',120,'COPILOT_UI',1,1)")
             } finally { seed.close() }
             SQLiteDatabase.openDatabase(context.getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use {
+                it.dropGiColumnsForLegacyFixture()
                 it.execSQL("DROP TABLE meal_notification_claim_aliases")
                 it.execSQL("DROP TABLE meal_notification_claims")
                 it.version = 27
@@ -35,7 +36,7 @@ class MealNotificationRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sqlite = migrated.openHelper.writableDatabase
-                assertEquals(30, sqlite.version)
+                assertEquals(31, sqlite.version)
                 sqlite.query("SELECT canonicalTherapyIdentity,profile FROM meal_profile_overrides").use {
                     assertTrue(it.moveToFirst())
                     assertEquals("retained-meal", it.getString(0))

@@ -1,5 +1,20 @@
 # PLAN
 
+## Full Carbohydrate Display (2026-10-04)
+
+- User approved a bounded GI shape correction only for the display. Full
+  remaining food influence, explicit provenance/unknown fallback, Room31 and
+  accepted-cycle telemetry are implemented with domain/engine/migration/UI tests.
+- GI coefficients are uncalibrated; clinical prediction and target management
+  remain unchanged. No GI-dependent therapy tuning is in this stage.
+- Focused results and implementation checklist are in
+  `superpowers/plans/2026-10-04-full-carbohydrate-curve.md`; design in
+  `superpowers/specs/2026-10-04-full-carbohydrate-curve-design.md`.
+- Full Android quality, exact-source publication/CI and fresh working-phone
+  backup/update/acceptance must pass before this stage is complete. No synthetic
+  therapy/GI injection is allowed for device evidence. Natural missing GI remains
+  a device-test limitation, not grounds to invent a measured value.
+
 ## Meal Timing Research (2026-09-27)
 
 - MealStateRepository stores original intents, explicit AAPS revisions and full

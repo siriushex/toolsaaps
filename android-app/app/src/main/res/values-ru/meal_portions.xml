@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="meal_glycemic_index_optional">ГИ (необязательно)</string>
+    <string name="meal_glycemic_index_invalid">ГИ должен быть числом от 0 до 200</string>
     <string name="meal_entry_title">Еда</string>
     <string name="meal_prepare_amount">Отправить %1$s г</string>
     <string name="meal_manual_carbs">Ручные углеводы</string>

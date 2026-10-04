@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Food Display And GI (2026-10-04)
+
+- Scope is display metadata, nullable Room31 storage, accepted telemetry and UI.
+  No backend route, provider call, therapy command parameter or safety gate added.
+- GI is finite0..200 with explicit user/catalog provenance and exact revision;
+  optional invalid/unavailable data cannot block valid manual carbohydrates.
+- Display work is bounded to5000 meals,145 points and16 KiB. Parser rejects
+  unsupported versions, clocks, nonfinite/negative steps and timestamp overflow.
+  Old/unmatched data cannot be relabeled as a complete accepted projection.
+- Clinical invariance is covered by real-engine low/high/unknown GI tests.
+  Coefficients are explicitly uncalibrated. No clinical benefit claim is made.
+- Private phone databases, logs, images, APKs and backups must not be published.
+  Full quality/diff/secret checks and device acceptance remain separate gates.
+
 ## Source Release Check (2026-09-13)
 
 - The full candidate test suite detected an obsolete shared TLS `.p12` asset

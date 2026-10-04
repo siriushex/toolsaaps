@@ -12,6 +12,8 @@ import io.aaps.copilot.domain.profile.MealAbsorptionContext
 import io.aaps.copilot.domain.profile.MealAbsorptionCurve
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.domain.profile.MealAbsorptionProfileResolver
+import io.aaps.copilot.domain.profile.MealGlycemicIndex
+import io.aaps.copilot.domain.profile.MealGlycemicIndexContext
 import io.aaps.copilot.domain.profile.MealTherapyReference
 import io.aaps.copilot.domain.profile.MealTherapyReferenceTrust
 import io.aaps.copilot.domain.profile.toMealTherapyReference
@@ -71,6 +73,9 @@ class HybridPredictionEngine(
 
     @Volatile
     private var mealAbsorptionContext: MealAbsorptionContext = MealAbsorptionContext.DISABLED
+
+    @Volatile
+    private var mealGlycemicIndexContext: MealGlycemicIndexContext = MealGlycemicIndexContext.EMPTY
 
     @Volatile
     private var uamRuntimeHint: UamRuntimeHint? = null
@@ -188,6 +193,10 @@ class HybridPredictionEngine(
         mealAbsorptionContext = context
     }
 
+    fun setMealGlycemicIndexContext(context: MealGlycemicIndexContext) {
+        mealGlycemicIndexContext = context
+    }
+
     internal fun newSimulationEngine(): HybridPredictionEngine = HybridPredictionEngine(
         enableEnhancedPredictionV3 = enableEnhancedPredictionV3,
         enableUam = enableUam,
@@ -220,6 +229,7 @@ class HybridPredictionEngine(
         it.carbAbsorptionMaxAgeMinutes = carbAbsorptionMaxAgeMinutes
         it.carbComputationMaxGrams = carbComputationMaxGrams
         it.mealAbsorptionContext = mealAbsorptionContext
+        it.mealGlycemicIndexContext = mealGlycemicIndexContext
         it.uamRuntimeHint = uamRuntimeHint
         it.uamRuntimeQualityContext = uamRuntimeQualityContext
         it.uamSensitivityRuntimeContext = uamSensitivityRuntimeContext
@@ -838,6 +848,7 @@ class HybridPredictionEngine(
             resolvedTherapyStep = resolvedTherapySteps.toList(),
             insulinStep = therapySeries.insulinSteps.toList(),
             announcedCarbStep = therapySeries.announcedCarbSteps.toList(),
+            foodDisplayProjection = therapySeries.foodDisplayProjection,
             announcedMealPressureWeight = resolvedMealPressure.announcedWeight,
             uamMealPressureWeight = resolvedMealPressure.uamWeight,
             legacyVirtualMealUsed = false,
@@ -962,6 +973,8 @@ class HybridPredictionEngine(
         val insulinSteps = DoubleArray(predictionSteps + 1)
         val announcedCarbSteps = DoubleArray(predictionSteps + 1)
         val profiledByKey = profiledCarbEvents.associateBy { it.eventKey }
+        val displayGiContext = mealGlycemicIndexContext
+        val displayCutoffMinutes = carbAbsorptionMaxAgeMinutes
         val relevantEvents = events.asSequence()
             .filter { nowTs - it.ts <= EVENT_LOOKBACK_MS }
             .filter { it.ts <= nowTs }
@@ -979,6 +992,8 @@ class HybridPredictionEngine(
                     grams = grams?.takeIf { it > 0.0 },
                     carbType = profiled?.type,
                     mealAbsorptionCurve = profiled?.mealAbsorptionCurve,
+                    displayGlycemicIndex = if (event.componentTrust.legacyValidityConflict) null
+                        else displayGiContext.indexFor(event.toMealTherapyReference()),
                     insulinUnits = insulinUnits?.takeIf { it > 0.0 },
                     carryInsulin = carryInsulin,
                     insulinImpactScale = modeledInsulin?.impactScale ?: 1.0
@@ -1016,6 +1031,18 @@ class HybridPredictionEngine(
             insulinSteps[j] = insulinStep
             announcedCarbSteps[j] = announcedCarbStep
         }
+
+        // This separate projection never feeds clinical pressure, UAM or forecasts.
+        val foodDisplayProjection = if (relevantEvents.size > 5000) null else
+            MealFoodDisplayProjection.build(nowTs, factors.carbSensitivityMmolPerGram,
+                relevantEvents.mapNotNull { event ->
+                    val grams = event.grams ?: return@mapNotNull null
+                    val ageNow = maxOf(0.0, (nowTs - event.ts) / 60_000.0)
+                    MealFoodDisplayInput(grams, { offset ->
+                        carbCumulativeWithCutoff(event.carbType ?: CarbAbsorptionType.MEDIUM,
+                            ageNow + offset, event.mealAbsorptionCurve, displayCutoffMinutes)
+                    }, event.displayGlycemicIndex)
+                })
 
         var fastActive = 0.0
         var mediumActive = 0.0
@@ -1077,7 +1104,8 @@ class HybridPredictionEngine(
             residualCarbsNowGrams = residualNow,
             residualCarbs30mGrams = residual30,
             residualCarbs60mGrams = residual60,
-            residualCarbs120mGrams = residual120
+            residualCarbs120mGrams = residual120,
+            foodDisplayProjection = foodDisplayProjection
         )
     }
 
@@ -1453,11 +1481,12 @@ class HybridPredictionEngine(
     private fun carbCumulativeWithCutoff(
         type: CarbAbsorptionType,
         ageMinutes: Double,
-        mealAbsorptionCurve: MealAbsorptionCurve? = null
+        mealAbsorptionCurve: MealAbsorptionCurve? = null,
+        maxAgeMinutes: Double = carbAbsorptionMaxAgeMinutes
     ): Double {
         val boundedAge = ageMinutes.coerceAtLeast(0.0)
         mealAbsorptionCurve?.let { return it.absorbedFraction(boundedAge) }
-        if (boundedAge >= carbAbsorptionMaxAgeMinutes) return 1.0
+        if (boundedAge >= maxAgeMinutes) return 1.0
         return carbCumulative(type = type, ageMinutes = boundedAge)
     }
 
@@ -1734,7 +1763,8 @@ class HybridPredictionEngine(
         val unifiedUamSensitivityCycleId: String = "",
         val unifiedUamSensitivitySettingsRevision: Long = -1L,
         val unifiedUamSensitivityIsfMmolPerUnit: Double? = null,
-        val unifiedUamSensitivityCrGramPerUnit: Double? = null
+        val unifiedUamSensitivityCrGramPerUnit: Double? = null,
+        val foodDisplayProjection: MealFoodDisplayProjection? = null
     ) {
         val resolvedUamAttributionStep: List<Double>
             get() = uamStep
@@ -1763,6 +1793,7 @@ class HybridPredictionEngine(
         val grams: Double?,
         val carbType: CarbAbsorptionType?,
         val mealAbsorptionCurve: MealAbsorptionCurve?,
+        val displayGlycemicIndex: MealGlycemicIndex?,
         val insulinUnits: Double?,
         val carryInsulin: Boolean,
         val insulinImpactScale: Double
@@ -1806,7 +1837,8 @@ class HybridPredictionEngine(
         val residualCarbsNowGrams: Double,
         val residualCarbs30mGrams: Double,
         val residualCarbs60mGrams: Double,
-        val residualCarbs120mGrams: Double
+        val residualCarbs120mGrams: Double,
+        val foodDisplayProjection: MealFoodDisplayProjection? = null
     )
 
     private data class TherapyIntervalComponents(

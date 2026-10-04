@@ -733,6 +733,16 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_30_31: Migration = object : Migration(30, 31) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (table in listOf("meal_profile_overrides", "pending_meal_profile_intents")) {
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `glycemicIndexValue` REAL")
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `glycemicIndexSource` TEXT")
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `glycemicIndexReference` TEXT")
+            }
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -754,6 +764,7 @@ object CopilotMigrations {
         MIGRATION_26_27,
         MIGRATION_27_28,
         MIGRATION_28_29,
-        MIGRATION_29_30
+        MIGRATION_29_30,
+        MIGRATION_30_31
     )
 }

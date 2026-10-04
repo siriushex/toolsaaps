@@ -770,6 +770,10 @@ internal fun MainUiState.toOverviewUiState(
         add(TelemetryChipUi("Steps", UiFormatters.formatDecimalOrPlaceholder(latestStepsCount, decimals = 0), null))
     }
 
+    val mealImpact = if (acceptedIdentityMatches) mealImpactChartData(
+        mealImpactStepsJson, acceptedSnapshot?.forecastCycleId, forecastAcceptedGenerationTs,
+        history.maxByOrNull { it.ts }
+    ) else null
     val hasData = latestGlucoseMmol != null || horizons.any { it.pred != null }
     return OverviewUiState(
         loadState = resolveLoadState(hasData = hasData, errorText = error),
@@ -801,10 +805,9 @@ internal fun MainUiState.toOverviewUiState(
         eventTimelineNowTs = eventTimelineNowTs,
         physiologicalSex = profileSex,
         chart = ClinicalForecastChartUiState(
-            mealImpactPoints = if (acceptedIdentityMatches) mealImpactChartPoints(
-                mealImpactStepsJson, acceptedSnapshot?.forecastCycleId, forecastAcceptedGenerationTs,
-                history.maxByOrNull { it.ts }
-            ) else emptyList(),
+            mealImpactPoints = mealImpact?.points.orEmpty(),
+            mealImpactGiAdjusted = mealImpact?.giAdjusted == true,
+            mealImpactComplete = mealImpact?.complete,
             historyPoints = history,
             futurePath = if (acceptedIdentityMatches) buildInterpolatedFuturePath(nowTs = chartNowTs) else emptyList(),
             futureCi = if (acceptedIdentityMatches) buildInterpolatedFutureCi(nowTs = chartNowTs) else emptyList(),

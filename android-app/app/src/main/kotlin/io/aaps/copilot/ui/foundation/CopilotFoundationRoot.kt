@@ -348,13 +348,13 @@ fun CopilotFoundationRoot(
                                     onAddBloodCheck = viewModel::addManualBloodGlucoseCheck,
                                     onResetBloodCalibration = viewModel::resetManualGlucoseCalibration,
                                     onBaseTargetScheduleSave = viewModel::saveBaseTargetSchedule,
-                                    onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId, portionMetadata ->
+                                    onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId, portionMetadata, glycemicIndex ->
                                         viewModel.sendManualCarbs(
                                             carbs,
                                             reason,
                                             profile,
                                             manualMealEnergyKcal,
-                                            eatingSoon, submissionId, portionMetadata
+                                            eatingSoon, submissionId, portionMetadata, glycemicIndex
                                         )
                                     },
                                     onOpenAapsBolus = viewModel::openAapsBolusDialog,
