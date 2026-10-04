@@ -1,3 +1,19 @@
+# GI-dependent display shape design revision - 2026-10-04
+
+- Written review clarified that GI must change the curve's shape, not merely
+  appear as an annotation. Supersedes the metadata-only decision below.
+- Revised the spec to a bounded, explicitly heuristic redistribution of each
+  meal's current modeled remainder. High GI shifts influence earlier, low GI
+  later; current remaining mass, finish time, clinical COB, profile precedence,
+  forecast decomposition, clinical5/30/60 and target inputs stay unchanged.
+- Defined the versioned normalized-fraction exponent rule and separate display
+  provenance. Reference60 and strength0.25 are engineering display parameters,
+  not calibrated physiological evidence. Unknown GI preserves baseline exactly.
+- Revised-spec review is pending. No implementation plan, Kotlin, migration,
+  therapy setting/action or APK change in this stage. No benefit/accuracy claim.
+- Checked primary GI sources for the qualitative direction; they do not validate
+  the chosen numerical display rule. Diff/contract review is documentation only.
+
 # Full carbohydrate display design - 2026-10-04
 
 - User requested the full carbohydrate absorption curve with GI and approved
