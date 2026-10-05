@@ -1,5 +1,23 @@
 # PLAN
 
+## Persistent Food Curve During COB (2026-10-05)
+
+- Human acknowledged the full-tail/continuous-display proposal. Working selection:
+  existing yellow food-only influence, with its accepted origin retained during
+  new CGM/COB arrivals and atomic replacement after the next accepted result.
+- Written design:
+  `superpowers/specs/2026-10-05-persistent-cob-food-curve-design.md`.
+  Preserve full-tail scrolling/explore state and distinguish current, updating,
+  outdated and unknown endpoints. External reference COB never silently rescales
+  the accepted announced-food curve or becomes a physiological end-time claim.
+- Written human review precedes implementation. No runtime change yet; existing
+  GI conservation/limits, clinical freshness, forecasts/targets/therapy and cadence
+  stay unchanged. One bounded UI snapshot, no worker/poller/Room migration.
+- After approval: genuine RED lifetime/authority/viewport regressions, scoped
+  implementation and full Android quality/publication CI; separately authorized
+  fresh-backup installation and natural awake graphical acceptance. Never inject
+  fake food/GI or force therapy to fill missing evidence.
+
 ## Full Carbohydrate Display (2026-10-04)
 
 - User approved a bounded GI shape correction only for the display. Full

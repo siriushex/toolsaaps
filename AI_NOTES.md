@@ -1,3 +1,27 @@
+# Persistent food curve during COB design - 2026-10-05
+
+- Human requested a full scrollable carbohydrate-work curve that stays available
+  during positive COB and follows its dynamics, then acknowledged the proposed
+  approach. The recommended working selection is the existing yellow influence
+  line; no separate grams-axis chart or raw-COB rescaling is selected.
+- Source inspection found newest-history anchoring conflicts with the accepted
+  payload's prediction clock during new CGM arrivals. Keep the clock check and
+  preserve the accepted origin/full tail instead of erasing or reanchoring it.
+- Wrote/self-reviewed the display-only lifetime and COB provenance contract in
+  docs/superpowers/specs/2026-10-05-persistent-cob-food-curve-design.md.
+  It specifies one immutable presentation snapshot, atomic accepted replacement,
+  explicit updating/outdated/unknown states and full-tail viewport continuity.
+- External/AAPS reference COB is not effective clinical COB or announced-food
+  remainder. No direct scaling, guessed GI/end time, new worker, clinical cadence
+  change, therapy authority or physiological completion claim. Missing data keeps
+  a visible data state, not a fabricated curve or verified zero absorption.
+- Written human review is pending. This stage changes documentation only:
+  no Kotlin/Room/backend, APK, power policy, target or therapy changes. Existing
+  baseline711db16b push/PR CI passed; no new runtime verification is claimed.
+- Verification: exact relevant source/clock/domain contracts inspected; design
+  self-review/diff checks. Implementation plan/TDD and any device update follow
+  separate written approval and fresh verification gates. Evidence stays private.
+
 # Working APK acceptance and resource review - 2026-10-05
 
 - Runtime revision88b14bc7 is published; both exact-source push/PR Verify runs
