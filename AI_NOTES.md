@@ -1,3 +1,47 @@
+# Local alarm escalation proposal - 2026-10-07
+
+- Resumed the alarm audit from its matching native checkpoint; source HEAD is
+  unchanged. ADB was checked outside the local socket restriction and has no
+  connected device. The original historical window is not shifted to today.
+- Wrote a concrete opt-in local ramp/repeat/acknowledgement proposal in
+  docs/superpowers/specs/2026-10-07-local-alarm-escalation-design.md and PLAN.
+  Keep exact global OFF and urgent-low protection; expiry reassesses current
+  accepted evidence without a therapy/forecasting cycle or old-event replay.
+- Propose bounded audio ownership, durable independent local-cycle state,
+  explicit per-channel outcomes and guarded volume restoration. Keep original
+  clinical receipts and Telegram initial-delivery semantics intact.
+- Checked current Android primary documentation for foreground admission,
+  specialUse declaration, dataSync timeout, audio focus, channel control and
+  timed wake-lock/Doze limits. Active-cycle ownership is bounded to55s;
+  no idle wake lock or automatic battery exemption is proposed.
+  A dedicated user-started alarm lifecycle is proposed, not a device-proven fix.
+- Documentation only. Written human review, fresh phone history, implementation
+  tests, full Android quality and separately authorized device/audio acceptance
+  remain pending. No new Kotlin/Room/manifest/config/APK or therapy mutation.
+- Memory CLI is unavailable due to a missing local module; resumed from the
+  matching verified checkpoint and project files without installing a runtime.
+
+# Alarm delivery investigation in progress - 2026-10-05
+
+- Human requested a recent-history alarm audit and gradual audible/vibration
+  escalation. This takes priority over the pending display-only COB design.
+- Source trace confirms one INITIAL delivery and one optional LOW_NOW escalation
+  per glucose episode. SUPPRESSED_SNOOZE remains terminal after global OFF expires;
+  the existing regression suite explicitly asserts that behavior. Saved repeat
+  settings do not schedule periodic delivery in the current episode coordinator.
+- Alarm-stream minimum70% is limited to fresh LOW_NOW below4.0. Pump-link health
+  describes technical connectivity, not body attachment or confirmed insulin
+  delivery. Android notify/player-start success is not human acknowledgement.
+- Five selected existing alarm/pump suites passed:90 tests,0 failures/errors/skips.
+  This verifies existing behavior, not a fix or a complete real-night replay.
+- Full current device evidence is unavailable. Private audit artifacts remain
+  outside the repository. No clinical payloads, phone settings, credentials,
+  APK deployment, therapy change or live alarm test are included in this stage.
+- Recommended next design preserves urgent-low protection and exact OFF, then
+  freshly reassesses risk after expiry and adds bounded acknowledgement-aware
+  escalation. Human design approval, fresh history, written specification and
+  implementation/device verification remain pending. No runtime changes made.
+
 # Persistent food curve during COB design - 2026-10-05
 
 - Human requested a full scrollable carbohydrate-work curve that stays available

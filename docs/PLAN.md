@@ -1,5 +1,20 @@
 # PLAN
 
+## Local Alarm Escalation Design (2026-10-07)
+
+- Continue alarm reliability work before the pending COB display implementation.
+  Written proposal: `superpowers/specs/2026-10-07-local-alarm-escalation-design.md`.
+- Opt-in typed-source coordinator, bounded ramp/repeats, urgent-low floor,
+  exact global OFF and fresh alert-only resume. Explicit source acknowledgement
+  pauses one repeat interval; it does not resolve risk or silence other sources.
+- Dedicated user-started foreground lifecycle and additive local-cycle storage;
+  no clinical threshold, therapy, Telegram retry or local Nightscout change.
+- Written human review precedes implementation/TDD. Fresh original-incident
+  phone evidence, full Android quality, migration and separately consented
+  installation/audio acceptance remain release gates. No runtime change yet.
+- Phone is not available through ADB at this design stage. Partial historical
+  evidence is not full-night validation. Existing-rule tests are not a fix.
+
 ## Persistent Food Curve During COB (2026-10-05)
 
 - Human acknowledged the full-tail/continuous-display proposal. Working selection:
