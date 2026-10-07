@@ -1,5 +1,23 @@
 # PLAN
 
+## Local Alarm Policy Kernel (2026-10-08)
+
+- First implementation stage of the Oct7 design: pure bounded profiles, hardware
+  targets and per-source repeat/OFF/acknowledgement transitions. Accepted source
+  authorization and fresh elapsed-time bounds are inputs, not new risk detectors.
+- Source/boot/generation/ordinal checks reject stale acknowledgements and results;
+  duplicate evidence does not slide repeats. Acknowledgement survives a lower
+  level until its original deadline; higher risk invalidates the pause.
+- Plan: `superpowers/plans/2026-10-08-local-alarm-policy.md`.
+  Focused 148 tests and all 52 new tests passed; full unit suite has 4875 cases,
+  zero failures/errors and 3 optional phone-copy tests skipped. Full Android
+  unit/lint/compile/debug-build gate passed. Fresh Lint has zero errors and no
+  issues in new alarm files; warnings elsewhere are not part of this change.
+- The kernel has no runtime consumers. Room31, settings, notification/audio
+  owner, clinical prediction, targets and therapy remain unchanged. Runtime
+  service/storage/UI/source integration and real-device acceptance are separate
+  required stages; there is no claim of fixed or enabled phone alarms yet.
+
 ## Local Alarm Escalation Design (2026-10-07)
 
 - Continue alarm reliability work before the pending COB display implementation.

@@ -1,3 +1,34 @@
+# Local alarm policy kernel - 2026-10-08
+
+- Human asked to continue app/algorithm development after the written proposal.
+  Reused the isolated feature worktree and confirmed both baseline Verify runs
+  passed. Fresh read-only ADB inventory has no phone; no activation consent is
+  inferred from repository implementation.
+- Added pure LocalAlarmModels/Profiles/Policy: bounded four-step profiles,
+  immediate LOW_NOW70% floor, safe upward hardware rounding, per-source stable
+  repeat deadlines, exact OFF expiry admission and ordinal-bound acknowledgement.
+  Invalid/future/expired evidence, old boots, reordered generations/observations,
+  corrupt state and arithmetic overflow cannot claim a new local cycle.
+- Progress requires a matching still-active confirmed step; creating a timeline
+  never means playback success. Lower severity keeps an existing acknowledgement
+  deadline, while higher severity invalidates it. No repeat backlog is replayed.
+- TDD: new-API RED inspected, profiles10 GREEN; policy/legacy focused147 GREEN.
+  Self-review found the paused lower-level state lost its original claim; added
+  a real failing regression (INVALID_STATE vs ACKNOWLEDGED), fixed keeper/expiry
+  identity. A second real failing regression exposed missing cancellation when
+  corrupt state had an active flag without a claim; cancellation now follows
+  that flag. Final focused 148 tests and all 52 new tests pass.
+  Full Android unit/lint/compile/debug-build gate passed: 4875 unit cases,
+  zero failures/errors, 3 optional real-phone-copy tests skipped. Fresh Lint:
+  zero errors, 305 warnings and 4 hints outside the new alarm files; no new
+  LocalAlarm issues. No unrelated warning cleanup is included.
+- Kernel stage only, not runtime alarm integration. No foreground service,
+  settings, Room migration, audio/vibration owner, receiver/UI, source adapter,
+  therapy/target/forecast/Telegram writer or phone change. Clinical guards and
+  default legacy delivery are untouched. CPU/RAM/Doze and original missing-night
+  evidence remain unverified; no device-success or resource-savings claim.
+- Verification plan and tracked steps: docs/superpowers/plans/2026-10-08-local-alarm-policy.md.
+
 # Local alarm escalation proposal - 2026-10-07
 
 - Resumed the alarm audit from its matching native checkpoint; source HEAD is
