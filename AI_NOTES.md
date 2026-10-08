@@ -1,3 +1,33 @@
+# Guarded alarm volume ownership - 2026-10-08
+
+- Human asked to check and continue. Fresh read-only ADB inventory is empty;
+  no phone update, sound/volume/DND test or CPU/RAM measurement was performed.
+  Reused the clean existing feature worktree atba93e758.
+- Added LocalAlarmVolumeLease plus AndroidAlarmVolumePort. Single exact cycle,
+  current injected admission and elapsed bounds, existing rounded profile
+  targets, no downward raise, readback confirmation and sticky override/unknown
+  ownership. Guarded baseline restoration permits OFF/expiry cleanup without
+  overwriting a differing index. Cancellation propagates; release never retries.
+- TDD: lease absent-API RED,24 initial GREEN; adapter absent-API RED,4 GREEN.
+  Three real regressions then failed: write after admission-callback release,
+  replacement during pending acquisition, and new owner during restoration.
+  Fixed with exact owner revalidation and acquisition/restoration markers.
+  Final focused91 /7 suites pass,31 new cases, zero failures/errors/skips.
+- Volume-only prerequisite, no production consumers/service/player/vibrator/
+  source/UI/timer/settings/Room/network/therapy/target/forecast change. Legacy
+  default sound and urgent-low floor remain unchanged. This is not an enabled
+  escalation feature or a real-phone delivery/resource-savings result.
+- Admission authority belongs to the future serialized coordinator. Observed
+  index comparison is not atomic against Android or proof of perceived sound;
+  hidden change-and-return and identical-index route changes remain limitations.
+- Full Android unit/lint/compile/assemble passed in7m1s:4931 cases across424
+  suites, zero failures/errors,3 optional phone-copy skips. Lint report was
+  explicitly refreshed after cached reuse:0 errors,305 existing warnings,
+  4 hints and no new volume-file issues. APK contains both classes; not installed.
+- Plan: docs/superpowers/plans/2026-10-08-alarm-volume-lease.md. Reviewed source
+  publication/exact-source Verify is a separate external gate, recorded only
+  after real completion in the private native checkpoint.
+
 # Durable local alarm storage - 2026-10-08
 
 - Human asked to check the phone and continue development. Reused the existing

@@ -1,5 +1,25 @@
 # INVARIANTS
 
+## Alarm Volume Lease
+
+- A volume lease cannot authorize an alarm, invent accepted source evidence or
+  bypass OFF/capabilities. Its future coordinator must serialize these guards.
+- Exactly one full cycle identity owns the lease. Mismatched callbacks cannot
+  read/write/release it; acquisition/restoration cannot be reentered by a new
+  owner and cancellation during admission prevents a subsequent volume write.
+- Raises do not lower current volume. Setter return is not confirmation;
+  valid readback, unchanged maximum and current admission are required.
+- An observed manual/system change permanently stops raises/restoration for
+  this lease. Uncertain write outcome, fixed/invalid hardware or changed maximum
+  grants no restoration. A still-known owned value may be cleaned up after OFF.
+- Cleanup never overwrites a differing index, retries an old release or restores
+  a persisted lease after process restart. Cancellation propagates.
+- Only STREAM_ALARM is accessed with flags0. No media/call/ringer/DND/route,
+  sound/vibration/timer/wake-lock or clinical/therapy behavior is changed.
+- Observation comparison cannot identify every user gesture or route change;
+  it is not system-atomic CAS, measured loudness or a delivery guarantee.
+- There are no runtime consumers. Default legacy urgent-low protection remains.
+
 ## Local Alarm Persistence
 
 - A local cycle START is a committed unique source/generation/ordinal claim,

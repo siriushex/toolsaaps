@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Alarm Volume Ownership (2026-10-08)
+
+- Scope: volume-only helper plus STREAM_ALARM flags0 adapter, no runtime
+  consumers, activation, permissions, settings, network or clinical change.
+- Exact cycle binding, bounded elapsed admission and readback prevent stale
+  callbacks or unconfirmed sets from granting progress. Callback cancellation
+  and reentrancy were demonstrated RED then fixed. Cancellation propagates.
+- Observed override/unknown hardware ownership prevents restoration; cleanup
+  compares current index/maximum and never retries a released lease. No route,
+  DND/ringer or other-stream setters and no raw exception/clinical logs.
+- This helper is not a clinical/capability authority. Its future serialized
+  coordinator must supply fresh committed source/OFF/platform admission.
+- Public volume observations cannot distinguish all gestures/route changes or
+  atomically exclude system writes. No stronger ownership, human response,
+  locked-screen delivery or resource benefit is claimed.
+- Legacy urgent-low handling is untouched. Service/player integration and
+  separately authorized real-device acceptance remain release requirements.
+
 ## Local Alarm Journal (2026-10-08)
 
 - Scope: two additive Room32 tables and guarded local persistence. No network,

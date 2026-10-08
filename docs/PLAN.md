@@ -1,5 +1,24 @@
 # PLAN
 
+## Guarded Alarm Volume Lease (2026-10-08)
+
+- Next bounded prerequisite after policy/storage: single exact-cycle volume
+  ownership and an alarm-only Android adapter, without production consumers.
+- Fresh admission/elapsed guards, safe round-up, no downward raise, confirmed
+  readback, sticky observed override/uncertainty and guarded baseline cleanup.
+  Reentrant acquisition/restoration and post-cancellation writes reject.
+- Plan: `superpowers/plans/2026-10-08-alarm-volume-lease.md`. Absent APIs were
+  verified RED; three real callback/reentrancy regressions failed before fixes.
+  Focused91 cases, including31 new cases, pass with zero failures/errors/skips.
+- Full Android unit/lint/compile/assemble passed:4931 cases across424 suites,
+  zero failures/errors,3 optional phone-copy skips. Fresh lint XML has0 errors,
+  305 existing warnings,4 hints and no new volume-file issues. Candidate APK
+  contains both new classes but is not installed. Reviewed publication and
+  exact-source Verify are tracked as the external source gate.
+- No service/player/source/UI/settings/Room/clinical change.
+- Fresh ADB is empty. APK installation, incident/device/audio acceptance and
+  matched CPU/RAM measurements remain separate gates; no active ramp claim.
+
 ## Durable Local Alarm Storage (2026-10-08)
 
 - Persistence stage of the Oct7 design: additive Room32 local state/cycle journal,

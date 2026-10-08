@@ -1,5 +1,30 @@
 # ARCHITECTURE
 
+## Guarded Alarm Volume Ownership
+
+`LocalAlarmVolumeLease` is a volume-only prerequisite for the Oct7 executor.
+One exact LocalAlarmCycle owns the observed baseline/maximum and confirmed
+index. Current elapsed time and injected coordinator admission guard capture
+and every raise; indices round up through LocalAlarmProfiles and never lower
+an already louder stream. Readback, not setter return, confirms a raised index.
+Observed manual/system override or uncertain hardware ownership stops this
+lease. Cleanup restores only a confirmed, still-matching owned value; OFF or
+expiry does not prevent guarded cleanup. Cancellation propagates.
+
+Synchronized access and acquisition/restoration markers prevent a second owner
+or reentrant callback from replacing pending ownership. Raise revalidates the
+same owner after external admission/hardware calls. Release drops ownership
+even on failure and does not replay cleanup. AndroidAlarmVolumePort accesses
+only STREAM_ALARM with flags0; no player, vibration, route, DND, focus or timer.
+
+There are no production consumers in this stage. The future serialized
+coordinator must provide committed claim, fresh source, global OFF and platform
+capability admission; this helper supplies none of that authority. Android
+observations are not atomic volume CAS. A change-and-return gesture or route
+change with identical indices may escape comparison. Indices are not measured
+loudness or proof of human response. Legacy delivery and its urgent floor stay
+unchanged; service/player/source/UI integration and real-device tests remain.
+
 ## Durable Local Alarm Journal
 
 The storage-only stage of the Oct7 alarm design adds Room32 tables
