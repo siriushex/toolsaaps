@@ -1,5 +1,25 @@
 # INVARIANTS
 
+## Local Alarm Persistence
+
+- A local cycle START is a committed unique source/generation/ordinal claim,
+  not proof of audio, vibration, notification visibility or human response.
+- State and claim commit atomically. Clock capture follows the shared mute
+  lock; actual Room OFF overrides caller hints. Cancellation propagates.
+- Unsupported/corrupt payloads or mirrored metadata never reset an ordinal or
+  manufacture fresh authorization. Source evidence is revalidated separately.
+- ACK and results bind to the exact source/generation/ordinal/level. Results
+  require current accepted evidence and an active pre-deadline claim. Confirmed
+  progress alone advances volume history; conflicting/stale writes reject.
+- Recovery marks interrupted ownership UNCERTAIN, preserves ordinal/due and
+  does not replay a backlog. Terminal rows alone are pruned at30d in batches
+  <=100; source state is retained and scheduling reads remain <=64.
+- Room31->32 is additive, with no new destructive fallback. An old schema31
+  APK cannot reopen a32 database; recovery requires fresh data and a reviewed
+  forward fix, not an old backup over subsequent therapy.
+- Storage has no runtime side effects or consumers in this stage. Existing
+  urgent alerts, therapy/target/forecast rules and user settings are unchanged.
+
 ## Food Display And GI
 
 - GI is optional confirmed metadata, not a clinical absorption calibration.

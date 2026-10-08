@@ -37,7 +37,7 @@ class MealStateRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sqlite = migrated.openHelper.writableDatabase
-                assertEquals(31, sqlite.version)
+                assertEquals(32, sqlite.version)
                 sqlite.query("SELECT episodeId FROM meal_notification_claims").use {
                     assertTrue(it.moveToFirst()); assertEquals("existing", it.getString(0)); assertFalse(it.moveToNext())
                 }

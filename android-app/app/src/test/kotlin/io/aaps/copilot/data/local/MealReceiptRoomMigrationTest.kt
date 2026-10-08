@@ -34,7 +34,7 @@ class MealReceiptRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sql = migrated.openHelper.writableDatabase
-                assertEquals(31, sql.version)
+                assertEquals(32, sql.version)
                 sql.query("SELECT episodeId,minimumGrams FROM meal_states").use {
                     assertTrue(it.moveToFirst()); assertEquals("existing", it.getString(0)); assertEquals(20.0, it.getDouble(1), 0.0)
                 }

@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Local Alarm Journal (2026-10-08)
+
+- Scope: two additive Room32 tables and guarded local persistence. No network,
+  backend, source-risk detector, service, permission, sound or therapy change.
+- State/results use strict versioned bounded JSON with exact types, duplicate/
+  unknown-field rejection and checked integers. Mirrored identities/revisions
+  must agree; bad state fails closed rather than inventing an ordinal.
+- New claims/results require fresh accepted policy evidence and current Room
+  mute ordering. Persisted payloads do not grant source authorization.
+- Outcome vocabulary records API attempts only, not heard/acknowledged,
+  physical pump attachment or confirmed insulin delivery. No raw clinical
+  snapshots, credentials or exception payloads are added to logs.
+- Synthetic rollback/race/recovery/migration tests and full quality are required;
+  source/CI success does not establish Android sound/Doze/device behavior.
+  Private phone evidence and build artifacts stay outside publication.
+
 ## Food Display And GI (2026-10-04)
 
 - Scope is display metadata, nullable Room31 storage, accepted telemetry and UI.

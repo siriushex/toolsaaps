@@ -47,6 +47,20 @@ configured separately before claiming main is protected.
 ## Migration basics
 - Any DB schema change must include migration strategy and rollback note in PR + docs.
 
+### Room 31 To 32
+
+Migration32 only creates the local alarm state/cycle journal and its scheduling
+indexes. Existing clinical/history/settings/receipts are not rewritten. Before
+any separately authorized phone update, retain a fresh coherent private backup,
+test ALL migrations on a disposable current-data copy and verify on-device
+opening without destructive fallback. The storage-only source stage does not
+enable new audio and does not prove device delivery or CPU/RAM savings.
+
+An old schema31 APK cannot reopen a migrated32 database. Do not apply the generic
+APK rollback to this transition or restore stale therapy data. Use a reviewed
+forward fix or a separately validated non-destructive downgrade after a fresh
+current-data backup. No destructive fallback is added for31/32.
+
 ### Room 30 To 31
 
 Migration31 adds three nullable GI metadata columns to meal profile overrides

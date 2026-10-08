@@ -12,7 +12,7 @@ import org.junit.Test
 class CopilotPhoneDatabaseMigrationTest {
 
     @Test
-    fun migrationFromSupportedVersionTo31_preservesDisposablePhoneCopy() {
+    fun migrationFromSupportedVersionTo32_preservesDisposablePhoneCopy() {
         val copyPath = System.getenv("COPILOT_PHONE_DB_COPY")?.takeIf(String::isNotBlank)
         Assume.assumeTrue(
             "COPILOT_PHONE_DB_COPY must point to a disposable SQLite database copy",
@@ -49,7 +49,7 @@ class CopilotPhoneDatabaseMigrationTest {
     }
 
     @Test
-    fun officialMigrationTailSupportsEverySourceVersionFrom21Through31() {
+    fun officialMigrationTailSupportsEverySourceVersionFrom21Through32() {
         for (sourceVersion in MIN_SUPPORTED_VERSION..CURRENT_VERSION) {
             val expectedStarts = (sourceVersion until CURRENT_VERSION).toList()
             val tail = requiredMigrationTail(sourceVersion)
@@ -140,7 +140,7 @@ class CopilotPhoneDatabaseMigrationTest {
 
     private companion object {
         const val MIN_SUPPORTED_VERSION = 21
-        const val CURRENT_VERSION = 31
+        const val CURRENT_VERSION = 32
 
         val KEY_V26_TABLES = setOf(
             "sensitivity_runtime_snapshots",

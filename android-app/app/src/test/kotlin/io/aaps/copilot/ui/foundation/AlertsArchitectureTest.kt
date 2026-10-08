@@ -43,8 +43,10 @@ class AlertsArchitectureTest {
         assertThat(repository).doesNotContain("okhttp")
         assertThat(repository).doesNotContain("retrofit")
         assertThat(repository).doesNotContain("WorkManager")
-        // Version 31 adds optional meal GI; the alert read path still adds no schema.
-        assertThat(database).contains("version = 31")
+        assertThat(repository).doesNotContain("alertLocalDao")
+        assertThat(repository).doesNotContain("RoomLocalAlarmStore")
+        // Version32 adds an independent cycle journal, not a writer in the alert read path.
+        assertThat(database).contains("version = 32")
     }
 
     @Test

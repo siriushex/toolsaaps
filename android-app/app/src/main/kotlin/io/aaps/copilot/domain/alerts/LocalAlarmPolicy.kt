@@ -139,10 +139,17 @@ object LocalAlarmPolicy {
             (evidence.generation < previous.generation || evidence.observedElapsedMs < previous.observedElapsedMs)
 
     private fun validState(state: LocalAlarmState, environment: LocalAlarmEnvironment): Boolean {
+        if (!validStateShape(state)) return false
+        if (state.bootCount == environment.bootCount && state.observedElapsedMs > environment.nowElapsedMs) return false
+        if (state.lastCycle?.let { it.bootCount == environment.bootCount && it.startedElapsedMs > environment.nowElapsedMs } == true) return false
+        if (state.pause?.let { it.startedWallMs > environment.nowWallMs } == true) return false
+        return true
+    }
+
+    internal fun validStateShape(state: LocalAlarmState): Boolean {
         if (!validKey(state.key) || state.generation <= 0L || state.bootCount < 0 || !accepts(state.key, state.level) ||
             state.observedElapsedMs < 0L || state.validUntilElapsedMs <= state.observedElapsedMs ||
-            state.ordinal < 0L || state.reachedPercent !in 0..100 ||
-            (state.bootCount == environment.bootCount && state.observedElapsedMs > environment.nowElapsedMs)
+            state.ordinal < 0L || state.reachedPercent !in 0..100
         ) return false
         val cycle = state.lastCycle
         if (state.cycleActive && (cycle == null || state.pause != null)) return false
@@ -152,8 +159,7 @@ object LocalAlarmPolicy {
                 (cycle.level != state.level && state.pause?.level != cycle.level) ||
                 !cycle.level.audible || cycle.ordinal <= 0L ||
                 cycle.startedElapsedMs < 0L || cycle.deadlineElapsedMs < cycle.startedElapsedMs ||
-                cycle.deadlineElapsedMs - cycle.startedElapsedMs != LOCAL_ALARM_CYCLE_TIMEOUT_MS ||
-                (cycle.bootCount == environment.bootCount && cycle.startedElapsedMs > environment.nowElapsedMs)
+                cycle.deadlineElapsedMs - cycle.startedElapsedMs != LOCAL_ALARM_CYCLE_TIMEOUT_MS
             ) return false
         }
         state.nextDueElapsedMs?.let { due ->
@@ -162,7 +168,7 @@ object LocalAlarmPolicy {
         state.pause?.let { pause ->
             if (cycle == null || pause.level != cycle.level || pause.level.priority < state.level.priority ||
                 !pause.level.audible || !accepts(state.key, pause.level) ||
-                pause.startedWallMs < 0L || pause.startedWallMs > environment.nowWallMs || pause.untilWallMs < pause.startedWallMs ||
+                pause.startedWallMs < 0L || pause.untilWallMs < pause.startedWallMs ||
                 !validInterval(pause.untilWallMs - pause.startedWallMs, pause.level)
             ) return false
         }

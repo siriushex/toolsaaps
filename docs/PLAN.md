@@ -1,5 +1,27 @@
 # PLAN
 
+## Durable Local Alarm Storage (2026-10-08)
+
+- Persistence stage of the Oct7 design: additive Room32 local state/cycle journal,
+  strict bounded codecs, atomic claims and independent channel results.
+- Shared Room mute ordering, post-lock clocks, exact callback/ACK identity,
+  revision CAS, uncertain recovery and bounded indexed scheduling/retention.
+  Interrupted steps are not replayed and ordinals are never reset on bad state.
+- Plan: `superpowers/plans/2026-10-08-local-alarm-storage.md`. Migration RED
+  expected32/actual31, absent-codec/store API RED and three actual self-review
+  regressions were inspected. Focused94 cases passed, including25 new cases,
+  zero failures/errors and one optional current-phone-copy skip.
+- Full Android unit/lint/compile/debug-build gate passed:4900 cases, zero
+  failures/errors,3 optional phone-copy skips. The old31 architecture head
+  expectation was repaired and read-path bans strengthened. Refreshed Lint:
+  zero errors,305 existing warnings,4 hints, no alarm-file issues.
+- Storage has no runtime consumers; new sound,
+  foreground lifecycle, UI, source adapters and pruning scheduling are separate
+  required integration stages. Therapy/target/forecast/settings remain unchanged.
+- Fresh read-only ADB still has no phone. No APK installation, activation,
+  audio/volume/DND change, full-night validation or CPU/RAM measurement occurred.
+  Fresh data backup and disposable/device migration remain release gates.
+
 ## Local Alarm Policy Kernel (2026-10-08)
 
 - First implementation stage of the Oct7 design: pure bounded profiles, hardware

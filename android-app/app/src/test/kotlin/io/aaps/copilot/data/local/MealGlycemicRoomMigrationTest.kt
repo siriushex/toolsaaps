@@ -47,7 +47,7 @@ class MealGlycemicRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sql = migrated.openHelper.writableDatabase
-                assertEquals(31, sql.version)
+                assertEquals(32, sql.version)
                 sql.query("SELECT profile,durationMinutes,glycemicIndexValue,glycemicIndexSource,glycemicIndexReference FROM meal_profile_overrides").use {
                     assertTrue(it.moveToFirst())
                     assertEquals("MIXED", it.getString(0)); assertEquals(120, it.getInt(1))

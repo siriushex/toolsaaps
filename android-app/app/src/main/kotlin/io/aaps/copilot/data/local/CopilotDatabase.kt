@@ -2,6 +2,9 @@ package io.aaps.copilot.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import io.aaps.copilot.data.local.dao.AlertLocalDao
+import io.aaps.copilot.data.local.entity.AlertLocalStateEntity
+import io.aaps.copilot.data.local.entity.AlertLocalCycleEntity
 import io.aaps.copilot.data.local.dao.MealStateDao
 import io.aaps.copilot.data.local.dao.MealReceiptDao
 import io.aaps.copilot.data.local.entity.MealReceiptEntity
@@ -129,12 +132,15 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         MealStateEntity::class,
         MealStateScenarioEntity::class,
         MealStateAbsorptionEntity::class,
-        MealReceiptEntity::class
+        MealReceiptEntity::class,
+        AlertLocalStateEntity::class,
+        AlertLocalCycleEntity::class
     ],
-    version = 31,
+    version = 32,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
+    abstract fun alertLocalDao(): AlertLocalDao
     abstract fun mealStateDao(): MealStateDao
     abstract fun mealReceiptDao(): MealReceiptDao
     abstract fun mealNotificationClaimDao(): MealNotificationClaimDao

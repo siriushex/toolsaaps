@@ -1,5 +1,29 @@
 # ARCHITECTURE
 
+## Durable Local Alarm Journal
+
+The storage-only stage of the Oct7 alarm design adds Room32 tables
+`alert_local_state` (one monotonic ordinal/revision per typed source) and
+`alert_local_cycles` (unique source/generation/ordinal attempts). Clinical alert
+receipts and Telegram initial-delivery semantics are independent and unchanged.
+
+`RoomLocalAlarmStore` serializes transitions with the existing database-scoped
+mute mutex, then reads current clocks and authoritative Room OFF within a
+transaction. A START can be returned only after a unique claim and its state
+commit together. Persisted JSON is not accepted source authority: new evidence
+still passes the pure policy's freshness, boot, generation and admission guards.
+Strict versioned formats cap state at4096 UTF-8 bytes and results at2048 bytes/
+four steps. Notification, audio, vibration and confirmed volume results are
+separate; none implies the person heard it or insulin reached the body.
+
+Interrupted ownership is journaled UNCERTAIN and never replays missed steps.
+The ordinal/repeat deadline survives recovery; terminal-cycle retention is30d
+with bounded batches, while ordinal state is retained. Indexed scheduling reads
+are capped at64. This stage has no service/player/UI/source/housekeeping runtime
+consumer and does not enable the proposed ramp. Foreground admission, bounded
+hardware ownership, fresh device migration and actual delivery remain separate
+integration/release gates.
+
 ## Full Food Display Projection
 
 The accepted V3 cycle builds a separate `MealFoodDisplayProjection` from its

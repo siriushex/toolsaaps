@@ -1,3 +1,35 @@
+# Durable local alarm storage - 2026-10-08
+
+- Human asked to check the phone and continue development. Reused the existing
+  feature worktree at964f5f2b; fresh ADB and USB checks found no phone, including
+  the repeat ADB check after the focused stage. No device writes occurred.
+- Added Room32 state/cycle journal, explicit31->32 migration and strict bounded
+  codecs. Atomic claims reuse the existing database-scoped mute mutex; clocks
+  are read after locking inside the transaction and actual Room OFF overrides
+  caller hints. Checked revision CAS and unique claims roll back together.
+- ACK/results require exact identity and fresh policy evidence. Confirmed
+  progress is distinct from channel calls. Recovery records interrupted attempts
+  UNCERTAIN without replay; ordinal/due persist. Indexed scheduling is capped64,
+  terminal30d pruning capped100 and source state is never pruned by that method.
+- TDD: actual migration RED32-vs31, absent API RED, migration8 GREEN. First
+  focused91 GREEN; self-review actual REDs exposed earlier-step idempotence,
+  future elapsed journal progress and later timing-setting dependence. Fixes
+  pass final focused94 /12 suites, zero failures/errors, one optional phone-copy
+  skip. New25 cases: migration1, codec4, store20. Full suite found one obsolete
+  architecture expectation for31; updated it to32 and strengthened the no-journal
+  writer guards without changing production AlertsRepository. Its5 cases GREEN.
+- Final full Android unit/lint/compile/debug-build gate passed:4900 cases across
+  422 suites, zero failures/errors,3 optional phone-copy skips. Lint's initially
+  reused report was explicitly regenerated using the task's --rerun option;
+  fresh XML has0 errors,305 existing warnings,4 hints and no alarm-file issues.
+  Candidate APK is built and contains the new journal code; it is not installed.
+- Storage-only scope, no runtime/foreground/player/notification/vibration/UI/
+  source/housekeeping consumer, settings, clinical/therapy/target/forecast/backend
+  or Telegram change. No claim that phone alarms are fixed or enabled, or that
+  CPU/RAM is reduced. A fresh backup, disposable32 migration, authorized update
+  and actual device/audio acceptance remain separate release gates.
+- Plan: docs/superpowers/plans/2026-10-08-local-alarm-storage.md.
+
 # Local alarm policy kernel - 2026-10-08
 
 - Human asked to continue app/algorithm development after the written proposal.

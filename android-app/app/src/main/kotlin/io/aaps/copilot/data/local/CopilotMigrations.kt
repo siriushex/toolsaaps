@@ -743,6 +743,26 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_31_32: Migration = object : Migration(31, 32) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `alert_local_state` (" +
+                "`sourceKind` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `generation` INTEGER NOT NULL, " +
+                "`bootCount` INTEGER NOT NULL, `ordinal` INTEGER NOT NULL, `revision` INTEGER NOT NULL, " +
+                "`updatedAtMs` INTEGER NOT NULL, `nextDueElapsedMs` INTEGER, `pauseUntilWallMs` INTEGER, " +
+                "`cycleDeadlineElapsedMs` INTEGER, `stateJson` TEXT NOT NULL, PRIMARY KEY(`sourceKind`,`sourceId`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_state_bootCount_nextDueElapsedMs` ON `alert_local_state` (`bootCount`,`nextDueElapsedMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_state_bootCount_pauseUntilWallMs` ON `alert_local_state` (`bootCount`,`pauseUntilWallMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_state_bootCount_cycleDeadlineElapsedMs` ON `alert_local_state` (`bootCount`,`cycleDeadlineElapsedMs`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `alert_local_cycles` (" +
+                "`sourceKind` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `generation` INTEGER NOT NULL, `ordinal` INTEGER NOT NULL, " +
+                "`bootCount` INTEGER NOT NULL, `level` TEXT NOT NULL, `startedElapsedMs` INTEGER NOT NULL, " +
+                "`deadlineElapsedMs` INTEGER NOT NULL, `claimedAtMs` INTEGER NOT NULL, `terminalAtMs` INTEGER, " +
+                "`status` TEXT NOT NULL, `resultJson` TEXT NOT NULL, PRIMARY KEY(`sourceKind`,`sourceId`,`generation`,`ordinal`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_cycles_claimedAtMs` ON `alert_local_cycles` (`claimedAtMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_cycles_status_claimedAtMs` ON `alert_local_cycles` (`status`,`claimedAtMs`)")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -765,6 +785,7 @@ object CopilotMigrations {
         MIGRATION_27_28,
         MIGRATION_28_29,
         MIGRATION_29_30,
-        MIGRATION_30_31
+        MIGRATION_30_31,
+        MIGRATION_31_32
     )
 }
