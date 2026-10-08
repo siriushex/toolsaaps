@@ -78,8 +78,11 @@ Files:
 
 Both absent-API REDs were inspected. Initial lease24 and adapter4 cases passed.
 Three callback/reentrancy cases then failed on the unchanged implementation;
-after the guarded transition fix, focused91 across7 suites passed with0 failures,
-errors or skips. New tests total31. Full Android quality passed in7m1s:4931
+after the guarded transition fix, focused91 across7 suites passed. A late
+LOW_NOW floor regression then failed expected5/actual2 for a quiet caller step;
+the helper now clamps to the canonical first-target minimum. Final focused92
+across7 suites pass with0 failures/errors/skips. New tests total32. Full Android
+quality after this change passed in9m41s:4932
 cases across424 suites,0 failures/errors and3 optional real-phone-copy skips.
 Fresh lint XML:0 errors,305 existing warnings,4 hints and no new volume issues.
 The candidate APK contains the two new classes and is not installed.

@@ -7,6 +7,8 @@
 - Exact cycle binding, bounded elapsed admission and readback prevent stale
   callbacks or unconfirmed sets from granting progress. Callback cancellation
   and reentrancy were demonstrated RED then fixed. Cancellation propagates.
+- The canonical first-target floor is enforced in this helper as well as the
+  profile producer; a caller's quiet step cannot weaken admitted LOW_NOW70%.
 - Observed override/unknown hardware ownership prevents restoration; cleanup
   compares current index/maximum and never retries a released lease. No route,
   DND/ringer or other-stream setters and no raw exception/clinical logs.

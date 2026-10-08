@@ -73,7 +73,8 @@ class LocalAlarmVolumeLease(
         if (owner !== lease) return result(AlarmVolumeStatus.WRONG_OWNER)
         if (!valid(before) || before.maximum != lease.maximum) return result(AlarmVolumeStatus.UNAVAILABLE)
         if (before.index != lease.confirmed) return stop(lease, AlarmVolumeStatus.OVERRIDDEN)
-        val target = LocalAlarmProfiles.targetVolume(percent, before.maximum, before.index)
+        val effectivePercent = maxOf(percent, LocalAlarmProfiles.targets(cycle.level).first())
+        val target = LocalAlarmProfiles.targetVolume(effectivePercent, before.maximum, before.index)
             ?: return result(AlarmVolumeStatus.UNAVAILABLE)
         admissionStatus(lease)?.let { return stop(lease, it) }
         if (target != before.index) {

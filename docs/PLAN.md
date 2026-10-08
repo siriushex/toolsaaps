@@ -9,8 +9,10 @@
   Reentrant acquisition/restoration and post-cancellation writes reject.
 - Plan: `superpowers/plans/2026-10-08-alarm-volume-lease.md`. Absent APIs were
   verified RED; three real callback/reentrancy regressions failed before fixes.
-  Focused91 cases, including31 new cases, pass with zero failures/errors/skips.
-- Full Android unit/lint/compile/assemble passed:4931 cases across424 suites,
+  A late floor regression also failed: a25% caller request weakened LOW_NOW.
+  The lease now enforces the canonical first-target minimum. Focused92 cases,
+  including32 new cases, pass with zero failures/errors/skips.
+- Full Android unit/lint/compile/assemble passed:4932 cases across424 suites,
   zero failures/errors,3 optional phone-copy skips. Fresh lint XML has0 errors,
   305 existing warnings,4 hints and no new volume-file issues. Candidate APK
   contains both new classes but is not installed. Reviewed publication and

@@ -6,7 +6,9 @@
 One exact LocalAlarmCycle owns the observed baseline/maximum and confirmed
 index. Current elapsed time and injected coordinator admission guard capture
 and every raise; indices round up through LocalAlarmProfiles and never lower
-an already louder stream. Readback, not setter return, confirms a raised index.
+an already louder stream. The canonical first profile target is a minimum even
+if a caller asks for a quieter step; LOW_NOW retains its70% floor. Readback,
+not setter return, confirms a raised index.
 Observed manual/system override or uncertain hardware ownership stops this
 lease. Cleanup restores only a confirmed, still-matching owned value; OFF or
 expiry does not prevent guarded cleanup. Cancellation propagates.

@@ -9,6 +9,8 @@
   owner and cancellation during admission prevents a subsequent volume write.
 - Raises do not lower current volume. Setter return is not confirmation;
   valid readback, unchanged maximum and current admission are required.
+- A caller cannot weaken the canonical first profile target. In particular,
+  admitted LOW_NOW raises retain the70% minimum, not a caller's quieter request.
 - An observed manual/system change permanently stops raises/restoration for
   this lease. Uncertain write outcome, fixed/invalid hardware or changed maximum
   grants no restoration. A still-known owned value may be cleaned up after OFF.

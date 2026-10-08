@@ -40,6 +40,13 @@ class LocalAlarmVolumeLeaseTest {
         assertThat(port.writes).isEmpty()
     }
 
+    @Test fun aQuieterCallerStepCannotWeakenTheUrgentProfileFloor() {
+        lease.acquire(cycle)
+        assertThat(lease.raise(cycle, 25).confirmedIndex).isEqualTo(5)
+        assertThat(port.writes).containsExactly(5)
+        assertThat(lease.release(cycle).status).isEqualTo(AlarmVolumeStatus.RESTORED)
+    }
+
     @Test fun duplicateAcquisitionCannotReplaceTheBaseline() {
         lease.acquire(cycle)
         lease.raise(cycle, 70)

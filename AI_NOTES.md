@@ -12,7 +12,11 @@
   Three real regressions then failed: write after admission-callback release,
   replacement during pending acquisition, and new owner during restoration.
   Fixed with exact owner revalidation and acquisition/restoration markers.
-  Final focused91 /7 suites pass,31 new cases, zero failures/errors/skips.
+  Initial focused91 /7 suites passed,31 new cases, zero failures/errors/skips.
+- A late pre-completion review demonstrated that a caller's25% request could
+  weaken LOW_NOW: actual RED expected5/actual2 on the7-step fake port. The helper
+  now enforces the canonical first-target floor as well as current volume.
+  Final focused92 /7 suites pass,32 new cases, zero failures/errors/skips.
 - Volume-only prerequisite, no production consumers/service/player/vibrator/
   source/UI/timer/settings/Room/network/therapy/target/forecast change. Legacy
   default sound and urgent-low floor remain unchanged. This is not an enabled
@@ -20,7 +24,8 @@
 - Admission authority belongs to the future serialized coordinator. Observed
   index comparison is not atomic against Android or proof of perceived sound;
   hidden change-and-return and identical-index route changes remain limitations.
-- Full Android unit/lint/compile/assemble passed in7m1s:4931 cases across424
+- Full Android unit/lint/compile/assemble passed after the floor fix in9m41s:
+  4932 cases across424
   suites, zero failures/errors,3 optional phone-copy skips. Lint report was
   explicitly refreshed after cached reuse:0 errors,305 existing warnings,
   4 hints and no new volume-file issues. APK contains both classes; not installed.
