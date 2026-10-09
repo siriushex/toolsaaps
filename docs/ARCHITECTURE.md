@@ -11,6 +11,10 @@ intentional disconnect, muted evaluation and monitor failure publish no source.
 A superseding accepted transition withdraws the old source before suspending
 writes; rejected duplicates leave its identity and evaluation time unchanged.
 Fresh packets preserve the existing episode origin and legacy receipt semantics.
+A retained episode can originate on an older boot. Its elapsed origin is history,
+not current authority; compare it with evaluation time only on the same boot.
+A fresh validated current-boot packet can establish a fault without rewriting
+that legacy episode. Old persisted packets alone still cannot do so after reboot.
 
 alarmSource is a conflated wake/provenance feed, not hardware admission.
 currentAlarmSource rechecks current boot/elapsed time, the existing policy
@@ -19,6 +23,8 @@ data cannot retain an expired condition, survive reboot/backwards time or a
 concurrent revocation. Missing-heartbeat evidence uses the existing technical
 absence policy; no fabricated TTL, clinical risk or off-body detection is added.
 No additional timer, poll, persistence schema or accepted packet cadence changes.
+Existing deadline scheduling captures time after publication, so synchronous
+subscriber work cannot move the absolute heartbeat deadline into the future.
 
 The existing committed global OFF/resume/overview cleanup withdraws this source
 without Room/monitor reentry and before legacy player cleanup. OFF expiry alone

@@ -36,9 +36,11 @@ class PumpLinkAlarmSource internal constructor(
     val evaluatedElapsedMs: Long,
     val nextEvaluationElapsedMs: Long?
 ) {
+    // A retained episode's elapsed origin is comparable only within its own boot.
     internal fun current(now: Long, boot: Int): Boolean = now >= evaluatedElapsedMs &&
-        snapshot.bootCount == boot && episode.bootCount == boot &&
-        episode.startedElapsedMs in 0..evaluatedElapsedMs && !snapshot.intentionalDisconnect &&
+        snapshot.bootCount == boot && episode.bootCount >= 0 && episode.startedElapsedMs >= 0 &&
+        (episode.bootCount != boot || episode.startedElapsedMs <= evaluatedElapsedMs) &&
+        !snapshot.intentionalDisconnect &&
         condition.needsAttention && condition != PumpLinkCondition.MONITOR_UNAVAILABLE &&
         (nextEvaluationElapsedMs == null || now < nextEvaluationElapsedMs) &&
         PumpLinkHealthPolicy.condition(snapshot, now, boot) == condition

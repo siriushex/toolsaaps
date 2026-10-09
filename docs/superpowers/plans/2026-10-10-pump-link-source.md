@@ -20,6 +20,9 @@ change technical/clinical policy, activate a consumer or touch a phone.
 4. Withdraw during existing committed global OFF/resume/overview cleanup before
    legacy player cleanup, without lock reentry. Test real Room ordering, expiry,
    old coordination failure, late commit and restart; retain no-runtime guards.
+   A retained prior-boot episode cannot authorize an old packet or suppress a
+   fresh accepted current-boot fault. Compare elapsed origins only within a boot.
+   Slow synchronous subscribers cannot slide the existing absolute deadline.
 5. Run focused/full Android checks, review source/private-data boundaries and
    update documentation. Publish reviewed source to existing feature branch/PR;
    confirm exact pushed SHA and Verify. No merge, installation or activation.

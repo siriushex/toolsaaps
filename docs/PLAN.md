@@ -6,11 +6,14 @@
   monitor. Exact saved provenance, current boot/elapsed/condition/deadline read,
   superseding/failure/recovery/intentional-disconnect revocation and committed
   OFF/resume cleanup are covered without a new timer or alarm activation.
-- Plan: superpowers/plans/2026-10-10-pump-link-source.md. Focused93 tests/7 suites
-  pass,18 new cases, zero failures/errors/skips. Full Android quality passed
-  in4m42s:5057 cases/432 suites, zero failures/errors,3 optional phone-copy skips.
+- Plan: superpowers/plans/2026-10-10-pump-link-source.md. Final95 tests/7 suites
+  pass,20 new cases, zero failures/errors/skips. Full Android quality passed
+  in4m24s:5059 cases/432 suites, zero failures/errors,3 optional phone-copy skips.
   Fresh lint: zero errors,305 existing warnings,4 hints, no new source issues.
   Exact-source publication/Verify is recorded separately after completion.
+  Actual REDs covered current-boot faults with retained historical episodes and
+  deadline sliding during a slow subscriber. Old-boot elapsed origin is not
+  compared with current time; existing post-publication timer capture remains.
 - Next: accepted glucose/diagnostic producers and complete current-context bridge
   with stable alarm identity/age, explicit OFF-intent cancellation and platform
   capability/opt-in admission. Async failures/native fallback, foreground/wake,

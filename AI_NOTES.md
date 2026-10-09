@@ -31,6 +31,27 @@
 - Plan: docs/superpowers/plans/2026-10-10-pump-link-source.md. Private evidence
   and native execution checkpoint remain outside source publication.
 
+## Reboot Boundary Follow-Up
+
+- Late self-review reproduced a real RED: a fresh valid new-boot fault packet
+  was accepted by the monitor, but its source was discarded because the retained
+  legacy episode belonged to the previous boot. The episode can span reboot;
+  its elapsed origin must not be compared with a different boot's clock.
+- Source admission now uses the checked current-boot packet and current policy,
+  retaining the exact old episode only as historical provenance. Old persisted
+  packets alone still cannot authorize after reboot. No legacy episode rewrite,
+  detector, receipt or clinical change.
+- A slow synchronous source subscriber also reproduced RED: proposed reuse of
+  the publication clock capture slid the existing heartbeat timer. Restored the
+  original scheduling-time capture after publication and retained a deterministic
+  deadline regression. No timer-policy or polling change is introduced.
+- Reboot-focused94 cases/7 suites passed before the new deadline regression.
+  Final95 cases/7 suites pass,20 new cases, zero failures/errors/skips.
+  Full Android unit/lint/compile/debug-build recheck passed in4m24s:5059 cases/
+ 432 suites, zero failures/errors,3 optional phone-copy skips. Fresh lint retains
+  zero errors,305 warnings,4 hints and no source issues. Final exact-source CI
+  is recorded privately only after completion. No device/runtime activation.
+
 # Inactive serialized local alarm coordinator - 2026-10-10
 
 - Continued from a1fb8065 in the existing feature worktree. Successful read-only

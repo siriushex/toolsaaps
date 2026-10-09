@@ -9,6 +9,11 @@
   provenance and muted evaluation cannot retain audible-source metadata.
 - Rejected duplicates cannot renew observed time or move the episode origin.
   Fresh evidence retains the existing legacy episode/claim behavior.
+- A previous-boot episode is historical provenance only. Never compare its
+  elapsed origin with current-boot elapsed time or use it alone as authority.
+  A fresh accepted current-boot packet must not lose a confirmed technical fault.
+- Capture deadline scheduling time after source publication; subscriber work
+  cannot slide the existing absolute heartbeat/status deadline.
 - Cached flow is only a wake/provenance feed. Synchronous current read rechecks
   boot, elapsed time, canonical condition/deadline and exact source identity.
   Clock failure denies admission; cancellation propagates. No invented TTL.

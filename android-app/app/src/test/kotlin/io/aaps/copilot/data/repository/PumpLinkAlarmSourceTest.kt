@@ -11,10 +11,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -167,7 +169,7 @@ class PumpLinkAlarmSourceTest {
         assertThat(monitor.currentAlarmSource()).isNull()
     }
 
-    @Test fun mutedTransitionAndExplicitOffRevokeWithoutWaitingForMonitorLock() = runTest {
+    @Test fun mutedTransitionAndExplicitOffRequireValidatedRepublish() = runTest {
         var muted = false
         val monitor = PumpLinkHealthMonitor(backgroundScope, Store(), { start }, { 12 },
             { PumpLinkNotice.DELIVERED }, {}, PumpLinkMuteCoordinator { it(muted) })
@@ -231,7 +233,7 @@ class PumpLinkAlarmSourceTest {
         val old = launch { runCatching { monitor.refresh() } }
         runCurrent()
         monitor.accept(fault)
-        val source = monitor.currentAlarmSource()
+        val source = requireNotNull(monitor.currentAlarmSource())
         release.complete(Unit)
         old.join()
         assertThat(monitor.currentAlarmSource()).isSameInstanceAs(source)
@@ -263,5 +265,45 @@ class PumpLinkAlarmSourceTest {
         afterBoot.refresh()
         assertThat(afterBoot.state.value.episodeOpen).isTrue()
         assertThat(afterBoot.currentAlarmSource()).isNull()
+    }
+
+    @Test fun freshNewBootFaultDoesNotBorrowOldElapsedClockOrLoseCurrentEvidence() = runTest {
+        var boot = 12
+        var now = start
+        val store = Store()
+        val monitor = PumpLinkHealthMonitor(backgroundScope, store, { now }, { boot },
+            { PumpLinkNotice.DELIVERED }, {}, unmuted)
+        assertThat(monitor.accept(fault)).isTrue()
+        val origin = requireNotNull(monitor.currentAlarmSource()).episode
+        boot = 13
+        now = 10_000
+        assertThat(monitor.currentAlarmSource()).isNull()
+        val fresh = fault.copy(bootCount = boot, sampledElapsedMs = now, lastVerifiedStatusElapsedMs = null)
+        assertThat(monitor.accept(fresh)).isTrue()
+        val source = requireNotNull(monitor.currentAlarmSource())
+        assertThat(source.snapshot).isEqualTo(fresh)
+        assertThat(source.evaluatedElapsedMs).isEqualTo(now)
+        assertThat(source.episode).isEqualTo(origin)
+        assertThat(source.episode.startedElapsedMs).isGreaterThan(now)
+        boot = 12
+        assertThat(monitor.currentAlarmSource()).isNull()
+    }
+
+    @Test fun slowSourceSubscriberCannotSlideExistingHeartbeatDeadline() = runTest {
+        var publicationWorkMs = 0L
+        val monitor = PumpLinkHealthMonitor(backgroundScope, Store(),
+            { start + testScheduler.currentTime + publicationWorkMs }, { 12 },
+            { PumpLinkNotice.DELIVERED }, {}, unmuted)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            monitor.alarmSource.collect { source ->
+                if (source?.condition == PumpLinkCondition.DRIVER_ERROR) publicationWorkMs = 1_000L
+            }
+        }
+        monitor.accept(fault)
+        assertThat(publicationWorkMs).isEqualTo(1_000L)
+        advanceTimeBy(PumpLinkHealthPolicy.HEARTBEAT_TIMEOUT_MS - publicationWorkMs)
+        runCurrent()
+        assertThat(monitor.state.value.condition).isEqualTo(PumpLinkCondition.AAPS_UNREACHABLE)
+        assertThat(monitor.currentAlarmSource()!!.condition).isEqualTo(PumpLinkCondition.AAPS_UNREACHABLE)
     }
 }

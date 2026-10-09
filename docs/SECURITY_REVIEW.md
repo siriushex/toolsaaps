@@ -8,6 +8,8 @@
 - Current read independently checks boot, elapsed/condition/deadline and exact
   publication after external clock callbacks; stale flow observations cannot
   authorize hardware. No fabricated clock/generation/TTL or reset of history.
+  Previous-boot episode timing is not compared with the current elapsed epoch;
+  only current accepted packet provenance establishes a post-reboot fault.
 - Committed global OFF cleanup invalidates before legacy cleanup, without
   Room/monitor reentry. Delayed old coordination failure cannot revoke newer
   publication. OFF expiry alone does not rebuild a source or replay delivery.
