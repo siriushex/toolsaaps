@@ -1,3 +1,35 @@
+# Inactive serialized local alarm coordinator - 2026-10-10
+
+- Continued from a1fb8065 in the existing feature worktree. Successful read-only
+  ADB inventory remains empty. No installation/activation/sound/forced-volume/
+  DND/therapy action, phone CPU/RAM measurement or full-night acceptance.
+- Added one explicitly run coordinator combining existing preview and executor,
+  mandatory current accepted context, conflated wakes and one nearest timer.
+  Exact authority revocation/cancel/join precedes replacement claims; changed
+  current snapshots discard suspended old selections. No production constructor.
+- Executor callbacks expose committed ownership before hardware and outcome after
+  independent cleanup even on cancellation. Metadata-only interrupted recovery
+  preserves due/ordinal/reached/ACK without speculative START. Separate lifetime
+  and global-OFF locks avoid revocation waiting for journal cleanup. Unavailable
+  cleanup/storage latches the database-instance runtime closed in process.
+- Missing API REDs were reproduced. One cancellation assertion needed the original
+  throwable cause chain because coroutine stacktrace recovery copies exceptions;
+  this was a fixture correction, not a production defect. First integration49
+  cases/3 suites passed; expanded215 cases/15 suites passed before final review
+  additions. Final relevant216 cases/14 suites pass, including27 new tests.
+  Full Android unit/lint/compile/debug-build passed in4m38s:5039 cases/431 suites,
+  zero failures/errors,3 optional phone-copy skips. Fresh lint: zero errors,
+ 305 existing warnings,4 hints, no new coordinator/ownership issues. Local APK
+  is a prepublication candidate, not installed or an exact-source device release.
+  Reviewed publication/exact-source Verify is recorded in the private native
+  checkpoint only after actual completion.
+- Inline self-review only, not an independent reviewer. New actor remains inactive;
+  source/OFF production, service/foreground capabilities, async errors/native
+  fallback, notification/vibration/wake ownership, opt-in/ACK UI and real-device
+  migration/install/night acceptance remain. No clinical/target/legacy change.
+- Plan: docs/superpowers/plans/2026-10-10-local-alarm-coordinator.md. Private
+  checkpoint and test/build evidence stay outside source publication.
+
 # Read-only local alarm arbitration - 2026-10-09
 
 - Continued the existing feature worktree from612c0f56. Current successful

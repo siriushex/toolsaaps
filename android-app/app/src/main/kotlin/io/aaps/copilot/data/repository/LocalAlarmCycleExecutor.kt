@@ -42,7 +42,7 @@ data class LocalAlarmExecutionContext(
 )
 
 enum class LocalAlarmExecutionStatus {
-    FINISHED, NOT_STARTED, BUSY, DENIED, INVALID_SETTINGS, MISSED_START,
+    FINISHED, CANCELLED, NOT_STARTED, BUSY, DENIED, INVALID_SETTINGS, MISSED_START,
     VOLUME_UNAVAILABLE, AUDIO_FAILED, JOURNAL_UNAVAILABLE, CLEANUP_UNAVAILABLE
 }
 
@@ -55,7 +55,9 @@ class LocalAlarmCycleExecutor(
     private val audio: LocalAlarmAudioPort,
     private val current: () -> LocalAlarmExecutionContext?,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
-    private val waitMs: suspend (Long) -> Unit = { delay(it) }
+    private val waitMs: suspend (Long) -> Unit = { delay(it) },
+    private val onClaimed: (LocalAlarmCycle) -> Unit = {},
+    private val onFinished: (LocalAlarmExecutionResult) -> Unit = {}
 ) {
     private class Session(val state: LocalAlarmState, val timing: LocalAlarmTiming, val job: Job) {
         @Volatile var window: StepWindow? = null
@@ -77,21 +79,23 @@ class LocalAlarmCycleExecutor(
         var journalFinished = true
         var cleanupConfirmed = true
         var cancellation: CancellationException? = null
+        var outcome = LocalAlarmExecutionResult(status)
+        fun rejected(reason: LocalAlarmExecutionStatus) = LocalAlarmExecutionResult(reason).also { outcome = it }
         try {
-            val initial = context() ?: return@withContext LocalAlarmExecutionResult(status)
-            if (!initial.audioAvailable || !initial.volumeAvailable) return@withContext LocalAlarmExecutionResult(status)
+            val initial = context() ?: return@withContext rejected(status)
+            if (!initial.audioAvailable || !initial.volumeAvailable) return@withContext rejected(status)
             val claimTiming = timing(settings, GlucoseAlertAudioSlot.CRITICAL_PRIMARY)
             if (LocalAlarmProfiles.create(initial.evidence.level, claimTiming) == null) {
-                return@withContext LocalAlarmExecutionResult(LocalAlarmExecutionStatus.INVALID_SETTINGS)
+                return@withContext rejected(LocalAlarmExecutionStatus.INVALID_SETTINGS)
             }
             if (LocalAlarmPolicy.evaluate(initial.evidence, null, initial.environment, claimTiming).admission != LocalAlarmAdmission.START) {
-                return@withContext LocalAlarmExecutionResult(status)
+                return@withContext rejected(status)
             }
             currentCoroutineContext().ensureActive()
             val claim = store.evaluate(initial.evidence, claimTiming)
-                ?: return@withContext LocalAlarmExecutionResult(LocalAlarmExecutionStatus.JOURNAL_UNAVAILABLE)
+                ?: return@withContext rejected(LocalAlarmExecutionStatus.JOURNAL_UNAVAILABLE)
             if (claim.admission != LocalAlarmAdmission.START || claim.startCycle == null || claim.state == null) {
-                return@withContext LocalAlarmExecutionResult(LocalAlarmExecutionStatus.NOT_STARTED)
+                return@withContext rejected(LocalAlarmExecutionStatus.NOT_STARTED)
             }
             val cycle = claim.startCycle
             val slot = if (cycle.ordinal % 2L == 1L) GlucoseAlertAudioSlot.CRITICAL_PRIMARY
@@ -99,6 +103,7 @@ class LocalAlarmCycleExecutor(
             val executionTiming = timing(settings, slot)
             session = Session(claim.state, executionTiming, requireNotNull(currentCoroutineContext()[Job]))
             owner = session
+            onClaimed(cycle)
             val profile = LocalAlarmProfiles.create(cycle.level, executionTiming, claim.state.reachedPercent)
             status = if (profile == null) LocalAlarmExecutionStatus.INVALID_SETTINGS else runSteps(session, profile, settings)
         } catch (cancelled: CancellationException) {
@@ -136,14 +141,23 @@ class LocalAlarmCycleExecutor(
                     owner = null
                     mutex.unlock()
                 }
+                outcome = if (session == null) {
+                    if (cancellation == null) outcome else LocalAlarmExecutionResult(LocalAlarmExecutionStatus.CANCELLED)
+                } else LocalAlarmExecutionResult(when {
+                    !journalFinished -> LocalAlarmExecutionStatus.JOURNAL_UNAVAILABLE
+                    !cleanupConfirmed -> LocalAlarmExecutionStatus.CLEANUP_UNAVAILABLE
+                    cancellation != null -> LocalAlarmExecutionStatus.CANCELLED
+                    else -> status
+                }, session?.cycle)
+                try {
+                    onFinished(outcome)
+                } catch (failure: Exception) {
+                    if (cancellation == null) throw failure else cancellation?.addSuppressed(failure)
+                }
                 if (cancellation == null) cleanupCancellation?.let { throw it }
             }
         }
-        LocalAlarmExecutionResult(when {
-            !journalFinished -> LocalAlarmExecutionStatus.JOURNAL_UNAVAILABLE
-            !cleanupConfirmed -> LocalAlarmExecutionStatus.CLEANUP_UNAVAILABLE
-            else -> status
-        }, session?.cycle)
+        outcome
     }
 
     /** Stale actions cannot cancel a different generation/ordinal or replacement owner. */

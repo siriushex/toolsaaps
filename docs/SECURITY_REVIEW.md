@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Inactive Serialized Runtime (2026-10-10)
+
+- Mandatory current source/OFF/capability context, no default-true authority or
+  production constructor. Signals revoke admission/cancel synchronously without
+  Room locking; hardware cleanup remains Main-owned and precedes journal finish.
+- Lifetime ownership is separate from OFF transactions. Starting claims report
+  exact tokens; read-only preview never adopts an execution owner's pending claim.
+  Replacement claims wait for cancel/join and confirmed terminal cleanup.
+- Abandoned exact claims get metadata-only UNCERTAIN with no new claim/replay.
+  Corrupt journal and unknown cleanup stop/latch the runtime closed in process;
+  constructing another actor cannot retry uncertain hardware automatically.
+- Bounded snapshots and one conflated wake/nearest timer; no raw exception,
+  clinical data/network logging, source detector/therapy writer, setting/schema/
+  permission or device action. Current-context changes discard old selections.
+- Synthetic ports test orchestration, not Android audio completion/hearing or
+  locked-screen delivery. Source/service/channel/UI and real-device gates remain.
+  Legacy initial delivery and urgent-low protection remain unchanged.
+
 ## Read-Only Multi-Source Selection (2026-10-09)
 
 - Accepted evidence is separate from queue age/journal. Existing policy still

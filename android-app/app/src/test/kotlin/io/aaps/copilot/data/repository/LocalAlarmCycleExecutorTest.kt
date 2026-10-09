@@ -71,11 +71,13 @@ class LocalAlarmCycleExecutorTest {
         }
     }
 
-    private fun executor() = LocalAlarmCycleExecutor(store, volume, audio,
+    private fun executor(onClaimed: (LocalAlarmCycle) -> Unit = {},
+        onFinished: (LocalAlarmExecutionResult) -> Unit = {}) = LocalAlarmCycleExecutor(store, volume, audio,
         current = { LocalAlarmExecutionContext(signal, environment, capability, capability) },
         dispatcher = Dispatchers.Unconfined,
         waitMs = { ms -> onWait(ms); environment = environment.copy(
-            nowElapsedMs = environment.nowElapsedMs + ms, nowWallMs = environment.nowWallMs + ms) })
+            nowElapsedMs = environment.nowElapsedMs + ms, nowWallMs = environment.nowWallMs + ms) },
+        onClaimed = onClaimed, onFinished = onFinished)
 
     private suspend fun result(cycle: LocalAlarmCycle) = LocalAlarmPersistenceCodec.decodeResult(
         db.alertLocalDao().cycle(cycle.key.kind.name, cycle.key.id, cycle.generation, cycle.ordinal)!!.resultJson)!!
@@ -318,6 +320,63 @@ class LocalAlarmCycleExecutorTest {
         assertTrue(volume.writes.isEmpty())
         assertTrue(audio.steps.isEmpty())
         assertEquals("CANCELLED", row(outcome.cycle!!).status)
+    }
+
+    @Test fun reportsCommittedOwnerBeforeAudioAndOutcomeAfterCleanup() = runBlocking {
+        var committed: LocalAlarmCycle? = null
+        val reports = mutableListOf<LocalAlarmExecutionResult>()
+        audio.onStart = { assertEquals(committed, it) }
+        val outcome = executor(onClaimed = { committed = it }, onFinished = {
+            assertTrue(audio.stopped.contains(it.cycle)); reports += it
+        }).execute(settings)
+        assertEquals(outcome.cycle, committed); assertEquals(listOf(outcome), reports)
+        assertEquals("FINISHED", row(outcome.cycle!!).status)
+    }
+
+    @Test fun cancellationReportsCleanupThenPropagatesOriginalException() = runBlocking {
+        val failure = CancellationException("source_lost")
+        onWait = { throw failure }
+        val reports = mutableListOf<LocalAlarmExecutionResult>()
+        try { executor(onFinished = { reports += it }).execute(settings); fail() }
+        catch (cancelled: CancellationException) {
+            assertTrue(generateSequence<Throwable>(cancelled) { it.cause }.any { it === failure })
+        }
+        assertEquals(LocalAlarmExecutionStatus.CANCELLED, reports.single().status)
+        assertEquals("CANCELLED", row(reports.single().cycle!!).status)
+        assertEquals(1, volume.index)
+    }
+
+    @Test fun cancelledCleanupFailureIsReportedAsUnavailableNotSafeCancellation() = runBlocking {
+        audio.stopFails = true
+        onWait = { throw CancellationException("source_lost") }
+        val reports = mutableListOf<LocalAlarmExecutionResult>()
+        try { executor(onFinished = { reports += it }).execute(settings); fail() }
+        catch (_: CancellationException) {}
+        assertEquals(LocalAlarmExecutionStatus.CLEANUP_UNAVAILABLE, reports.single().status)
+    }
+
+    @Test fun deniedPreflightReportsNoOwnership() = runBlocking {
+        capability = false
+        val reports = mutableListOf<LocalAlarmExecutionResult>()
+        val outcome = executor(onFinished = { reports += it }).execute(settings)
+        assertEquals(listOf(outcome), reports); assertNull(outcome.cycle)
+        assertTrue(audio.steps.isEmpty()); assertTrue(volume.writes.isEmpty())
+    }
+
+    @Test fun failedClaimObserverCannotStartHardwareAndStillFinishesClaim() = runBlocking {
+        val reports = mutableListOf<LocalAlarmExecutionResult>()
+        try { executor(onClaimed = { error("observer_unavailable") }, onFinished = { reports += it }).execute(settings); fail() }
+        catch (_: IllegalStateException) {}
+        assertTrue(audio.steps.isEmpty()); assertTrue(volume.writes.isEmpty())
+        assertEquals("CANCELLED", row(reports.single().cycle!!).status)
+    }
+
+    @Test fun failedFinishObserverNeverRetainsExecutorLock() = runBlocking {
+        var failOnce = true
+        val runner = executor(onFinished = { if (failOnce) { failOnce = false; error("observer_unavailable") } })
+        try { runner.execute(settings); fail() } catch (_: IllegalStateException) {}
+        signal = signal.copy(generation = 2)
+        assertEquals(LocalAlarmExecutionStatus.FINISHED, runner.execute(settings).status)
     }
 
     private fun testSettings() = AppSettings(

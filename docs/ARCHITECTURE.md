@@ -1,5 +1,33 @@
 # ARCHITECTURE
 
+## Inactive Serialized Alarm Coordinator
+
+LocalAlarmCoordinator has no production constructor call. Construction/signals
+cannot start it; an explicitly running future owner must supply current accepted
+typed requests, saved settings, boot/clocks/OFF and platform capabilities. The
+coordinator never infers arming from journal, UI risk or notification history.
+
+One database-instance lifetime mutex is separate from the short global OFF/Room
+lock. One conflated wake channel and nearest deadline drive bounded arbitration,
+without per-source polling, forecast or AI work. A starting job reports its exact
+committed cycle before hardware; completed/cancelled jobs report only after all
+cleanup attempts. Preview cannot mistake that in-flight claim for an orphan.
+Changed snapshots after suspending reads are discarded. Current-source/OFF/
+capability invalidation synchronously revokes the guard and cancels the owned job;
+Main cleanup does not wait for journal locking before audio stop/volume release.
+Priority preemption cancels and joins the old job before re-preview/new START.
+Equal priority and duplicate updates retain cycle/due; no overdue steps replay.
+
+An abandoned exact claim is marked UNCERTAIN without policy evaluation/new START;
+ordinal, reached maximum, ACK and due are preserved before a fresh preview.
+Missing/unarmed authority idles without a timer. Storage/cleanup failure stops
+the actor and latches that database-instance runtime unavailable in this process,
+so constructing another actor cannot bypass unconfirmed cleanup. No reset API or
+automatic retry is provided. API reports do not prove hearing/media completion.
+Source publication, service/foreground capabilities, async errors/native fallback,
+notification/vibration/wake ownership, opt-in/ACK UI and real-device acceptance
+remain mandatory. Default legacy alerts and clinical writers are unchanged.
+
 ## Read-Only Local Alarm Arbitration
 
 LocalAlarmArbitrationPolicy selects from a complete current immutable batch of
@@ -28,9 +56,9 @@ reads actual Room OFF and validates the exact same keys' state/claim/result
 payloads. Null means unavailable/corrupt storage. Preview never changes ordinals,
 due, ACK, progress or cycle journal rows, even after an expired deadline.
 
-There are no runtime callers. A future serialized owner must cancel and join
-old execution before claiming a selected replacement, recheck genuinely current
-accepted authority/capabilities and publish source/OFF invalidation immediately.
+Only the inactive coordinator uses preview. No production caller constructs it.
+It cancels and joins old execution before claiming a selected replacement; future
+source producers must publish current accepted authority/OFF invalidation immediately.
 The decision/timestamp cannot arm a service or authorize hardware. Notification,
 vibration/wake/native fallback, lifecycle, opt-in/ACK UI and device/night delivery
 remain separate gates; legacy and clinical behavior are unchanged.
@@ -39,8 +67,8 @@ remain separate gates; legacy and clinical behavior are unchanged.
 
 LocalAlarmCycleExecutor combines one newly committed Room claim, the existing
 volume lease and the existing guarded audio controller through LocalAlarmAudioPort.
-No runtime constructs it. It is not the multi-source coordinator or an armed
-service. Initial claims use the saved repeat settings; actual strong-slot duration
+Only the inactive coordinator constructs it; no armed service does. Initial
+claims use the saved repeat settings; actual strong-slot duration
 is resolved for the cycle ordinal. Only START is executable; an existing ACTIVE
 claim is never adopted or replayed.
 

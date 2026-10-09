@@ -31,6 +31,9 @@ class RoomLocalAlarmStore(
     private val environmentProvider: () -> LocalAlarmEnvironment
 ) {
     private val mutex = EpisodeAlertOperationLocks.forIdentity(db)
+    private val runtime = LocalAlarmRuntimeOwnership.forIdentity(db)
+    internal val runtimeMutex get() = runtime.mutex
+    internal val runtimeUnavailable get() = runtime.unavailable
     private val dao get() = db.alertLocalDao()
     private data class Loaded(val row: AlertLocalStateEntity, val state: LocalAlarmState)
 
@@ -106,6 +109,15 @@ class RoomLocalAlarmStore(
         if (loaded.state.activeCycle != cycle || environment.bootCount != cycle.bootCount ||
             environment.nowElapsedMs < cycle.startedElapsedMs) return@guarded false
         terminal(cycle, if (cancelled) "CANCELLED" else "FINISHED", environment.nowWallMs)
+        persist(loaded, loaded.state.copy(cycleActive = false), environment.nowWallMs)
+        true
+    }
+
+    /** Exclusive runtime owner only: no policy evaluation or replacement claim. */
+    internal suspend fun markInterrupted(cycle: LocalAlarmCycle): Boolean = guarded(false) { environment ->
+        val loaded = load(cycle.key, environment) ?: return@guarded false
+        if (loaded.state.activeCycle != cycle) return@guarded false
+        terminal(cycle, "UNCERTAIN", environment.nowWallMs)
         persist(loaded, loaded.state.copy(cycleActive = false), environment.nowWallMs)
         true
     }

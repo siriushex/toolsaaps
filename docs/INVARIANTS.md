@@ -1,5 +1,22 @@
 # INVARIANTS
 
+## Inactive Alarm Runtime Ownership
+
+- Constructor/signal cannot auto-start or manufacture accepted authority.
+  No production source/service constructs the coordinator; opt-in stays absent.
+- One database-instance lifetime owner, distinct from the global OFF lock.
+  Revocation/stop must not wait for Room before cleanup starts on Main.
+- A committed in-flight claim belongs only to its actual execution job, not a
+  journal-derived owner. Exact cancel/join/cleanup precedes a replacement claim.
+- Suspended preview selections must match current input; callbacks report exact
+  ownership before hardware and terminal outcome after independent cleanup.
+- Abandoned claims become UNCERTAIN without speculative START; due/ordinal/
+  reached maximum/ACK survive. They are never adopted, replayed or retried.
+- Unavailable cleanup/storage latches the database-instance runtime closed in
+  process. A new coordinator cannot bypass it; no automatic reset is added.
+- One conflated wake and nearest timer, no source poll/forecast/AI/therapy work.
+  No live delivery, wake/vibration/notification or resource benefit is claimed.
+
 ## Local Alarm Source Selection
 
 - Selection reuses accepted-source policy and never commits preview START
@@ -15,10 +32,10 @@
   Room freezes it before suspending reads; choosing an unchecked switched-in
   source is forbidden. Corrupt storage fails the entire preview closed.
 - Preview reads actual Room OFF under the shared lock/transaction and changes
-  no journal, ordinal, repeat, pause or progress. No migration or runtime caller.
+  no journal, ordinal, repeat, pause or progress. No migration or production caller.
 - Only the nearest strictly future expiry/due/ACK/OFF/cycle deadline is returned.
   Checked wall conversion, no backlog/polling/AI or clinical cadence reduction.
-- Source production, serialized execution, capabilities/foreground/wake,
+- Source production, capabilities/foreground/wake,
   notification/vibration/native fallback and opt-in/device acceptance remain
   required. This stage does not improve measured phone or night delivery.
 

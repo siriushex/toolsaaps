@@ -1,5 +1,25 @@
 # PLAN
 
+## Inactive Alarm Coordinator (2026-10-10)
+
+- Added explicitly run serialized ownership, conflated wake/nearest timer,
+  synchronous authority revocation and cancel/join before replacement claims.
+  Executor reports committed ownership and terminal cleanup even on cancellation.
+  Separate lifetime/global-OFF locks and metadata-only UNCERTAIN recovery retain
+  due/ordinal/progress/ACK, without speculative START or abandoned replay.
+- Unconfirmed cleanup/storage stops and latches this database-instance runtime
+  unavailable in process; another constructor cannot bypass it. No reset/retry.
+- Plan: superpowers/plans/2026-10-10-local-alarm-coordinator.md. Final relevant
+ 216 cases/14 suites pass, including27 new cases. Full Android unit/lint/compile/
+  debug-build passed in4m38s:5039 cases/431 suites, zero failures/errors,3 optional
+  phone-copy skips. Fresh lint has zero errors,305 existing warnings,4 hints and
+  no new coordinator/ownership issues. Reviewed publication/exact-source Verify
+  is recorded separately only after actual completion.
+- No production construction/source hooks, opt-in/service/permission/schema,
+  notification/vibration/wake/native fallback or clinical change. Accepted
+  source/OFF producers, async media errors, dedicated foreground lifecycle,
+  capability/UI and device/night acceptance remain. ADB still has no phone.
+
 ## Read-Only Alarm Arbitration (2026-10-09)
 
 - Added bounded priority/oldest-due selection, exact-owner retention/preemption,

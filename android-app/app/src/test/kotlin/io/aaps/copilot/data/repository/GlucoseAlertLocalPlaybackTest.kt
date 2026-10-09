@@ -188,8 +188,11 @@ class GlucoseAlertLocalPlaybackTest {
         listOf("AutomationRepository", "ForecastRepository", "Telegram", "MediaPlayer(")
             .forEach { assertThat(executor).doesNotContain(it) }
         val runners = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCycleExecutor.kt" }
-            .filter { it.readText().contains(Regex("LocalAlarmCycleExecutor\\s*\\(")) }.toList()
-        assertThat(runners).isEmpty()
+            .filter { it.readText().contains(Regex("LocalAlarmCycleExecutor\\s*\\(")) }.map { it.relativeTo(root).path }.toList()
+        assertThat(runners).containsExactly("data/repository/LocalAlarmCoordinator.kt")
+        val coordinators = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCoordinator.kt" }
+            .filter { it.readText().contains(Regex("LocalAlarmCoordinator\\s*\\(")) }.toList()
+        assertThat(coordinators).isEmpty()
         val source = File(root, "data/repository/GlucoseAlertAudioController.kt").readText()
         listOf("AutomationRepository", "ForecastRepository", "Telegram", "setCommunicationDevice", "setRingerMode")
             .forEach { assertThat(source).doesNotContain(it) }
