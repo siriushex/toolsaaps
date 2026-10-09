@@ -1,3 +1,43 @@
+# Guarded local alarm playback - 2026-10-09
+
+- Continued the existing isolated feature branch at0d183ea8. Current successful
+  read-only ADB inventories are empty; no APK installation, live sound, forced
+  volume/DND, therapy write or phone CPU/RAM measurement occurred.
+- Added LocalAlarmPlaybackWindow and explicit guarded play/stop APIs inside the
+  existing audio controller, with no production callers. Canonical start windows,
+  fresh admission around side effects/callbacks, preparing-player timeout,
+  absolute elapsed cycle bound and exact player/focus/session cleanup.
+- Reuses selected resolver/preflight fallback/gains and one player. Alarm
+  attributes apply only to the new explicit API; it never writes stream volume.
+  Future coordinator owns confirmed urgent floor, OFF/source cancellation,
+  durable claims, foreground/wake/vibration/notification and UI activation.
+- TDD missing-API RED inspected after fixing a test-only listener signature;
+  first focused25 cases passed. Actual review REDs demonstrated leaked player
+  on clock jump at timer capture and clip extension on duplicate preparation.
+  The first two fixes passed focused79 cases. Late prepublication RED also
+  demonstrated stop-delay extension during post-start admission. The timer
+  now uses the captured absolute end; final focused80 cases across7 suites pass,
+  zero failures/errors/skips, including30 new cases. Fallback testing timed out because
+  its paused Robolectric seek callback was not dispatched; corrected the
+  fixture without changing production.
+- Final Android unit/lint/compile/debug-build gate passed in9m15s:4962 cases/
+  426 suites, zero failures/errors,3 optional phone-copy skips. Explicitly
+  refreshed lint XML:zero errors,305 warnings,4 hints; the two controller
+  SDK-guard warnings match unchanged baseline guards. No new window/test issues.
+  Candidate APK contains window/session classes and guarded play/stop APIs;
+  SHA256:46e8a917410b319a62a52d53122f3178958b281cf5c1b61d7ad85d2e7dd8ae9e.
+  Built locally before publication, not a deployed exact-source device release.
+  Earlier4961-case quality and82ce78a7 APK evidence remain historical only.
+- No clinical threshold, therapy/forecast/target, backend, settings, Room,
+  permission, service or default alert behavior change. Not an enabled ramp.
+- Platform URI/timer behavior is not hard real-time or Doze proof. Async custom
+  failure/native fallback, full runtime integration and device acceptance remain.
+- Plan: docs/superpowers/plans/2026-10-09-guarded-alarm-playback.md. Private native
+  checkpoint and synthetic logs remain outside source publication.
+- Inline self-review completed; not an independent subagent review. Reviewed
+  source publication/exact-source Verify are the external gate, recorded after
+  real completion in the private native checkpoint. No main merge.
+
 # Guarded alarm volume ownership - 2026-10-08
 
 - Human asked to check and continue. Fresh read-only ADB inventory is empty;

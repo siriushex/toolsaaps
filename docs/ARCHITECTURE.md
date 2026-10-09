@@ -1,5 +1,43 @@
 # ARCHITECTURE
 
+## Guarded Local Alarm Playback
+
+GlucoseAlertAudioController now exposes an explicit playLocalAlarm(cycle, step,
+settings, admitted) transport entry point and exact-cycle stopLocalAlarm.
+There are no production callers. The future serialized coordinator must supply
+the committed claim, fresh accepted source/OFF/capability checks and confirmed
+volume floor before playback; this API cannot authorize or arm an alarm.
+
+LocalAlarmPlaybackWindow reuses canonical policy/profile validation. Soft starts
+use absolute0/15/30/45s windows; only the first strong step starts a clip.
+Preparation/seek must finish before the next profile step or final55s deadline.
+Late callbacks fail closed, playback duration is clipped at the cycle deadline,
+and duplicate callbacks cannot restart or extend a clip. The most recent cycle's
+consumed steps are not retried; durable deduplication belongs to the journal.
+The stop timer subtracts post-start admission time from the captured absolute
+clip end, rather than reusing a full duration after a slow external callback.
+
+One existing player/focus owner, selected clip resolver, preflight built-in
+fallback and gains are reused. New clips and focus use USAGE_ALARM without
+writing any volume; the independent lease belongs to future execution.
+Admission is checked before takeover/focus/player creation, after preparation/
+seek and around start. Exact cancellation and player/focus tokens isolate stale
+callbacks. A preparation timeout releases the player/focus even without media
+callbacks. OFF/source events still require the owner to call exact stop while
+playing; no source polling or complete escalation coordinator is introduced.
+
+Legacy slot selection, attributes and urgent-low floor remain. Synchronous URI
+resolution is not a guaranteed bounded platform operation; elapsed validation
+after it prevents a late start. Handler timer delivery alone is not a real-time
+55s/Doze guarantee. Foreground service, wake/vibration/notification ownership,
+asynchronous custom-file failure fallback, source/UI integration, observability
+and real-device acceptance remain separate integration/release gates.
+
+Platform references: [MediaPlayer lifecycle](https://developer.android.com/reference/android/media/MediaPlayer)
+and [audio focus admission](https://developer.android.com/media/optimize/audio-focus).
+For target35+ the foreground/top-app requirement is a real admission gate,
+not something these synthetic tests establish for a connected phone.
+
 ## Guarded Alarm Volume Ownership
 
 `LocalAlarmVolumeLease` is a volume-only prerequisite for the Oct7 executor.

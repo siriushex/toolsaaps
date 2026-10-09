@@ -1,5 +1,25 @@
 # SECURITY REVIEW
 
+## Guarded Playback Transport (2026-10-09)
+
+- New explicit cycle/step API has no production callers and cannot arm itself.
+  Fresh committed claim/source/OFF/capability and urgent-floor authority belong
+  to the future serialized coordinator, not caller-independent saved JSON.
+- Canonical shape, absolute start/deadline bounds, exact-session cancellation
+  and player/focus tokens prevent missed/stale callback ownership. Synthetic
+  RED regressions covered clock-jump resource leakage and duplicate callbacks.
+  A late RED also reproduced post-start admission extending the stop timer;
+  the captured absolute end now bounds scheduling after that callback.
+- New mode changes only audio attributes/focus for its admitted clips; no
+  stream volume, route, ringer/DND, permission, network or therapy writer added.
+- Clip resolver/gains and one existing player are shared. Failure vocabulary
+  does not include raw exception payloads or clinical snapshots. Start API
+  success is not hearing, human acknowledgement or reliable night delivery.
+- Synchronous URI access and delayed platform timers are not hard real-time
+  guarantees. OFF while playing needs exact owner cancellation. Complete
+  foreground/wake/vibration/notification/source/UI integration and separately
+  authorized real-device tests remain mandatory before activation.
+
 ## Alarm Volume Ownership (2026-10-08)
 
 - Scope: volume-only helper plus STREAM_ALARM flags0 adapter, no runtime

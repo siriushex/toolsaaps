@@ -1,5 +1,25 @@
 # INVARIANTS
 
+## Local Alarm Playback Transport
+
+- New playback requires explicit exact-cycle/step admission; persisted state
+  or this transport never manufactures fresh source authority.
+- Only canonical audible start steps are accepted. Preparation/seek cannot
+  launch a missed step; playing duration cannot be scheduled past cycle55s.
+- Duplicate prepared/seek callbacks do not restart or extend a local clip.
+  Exact stop and focus/player/session ownership reject stale callbacks.
+- Slow post-start admission cannot slide the stop timer; it subtracts elapsed
+  work from the captured absolute end. Backwards/expired clocks stop the owner.
+- Cancellation propagates and cleanup completes on Main. No preparing player
+  remains on denial, media error, timeout or a clock jump at timer capture.
+- New mode shares the existing single player and uses alarm attributes/gains;
+  it does not alter stream volume, ringer/DND/route or clinical calculations.
+- Future coordinator admission must include the confirmed urgent floor and
+  call stop on current OFF/source/capability loss while playing. No default
+  true authority, polling, service or new-mode production caller is added.
+- Default legacy alerts remain. Platform URI/timer behavior is not a Doze
+  delivery guarantee; foreground/wake and real-device acceptance remain.
+
 ## Alarm Volume Lease
 
 - A volume lease cannot authorize an alarm, invent accepted source evidence or

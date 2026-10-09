@@ -1,5 +1,30 @@
 # PLAN
 
+## Guarded Local Alarm Playback (2026-10-09)
+
+- Bounded transport stage after policy/journal/volume: reuse the existing player
+  with explicit current admission, canonical clip-start windows, preparation
+  timeout, absolute cycle bound and exact cancellation. No runtime caller.
+- Plan: superpowers/plans/2026-10-09-guarded-alarm-playback.md.
+- Missing-API RED was inspected after correcting a test-only callback signature.
+  Initial focused25 cases passed. Self-review then demonstrated two actual RED
+  defects: missed timer capture left a player open; duplicate prepared callback
+  extended a clip. A late actual RED also caught stop-delay extension during
+  post-start admission; the captured absolute end now bounds its timer.
+  Final focused80 cases across7 suites pass with zero failures/errors/skips,
+  including30 new cases. A paused seek callback
+  needed explicit dispatch in the fallback fixture; no production workaround.
+  Final Android unit/lint/compile/assemble passed in9m15s:4962 cases across426
+  suites, zero failures/errors,3 optional phone-copy skips. Fresh lint XML:
+  zero errors,305 existing warnings,4 hints; the controller's two SDK-guard
+  warnings already existed in the baseline. APK contains the new window/API.
+  Reviewed publication and exact-source CI remain the external source gate.
+- No service/source/UI/setting/permission, volume lease consumer, vibration,
+  wake lock, notification, Room, clinical/therapy/target/forecast/backend change.
+- Actual device/incident audit, authorized fresh-backup update and sound tests,
+  matched CPU/RAM evidence, and complete opt-in runtime integration remain gates.
+  Fresh read-only ADB still has no phone; no device writes were performed.
+
 ## Guarded Alarm Volume Lease (2026-10-08)
 
 - Next bounded prerequisite after policy/storage: single exact-cycle volume
