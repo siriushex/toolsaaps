@@ -6,6 +6,9 @@ import io.aaps.copilot.data.local.entity.AlertLocalCycleEntity
 import io.aaps.copilot.data.local.entity.AlertLocalStateEntity
 import io.aaps.copilot.domain.alerts.LocalAlarmAcknowledgement
 import io.aaps.copilot.domain.alerts.LocalAlarmAdmission
+import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationDecision
+import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationPolicy
+import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationStatus
 import io.aaps.copilot.domain.alerts.LocalAlarmCycle
 import io.aaps.copilot.domain.alerts.LocalAlarmCycleResult
 import io.aaps.copilot.domain.alerts.LocalAlarmEnvironment
@@ -15,6 +18,7 @@ import io.aaps.copilot.domain.alerts.LocalAlarmKey
 import io.aaps.copilot.domain.alerts.LocalAlarmPersistenceCodec
 import io.aaps.copilot.domain.alerts.LocalAlarmPolicy
 import io.aaps.copilot.domain.alerts.LocalAlarmProfiles
+import io.aaps.copilot.domain.alerts.LocalAlarmRequest
 import io.aaps.copilot.domain.alerts.LocalAlarmState
 import io.aaps.copilot.domain.alerts.LocalAlarmStepResult
 import io.aaps.copilot.domain.alerts.LocalAlarmTiming
@@ -37,6 +41,20 @@ class RoomLocalAlarmStore(
     /** Called by a new runtime owner, not on every evidence update. */
     suspend fun recover(evidence: LocalAlarmEvidence, timing: LocalAlarmTiming): LocalAlarmEvaluation? =
         guarded(null) { environment -> evaluateLocked(evidence, timing, environment, recover = true) }
+
+    /** No claims or transitions: the selected source still needs a fresh committed START. */
+    suspend fun previewArbitration(requests: List<LocalAlarmRequest>, owner: LocalAlarmCycle?,
+        timing: LocalAlarmTiming): LocalAlarmArbitrationDecision? = guarded(null) { environment ->
+        if (requests.size > 64) return@guarded LocalAlarmArbitrationDecision(
+            LocalAlarmArbitrationStatus.INVALID_SNAPSHOT, cancelCycle = owner)
+        // Freeze the batch before suspending reads; selection must use exactly
+        // the sources whose persisted state/claims were validated in this transaction.
+        val snapshot = requests.toList()
+        val keys = LocalAlarmArbitrationPolicy.boundedKeys(snapshot, owner)
+            ?: return@guarded LocalAlarmArbitrationDecision(LocalAlarmArbitrationStatus.INVALID_SNAPSHOT, cancelCycle = owner)
+        val states = keys.mapNotNull { key -> load(key, environment)?.let { key to it.state } }.toMap()
+        LocalAlarmArbitrationPolicy.evaluate(snapshot, states, owner, environment, timing)
+    }
 
     /** Read-only execution gate: never creates a claim, advances progress or refreshes state. */
     suspend fun admits(evidence: LocalAlarmEvidence, cycle: LocalAlarmCycle,

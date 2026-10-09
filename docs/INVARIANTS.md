@@ -1,5 +1,27 @@
 # INVARIANTS
 
+## Local Alarm Source Selection
+
+- Selection reuses accepted-source policy and never commits preview START
+  states/claims. Queue age and persisted JSON cannot authorize an alarm.
+- Higher eligible priority requests exact preemption; equal priority retains
+  the admitted owner until cycle end, then oldest-due/stable-key order applies.
+  Duplicate evidence cannot slide retained cycle/repeat or pending queue age.
+- Missing/stale/unauthorized/changed evidence or OFF/disabled/unarmed state
+  requests exact cancellation. Paused/waiting/silent sources cannot preempt.
+- Unowned/conflicting persisted active claims require explicit recovery, never
+  adoption/replay. Cancellation and cleanup must finish before replacement.
+- A complete immutable current batch contains <=64 unique keys including owner.
+  Room freezes it before suspending reads; choosing an unchecked switched-in
+  source is forbidden. Corrupt storage fails the entire preview closed.
+- Preview reads actual Room OFF under the shared lock/transaction and changes
+  no journal, ordinal, repeat, pause or progress. No migration or runtime caller.
+- Only the nearest strictly future expiry/due/ACK/OFF/cycle deadline is returned.
+  Checked wall conversion, no backlog/polling/AI or clinical cadence reduction.
+- Source production, serialized execution, capabilities/foreground/wake,
+  notification/vibration/native fallback and opt-in/device acceptance remain
+  required. This stage does not improve measured phone or night delivery.
+
 ## Local Alarm Cycle Executor
 
 - Only a newly committed exact START is executed. BUSY callers create no claim;
@@ -20,7 +42,7 @@
   journal reads. No source polling, second engine, notification/vibration,
   foreground/wake permission or production caller of this executor is added.
 - Clinical/target/therapy/Telegram and default legacy alert behavior stay intact.
-  Source arbitration and actual device/night-delivery acceptance remain separate.
+  Operational source coordination and device/night acceptance remain separate.
 
 ## Local Alarm Playback Transport
 

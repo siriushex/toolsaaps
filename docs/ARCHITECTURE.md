@@ -1,5 +1,40 @@
 # ARCHITECTURE
 
+## Read-Only Local Alarm Arbitration
+
+LocalAlarmArbitrationPolicy selects from a complete current immutable batch of
+accepted typed source requests and separately validated journal state. It reuses
+LocalAlarmPolicy admission; hypothetical START evaluations never become claims.
+Pending queue age is retained across duplicate updates and reset by the future
+owner on generation/level/eligibility change. It is not clinical authority.
+Ready sources sort by priority, oldest due and stable typed key. Exact admitted
+ownership survives equal/lower priority until cycle end; an eligible higher
+source produces exact cancellation plus replacement selection. ACK/waiting,
+silent, stale, unauthorized or wrong-boot sources cannot preempt. Missing or
+invalid owner evidence, OFF, disabled/unarmed state or changed identity requests
+cancellation, never hysteresis-based sound retention.
+
+At most64 unique keys including an omitted owner's key are considered. Duplicate
+keys, bad queue age/environment/timing or corrupt state fail closed. A persisted
+active claim not matching the runtime owner requires explicit UNCERTAIN recovery;
+it is never adopted. This decision does not perform recovery or cancellation.
+One nearest future elapsed deadline covers eligible source expiry, cycle end,
+repeat, ACK or OFF expiry. Wall deadlines use checked conversion; no overdue
+wake/backlog, periodic poll, forecast or AI work is generated.
+
+RoomLocalAlarmStore.previewArbitration freezes the bounded request batch before
+suspending indexed reads under the existing database mute lock/transaction. It
+reads actual Room OFF and validates the exact same keys' state/claim/result
+payloads. Null means unavailable/corrupt storage. Preview never changes ordinals,
+due, ACK, progress or cycle journal rows, even after an expired deadline.
+
+There are no runtime callers. A future serialized owner must cancel and join
+old execution before claiming a selected replacement, recheck genuinely current
+accepted authority/capabilities and publish source/OFF invalidation immediately.
+The decision/timestamp cannot arm a service or authorize hardware. Notification,
+vibration/wake/native fallback, lifecycle, opt-in/ACK UI and device/night delivery
+remain separate gates; legacy and clinical behavior are unchanged.
+
 ## Local Alarm Cycle Execution
 
 LocalAlarmCycleExecutor combines one newly committed Room claim, the existing
@@ -36,7 +71,7 @@ journal finish independently, then always drops ownership/unlocks. Cancellation
 propagates; unconfirmed cleanup is not FINISHED, and interrupted claims require
 existing UNCERTAIN recovery without replay. No automatic retry is introduced.
 
-Multi-source priority/fairness, fresh source/OFF publication, async playback
+Operational multi-source ownership, fresh source/OFF publication, async playback
 failure/native fallback, visual notification, vibration/wake ownership, dedicated
 foreground lifecycle, explicit opt-in and real-device acceptance remain release
 gates. Default legacy behavior, settings/schema and clinical writers are unchanged.

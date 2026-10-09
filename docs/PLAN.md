@@ -1,5 +1,24 @@
 # PLAN
 
+## Read-Only Alarm Arbitration (2026-10-09)
+
+- Added bounded priority/oldest-due selection, exact-owner retention/preemption,
+  source/OFF invalidation decisions, explicit abandoned-claim recovery and one
+  nearest deadline. Room preview freezes inputs and validates actual OFF/state
+  without creating claims or mutating journal/ACK/repeat/progress.
+- Plan: superpowers/plans/2026-10-09-local-alarm-arbitration.md. New tests cover
+  domain and native Room boundaries. Missing-API REDs and a real borrowed-input
+  race RED were reproduced; the indexed-read batch is now frozen. Final focused
+ 112 tests/5 suites pass,27 new cases, zero failures/errors/skips.
+- Full Android unit/lint/compile/debug-build passed in6m25s:5012 tests/429 suites,
+  zero failures/errors,3 optional phone-copy skips. Fresh lint has zero errors,
+ 305 existing warnings,4 hints and no arbitration issues. Reviewed publication
+  and exact-source Verify are recorded separately after actual completion.
+- Remaining: accepted source producers plus serialized cancel/join/claim runtime;
+  async failure/native fallback, visual/vibration/wake channels, foreground
+  lifecycle/capabilities, default-off opt-in and ACK UI; fresh device migration,
+  authorized install and locked-screen acceptance. No runtime caller/activation.
+
 ## Local Alarm Cycle Executor (2026-10-09)
 
 - Implemented the next bounded integration: one new Room claim, read-only

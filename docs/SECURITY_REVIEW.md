@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Read-Only Multi-Source Selection (2026-10-09)
+
+- Accepted evidence is separate from queue age/journal. Existing policy still
+  gates freshness, boot/generation, OFF, enabled/armed state, ACK and timing.
+  Selection cannot grant fresh authority or commit hypothetical claims.
+- Inputs/reads cap at64 unique keys including owner. Duplicate/bad inputs or
+  corrupt state fail closed; conflicting/unowned claims require recovery without
+  adoption. Higher priority cannot overlap old execution: future runtime must
+  cancel/join before a fresh committed START and side-effect admission.
+- Real RED reproduced borrowed-input replacement during a Room read selecting
+  a source whose corrupt saved state was never loaded. Freezing the request batch
+  before reads binds subsequent selection to exactly the validated source keys.
+- Actual Room OFF is read within existing shared lock/transaction. Preview never
+  mutates claims/ordinals/progress/ACK/repeat and preserves cancellation errors.
+  Checked elapsed scheduling is not a timer/Doze or notification guarantee.
+- No production caller, network, raw clinical log, schema, setting, permission,
+  detector/therapy writer or phone action added. Source/lifecycle/channel/UI and
+  real-device gates remain; default legacy initial-delivery behavior is intact.
+
 ## Inactive Cycle Executor (2026-10-09)
 
 - Room exact-claim admission is read-only, transaction/mute ordered and bounded.

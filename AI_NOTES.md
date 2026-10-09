@@ -1,3 +1,36 @@
+# Read-only local alarm arbitration - 2026-10-09
+
+- Continued the existing feature worktree from612c0f56. Current successful
+  read-only ADB inventory has no phone. No installation, activation, sound,
+  forced volume/DND, therapy mutation or phone CPU/RAM measurement occurred.
+- Added LocalAlarmArbitrationPolicy and RoomLocalAlarmStore.previewArbitration.
+  Reuses source admission, priority and saved timing; equal-priority owner is
+  retained, higher eligible source requests exact preemption, then oldest due
+  and stable key select fairly. Queue age is metadata, not accepted authority.
+- Read-only preview uses actual Room OFF and existing state/claim/result checks.
+  <=64 unique keys including owner, no hypothetical START persistence, ordinal,
+  repeat, pause, progress or journal mutation. Abandoned/conflicting active
+  claims require explicit recovery, never adoption. Nearest future deadlines
+  use checked wall-to-elapsed conversion; no backlog/polling/forecast/AI work.
+- Missing-API REDs reproduced for policy and Room entry point. Inline review
+  then reproduced a real RED: mutation of a borrowed request list during an
+  indexed read switched selection to an unchecked corrupt saved source. The
+  bounded input batch is now frozen before suspending reads. Final focused112
+  tests/5 suites pass,27 new cases, no failures/errors/skips. Full Android unit/
+  lint/compile/debug-build passed in6m25s:5012 cases/429 suites, zero failures/
+  errors,3 optional phone-copy skips. Fresh lint has zero errors,305 existing
+  warnings,4 hints and no arbitration issues. Prepublication candidate built
+  locally, not installed or an exact-source device release. Reviewed publication/
+  exact-source Verify are recorded externally only after actual completion.
+- Plan: docs/superpowers/plans/2026-10-09-local-alarm-arbitration.md. Private
+  native checkpoint/test logs remain outside source publication. Inline
+  self-review only, not an independent reviewer.
+- No runtime source/actor/service/setting/permission/schema change. Future owner
+  must cancel/join old execution before claiming a replacement and revalidate
+  fresh source/OFF/capabilities. Visual/vibration/wake/native fallback/async media
+  failures, opt-in/ACK UI and device/night acceptance remain. No clinical/target/
+  therapy/Telegram/legacy behavior changes or measured resource benefit claimed.
+
 # Inactive local alarm cycle executor - 2026-10-09
 
 - Human requested work on unfinished functions/algorithms. Prioritized alarm

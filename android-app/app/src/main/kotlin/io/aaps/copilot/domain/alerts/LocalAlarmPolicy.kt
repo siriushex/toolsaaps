@@ -117,7 +117,7 @@ object LocalAlarmPolicy {
         return state.copy(reachedPercent = maxOf(state.reachedPercent, targetPercent))
     }
 
-    private fun validEnvironment(environment: LocalAlarmEnvironment): Boolean = environment.nowElapsedMs >= 0L &&
+    internal fun validEnvironment(environment: LocalAlarmEnvironment): Boolean = environment.nowElapsedMs >= 0L &&
         environment.nowWallMs >= 0L && environment.bootCount >= 0 && environment.mutedUntilWallMs >= 0L
 
     private fun validKey(key: LocalAlarmKey): Boolean = key.id.length in 1..128 &&
@@ -138,7 +138,7 @@ object LocalAlarmPolicy {
         previous != null && previous.bootCount == evidence.bootCount &&
             (evidence.generation < previous.generation || evidence.observedElapsedMs < previous.observedElapsedMs)
 
-    private fun validState(state: LocalAlarmState, environment: LocalAlarmEnvironment): Boolean {
+    internal fun validState(state: LocalAlarmState, environment: LocalAlarmEnvironment): Boolean {
         if (!validStateShape(state)) return false
         if (state.bootCount == environment.bootCount && state.observedElapsedMs > environment.nowElapsedMs) return false
         if (state.lastCycle?.let { it.bootCount == environment.bootCount && it.startedElapsedMs > environment.nowElapsedMs } == true) return false
