@@ -29,6 +29,21 @@ data class PumpLinkEpisode(
 data class PumpLinkRecord(val snapshot: PumpLinkSnapshot? = null, val episode: PumpLinkEpisode? = null)
 data class PumpLinkUiStatus(val condition: PumpLinkCondition = PumpLinkCondition.UNKNOWN, val episodeOpen: Boolean = false)
 
+class PumpLinkAlarmSource internal constructor(
+    val snapshot: PumpLinkSnapshot,
+    val episode: PumpLinkEpisode,
+    val condition: PumpLinkCondition,
+    val evaluatedElapsedMs: Long,
+    val nextEvaluationElapsedMs: Long?
+) {
+    internal fun current(now: Long, boot: Int): Boolean = now >= evaluatedElapsedMs &&
+        snapshot.bootCount == boot && episode.bootCount == boot &&
+        episode.startedElapsedMs in 0..evaluatedElapsedMs && !snapshot.intentionalDisconnect &&
+        condition.needsAttention && condition != PumpLinkCondition.MONITOR_UNAVAILABLE &&
+        (nextEvaluationElapsedMs == null || now < nextEvaluationElapsedMs) &&
+        PumpLinkHealthPolicy.condition(snapshot, now, boot) == condition
+}
+
 interface PumpLinkRecordStore {
     suspend fun load(): PumpLinkRecord
     suspend fun save(record: PumpLinkRecord)
@@ -50,11 +65,28 @@ class PumpLinkHealthMonitor(
 ) {
     private val mutableState = MutableStateFlow(PumpLinkUiStatus())
     val state: StateFlow<PumpLinkUiStatus> = mutableState.asStateFlow()
+    private val mutableAlarmSource = MutableStateFlow<PumpLinkAlarmSource?>(null)
+    // Cached publication is a wake/provenance feed, not admission for hardware.
+    val alarmSource: StateFlow<PumpLinkAlarmSource?> = mutableAlarmSource.asStateFlow()
     private val mutex = Mutex()
     private var loaded = false
     private var record = PumpLinkRecord()
     private var deadlineJob: Job? = null
     @Volatile private var deadlineGeneration = 0L
+
+    fun currentAlarmSource(): PumpLinkAlarmSource? {
+        val source = mutableAlarmSource.value ?: return null
+        return try {
+            source.takeIf { it.current(elapsedMs(), bootCount()) && mutableAlarmSource.value === source }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // OFF cleanup already owns the global lock; never acquire the monitor/Room lock here.
+    fun invalidateAlarmSource() { mutableAlarmSource.value = null }
 
     suspend fun accept(snapshot: PumpLinkSnapshot): Boolean {
         var accepted = false
@@ -69,6 +101,7 @@ class PumpLinkHealthMonitor(
     }
 
     suspend fun refresh() = serialized { muted ->
+        invalidateAlarmSource()
         loadLocked()
         evaluateLocked(muted)
     }
@@ -115,6 +148,7 @@ class PumpLinkHealthMonitor(
     }
 
     private fun invalidateLocked() {
+        invalidateAlarmSource()
         loaded = false
         deadlineJob?.cancel()
         deadlineJob = null
@@ -137,6 +171,7 @@ class PumpLinkHealthMonitor(
     }
 
     private suspend fun evaluateLocked(muted: Boolean, snapshot: PumpLinkSnapshot? = record.snapshot) {
+        invalidateAlarmSource()
         deadlineJob?.cancel()
         deadlineJob = null
         deadlineGeneration++
@@ -185,6 +220,15 @@ class PumpLinkHealthMonitor(
                 PumpLinkNotice.FAILED
             }
             writeLocked(record.copy(episode = episode.copy(notice = result)))
+        }
+        val publishedAt = elapsedMs()
+        val publishedBoot = bootCount()
+        val savedSnapshot = record.snapshot
+        val savedEpisode = record.episode
+        if (!muted && savedSnapshot != null && savedEpisode != null) {
+            val source = PumpLinkAlarmSource(savedSnapshot, savedEpisode, condition, publishedAt,
+                PumpLinkHealthPolicy.nextDeadline(savedSnapshot, publishedAt, publishedBoot))
+            mutableAlarmSource.value = source.takeIf { it.current(publishedAt, publishedBoot) }
         }
         scheduleLocked(elapsedMs(), bootCount())
     }

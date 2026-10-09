@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Pump-Link Source Publication (2026-10-10)
+
+- Immutable exact accepted snapshot/episode, after durable transition/receipt
+  writes. UI and receipt outcomes are not sound authority. Publication is
+  withdrawn before superseding writes; ambiguous cancellation/failure stays null.
+- Current read independently checks boot, elapsed/condition/deadline and exact
+  publication after external clock callbacks; stale flow observations cannot
+  authorize hardware. No fabricated clock/generation/TTL or reset of history.
+- Committed global OFF cleanup invalidates before legacy cleanup, without
+  Room/monitor reentry. Delayed old coordination failure cannot revoke newer
+  publication. OFF expiry alone does not rebuild a source or replay delivery.
+- No consumer, arming, extra timer, network, permission/schema, volume/audio,
+  risk detector or clinical writer. No raw sensitive payload or exception logs.
+  Complete source/context mapping, OFF intent, channels/lifecycle/opt-in/UI and
+  actual phone/night delivery remain release gates. Link status is not worn-pump
+  or insulin-delivery proof. Synthetic checks do not close those device gates.
+
 ## Inactive Serialized Runtime (2026-10-10)
 
 - Mandatory current source/OFF/capability context, no default-true authority or

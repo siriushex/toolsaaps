@@ -1,5 +1,35 @@
 # ARCHITECTURE
 
+## Checked Pump-Link Source Publication
+
+PumpLinkHealthMonitor exposes an immutable PumpLinkAlarmSource only after the
+existing validated transition and all required durable writes finish. It carries
+the exact saved snapshot/episode, current technical condition, elapsed evaluation
+and existing policy deadline. Receipt disposition is not source authority.
+Construction, unknown/unsupported/unpaired provenance, unconfirmed recovery,
+intentional disconnect, muted evaluation and monitor failure publish no source.
+A superseding accepted transition withdraws the old source before suspending
+writes; rejected duplicates leave its identity and evaluation time unchanged.
+Fresh packets preserve the existing episode origin and legacy receipt semantics.
+
+alarmSource is a conflated wake/provenance feed, not hardware admission.
+currentAlarmSource rechecks current boot/elapsed time, the existing policy
+condition/deadline and exact publication identity after clock callbacks. Cached
+data cannot retain an expired condition, survive reboot/backwards time or a
+concurrent revocation. Missing-heartbeat evidence uses the existing technical
+absence policy; no fabricated TTL, clinical risk or off-body detection is added.
+No additional timer, poll, persistence schema or accepted packet cadence changes.
+
+The existing committed global OFF/resume/overview cleanup withdraws this source
+without Room/monitor reentry and before legacy player cleanup. OFF expiry alone
+does not republish it; another validated monitor evaluation is required. This is
+post-commit source invalidation, not pre-lock OFF-intent cancellation of an actor.
+No production consumer constructs or arms LocalAlarmCoordinator. A complete
+current-context bridge still needs glucose/diagnostic producers, stable alarm
+key/generation/queue-age mapping, OFF-intent invalidation and capability/opt-in
+admission. Service/channel/UI/device acceptance gates remain unchanged. Technical
+link status cannot establish that a pump is worn or insulin enters the body.
+
 ## Inactive Serialized Alarm Coordinator
 
 LocalAlarmCoordinator has no production constructor call. Construction/signals

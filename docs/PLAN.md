@@ -1,5 +1,24 @@
 # PLAN
 
+## Pump-Link Source Producer (2026-10-10)
+
+- Added checked immutable current technical-source publication to the existing
+  monitor. Exact saved provenance, current boot/elapsed/condition/deadline read,
+  superseding/failure/recovery/intentional-disconnect revocation and committed
+  OFF/resume cleanup are covered without a new timer or alarm activation.
+- Plan: superpowers/plans/2026-10-10-pump-link-source.md. Focused93 tests/7 suites
+  pass,18 new cases, zero failures/errors/skips. Full Android quality passed
+  in4m42s:5057 cases/432 suites, zero failures/errors,3 optional phone-copy skips.
+  Fresh lint: zero errors,305 existing warnings,4 hints, no new source issues.
+  Exact-source publication/Verify is recorded separately after completion.
+- Next: accepted glucose/diagnostic producers and complete current-context bridge
+  with stable alarm identity/age, explicit OFF-intent cancellation and platform
+  capability/opt-in admission. Async failures/native fallback, foreground/wake,
+  visual/vibration channels, ACK UI and device/night acceptance still remain.
+- No production coordinator consumer, clinical/legacy change or phone action.
+  Original incident missing history, persistent COB and matched resources remain
+  open. Technical link evidence cannot determine whether the pump is worn.
+
 ## Inactive Alarm Coordinator (2026-10-10)
 
 - Added explicitly run serialized ownership, conflated wake/nearest timer,

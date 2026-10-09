@@ -1,3 +1,36 @@
+# Checked pump-link source publication - 2026-10-10
+
+- Continued from02668312 in the existing worktree. Successful read-only ADB
+  remains empty; no installation/activation/sound/volume/DND/therapy action,
+  phone CPU/RAM evidence or completed original-night audit is claimed.
+- Bounded first source stage: PumpLinkHealthMonitor publishes immutable exact
+  saved snapshot/episode and checked current technical condition after durable
+  writes. Current reads recheck boot/elapsed/condition/deadline and publication
+  identity. Cached flow is a wake/provenance feed, not hardware admission.
+- Accepted superseding transitions revoke before writes; failure/cancellation,
+  unknown/unpaired/unsupported data, recovery and intentional disconnect cannot
+  retain a source. Duplicates do not renew evaluation or episode origin. Existing
+  timer, detector, packet admission, receipt and legacy notification behavior stay.
+- Existing committed global OFF/resume/overview cleanup withdraws source before
+  legacy cleanup without Room/monitor locking. Expiry alone cannot republish.
+  This is not pre-lock OFF-intent cancellation; no coordinator consumer is added.
+- Missing-API RED inspected. Initial integration needed an explicit monitor type
+  for Kotlin's cyclic property inference, not a changed runtime lifecycle.
+  Focused93 tests/7 suites pass,18 new cases, zero failures/errors/skips. A regular
+  immutable class avoids exposing a data-class copy of checked provenance.
+  Full Android unit/lint/compile/debug-build passed in4m42s:5057 cases/432
+  suites, zero failures/errors,3 optional phone-copy skips. Fresh lint has zero
+  errors,305 existing warnings,4 hints and no new source issues. Local APK is
+  prepublication, not installed. Exact-source Verify is recorded privately
+  only after actual completion; local checks cannot establish device delivery.
+- Inline self-review only. Remaining: glucose/diagnostic producers, stable
+  alarm identity/age and complete OFF/capability/opt-in context; service/channels/
+  async failure/fallback/ACK and separately authorized real-device acceptance.
+  Technical connection does not prove a worn pump or insulin delivery. No
+  clinical/forecast/target/schema/settings change or measured resource benefit.
+- Plan: docs/superpowers/plans/2026-10-10-pump-link-source.md. Private evidence
+  and native execution checkpoint remain outside source publication.
+
 # Inactive serialized local alarm coordinator - 2026-10-10
 
 - Continued from a1fb8065 in the existing feature worktree. Successful read-only

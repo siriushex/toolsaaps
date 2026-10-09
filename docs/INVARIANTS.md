@@ -1,5 +1,23 @@
 # INVARIANTS
 
+## Pump-Link Source Boundary
+
+- Current technical source comes from checked durable monitor transitions,
+  never UI history, an OPEN episode or notification delivery alone.
+- Superseding accepted evaluation withdraws old publication before suspension;
+  cancellation/storage failure, recovery, intentional disconnect, unknown
+  provenance and muted evaluation cannot retain audible-source metadata.
+- Rejected duplicates cannot renew observed time or move the episode origin.
+  Fresh evidence retains the existing legacy episode/claim behavior.
+- Cached flow is only a wake/provenance feed. Synchronous current read rechecks
+  boot, elapsed time, canonical condition/deadline and exact source identity.
+  Clock failure denies admission; cancellation propagates. No invented TTL.
+- Committed OFF/resume cleanup revokes without reentering Room/monitor locks.
+  OFF expiry alone cannot republish. Pre-lock intent revocation and complete
+  multi-source context/capability mapping remain future integration gates.
+- No coordinator consumer, extra timer/poll, schema, arming, hardware or clinical
+  change. Technical pump connectivity never proves physical attachment/delivery.
+
 ## Inactive Alarm Runtime Ownership
 
 - Constructor/signal cannot auto-start or manufacture accepted authority.

@@ -708,6 +708,7 @@ class AppContainer(context: Context) {
             glucoseAlertStateStore.update { current -> current.copy(mutedUntilTs = until) }
         },
         clearRiskSideEffects = {
+            pumpLinkMonitor.invalidateAlarmSource()
             glucoseAlertAudioController.stop()
             GlucoseAlertNotifier.cancelGlucoseAlertVibration(context.applicationContext)
             GlucoseAlertNotifier.clearPostedNotifications(context.applicationContext)
@@ -739,7 +740,7 @@ class AppContainer(context: Context) {
         db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
         { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) }
     )
-    val pumpLinkMonitor = PumpLinkHealthMonitor(
+    val pumpLinkMonitor: PumpLinkHealthMonitor = PumpLinkHealthMonitor(
         scope = appScope,
         store = DataStorePumpLinkRecordStore.create(appContext, appScope),
         elapsedMs = SystemClock::elapsedRealtime,
