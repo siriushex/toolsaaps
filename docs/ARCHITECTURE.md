@@ -1,10 +1,51 @@
 # ARCHITECTURE
 
+## Local Alarm Cycle Execution
+
+LocalAlarmCycleExecutor combines one newly committed Room claim, the existing
+volume lease and the existing guarded audio controller through LocalAlarmAudioPort.
+No runtime constructs it. It is not the multi-source coordinator or an armed
+service. Initial claims use the saved repeat settings; actual strong-slot duration
+is resolved for the cycle ordinal. Only START is executable; an existing ACTIVE
+claim is never adopted or replayed.
+
+RoomLocalAlarmStore.admits is a read-only exact-claim gate under the database
+mute lock/transaction. It reads actual Room OFF and validates state/result shape,
+source evidence and elapsed bounds, without creating a later claim or persisting
+a pure-policy evaluation. The runner rechecks this gate between side effects.
+Injected current accepted evidence/OFF/capabilities guard synchronous hardware
+calls and callbacks as well. The future source owner must publish invalidation
+and cancel the exact running cycle immediately; this stage supplies no producer
+of that authority and cannot make Room and platform side effects atomic.
+
+One try-locked coroutine owns execution; competing calls return BUSY without
+claims. At most four absolute step windows are visited, with cancellable waits
+bounded by source expiry and cycle end. Late windows are skipped, not replayed.
+Volume readback must confirm each target before audio; the same step window is
+rechecked inside volume/player admission, so a slow hardware read cannot admit
+an old step. Strong clips start once, soft clips at most four times. Later cycles
+retain the confirmed target maximum. Indexed bounded journal reads replace
+neither source freshness nor Android capability admission; there is no polling,
+forecast, AI or therapy work on this path.
+
+Audio-start, volume-target and NOT_REQUESTED notification/vibration results are
+journaled independently. API-start is not media completion or hearing. Audio or
+journal failure stops further steps. Exact cancellation revokes admission before
+cleanup; noncancellable cleanup attempts audio stop, guarded volume release and
+journal finish independently, then always drops ownership/unlocks. Cancellation
+propagates; unconfirmed cleanup is not FINISHED, and interrupted claims require
+existing UNCERTAIN recovery without replay. No automatic retry is introduced.
+
+Multi-source priority/fairness, fresh source/OFF publication, async playback
+failure/native fallback, visual notification, vibration/wake ownership, dedicated
+foreground lifecycle, explicit opt-in and real-device acceptance remain release
+gates. Default legacy behavior, settings/schema and clinical writers are unchanged.
+
 ## Guarded Local Alarm Playback
 
 GlucoseAlertAudioController now exposes an explicit playLocalAlarm(cycle, step,
 settings, admitted) transport entry point and exact-cycle stopLocalAlarm.
-There are no production callers. The future serialized coordinator must supply
+Its only caller is the inactive cycle executor. The future source owner must supply
 the committed claim, fresh accepted source/OFF/capability checks and confirmed
 volume floor before playback; this API cannot authorize or arm an alarm.
 

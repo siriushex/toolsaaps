@@ -1,3 +1,42 @@
+# Inactive local alarm cycle executor - 2026-10-09
+
+- Human requested work on unfinished functions/algorithms. Prioritized alarm
+  integration over display-only COB and resource candidates per existing PLAN.
+  Fresh successful ADB inventory remains empty; no phone install/sound/volume/
+  DND/therapy change, new CPU/RAM measurement or full-night validation occurred.
+- Added LocalAlarmCycleExecutor, LocalAlarmAudioPort and read-only Room admits.
+  Existing GlucoseAlertAudioController implements the port, retaining one player
+  and unchanged legacy behavior. No runtime constructs the executor.
+- Only START from this invocation executes; ACTIVE is not adopted. Try-lock
+  prevents competing claims, fresh guards surround hardware/callbacks, step
+  windows and expiry bound waits, missed steps do not replay. Confirmed volume
+  precedes audio and later cycles retain confirmed maximum. No risk detection,
+  forecast/target/therapy/Telegram, settings/schema or service change.
+- Required-settings fixture corrected before missing-API RED. First integration
+  run passed. Three actual review REDs reproduced: cancellation left CLAIMED
+  ownership, failed audio stop became FINISHED, and a slow volume read admitted
+  a missed step. Independent noncancellable cleanup/always-unlock, unavailable
+  cleanup status and synchronous step-window admission fixed these failures.
+- Final focused143 tests/6 suites pass:23 new cases, no failures/errors/skips.
+  Final full Android unit/lint/compile/debug-build gate passed in8m10s:4985 cases/
+  427 suites, zero failures/errors,3 optional phone-copy skips. Fresh lint XML
+  has zero errors,305 existing warnings,4 hints and no executor issues. Initial
+  full run failed only an obsolete no-volume-consumer architecture guard;
+  narrowed it to the inactive executor and retained the no-runtime-construction
+  assertion, then reran the full gate. Candidate APK contains the executor/port;
+  SHA256:1251c9ac647cd151481045e7da5d69ef44ddf2d8a9276dd0d91766ce62d50f1f.
+  This is a local prepublication build, not an installed exact-source release.
+  Reviewed publication/exact-source Verify is recorded externally in the private
+  native checkpoint only after actual completion. Plan:
+  docs/superpowers/plans/2026-10-09-local-alarm-cycle-executor.md.
+- Current accepted source/OFF/capabilities must be supplied and invalidated by
+  future runtime integration. This runner has no arbitration, arming, service,
+  wake/vibration/notification/native fallback or asynchronous media-failure
+  integration. Start/stop API requests do not prove completion or hearing.
+  Phone migration/installation/night acceptance remain mandatory release gates.
+- Inline source/self-review only, not an independent reviewer. Private native
+  checkpoint, failure XML and test logs remain outside source publication.
+
 # Guarded local alarm playback - 2026-10-09
 
 - Continued the existing isolated feature branch at0d183ea8. Current successful

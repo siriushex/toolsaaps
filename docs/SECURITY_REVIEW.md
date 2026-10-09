@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Inactive Cycle Executor (2026-10-09)
+
+- Room exact-claim admission is read-only, transaction/mute ordered and bounded.
+  It cannot grant fresh accepted source authority or make hardware writes atomic
+  with global OFF. Current source publication and exact cancellation remain
+  required integration gates; no runtime constructs the executor in this stage.
+- One new claim is executed at most once by the runner. Concurrency does not
+  claim another source, adopt interrupted ownership or replay expired steps.
+- Confirmed volume precedes sound; canonical urgent floor and exact step windows
+  are retained. Real REDs reproduced cleanup cancellation, false FINISHED after
+  stop failure and a missed step admitted during a slow hardware read.
+- Cleanup revokes ownership, attempts independent releases/finish and always
+  unlocks. Unknown cleanup is observable, not success; cancellation propagates.
+  API start/stop requests are not proof of completion, hearing or human action.
+- No new clinical detector/writer, network, permission, settings/schema, arming,
+  service or device mutation. Existing single-player transport is reused.
+  Missing notification/vibration/native fallback/async media failure/source
+  coordination/foreground/wake/UI/device checks prevent live feature activation.
+
 ## Guarded Playback Transport (2026-10-09)
 
 - New explicit cycle/step API has no production callers and cannot arm itself.

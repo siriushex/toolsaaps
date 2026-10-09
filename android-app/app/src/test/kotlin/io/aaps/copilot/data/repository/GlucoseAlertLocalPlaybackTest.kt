@@ -178,12 +178,18 @@ class GlucoseAlertLocalPlaybackTest {
         assertThat(controller.playbackState.value.isPreview).isTrue()
     }
 
-    @Test fun newEntryPointHasNoProductionCallerOrTherapyNetworkWriter() {
+    @Test fun newEntryPointOnlyHasInactiveExecutorAndNoTherapyNetworkWriter() {
         val root = File("src/main/kotlin/io/aaps/copilot")
         val consumers = root.walkTopDown().filter { it.extension == "kt" && it.name != "GlucoseAlertAudioController.kt" }
             .filter { it.readText().contains(Regex("playLocalAlarm\\s*\\(|stopLocalAlarm\\s*\\(")) }
             .map { it.relativeTo(root).path }.toList()
-        assertThat(consumers).isEmpty()
+        assertThat(consumers).containsExactly("data/repository/LocalAlarmCycleExecutor.kt")
+        val executor = File(root, "data/repository/LocalAlarmCycleExecutor.kt").readText()
+        listOf("AutomationRepository", "ForecastRepository", "Telegram", "MediaPlayer(")
+            .forEach { assertThat(executor).doesNotContain(it) }
+        val runners = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCycleExecutor.kt" }
+            .filter { it.readText().contains(Regex("LocalAlarmCycleExecutor\\s*\\(")) }.toList()
+        assertThat(runners).isEmpty()
         val source = File(root, "data/repository/GlucoseAlertAudioController.kt").readText()
         listOf("AutomationRepository", "ForecastRepository", "Telegram", "setCommunicationDevice", "setRingerMode")
             .forEach { assertThat(source).doesNotContain(it) }

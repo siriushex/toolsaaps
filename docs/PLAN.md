@@ -1,5 +1,41 @@
 # PLAN
 
+## Local Alarm Cycle Executor (2026-10-09)
+
+- Implemented the next bounded integration: one new Room claim, read-only
+  authoritative OFF admission, exact-window confirmed volume and existing audio.
+  No runtime caller or activation. Plan:
+  superpowers/plans/2026-10-09-local-alarm-cycle-executor.md.
+- Focused143 tests/6 suites pass, including23 new tests. Three real review REDs
+  reproduced then fixed: unfinished ownership during cleanup cancellation,
+  false FINISHED after stop failure and a missed step admitted by a slow read.
+- Final full Android unit/lint/compile/debug-build gate passed:4985 cases/
+  427 suites, zero failures/errors,3 optional phone-copy skips; fresh lint has
+  zero errors,305 existing warnings,4 hints and no executor issues. An obsolete
+  volume-consumer architecture assertion was updated to permit only the inactive
+  executor and still prohibit runtime construction; full gate rerun passed.
+  Exact-source publication/Verify is an external gate, recorded in the private
+  native checkpoint only after actual completion. No main merge or phone update.
+- Remaining alarm work: serialized multi-source priority/fairness and accepted
+  source/OFF events; notification/vibration/wake/native fallback and async media
+  failure; dedicated foreground lifecycle/capability status; default-off opt-in
+  and explicit ACK UI; fresh migration/install/locked-screen acceptance.
+
+## User-Requested Follow-Through
+
+- Alarm integration remains first because delivery is incomplete. Original20h
+  incident audit still lacks the final11h27m; no new phone snapshot replaces it.
+- Persistent full-tail COB curve design is acknowledged, implementation remains
+  pending after alarms. Preserve accepted display origin and explore/scroll
+  state; external reference COB cannot invent food mass or absorption timing.
+- CPU/RAM work needs matched phone evidence and query attribution. Source-side
+  input coalescing and bounded diagnostics remain candidates, not measured gains.
+  Keep every-new-current-CGM calculation and all existing clinical safety gates.
+- Meal timing research still lacks calibrated trajectories/controller/nuisance
+  scenarios, live orchestration and clinical notification admission. Complete
+  those evidence gates without converting preliminary models into therapy.
+- Full code/CI gates do not close device, calibration or clinical-release gates.
+
 ## Guarded Local Alarm Playback (2026-10-09)
 
 - Bounded transport stage after policy/journal/volume: reuse the existing player

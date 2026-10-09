@@ -38,6 +38,15 @@ class RoomLocalAlarmStore(
     suspend fun recover(evidence: LocalAlarmEvidence, timing: LocalAlarmTiming): LocalAlarmEvaluation? =
         guarded(null) { environment -> evaluateLocked(evidence, timing, environment, recover = true) }
 
+    /** Read-only execution gate: never creates a claim, advances progress or refreshes state. */
+    suspend fun admits(evidence: LocalAlarmEvidence, cycle: LocalAlarmCycle,
+        timing: LocalAlarmTiming): Boolean = guarded(false) { environment ->
+        if (evidence.key != cycle.key) return@guarded false
+        val loaded = load(cycle.key, environment) ?: return@guarded false
+        val evaluation = LocalAlarmPolicy.evaluate(evidence, loaded.state, environment, timing)
+        evaluation.admission == LocalAlarmAdmission.ACTIVE && evaluation.state?.activeCycle == cycle
+    }
+
     suspend fun acknowledge(evidence: LocalAlarmEvidence, timing: LocalAlarmTiming,
         action: LocalAlarmAcknowledgement): Boolean = guarded(false) { environment ->
         val loaded = load(evidence.key, environment) ?: return@guarded false

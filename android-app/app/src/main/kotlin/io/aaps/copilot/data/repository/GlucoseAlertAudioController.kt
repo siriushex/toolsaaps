@@ -24,7 +24,7 @@ import kotlin.coroutines.resume
 class GlucoseAlertAudioController(
     context: Context,
     private val nowElapsedMs: () -> Long = SystemClock::elapsedRealtime
-) {
+) : LocalAlarmAudioPort {
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -89,7 +89,7 @@ class GlucoseAlertAudioController(
         settings: AppSettings
     ): GlucoseAlertAudioPlaybackResult = play(slot, settings, isPreview = true, ensureAudible = false)
 
-    suspend fun playLocalAlarm(
+    override suspend fun playLocalAlarm(
         cycle: LocalAlarmCycle,
         stepIndex: Int,
         settings: AppSettings,
@@ -113,7 +113,7 @@ class GlucoseAlertAudioController(
             localSession = LocalPlaybackSession(window, admitted))
     }
 
-    fun stopLocalAlarm(cycle: LocalAlarmCycle) {
+    override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
         val stop = Runnable {
             if (pendingLocalSession?.window?.cycle == cycle) pendingLocalSession = null
             if (activeLocalSession?.window?.cycle == cycle) stopActivePlayback("local_alarm_stopped")

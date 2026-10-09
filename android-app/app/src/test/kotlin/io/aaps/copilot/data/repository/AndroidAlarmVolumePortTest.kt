@@ -41,12 +41,15 @@ class AndroidAlarmVolumePortTest {
             "MediaPlayer", "Vibrator", "WakeLock").forEach { assertThat(source).doesNotContain(it) }
     }
 
-    @Test fun volumeHelperHasNoProductionRuntimeConsumerInThisStage() {
+    @Test fun volumeHelperOnlyHasInactiveExecutorAndNoRuntimeArming() {
         val root = File("src/main/kotlin/io/aaps/copilot")
         val owners = setOf("LocalAlarmVolumeLease.kt", "AndroidAlarmVolumePort.kt")
         val consumers = root.walkTopDown().filter { it.extension == "kt" && it.name !in owners }
             .filter { it.readText().contains(Regex("LocalAlarmVolumeLease|AndroidAlarmVolumePort")) }
             .map { it.relativeTo(root).path }.toList()
-        assertThat(consumers).isEmpty()
+        assertThat(consumers).containsExactly("data/repository/LocalAlarmCycleExecutor.kt")
+        val runners = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCycleExecutor.kt" }
+            .filter { it.readText().contains(Regex("LocalAlarmCycleExecutor\\s*\\(")) }.toList()
+        assertThat(runners).isEmpty()
     }
 }

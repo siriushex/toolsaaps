@@ -1,5 +1,27 @@
 # INVARIANTS
 
+## Local Alarm Cycle Executor
+
+- Only a newly committed exact START is executed. BUSY callers create no claim;
+  ACTIVE claims are never adopted and delayed work is not replayed.
+- Room admission is read-only and honors actual global OFF. Injected fresh
+  accepted source/boot/generation/capabilities must agree before side effects.
+  Persisted state alone is not authority and this runner cannot arm itself.
+- Current source/OFF/capability events must revoke and cancel exact ownership.
+  A stale cancel cannot stop a replacement cycle; cleanup always unlocks even
+  if a resource operation throws cancellation or cannot be confirmed.
+- Confirmed volume precedes audio, including LOW_NOW70%. Both hardware and
+  player admission enforce the current absolute step window, not just55s.
+  Missed steps are skipped; observed override/uncertainty stops further work.
+- Audio start, requested target and unrequested channels remain distinct.
+  Failed stop/cleanup cannot become FINISHED; cancellation is propagated and
+  independent cleanup operations still run. No ambiguous attempt is retried.
+- One coroutine/lease/existing player, at most four steps and bounded current
+  journal reads. No source polling, second engine, notification/vibration,
+  foreground/wake permission or production caller of this executor is added.
+- Clinical/target/therapy/Telegram and default legacy alert behavior stay intact.
+  Source arbitration and actual device/night-delivery acceptance remain separate.
+
 ## Local Alarm Playback Transport
 
 - New playback requires explicit exact-cycle/step admission; persisted state
@@ -16,7 +38,8 @@
   it does not alter stream volume, ringer/DND/route or clinical calculations.
 - Future coordinator admission must include the confirmed urgent floor and
   call stop on current OFF/source/capability loss while playing. No default
-  true authority, polling, service or new-mode production caller is added.
+  true authority, polling, service or runtime activation is added. The only new
+  audio API consumer is the inactive cycle executor, not a production source.
 - Default legacy alerts remain. Platform URI/timer behavior is not a Doze
   delivery guarantee; foreground/wake and real-device acceptance remain.
 
