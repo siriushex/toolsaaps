@@ -45,11 +45,16 @@ class LocalAlarmCoordinatorTest {
     private suspend fun running(owner: LocalAlarmCoordinator, block: suspend CoroutineScope.(Deferred<LocalAlarmCoordinatorExit>) -> Unit) =
         coroutineScope { val job = async { owner.run() }; try { block(job) } finally { job.cancelAndJoin() } }
     private suspend fun row(cycle: LocalAlarmCycle) = db.alertLocalDao().cycle(cycle.key.kind.name, cycle.key.id, cycle.generation, cycle.ordinal)!!
+    private suspend fun terminal(cycle: LocalAlarmCycle, status: String) = withTimeout(5_000) {
+        while (row(cycle).status != status) delay(5)
+    }
 
     private class Clock {
         val now = AtomicLong(1_000)
+        var beforeRegister: suspend (Long) -> Unit = {}
         private val waits = mutableListOf<Pair<Long, CompletableDeferred<Unit>>>()
         suspend fun sleep(ms: Long) {
+            beforeRegister(ms)
             val item = now.get() + ms to CompletableDeferred<Unit>()
             synchronized(waits) { waits += item }
             try { item.second.await() } finally { synchronized(waits) { waits.remove(item) } }
@@ -60,6 +65,7 @@ class LocalAlarmCoordinatorTest {
             due.forEach { it.second.complete(Unit) }
         }
         fun count() = synchronized(waits) { waits.size }
+        fun hasDeadline(at: Long) = synchronized(waits) { waits.any { it.first == at } }
     }
     private class Volume : AlarmVolumePort {
         @Volatile var index = 1
@@ -128,19 +134,34 @@ class LocalAlarmCoordinatorTest {
             until { audio.starts.size == 1 }; val first = audio.starts.single().first
             template = template.copy(requests = template.requests + request("source-b", pending = 0))
             owner.signal(); delay(20); assertEquals(first, audio.playing)
-            repeat(3) { index -> clock.advance(15_000); until { audio.starts.size >= index + 2 } }
+            repeat(3) { index ->
+                until { clock.hasDeadline(16_000L + index * 15_000L) }
+                clock.advance(15_000); until { audio.starts.size >= index + 2 }
+            }
+            until { clock.hasDeadline(48_000) }
             clock.advance(2_000); until { audio.starts.any { it.first.key.id == "source-b" } }
             assertEquals("FINISHED", row(first).status); assertTrue(audio.stops.contains(first))
         }
     }
 
     @Test fun duplicateUpdatesNeverRestartCycleSlideDueOrAccumulateTimers() = runBlocking {
+        val registering = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        clock.beforeRegister = { ms -> if (ms == 15_000L && clock.now.get() == 1_000L) {
+            registering.complete(Unit); release.await()
+        } }
         val owner = coordinator()
         running(owner) {
             until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            withTimeout(5_000) { registering.await() }
+            // Audio start precedes asynchronous Room work and step-wait registration.
+            release.complete(Unit)
+            until { clock.count() == 2 }
+            assertTrue("Step wait must be registered before advancing its clock", clock.hasDeadline(16_000))
             clock.advance(10_000)
             template = template.copy(requests = template.requests.map { it.copy(evidence = it.evidence.copy(observedElapsedMs = clock.now.get())) })
-            repeat(20) { owner.signal() }; delay(30)
+            repeat(20) { owner.signal() }
+            until { clock.count() == 2 }
             assertEquals(1, audio.starts.size); assertEquals(301_000L, db.alertLocalDao().state("GLUCOSE", "source-a")!!.nextDueElapsedMs)
             assertTrue(clock.count() <= 2)
             clock.advance(5_000); until { audio.starts.size == 2 }
@@ -155,6 +176,7 @@ class LocalAlarmCoordinatorTest {
             template = template.copy(requests = emptyList()); owner.signal()
             assertFalse(audio.lastGuard!!(cycle)); until { audio.stops.contains(cycle) }
             until { clock.count() == 0 }
+            terminal(cycle, "CANCELLED")
             assertEquals("CANCELLED", row(cycle).status); assertEquals(1, audio.starts.size)
         }
     }
@@ -166,6 +188,7 @@ class LocalAlarmCoordinatorTest {
             RoomEpisodeAlertReceiptStore(db).writeMuteUntil(70_000, 10_000)
             template = template.copy(environment = template.environment.copy(mutedUntilWallMs = 70_000))
             owner.signal(); assertFalse(audio.lastGuard!!(cycle)); until { audio.stops.contains(cycle) }
+            terminal(cycle, "CANCELLED")
             clock.advance(60_000); delay(30)
             assertEquals(1, audio.starts.size); assertEquals("CANCELLED", row(cycle).status)
             assertEquals(70_000L, db.alertEventDao().byEpisodeId(EpisodeAlertDeliveryStateMachine.MUTE_STATE_ID)!!.suppressionUntil)

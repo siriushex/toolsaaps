@@ -15,6 +15,13 @@
   phone-copy skips. Fresh lint has zero errors,305 existing warnings,4 hints and
   no new coordinator/ownership issues. Reviewed publication/exact-source Verify
   is recorded separately only after actual completion.
+- CI follow-up: original9f14b549 push Verify succeeded but PR Verify failed one
+  duplicate-update timing test. Controlled suspended wait-registration reproduced
+  a fixture RED. Clock/wait and terminal-row synchronization fix it without
+  changing production code, increasing timeouts or weakening assertions.
+  Coordinator17-case GREEN passes; full Android recheck passed in2m51s with
+ 5039 cases/431 suites, zero failures/errors,3 optional phone-copy skips and
+  zero lint errors. New-SHA CI is recorded separately after actual completion.
 - No production construction/source hooks, opt-in/service/permission/schema,
   notification/vibration/wake/native fallback or clinical change. Accepted
   source/OFF producers, async media errors, dedicated foreground lifecycle,

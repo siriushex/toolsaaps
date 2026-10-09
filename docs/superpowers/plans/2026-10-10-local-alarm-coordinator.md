@@ -14,6 +14,9 @@ notification/vibration/wake/native fallback, device or therapy activation.
 3. Test priority/fairness, duplicate stability, starting/cancellation races,
    abandoned claims/no replay, nearest expiry/repeat, unavailable cleanup/storage,
    stopped/competing runtime owners and no production construction.
+   Advance virtual time only after absolute step-wait registration; observe
+   committed terminal rows after stop. Inject suspended wait registration for
+   the CI duplicate-update timing regression without increasing timeouts.
 4. Inline review and focused/full Android unit/lint/compile/debug build; document
    contracts and remaining source/lifecycle/channel/UI/device release gates.
 5. Publish explicit reviewed paths to the existing branch/draft PR, inspect

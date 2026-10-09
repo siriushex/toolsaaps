@@ -30,6 +30,22 @@
 - Plan: docs/superpowers/plans/2026-10-10-local-alarm-coordinator.md. Private
   checkpoint and test/build evidence stay outside source publication.
 
+## CI Fixture Follow-Up
+
+- Original9f14b549 push Verify passed Android/Backend; separate PR Verify failed
+  one coordinator duplicate-update test. Failed synthetic XML timed out at the
+  second audio step, not compilation, lint or a phone/clinical operation.
+- Audio-start observation preceded asynchronous Room/relative-wait registration.
+  A controlled suspended registration reproduced RED: advancing fake time first
+  removed the expected16000ms wait. Registration handshakes now precede clock
+  advancement; equal-priority steps use absolute wait boundaries and stop checks
+  await committed terminal rows. The five-second timeout/assertions are retained.
+- Coordinator17-case GREEN passes. Production code is unchanged in this follow-up.
+  Full Android unit/lint/compile/debug-build recheck passed in2m51s:5039 cases/
+ 431 suites, zero failures/errors,3 optional phone-copy skips. Fresh lint retains
+  zero errors,305 warnings,4 hints and no coordinator/ownership issues. New
+  exact-source Verify is recorded privately only after actual completion.
+
 # Read-only local alarm arbitration - 2026-10-09
 
 - Continued the existing feature worktree from612c0f56. Current successful
