@@ -1,3 +1,34 @@
+# Actionable Errors - 2026-10-10
+
+- User requested tappable errors with explanation and a route to the actual
+  correction, starting with the activity-profile warning.
+- Added typed localized issue help and passive root navigation. Specific profile
+  causes reuse the existing policy; editable fields are separate from absent or
+  stale computed snapshots. Shared errors and primary status warnings gain help.
+- Settings requests open the appropriate tab/section and existing user/calorie
+  editor. Each field has live validation; height/weight accept comma decimals.
+  Invalid saved calories remain editable even when the goal mode is OFF.
+- Self-review found simultaneous invalid personal fields and calories could
+  reject both separate saves. Added a joint explicit correction through the same
+  validated settings path, preserving current modes/sharing and existing bounds.
+  Long unknown messages use a scrollable body so close/navigation stay reachable.
+- Planned-activity entry uses the same consumed typed settings request at the
+  root, instead of retaining a separate old counter that could intercept help.
+- Added pure cause/routing tests and isolated Robolectric click/form tests,
+  including enlarged Russian text and explicit no-command assertions. The first
+  compile found a missing UI import; corrected before the second focused run.
+- Intermediate full unit5117 cases/435 suites passed with zero failures/errors
+  and3 optional phone-copy skips. Lint then caught suspicious indentation in the
+  long-message body; fixed with an explicit braced conditional.
+- Final targeted129 cases/4 suites passed with zero failures/errors/skips,
+  including consumed activity-to-data navigation. The first navigation assertion
+  used the wrong title case; a native image proved the correct destination and
+  the matcher was corrected, without retaining the speculative scroll change.
+- Final unit/lint/compile/APK/isolated UI-test compile gates passed16m19s.
+  Lint has zero errors,313 warnings and4 hints. Final-source hashes were checked;
+  exact-commit publication/Verify evidence is retained privately after completion.
+  No schema, therapy guard, default or working phone update.
+
 # Eating Soon Queue Priority - 2026-10-10
 
 - User reported another Eating Soon failure and requested priority over automatic

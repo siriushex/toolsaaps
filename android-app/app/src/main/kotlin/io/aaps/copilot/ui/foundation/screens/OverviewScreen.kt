@@ -559,11 +559,16 @@ internal fun TargetManagerLiveStatusSection(
     midnightGlass: Boolean,
     framed: Boolean = true
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
+    if (showIssueHelp) {
+        IssueHelpDialog(stringResource(R.string.overview_target_manager_status_title), listOf(targetManagerIssue(status))) { showIssueHelp = false }
+    }
     val secondaryColor = if (midnightGlass) Color(0xFFB8C5DC) else MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("overview_target_manager_live_status"),
+            .testTag("overview_target_manager_live_status")
+            .clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) { showIssueHelp = true },
         shape = RoundedCornerShape(8.dp),
         color = if (!framed) Color.Transparent else if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -730,7 +735,8 @@ private fun PumpLinkStatusRow(status: PumpLinkUiStatus, midnightGlass: Boolean) 
     val foreground = if (midnightGlass) Color.White else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier.fillMaxWidth().testTag("pump_link_status")
-            .padding(horizontal = Spacing.sm),
+            .padding(horizontal = Spacing.sm)
+            .clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) { showInfo = true },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
@@ -742,10 +748,7 @@ private fun PumpLinkStatusRow(status: PumpLinkUiStatus, midnightGlass: Boolean) 
         }
     }
     if (showInfo) {
-        AlertDialog(onDismissRequest = { showInfo = false },
-            title = { Text(message) },
-            text = { Text(stringResource(R.string.pump_link_details)) },
-            confirmButton = { TextButton(onClick = { showInfo = false }) { Text(stringResource(R.string.action_close)) } })
+        IssueHelpDialog(message, listOf(UiIssueKind.PUMP_LINK)) { showInfo = false }
     }
 }
 
@@ -754,6 +757,7 @@ private fun EnergyActivityStatusRow(
     status: EnergyActivityStatusUi,
     midnightGlass: Boolean
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
     val text = when (status.kind) {
         EnergyActivityStatusKind.PROFILE_ISSUE -> stringResource(R.string.overview_activity_profile_issue)
         EnergyActivityStatusKind.ACTIVE -> stringResource(
@@ -771,10 +775,18 @@ private fun EnergyActivityStatusRow(
     } else {
         MaterialTheme.colorScheme.primary
     }
+    val navigate = LocalIssueNavigator.current
+    if (showIssueHelp) {
+        IssueHelpDialog(text, status.issues) { showIssueHelp = false }
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("energy_activity_status")
+            .clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) {
+                if (status.kind == EnergyActivityStatusKind.PROFILE_ISSUE) showIssueHelp = true
+                else navigate?.invoke(IssueDestination.ACTIVITY_SCHEDULE)
+            }
             .semantics { contentDescription = text },
         shape = RoundedCornerShape(8.dp),
         color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f)
@@ -806,6 +818,7 @@ private fun OverviewWarningBanner(
     onDisablePowerSave: () -> Unit,
     onOpenSensorLagAnalytics: (() -> Unit)?
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
     val displayedKind = resolveOverviewBannerKind(
         warningKind = warning.kind,
         powerSaveActive = state.powerSaveActive
@@ -833,13 +846,18 @@ private fun OverviewWarningBanner(
         OverviewWarningKind.KILL_SWITCH -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.tertiary
     }
-    val clickableModifier = if (
-        displayedKind == OverviewWarningKind.SENSOR_OR_STALE && onOpenSensorLagAnalytics != null
-    ) {
-        Modifier.clickable(onClick = onOpenSensorLagAnalytics)
-    } else {
-        Modifier
+    if (showIssueHelp) {
+        val issue = when (displayedKind) {
+            OverviewWarningKind.SENSOR_OR_STALE -> if (state.isStale) UiIssueKind.DATA_STALE else UiIssueKind.SENSOR
+            OverviewWarningKind.KILL_SWITCH -> UiIssueKind.KILL_SWITCH
+            OverviewWarningKind.POWER_SAVE -> UiIssueKind.POWER_SAVE
+            else -> UiIssueKind.GLUCOSE_ALERT
+        }
+        IssueHelpDialog(text, listOf(issue), navigateOverride = onOpenSensorLagAnalytics?.takeIf { issue == UiIssueKind.SENSOR }?.let { open ->
+            { destination -> if (destination == IssueDestination.SENSOR_ANALYTICS) open() }
+        }) { showIssueHelp = false }
     }
+    val clickableModifier = Modifier.clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) { showIssueHelp = true }
 
     Surface(
         modifier = clickableModifier
@@ -1250,6 +1268,7 @@ private fun OverviewClinicalMatrix(
                         text = status,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(if (state.sensitivitySourceApplying) Modifier else Modifier.issueHelp(status, UiIssueKind.GENERIC_ERROR))
                             .padding(horizontal = 8.dp, vertical = 5.dp)
                             .testTag("overviewSensitivitySourceStatus"),
                         style = MaterialTheme.typography.labelSmall,

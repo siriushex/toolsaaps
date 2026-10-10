@@ -2,6 +2,8 @@ package io.aaps.copilot.ui.foundation.screens
 
 import android.app.DatePickerDialog
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,8 +16,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -38,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,10 +53,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
+import io.aaps.copilot.util.LocaleFriendlyDecimalParser
 import io.aaps.copilot.domain.profile.ActivityProfile
 import io.aaps.copilot.domain.profile.ActivityProfileMode
 import io.aaps.copilot.domain.profile.ActivityScheduleEngine
 import io.aaps.copilot.domain.profile.CalorieGoalMode
+import io.aaps.copilot.domain.profile.EnergyProfilePolicy
+import io.aaps.copilot.domain.profile.EnergyProfileSettings
+import io.aaps.copilot.domain.profile.ProfileResolution
 import io.aaps.copilot.domain.profile.FoodProfileMode
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.domain.profile.PlannedActivityIntensity
@@ -74,10 +85,27 @@ fun EnergyActivitySettingsSection(
     onSaveEvent: (PlannedActivityEventUi) -> Unit,
     onDeleteEvent: (String) -> Unit,
     onSaveEnergySettings: (EnergyGoalSettingsUi) -> Unit,
+    onSaveProfileCorrection: ((UserProfileDraftUi, EnergyGoalSettingsUi) -> Unit)? = null,
     openPlannedActivityRequest: Int = 0,
+    editorRequest: IssueDestination? = null,
+    onEditorRequestHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var dialog by remember { mutableStateOf<EnergyActivityDialog?>(null) }
+    var dialog by rememberSaveable { mutableStateOf<EnergyActivityDialog?>(null) }
+    val calorieEditor = if (onSaveProfileCorrection != null &&
+        needsCalorieCorrection(state.energyGoalSettings) && !userProfileDraftComplete(state.userProfile)
+    ) EnergyActivityDialog.USER else EnergyActivityDialog.ENERGY
+    LaunchedEffect(editorRequest) {
+        if (editorRequest != null) {
+            dialog = when (editorRequest) {
+                IssueDestination.USER_PROFILE -> EnergyActivityDialog.USER
+                IssueDestination.ENERGY_GOAL -> calorieEditor
+                IssueDestination.ACTIVITY_SCHEDULE -> EnergyActivityDialog.ACTIVITY
+                else -> null
+            }
+            onEditorRequestHandled()
+        }
+    }
     LaunchedEffect(openPlannedActivityRequest) {
         if (openPlannedActivityRequest > 0) {
             dialog = EnergyActivityDialog.ACTIVITY
@@ -126,22 +154,29 @@ fun EnergyActivitySettingsSection(
         EnergyProfileRow(
             title = stringResource(R.string.energy_activity_energy_and_ai),
             detail = state.calorieSummary,
-            onClick = { dialog = EnergyActivityDialog.ENERGY }
+            onClick = { dialog = calorieEditor }
         )
         state.validationMessage?.let { message ->
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp).issueHelp(message, UiIssueKind.GENERIC_ERROR)
             )
         }
     }
     when (dialog) {
         EnergyActivityDialog.USER -> UserProfileDialog(
             initial = state.userProfile,
+            calorieCorrection = state.energyGoalSettings.takeIf {
+                onSaveProfileCorrection != null && needsCalorieCorrection(it)
+            },
             onDismiss = { dialog = null },
-            onSave = { onSaveUserProfile(it); dialog = null }
+            onSave = { onSaveUserProfile(it); dialog = null },
+            onSaveCorrection = { draft, calories ->
+                onSaveProfileCorrection?.invoke(draft, calories)
+                dialog = null
+            }
         )
         EnergyActivityDialog.FOOD -> FoodProfileDialog(
             initial = state.foodSettings,
@@ -171,6 +206,18 @@ fun EnergyActivitySettingsSection(
 
 private enum class EnergyActivityDialog { USER, FOOD, ACTIVITY, ENERGY }
 
+internal fun needsCalorieCorrection(goal: EnergyGoalSettingsUi): Boolean =
+    (goal.mode == CalorieGoalMode.MANUAL_CLINICIAN && goal.manualTargetKcal == null) ||
+        (goal.manualTargetKcal != null && goal.manualTargetKcal !in 500..10_000)
+
+internal fun userProfileDraftComplete(draft: UserProfileDraftUi, today: LocalDate = LocalDate.now()): Boolean =
+    EnergyProfilePolicy().resolve(EnergyProfileSettings(
+        birthDateEpochDay = draft.birthDateEpochDay,
+        physiologicalSex = draft.physiologicalSex,
+        heightCm = draft.heightCm,
+        weightKg = draft.weightKg
+    ), today) is ProfileResolution.Complete
+
 @Composable
 private fun EnergyProfileRow(title: String, detail: String, onClick: () -> Unit) {
     Column(
@@ -191,22 +238,32 @@ private fun EnergyProfileRow(title: String, detail: String, onClick: () -> Unit)
 private fun UserProfileDialog(
     initial: UserProfileDraftUi,
     onDismiss: () -> Unit,
-    onSave: (UserProfileDraftUi) -> Unit
+    onSave: (UserProfileDraftUi) -> Unit,
+    calorieCorrection: EnergyGoalSettingsUi? = null,
+    onSaveCorrection: (UserProfileDraftUi, EnergyGoalSettingsUi) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    var birthDate by remember { mutableStateOf(initial.birthDateEpochDay?.let(LocalDate::ofEpochDay)) }
-    var sex by remember { mutableStateOf(initial.physiologicalSex) }
-    var height by remember { mutableStateOf(initial.heightCm?.toString().orEmpty()) }
-    var weight by remember { mutableStateOf(initial.weightKg?.toString().orEmpty()) }
-    val valid = birthDate != null && ageOn(requireNotNull(birthDate)) in 3..120 &&
-        height.toDoubleOrNull()?.let { it in 80.0..230.0 } == true &&
-        weight.toDoubleOrNull()?.let { it in 10.0..350.0 } == true
+    var birthDate by rememberSaveable { mutableStateOf(initial.birthDateEpochDay?.let { runCatching { LocalDate.ofEpochDay(it) }.getOrNull() }) }
+    var sex by rememberSaveable { mutableStateOf(initial.physiologicalSex) }
+    var height by rememberSaveable { mutableStateOf(initial.heightCm?.toString().orEmpty()) }
+    var weight by rememberSaveable { mutableStateOf(initial.weightKg?.toString().orEmpty()) }
+    var calories by rememberSaveable { mutableStateOf(calorieCorrection?.manualTargetKcal?.toString().orEmpty()) }
+    val heightValue = LocaleFriendlyDecimalParser.parse(height)?.value
+    val weightValue = LocaleFriendlyDecimalParser.parse(weight)?.value
+    val birthValid = birthDate?.let { ageOn(it) in 3..120 } == true
+    val heightValid = heightValue?.let { it in 80.0..230.0 } == true
+    val weightValid = weightValue?.let { it in 10.0..350.0 } == true
+    val calorieValid = calorieCorrection == null ||
+        (calories.isBlank() && calorieCorrection.mode != CalorieGoalMode.MANUAL_CLINICIAN) ||
+        calories.toIntOrNull()?.let { it in 500..10_000 } == true
+    val valid = birthValid && heightValid && weightValid && calorieValid
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.energy_activity_user_profile)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("issue_user_profile_form"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(modifier = Modifier.testTag("issue_profile_birth_date"), onClick = {
                     val base = birthDate ?: LocalDate.now().minusYears(30)
                     DatePickerDialog(context, { _, year, month, day ->
                         birthDate = LocalDate.of(year, month + 1, day)
@@ -215,20 +272,37 @@ private fun UserProfileDialog(
                     Text(birthDate?.toString() ?: stringResource(R.string.energy_activity_birth_date))
                 }
                 birthDate?.let { Text(stringResource(R.string.energy_activity_age_years, ageOn(it))) }
+                if (!birthValid) Text(stringResource(if (birthDate == null) R.string.issue_birth_missing else R.string.issue_birth_invalid), color = MaterialTheme.colorScheme.error)
                 EnumSelector(
                     options = PhysiologicalSex.entries.toList(),
                     selected = sex,
-                    label = { it.name.lowercase().replaceFirstChar(Char::titlecase) },
+                    label = { stringResource(when (it) {
+                        PhysiologicalSex.MALE -> R.string.issue_sex_male
+                        PhysiologicalSex.FEMALE -> R.string.issue_sex_female
+                        PhysiologicalSex.UNSPECIFIED -> R.string.issue_sex_unspecified
+                    }) },
+                    useMenu = true,
                     onSelected = { sex = it }
                 )
-                OutlinedTextField(height, { height = it }, label = { Text(stringResource(R.string.energy_activity_height_cm)) }, singleLine = true)
-                OutlinedTextField(weight, { weight = it }, label = { Text(stringResource(R.string.energy_activity_weight_kg)) }, singleLine = true)
-                if (!valid) Text(stringResource(R.string.energy_activity_profile_validation), color = MaterialTheme.colorScheme.error)
+                OutlinedTextField(height, { height = it }, label = { Text(stringResource(R.string.energy_activity_height_cm)) },
+                    singleLine = true, isError = !heightValid, modifier = Modifier.testTag("issue_profile_height"),
+                    supportingText = { if (!heightValid) Text(stringResource(if (height.isBlank()) R.string.issue_height_missing else R.string.issue_height_invalid)) })
+                OutlinedTextField(weight, { weight = it }, label = { Text(stringResource(R.string.energy_activity_weight_kg)) },
+                    singleLine = true, isError = !weightValid, modifier = Modifier.testTag("issue_profile_weight"),
+                    supportingText = { if (!weightValid) Text(stringResource(if (weight.isBlank()) R.string.issue_weight_missing else R.string.issue_weight_invalid)) })
+                if (calorieCorrection != null) {
+                    Text(stringResource(R.string.issue_joint_profile_correction), style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(calories, { calories = it }, label = { Text(stringResource(R.string.energy_activity_kcal)) },
+                        singleLine = true, isError = !calorieValid, modifier = Modifier.testTag("issue_joint_calories"),
+                        supportingText = { if (!calorieValid) Text(stringResource(if (calories.isBlank()) R.string.issue_calories_missing else R.string.issue_calories_invalid)) })
+                }
             }
         },
         confirmButton = {
             Button(enabled = valid, onClick = {
-                onSave(UserProfileDraftUi(birthDate?.toEpochDay(), sex, height.toDoubleOrNull(), weight.toDoubleOrNull()))
+                val draft = UserProfileDraftUi(birthDate?.toEpochDay(), sex, heightValue, weightValue)
+                if (calorieCorrection == null) onSave(draft)
+                else onSaveCorrection(draft, calorieCorrection.copy(manualTargetKcal = calories.toIntOrNull()))
             }) { Text(stringResource(android.R.string.ok)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
@@ -313,7 +387,8 @@ private fun ActivityProfileDialog(
                     }
                 }
                 validationMessage?.let { message ->
-                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.issueHelp(message, UiIssueKind.GENERIC_ERROR))
                 }
             }
         },
@@ -495,18 +570,27 @@ private fun PlannedEventDialog(
 
 @Composable
 private fun EnergyGoalDialog(initial: EnergyGoalSettingsUi, ageYears: Int?, onDismiss: () -> Unit, onSave: (EnergyGoalSettingsUi) -> Unit) {
-    var mode by remember { mutableStateOf(initial.mode) }
-    var kcal by remember { mutableStateOf(initial.manualTargetKcal?.toString().orEmpty()) }
-    var share by remember { mutableStateOf(initial.shareProfileWithAi) }
+    var mode by rememberSaveable { mutableStateOf(initial.mode) }
+    var kcal by rememberSaveable { mutableStateOf(initial.manualTargetKcal?.toString().orEmpty()) }
+    var share by rememberSaveable { mutableStateOf(initial.shareProfileWithAi) }
     val pediatricRestricted = ageYears != null && ageYears < 19 && mode in setOf(CalorieGoalMode.LOSS, CalorieGoalMode.GAIN)
-    val validCalories = mode != CalorieGoalMode.MANUAL_CLINICIAN || kcal.toIntOrNull() in 500..10_000
+    val validCalories = (kcal.isBlank() && mode != CalorieGoalMode.MANUAL_CLINICIAN) || kcal.toIntOrNull() in 500..10_000
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.energy_activity_energy_and_ai)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                EnumSelector(CalorieGoalMode.entries.toList(), mode, { it.name.lowercase().replaceFirstChar(Char::titlecase) }) { mode = it }
-                if (mode == CalorieGoalMode.MANUAL_CLINICIAN) OutlinedTextField(kcal, { kcal = it }, label = { Text(stringResource(R.string.energy_activity_kcal)) }, singleLine = true)
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("issue_energy_goal_form"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                EnumSelector(CalorieGoalMode.entries.toList(), mode, { stringResource(when (it) {
+                    CalorieGoalMode.OFF -> R.string.issue_goal_off
+                    CalorieGoalMode.MAINTENANCE -> R.string.issue_goal_maintenance
+                    CalorieGoalMode.LOSS -> R.string.issue_goal_loss
+                    CalorieGoalMode.GAIN -> R.string.issue_goal_gain
+                    CalorieGoalMode.MANUAL_CLINICIAN -> R.string.issue_goal_manual
+                }) }, useMenu = true) { mode = it }
+                if (mode == CalorieGoalMode.MANUAL_CLINICIAN || kcal.isNotBlank()) OutlinedTextField(kcal, { kcal = it }, label = { Text(stringResource(R.string.energy_activity_kcal)) },
+                    singleLine = true, isError = !validCalories, modifier = Modifier.testTag("issue_profile_calories"),
+                    supportingText = { if (!validCalories) Text(stringResource(if (kcal.isBlank()) R.string.issue_calories_missing else R.string.issue_calories_invalid)) })
                 if (pediatricRestricted) Text(stringResource(R.string.energy_activity_pediatric_restriction), color = MaterialTheme.colorScheme.error)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.energy_activity_share_ai), modifier = Modifier.weight(1f))
@@ -545,8 +629,24 @@ private fun <T> EnumSelector(
     options: List<T>,
     selected: T,
     label: @Composable (T) -> String,
+    useMenu: Boolean = false,
     onSelected: (T) -> Unit
 ) {
+    if (useMenu) {
+        var expanded by remember { mutableStateOf(false) }
+        Column {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(label(selected), modifier = Modifier.weight(1f))
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(text = { Text(label(option)) }, onClick = { expanded = false; onSelected(option) })
+                }
+            }
+        }
+        return
+    }
     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
         options.forEachIndexed { index, option ->
             SegmentedButton(

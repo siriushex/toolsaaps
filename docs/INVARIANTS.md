@@ -1,5 +1,21 @@
 # INVARIANTS
 
+## Diagnostic Navigation
+
+- Tapping a warning or its help action is read-only navigation. It cannot change
+  arming, kill switch, target mode, limits, mute, volume, therapy or retry state.
+- Profile issue causes come from the existing policy. Missing/invalid personal
+  fields lead to the user editor; calorie problems lead to the energy editor,
+  or the joint correction form when personal fields also need correction.
+  Missing/stale calculation snapshots must not suggest altering valid fields.
+- Unknown error codes receive conservative journal guidance, not an invented
+  diagnosis. Clinical blocking conditions are explained, never bypassed.
+- Opening forms never saves them. Corrections use existing explicit callbacks,
+  retain validation bounds and dismiss after the explicit save request. A failed
+  persistence attempt remains an error, not proof of a corrected stored profile.
+- Joint correction merges only the edited personal fields and calorie value into
+  current settings. It cannot overwrite current modes or sharing from an old form.
+
 ## Confirmed Eating Soon Handoff
 
 - Reserve canonical Eating Soon durably before waiting for the shared target

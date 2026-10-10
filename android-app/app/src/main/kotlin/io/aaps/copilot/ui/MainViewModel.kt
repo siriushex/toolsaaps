@@ -6194,12 +6194,16 @@ class MainViewModel(application: Application) :
 
     fun saveEnergyProfileUserProfile(draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi) {
         updateEnergyProfileSettings { current ->
-            current.copy(
-                birthDateEpochDay = draft.birthDateEpochDay,
-                physiologicalSex = draft.physiologicalSex,
-                heightCm = draft.heightCm,
-                weightKg = draft.weightKg
-            )
+            applyEnergyProfileUserDraft(current, draft)
+        }
+    }
+
+    fun saveEnergyProfileCorrection(
+        draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
+        calories: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi
+    ) {
+        updateEnergyProfileSettings { current ->
+            applyEnergyProfileUserDraft(current, draft, calories)
         }
     }
 
@@ -13277,6 +13281,18 @@ internal sealed interface EnergyProfileSettingsUpdate {
 
     data class Reject(val violations: Set<ProfileViolation>) : EnergyProfileSettingsUpdate
 }
+
+internal fun applyEnergyProfileUserDraft(
+    current: EnergyProfileSettings,
+    draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
+    calories: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi? = null
+): EnergyProfileSettings = current.copy(
+    birthDateEpochDay = draft.birthDateEpochDay,
+    physiologicalSex = draft.physiologicalSex,
+    heightCm = draft.heightCm,
+    weightKg = draft.weightKg,
+    manualCalorieTargetKcal = if (calories == null) current.manualCalorieTargetKcal else calories.manualTargetKcal
+)
 
 internal fun evaluateEnergyProfileSettingsUpdate(
     current: EnergyProfileSettings,

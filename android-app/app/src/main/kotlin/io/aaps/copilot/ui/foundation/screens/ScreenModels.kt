@@ -112,7 +112,8 @@ enum class EnergyActivityStatusKind {
 data class EnergyActivityStatusUi(
     val kind: EnergyActivityStatusKind,
     val title: String? = null,
-    val minutesUntilStart: Long? = null
+    val minutesUntilStart: Long? = null,
+    val issues: List<UiIssueKind> = emptyList()
 )
 
 data class ClinicalForecastChartUiState(
@@ -403,7 +404,8 @@ data class UamUiState(
 data class SafetyChecklistItemUi(
     val title: String,
     val ok: Boolean,
-    val details: String
+    val details: String,
+    val issue: UiIssueKind = UiIssueKind.GENERIC_ERROR
 )
 
 data class AiTuningStatusUi(

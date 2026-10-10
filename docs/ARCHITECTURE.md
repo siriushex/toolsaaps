@@ -1,5 +1,28 @@
 # ARCHITECTURE
 
+## Actionable UI Diagnostics
+
+Visible error banners and primary Overview/Safety warnings open passive help.
+`UiIssueKind` uses localized explanations and typed `IssueDestination` values;
+unknown errors lead to the diagnostic journal, not a guessed repair or retry.
+Profile diagnostics reuse `EnergyProfilePolicy`, distinguish missing/invalid
+fields from absent/stale snapshots, and retain the specific causes in UI state.
+Valid personal data is never described as missing because a snapshot is stale.
+
+The root navigation provider opens the exact settings tab/section or existing
+diagnostic destination. User-profile and energy-goal links open the existing
+editors after lazy-list positioning; requests are consumed and do not reopen
+on ordinary recomposition. Field errors and explicit save validation remain
+in the editor. Decimal height/weight input accepts either comma or point.
+If personal fields and stored calories are invalid together, the profile form
+offers both corrections in one explicit save through the existing validated
+settings update. It preserves current modes, sharing flags and unrelated fields.
+Transient operation messages offer Details without assuming every outcome is a
+failure and retain timed dismissal; long unknown text stays inside the scrollable
+diagnostic body.
+No database schema, therapy guard, forecast acceptance, settings default,
+command replay, pump connection, alert acknowledgment or audio operation changes.
+
 ## Checked Pump-Link Source Publication
 
 PumpLinkHealthMonitor exposes an immutable PumpLinkAlarmSource only after the

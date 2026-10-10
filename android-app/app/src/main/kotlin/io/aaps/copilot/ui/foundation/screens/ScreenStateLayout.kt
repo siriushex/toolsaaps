@@ -78,7 +78,8 @@ fun ScreenStateLayout(
                 if (isStale) {
                     SafetyBanner(
                         type = SafetyBannerType.WARNING,
-                        text = stringResource(id = R.string.status_stale_data)
+                        text = stringResource(id = R.string.status_stale_data),
+                        issue = UiIssueKind.DATA_STALE
                     )
                 }
                 Column(

@@ -558,10 +558,9 @@ internal fun energyActivityOverviewStatus(
     policy: EnergyProfilePolicy = EnergyProfilePolicy()
 ): EnergyActivityStatusUi? {
     if (!settings.enabled) return null
-    if (policy.resolve(settings, now.atZone(ZoneId.systemDefault()).toLocalDate()) !is ProfileResolution.Complete ||
-        snapshot == null || snapshot.stale
-    ) {
-        return EnergyActivityStatusUi(EnergyActivityStatusKind.PROFILE_ISSUE)
+    val issues = energyProfileIssues(settings, snapshot, now.atZone(ZoneId.systemDefault()).toLocalDate(), policy)
+    if (issues.isNotEmpty()) {
+        return EnergyActivityStatusUi(EnergyActivityStatusKind.PROFILE_ISSUE, issues = issues)
     }
 
     val engine = ActivityScheduleEngine()
@@ -1137,20 +1136,24 @@ internal fun MainUiState.toSafetyUiState(): SafetyUiState {
         SafetyChecklistItemUi(
             title = "Data freshness",
             ok = !isDataStale(),
-            details = "age=${UiFormatters.formatMinutes(latestDataAgeMinutes)} limit=${staleDataMaxMinutes}m"
+            details = "age=${UiFormatters.formatMinutes(latestDataAgeMinutes)} limit=${staleDataMaxMinutes}m",
+            issue = UiIssueKind.DATA_STALE
         ),
         SafetyChecklistItemUi(
             title = "Kill switch",
             ok = !killSwitch,
-            details = if (killSwitch) "Automatic actions blocked" else "Automatic actions allowed"
+            details = if (killSwitch) "Automatic actions blocked" else "Automatic actions allowed",
+            issue = UiIssueKind.KILL_SWITCH
         ),
         SafetyChecklistItemUi(
             title = "Sensor quality",
             ok = sensorQualityBlocked != true,
-            details = sensorQualityReason ?: "No sensor block flags"
+            details = sensorQualityReason ?: "No sensor block flags",
+            issue = UiIssueKind.SENSOR
         ),
         SafetyChecklistItemUi(
             title = "Nightscout local runtime",
+            issue = UiIssueKind.DATA_SOURCE_PENDING,
             ok = false,
             details = if (localNightscoutEnabled) {
                 "runtime state pending (configured port=$localNightscoutPort)"

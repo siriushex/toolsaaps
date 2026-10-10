@@ -54,16 +54,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -101,6 +105,12 @@ import io.aaps.copilot.ui.foundation.screens.EventsDialog
 import io.aaps.copilot.ui.foundation.screens.remainingGlucoseAlertMuteMinutes
 import io.aaps.copilot.ui.foundation.screens.SafetyScreen
 import io.aaps.copilot.ui.foundation.screens.SettingsScreen
+import io.aaps.copilot.ui.foundation.screens.IssueDestination
+import io.aaps.copilot.ui.foundation.screens.IssueHelpDialog
+import io.aaps.copilot.ui.foundation.screens.UiIssueKind
+import io.aaps.copilot.ui.foundation.screens.IssueSettingsRequest
+import io.aaps.copilot.ui.foundation.screens.LocalIssueNavigator
+import io.aaps.copilot.ui.foundation.screens.issueSettingsLocation
 import io.aaps.copilot.ui.foundation.screens.UamScreen
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import io.aaps.copilot.ui.foundation.theme.CopilotStyledBackground
@@ -149,6 +159,8 @@ fun CopilotFoundationRoot(
     val uiStyleRaw by viewModel.uiStyleState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    var messageHelp by remember { mutableStateOf<String?>(null) }
+    val messageDetailsLabel = stringResource(R.string.issue_details)
     val selectedUiStyle = UiStyle.fromRaw(uiStyleRaw)
     var drawerOpen by remember { mutableStateOf(false) }
     var chromeDetailsReady by remember { mutableStateOf(false) }
@@ -157,7 +169,8 @@ fun CopilotFoundationRoot(
     var showPowerSaveDialog by remember { mutableStateOf(false) }
     var showEventsDialog by remember { mutableStateOf(false) }
     var overviewAuthoritativeEditor by remember { mutableStateOf<OverviewAuthoritativeEditor?>(null) }
-    var openPlannedActivityRequest by remember { mutableStateOf(0) }
+    var issueSettingsDestination by rememberSaveable { mutableStateOf<IssueDestination?>(null) }
+    var issueRequestToken by rememberSaveable { mutableStateOf(0) }
     val clinicalAiSettingsCallbacks = remember(viewModel) {
         clinicalAiSettingsRootCallbacks(viewModel)
     }
@@ -180,7 +193,8 @@ fun CopilotFoundationRoot(
             },
             onOpenPlannedActivity = {
                 showEventsDialog = false
-                openPlannedActivityRequest += 1
+                issueRequestToken += 1
+                issueSettingsDestination = IssueDestination.ACTIVITY_SCHEDULE
                 navController.navigate(Destinations.Settings.route) { launchSingleTop = true }
             },
             onOpenBloodCheck = {
@@ -198,7 +212,9 @@ fun CopilotFoundationRoot(
     LaunchedEffect(message) {
         val text = message
         if (!text.isNullOrBlank()) {
-            snackbarHostState.showSnackbar(text)
+            if (snackbarHostState.showSnackbar(text, actionLabel = messageDetailsLabel, duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) {
+                messageHelp = text
+            }
             viewModel.clearMessage()
         }
     }
@@ -232,6 +248,9 @@ fun CopilotFoundationRoot(
     }
 
     val scaffoldContent: @Composable () -> Unit = {
+        messageHelp?.let { text ->
+            IssueHelpDialog(text, listOf(UiIssueKind.OPERATION_MESSAGE)) { messageHelp = null }
+        }
             Scaffold(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
@@ -617,13 +636,21 @@ fun CopilotFoundationRoot(
                                     onRetentionDaysChange = viewModel::setRetentionDays,
                                     onEnergyProfileEnabledChange = viewModel::setEnergyProfileEnabled,
                                     onEnergyProfileUserProfileSave = viewModel::saveEnergyProfileUserProfile,
+                                    onEnergyProfileCorrectionSave = viewModel::saveEnergyProfileCorrection,
                                     onEnergyProfileFoodSettingsSave = viewModel::saveEnergyProfileFoodSettings,
                                     onMealPortionsSave = viewModel::saveMealPortionSettings,
                                     onEnergyProfileActivitySettingsSave = viewModel::saveEnergyProfileActivitySettings,
                                     onPlannedActivitySave = viewModel::savePlannedActivity,
                                     onPlannedActivityDelete = viewModel::deletePlannedActivity,
                                     onEnergyGoalSettingsSave = viewModel::saveEnergyGoalSettings,
-                                    openPlannedActivityRequest = openPlannedActivityRequest
+                                    issueRequest = issueSettingsDestination?.let {
+                                        IssueSettingsRequest(issueRequestToken, it)
+                                    },
+                                    onIssueRequestHandled = { handled ->
+                                        if (handled.token == issueRequestToken && handled.destination == issueSettingsDestination) {
+                                            issueSettingsDestination = null
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -634,13 +661,34 @@ fun CopilotFoundationRoot(
             }
     }
 
+    val issueNavigator: (IssueDestination) -> Unit = remember(navController) {
+        { destination ->
+            if (issueSettingsLocation(destination) != null) {
+                issueRequestToken += 1
+                issueSettingsDestination = destination
+                navController.navigate(Destinations.Settings.route) { launchSingleTop = true }
+            } else {
+                when (destination) {
+                    IssueDestination.POWER_SAVE -> showPowerSaveDialog = true
+                    IssueDestination.SENSOR_ANALYTICS -> {
+                        openSensorLagTrendDetailRequest = true
+                        navController.navigate(Destinations.Analytics.route) { launchSingleTop = true }
+                    }
+                    IssueDestination.ANALYTICS -> navController.navigate(Destinations.Analytics.route) { launchSingleTop = true }
+                    IssueDestination.SAFETY -> navController.navigate(Destinations.Safety.route) { launchSingleTop = true }
+                    IssueDestination.ALERTS -> navController.navigate(Destinations.Alerts.route) { launchSingleTop = true }
+                    else -> navController.navigate(Destinations.Audit.route) { launchSingleTop = true }
+                }
+            }
+        }
+    }
     AapsCopilotTheme(uiStyle = selectedUiStyle) {
         CopilotStyledBackground(
             uiStyle = selectedUiStyle,
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                scaffoldContent()
+                CompositionLocalProvider(LocalIssueNavigator provides issueNavigator) { scaffoldContent() }
                 if (showPowerSaveDialog) {
                     RootPowerSaveDialog(
                         onDismiss = { showPowerSaveDialog = false },

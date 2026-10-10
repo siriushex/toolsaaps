@@ -1,5 +1,20 @@
 # PLAN
 
+## Actionable Errors (2026-10-10)
+
+- Implement typed passive help and navigation for shared screen errors, stale
+  banners, app health, profile warnings, pump-link information, Target Manager
+  status and failed Safety checks.
+- Profile reasons distinguish editable fields from missing/stale calculations;
+  direct settings requests select the tab/section and open the matching editor.
+- Cause mapping, exact editor routing, explicit/joint saves, comma decimals and
+  enlarged Russian native UI are verified. Intermediate full5117 unit cases
+  passed with3 optional phone-copy skips; final targeted129 cases pass without
+  failures/errors/skips. Final lint/compile/APK and isolated UI-test compile pass;
+  lint has zero errors,313 warnings and4 hints. Full Verify runs on the published
+  commit separately; retain its exact-SHA result rather than infer it from a push.
+- No working phone update or clinical algorithm changes in this source stage.
+
 ## Eating Soon Queue Priority (2026-10-10)
 
 - Reproduced three REDs: queued manual intent absent from Room, queue cancellation

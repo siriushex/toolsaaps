@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -221,22 +222,36 @@ fun SettingsScreen(
     onEnergyProfileEnabledChange: (Boolean) -> Unit = {},
     onMealPortionsSave: (io.aaps.copilot.domain.nutrition.MealPortionSettings) -> Unit = {},
     onEnergyProfileUserProfileSave: (UserProfileDraftUi) -> Unit = {},
+    onEnergyProfileCorrectionSave: ((UserProfileDraftUi, EnergyGoalSettingsUi) -> Unit)? = null,
     onEnergyProfileFoodSettingsSave: (FoodProfileSettingsUi) -> Unit = {},
     onEnergyProfileActivitySettingsSave: (ActivityProfileSettingsUi) -> Unit = {},
     onPlannedActivitySave: (PlannedActivityEventUi) -> Unit = {},
     onPlannedActivityDelete: (String) -> Unit = {},
     onEnergyGoalSettingsSave: (EnergyGoalSettingsUi) -> Unit = {},
     openPlannedActivityRequest: Int = 0,
+    issueRequest: IssueSettingsRequest? = null,
+    onIssueRequestHandled: (IssueSettingsRequest) -> Unit = {},
     telegramSettingsContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedTabRaw by rememberSaveable { mutableStateOf(SettingsTab.BASIC.name) }
+    val listState = rememberLazyListState()
+    var pendingIssueEditor by rememberSaveable { mutableStateOf<IssueDestination?>(null) }
     var showBaseTargetDialog by rememberSaveable { mutableStateOf(false) }
     var pendingTargetManagerMode by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingTargetManagerPriorityEnable by rememberSaveable { mutableStateOf(false) }
     var pendingLocalNightscoutIdentityReset by rememberSaveable { mutableStateOf(false) }
     val selectedTab = runCatching { SettingsTab.valueOf(selectedTabRaw) }
         .getOrDefault(SettingsTab.BASIC)
+    LaunchedEffect(issueRequest) {
+        val request = issueRequest ?: return@LaunchedEffect
+        val location = issueSettingsLocation(request.destination) ?: return@LaunchedEffect
+        selectedTabRaw = if (location.advanced) SettingsTab.ADVANCED.name else SettingsTab.BASIC.name
+        pendingIssueEditor = location.editor
+        androidx.compose.runtime.withFrameNanos { }
+        listState.scrollToItem(location.itemIndex)
+        onIssueRequestHandled(request)
+    }
     LaunchedEffect(openPlannedActivityRequest) {
         if (openPlannedActivityRequest > 0) {
             selectedTabRaw = SettingsTab.ADVANCED.name
@@ -344,6 +359,7 @@ fun SettingsScreen(
         emptyText = stringResource(id = R.string.settings_empty)
     ) {
         LazyColumn(
+            state = listState,
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
@@ -454,12 +470,15 @@ fun SettingsScreen(
                             state = state.energyProfile,
                             onEnabledChange = onEnergyProfileEnabledChange,
                             onSaveUserProfile = onEnergyProfileUserProfileSave,
+                            onSaveProfileCorrection = onEnergyProfileCorrectionSave,
                             onSaveFoodSettings = onEnergyProfileFoodSettingsSave,
                             onSaveActivitySettings = onEnergyProfileActivitySettingsSave,
                             onSaveEvent = onPlannedActivitySave,
                             onDeleteEvent = onPlannedActivityDelete,
                             onSaveEnergySettings = onEnergyGoalSettingsSave,
-                            openPlannedActivityRequest = openPlannedActivityRequest
+                            openPlannedActivityRequest = openPlannedActivityRequest,
+                            editorRequest = pendingIssueEditor,
+                            onEditorRequestHandled = { pendingIssueEditor = null }
                         )
                     }
                     item {
@@ -975,6 +994,7 @@ private fun IsfCrSettingsCard(
         } else if (!state.sensitivitySourceApplyError.isNullOrBlank()) {
             Text(
                 text = state.sensitivitySourceApplyError.orEmpty(),
+                modifier = Modifier.issueHelp(state.sensitivitySourceApplyError.orEmpty(), UiIssueKind.GENERIC_ERROR),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )

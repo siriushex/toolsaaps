@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
@@ -45,6 +50,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
+import io.aaps.copilot.ui.foundation.screens.IssueHelpDialog
+import io.aaps.copilot.ui.foundation.screens.UiIssueKind
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.design.AppElevation
@@ -188,8 +195,16 @@ fun SafetyBanner(
     text: String,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    issue: UiIssueKind? = when (type) {
+        SafetyBannerType.WARNING, SafetyBannerType.ERROR -> UiIssueKind.GENERIC_ERROR
+        else -> null
+    }
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
+    if (showIssueHelp && issue != null) {
+        IssueHelpDialog(text, listOf(issue)) { showIssueHelp = false }
+    }
     val (icon, tone) = when (type) {
         SafetyBannerType.INFO -> Icons.Default.Info to MaterialTheme.colorScheme.primary
         SafetyBannerType.WARNING -> Icons.Default.Warning to MaterialTheme.colorScheme.tertiary
@@ -197,7 +212,9 @@ fun SafetyBanner(
         SafetyBannerType.SUCCESS -> Icons.Default.CheckCircle to MaterialTheme.colorScheme.secondary
     }
     Card(
-        modifier = modifier,
+        modifier = if (issue == null) modifier else modifier.clickable(
+            onClickLabel = stringResource(R.string.issue_how_to_resolve)
+        ) { showIssueHelp = true },
         colors = CardDefaults.cardColors(
             containerColor = tone.copy(alpha = 0.12f).compositeOver(MaterialTheme.colorScheme.surface),
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -247,6 +264,14 @@ fun AppHealthBanner(
     lastSyncText: String,
     modifier: Modifier = Modifier
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
+    val issues = buildList {
+        if (killSwitchEnabled) add(UiIssueKind.KILL_SWITCH)
+        if (staleData) add(UiIssueKind.DATA_STALE)
+    }
+    if (showIssueHelp) {
+        IssueHelpDialog(stringResource(R.string.issue_how_to_resolve), issues) { showIssueHelp = false }
+    }
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val issueIcon = when {
         killSwitchEnabled -> Icons.Default.Error
@@ -264,7 +289,9 @@ fun AppHealthBanner(
         else -> if (midnightGlass) androidx.compose.ui.graphics.Color(0xFF8DB6FF) else MaterialTheme.colorScheme.primary
     }
     Card(
-        modifier = modifier,
+        modifier = if (issues.isEmpty()) modifier else modifier.clickable(
+            onClickLabel = stringResource(R.string.issue_how_to_resolve)
+        ) { showIssueHelp = true },
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, issueTone.copy(alpha = if (midnightGlass) 0.38f else 0.24f)),
         colors = CardDefaults.cardColors(
