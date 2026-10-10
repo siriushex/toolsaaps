@@ -30,9 +30,11 @@ import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class NightscoutActionRepository(
     private val context: Context,
@@ -88,12 +90,44 @@ class NightscoutActionRepository(
     suspend fun submitTempTarget(
         command: ActionCommand,
         deliveryGuard: (suspend () -> String?)? = null
-    ): Boolean = TEMP_TARGET_WRITE_MUTEX.withLock {
-        val registration = registerPendingCommand(command)
+    ): Boolean {
+        val frozenCommand = command.copy(params = command.params.toMap())
+        // Publish manual intent before waiting so queued manager preflights see it.
+        val priorityRegistration = if (isExactEatingSoonCommand(frozenCommand)) {
+            registerPendingCommand(frozenCommand)
+        } else null
+        var admitted = false
+        try {
+            return TEMP_TARGET_WRITE_MUTEX.withLock {
+                admitted = true
+                val registration = priorityRegistration
+                    ?.takeIf { it.kind == PendingCommandRegistrationKind.FIRST_RESERVED }
+                    ?: registerPendingCommand(frozenCommand)
+                deliverNewTempTargetRegistration(registration, deliveryGuard)
+            }
+        } catch (cancelled: CancellationException) {
+            // Only the owner cancelled before admission can prove no delivery began.
+            if (!admitted && priorityRegistration?.kind == PendingCommandRegistrationKind.FIRST_RESERVED) {
+                try {
+                    withContext(NonCancellable) {
+                        markBlocked(priorityRegistration.command, "target_not_sent")
+                    }
+                } catch (cleanupFailure: Exception) {
+                    cancelled.addSuppressed(cleanupFailure)
+                }
+            }
+            throw cancelled
+        }
+    }
+
+    private suspend fun deliverNewTempTargetRegistration(
+        registration: PendingCommandRegistration,
+        deliveryGuard: (suspend () -> String?)?
+    ): Boolean {
         when (registration.kind) {
-            PendingCommandRegistrationKind.EXISTING_SENT -> return@withLock true
-            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> return@withLock false
-            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> return@withLock false
+            PendingCommandRegistrationKind.EXISTING_SENT -> return true
+            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> return false
+            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> return false
             PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
         }
         val registeredCommand = registration.command
@@ -104,21 +138,25 @@ class NightscoutActionRepository(
                 settings = settings,
                 preservePendingMeal = false
             )
-        ) return@withLock false
+        ) return false
         automaticTargetOwnershipBlockReasonStatic(
             mode = settings.targetManagerMode,
             idempotencyKey = registeredCommand.idempotencyKey
         )?.let { reason ->
             blockLegacyAutomaticCommand(registeredCommand, reason)
-            return@withLock false
+            return false
         }
-        deliverFirstReservedTempTarget(registeredCommand, deliveryGuard)
+        return deliverFirstReservedTempTarget(registeredCommand, deliveryGuard)
     }
 
     suspend fun submitOrRetryTempTarget(
         command: ActionCommand,
         deliveryGuard: (suspend () -> String?)? = null
     ): Boolean {
+        // Manual meal intent cannot inherit the manager's reconciliation retry.
+        if (EatingSoonPolicy.isRequestKey(command.idempotencyKey)) {
+            return submitTempTarget(command, deliveryGuard)
+        }
         val retryOwner = CompletableDeferred<Unit>()
         val activeOwner = TEMP_TARGET_RETRY_OWNERS.putIfAbsent(command.idempotencyKey, retryOwner)
         if (activeOwner != null) {
@@ -238,7 +276,8 @@ class NightscoutActionRepository(
             targetMmol = target,
             actionReason = reason,
             targetIntent = command.params["targetIntent"]
-                ?.let { raw -> runCatching { TargetIntent.valueOf(raw) }.getOrNull() }
+                ?.let { raw -> runCatching { TargetIntent.valueOf(raw) }.getOrNull() },
+            managedDeliveryGuardPresent = deliveryGuard != null
         )
         if (!throttle.allowed) {
             markBlocked(command, "temp_target_rate_limit_30m")
@@ -507,18 +546,18 @@ class NightscoutActionRepository(
         command: ActionCommand,
         deliveryGuard: suspend () -> String?
     ): EatingSoonResult {
-        if (command.type != "temp_target" || !command.idempotencyKey.startsWith("manual:meal:") ||
-            !command.idempotencyKey.endsWith(":eating-soon")) {
+        val frozenCommand = command.copy(params = command.params.toMap())
+        if (!isExactEatingSoonCommand(frozenCommand)) {
             return EatingSoonResult(MealDeliveryStatus.BLOCKED, "invalid_meal_identity")
         }
         var blockReason: String? = null
         val sent = try {
-            submitTempTarget(command) { deliveryGuard().also { blockReason = it } }
+            submitTempTarget(frozenCommand) { deliveryGuard().also { blockReason = it } }
         } catch (_: TempTargetDeliveryUnknownException) {
             false
         }
         if (sent) return EatingSoonResult(MealDeliveryStatus.SENT)
-        val record = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+        val record = db.actionCommandDao().byIdempotencyKey(frozenCommand.idempotencyKey)
         return manualMealTargetResult(record, blockReason)
     }
 
@@ -533,9 +572,26 @@ class NightscoutActionRepository(
         }
     }
 
+    suspend fun manualCarbBlockReason(command: ActionCommand): String? {
+        if (command.type != "carbs" || !command.idempotencyKey.startsWith("manual:meal:")) return null
+        val record = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey) ?: return null
+        if (!sameManualCarbPayload(record, command)) return "submission_changed"
+        if (record.status != STATUS_BLOCKED) return null
+        return runCatching {
+            gson.fromJson(record.payloadJson, com.google.gson.JsonObject::class.java)
+                .get("carbBlockReason")?.asString
+        }.getOrNull()?.takeIf { it in setOf("carbs_rate_limit_30m", "therapy_actions_not_armed") }
+            ?: "carbs_blocked"
+    }
+
     suspend fun submitCarbs(command: ActionCommand): Boolean {
         val guardedMeal = command.idempotencyKey.startsWith("manual:meal:")
         val settings = settingsStore.settings.first()
+        if (guardedMeal) {
+            val prior = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+            if (prior != null && !sameManualCarbPayload(prior, command)) return false
+            if (prior?.status == STATUS_SENT) return true
+        }
         if (blockIfTherapyActionsNotArmed(command, settings)) return false
         when (registerPendingCommand(command).kind) {
             PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
@@ -547,11 +603,13 @@ class NightscoutActionRepository(
         val carbs = command.params["carbsGrams"]?.toDoubleOrNull()
             ?: command.params["carbs"]?.toDoubleOrNull()
             ?: command.params["grams"]?.toDoubleOrNull()
-        if (carbs == null || carbs <= 0.0) {
+        if (carbs == null || !carbs.isFinite() || carbs <= 0.0) {
             markFailed(command, "invalid_carbs_payload")
             return false
         }
-        val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
+        val safetyCapGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.submissionMaximum(
+            command.idempotencyKey, settings.carbComputationMaxGrams
+        )
         if (carbs > safetyCapGrams) {
             markFailed(command, "carbs_above_safety_cap")
             auditLogger.warn(
@@ -771,6 +829,11 @@ class NightscoutActionRepository(
                         command = command
                     )
                 }
+                command.type == "carbs" && command.idempotencyKey.startsWith("manual:meal:") &&
+                    !sameManualCarbPayload(existing, command) -> PendingCommandRegistration(
+                    kind = PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL,
+                    command = command.copy(id = existing.id)
+                )
                 existing.status == STATUS_SENT -> PendingCommandRegistration(
                     kind = PendingCommandRegistrationKind.EXISTING_SENT,
                     command = command.copy(id = existing.id)
@@ -815,6 +878,14 @@ class NightscoutActionRepository(
         return registration
     }
 
+    private fun sameManualCarbPayload(record: ActionCommandEntity, command: ActionCommand): Boolean =
+        record.type == command.type && runCatching {
+            val stored = gson.fromJson(record.payloadJson, com.google.gson.JsonObject::class.java)
+            stored.remove("carbBlockReason")
+            stored.remove("deliveryChannel")
+            stored == gson.toJsonTree(command.params)
+        }.getOrDefault(false)
+
     private fun isFirstAllowlistedEatingSoonRefusal(
         command: ActionCommand,
         isFirstReservation: Boolean,
@@ -825,11 +896,12 @@ class NightscoutActionRepository(
 
     private fun isExactEatingSoonCommand(command: ActionCommand): Boolean =
         command.type == "temp_target" &&
-            command.idempotencyKey.startsWith("manual:meal:") &&
-            command.idempotencyKey.endsWith(":eating-soon") &&
-            command.params["targetMmol"]?.toDoubleOrNull() == EatingSoonPolicy.TARGET_MMOL &&
-            command.params["durationMinutes"]?.toIntOrNull() == EatingSoonPolicy.DURATION_MINUTES &&
-            command.params["reason"] == "Eating Soon"
+            EatingSoonPolicy.isCanonicalRequest(
+                command.idempotencyKey,
+                command.params["targetMmol"]?.toDoubleOrNull(),
+                command.params["durationMinutes"]?.toIntOrNull(),
+                command.params["reason"]
+            )
 
     private data class PendingCommandRegistration(
         val kind: PendingCommandRegistrationKind,
@@ -880,6 +952,11 @@ class NightscoutActionRepository(
     }
 
     private fun failurePayloadJson(command: ActionCommand, reason: String): String {
+        if (command.type == "carbs" && command.idempotencyKey.startsWith("manual:meal:")) {
+            val code = reason.takeIf { it in setOf("carbs_rate_limit_30m", "therapy_actions_not_armed") }
+                ?: "carbs_blocked"
+            return gson.toJson(command.params + ("carbBlockReason" to code))
+        }
         if (command.type != "temp_target" || !command.idempotencyKey.startsWith("manual:meal:") ||
             !command.idempotencyKey.endsWith(":eating-soon")) return gson.toJson(command.params)
         return gson.toJson(command.params + (EATING_SOON_FAILURE_CODE to

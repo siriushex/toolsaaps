@@ -2,8 +2,18 @@ package io.aaps.copilot.ui.foundation.format
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
+import java.util.Locale
 
 class UiFormattersTest {
+    @Test fun exactGramsPreserveDecimalQuantityWithoutGroupingOrInventingInvalidValues() {
+        assertThat(UiFormatters.formatExactGrams(59.25, Locale.US)).isEqualTo("59.25")
+        assertThat(UiFormatters.formatExactGrams(59.25, Locale.forLanguageTag("ru"))).isEqualTo("59,25")
+        assertThat(UiFormatters.formatExactGrams(10.125, Locale.US)).isEqualTo("10.125")
+        assertThat(UiFormatters.formatExactGrams(80.0, Locale.US)).isEqualTo("80")
+        for (value in listOf(null, Double.NaN, Double.POSITIVE_INFINITY)) {
+            assertThat(UiFormatters.formatExactGrams(value)).isEqualTo("--")
+        }
+    }
 
     @Test
     fun formatMmolAndUnits_returnsPlaceholderForNull() {

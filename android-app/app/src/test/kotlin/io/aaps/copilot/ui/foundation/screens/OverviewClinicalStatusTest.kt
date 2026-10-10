@@ -84,6 +84,8 @@ class OverviewClinicalStatusTest {
 
     @Test
     fun preflightReasonsAreNeutralAndDistinctFromDeliveryFailure() {
+        assertThat(targetManagerReasonUiKind("eating_soon_target_active"))
+            .isEqualTo(TargetManagerReasonUiKind.EATING_SOON_ACTIVE)
         assertThat(targetManagerOutcomeUiKind("BLOCK_MANUAL_TARGET"))
             .isEqualTo(TargetManagerOutcomeUiKind.BLOCKED)
         assertThat(targetManagerReasonUiKind("manual_target_active_or_pending"))

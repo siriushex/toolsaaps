@@ -1,5 +1,613 @@
 # ARCHITECTURE
 
+## Checked Pump-Link Source Publication
+
+PumpLinkHealthMonitor exposes an immutable PumpLinkAlarmSource only after the
+existing validated transition and all required durable writes finish. It carries
+the exact saved snapshot/episode, current technical condition, elapsed evaluation
+and existing policy deadline. Receipt disposition is not source authority.
+Construction, unknown/unsupported/unpaired provenance, unconfirmed recovery,
+intentional disconnect, muted evaluation and monitor failure publish no source.
+A superseding accepted transition withdraws the old source before suspending
+writes; rejected duplicates leave its identity and evaluation time unchanged.
+Fresh packets preserve the existing episode origin and legacy receipt semantics.
+A retained episode can originate on an older boot. Its elapsed origin is history,
+not current authority; compare it with evaluation time only on the same boot.
+A fresh validated current-boot packet can establish a fault without rewriting
+that legacy episode. Old persisted packets alone still cannot do so after reboot.
+
+alarmSource is a conflated wake/provenance feed, not hardware admission.
+currentAlarmSource rechecks current boot/elapsed time, the existing policy
+condition/deadline and exact publication identity after clock callbacks. Cached
+data cannot retain an expired condition, survive reboot/backwards time or a
+concurrent revocation. Missing-heartbeat evidence uses the existing technical
+absence policy; no fabricated TTL, clinical risk or off-body detection is added.
+No additional timer, poll, persistence schema or accepted packet cadence changes.
+Existing deadline scheduling captures time after publication, so synchronous
+subscriber work cannot move the absolute heartbeat deadline into the future.
+
+The existing committed global OFF/resume/overview cleanup withdraws this source
+without Room/monitor reentry and before legacy player cleanup. OFF expiry alone
+does not republish it; another validated monitor evaluation is required. This is
+post-commit source invalidation, not pre-lock OFF-intent cancellation of an actor.
+No production consumer constructs or arms LocalAlarmCoordinator. A complete
+current-context bridge still needs glucose/diagnostic producers, stable alarm
+key/generation/queue-age mapping, OFF-intent invalidation and capability/opt-in
+admission. Service/channel/UI/device acceptance gates remain unchanged. Technical
+link status cannot establish that a pump is worn or insulin enters the body.
+
+## Inactive Serialized Alarm Coordinator
+
+LocalAlarmCoordinator has no production constructor call. Construction/signals
+cannot start it; an explicitly running future owner must supply current accepted
+typed requests, saved settings, boot/clocks/OFF and platform capabilities. The
+coordinator never infers arming from journal, UI risk or notification history.
+
+One database-instance lifetime mutex is separate from the short global OFF/Room
+lock. One conflated wake channel and nearest deadline drive bounded arbitration,
+without per-source polling, forecast or AI work. A starting job reports its exact
+committed cycle before hardware; completed/cancelled jobs report only after all
+cleanup attempts. Preview cannot mistake that in-flight claim for an orphan.
+Changed snapshots after suspending reads are discarded. Current-source/OFF/
+capability invalidation synchronously revokes the guard and cancels the owned job;
+Main cleanup does not wait for journal locking before audio stop/volume release.
+Priority preemption cancels and joins the old job before re-preview/new START.
+Equal priority and duplicate updates retain cycle/due; no overdue steps replay.
+
+An abandoned exact claim is marked UNCERTAIN without policy evaluation/new START;
+ordinal, reached maximum, ACK and due are preserved before a fresh preview.
+Missing/unarmed authority idles without a timer. Storage/cleanup failure stops
+the actor and latches that database-instance runtime unavailable in this process,
+so constructing another actor cannot bypass unconfirmed cleanup. No reset API or
+automatic retry is provided. API reports do not prove hearing/media completion.
+Source publication, service/foreground capabilities, async errors/native fallback,
+notification/vibration/wake ownership, opt-in/ACK UI and real-device acceptance
+remain mandatory. Default legacy alerts and clinical writers are unchanged.
+
+## Read-Only Local Alarm Arbitration
+
+LocalAlarmArbitrationPolicy selects from a complete current immutable batch of
+accepted typed source requests and separately validated journal state. It reuses
+LocalAlarmPolicy admission; hypothetical START evaluations never become claims.
+Pending queue age is retained across duplicate updates and reset by the future
+owner on generation/level/eligibility change. It is not clinical authority.
+Ready sources sort by priority, oldest due and stable typed key. Exact admitted
+ownership survives equal/lower priority until cycle end; an eligible higher
+source produces exact cancellation plus replacement selection. ACK/waiting,
+silent, stale, unauthorized or wrong-boot sources cannot preempt. Missing or
+invalid owner evidence, OFF, disabled/unarmed state or changed identity requests
+cancellation, never hysteresis-based sound retention.
+
+At most64 unique keys including an omitted owner's key are considered. Duplicate
+keys, bad queue age/environment/timing or corrupt state fail closed. A persisted
+active claim not matching the runtime owner requires explicit UNCERTAIN recovery;
+it is never adopted. This decision does not perform recovery or cancellation.
+One nearest future elapsed deadline covers eligible source expiry, cycle end,
+repeat, ACK or OFF expiry. Wall deadlines use checked conversion; no overdue
+wake/backlog, periodic poll, forecast or AI work is generated.
+
+RoomLocalAlarmStore.previewArbitration freezes the bounded request batch before
+suspending indexed reads under the existing database mute lock/transaction. It
+reads actual Room OFF and validates the exact same keys' state/claim/result
+payloads. Null means unavailable/corrupt storage. Preview never changes ordinals,
+due, ACK, progress or cycle journal rows, even after an expired deadline.
+
+Only the inactive coordinator uses preview. No production caller constructs it.
+It cancels and joins old execution before claiming a selected replacement; future
+source producers must publish current accepted authority/OFF invalidation immediately.
+The decision/timestamp cannot arm a service or authorize hardware. Notification,
+vibration/wake/native fallback, lifecycle, opt-in/ACK UI and device/night delivery
+remain separate gates; legacy and clinical behavior are unchanged.
+
+## Local Alarm Cycle Execution
+
+LocalAlarmCycleExecutor combines one newly committed Room claim, the existing
+volume lease and the existing guarded audio controller through LocalAlarmAudioPort.
+Only the inactive coordinator constructs it; no armed service does. Initial
+claims use the saved repeat settings; actual strong-slot duration
+is resolved for the cycle ordinal. Only START is executable; an existing ACTIVE
+claim is never adopted or replayed.
+
+RoomLocalAlarmStore.admits is a read-only exact-claim gate under the database
+mute lock/transaction. It reads actual Room OFF and validates state/result shape,
+source evidence and elapsed bounds, without creating a later claim or persisting
+a pure-policy evaluation. The runner rechecks this gate between side effects.
+Injected current accepted evidence/OFF/capabilities guard synchronous hardware
+calls and callbacks as well. The future source owner must publish invalidation
+and cancel the exact running cycle immediately; this stage supplies no producer
+of that authority and cannot make Room and platform side effects atomic.
+
+One try-locked coroutine owns execution; competing calls return BUSY without
+claims. At most four absolute step windows are visited, with cancellable waits
+bounded by source expiry and cycle end. Late windows are skipped, not replayed.
+Volume readback must confirm each target before audio; the same step window is
+rechecked inside volume/player admission, so a slow hardware read cannot admit
+an old step. Strong clips start once, soft clips at most four times. Later cycles
+retain the confirmed target maximum. Indexed bounded journal reads replace
+neither source freshness nor Android capability admission; there is no polling,
+forecast, AI or therapy work on this path.
+
+Audio-start, volume-target and NOT_REQUESTED notification/vibration results are
+journaled independently. API-start is not media completion or hearing. Audio or
+journal failure stops further steps. Exact cancellation revokes admission before
+cleanup; noncancellable cleanup attempts audio stop, guarded volume release and
+journal finish independently, then always drops ownership/unlocks. Cancellation
+propagates; unconfirmed cleanup is not FINISHED, and interrupted claims require
+existing UNCERTAIN recovery without replay. No automatic retry is introduced.
+
+Operational multi-source ownership, fresh source/OFF publication, async playback
+failure/native fallback, visual notification, vibration/wake ownership, dedicated
+foreground lifecycle, explicit opt-in and real-device acceptance remain release
+gates. Default legacy behavior, settings/schema and clinical writers are unchanged.
+
+## Guarded Local Alarm Playback
+
+GlucoseAlertAudioController now exposes an explicit playLocalAlarm(cycle, step,
+settings, admitted) transport entry point and exact-cycle stopLocalAlarm.
+Its only caller is the inactive cycle executor. The future source owner must supply
+the committed claim, fresh accepted source/OFF/capability checks and confirmed
+volume floor before playback; this API cannot authorize or arm an alarm.
+
+LocalAlarmPlaybackWindow reuses canonical policy/profile validation. Soft starts
+use absolute0/15/30/45s windows; only the first strong step starts a clip.
+Preparation/seek must finish before the next profile step or final55s deadline.
+Late callbacks fail closed, playback duration is clipped at the cycle deadline,
+and duplicate callbacks cannot restart or extend a clip. The most recent cycle's
+consumed steps are not retried; durable deduplication belongs to the journal.
+The stop timer subtracts post-start admission time from the captured absolute
+clip end, rather than reusing a full duration after a slow external callback.
+
+One existing player/focus owner, selected clip resolver, preflight built-in
+fallback and gains are reused. New clips and focus use USAGE_ALARM without
+writing any volume; the independent lease belongs to future execution.
+Admission is checked before takeover/focus/player creation, after preparation/
+seek and around start. Exact cancellation and player/focus tokens isolate stale
+callbacks. A preparation timeout releases the player/focus even without media
+callbacks. OFF/source events still require the owner to call exact stop while
+playing; no source polling or complete escalation coordinator is introduced.
+
+Legacy slot selection, attributes and urgent-low floor remain. Synchronous URI
+resolution is not a guaranteed bounded platform operation; elapsed validation
+after it prevents a late start. Handler timer delivery alone is not a real-time
+55s/Doze guarantee. Foreground service, wake/vibration/notification ownership,
+asynchronous custom-file failure fallback, source/UI integration, observability
+and real-device acceptance remain separate integration/release gates.
+
+Platform references: [MediaPlayer lifecycle](https://developer.android.com/reference/android/media/MediaPlayer)
+and [audio focus admission](https://developer.android.com/media/optimize/audio-focus).
+For target35+ the foreground/top-app requirement is a real admission gate,
+not something these synthetic tests establish for a connected phone.
+
+## Guarded Alarm Volume Ownership
+
+`LocalAlarmVolumeLease` is a volume-only prerequisite for the Oct7 executor.
+One exact LocalAlarmCycle owns the observed baseline/maximum and confirmed
+index. Current elapsed time and injected coordinator admission guard capture
+and every raise; indices round up through LocalAlarmProfiles and never lower
+an already louder stream. The canonical first profile target is a minimum even
+if a caller asks for a quieter step; LOW_NOW retains its70% floor. Readback,
+not setter return, confirms a raised index.
+Observed manual/system override or uncertain hardware ownership stops this
+lease. Cleanup restores only a confirmed, still-matching owned value; OFF or
+expiry does not prevent guarded cleanup. Cancellation propagates.
+
+Synchronized access and acquisition/restoration markers prevent a second owner
+or reentrant callback from replacing pending ownership. Raise revalidates the
+same owner after external admission/hardware calls. Release drops ownership
+even on failure and does not replay cleanup. AndroidAlarmVolumePort accesses
+only STREAM_ALARM with flags0; no player, vibration, route, DND, focus or timer.
+
+There are no production consumers in this stage. The future serialized
+coordinator must provide committed claim, fresh source, global OFF and platform
+capability admission; this helper supplies none of that authority. Android
+observations are not atomic volume CAS. A change-and-return gesture or route
+change with identical indices may escape comparison. Indices are not measured
+loudness or proof of human response. Legacy delivery and its urgent floor stay
+unchanged; service/player/source/UI integration and real-device tests remain.
+
+## Durable Local Alarm Journal
+
+The storage-only stage of the Oct7 alarm design adds Room32 tables
+`alert_local_state` (one monotonic ordinal/revision per typed source) and
+`alert_local_cycles` (unique source/generation/ordinal attempts). Clinical alert
+receipts and Telegram initial-delivery semantics are independent and unchanged.
+
+`RoomLocalAlarmStore` serializes transitions with the existing database-scoped
+mute mutex, then reads current clocks and authoritative Room OFF within a
+transaction. A START can be returned only after a unique claim and its state
+commit together. Persisted JSON is not accepted source authority: new evidence
+still passes the pure policy's freshness, boot, generation and admission guards.
+Strict versioned formats cap state at4096 UTF-8 bytes and results at2048 bytes/
+four steps. Notification, audio, vibration and confirmed volume results are
+separate; none implies the person heard it or insulin reached the body.
+
+Interrupted ownership is journaled UNCERTAIN and never replays missed steps.
+The ordinal/repeat deadline survives recovery; terminal-cycle retention is30d
+with bounded batches, while ordinal state is retained. Indexed scheduling reads
+are capped at64. This stage has no service/player/UI/source/housekeeping runtime
+consumer and does not enable the proposed ramp. Foreground admission, bounded
+hardware ownership, fresh device migration and actual delivery remain separate
+integration/release gates.
+
+## Full Food Display Projection
+
+The accepted V3 cycle builds a separate `MealFoodDisplayProjection` from its
+actual announced-food events, resolved cumulative profiles and frozen CSF.
+It covers the remaining modeled tail on a five-minute grid, bounded to720m and
+145 points. Current glucose is the origin; this is food-only influence without
+insulin, not a longer clinical glucose forecast. Clinical announced steps,
+5/30/60 forecasts, pressure, UAM, residual COB and target inputs are unchanged.
+
+Optional `MealGlycemicIndex` has explicit USER or referenced CATALOG provenance.
+Room30->31 adds nullable metadata to canonical meal overrides and pending
+intents, preserving the existing exact-identity/revision promotion. Old meals
+remain unknown. Failed optional reads fall back without GI; cancellation is
+not swallowed. No photograph/profile/name inference or averaged mixed-meal GI.
+
+`food_gi_shape_v1` redistributes each modeled remainder through a bounded
+normalized-fraction exponent. High GI moves influence earlier, low GI later;
+current mass and finish time stay fixed. Reference60/strength0.25 are uncalibrated
+display coefficients. This separate result cannot authorize clinical action.
+The existing `forecast_meal_steps` publishes accepted schemaVersion2 data,
+cycle/prediction clock, completion and GI-adjusted count, at most16 KiB. The UI
+requires matching accepted identity and glucose origin, includes the full tail
+in follow-live/reset domain and marks incomplete estimates. Legacy13-step data
+retains its30m limit and unknown completeness. No new observer or worker.
+
+## Current Clinical Input Recalculation
+
+Broadcast ingestion compares the latest valid, source-prioritized current glucose
+before and after a write inside one Room transaction, using one ingest clock.
+A new timestamp or corrected current value/provenance persists the existing
+clinical invalidation outbox without a glucose scheduling interval. Generated
+row IDs alone, exact duplicates, older history and future-only samples do not
+count as new current observations. Therapy and telemetry invalidation policies
+are retained; Local Nightscout continues its existing input-change routes.
+
+The existing durable coordinator coalesces bursts and keeps newer pending input.
+Reactive WorkManager execution waits cancellably for the automation cycle lease
+inside its existing deadline/evidence boundary, then reads current settings and
+clinical inputs and runs the full accepted forecast/Target Manager pipeline.
+Periodic/manual cycles retain idle-only execution. No second prediction engine,
+trend threshold, overlapping calculation or therapy transport is introduced.
+Recalculation alone cannot authorize a target: all existing protective, ownership,
+forecast reliability, arm, sensor and dispatch freshness checks remain mandatory.
+
+## Meal Timing Research Kernel
+
+ManualMealSubmission persists an immutable input before its existing therapy
+send; no simulation runs on this path. An input persistence failure is diagnosed
+but does not block the user's carbohydrate send, so this failure is NOT covered
+by a lossless-intent claim. The protected AAPS importer persists minimal receipts
+inside the SAME Room transaction as therapy import, then signals only after
+commit. Room29->30 adds meal_state_receipts; it keeps latest canonical record
+versions/tombstones and exact input linkage, not free notes or page hashes.
+Receipts arriving before the input wait durably. A newer note-free correction
+can receive the exact identity from an older acknowledgement without losing its
+newer values. Conflicting revisions/identities are durably quarantined, not guessed.
+Unchanged receipts are not rewritten. Existing canonical ownership and receipts
+are read in batches. Original input alone creates no fabricated prior.
+
+AppContainer owns one conflated wakeup channel. Events are never stored in the
+channel: committed inputs/receipts survive signal loss and restart. Startup and
+new source events drain up to64 eligible receipts per transaction, yielding
+between batches; state reconciliation and applied markers commit together.
+Storage failures leave work pending until the next event/startup; there is no
+timer, polling or new wake lock. Failure/rejection counters and persisted conflict
+counts feed throttled diagnostics without identifiers. Negative/invalid input
+pages still reject from the research path. Unknown input IDs are not reconstructed.
+Pre-commit input failure, legacy backfill, source-instance changes, merge/split,
+conflict resolution/eligibility and retention need release review. The journal
+keeps one compact snapshot per canonical record, not every callback. Accepted
+runtime orchestration and clinical readiness are not implemented.
+
+`MealStateRepository` persists original input, explicit AAPS identity/revision and
+the research posterior separately in normalized Room tables (migration28->29).
+It does not infer that food was eaten from its input or acknowledgement. Original
+timestamps/gram ranges remain unchanged, inferred onset belongs to the scenarios.
+Canonical identity has a unique owner; nearby meals are not matched by time.
+Every accepted AAPS revision, including tombstones, invalidates the old posterior.
+Older callbacks are ignored and contradictory equal revisions reject. A storage
+revision CAS spans both reconciliation and posterior updates. Duplicate samples,
+stale results and updates to deleted records cannot overwrite the current state.
+All parent/child writes and reads are transactional; bounded reads validate full
+distributions/model versions rather than inventing a fallback prior on corruption.
+Pending inputs can be stored without any fabricated probabilities. This local
+repository has no dependency on therapy writers or notification senders. Runtime
+belief updates, merge/split reconciliation and clinical release remain separate work.
+
+`MealStateRepository.observe` adds a transactional posterior update boundary:
+storage CAS, exact applied AAPS receipt, conflict quarantine, sample receive age
+and causal estimator checks run before the posterior can be written. A staged
+correction blocks writes even before the inbox drains. `saveBelief` also checks
+known receipts/quarantine, while retaining the offline initialization path with
+no receipt. Corrections never invent a replacement prior. SQL failure rolls back
+all posterior rows; rejection returns a typed reason without a partial update.
+The expected-observation map is copied before suspension. This is persistence,
+not authenticated runtime capture: the future producer must supply distributions
+made before the CGM sample and verify runtime/calibration provenance. The current
+accepted forecast already contains the current CGM and cannot serve as independent
+likelihood evidence for that sample. No live caller or notification is added here.
+
+`MealObservationForecast.prepare` now produces a passive, one-step conditional
+prediction from the frozen engine. It preserves each discrete hypothesis onset,
+including future onset, rather than borrowing the planner's start/delay
+interventions. The canonical announced meal is replaced once; original therapy
+is untouched. Exact scenario keys and explicit runtime-bound error scales are
+required, available no later than the input anchor. Scales have no default and
+are not inferred from an ordinary forecast CI. This is not empirical calibration.
+All predictions must finish before the next five-minute sample; completion is
+checked with the supplied clock. Only that exact sample can form an observation,
+with matching runtime/belief and a fresh, trusted value. No rounding/interpolation
+or delayed reuse occurs. Equivalent projections share work, without merging their
+hypothesis identities. Unexpanded ranges, missing links, clipped paths and excess
+work reject rather than drop evidence. A real-engine-to-Room test covers the path.
+The passive producer is still conditional on known therapy and fixed historical
+state; it does not model unknown future AAPS control or nuisance causes. Runtime
+capture is available as described below, but error-model calibration, prior
+initialization and stage transitions remain pending. No observation worker or
+clinical sender is connected.
+
+`AutomationRepository.mealRuntimeUpdates` is a research-only, bounded SharedFlow.
+Under the existing cycle lease it invalidates previous context at cycle entry and
+captures only after exact Room readback/finalization. Without a subscriber it
+does not read the capture clock, fork the engine or reproduce a forecast. Capture
+rechecks sensitivity values/entity, accepted rows/digest, generation/freshness and
+calibration model/session identity. Frozen local engine input/output remains
+separate from accepted calibrated/control output; reproduction never compares
+the raw local forecast to adjusted control forecasts. Cancellation propagates;
+ordinary capture rejection cannot abort the existing clinical writers.
+The stream has no replay and one DROP_OLDEST buffer slot: it is not a delivery
+ledger, a historical sample source or clinical authorization. A late observer
+waits for a new cycle. Consumers must independently recheck age/cycle/revision
+before using retained work; a snapshot is not permanently current. No production
+consumer, background polling, scenario calibration or meal notification is added.
+
+The research scenario matrix accepts up to four explicit `MealInsulinScenario`
+schedules. Each meal/start/delay trajectory carries its insulin scenario ID;
+the batch retains immutable schedules. No probability is invented for these
+schedules. A null argument retains the old known-insulin-only projection and
+does not assert that the pump stops. An explicitly empty scenario list rejects.
+The product of expanded meal cases and insulin schedules is capped at24 (96 with
+reaction-delay variants); work admission includes future insulin convolution.
+All anchors/horizons/IDs are checked before matrix execution. Cache identity
+includes the actual delivery sequence, not just the scenario label. Identical
+schedules reuse calculation but keep separate output identities. These are still
+conditional means, not generated/validated AAPS controller scenarios; no safety
+or notification gate is relaxed.
+
+`MealFutureInsulinPlan` describes bounded hypothetical delivered impulses,
+not commands, basal rates or confirmed AAPS events. The frozen forward engine
+uses its existing insulin profile/DIA/onset/ISF kernel to convolve these impulses
+on the five-minute grid, adding only future insulin steps. It preserves historical
+therapy/Kalman/AR and the original cold-start trend. Null/empty plans retain the
+baseline path. Scenario output reports hypotheticalFutureInsulinUnits and the
+remaining known plus hypothetical insulin at the horizon. A shifted kernel with
+nonzero cumulative effect at age zero rejects nonempty plans rather than implying
+effect before delivery. Wrong anchors, omitted out-of-horizon delivery, duplicate
+offsets, nonfinite values and more than145 impulses reject, not truncate.
+No new projection executes in ordinary production prediction. This is a research
+primitive for explicit schedules, not a future AAPS controller/pump simulator;
+futureControlSimulated and trajectoryUncertaintyValidated remain false. Automatic
+schedule generation, continuous basal semantics and delivery uncertainty remain
+pending. No therapy records are fabricated or written.
+
+`MealScenarioExpansion` preserves hypothesis probability mass while expanding
+carbohydrate/onset endpoints and each supplied absorption alternative into
+explicit cases. Profile weights remain supplied weights; equal endpoint weights
+are the versioned research policy `equal-boundary-support-v1`, not learned
+probabilities or a guarantee that interior timings are bounded by the endpoints.
+Original input, evidence revision and observation metadata are retained. Stable
+case IDs map to their immediate parent; output lists/maps are immutable. Budget
+overflow, identity collision and probability underflow reject the whole result.
+No ranges are silently replaced by their midpoint or discarded. Expanded cases
+still need context/reconciliation, intervention semantics and calibrated
+uncertainty. The research-only `MealScenarioSimulator.simulateUncertain` entry
+expands and simulates as one cancellable operation, returning the expansion and
+complete batch together. This retains case weights and immediate parent IDs;
+candidate times/reaction delays do not multiply probability mass. Its budget is
+at most 24 expanded cases, matching the simulator, with no silent truncation.
+An uncertain UPCOMING onset still rejects: intervention time cannot silently
+replace the hypothesized future timing. Past onset intervals can be expanded.
+There is no production caller or notification authorization.
+
+`MealScenarioSimulator` builds a bounded conditional-mean matrix using the same
+start/delay grid as MealTimingPlanner. It requires all six hypothesis kinds and
+explicit discrete grams/onset/profile cases linked to one reconciled canonical
+meal. It rejects unresolved ranges rather than selecting a midpoint. Upcoming
+cases use the candidate time plus reaction delay; past cases keep their supplied
+past onset; NOT_HAPPENING/NO_NEW_MEAL contribute zero new food. These last cases
+do not model the alternative cause of a glucose change. PREVIOUS_MEAL requires
+an explicit past onset and the same canonical linkage; cross-record alias
+resolution and historical refitting are not performed here.
+Equivalent immutable forecasts are cached only within a batch. Allocation/work
+admission occurs before engine execution, cancellation is checked between calls,
+and no partial batch is returned. Output carries source cycle/settings and belief
+revision, but is deliberately not a MealTimingEnvelope with fabricated CI.
+Controller/nuisance scenarios, complete intervention semantics and validated
+uncertainty remain separate prerequisites before runtime use.
+
+`MealSimulationContext.forwardForecast` uses a disposable frozen engine and the
+existing V3 glucose calculation for a conditional path (60 minutes by default,
+bounded to 720 minutes for research). Replacement
+is assembled internally from trusted announced-food components by canonical ID.
+Future announced steps and residual COB are replaced before meal-pressure
+reconciliation; historical known inputs, Kalman updates and AR trend remain
+conditioned on observed history (including the cold-start baseline correction).
+The requested tail length does not change the first-hour AR scaling, CI or path.
+The existing fitted AR parameters, sensitivity and numerical clamps are held
+fixed into the conditional tail. This extrapolation is not a validated long-term
+glucose model. Nonzero modeled UAM steps reject an extended request because no
+long UAM tail is available. Insulin projection checks for known active delivery
+outside the engine lookback before simulation. Remaining modeled food/insulin
+and numericLimitsReached are explicit; completion of these curves does not prove
+complete therapy history, actual absorption or safe timing.
+No extra projection is run in ordinary production prediction. Results are immutable;
+the normal three pointwise forecast intervals are NOT calibrated scenario-wide
+uncertainty. Explicit hypothetical insulin impulses can be supplied separately;
+future AAPS control is not simulated. This API does not infer past
+onset or reconcile residual UAM identities. It supplies a conditional mean tail,
+not the planner's required validated uncertainty/control envelope. Only
+research/test callers exist; it cannot authorize notifications.
+
+`MealScenarioFoodProjection` replaces the selected canonical meal's projected
+food components, including explicitly linked UAM, before summing the retained
+meals and replacement. Unresolved linkage and overlapping retained canonical
+meals reject the scenario; time proximity is never used as identity. It does
+not discover links or resolve UAM attribution itself. Input curves share one
+anchor/grid, results are immutable and work is bounded. Past absorption and
+unfinished tails remain separate. `MealComponentProjection` can overlay this
+aggregate with the same modeled insulin/CSF without modifying therapy records.
+Only test callers currently exist; this is not the full scenario simulator.
+
+Frozen MealSimulationContext now exposes announcedFoodProjection from the engine.
+It reuses profileCarbEvents and carbCumulativeWithCutoff, including legacy curves,
+per-meal revision overrides and synthetic-UAM exclusion. Trusted canonical IDs
+and nonblank revisions are required; duplicate canonical meals reject rather than
+sum. MealAbsorptionProjection.fromCumulative validates a bounded monotone CDF and
+separates past absorption from future steps. This adapter covers only the existing
+announced-food component and existing lookback, not residual UAM, missing therapy
+history, future pump actions or complete glucose/scenario uncertainty.
+
+`domain/meal` has research runtime capture, but no production estimator/planner
+consumer or therapy writer. MealStateEstimator consumes
+scenario predictions made before the observed CGM sample, preserves original
+input time and rejects duplicate/correlated or revision-mismatched evidence.
+MealTimingPlanner validates a complete scenario/start/delay matrix and its tail,
+checks low-risk trajectories before ranking and abstains on incompatible optima.
+Conditional eating paths retain low-risk checks even for low-weight worlds.
+NOT_HAPPENING is assessed separately: its earliest low-CI point is returned as
+noFoodRisk, and a low within the maximum modeled reaction delay yields
+NO_FOOD_URGENCY rather than routine meal advice. Candidate waiting cannot consume
+that reaction margin. Among mutually near-equivalent feasible starts the earliest
+wins; a tiny numerical improvement is not a reason to postpone food. These are
+research policy rules, not calibrated clinical thresholds or a live hypo sender.
+Its only positive research result is SHADOW_READY, never permission to notify.
+The envelope must declare causal, same-cycle/runtime uncertainty support over
+the entire evaluated five-minute trajectory and delayed meal tail. Missing,
+pointwise-only or shorter support yields UNCERTAINTY_UNSUPPORTED. Provenance is
+a producer contract, not proof of calibration: no production producer exists.
+The existing AutomationRepository per-horizon residual calibration must not be
+relabeled as simultaneous long-horizon coverage. No extrapolation is provided.
+The 120-minute clock policy is pure eligibility, not a durable atomic claim.
+The integrated planner, calibrated policy and production delivery wiring remain
+required. No clinical performance or notification-delivery guarantee is claimed.
+
+`HybridPredictionEngine.forkForMealSimulation()` now copies configured insulin
+profile/DIA/onset, sensitivity overrides, carb limits, meal absorption and UAM
+contexts, Kalman state/covariance/revision history and residual AR buckets.
+The stateless profile estimator retains its captured timezone. Each candidate
+must fork the untouched seed; diagnostics and the live logger are not shared.
+Capture requires exclusive ownership of the source engine, not concurrent
+setters/prediction. The existing dry-run factory is unchanged. This primitive
+does not freeze therapy input lists, extend the 60-minute horizon, generate
+scenarios, guarantee clinical safety or enable notifications by itself.
+
+`MealSimulationContext.capture` freezes CGM, therapy payload maps and the local
+baseline forecast, then reproduces that forecast in a disposable engine copy.
+Mismatches, future evidence, unordered samples, stale capture, invalid revision
+labels and allocation-budget excess are rejected without truncation. The caller
+must own the cycle lock and supply the same cycle's accepted local output and
+revision labels; the context does not independently authenticate those labels.
+Cancellation is checked before capture, during therapy copying and after the
+baseline calculation. No runtime capture call site is wired yet.
+
+`MealAbsorptionProjection` reuses MealAbsorptionCurve for a hypothetical onset,
+including a future onset. It keeps already-absorbed grams separate from future
+five-minute absorption and reports unabsorbed tail mass explicitly. Up to 720
+minutes may be inspected for this carbohydrate component only; this does not
+extend the glucose engine's validated horizon or model future insulin delivery.
+No future food is inserted into therapy history or treated as an observed CGM.
+
+`MealSimulationContext.insulinProjection` reuses the frozen engine's canonical
+CGM processing, sensitivity estimator, event eligibility, insulin profile and
+DIA/onset transformation. The first 60-minute insulin steps match the existing
+V3 component exactly. Longer component tails report remaining modeled units;
+inferred entries remain explicitly counted, not relabelled confirmed delivery.
+An active known event outside the engine's 8-hour lookback or an exceeded work
+budget rejects the projection. Missing older history cannot be inferred from
+this check; input coverage remains an independent runtime admission requirement.
+`MealComponentProjection` combines one hypothetical food curve with this insulin
+component using the same CSF and requires identical time anchors and horizons.
+It is a delta decomposition, not absolute glucose, not future AAPS control and
+not an uncertainty envelope. Complete modeled tails do not grant notification
+permission or prove adequate therapy coverage. Existing live forecasts unchanged.
+
+## Food Impact Chart
+
+Overview projects the accepted engine's announced-carbohydrate five-minute steps
+into cumulative deltas at offsets 0..30 minutes, added to the latest displayed
+glucose sample. Yellow starts at that sample and shares the glucose axis; it is
+a food-only projection, not the net glucose forecast. Accepted-cycle-tagged telemetry is
+published only after acceptance; UI requires matching forecastCycleId, sensitivity
+identity and freshness. Missing steps remain unavailable, not a fabricated zero.
+No extra inferred UAM contribution, insulin effect, polling or therapy writer is
+introduced. Legacy stored forecasts need a new accepted cycle to supply this layer.
+
+## Meal Portion Configuration
+
+MealPortionSettings holds independent SMALL/MEDIUM/LARGE ranges and default
+amounts plus a showCalories preference (false by default). AppSettingsStore
+validates the complete configuration before its atomic edit; invalid input
+leaves prior settings unchanged. Shared historical boundaries select the larger
+category. These settings do not override submission caps, Auto UAM limits or
+target policy. The advanced settings editor and Overview consume the same saved
+settings via MainUiState. MealEntryDialog owns a local, saveable draft with two
+radio-choice rows and optional calories. Picture taps never dispatch therapy.
+The Food dialog's Send button freezes grams, profile, energy, Eating soon and a
+submission ID and invokes Overview's existing manual-meal callback immediately.
+There is no secondary confirmation. Manual carbs starts unchecked and exposes
+an inline numeric input only when selected; its value is ignored when unchecked.
+The exact grams are shown on Send without one-decimal rounding and validated
+against the separate manual-meal limit of 80g.
+Over-cap defaults require explicit correction, not silent clamping. These UI
+changes do not add a new writer or a background task. Independent historical
+learning remains an inactive, independently validated stage.
+
+MealCarbLimits separates explicit manual:meal submissions from the configured
+20..60g automatic/UAM cap. Only trusted, non-conflicting, valid canonical real
+food can raise announced-food modelling and causal recent COB bounds to 80g;
+unknown references keep the computation cap. Synthetic UAM generation and
+automatic writer bounds are unchanged. This is not clinical validation of the
+larger manual amount and does not authorize a phone update.
+
+ManualMealSubmission copies and freezes its command parameters before I/O,
+including local profile, portion/provenance, energy and Eating soon metadata.
+These fields are persisted locally, not sent as Nightscout treatment fields.
+An existing submission ID with changed input is blocked, including after restart;
+an exact already-SENT request is acknowledged without a second POST. Existing
+arm, target preflight, throttling and uncertain-delivery reconciliation remain.
+
+At enlarged font scales, the compact picture choices use full-width horizontal
+rows with stable64dp image frames; normal font retains three equal columns.
+The choices and checkbox rows remain scrollable above the fixed Send action.
+
+MealPortionSuggestionRepository is an explicit offline candidate reader, not
+registered in AppContainer, Compose or background work. It reads the existing
+bounded therapy timeline and matching overrides atomically without resolving or
+deleting stale evidence. Conflicts/tombstones are grouped before label conversion.
+Only exact canonical revision/quantity and supported COPILOT_UI confirmation
+metadata with independent origin can produce labels; legacy origins stay unknown.
+The single-entry cache includes usable therapy/evidence revisions, settings,
+zone, portion/profile and minute. Availability time is the override confirmation
+time, not the meal timestamp. Overflow (>5000 rows) falls back without sampling.
+
+MealPortionValidation performs walk-forward scoring against fixed configured
+presets using only labels available before each target. Target categories must
+be explicit. It reports MAE and mean positive overestimation by portion and
+six-hour local-time block; no labels means absent scores, not zero error.
+Neither synthetic tests nor this report enable the learner. Independent real
+held-out validation, adequate support and phone acceptance remain open gates.
+
+Confirmation also freezes portion provenance: unchanged numeric proposals are
+ACCEPTED_SUGGESTION, edited quantities are USER_CORRECTED, and callers without
+a proposal remain UNKNOWN. Metadata follows the existing ManualMealSubmission
+and EnergyProfileRepository pending-to-canonical reconciliation path. A retry
+cannot change provenance under the same operation ID. Room v27 adds nullable
+metadata without retroactively labelling legacy records. The inactive estimator
+requires independent evidence matched to canonical identity, revision and grams;
+accepted suggestions cannot become training labels.
+
 ## September 2026 Source Release
 
 The current publication and server-AI boundaries are documented in
@@ -16,6 +624,13 @@ validity is independent of inference readiness. The identity factory does not
 yet run live Codex jobs, and AI output must never become a therapy command.
 
 ## Context
+Trusted Telegram delivery is an optional, outbound-only Android observer of locally
+delivered alert episodes and completed local report summaries. It never delays local
+alerts or calls therapy repositories. Its independent Keystore namespace preserves
+the server-AI connection identity and has separate backup exclusions. See
+[gentle alerts and Telegram](2026-09-13-soft-alerts-telegram.md) for the pairing,
+mute, deduplication and delivery-limit contracts.
+
 AAPS Predictive Copilot is a two-part system:
 - Android app (`android-app`) for ingest, local forecasting, safety/rules, automation, and UI.
 - Backend (`backend`) for optional cloud prediction override, analysis, replay, and scheduled insights.
@@ -67,6 +682,12 @@ AAPS Predictive Copilot is a two-part system:
   - CI half-width calibration from rolling weighted quantiles of absolute residuals,
   - calibration stays causal and uses only past forecast-vs-actual pairs inside the lookback window.
 - Action channel priority: Nightscout API primary; local fallback optional.
+- Canonical manual Eating Soon intent is durably reserved before waiting on the
+  shared temporary-target write mutex. Existing manager manual-command preflight
+  sees this pending intent; an already admitted delivery is not preempted.
+  Only its first owner cancelled before admission can record known non-delivery;
+  duplicates and post-admission uncertainty retain existing idempotency rules.
+  Eating Soon keys cannot enter the manager-specific reconciliation retry path.
 - UAM carbs export channel: Nightscout treatments (`Carb Correction`) with backdated timestamp and deterministic note tag (`UAM_ENGINE|id=...|seq=...|...`).
 - Temp target command must stay in hard range and pass policy checks before sending.
 - Automatic temp target writes must also pass an outbound duplicate-throttle at action-repository level:

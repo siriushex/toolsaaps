@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -197,7 +198,10 @@ fun SafetyBanner(
     }
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = tone.copy(alpha = 0.12f)),
+        colors = CardDefaults.cardColors(
+            containerColor = tone.copy(alpha = 0.12f).compositeOver(MaterialTheme.colorScheme.surface),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Row(

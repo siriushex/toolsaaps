@@ -219,6 +219,7 @@ fun SettingsScreen(
     onPostHypoTargetChange: (Double) -> Unit = {},
     onRetentionDaysChange: (Int) -> Unit = {},
     onEnergyProfileEnabledChange: (Boolean) -> Unit = {},
+    onMealPortionsSave: (io.aaps.copilot.domain.nutrition.MealPortionSettings) -> Unit = {},
     onEnergyProfileUserProfileSave: (UserProfileDraftUi) -> Unit = {},
     onEnergyProfileFoodSettingsSave: (FoodProfileSettingsUi) -> Unit = {},
     onEnergyProfileActivitySettingsSave: (ActivityProfileSettingsUi) -> Unit = {},
@@ -226,6 +227,7 @@ fun SettingsScreen(
     onPlannedActivityDelete: (String) -> Unit = {},
     onEnergyGoalSettingsSave: (EnergyGoalSettingsUi) -> Unit = {},
     openPlannedActivityRequest: Int = 0,
+    telegramSettingsContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedTabRaw by rememberSaveable { mutableStateOf(SettingsTab.BASIC.name) }
@@ -430,6 +432,9 @@ fun SettingsScreen(
                             onResetGlucoseAlertAudio = onResetGlucoseAlertAudio
                         )
                     }
+                    if (telegramSettingsContent != null) {
+                        item { telegramSettingsContent() }
+                    }
                     item {
                         DisclaimerCard(text = state.warningText)
                     }
@@ -439,6 +444,11 @@ fun SettingsScreen(
                 }
 
                 SettingsTab.ADVANCED -> {
+                    item {
+                        SettingsSectionCard {
+                            MealPortionSettingsEditor(value = state.mealPortions, onSave = onMealPortionsSave)
+                        }
+                    }
                     item {
                         EnergyActivitySettingsSection(
                             state = state.energyProfile,
@@ -2804,6 +2814,7 @@ private fun GlucoseAlertsCard(
                             clipLabel = state.softAlertClipLabel,
                             startSeconds = state.softAlertAudioStartSeconds,
                             durationSeconds = state.softAlertAudioDurationSeconds,
+                            durationRangeSeconds = 1..5,
                             valid = state.softAlertAudioValid,
                             onStartSecondsChange = { next ->
                                 onSoftAlertAudioSettingsChange(next, state.softAlertAudioDurationSeconds)
@@ -2886,7 +2897,8 @@ private fun AlertAudioClipEditor(
     onDurationSecondsChange: (Int) -> Unit,
     onReplace: () -> Unit,
     onPreview: () -> Unit,
-    onStopPreview: () -> Unit
+    onStopPreview: () -> Unit,
+    durationRangeSeconds: IntRange = 15..30
 ) {
     Surface(
         shape = SettingsInfoShape,
@@ -2932,8 +2944,8 @@ private fun AlertAudioClipEditor(
                 title = stringResource(id = R.string.settings_glucose_alerts_audio_duration),
                 subtitle = clipLabel,
                 value = durationSeconds,
-                min = 15,
-                max = 30,
+                min = durationRangeSeconds.first,
+                max = durationRangeSeconds.last,
                 step = 1,
                 onValueChange = onDurationSecondsChange
             )
@@ -3711,7 +3723,10 @@ private fun SettingsSectionCard(
         modifier = Modifier.fillMaxWidth(),
         shape = SettingsSectionShape,
         border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (midnightGlass) Color(0xFF1D2D49) else MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -3821,7 +3836,7 @@ private fun SettingsScreenPreview() {
                 criticalAlertClip1Label = "Night Waltz.mp3",
                 criticalAlertClip2Label = "Snowbirds.mp3",
                 softAlertAudioStartSeconds = 32,
-                softAlertAudioDurationSeconds = 18,
+                softAlertAudioDurationSeconds = 2,
                 criticalAlertAudio1StartSeconds = 42,
                 criticalAlertAudio1DurationSeconds = 20,
                 criticalAlertAudio2StartSeconds = 36,

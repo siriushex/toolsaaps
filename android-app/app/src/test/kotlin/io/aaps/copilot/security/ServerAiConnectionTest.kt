@@ -29,14 +29,15 @@ class ServerAiConnectionTest {
         override fun fingerprint() = "a".repeat(64)
     }
     private fun tokens(latency: Long = 0) = """{"access_token":"access.${"a".repeat(43)}","refresh_token":"refresh.${"b".repeat(43)}","access_expires_ms":${now + 600_000 + latency},"refresh_expires_ms":${now + 86_400_000},"subscription_expires_ms":${now + 86_400_000}}"""
+    private fun ok(value: String) = ServerAiConnectionResponse(200, value.toByteArray(Charsets.UTF_8))
 
     @Test fun activationPersistsAndRestartDoesNotReenterCode() = runTest {
         val store = MemoryStore()
         val key = Device()
         val calls = mutableListOf<String>()
-        val transport = ServerAiConnectionTransport { _, path, body, headers ->
+        val transport = ServerAiConnectionTransport { _, path, body, headers, _ ->
             calls += path
-            when {
+            ok(when {
                 path.endsWith("/start") -> {
                     assertFalse(headers.containsKey("Authorization"))
                     val id = kotlinx.serialization.json.Json.parseToJsonElement(body.toString(Charsets.UTF_8))
@@ -48,7 +49,7 @@ class ServerAiConnectionTest {
                     tokens(latency = 500)
                 }
                 else -> """{"subscription_expires_ms":${now + 86_400_000},"server_time_ms":$now,"inference_enabled":false}"""
-            }
+            })
         }
         val manager = ServerAiConnectionManager(store, key, transport, clock = { now })
         manager.activate("abcd efgh jkmn pqrs")
@@ -70,16 +71,16 @@ class ServerAiConnectionTest {
         val key = Device()
         var fail = true
         val bodies = mutableListOf<String>()
-        val transport = ServerAiConnectionTransport { _, path, body, _ ->
+        val transport = ServerAiConnectionTransport { _, path, body, _, _ ->
             val value = body.toString(Charsets.UTF_8)
-            if (path.endsWith("/start")) {
+            ok(if (path.endsWith("/start")) {
                 val id = (kotlinx.serialization.json.Json.parseToJsonElement(value) as kotlinx.serialization.json.JsonObject).getValue("request_id")
                 """{"request_id":$id,"challenge":"${java.util.Base64.getEncoder().encodeToString(ByteArray(32))}","expires_ms":${now + 600_000},"server_time_ms":$now}"""
             } else {
                 bodies += value
                 if (fail) throw IOException("sensitive-network-detail")
                 tokens()
-            }
+            })
         }
         val manager = ServerAiConnectionManager(store, key, transport, clock = { now })
         manager.activate("ABCD-EFGH-JKMN-PQRS")
@@ -97,7 +98,7 @@ class ServerAiConnectionTest {
     @Test fun invalidCodeNeverCreatesKeyOrRequest() = runTest {
         val key = Device()
         val manager = ServerAiConnectionManager(MemoryStore(), key,
-            ServerAiConnectionTransport { _, _, _, _ -> error("must not send") }, clock = { now })
+            ServerAiConnectionTransport { _, _, _, _, _ -> error("must not send") }, clock = { now })
         manager.activate("1234")
         assertEquals(ServerAiConnectionError.INVALID_CODE, manager.state.value.error)
         assertEquals(0, key.created)
@@ -110,7 +111,7 @@ class ServerAiConnectionTest {
             override suspend fun write(value: String) { throw IOException("private-storage-detail") }
         }
         val manager = ServerAiConnectionManager(persistence, key,
-            ServerAiConnectionTransport { _, _, _, _ -> error("must not send") }, clock = { now })
+            ServerAiConnectionTransport { _, _, _, _, _ -> error("must not send") }, clock = { now })
         manager.activate("ABCD-EFGH-JKMN-PQRS")
         assertEquals(ServerAiConnectionError.STORAGE, manager.state.value.error)
         assertEquals(0, key.created)
@@ -120,7 +121,7 @@ class ServerAiConnectionTest {
     @Test fun existingOrphanKeyIsNeverSilentlyReplaced() = runTest {
         val key = Device().apply { create(ByteArray(32)) }
         val manager = ServerAiConnectionManager(MemoryStore(), key,
-            ServerAiConnectionTransport { _, _, _, _ -> error("must not send") }, clock = { now })
+            ServerAiConnectionTransport { _, _, _, _, _ -> error("must not send") }, clock = { now })
         manager.activate("ABCD-EFGH-JKMN-PQRS")
         assertEquals(ServerAiConnectionError.DEVICE_KEY, manager.state.value.error)
         assertEquals(1, key.created)
@@ -128,7 +129,7 @@ class ServerAiConnectionTest {
 
     @Test fun noNetworkIsStartedByLoadingEmptyState() = runTest {
         val manager = ServerAiConnectionManager(MemoryStore(), Device(),
-            ServerAiConnectionTransport { _, _, _, _ -> error("must not send") }, clock = { now })
+            ServerAiConnectionTransport { _, _, _, _, _ -> error("must not send") }, clock = { now })
         manager.load()
         assertEquals(ServerAiConnectionPhase.DISCONNECTED, manager.state.value.phase)
         assertFalse(manager.state.value.hasStoredSession)
@@ -137,7 +138,7 @@ class ServerAiConnectionTest {
     @Test fun definitivelyRejectedStartLetsUserCorrectCode() = runTest {
         val store = MemoryStore()
         val manager = ServerAiConnectionManager(store, Device(),
-            ServerAiConnectionTransport { _, _, _, _ ->
+            ServerAiConnectionTransport { _, _, _, _, _ ->
                 throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
             }, clock = { now })
         manager.activate("ABCD-EFGH-JKMN-PQRS")
@@ -156,9 +157,9 @@ class ServerAiConnectionTest {
                 put("refresh_expires_ms", JsonPrimitive(now + 800_000L))
             }
             val manager = ServerAiConnectionManager(store, Device(),
-                ServerAiConnectionTransport { _, path, _, _ ->
+                ServerAiConnectionTransport { _, path, _, _, _ ->
                     assertTrue(path.endsWith("/session/refresh"))
-                    JsonObject(changed).toString()
+                    ok(JsonObject(changed).toString())
                 }, clock = { now })
             manager.resume()
             assertEquals(ServerAiConnectionError.INVALID_RESPONSE, manager.state.value.error)
@@ -176,15 +177,15 @@ class ServerAiConnectionTest {
         }
         val calls = mutableListOf<String>()
         val manager = ServerAiConnectionManager(store, Device(),
-            ServerAiConnectionTransport { _, path, _, _ ->
+            ServerAiConnectionTransport { _, path, _, _, _ ->
                 calls += path.substringAfterLast('/')
-                when {
+                ok(when {
                     path.endsWith("/complete") -> tokens()
                     path.endsWith("/refresh") -> tokens(latency = 660_000L)
                     path.endsWith("/status") ->
                         """{"subscription_expires_ms":${now + 86_400_000L},"server_time_ms":$later,"inference_enabled":false}"""
                     else -> error("unexpected request")
-                }
+                })
             }, clock = { later })
         manager.resume()
         assertEquals(ServerAiConnectionPhase.SAVED, manager.state.value.phase)

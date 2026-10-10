@@ -23,6 +23,7 @@ import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.domain.model.ActionProposal
 import io.aaps.copilot.domain.predict.PredictionEngine
+import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
@@ -46,14 +47,18 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
@@ -106,6 +111,65 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         server.shutdown()
         dataStoreScope.cancel()
         db.close()
+    }
+
+    @Test
+    fun readOnlyAcceptedCycleCapturesExactRoomAuthorityAndInvalidatesOnMissingGlucose() = runBlocking {
+        val now = System.currentTimeMillis()
+        seedRisingGlucose(now)
+        seedLocalSafetyEvidence(now)
+        configureActiveSourceChange()
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
+        val repository = repository(now, predictionEngineOverride = engine)
+        val captured = async(start = CoroutineStart.UNDISPATCHED) {
+            repository.mealRuntimeUpdates.filterIsInstance<MealRuntimeUpdate.Captured>().first().snapshot
+        }
+        repository.runLocalReadOnlyCycle()
+        val snapshot = withTimeout(10_000L) { captured.await() }
+        val exact = requireNotNull(AcceptedSensitivityTupleRoomLoader(db).loadExact(
+            currentSettings = settingsStore.settings.first().sensitivityRuntimeIdentity(),
+            acceptedAtTs = snapshot.acceptedAtMs,
+            atTs = System.currentTimeMillis()
+        ))
+        assertThat(snapshot.forecastDigest).isEqualTo(exact.accepted.forecastDigest)
+        assertThat(snapshot.simulation.forecastCycleId).isEqualTo(exact.snapshot.forecastCycleId)
+        assertThat(snapshot.simulation.settingsRevision).isEqualTo(exact.snapshot.settingsRevision)
+        assertThat(snapshot.calibrationModel).isEqualTo(exact.calibrationModel)
+        assertThat(snapshot.controlForecasts).isEqualTo(
+            AutomationRepository.requireAcceptedClinicalForecastsStatic(exact).forecasts)
+        engine.predict(snapshot.simulation.glucose + snapshot.simulation.glucose.last().copy(
+            ts = now + 5 * MINUTE_MS, valueMmol = 8.0), snapshot.simulation.therapy)
+        assertThat(snapshot.simulation.newEngine().predict(snapshot.simulation.glucose, snapshot.simulation.therapy))
+            .isEqualTo(snapshot.simulation.baselineForecasts)
+
+        val pending = async(start = CoroutineStart.UNDISPATCHED) { repository.mealRuntimeUpdates.first() }
+        db.openHelper.writableDatabase.execSQL("DELETE FROM glucose_samples")
+        repository.runLocalReadOnlyCycle()
+        assertThat(withTimeout(10_000L) { pending.await() }).isEqualTo(
+            MealRuntimeUpdate.Unavailable(MealRuntimeUnavailableReason.CYCLE_PENDING))
+        assertThat(targetDispatches.get()).isEqualTo(0)
+        assertThat(uamGatewayCalls.get()).isEqualTo(0)
+        assertThat(widgetRefreshes.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun unsupportedMealCaptureDoesNotPreventReadOnlyCycleAcceptance() = runBlocking {
+        val now = System.currentTimeMillis()
+        seedRisingGlucose(now)
+        seedLocalSafetyEvidence(now)
+        configureActiveSourceChange()
+        val repository = repository(now)
+        val unavailable = async(start = CoroutineStart.UNDISPATCHED) {
+            repository.mealRuntimeUpdates.filterIsInstance<MealRuntimeUpdate.Unavailable>()
+                .first { it.reason != MealRuntimeUnavailableReason.CYCLE_PENDING }
+        }
+        repository.runLocalReadOnlyCycle()
+        assertThat(withTimeout(10_000L) { unavailable.await() }.reason)
+            .isEqualTo(MealRuntimeUnavailableReason.UNSUPPORTED_ENGINE)
+        assertThat(db.forecastDao().latest(3)).hasSize(3)
+        assertThat(db.sensitivityRuntimeSnapshotDao().latest()).isNotNull()
+        assertThat(targetDispatches.get()).isEqualTo(0)
+        assertThat(uamGatewayCalls.get()).isEqualTo(0)
     }
 
     @Test
@@ -1209,6 +1273,7 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         forecastGenerationOffsetMs: Long = 0L,
         beforePredict: suspend () -> Unit = {},
         predictForecasts: (suspend () -> List<Forecast>)? = null,
+        predictionEngineOverride: PredictionEngine? = null,
         onWidgetRefresh: suspend () -> Unit = { widgetRefreshes.incrementAndGet() }
     ): AutomationRepository {
         val gson = Gson()
@@ -1320,7 +1385,7 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
             targetManagerRepository = targetManager,
             circadianTargetRepository = CircadianTargetRepository(db, gson, calibration),
             energyProfileRepository = EnergyProfileRepository(db.energyProfileDao()),
-            predictionEngine = object : PredictionEngine {
+            predictionEngine = predictionEngineOverride ?: object : PredictionEngine {
                 override suspend fun predict(
                     glucose: List<io.aaps.copilot.domain.model.GlucosePoint>,
                     therapyEvents: List<io.aaps.copilot.domain.model.TherapyEvent>

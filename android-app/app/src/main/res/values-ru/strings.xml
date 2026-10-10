@@ -831,6 +831,7 @@
     <string name="overview_target_manager_reason_forecast">Проверка надёжности прогноза</string>
     <string name="overview_target_manager_reason_external_target">Внешняя цель сохранена</string>
     <string name="overview_target_manager_reason_writer_conflict">Другой источник снова изменил цель; защитная пауза</string>
+    <string name="overview_target_manager_reason_eating_soon">Сохраняется цель Eating Soon</string>
     <string name="overview_target_manager_reason_writes_disabled">Отправка терапевтических действий отключена; предложение не отправлено</string>
     <string name="overview_target_manager_reason_legacy_drain">Ожидание завершения прежней цели</string>
     <string name="overview_target_manager_reason_safety_bounds">Безопасные границы цели</string>

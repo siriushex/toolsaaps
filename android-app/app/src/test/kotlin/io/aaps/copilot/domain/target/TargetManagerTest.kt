@@ -14,6 +14,82 @@ class TargetManagerTest {
     private val manager = TargetManager()
 
     @Test
+    fun confirmedEatingSoonRetainsManualWindowAgainstOrdinaryControlAndRecovery() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS,
+            expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon",
+            eatingSoonConfirmed = true
+        )
+        listOf(TargetIntent.NORMAL_CONTROL, TargetIntent.RECOVERY_TO_BASE).forEach { intent ->
+            val decision = manager.decide(input(
+                activeTarget = active,
+                proposals = listOf(proposal(target = 5.5, intent = intent)),
+                copilotPriorityEnabled = true
+            ))
+            assertThat(decision.command).isNull()
+            assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.BLOCK_MANUAL_TARGET)
+            assertThat(decision.reasonCodes).contains("eating_soon_target_active")
+        }
+    }
+
+    @Test
+    fun confirmedEatingSoonDoesNotDelayQualifiedProtectionAsAnExternalWriterConflict() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS,
+            expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon",
+            eatingSoonConfirmed = true
+        )
+        val runtime = TargetManagerRuntimeState(TargetManagerMode.ACTIVE,
+            acceptedTarget = AcceptedTargetState(1, 5.5, 30, "adaptive", TargetIntent.NORMAL_CONTROL,
+                NOW - 2 * MINUTE_MS, NOW + 28 * MINUTE_MS, "prior-input",
+                "TargetManager.v1:prior", "sent"))
+        val decision = manager.decide(input(
+            activeTarget = active, runtimeState = runtime,
+            proposals = listOf(proposal(target = 8.0, intent = TargetIntent.HYPO_PROTECTION)),
+            minimumPredictedOrCiMmol = 3.8,
+            copilotPriorityEnabled = true
+        ))
+        assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(decision.command?.targetMmol).isEqualTo(8.0)
+        assertThat(decision.command?.targetObservation?.activeAapsTarget).isEqualTo(active)
+    }
+
+    @Test
+    fun confirmedEatingSoonStillRequiresPriorityAndExpiresWithoutAutomaticKeepalive() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS, expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon", eatingSoonConfirmed = true)
+        val disabled = manager.decide(input(activeTarget = active, copilotPriorityEnabled = false,
+            proposals = listOf(proposal(target = 8.0, intent = TargetIntent.HYPO_PROTECTION)),
+            minimumPredictedOrCiMmol = 3.8))
+        assertThat(disabled.command).isNull()
+        assertThat(disabled.reasonCodes).contains("manual_or_foreign_target_active")
+        val expired = active.copy(startedAt = NOW - 30 * MINUTE_MS, expiresAt = NOW)
+        val resumed = manager.decide(input(activeTarget = expired, copilotPriorityEnabled = true,
+            proposals = listOf(proposal(target = 5.5))))
+        assertThat(resumed.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(resumed.command?.targetObservation?.activeAapsTarget).isNull()
+        assertThat(resumed.command?.targetMmol).isEqualTo(5.5)
+    }
+
+    @Test
+    fun confirmedEatingSoonProofChangesProtectiveDecisionFingerprint() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS, expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon", eatingSoonConfirmed = true)
+        val proposals = listOf(proposal(target = 8.0, intent = TargetIntent.HYPO_PROTECTION))
+        val unconfirmed = manager.decide(input(activeTarget = active.copy(eatingSoonConfirmed = false),
+            copilotPriorityEnabled = true, proposals = proposals, minimumPredictedOrCiMmol = 3.8))
+        val confirmed = manager.decide(input(activeTarget = active, copilotPriorityEnabled = true,
+            proposals = proposals, minimumPredictedOrCiMmol = 3.8))
+        assertThat(unconfirmed.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(confirmed.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(confirmed.semanticFingerprint).isNotEqualTo(unconfirmed.semanticFingerprint)
+    }
+
+    @Test
     fun killSwitchBlocksEveryAutomaticProposal() {
         val decision = manager.decide(input(killSwitch = true))
 
@@ -301,6 +377,116 @@ class TargetManagerTest {
 
         assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.BLOCK_CADENCE)
         assertThat(decision.command).isNull()
+    }
+
+    @Test
+    fun forecastConfirmedFallCanReleaseOrdinaryLowTargetByOneStep() {
+        val decision = manager.decide(trendReleaseInput(falling = true))
+
+        assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(decision.command?.targetMmol).isWithin(1e-6).of(5.05)
+        assertThat(decision.cadenceReason).isEqualTo("forecast_confirmed_trend_release")
+    }
+
+    @Test
+    fun forecastConfirmedRiseCanReleaseOrdinaryHighTargetByOneStep() {
+        val decision = manager.decide(trendReleaseInput(falling = false))
+
+        assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(decision.command?.targetMmol).isWithin(1e-6).of(5.95)
+    }
+
+    @Test
+    fun exactTransportRoundedObservationStillConfirmsTheOwnedTarget() {
+        val original = trendReleaseInput(falling = true)
+        val active = checkNotNull(original.activeAapsTarget)
+        val rounded = io.aaps.copilot.util.UnitConverter.mgdlToMmol(
+            io.aaps.copilot.util.UnitConverter.mmolToMgdl(active.targetMmol).toDouble()
+        )
+        val decision = manager.decide(original.copy(activeAapsTarget = active.copy(targetMmol = rounded)))
+        assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+    }
+
+    @Test
+    fun trendReleaseCannotUseAnOldMeasurementOrAnUnconfirmedOwner() {
+        val original = trendReleaseInput(falling = true)
+        val accepted = checkNotNull(original.runtimeState.acceptedTarget)
+        val active = checkNotNull(original.activeAapsTarget)
+        val last = checkNotNull(original.lastAutomaticSent)
+        val invalid = listOf(
+            original.copy(glucoseTimestamp = last.timestamp),
+            original.copy(glucoseTimestamp = original.nowTs + MINUTE_MS),
+            original.copy(glucoseTimestamp = original.nowTs - 6 * MINUTE_MS),
+            original.copy(activeAapsTarget = active.copy(idempotencyKey = "other")),
+            original.copy(lastAutomaticSent = last.copy(idempotencyKey = "other")),
+            original.copy(activeAapsTarget = active.copy(targetMmol = 5.01)),
+            original.copy(runtimeState = original.runtimeState.copy(acceptedTarget = accepted.copy(lastCommandStatus = "pending"))),
+            original.copy(runtimeState = original.runtimeState.copy(acceptedTarget = accepted.copy(intent = TargetIntent.HYPO_PROTECTION))),
+            original.copy(safety = original.safety.copy(sensorTrust = SensorTrustState.WARN)),
+            original.copy(safety = original.safety.copy(deliveryTrust = DeliveryTrustState.WATCH))
+        )
+        invalid.forEach { candidate ->
+            assertThat(manager.decide(candidate).command).isNull()
+        }
+    }
+
+    @Test
+    fun trendReleaseRejectsNoiseConflictingForecastsAndMissingEvidence() {
+        val original = trendReleaseInput(falling = true)
+        val evidence = original.activitySafety
+        val invalid = listOf(
+            evidence.copy(observedDelta5Mmol = -0.09),
+            evidence.copy(observedDelta5Mmol = Double.NaN),
+            evidence.copy(observedDelta5Mmol = null),
+            evidence.copy(observedDelta5Mmol = 0.3),
+            evidence.copy(forecasts = evidence.forecasts - 30),
+            evidence.copy(forecasts = evidence.forecasts + (5 to activityForecast(5, 7.2))),
+            evidence.copy(forecasts = evidence.forecasts + (5 to activityForecast(30, 6.8))),
+            evidence.copy(forecasts = evidence.forecasts + (60 to activityForecast(60, Double.NaN)))
+        )
+        invalid.forEach { candidate ->
+            assertThat(manager.decide(original.copy(activitySafety = candidate)).command).isNull()
+        }
+    }
+
+    @Test
+    fun trendReleaseCannotCrossBaseOrBypassLowRiskReliabilityAndKillSwitch() {
+        val rising = trendReleaseInput(falling = false)
+        val falling = trendReleaseInput(falling = true)
+        val belowBase = falling.proposals.single().copy(targetMmol = 4.95)
+        val invalid = listOf(
+            rising.copy(safety = rising.safety.copy(minimumPredictedOrCiMmol = 4.0)),
+            rising.copy(reliability = rising.reliability.mapValues { it.value.copy(state = HorizonReliabilityState.DEGRADED) }),
+            rising.copy(safety = rising.safety.copy(killSwitch = true)),
+            rising.copy(safety = rising.safety.copy(dataFresh = false)),
+            falling.copy(proposals = listOf(belowBase)),
+            falling.copy(safety = falling.safety.copy(baseTargetMmol = 5.02)),
+            falling.copy(proposals = falling.proposals.map { it.copy(targetMmol = 5.02) }),
+            falling.copy(proposals = falling.proposals.map { it.copy(generatedAt = NOW - MINUTE_MS) })
+        )
+        invalid.forEach { candidate -> assertThat(manager.decide(candidate).command).isNull() }
+    }
+
+    private fun trendReleaseInput(falling: Boolean): TargetManagerInput {
+        val source = io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule.RULE_ID
+        val anchor = if (falling) 5.0 else 6.0
+        val target = anchor + if (falling) 0.05 else -0.05
+        val commandId = "trend-owner-command"
+        return input(
+            proposals = listOf(proposal(source = source, target = target)),
+            runtimeState = TargetManagerRuntimeState(
+                mode = TargetManagerMode.ACTIVE,
+                acceptedTarget = acceptedTarget(anchor, ownerRuleId = source).copy(lastCommandId = commandId)
+            ),
+            activeTarget = activeTarget(anchor).copy(idempotencyKey = commandId),
+            lastSent = lastSent(anchor, minutesAgo = 5).copy(idempotencyKey = commandId),
+            activitySafety = ActivityTargetSafetyContext(
+                observedDelta5Mmol = if (falling) -0.28 else 0.28,
+                forecasts = listOf(5, 30, 60).associateWith { horizon ->
+                    activityForecast(horizon, if (falling) 6.8 else 7.2)
+                }
+            )
+        )
     }
 
     @Test

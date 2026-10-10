@@ -92,7 +92,9 @@ class OpenAiCredentialBackupRulesTest {
         "openai_credentials.xml",
         "clinical_ai_anthropic_credentials.xml",
         "clinical_ai_gemini_credentials.xml",
-        "clinical_ai_compatible_credentials.xml"
+        "clinical_ai_compatible_credentials.xml",
+        "telegram_trusted_delivery.xml",
+        "server_ai_connection.xml"
     )
 
     private fun settingsDataStoreFiles(): List<String> = listOf(

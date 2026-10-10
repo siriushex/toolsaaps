@@ -1,5 +1,489 @@
 # PLAN
 
+## Eating Soon Queue Priority (2026-10-10)
+
+- Reproduced three REDs: queued manual intent absent from Room, queue cancellation
+  without known-not-sent evidence and noncanonical manual-entry payload admission.
+- Reserve exact frozen Eating Soon before target-mutex waiting; reuse existing
+  manager pending-manual guard. First-owner pre-admission cancellation is BLOCKED;
+  duplicates/post-admission uncertainty are not replayed or reclassified.
+- Initial focused52 cases/4 suites pass. Expanded cancellation/duplicate/borrowed
+  payload verification passes332 cases/18 suites. A late real RED showed the
+  generic retry entry point replaying unknown Eating Soon; these keys now reuse
+  ordinary no-replay submission. Final focused372 cases/18 suites pass with zero
+  failures/errors and1 optional phone-copy skip.
+- Initial full5081 cases/433 suites, zero failures/errors and3 optional phone-copy
+  skips; lint0errors/305warnings, compile/build passed9m14s before the late source
+  boundary change. Final full5082 cases/433 suites pass with zero failures/errors
+  and3 optional phone-copy skips; final unit/lint/compile/APK passed11m6s with
+  zero lint errors. Inline review completed; exact-head publication/CI proof stays
+  in private task artifacts. No synthetic therapy test. USB disconnected before
+  the newly approved coherent backup/update; no real failure cause is claimed.
+
+## Eating Soon Handoff (2026-10-10)
+
+- Three failing regressions established ordinary overwrite, protective writer
+  delay and missing Room intent. Bind unique canonical SENT manual request to
+  current resolved AAPS target, without changing eligibility or clinical limits.
+- Retain its window against ordinary control/recovery; existing protective
+  increases retain all safety/priority/dispatch gates. Context identity is
+  rechecked; observed newer manager target plus unique SENT proof can release
+  the older SENT hold, never pending/unknown requests. No automatic keepalive.
+- Focused230 cases/13 executed suites pass. Full unit5075 cases/433 suites pass with
+  zero failures/errors and2 optional phone-copy skips. Official migrations on
+  a disposable current-phone copy pass. Full unit/lint/compile/debug-build passed
+  in18m3s; fresh lint has zero errors/305 warnings. New-SHA Verify is recorded
+  separately after publication and actual completion. Overlapping confirmed
+  Eating Soon holds have a separate real RED/GREEN boundary regression.
+- Plan:superpowers/plans/2026-10-10-eating-soon-target-handoff.md. Device update
+  and natural clinical handoff verification remain separate. ADB currently empty;
+  no test therapy action, new alarm activation or sound/settings change.
+
+## Pump-Link Source Producer (2026-10-10)
+
+- Added checked immutable current technical-source publication to the existing
+  monitor. Exact saved provenance, current boot/elapsed/condition/deadline read,
+  superseding/failure/recovery/intentional-disconnect revocation and committed
+  OFF/resume cleanup are covered without a new timer or alarm activation.
+- Plan: superpowers/plans/2026-10-10-pump-link-source.md. Final95 tests/7 suites
+  pass,20 new cases, zero failures/errors/skips. Full Android quality passed
+  in4m24s:5059 cases/432 suites, zero failures/errors,3 optional phone-copy skips.
+  Fresh lint: zero errors,305 existing warnings,4 hints, no new source issues.
+  Exact-source publication/Verify is recorded separately after completion.
+  Actual REDs covered current-boot faults with retained historical episodes and
+  deadline sliding during a slow subscriber. Old-boot elapsed origin is not
+  compared with current time; existing post-publication timer capture remains.
+- Next: accepted glucose/diagnostic producers and complete current-context bridge
+  with stable alarm identity/age, explicit OFF-intent cancellation and platform
+  capability/opt-in admission. Async failures/native fallback, foreground/wake,
+  visual/vibration channels, ACK UI and device/night acceptance still remain.
+- No production coordinator consumer, clinical/legacy change or phone action.
+  Original incident missing history, persistent COB and matched resources remain
+  open. Technical link evidence cannot determine whether the pump is worn.
+
+## Inactive Alarm Coordinator (2026-10-10)
+
+- Added explicitly run serialized ownership, conflated wake/nearest timer,
+  synchronous authority revocation and cancel/join before replacement claims.
+  Executor reports committed ownership and terminal cleanup even on cancellation.
+  Separate lifetime/global-OFF locks and metadata-only UNCERTAIN recovery retain
+  due/ordinal/progress/ACK, without speculative START or abandoned replay.
+- Unconfirmed cleanup/storage stops and latches this database-instance runtime
+  unavailable in process; another constructor cannot bypass it. No reset/retry.
+- Plan: superpowers/plans/2026-10-10-local-alarm-coordinator.md. Final relevant
+ 216 cases/14 suites pass, including27 new cases. Full Android unit/lint/compile/
+  debug-build passed in4m38s:5039 cases/431 suites, zero failures/errors,3 optional
+  phone-copy skips. Fresh lint has zero errors,305 existing warnings,4 hints and
+  no new coordinator/ownership issues. Reviewed publication/exact-source Verify
+  is recorded separately only after actual completion.
+- CI follow-up: original9f14b549 push Verify succeeded but PR Verify failed one
+  duplicate-update timing test. Controlled suspended wait-registration reproduced
+  a fixture RED. Clock/wait and terminal-row synchronization fix it without
+  changing production code, increasing timeouts or weakening assertions.
+  Coordinator17-case GREEN passes; full Android recheck passed in2m51s with
+ 5039 cases/431 suites, zero failures/errors,3 optional phone-copy skips and
+  zero lint errors. New-SHA CI is recorded separately after actual completion.
+- No production construction/source hooks, opt-in/service/permission/schema,
+  notification/vibration/wake/native fallback or clinical change. Accepted
+  source/OFF producers, async media errors, dedicated foreground lifecycle,
+  capability/UI and device/night acceptance remain. ADB still has no phone.
+
+## Read-Only Alarm Arbitration (2026-10-09)
+
+- Added bounded priority/oldest-due selection, exact-owner retention/preemption,
+  source/OFF invalidation decisions, explicit abandoned-claim recovery and one
+  nearest deadline. Room preview freezes inputs and validates actual OFF/state
+  without creating claims or mutating journal/ACK/repeat/progress.
+- Plan: superpowers/plans/2026-10-09-local-alarm-arbitration.md. New tests cover
+  domain and native Room boundaries. Missing-API REDs and a real borrowed-input
+  race RED were reproduced; the indexed-read batch is now frozen. Final focused
+ 112 tests/5 suites pass,27 new cases, zero failures/errors/skips.
+- Full Android unit/lint/compile/debug-build passed in6m25s:5012 tests/429 suites,
+  zero failures/errors,3 optional phone-copy skips. Fresh lint has zero errors,
+ 305 existing warnings,4 hints and no arbitration issues. Reviewed publication
+  and exact-source Verify are recorded separately after actual completion.
+- Remaining: accepted source producers plus serialized cancel/join/claim runtime;
+  async failure/native fallback, visual/vibration/wake channels, foreground
+  lifecycle/capabilities, default-off opt-in and ACK UI; fresh device migration,
+  authorized install and locked-screen acceptance. No runtime caller/activation.
+
+## Local Alarm Cycle Executor (2026-10-09)
+
+- Implemented the next bounded integration: one new Room claim, read-only
+  authoritative OFF admission, exact-window confirmed volume and existing audio.
+  No runtime caller or activation. Plan:
+  superpowers/plans/2026-10-09-local-alarm-cycle-executor.md.
+- Focused143 tests/6 suites pass, including23 new tests. Three real review REDs
+  reproduced then fixed: unfinished ownership during cleanup cancellation,
+  false FINISHED after stop failure and a missed step admitted by a slow read.
+- Final full Android unit/lint/compile/debug-build gate passed:4985 cases/
+  427 suites, zero failures/errors,3 optional phone-copy skips; fresh lint has
+  zero errors,305 existing warnings,4 hints and no executor issues. An obsolete
+  volume-consumer architecture assertion was updated to permit only the inactive
+  executor and still prohibit runtime construction; full gate rerun passed.
+  Exact-source publication/Verify is an external gate, recorded in the private
+  native checkpoint only after actual completion. No main merge or phone update.
+- Remaining alarm work: serialized multi-source priority/fairness and accepted
+  source/OFF events; notification/vibration/wake/native fallback and async media
+  failure; dedicated foreground lifecycle/capability status; default-off opt-in
+  and explicit ACK UI; fresh migration/install/locked-screen acceptance.
+
+## User-Requested Follow-Through
+
+- Alarm integration remains first because delivery is incomplete. Original20h
+  incident audit still lacks the final11h27m; no new phone snapshot replaces it.
+- Persistent full-tail COB curve design is acknowledged, implementation remains
+  pending after alarms. Preserve accepted display origin and explore/scroll
+  state; external reference COB cannot invent food mass or absorption timing.
+- CPU/RAM work needs matched phone evidence and query attribution. Source-side
+  input coalescing and bounded diagnostics remain candidates, not measured gains.
+  Keep every-new-current-CGM calculation and all existing clinical safety gates.
+- Meal timing research still lacks calibrated trajectories/controller/nuisance
+  scenarios, live orchestration and clinical notification admission. Complete
+  those evidence gates without converting preliminary models into therapy.
+- Full code/CI gates do not close device, calibration or clinical-release gates.
+
+## Guarded Local Alarm Playback (2026-10-09)
+
+- Bounded transport stage after policy/journal/volume: reuse the existing player
+  with explicit current admission, canonical clip-start windows, preparation
+  timeout, absolute cycle bound and exact cancellation. No runtime caller.
+- Plan: superpowers/plans/2026-10-09-guarded-alarm-playback.md.
+- Missing-API RED was inspected after correcting a test-only callback signature.
+  Initial focused25 cases passed. Self-review then demonstrated two actual RED
+  defects: missed timer capture left a player open; duplicate prepared callback
+  extended a clip. A late actual RED also caught stop-delay extension during
+  post-start admission; the captured absolute end now bounds its timer.
+  Final focused80 cases across7 suites pass with zero failures/errors/skips,
+  including30 new cases. A paused seek callback
+  needed explicit dispatch in the fallback fixture; no production workaround.
+  Final Android unit/lint/compile/assemble passed in9m15s:4962 cases across426
+  suites, zero failures/errors,3 optional phone-copy skips. Fresh lint XML:
+  zero errors,305 existing warnings,4 hints; the controller's two SDK-guard
+  warnings already existed in the baseline. APK contains the new window/API.
+  Reviewed publication and exact-source CI remain the external source gate.
+- No service/source/UI/setting/permission, volume lease consumer, vibration,
+  wake lock, notification, Room, clinical/therapy/target/forecast/backend change.
+- Actual device/incident audit, authorized fresh-backup update and sound tests,
+  matched CPU/RAM evidence, and complete opt-in runtime integration remain gates.
+  Fresh read-only ADB still has no phone; no device writes were performed.
+
+## Guarded Alarm Volume Lease (2026-10-08)
+
+- Next bounded prerequisite after policy/storage: single exact-cycle volume
+  ownership and an alarm-only Android adapter, without production consumers.
+- Fresh admission/elapsed guards, safe round-up, no downward raise, confirmed
+  readback, sticky observed override/uncertainty and guarded baseline cleanup.
+  Reentrant acquisition/restoration and post-cancellation writes reject.
+- Plan: `superpowers/plans/2026-10-08-alarm-volume-lease.md`. Absent APIs were
+  verified RED; three real callback/reentrancy regressions failed before fixes.
+  A late floor regression also failed: a25% caller request weakened LOW_NOW.
+  The lease now enforces the canonical first-target minimum. Focused92 cases,
+  including32 new cases, pass with zero failures/errors/skips.
+- Full Android unit/lint/compile/assemble passed:4932 cases across424 suites,
+  zero failures/errors,3 optional phone-copy skips. Fresh lint XML has0 errors,
+  305 existing warnings,4 hints and no new volume-file issues. Candidate APK
+  contains both new classes but is not installed. Reviewed publication and
+  exact-source Verify are tracked as the external source gate.
+- No service/player/source/UI/settings/Room/clinical change.
+- Fresh ADB is empty. APK installation, incident/device/audio acceptance and
+  matched CPU/RAM measurements remain separate gates; no active ramp claim.
+
+## Durable Local Alarm Storage (2026-10-08)
+
+- Persistence stage of the Oct7 design: additive Room32 local state/cycle journal,
+  strict bounded codecs, atomic claims and independent channel results.
+- Shared Room mute ordering, post-lock clocks, exact callback/ACK identity,
+  revision CAS, uncertain recovery and bounded indexed scheduling/retention.
+  Interrupted steps are not replayed and ordinals are never reset on bad state.
+- Plan: `superpowers/plans/2026-10-08-local-alarm-storage.md`. Migration RED
+  expected32/actual31, absent-codec/store API RED and three actual self-review
+  regressions were inspected. Focused94 cases passed, including25 new cases,
+  zero failures/errors and one optional current-phone-copy skip.
+- Full Android unit/lint/compile/debug-build gate passed:4900 cases, zero
+  failures/errors,3 optional phone-copy skips. The old31 architecture head
+  expectation was repaired and read-path bans strengthened. Refreshed Lint:
+  zero errors,305 existing warnings,4 hints, no alarm-file issues.
+- Storage has no runtime consumers; new sound,
+  foreground lifecycle, UI, source adapters and pruning scheduling are separate
+  required integration stages. Therapy/target/forecast/settings remain unchanged.
+- Fresh read-only ADB still has no phone. No APK installation, activation,
+  audio/volume/DND change, full-night validation or CPU/RAM measurement occurred.
+  Fresh data backup and disposable/device migration remain release gates.
+
+## Local Alarm Policy Kernel (2026-10-08)
+
+- First implementation stage of the Oct7 design: pure bounded profiles, hardware
+  targets and per-source repeat/OFF/acknowledgement transitions. Accepted source
+  authorization and fresh elapsed-time bounds are inputs, not new risk detectors.
+- Source/boot/generation/ordinal checks reject stale acknowledgements and results;
+  duplicate evidence does not slide repeats. Acknowledgement survives a lower
+  level until its original deadline; higher risk invalidates the pause.
+- Plan: `superpowers/plans/2026-10-08-local-alarm-policy.md`.
+  Focused 148 tests and all 52 new tests passed; full unit suite has 4875 cases,
+  zero failures/errors and 3 optional phone-copy tests skipped. Full Android
+  unit/lint/compile/debug-build gate passed. Fresh Lint has zero errors and no
+  issues in new alarm files; warnings elsewhere are not part of this change.
+- The kernel has no runtime consumers. Room31, settings, notification/audio
+  owner, clinical prediction, targets and therapy remain unchanged. Runtime
+  service/storage/UI/source integration and real-device acceptance are separate
+  required stages; there is no claim of fixed or enabled phone alarms yet.
+
+## Local Alarm Escalation Design (2026-10-07)
+
+- Continue alarm reliability work before the pending COB display implementation.
+  Written proposal: `superpowers/specs/2026-10-07-local-alarm-escalation-design.md`.
+- Opt-in typed-source coordinator, bounded ramp/repeats, urgent-low floor,
+  exact global OFF and fresh alert-only resume. Explicit source acknowledgement
+  pauses one repeat interval; it does not resolve risk or silence other sources.
+- Dedicated user-started foreground lifecycle and additive local-cycle storage;
+  no clinical threshold, therapy, Telegram retry or local Nightscout change.
+- Written human review precedes implementation/TDD. Fresh original-incident
+  phone evidence, full Android quality, migration and separately consented
+  installation/audio acceptance remain release gates. No runtime change yet.
+- Phone is not available through ADB at this design stage. Partial historical
+  evidence is not full-night validation. Existing-rule tests are not a fix.
+
+## Persistent Food Curve During COB (2026-10-05)
+
+- Human acknowledged the full-tail/continuous-display proposal. Working selection:
+  existing yellow food-only influence, with its accepted origin retained during
+  new CGM/COB arrivals and atomic replacement after the next accepted result.
+- Written design:
+  `superpowers/specs/2026-10-05-persistent-cob-food-curve-design.md`.
+  Preserve full-tail scrolling/explore state and distinguish current, updating,
+  outdated and unknown endpoints. External reference COB never silently rescales
+  the accepted announced-food curve or becomes a physiological end-time claim.
+- Written human review precedes implementation. No runtime change yet; existing
+  GI conservation/limits, clinical freshness, forecasts/targets/therapy and cadence
+  stay unchanged. One bounded UI snapshot, no worker/poller/Room migration.
+- After approval: genuine RED lifetime/authority/viewport regressions, scoped
+  implementation and full Android quality/publication CI; separately authorized
+  fresh-backup installation and natural awake graphical acceptance. Never inject
+  fake food/GI or force therapy to fill missing evidence.
+
+## Full Carbohydrate Display (2026-10-04)
+
+- User approved a bounded GI shape correction only for the display. Full
+  remaining food influence, explicit provenance/unknown fallback, Room31 and
+  accepted-cycle telemetry are implemented with domain/engine/migration/UI tests.
+- GI coefficients are uncalibrated; clinical prediction and target management
+  remain unchanged. No GI-dependent therapy tuning is in this stage.
+- Focused results and implementation checklist are in
+  `superpowers/plans/2026-10-04-full-carbohydrate-curve.md`; design in
+  `superpowers/specs/2026-10-04-full-carbohydrate-curve-design.md`.
+- Full Android quality and exact-source publication/CI passed at88b14bc7. Fresh
+  coherent backup, disposable Room30->31 migration and working APK installation
+  passed; installed hash, protected settings and runtime checks were verified.
+  Awake Overview/full-tail visual acceptance awaits human unlock. No synthetic
+  therapy/GI injection is allowed; natural missing GI remains a device-test
+  limitation, not grounds to invent a measured value. The stage is not complete.
+
+## Phone Resource Review (2026-10-05)
+
+- Passive before/after CPU/RAM series and source/query review are complete;
+  detailed evidence stays private. Different workload, foreground and restart
+  state prevent claiming an update benefit. No optimization has been deployed.
+- Prioritize UI input coalescing before expensive mapping, exactly bounded
+  sensor-block telemetry for daily diagnostic inference, and profiling bounded
+  housekeeping batches. Confirm query/method attribution and old/new result
+  equivalence before implementation. These are candidates, not proven savings.
+- Preserve every-new-current-CGM recalculation, accepted provenance and all
+  target/therapy safety gates. No AAPS change, reduced clinical cadence, shorter
+  medical retention or phone power-policy change is authorized by this analysis.
+
+## Meal Timing Research (2026-09-27)
+
+- MealStateRepository stores original intents, explicit AAPS revisions and full
+  posterior distributions transactionally (Room28->29). Correction/tombstone
+  invalidation, CAS, duplicate samples, restart and failure rollback are covered.
+  Manual input is persisted directly; protected AAPS imports atomically stage
+  durable receipts (Room29->30). Exact identifiers only, conflated wakeups and
+  startup redrive; early acknowledgements/tombstones wait for their input.
+  Conflicts are quarantined. Pre-commit storage failure, legacy backfill and
+  merge/split remain unresolved; diagnostics do not prove clinical completeness.
+
+- Guarded CGM posterior persistence now checks storage revision, applied AAPS
+  receipt, pending correction/quarantine and causal estimator evidence in one
+  Room transaction. Rejected updates do not mutate state; SQL errors roll back.
+  Live causal prediction production, trusted runtime capture and initial priors
+  remain pending. This boundary alone does not enable meal-start notifications.
+
+- Passive next-sample prediction now reuses the frozen V3 engine without moving
+  inferred meal onset. Exact next-grid sampling, calculation completion deadline,
+  explicit prior error scales, immutable evidence and real-engine-to-Room tests
+  are implemented. No default noise/calibration or clinical confidence is assumed.
+  Live capture/orchestration, learned error models and stage transitions remain.
+
+- Planner retains all declared insulin worlds and rejects incomplete matrices.
+  Plausibility uses aggregate stage mass so scenario subdivision cannot hide a
+  conflicting timing preference. Research decisions still cannot notify.
+- Room 27->28 adds an atomic quota ledger and explicit claimed aliases, retaining
+  cooldown across restart. It is not a clinical authorization or a delivery
+  coordinator; live freshness/permission checks and full reconciliation remain.
+
+- Conditional matrix now crosses meal/start/delay cases with explicit insulin
+  schedules, preserving scenario IDs and cache separation; joint/work budgets
+  reject excess without truncation. Controller schedule generation remains pending.
+
+- Frozen forward forecasts support explicit hypothetical future insulin impulses
+  using the existing profile/DIA/onset/ISF kernel, without changing historical
+  input or writing therapy. Remaining units and scenario total are explicit.
+  This is not an AAPS controller model and cannot authorize notifications.
+
+- Research `simulateUncertain` connects bounded expansion to conditional
+  simulation with original weights/parent linkage, cancellation and complete
+  batch return. Uncertain future onset remains unsupported rather than ignored.
+  No runtime or notification integration; future control/uncertainty still pending.
+
+- Implementation tracks `superpowers/plans/2026-09-27-meal-state-timing-planner.md`.
+- Explicit boundary/profile expansion preserves parent weights and source
+  metadata; budget/underflow reject without truncation. Endpoint weights are a
+  research assumption, not validated probability or continuous-interval coverage.
+- Bounded simulator now assembles the start/delay matrix for explicitly discrete
+  six-hypothesis cases, caches identical calculations and rejects ambiguous input.
+  It emits conditional means, not a validated planner uncertainty envelope.
+- Pure estimator/planner, frozen engine/input copies, food/insulin components,
+  uncertainty admission and canonical food replacement have test coverage.
+- Conditional forward glucose path reuses V3 on isolated copies, with fixed
+  historical state and bounded 60..720-minute research horizon. Modeled residual
+  food/insulin and clipping are explicit; extended modeled UAM is unsupported.
+  Future controller actions and calibrated trajectory uncertainty remain absent.
+- Still pending: ingestion edge-case recovery/release review, complete scenario trajectories
+  and calibrated uncertainty, replay, notification coordinator, runtime/UI and
+  device validation. Research results do not authorize meal-start notifications.
+
+## Contrast And Target Diagnostics (2026-09-27)
+
+- Contrast fix tested, built and installed in place; Overview warning and
+  Forecast inspected. No therapy change. See AI_NOTES.md and contrast artifacts.
+- Target Manager ACTIVE and recent AAPS target receipt confirmed over USB.
+- Follow-up: retain original decision reason when suppressing a duplicate;
+  display failing horizon, sample count, MAE, bias and CI coverage for reliability
+  decisions. Add regressions without changing therapy gates or dispatch cadence.
+- Audit alone does not establish forecast accuracy or clinical effectiveness.
+
+## Compact Meal Portions (2026-09-27)
+
+Current follow-up, 2026-10-01: manual80g cap separation and immutable exact
+submission/restart guards are implemented. Normal/enlarged1.8x Russian light/dark
+rendering and local exact80g/error callbacks pass Robolectric tests. Canonical
+read-only history, revision-aware cache and walk-forward comparison are implemented
+as inactive research APIs. Full quality checks are recorded in AI_NOTES.md.
+Phone/font acceptance now passes11 UI tests plus1 isolation test on the approved
+isolated build. Eight fresh Russian light/dark1.0/1.8/error/80g images were inspected;
+actual font density and exact callback-once behavior are asserted. Systemfont0.81
+and the working APK remain unchanged. Independent real held-out scores remain
+unavailable and the learner stays inactive. No working-app update, therapy test
+send or database backfill. Extra isolated-variant lint has6 pre-existing errors
+from intentionally stripped permissions/components; debug lint has0 errors.
+The older numbered evidence below is historical, not current installed-state proof.
+
+- Selected visual direction: variant 2 with the revised porridge-and-bread large
+  portion. See [spec](superpowers/specs/2026-09-27-compact-meal-portions.md) and
+  [staged plan](superpowers/plans/2026-09-27-compact-meal-portions.md).
+- Stage 1: typed portion settings, validation, persistence and advanced editor
+  implemented; defaults 10/25/60g within 7-15/15-40/40-80g. Calorie visibility
+  preference defaults false and is now consumed by the compact meal dialog.
+  Full4438 unit tests (no failures/errors,3 skipped), lint and APK builds pass.
+  Isolated UI interaction test compiled, but target installation was rejected
+  by the phone. No production deployment or therapy changes.
+- Stage 2: six-picture draft, shared settings, optional calories, exact correction
+  and immutable confirmation implemented locally. Full4440 tests have no
+  failures/errors (3 skipped); lint has no errors,301 warnings/5 hints. All APK
+  variants build. Device UI/contrast/font checks remain pending.
+- Remaining gates: independent real held-out validation and activation decision.
+  Current phone/font acceptance is verified only for the isolated build.
+  Manual80g/retry/provenance code and inactive
+  history reader/cache/evaluation tests are implemented; no activation is implied.
+- Follow-up evidence supersedes the initial device blockers above: compact dialog
+  was installed and 33 isolated UI tests passed in earlier runs. Provenance now
+  flows through confirmation to persistence in local source, not the installed APK.
+  Room v27 migration passed 41 focused tests, including a disposable September 1
+  phone snapshot and Room native-SQLite schema validation. New UI provenance
+  assertions compile; device execution of those assertions remains pending.
+- Do not report history learning as active or Room v27 as installed on the phone.
+
+## Background Runtime Performance (2026-09-27)
+
+- Restored the existing foreground localhost transport on the connected phone;
+  confirmed an actual AAPS target record, not only WorkManager completion.
+- Copilot forecast maintenance now avoids full-history deduplication and deletes
+  expired rows in batches of 256. Atomic accepted publication remains unchanged.
+  Room regression, full unit/lint and debug assembly passed. Copilot updated
+  in place on the phone; installed hash, background service and fresh runtime
+  data verified. Natural post-update target receipt confirmed in AAPS at
+  00:55:12 and Copilot SENT at 00:55:13, without a test therapy command.
+- AndroidAPS temporary-target chart now uses one overlapping-range read per
+  build, isolated from therapy lookups. Module tests and APK build passed.
+- AAPS also updated in place, installed hash verified, startup pump READSTATUS
+  and a subsequent connection cycle succeeded. Target graph layer measured
+  0.10-0.39 seconds; larger basal/IOB layers remain costly.
+- Confirmed screen-off sample completed: AAPS104.2% and Copilot37.0% mean CPU
+  of one core. No overall CPU reduction proven; first mixed-screen capture
+  excluded. Next address revision-aware rebuild coalescing and repeated
+  basal/IOB graph queries and visual-work scheduling with replay checks.
+- Nightscout long-held socket wake lock requires lifecycle/reconnect testing
+  before changing it. Do not disable it or restrict AAPS/CGM/Bluetooth to reduce
+  a CPU figure. Other-app restrictions require a separate choice because they
+  may suppress banking, messaging or wallet notifications.
+
+## Photo Meal Nutrition (2026-09-13)
+
+- Local nutrition models, deterministic calculations and validation are complete
+  for the current bounded contract; photo image preparation and strict typed
+  response parsing are also implemented with focused tests. A foreground-only
+  gateway coordinator, explicit draft editor and accepted-runtime food-effect
+  timeline boundary are now covered by focused tests as well.
+- A separate typed `MEAL_PHOTO` server job contract and route are now covered by
+  synthetic-worker tests. It accepts one bounded canonical JPEG and returns only
+  the food-estimate schema; it is not a text fallback and does not call a real
+  model yet. Camera/picker wiring, contained vision launcher, editable
+  confirmation, Room persistence, the chart/UI layer and device verification
+  remain separate dependent stages.
+- [Implementation status and acceptance boundaries](2026-09-13-photo-meal-implementation.md).
+
+## R1b Android Signed AI Client (2026-09-13)
+
+- Minimal CHAT capabilities/submit/status/cancel client implemented over the
+  existing connection manager and hardware request proof.
+- Focused 36 tests and full Android verification passed: 4392 tests with three
+  conditional skips, no failures/errors; lint and all three APK builds passed.
+- Spec review accepted the clock-recovery correction. Quality findings were
+  reproduced RED and fixed; independent recheck accepted both fixes.
+- Phone read-only baseline completed. Isolated installation was rejected by
+  the system; device tests require installer approval, without bypassing it.
+- The connected phone later changed to a device without Copilot. Confirm the
+  target before any installation; do not reuse the previous phone's baseline.
+- The confirmed original Copilot phone was updated with `adb install -r`, with
+  matching read-back APK hash, preserved package data directory and successful
+  cold start. Device data-flow and live-AI checks remain pending. The immediate
+  empty-state screenshot does not establish whether the glucose database was
+  empty; the contained live-AI route was not verified during that check.
+- No existing clinical callers, photo inference, server deployment or therapy
+  behavior changed. [Client scope and gates](2026-09-13-android-ai-jobs.md).
+
+## R1a Signed Server AI Job Transport (2026-09-13)
+
+- Implemented an optional owner-scoped, app-key-signed `CHAT`/`TEXT` transport
+  over the existing activation, proof, metadata ledger and executor modules.
+- The route is injected only; the default bound app remains inference-closed.
+- Local tests use synthetic contained workers only. No real Codex call, server,
+  phone, secret or medical payload is part of R1a verification.
+- Exact wire, byte, status, schema, digest, ownership and lifecycle contract:
+  [signed server AI jobs](2026-09-13-signed-ai-jobs.md).
+- R1b Android transport, production authority/attestation/device operations,
+  online contained launcher, route validation, staging and deployment remain
+  pending gates. R1a is not a production inference release.
+
+## Gentle Alerts and Telegram Integration (2026-09-13)
+
+- Integrate the isolated alert/Telegram candidate on the published September source.
+- Preserve server-AI settings, secret namespaces, activation flow and backup exclusions.
+- Verify the full Android unit suite, lint and debug build before updating local main.
+- Keep phone installation, bot credentials and real recipient verification separate.
+- Design and setup: [soft alerts and Telegram](2026-09-13-soft-alerts-telegram.md).
+
 ## Stage map
 
 ### Stage 1: Governance baseline (completed)

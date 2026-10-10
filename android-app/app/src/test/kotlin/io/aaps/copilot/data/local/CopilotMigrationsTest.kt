@@ -15,6 +15,33 @@ import org.junit.Test
 class CopilotMigrationsTest {
 
     @Test
+    fun migration26To27PreservesRowsAndDoesNotInventPortionEvidence() {
+        DriverManager.getConnection("jdbc:sqlite::memory:").use { connection ->
+            createSchema25Fixture(connection)
+            migrateAsRoom(connection, CopilotMigrations.MIGRATION_25_26)
+            connection.createStatement().use { statement ->
+                statement.execute(CopilotMigrations.MIGRATION_21_22_STATEMENTS.single {
+                    it.startsWith("CREATE TABLE IF NOT EXISTS `meal_profile_overrides`")
+                })
+                statement.execute("INSERT INTO meal_profile_overrides VALUES ('meal-legacy', 'r1', 'MIXED', 120, 'COPILOT_UI', 1, 1)")
+            }
+            val therapyCount = singleLong(connection, "SELECT COUNT(*) FROM therapy_events")
+            migrateAsRoom(connection, CopilotMigrations.MIGRATION_26_27)
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT profile, portion, portionProvenance, confirmedCarbsGrams FROM meal_profile_overrides WHERE canonicalTherapyIdentity = 'meal-legacy'").use { rows ->
+                    assertThat(rows.next()).isTrue()
+                    assertThat(rows.getString(1)).isEqualTo("MIXED")
+                    (2..4).forEach { assertThat(rows.getObject(it)).isNull() }
+                }
+            }
+            assertThat(singleLong(connection, "SELECT COUNT(*) FROM therapy_events")).isEqualTo(therapyCount)
+            assertThat(singleString(connection, "PRAGMA integrity_check")).isEqualTo("ok")
+            assertThat(singleLong(connection, "PRAGMA user_version")).isEqualTo(27L)
+        }
+        assertThat(CopilotMigrations.ALL.toList()).contains(CopilotMigrations.MIGRATION_26_27)
+    }
+
+    @Test
     fun migration25To26_addsIntegratedRuntimeSchemaWithoutChangingClinicalRows() {
         assertThat(CopilotMigrations.MIGRATION_25_26.startVersion).isEqualTo(25)
         assertThat(CopilotMigrations.MIGRATION_25_26.endVersion).isEqualTo(26)

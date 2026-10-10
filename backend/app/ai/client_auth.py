@@ -116,6 +116,7 @@ class Tokens:
 @dataclass(frozen=True)
 class AttestedDevice:
     owner_id: str
+    session_id: str
     key_fingerprint: str
     public_key_der: bytes = field(repr=False)
     subscription_expires_ms: int | None = None
@@ -317,7 +318,8 @@ class ClientAuth:
             raise AuthError()
         with self.engine.connect() as db:
             row = db.execute(select(
-                attested_device_keys.c.owner_id, attested_device_keys.c.key_hash,
+                attested_device_keys.c.owner_id, attested_device_keys.c.session_id,
+                attested_device_keys.c.key_hash,
                 attested_device_keys.c.public_key_der, subscription_grants.c.expires_ms,
             ).join(credentials, credentials.c.session_id == attested_device_keys.c.session_id).join(
                 sessions, sessions.c.id == credentials.c.session_id).outerjoin(
@@ -331,7 +333,43 @@ class ClientAuth:
                 )).mappings().first()
             if row is None:
                 raise AuthError()
-            return AttestedDevice(owner_id=row["owner_id"], key_fingerprint=row["key_hash"],
+            return AttestedDevice(owner_id=row["owner_id"], session_id=row["session_id"],
+                                  key_fingerprint=row["key_hash"],
+                                  public_key_der=bytes(row["public_key_der"]),
+                                  subscription_expires_ms=row["expires_ms"])
+
+    def authorize_attested_session(self, *, session_id: str, key_fingerprint: str,
+                                   now_ms: int) -> AttestedDevice:
+        """Recheck the stable grant/key binding without relying on an access token."""
+        _time(now_ms)
+        try:
+            if (not isinstance(session_id, str) or str(UUID(session_id)) != session_id
+                    or not isinstance(key_fingerprint, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", key_fingerprint)):
+                raise ValueError()
+        except ValueError:
+            raise AuthError() from None
+        with self.engine.connect() as db:
+            row = db.execute(select(
+                attested_device_keys.c.owner_id, attested_device_keys.c.session_id,
+                attested_device_keys.c.key_hash, attested_device_keys.c.public_key_der,
+                subscription_grants.c.expires_ms,
+            ).join(sessions, sessions.c.id == attested_device_keys.c.session_id).join(
+                subscription_grants,
+                subscription_grants.c.session_id == sessions.c.id,
+            ).where(
+                sessions.c.id == session_id,
+                sessions.c.revoked_ms.is_(None), sessions.c.expires_ms > now_ms,
+                attested_device_keys.c.key_hash == key_fingerprint,
+                attested_device_keys.c.revoked_ms.is_(None),
+                subscription_grants.c.activated_ms.is_not(None),
+                subscription_grants.c.activated_ms <= now_ms,
+                subscription_grants.c.expires_ms > now_ms,
+            )).mappings().first()
+            if row is None:
+                raise AuthError()
+            return AttestedDevice(owner_id=row["owner_id"], session_id=row["session_id"],
+                                  key_fingerprint=row["key_hash"],
                                   public_key_der=bytes(row["public_key_der"]),
                                   subscription_expires_ms=row["expires_ms"])
 

@@ -43,7 +43,10 @@ class AlertsArchitectureTest {
         assertThat(repository).doesNotContain("okhttp")
         assertThat(repository).doesNotContain("retrofit")
         assertThat(repository).doesNotContain("WorkManager")
-        assertThat(database).contains("version = 26")
+        assertThat(repository).doesNotContain("alertLocalDao")
+        assertThat(repository).doesNotContain("RoomLocalAlarmStore")
+        // Version32 adds an independent cycle journal, not a writer in the alert read path.
+        assertThat(database).contains("version = 32")
     }
 
     @Test

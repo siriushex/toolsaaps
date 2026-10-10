@@ -1,6 +1,8 @@
 package io.aaps.copilot.ui.foundation.format
 
 import java.util.Locale
+import java.math.BigDecimal
+import java.text.DecimalFormatSymbols
 import kotlin.math.abs
 
 object UiFormatters {
@@ -13,6 +15,12 @@ object UiFormatters {
 
     fun formatGrams(value: Double?, decimals: Int = 1): String =
         formatDecimal(value = value, decimals = decimals)
+
+    fun formatExactGrams(value: Double?, locale: Locale = Locale.getDefault()): String {
+        val numeric = value?.takeIf(Double::isFinite) ?: return "--"
+        return BigDecimal.valueOf(numeric).stripTrailingZeros().toPlainString()
+            .replace('.', DecimalFormatSymbols.getInstance(locale).decimalSeparator)
+    }
 
     fun formatPercent(value: Double?, decimals: Int = 0): String {
         val numeric = value ?: return "--"

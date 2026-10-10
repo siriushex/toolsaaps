@@ -1,5 +1,7 @@
 package io.aaps.copilot.domain.target
 
+import io.aaps.copilot.util.UnitConverter
+
 data class EatingSoonEvidence(
     val nowTs: Long,
     val killSwitch: Boolean,
@@ -24,6 +26,28 @@ object EatingSoonPolicy {
     const val TARGET_MMOL = 4.1
     const val DURATION_MINUTES = 30
     const val MAX_DATA_AGE_MS = 300_000L
+
+    fun isRequestKey(key: String): Boolean = REQUEST_KEY.matches(key)
+
+    fun isCanonicalRequest(key: String, target: Double?, duration: Int?, reason: String?): Boolean =
+        isRequestKey(key) && target == TARGET_MMOL && duration == DURATION_MINUTES && reason == "Eating Soon"
+
+    fun isActiveConfirmedTarget(active: ActiveAapsTarget?, nowTs: Long): Boolean {
+        if (active == null || !active.eatingSoonConfirmed || !active.evidenceResolved ||
+            active.ownership != ActiveTargetOwnership.MANUAL_OR_FOREIGN || active.source.isBlank() ||
+            active.idempotencyKey?.let(::isRequestKey) != true ||
+            active.startedAt <= 0L || active.startedAt > nowTs || active.expiresAt <= nowTs ||
+            !UnitConverter.matchesTempTargetObservation(TARGET_MMOL, active.targetMmol)) return false
+        return runCatching { Math.subtractExact(active.expiresAt, active.startedAt) }
+            .getOrNull() == DURATION_MINUTES * 60_000L
+    }
+
+    fun replacementFailure(active: ActiveAapsTarget?, nowTs: Long, intent: TargetIntent, target: Double): String? {
+        if (!isActiveConfirmedTarget(active, nowTs)) return null
+        return if (intent.isProtective() && target.isFinite() && target > checkNotNull(active).targetMmol) {
+            null
+        } else "eating_soon_target_active"
+    }
 
     fun blockReason(evidence: EatingSoonEvidence): String? {
         if (evidence.killSwitch) return "kill_switch_active"
@@ -87,4 +111,5 @@ object EatingSoonPolicy {
 
     private const val LOW_GLUCOSE_FLOOR_MMOL = 4.0
     private val REQUIRED_HORIZONS = intArrayOf(5, 30, 60)
+    private val REQUEST_KEY = Regex("manual:meal:[A-Za-z0-9_-]{1,80}:eating-soon")
 }

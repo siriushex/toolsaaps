@@ -99,6 +99,7 @@ internal enum class TargetCommandPreflightFailure(
         TargetDecisionOutcome.BLOCK_MANUAL_TARGET
     ),
     MANUAL_COMMAND_LOOKUP_FAILED("manual_command_lookup_failed", TargetDecisionOutcome.BLOCK_MANUAL_TARGET),
+    EATING_SOON_TARGET_ACTIVE("eating_soon_target_active", TargetDecisionOutcome.BLOCK_MANUAL_TARGET),
     MANUAL_TARGET_ACTIVE_OR_PENDING(
         "manual_target_active_or_pending",
         TargetDecisionOutcome.BLOCK_MANUAL_TARGET

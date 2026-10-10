@@ -53,10 +53,11 @@ class OverviewClinicalLayoutTest {
 
     @Test
     fun energyActivityStatusRowIsExceptionOnly() {
+        val state = androidx.compose.runtime.mutableStateOf(clinicalState())
         composeRule.setContent {
             AapsCopilotTheme {
                 OverviewScreen(
-                    state = clinicalState(),
+                    state = state.value,
                     onRunCycleNow = {},
                     onSetKillSwitch = {},
                     onDisablePowerSave = {},
@@ -67,21 +68,12 @@ class OverviewClinicalLayoutTest {
         }
         composeRule.onNodeWithTag("energy_activity_status").assertDoesNotExist()
 
-        composeRule.setContent {
-            AapsCopilotTheme {
-                OverviewScreen(
-                    state = clinicalState().copy(
-                        energyActivityStatus = EnergyActivityStatusUi(
-                            kind = EnergyActivityStatusKind.PROFILE_ISSUE
-                        )
-                    ),
-                    onRunCycleNow = {},
-                    onSetKillSwitch = {},
-                    onDisablePowerSave = {},
-                    onAddBloodCheck = { _, _, _, _ -> },
-                    onOpenClinicalReport = {}
+        composeRule.runOnIdle {
+            state.value = state.value.copy(
+                energyActivityStatus = EnergyActivityStatusUi(
+                    kind = EnergyActivityStatusKind.PROFILE_ISSUE
                 )
-            }
+            )
         }
         composeRule.onNodeWithTag("energy_activity_status")
             .assertIsDisplayed()
@@ -122,8 +114,8 @@ class OverviewClinicalLayoutTest {
         composeRule.onNodeWithTag("overviewCompactHero").assertIsDisplayed()
         composeRule.onNodeWithTag("overviewClinicalMatrix").assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.overview_trend_short)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.overview_model_isf_now)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.overview_model_cr_now)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.overview_model_isf_now), substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.overview_model_cr_now), substring = true).assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.overview_model_uam)).assertIsDisplayed()
         composeRule.onNodeWithText(
             context.getString(
@@ -136,9 +128,9 @@ class OverviewClinicalLayoutTest {
         composeRule.onNodeWithText(context.getString(R.string.overview_forecast_low)).assertIsDisplayed()
         composeRule.onNodeWithContentDescription(context.getString(R.string.overview_calibration_action))
             .assertIsDisplayed()
-        composeRule.onAllNodesWithText(context.getString(R.string.overview_model_isf_now))
+        composeRule.onAllNodesWithText(context.getString(R.string.overview_model_isf_now), substring = true)
             .assertCountEquals(1)
-        composeRule.onAllNodesWithText(context.getString(R.string.overview_model_cr_now))
+        composeRule.onAllNodesWithText(context.getString(R.string.overview_model_cr_now), substring = true)
             .assertCountEquals(1)
         composeRule.onAllNodesWithText(context.getString(R.string.overview_model_uam))
             .assertCountEquals(1)
@@ -456,7 +448,7 @@ class OverviewClinicalLayoutTest {
     }
 
     @Test
-    fun cobEditor_passesSelectedFoodProfileOnlyAfterConfirmation() {
+    fun cobEditor_passesSelectedFoodProfileOnSend() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         var sentCarbs: Pair<String, String>? = null
         var sentProfile: MealAbsorptionProfile? = null
@@ -471,7 +463,7 @@ class OverviewClinicalLayoutTest {
                     onDisablePowerSave = {},
                     onAddBloodCheck = { _, _, _, _ -> },
                     onOpenClinicalReport = {},
-                    onManualCarbs = { grams, reason, profile, caloriesKcal, _, _ ->
+                    onManualCarbs = { grams, reason, profile, caloriesKcal, _, _, _, _ ->
                         sentCarbs = grams to reason
                         sentProfile = profile
                         sentCalories = caloriesKcal
@@ -483,7 +475,7 @@ class OverviewClinicalLayoutTest {
         composeRule.onNodeWithContentDescription(context.getString(R.string.overview_edit_cob))
             .performScrollTo()
             .performClick()
-        composeRule.onNodeWithText(context.getString(R.string.overview_cob_preset, 20)).performClick()
+        composeRule.onNodeWithTag("mealPortion_MEDIUM").performClick()
         val fastProfile = composeRule.onNodeWithContentDescription(
             context.getString(R.string.food_profile_fast_content_description)
         )
@@ -494,11 +486,10 @@ class OverviewClinicalLayoutTest {
         fastProfile.assert(radioRole).assertIsNotSelected().assertHasClickAction().performClick()
         fastProfile.assert(radioRole).assertIsSelected()
         mixedProfile.assert(radioRole).assertIsNotSelected()
-        composeRule.onNodeWithText(context.getString(R.string.overview_add_carbs, "20.0")).performClick()
         composeRule.runOnIdle { assertEquals(null, sentCarbs) }
-        composeRule.onNodeWithText(context.getString(R.string.action_confirm)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.meal_prepare_amount, "25.0")).performClick()
         composeRule.runOnIdle {
-            assertEquals("20.0", sentCarbs?.first)
+            assertEquals("25.0", sentCarbs?.first)
             assertEquals("overview_cob", sentCarbs?.second)
             assertEquals(MealAbsorptionProfile.FAST, sentProfile)
             assertEquals(null, sentCalories)
@@ -506,7 +497,7 @@ class OverviewClinicalLayoutTest {
     }
 
     @Test
-    fun cobEditor_passesOptionalMealEnergyOnlyAfterConfirmationAndCancellationDoesNothing() {
+    fun cobEditor_passesOptionalMealEnergyOnSendAndCancellationDoesNothing() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         var callbackCount = 0
         var sentCalories: Double? = null
@@ -514,13 +505,13 @@ class OverviewClinicalLayoutTest {
         composeRule.setContent {
             AapsCopilotTheme {
                 OverviewScreen(
-                    state = clinicalState(),
+                    state = clinicalState().copy(mealPortions = io.aaps.copilot.domain.nutrition.MealPortionSettings(showCalories = true)),
                     onRunCycleNow = {},
                     onSetKillSwitch = {},
                     onDisablePowerSave = {},
                     onAddBloodCheck = { _, _, _, _ -> },
                     onOpenClinicalReport = {},
-                    onManualCarbs = { _, _, _, caloriesKcal, _, _ ->
+                    onManualCarbs = { _, _, _, caloriesKcal, _, _, _, _ ->
                         callbackCount += 1
                         sentCalories = caloriesKcal
                     }
@@ -533,15 +524,16 @@ class OverviewClinicalLayoutTest {
             .performClick()
         composeRule.onNodeWithTag("overviewManualMealEnergyKcal")
             .performTextReplacement("540")
-        composeRule.onNodeWithText(context.getString(R.string.overview_add_carbs, "10.0"))
-            .performClick()
-        composeRule.onNodeWithText(context.getString(R.string.action_cancel)).performClick()
         composeRule.runOnIdle { assertEquals(0, callbackCount) }
-        composeRule.onNodeWithTag("overviewManualMealEnergyKcal").assertTextEquals("540")
+        composeRule.onNodeWithTag("overviewManualMealEnergyKcal").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText,
+                androidx.compose.ui.text.AnnotatedString("540")
+            )
+        )
 
-        composeRule.onNodeWithText(context.getString(R.string.overview_add_carbs, "10.0"))
+        composeRule.onNodeWithText(context.getString(R.string.meal_prepare_amount, "25.0"))
             .performClick()
-        composeRule.onNodeWithText(context.getString(R.string.action_confirm)).performClick()
         composeRule.runOnIdle {
             assertEquals(1, callbackCount)
             assertEquals(540.0, sentCalories ?: 0.0, 0.001)
@@ -550,15 +542,25 @@ class OverviewClinicalLayoutTest {
         composeRule.onNodeWithContentDescription(context.getString(R.string.overview_edit_cob))
             .performScrollTo()
             .performClick()
-        composeRule.onNodeWithTag("overviewManualMealEnergyKcal").assertTextEquals("")
+        composeRule.onNodeWithTag("overviewManualMealEnergyKcal").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText,
+                androidx.compose.ui.text.AnnotatedString("")
+            )
+        )
         composeRule.onNodeWithTag("overviewManualMealEnergyKcal")
             .performTextReplacement("600")
-        composeRule.onNodeWithText(context.getString(R.string.action_cancel)).performClick()
+        composeRule.onNodeWithTag("mealEntryClose").performClick()
 
         composeRule.onNodeWithContentDescription(context.getString(R.string.overview_edit_cob))
             .performScrollTo()
             .performClick()
-        composeRule.onNodeWithTag("overviewManualMealEnergyKcal").assertTextEquals("")
+        composeRule.onNodeWithTag("overviewManualMealEnergyKcal").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText,
+                androidx.compose.ui.text.AnnotatedString("")
+            )
+        )
     }
 
     @Test
@@ -891,22 +893,27 @@ class OverviewClinicalLayoutTest {
             context.getString(R.string.overview_source_actual, context.getString(R.string.overview_source_copilot))
         ).assertIsDisplayed()
         composeRule.onNodeWithText(
-            context.getString(R.string.overview_source_fallback_chain, "Evidence unavailable -> Copilot")
-        ).assertIsDisplayed()
+            context.getString(
+                R.string.overview_source_fallback_chain,
+                "${context.getString(R.string.overview_source_evidence)} " +
+                    "${context.getString(R.string.overview_source_unavailable_word)} -> " +
+                    context.getString(R.string.overview_source_copilot)
+            )
+        ).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(
             context.getString(R.string.overview_source_fallback_reason, "evidence_quality_failed")
-        ).assertIsDisplayed()
+        ).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.overview_source_revision, 42L))
-            .assertIsDisplayed()
+            .performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(
             context.getString(R.string.overview_source_cycle, "accepted-overview-cycle")
-        ).assertIsDisplayed()
+        ).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(
             context.getString(R.string.overview_source_candidate_samples, 18)
-        ).assertIsDisplayed()
+        ).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(
             context.getString(R.string.overview_source_candidate_unavailable_reason, "quality_failed")
-        ).assertIsDisplayed()
+        ).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText(context.getString(R.string.overview_source_analytics))
             .assertHasClickAction()
     }
@@ -1009,7 +1016,7 @@ class OverviewClinicalLayoutTest {
                 OverviewScreen(
                     state = clinicalState(), onRunCycleNow = {}, onSetKillSwitch = {},
                     onDisablePowerSave = {}, onAddBloodCheck = { _, _, _, _ -> },
-                    onManualCarbs = { _, _, _, _, _, _ -> submissions++ },
+                    onManualCarbs = { _, _, _, _, _, _, _, _ -> submissions++ },
                     onOpenClinicalReport = {}
                 )
             }
@@ -1024,7 +1031,7 @@ class OverviewClinicalLayoutTest {
     }
 
     @Test
-    fun eatingSoonCheckedIsVisibleInFinalConfirmationAndForwardedOnce() {
+    fun eatingSoonCheckedIsForwardedImmediatelyOnce() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val submissions = mutableListOf<Pair<Boolean, String>>()
         composeRule.setContent {
@@ -1032,16 +1039,14 @@ class OverviewClinicalLayoutTest {
                 OverviewScreen(
                     state = clinicalState(), onRunCycleNow = {}, onSetKillSwitch = {},
                     onDisablePowerSave = {}, onAddBloodCheck = { _, _, _, _ -> },
-                    onManualCarbs = { _, _, _, _, selected, id -> submissions += selected to id },
+                    onManualCarbs = { _, _, _, _, selected, id, _, _ -> submissions += selected to id },
                     onOpenClinicalReport = {}
                 )
             }
         }
         composeRule.onNodeWithContentDescription(context.getString(R.string.overview_edit_cob)).performClick()
         composeRule.onNodeWithTag("overviewPrepareMeal").performClick()
-        composeRule.onNodeWithText(context.getString(R.string.overview_confirm_carbs_eating_soon, "10.0"))
-            .assertIsDisplayed()
-        composeRule.onNodeWithTag("overviewConfirmMeal").performClick()
+        composeRule.onNodeWithTag("overviewConfirmMeal").assertDoesNotExist()
         composeRule.runOnIdle {
             assertEquals(1, submissions.size)
             assertTrue(submissions.single().first)
@@ -1058,7 +1063,7 @@ class OverviewClinicalLayoutTest {
                 OverviewScreen(
                     state = clinicalState(), onRunCycleNow = {}, onSetKillSwitch = {},
                     onDisablePowerSave = {}, onAddBloodCheck = { _, _, _, _ -> },
-                    onManualCarbs = { _, _, _, _, selected, _ -> options += selected },
+                    onManualCarbs = { _, _, _, _, selected, _, _, _ -> options += selected },
                     onOpenClinicalReport = {}
                 )
             }
@@ -1066,7 +1071,6 @@ class OverviewClinicalLayoutTest {
         composeRule.onNodeWithContentDescription(context.getString(R.string.overview_edit_cob)).performClick()
         composeRule.onNodeWithTag("overviewEatingSoon").performScrollTo().performClick()
         composeRule.onNodeWithTag("overviewPrepareMeal").performClick()
-        composeRule.onNodeWithTag("overviewConfirmMeal").performClick()
         composeRule.runOnIdle { assertEquals(listOf(false), options) }
     }
 

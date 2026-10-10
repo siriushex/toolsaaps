@@ -676,6 +676,93 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_26_27: Migration = object : Migration(26, 27) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `pending_meal_profile_intents` ADD COLUMN `portion` TEXT")
+            db.execSQL("ALTER TABLE `pending_meal_profile_intents` ADD COLUMN `portionProvenance` TEXT")
+            db.execSQL("ALTER TABLE `meal_profile_overrides` ADD COLUMN `portion` TEXT")
+            db.execSQL("ALTER TABLE `meal_profile_overrides` ADD COLUMN `portionProvenance` TEXT")
+            db.execSQL("ALTER TABLE `meal_profile_overrides` ADD COLUMN `confirmedCarbsGrams` REAL")
+        }
+    }
+
+    val MIGRATION_27_28: Migration = object : Migration(27, 28) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_notification_claims` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `episodeId` TEXT NOT NULL, " +
+                "`bootId` TEXT NOT NULL, `elapsedAtMs` INTEGER NOT NULL, `wallAtMs` INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_notification_claim_aliases` (" +
+                "`alias` TEXT NOT NULL PRIMARY KEY, `claimId` INTEGER NOT NULL)")
+        }
+    }
+
+    val MIGRATION_28_29: Migration = object : Migration(28, 29) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_states` (" +
+                "`episodeId` TEXT NOT NULL PRIMARY KEY, `recordedAtMs` INTEGER NOT NULL, " +
+                "`minimumGrams` REAL NOT NULL, `maximumGrams` REAL NOT NULL, `storageRevision` INTEGER NOT NULL, " +
+                "`canonicalMealId` TEXT, `aapsRevision` INTEGER, `aapsRecordedAtMs` INTEGER, `aapsGrams` REAL, " +
+                "`aapsDeleted` INTEGER, `modelVersion` TEXT, `beliefRevision` INTEGER, " +
+                "`lastSampleAtMs` INTEGER, `lastSampleId` TEXT, `runtimeIdentity` TEXT)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_meal_states_canonicalMealId` ON `meal_states` (`canonicalMealId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_state_scenarios` (" +
+                "`episodeId` TEXT NOT NULL, `scenarioId` TEXT NOT NULL, `position` INTEGER NOT NULL, " +
+                "`kind` TEXT NOT NULL, `earliestStartMs` INTEGER, `latestStartMs` INTEGER, " +
+                "`minimumGrams` REAL NOT NULL, `maximumGrams` REAL NOT NULL, `probability` REAL NOT NULL, " +
+                "`canonicalMealId` TEXT, PRIMARY KEY (`episodeId`, `scenarioId`), " +
+                "FOREIGN KEY (`episodeId`) REFERENCES `meal_states` (`episodeId`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_state_scenarios_episodeId` ON `meal_state_scenarios` (`episodeId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_state_absorption` (" +
+                "`episodeId` TEXT NOT NULL, `scenarioId` TEXT NOT NULL, `position` INTEGER NOT NULL, " +
+                "`profile` TEXT NOT NULL, `durationMinutes` INTEGER NOT NULL, `probability` REAL NOT NULL, " +
+                "PRIMARY KEY (`episodeId`, `scenarioId`, `position`), " +
+                "FOREIGN KEY (`episodeId`, `scenarioId`) REFERENCES `meal_state_scenarios` (`episodeId`, `scenarioId`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_state_absorption_episodeId_scenarioId` " +
+                "ON `meal_state_absorption` (`episodeId`, `scenarioId`)")
+        }
+    }
+
+    val MIGRATION_29_30: Migration = object : Migration(29, 30) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_state_receipts` (" +
+                "`canonicalId` TEXT NOT NULL PRIMARY KEY, `inputId` TEXT, `revision` INTEGER NOT NULL, " +
+                "`recordedAtMs` INTEGER NOT NULL, `grams` REAL NOT NULL, `deleted` INTEGER NOT NULL, " +
+                "`conflicted` INTEGER NOT NULL, `appliedRevision` INTEGER)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_state_receipts_inputId` ON `meal_state_receipts` (`inputId`)")
+        }
+    }
+
+    val MIGRATION_30_31: Migration = object : Migration(30, 31) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (table in listOf("meal_profile_overrides", "pending_meal_profile_intents")) {
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `glycemicIndexValue` REAL")
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `glycemicIndexSource` TEXT")
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `glycemicIndexReference` TEXT")
+            }
+        }
+    }
+
+    val MIGRATION_31_32: Migration = object : Migration(31, 32) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `alert_local_state` (" +
+                "`sourceKind` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `generation` INTEGER NOT NULL, " +
+                "`bootCount` INTEGER NOT NULL, `ordinal` INTEGER NOT NULL, `revision` INTEGER NOT NULL, " +
+                "`updatedAtMs` INTEGER NOT NULL, `nextDueElapsedMs` INTEGER, `pauseUntilWallMs` INTEGER, " +
+                "`cycleDeadlineElapsedMs` INTEGER, `stateJson` TEXT NOT NULL, PRIMARY KEY(`sourceKind`,`sourceId`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_state_bootCount_nextDueElapsedMs` ON `alert_local_state` (`bootCount`,`nextDueElapsedMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_state_bootCount_pauseUntilWallMs` ON `alert_local_state` (`bootCount`,`pauseUntilWallMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_state_bootCount_cycleDeadlineElapsedMs` ON `alert_local_state` (`bootCount`,`cycleDeadlineElapsedMs`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `alert_local_cycles` (" +
+                "`sourceKind` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `generation` INTEGER NOT NULL, `ordinal` INTEGER NOT NULL, " +
+                "`bootCount` INTEGER NOT NULL, `level` TEXT NOT NULL, `startedElapsedMs` INTEGER NOT NULL, " +
+                "`deadlineElapsedMs` INTEGER NOT NULL, `claimedAtMs` INTEGER NOT NULL, `terminalAtMs` INTEGER, " +
+                "`status` TEXT NOT NULL, `resultJson` TEXT NOT NULL, PRIMARY KEY(`sourceKind`,`sourceId`,`generation`,`ordinal`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_cycles_claimedAtMs` ON `alert_local_cycles` (`claimedAtMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alert_local_cycles_status_claimedAtMs` ON `alert_local_cycles` (`status`,`claimedAtMs`)")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -693,6 +780,12 @@ object CopilotMigrations {
         MIGRATION_22_23,
         MIGRATION_23_24,
         MIGRATION_24_25,
-        MIGRATION_25_26
+        MIGRATION_25_26,
+        MIGRATION_26_27,
+        MIGRATION_27_28,
+        MIGRATION_28_29,
+        MIGRATION_29_30,
+        MIGRATION_30_31,
+        MIGRATION_31_32
     )
 }

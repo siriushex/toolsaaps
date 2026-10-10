@@ -16,6 +16,26 @@ import java.util.Locale
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class ManualEatingSoonMessageTest {
+    @Test fun sentMealMessagePreservesExactQuantityInBothLanguages() {
+        val result = ManualMealResult(MealDeliveryStatus.SENT,
+            EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED))
+        for ((language, exact) in listOf("en" to "59.25", "ru" to "59,25")) {
+            assertThat(manualMealSubmissionMessage(context(language), 59.25, result)).contains(exact)
+        }
+    }
+
+    @Test fun rateLimitIsNotReportedAsUnknownInEitherLanguage() {
+        for (language in listOf("en", "ru")) {
+            val context = context(language)
+            val result = ManualMealResult(MealDeliveryStatus.BLOCKED,
+                EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED), false, "carbs_rate_limit_30m")
+            assertThat(manualMealSubmissionMessage(context, 10.0, result))
+                .isEqualTo(context.getString(R.string.meal_carbs_rate_limited))
+            assertThat(manualMealSubmissionMessage(context, 10.0, result.copy(carbs = MealDeliveryStatus.UNKNOWN)))
+                .isEqualTo(context.getString(R.string.overview_meal_unconfirmed))
+        }
+    }
+
     private fun context(language: String): Context {
         val base = ApplicationProvider.getApplicationContext<Context>()
         val config = android.content.res.Configuration(base.resources.configuration)

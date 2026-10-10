@@ -11,5 +11,11 @@ data class MealProfileOverrideEntity(
     val durationMinutes: Int,
     val source: String,
     val revision: Long,
-    val updatedAtMs: Long
+    val updatedAtMs: Long,
+    val portion: String? = null,
+    val portionProvenance: String? = null,
+    val confirmedCarbsGrams: Double? = null,
+    val glycemicIndexValue: Double? = null,
+    val glycemicIndexSource: String? = null,
+    val glycemicIndexReference: String? = null
 )

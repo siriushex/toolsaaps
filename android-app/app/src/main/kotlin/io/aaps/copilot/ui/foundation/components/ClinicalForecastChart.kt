@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
@@ -162,9 +163,14 @@ internal fun ClinicalForecastChart(
         viewport?.let { selectClinicalChartCiPoints(state.futureCi, it.startTs, it.endTs) }
             ?: state.futureCi
     }
+    val foodPoints = remember(state.mealImpactPoints, viewport) {
+        val points = state.mealImpactPoints.filter { it.value.isFinite() && it.value > 0.0 }
+        viewport?.let { selectClinicalChartPoints(points, it.startTs, it.endTs) } ?: points
+    }
     val bounds = remember(
         visibleHistory,
         visibleFuture,
+        foodPoints,
         visibleCi,
         state.displayRangeLowMmol,
         state.displayRangeHighMmol,
@@ -172,7 +178,7 @@ internal fun ClinicalForecastChart(
     ) {
         clinicalChartBounds(
             history = visibleHistory.filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
-            future = visibleFuture.filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
+            future = (visibleFuture + foodPoints).filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
             ci = visibleCi.filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
             displayLow = state.displayRangeLowMmol,
             displayHigh = state.displayRangeHighMmol
@@ -191,14 +197,17 @@ internal fun ClinicalForecastChart(
     }
 
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
-    val displayBandColor = Color(0xFFE8F5E9).copy(alpha = 0.82f)
+    val chartColors = clinicalChartColors(MaterialTheme.colorScheme.surface)
+    val displayBandColor = chartColors.displayBand
     val targetLineColor = Color(0xFF55B66D)
     val ciColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     val historyColor = MaterialTheme.colorScheme.onSurface
-    val futureColor = Color(0xFF536B91)
+    val futureColor = chartColors.future
     val markerColor = Color(0xFF2F9E55)
     val markerLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
     val axisColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val foodColor = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f)
+        Color(0xFFA97900) else Color(0xFFFFD54F)
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     val axisPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     axisPaint.color = axisColor.toArgb()
@@ -232,7 +241,7 @@ internal fun ClinicalForecastChart(
         val horizontalBounds = clinicalChartPlotHorizontalBounds(
             totalWidthPx = size.width,
             leftInsetPx = 34.dp.toPx(),
-            rightInsetPx = 4.dp.toPx()
+            rightInsetPx = 40.dp.toPx()
         )
         val plotLeft = horizontalBounds.leftPx
         val plotTop = 44.dp.toPx()
@@ -329,6 +338,12 @@ internal fun ClinicalForecastChart(
                 yOf = ::yOf,
                 color = futureColor,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
+            )
+            drawClinicalPolyline(
+                points = foodPoints,
+                xOf = ::xOf,
+                yOf = ::yOf,
+                color = foodColor
             )
 
             nowVisible?.let { current ->

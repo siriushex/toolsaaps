@@ -1,0 +1,5 @@
+<resources>
+    <string name="meal_carbs_rate_limited">Углеводы не отправлены: после предыдущей отправки должно пройти 30 минут. Eating soon не отправлена.</string>
+    <string name="meal_carbs_disarmed">Углеводы не отправлены: терапевтические действия выключены. Eating soon не отправлена.</string>
+    <string name="meal_carbs_blocked">Отправка углеводов заблокирована. Eating soon не отправлена.</string>
+</resources>

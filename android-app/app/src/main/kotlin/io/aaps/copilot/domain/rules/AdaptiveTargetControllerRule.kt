@@ -187,7 +187,20 @@ class AdaptiveTargetControllerRule : TargetRule {
             safetyIobUnits = context.safetyIobUnits,
             rapidFallPriorConfirmedCycles = rapidFallPriorCyclesFor(latestGlucoseTs)
         )
-        val controllerOut = controller.evaluate(controllerInput)
+        val ordinaryOutput = controller.evaluate(controllerInput)
+        val sustainedRise = ordinaryOutput.reason in setOf("control_pi", "control_deadband") &&
+            SustainedRiseTargetPolicy.qualifies(context)
+        val controllerOut = if (sustainedRise) ordinaryOutput.copy(
+            newTempTarget = SustainedRiseTargetPolicy.TARGET_MMOL,
+            durationMin = SustainedRiseTargetPolicy.DURATION_MINUTES,
+            updatedI = 0.0,
+            reason = SustainedRiseTargetPolicy.MODE,
+            debugFields = ordinaryOutput.debugFields + mapOf(
+                "ordinaryTarget" to ordinaryOutput.newTempTarget,
+                "sustainedRiseMinutes" to 10.0,
+                "targetFinal" to SustainedRiseTargetPolicy.TARGET_MMOL
+            )
+        ) else ordinaryOutput
 
         previousI = controllerOut.updatedI
         recordRapidFallCandidate(
@@ -195,7 +208,9 @@ class AdaptiveTargetControllerRule : TargetRule {
             candidate = controllerOut.debugFields["rapidFallFarTermLowCandidate"] == 1.0
         )
 
-        if (abs(controllerOut.newTempTarget - base) < EPS_EQ) {
+        if (abs(controllerOut.newTempTarget - base) < EPS_EQ &&
+            (context.activeTempTargetMmol == null || abs(context.activeTempTargetMmol - base) < EPS_EQ)
+        ) {
             return RuleDecision(
                 id,
                 RuleState.NO_MATCH,
@@ -218,7 +233,7 @@ class AdaptiveTargetControllerRule : TargetRule {
             ?.coerceIn(adaptiveMinTarget, adaptiveMaxTarget)
             ?.let { roundToStep(it, TARGET_STEP_MMOL) }
 
-        if (activeTarget != null && abs(target - activeTarget) < TARGET_STEP_MMOL / 2.0) {
+        if (!sustainedRise && activeTarget != null && abs(target - activeTarget) < TARGET_STEP_MMOL / 2.0) {
             return RuleDecision(
                 id,
                 RuleState.NO_MATCH,
@@ -528,7 +543,7 @@ class AdaptiveTargetControllerRule : TargetRule {
 
         private const val MIN_TARGET_MMOL = 4.0
         private const val MAX_TARGET_MMOL = 10.0
-        private const val TARGET_STEP_MMOL = 0.05
+        internal const val TARGET_STEP_MMOL = 0.05
         private const val EPS_EQ = 1e-6
         private const val ACTIVITY_TARGET_MIN_MMOL = 7.7
         private const val ACTIVITY_TARGET_MAX_MMOL = 8.7

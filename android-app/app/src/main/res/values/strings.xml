@@ -831,6 +831,7 @@
     <string name="overview_target_manager_reason_forecast">Forecast reliability safeguard</string>
     <string name="overview_target_manager_reason_external_target">External target retained</string>
     <string name="overview_target_manager_reason_writer_conflict">Another source reset the target; protective pause</string>
+    <string name="overview_target_manager_reason_eating_soon">Eating Soon target retained</string>
     <string name="overview_target_manager_reason_writes_disabled">Therapy writes are disabled; proposal was not sent</string>
     <string name="overview_target_manager_reason_legacy_drain">Waiting for the legacy target to drain</string>
     <string name="overview_target_manager_reason_safety_bounds">Target safety bounds</string>

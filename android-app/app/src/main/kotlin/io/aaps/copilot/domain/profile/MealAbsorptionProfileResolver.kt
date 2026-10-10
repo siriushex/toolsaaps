@@ -5,7 +5,9 @@ import io.aaps.copilot.domain.model.TherapyEvent
 data class MealAbsorptionSelection(
     val profile: MealAbsorptionProfile,
     val durationMinutes: Int? = null,
-    val therapyRevision: String? = null
+    val therapyRevision: String? = null,
+    val portionMetadata: io.aaps.copilot.domain.nutrition.MealPortionMetadata? = null,
+    val glycemicIndex: MealGlycemicIndex? = null
 )
 
 class MealTherapyReference(

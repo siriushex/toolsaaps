@@ -234,6 +234,7 @@ fun CopilotFoundationRoot(
     val scaffoldContent: @Composable () -> Unit = {
             Scaffold(
                 containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
                 topBar = {
                     TopBar(
                         title = screenTitle(currentRoute),
@@ -347,13 +348,13 @@ fun CopilotFoundationRoot(
                                     onAddBloodCheck = viewModel::addManualBloodGlucoseCheck,
                                     onResetBloodCalibration = viewModel::resetManualGlucoseCalibration,
                                     onBaseTargetScheduleSave = viewModel::saveBaseTargetSchedule,
-                                    onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId ->
+                                    onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId, portionMetadata, glycemicIndex ->
                                         viewModel.sendManualCarbs(
                                             carbs,
                                             reason,
                                             profile,
                                             manualMealEnergyKcal,
-                                            eatingSoon, submissionId
+                                            eatingSoon, submissionId, portionMetadata, glycemicIndex
                                         )
                                     },
                                     onOpenAapsBolus = viewModel::openAapsBolusDialog,
@@ -505,6 +506,11 @@ fun CopilotFoundationRoot(
                                     viewModel.loadServerAiConnection()
                                 }
                                 SettingsScreen(
+                                    telegramSettingsContent = {
+                                        io.aaps.copilot.ui.foundation.screens.TelegramSettingsSection(
+                                            viewModel.telegramRepository, viewModel::sendTelegramSummary
+                                        )
+                                    },
                                     state = settings,
                                     serverAiConnectionState = serverAiConnection,
                                     onServerAiActivate = viewModel::activateServerAiConnection,
@@ -612,6 +618,7 @@ fun CopilotFoundationRoot(
                                     onEnergyProfileEnabledChange = viewModel::setEnergyProfileEnabled,
                                     onEnergyProfileUserProfileSave = viewModel::saveEnergyProfileUserProfile,
                                     onEnergyProfileFoodSettingsSave = viewModel::saveEnergyProfileFoodSettings,
+                                    onMealPortionsSave = viewModel::saveMealPortionSettings,
                                     onEnergyProfileActivitySettingsSave = viewModel::saveEnergyProfileActivitySettings,
                                     onPlannedActivitySave = viewModel::savePlannedActivity,
                                     onPlannedActivityDelete = viewModel::deletePlannedActivity,
