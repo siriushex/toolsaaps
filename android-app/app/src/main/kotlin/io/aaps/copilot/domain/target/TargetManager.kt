@@ -238,6 +238,8 @@ class TargetManager(
         ) {
             return CandidateEvaluation(proposal, false, "safety_iob_blocks_target_decrease")
         }
+        EatingSoonPolicy.replacementFailure(input.activeAapsTarget, input.nowTs, proposal.intent, proposal.targetMmol)
+            ?.let { return CandidateEvaluation(proposal, false, it) }
         val sustainedRise = proposal.sourceRuleId == SustainedRiseTargetPolicy.SOURCE
         if (sustainedRise && (proposal.generatedAt != input.nowTs ||
                 abs(proposal.targetMmol - SustainedRiseTargetPolicy.TARGET_MMOL) > EPSILON ||
@@ -701,31 +703,35 @@ class TargetManager(
         input: TargetManagerInput,
         active: ActiveAapsTarget?,
         winner: TargetProposal
-    ): String = digestFields(
-        input.glucoseTimestamp.toString(),
-        input.therapyWatermark.toString(),
-        input.safety.sensorTrust.name,
-        input.safety.deliveryTrust.name,
-        input.copilotPriorityEnabled.toString(),
-        input.priorityRevision.toString(),
-        input.sensitivityRuntime.snapshot.forecastCycleId,
-        if (active == null) "active_target_absent" else "active_target_present",
-        active?.ownership?.name,
-        active?.idempotencyKey,
-        active?.source,
-        active?.targetMmol?.let(::canonicalDouble),
-        active?.startedAt?.toString(),
-        active?.expiresAt?.toString(),
-        active?.evidenceResolved?.toString(),
-        input.baseProvenance.scheduleRevision.toString(),
-        input.baseProvenance.intervalId,
-        input.baseProvenance.adjustmentRunId,
-        winner.sourceRuleId,
-        winner.intent.name,
-        canonicalDouble(winner.targetMmol),
-        winner.durationMinutes.toString(),
-        winner.inputFingerprint
-    )
+    ): String {
+        val fields = listOf(
+            input.glucoseTimestamp.toString(),
+            input.therapyWatermark.toString(),
+            input.safety.sensorTrust.name,
+            input.safety.deliveryTrust.name,
+            input.copilotPriorityEnabled.toString(),
+            input.priorityRevision.toString(),
+            input.sensitivityRuntime.snapshot.forecastCycleId,
+            if (active == null) "active_target_absent" else "active_target_present",
+            active?.ownership?.name,
+            active?.idempotencyKey,
+            active?.source,
+            active?.targetMmol?.let(::canonicalDouble),
+            active?.startedAt?.toString(),
+            active?.expiresAt?.toString(),
+            active?.evidenceResolved?.toString(),
+            input.baseProvenance.scheduleRevision.toString(),
+            input.baseProvenance.intervalId,
+            input.baseProvenance.adjustmentRunId,
+            winner.sourceRuleId,
+            winner.intent.name,
+            canonicalDouble(winner.targetMmol),
+            winner.durationMinutes.toString(),
+            winner.inputFingerprint
+        )
+        val contextFields = if (active?.eatingSoonConfirmed == true) listOf("eating_soon_confirmed_v1") else emptyList()
+        return digestFields(*(fields + contextFields).toTypedArray())
+    }
 
     private fun digestFields(vararg fields: String?): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -841,6 +847,7 @@ class TargetManager(
         ?: BlockedReasonCategory.SAFETY
 
     private fun blockedReasonCategory(reason: String): BlockedReasonCategory = when {
+        reason == "eating_soon_target_active" -> BlockedReasonCategory.MANUAL
         reason.contains("delivery_nonresponse") -> BlockedReasonCategory.DELIVERY
         reason.contains("sensor") -> BlockedReasonCategory.SENSOR
         reason.contains("protective") -> BlockedReasonCategory.PROTECTIVE
@@ -871,16 +878,6 @@ class TargetManager(
         nextRuntimeState = runtime
     )
 
-    private fun TargetIntent.isProtective(): Boolean = when (this) {
-        TargetIntent.SENSOR_SAFETY_RELEASE,
-        TargetIntent.HYPO_PROTECTION,
-        TargetIntent.ACTIVITY_PROTECTION,
-        TargetIntent.POST_HYPO_PROTECTION -> true
-        TargetIntent.PLANNED_ACTIVITY_ADAPTATION,
-        TargetIntent.NORMAL_CONTROL,
-        TargetIntent.RECOVERY_TO_BASE -> false
-    }
-
     private fun TargetIntent.safetyRank(): Int = when (this) {
         TargetIntent.SENSOR_SAFETY_RELEASE -> 600
         TargetIntent.HYPO_PROTECTION -> 500
@@ -909,6 +906,7 @@ class TargetManager(
         SENSOR(TargetDecisionOutcome.BLOCK_SENSOR_TRUST),
         PROTECTIVE(TargetDecisionOutcome.BLOCK_PROTECTIVE_DIRECTION),
         FORECAST(TargetDecisionOutcome.BLOCK_FORECAST_RELIABILITY),
+        MANUAL(TargetDecisionOutcome.BLOCK_MANUAL_TARGET),
         SAFETY(TargetDecisionOutcome.BLOCK_SAFETY_BOUNDS)
     }
 

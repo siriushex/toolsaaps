@@ -1311,15 +1311,27 @@ class AppContainer(context: Context) {
             nowTs = observationNow
         )
         val manualTargetConflict = try {
+            val manualCommands = db.actionCommandDao().byTypeAndIdempotencyPrefixSince(
+                type = "temp_target",
+                idempotencyPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%",
+                since = observationNow - MANAGED_TARGET_ACTIVE_LOOKBACK_MS
+            )
+            val observed = currentObservation.activeAapsTarget
+            val observedCommand = observed?.idempotencyKey?.takeIf {
+                (observed.ownership == ActiveTargetOwnership.TARGET_MANAGER ||
+                    EatingSoonPolicy.isActiveConfirmedTarget(observed, observationNow)) && manualCommands.any { command ->
+                    command.status == NightscoutActionRepository.STATUS_SENT &&
+                        io.aaps.copilot.data.repository.isCanonicalEatingSoonCommand(command, gson)
+                }
+            }?.let { db.actionCommandDao().forTargetObservationProof(it).singleOrNull() }
+            val confirmedSupersedingTarget = io.aaps.copilot.data.repository.ConfirmedSupersedingTarget
+                .fromObservation(observed, observedCommand, observationNow, gson)
             hasActiveManualTempTargetStatic(
-                commands = db.actionCommandDao().byTypeAndIdempotencyPrefixSince(
-                    type = "temp_target",
-                    idempotencyPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%",
-                    since = observationNow - MANAGED_TARGET_ACTIVE_LOOKBACK_MS
-                ),
+                commands = manualCommands,
                 now = observationNow,
                 gson = gson,
-                replaceableSentIdempotencyKey = replaceableSentIdempotencyKey
+                replaceableSentIdempotencyKey = replaceableSentIdempotencyKey,
+                confirmedSupersedingTarget = confirmedSupersedingTarget
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1867,7 +1879,8 @@ internal fun hasActiveManualTempTargetStatic(
     now: Long,
     gson: Gson,
     pendingLookbackMs: Long = 12L * 60L * 60L * 1_000L,
-    replaceableSentIdempotencyKey: String? = null
+    replaceableSentIdempotencyKey: String? = null,
+    confirmedSupersedingTarget: io.aaps.copilot.data.repository.ConfirmedSupersedingTarget? = null
 ): Boolean = commands.any { command ->
     if (
         !command.type.equals("temp_target", ignoreCase = true) ||
@@ -1879,6 +1892,8 @@ internal fun hasActiveManualTempTargetStatic(
     when (command.status) {
         NightscoutActionRepository.STATUS_PENDING -> true
         NightscoutActionRepository.STATUS_SENT -> {
+            if (io.aaps.copilot.data.repository.isSupersededEatingSoonCommand(
+                    command, confirmedSupersedingTarget, now, gson)) return@any false
             val payload = runCatching {
                 gson.fromJson(command.payloadJson, com.google.gson.JsonObject::class.java)
             }.getOrNull() ?: return@any true
@@ -1908,6 +1923,7 @@ internal fun managedTargetOwnershipPreflightFailureStatic(
 ): String? {
     TargetOwnershipPolicy.preflightFailure(candidate, currentObservation, nowTs)?.let { return it }
     val active = currentObservation.activeAapsTarget ?: return null
+    EatingSoonPolicy.replacementFailure(active, nowTs, candidate.intent, candidate.targetMmol)?.let { return it }
     val ownership: ActiveTargetOwnership? = active.ownership
     return when {
         ownership == null -> TargetOwnershipPolicy.TARGET_OBSERVATION_INVALID

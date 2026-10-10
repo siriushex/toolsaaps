@@ -25,6 +25,9 @@ interface ActionCommandDao {
     )
     suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity?
 
+    @Query("SELECT * FROM action_commands WHERE idempotencyKey = :idempotencyKey LIMIT 2")
+    suspend fun forTargetObservationProof(idempotencyKey: String): List<ActionCommandEntity>
+
     @Query(
         "DELETE FROM action_commands " +
             "WHERE idempotencyKey = :idempotencyKey AND type = :type AND status = :status"

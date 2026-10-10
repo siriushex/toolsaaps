@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Eating Soon Target Context (2026-10-10)
+
+- Explicit intent is derived from current resolved AAPS evidence plus one
+  matching SENT command, not a note, UI selection, pending request or old
+  Target Manager decision. Bounded payload/key parsing and duplicate rejection
+  prevent ambiguous records from acquiring confirmed context.
+- Context is part of dispatch identity and confirmed semantic fingerprints;
+  absent/false context keeps the prior fingerprint encoding. Protective intent
+  alone cannot bypass current forecast, freshness, delivery, arming, bounds or
+  opt-in priority. Other manual writer-conflict behavior is unchanged.
+- Supersession requires a privately constructed checked current target proof:
+  either a newer manager target or independently confirmed Eating Soon, each
+  matched to one unique SENT record. Its own current command is never discarded.
+  No broad pending-command exemption, resend or new therapy writer is added.
+- Private phone-history evidence is kept outside Git. Real-phone clinical
+  delivery cannot be validated by synthetic unit tests or an APK installation.
+
 ## Pump-Link Source Publication (2026-10-10)
 
 - Immutable exact accepted snapshot/episode, after durable transition/receipt

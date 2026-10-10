@@ -87,7 +87,7 @@ object TargetOwnershipPolicy {
                 else -> null
             }
         }
-        if (hasRecentExternalWriterConflict(input, active)) {
+        if (!EatingSoonPolicy.isActiveConfirmedTarget(active, input.nowTs) && hasRecentExternalWriterConflict(input, active)) {
             return TargetOwnershipFailure(
                 TargetDecisionOutcome.BLOCK_MANUAL_TARGET,
                 EXTERNAL_TARGET_WRITER_CONFLICT
@@ -161,7 +161,8 @@ object TargetOwnershipPolicy {
             active.expiresAt > active.startedAt &&
             active.source.isNotBlank() &&
             active.ownership.name.isNotBlank() &&
-            active.idempotencyKey?.isBlank() != true
+            active.idempotencyKey?.isBlank() != true &&
+            (!active.eatingSoonConfirmed || EatingSoonPolicy.isActiveConfirmedTarget(active, nowTs))
     }
 
     private fun sameActiveTarget(
@@ -175,7 +176,8 @@ object TargetOwnershipPolicy {
             left.source == right.source &&
             left.ownership == right.ownership &&
             left.idempotencyKey == right.idempotencyKey &&
-            left.evidenceResolved == right.evidenceResolved
+            left.evidenceResolved == right.evidenceResolved &&
+            left.eatingSoonConfirmed == right.eatingSoonConfirmed
     }
 
     internal data class TargetOwnershipFailure(

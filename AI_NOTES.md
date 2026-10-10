@@ -1,3 +1,43 @@
+# Eating Soon Target Manager Handoff - 2026-10-10
+
+- Continued from d3398169 in the existing feature worktree for the user's
+  Eating Soon / Target Manager fix. Three real REDs reproduced ordinary overwrite,
+  protective external-writer delay and missing durable Room intent propagation.
+- Confirmed context now requires a unique canonical SENT manual command and
+  matching current resolved AAPS target, including wire rounding, key, window
+  and causal timestamps. Imported notes/selection alone do not establish it.
+- Ordinary control/recovery retains the observed Eating Soon window. Existing
+  qualified protective increases are not delayed as an unrelated manual writer,
+  under unchanged priority opt-in and every existing manager/transport guard.
+- Dispatch identity includes confirmation. A checked newer manager observation
+  and its unique SENT record can release the older SENT Eating Soon hold; pending,
+  failed/unknown and unrelated manual holds are unchanged. No resend/keepalive.
+  Absent/false context preserves the old semantic fingerprint encoding.
+- Late self-review reproduced another RED: overlapping confirmed Eating Soon
+  requests left an obsolete SENT hold blocking protective takeover. The checked
+  supersession proof now also accepts a newer independently confirmed Eating
+  Soon, retaining its own current request and all pending/unknown/manual guards.
+  Final focused/full verification includes this production boundary change.
+- Added a distinct retained Eating Soon status in English/Russian. Existing
+  4.1 mmol/L / 30-minute request, 5/30/60 forecast eligibility, clinical limits,
+  cadence, schema, settings, arming and backend remain unchanged.
+- Final focused GREEN:230 cases/13 executed suites, zero failures/errors/skips.
+  Full unit tests:5075 cases/433 suites, zero failures/errors,2 optional phone-copy
+  skips. Official31-to32 migrations passed on a disposable coherent phone copy
+  with protected table counts/integrity/FK checks. Full Android unit/lint/compile/
+  debug-build passed in18m3s; fresh lint has zero errors and305 warnings. Slow
+  Kotlin lint resolution was inspected; it completed before attempted stop.
+  Separate remaining-gate recheck passed17s; project JVM defaults are unchanged.
+- Inline self-review only. Pinned scanner checksum verified; five whole-source
+  findings are unchanged non-secret symbols/test strings, with no suppression.
+  Exact reviewed-diff scan and new-SHA Verify are recorded privately after
+  completion, never inferred from local tests or publication alone.
+- Read-only phone history informed the diagnosis; raw private data stays local.
+  ADB list is empty at11:39:47 UTC after earlier successful connection. No APK
+  installation, synthetic therapy, audio/volume/DND or new alarm activation.
+  Local tests/CI/installation cannot prove real clinical Eating Soon delivery.
+- Plan:docs/superpowers/plans/2026-10-10-eating-soon-target-handoff.md.
+
 # Checked pump-link source publication - 2026-10-10
 
 - Continued from02668312 in the existing worktree. Successful read-only ADB

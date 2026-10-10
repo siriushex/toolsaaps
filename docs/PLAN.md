@@ -1,5 +1,24 @@
 # PLAN
 
+## Eating Soon Handoff (2026-10-10)
+
+- Three failing regressions established ordinary overwrite, protective writer
+  delay and missing Room intent. Bind unique canonical SENT manual request to
+  current resolved AAPS target, without changing eligibility or clinical limits.
+- Retain its window against ordinary control/recovery; existing protective
+  increases retain all safety/priority/dispatch gates. Context identity is
+  rechecked; observed newer manager target plus unique SENT proof can release
+  the older SENT hold, never pending/unknown requests. No automatic keepalive.
+- Focused230 cases/13 executed suites pass. Full unit5075 cases/433 suites pass with
+  zero failures/errors and2 optional phone-copy skips. Official migrations on
+  a disposable current-phone copy pass. Full unit/lint/compile/debug-build passed
+  in18m3s; fresh lint has zero errors/305 warnings. New-SHA Verify is recorded
+  separately after publication and actual completion. Overlapping confirmed
+  Eating Soon holds have a separate real RED/GREEN boundary regression.
+- Plan:superpowers/plans/2026-10-10-eating-soon-target-handoff.md. Device update
+  and natural clinical handoff verification remain separate. ADB currently empty;
+  no test therapy action, new alarm activation or sound/settings change.
+
 ## Pump-Link Source Producer (2026-10-10)
 
 - Added checked immutable current technical-source publication to the existing

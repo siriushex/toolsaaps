@@ -367,6 +367,9 @@ class TempTargetSendThrottleTest {
 
         override suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity? = null
 
+        override suspend fun forTargetObservationProof(idempotencyKey: String): List<ActionCommandEntity> =
+            listOfNotNull(lastSent?.takeIf { it.idempotencyKey == idempotencyKey })
+
         override suspend fun deleteByIdempotencyKeyTypeAndStatus(
             idempotencyKey: String,
             type: String,

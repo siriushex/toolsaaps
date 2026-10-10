@@ -64,6 +64,19 @@ class TargetOwnershipPolicyTest {
     }
 
     @Test
+    fun losingConfirmedEatingSoonProofFailsPreflight() {
+        val active = activeTarget().copy(targetMmol = 4.1,
+            idempotencyKey = "manual:meal:meal-a:eating-soon", eatingSoonConfirmed = true)
+        val observation = TargetOwnershipPolicy.capture(active, true, 4L)
+        assertThat(TargetOwnershipPolicy.preflightFailure(candidate(observation),
+            observation.copy(activeAapsTarget = active.copy(eatingSoonConfirmed = false)), NOW))
+            .isEqualTo(TargetOwnershipPolicy.ACTIVE_TARGET_OBSERVATION_CHANGED)
+        val malformed = observation.copy(activeAapsTarget = active.copy(targetMmol = 4.2))
+        assertThat(TargetOwnershipPolicy.preflightFailure(candidate(malformed), malformed, NOW))
+            .isEqualTo(TargetOwnershipPolicy.TARGET_OBSERVATION_INVALID)
+    }
+
+    @Test
     fun observedAbsenceRejectsNewTargetAndAcceptsContinuedAbsence() {
         val candidate = candidate(
             targetObservation = TargetOwnershipPolicy.capture(null, false, 3L)

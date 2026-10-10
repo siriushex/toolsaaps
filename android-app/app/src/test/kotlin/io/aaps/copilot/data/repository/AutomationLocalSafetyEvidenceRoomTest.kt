@@ -41,6 +41,71 @@ class AutomationLocalSafetyEvidenceRoomTest {
     }
 
     @Test
+    fun confirmedEatingSoonIsBoundToRealObservedTargetAndDurableSentCommand() = runBlocking {
+        val key = "manual:meal:meal-a:eating-soon"
+        db.actionCommandDao().upsert(command(key, NOW - MINUTE_MS, key).copy(
+            payloadJson = """{"targetMmol":"4.1","durationMinutes":"30","reason":"Eating Soon"}"""
+        ))
+        db.therapyDao().upsertAll(listOf(TherapyEventEntity(
+            "observed-meal-target", NOW - MINUTE_MS - 1_000L, "temp_target",
+            """{"targetBottom":74,"duration":30,"notes":"copilot:$key"}"""
+        )))
+        val active = AutomationRepository.loadLocalSafetyEvidenceStatic(db, Gson(), NOW).activeAapsTarget
+        assertThat(active?.eatingSoonConfirmed).isTrue()
+        assertThat(active?.ownership).isEqualTo(ActiveTargetOwnership.MANUAL_OR_FOREIGN)
+        assertThat(active?.idempotencyKey).isEqualTo(key)
+    }
+
+    @Test
+    fun eatingSoonNotesWithoutOneMatchingSentReceiptDoNotConfirmIntent() = runBlocking {
+        val key = "manual:meal:meal-a:eating-soon"
+        db.therapyDao().upsertAll(listOf(TherapyEventEntity("observed-meal-target", NOW - MINUTE_MS - 1_000L,
+            "temp_target", """{"targetBottom":74,"duration":30,"notes":"copilot:$key"}""")))
+        fun receipt() = command("receipt-a", NOW - MINUTE_MS, key).copy(
+            payloadJson = """{"targetMmol":"4.1","durationMinutes":"30","reason":"Eating Soon"}""")
+        assertThat(AutomationRepository.loadLocalSafetyEvidenceStatic(db, Gson(), NOW)
+            .activeAapsTarget?.eatingSoonConfirmed).isFalse()
+        listOf("PENDING", "FAILED", "BLOCKED").forEach { status ->
+            db.actionCommandDao().upsert(receipt().copy(status = status))
+            assertThat(AutomationRepository.loadLocalSafetyEvidenceStatic(db, Gson(), NOW)
+                .activeAapsTarget?.eatingSoonConfirmed).isFalse()
+        }
+        db.actionCommandDao().upsert(receipt())
+        db.actionCommandDao().upsert(receipt().copy(id = "receipt-b", type = "carbs"))
+        assertThat(db.actionCommandDao().forTargetObservationProof(key)).hasSize(2)
+        assertThat(AutomationRepository.loadLocalSafetyEvidenceStatic(db, Gson(), NOW)
+            .activeAapsTarget?.eatingSoonConfirmed).isFalse()
+    }
+
+    @Test
+    fun confirmedEatingSoonContextEndsWithObservedCancellationReplacementOrExpiry() = runBlocking {
+        val key = "manual:meal:meal-a:eating-soon"
+        val startedAt = NOW - MINUTE_MS - 1_000L
+        suspend fun loadAt(timestamp: Long) = AutomationRepository.loadLocalSafetyEvidenceStatic(
+            db, Gson(), timestamp, MONOTONIC_NOW + timestamp - NOW)
+        db.actionCommandDao().upsert(command("receipt-a", NOW - MINUTE_MS, key).copy(
+            payloadJson = """{"targetMmol":"4.1","durationMinutes":"30","reason":"Eating Soon"}"""))
+        db.therapyDao().upsertAll(listOf(TherapyEventEntity("observed-meal-target", startedAt,
+            "temp_target", """{"targetBottom":74,"duration":30,"notes":"copilot:$key"}""")))
+        assertThat(loadAt(NOW)
+            .activeAapsTarget?.eatingSoonConfirmed).isTrue()
+        val atExpiry = loadAt(startedAt + 30 * MINUTE_MS).activeAapsTarget
+        assertThat(atExpiry?.expiresAt).isEqualTo(startedAt + 30 * MINUTE_MS)
+        assertThat(atExpiry?.eatingSoonConfirmed).isFalse()
+        assertThat(loadAt(startedAt + 30 * MINUTE_MS + 1L)
+            .activeAapsTarget).isNull()
+        db.therapyDao().upsertAll(listOf(TherapyEventEntity("observed-cancel", NOW + 30 * MINUTE_MS,
+            "temp_target", """{"targetBottom":0,"duration":0}""")))
+        assertThat(loadAt(NOW + 30 * MINUTE_MS)
+            .activeAapsTarget).isNull()
+        db.therapyDao().upsertAll(listOf(TherapyEventEntity("observed-other", NOW + 31 * MINUTE_MS,
+            "temp_target", """{"targetBottom":126,"duration":30,"notes":"AAPS manual"}""")))
+        val replaced = loadAt(NOW + 31 * MINUTE_MS).activeAapsTarget
+        assertThat(replaced).isNotNull()
+        assertThat(replaced?.eatingSoonConfirmed).isFalse()
+    }
+
+    @Test
     fun boundedLocalEvidenceCountsRecentAutomaticActionsAndResolvesForeignActiveTarget() = runBlocking {
         db.actionCommandDao().upsert(command("auto-1", NOW - 5 * MINUTE_MS, "TargetManager.v1:one"))
         db.actionCommandDao().upsert(command("auto-2", NOW - 10 * MINUTE_MS, "rule:two"))

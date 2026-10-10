@@ -14,6 +14,82 @@ class TargetManagerTest {
     private val manager = TargetManager()
 
     @Test
+    fun confirmedEatingSoonRetainsManualWindowAgainstOrdinaryControlAndRecovery() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS,
+            expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon",
+            eatingSoonConfirmed = true
+        )
+        listOf(TargetIntent.NORMAL_CONTROL, TargetIntent.RECOVERY_TO_BASE).forEach { intent ->
+            val decision = manager.decide(input(
+                activeTarget = active,
+                proposals = listOf(proposal(target = 5.5, intent = intent)),
+                copilotPriorityEnabled = true
+            ))
+            assertThat(decision.command).isNull()
+            assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.BLOCK_MANUAL_TARGET)
+            assertThat(decision.reasonCodes).contains("eating_soon_target_active")
+        }
+    }
+
+    @Test
+    fun confirmedEatingSoonDoesNotDelayQualifiedProtectionAsAnExternalWriterConflict() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS,
+            expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon",
+            eatingSoonConfirmed = true
+        )
+        val runtime = TargetManagerRuntimeState(TargetManagerMode.ACTIVE,
+            acceptedTarget = AcceptedTargetState(1, 5.5, 30, "adaptive", TargetIntent.NORMAL_CONTROL,
+                NOW - 2 * MINUTE_MS, NOW + 28 * MINUTE_MS, "prior-input",
+                "TargetManager.v1:prior", "sent"))
+        val decision = manager.decide(input(
+            activeTarget = active, runtimeState = runtime,
+            proposals = listOf(proposal(target = 8.0, intent = TargetIntent.HYPO_PROTECTION)),
+            minimumPredictedOrCiMmol = 3.8,
+            copilotPriorityEnabled = true
+        ))
+        assertThat(decision.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(decision.command?.targetMmol).isEqualTo(8.0)
+        assertThat(decision.command?.targetObservation?.activeAapsTarget).isEqualTo(active)
+    }
+
+    @Test
+    fun confirmedEatingSoonStillRequiresPriorityAndExpiresWithoutAutomaticKeepalive() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS, expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon", eatingSoonConfirmed = true)
+        val disabled = manager.decide(input(activeTarget = active, copilotPriorityEnabled = false,
+            proposals = listOf(proposal(target = 8.0, intent = TargetIntent.HYPO_PROTECTION)),
+            minimumPredictedOrCiMmol = 3.8))
+        assertThat(disabled.command).isNull()
+        assertThat(disabled.reasonCodes).contains("manual_or_foreign_target_active")
+        val expired = active.copy(startedAt = NOW - 30 * MINUTE_MS, expiresAt = NOW)
+        val resumed = manager.decide(input(activeTarget = expired, copilotPriorityEnabled = true,
+            proposals = listOf(proposal(target = 5.5))))
+        assertThat(resumed.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(resumed.command?.targetObservation?.activeAapsTarget).isNull()
+        assertThat(resumed.command?.targetMmol).isEqualTo(5.5)
+    }
+
+    @Test
+    fun confirmedEatingSoonProofChangesProtectiveDecisionFingerprint() {
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = NOW - MINUTE_MS, expiresAt = NOW + 29 * MINUTE_MS,
+            idempotencyKey = "manual:meal:meal-a:eating-soon", eatingSoonConfirmed = true)
+        val proposals = listOf(proposal(target = 8.0, intent = TargetIntent.HYPO_PROTECTION))
+        val unconfirmed = manager.decide(input(activeTarget = active.copy(eatingSoonConfirmed = false),
+            copilotPriorityEnabled = true, proposals = proposals, minimumPredictedOrCiMmol = 3.8))
+        val confirmed = manager.decide(input(activeTarget = active, copilotPriorityEnabled = true,
+            proposals = proposals, minimumPredictedOrCiMmol = 3.8))
+        assertThat(unconfirmed.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(confirmed.outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(confirmed.semanticFingerprint).isNotEqualTo(unconfirmed.semanticFingerprint)
+    }
+
+    @Test
     fun killSwitchBlocksEveryAutomaticProposal() {
         val decision = manager.decide(input(killSwitch = true))
 

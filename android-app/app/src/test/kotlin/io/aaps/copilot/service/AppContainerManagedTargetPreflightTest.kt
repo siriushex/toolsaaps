@@ -23,6 +23,26 @@ class AppContainerManagedTargetPreflightTest {
     private val gson = Gson()
 
     @Test
+    fun confirmedEatingSoonBlocksOrdinaryRetargetButAllowsExistingQualifiedProtection() {
+        val now = 1_800_000_000_000L
+        val active = activeTarget(now, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            targetMmol = 4.1, idempotencyKey = "manual:meal:meal-a:eating-soon", eatingSoonConfirmed = true)
+        val observation = TargetOwnershipPolicy.capture(active, true, 4L)
+        assertThat(managedTargetOwnershipPreflightFailureStatic(candidate(observation), observation, now))
+            .isEqualTo("eating_soon_target_active")
+        val protective = candidate(observation).copy(targetMmol = 8.0, intent = TargetIntent.HYPO_PROTECTION)
+        assertThat(managedTargetOwnershipPreflightFailureStatic(protective, observation, now)).isNull()
+        assertThat(managedTargetOwnershipPreflightFailureStatic(protective,
+            observation.copy(activeAapsTarget = active.copy(eatingSoonConfirmed = false)), now))
+            .isEqualTo(TargetOwnershipPolicy.ACTIVE_TARGET_OBSERVATION_CHANGED)
+        assertThat(managedTargetOwnershipPreflightFailureStatic(protective.copy(targetMmol = 4.1), observation, now))
+            .isEqualTo("eating_soon_target_active")
+        val disabled = observation.copy(copilotPriorityEnabled = false)
+        assertThat(managedTargetOwnershipPreflightFailureStatic(protective.copy(targetObservation = disabled), disabled, now))
+            .isEqualTo("manual_or_foreign_target_active")
+    }
+
+    @Test
     fun productionDispatchWiringStopsBeforeDeliveryWithTypedKnownPreflightReason() = runBlocking {
         val blockedReasons = mutableListOf<String>()
         var deliveryCalls = 0

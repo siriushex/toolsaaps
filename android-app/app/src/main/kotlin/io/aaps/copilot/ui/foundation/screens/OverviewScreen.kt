@@ -147,6 +147,7 @@ internal enum class TargetManagerReasonUiKind {
     FORECAST,
     EXTERNAL_TARGET,
     EXTERNAL_WRITER_CONFLICT,
+    EATING_SOON_ACTIVE,
     THERAPY_WRITES_DISABLED,
     LEGACY_DRAIN,
     SAFETY_BOUNDS,
@@ -180,6 +181,7 @@ internal fun targetManagerReasonUiKind(reason: String?): TargetManagerReasonUiKi
     "forecast_unreliable" -> TargetManagerReasonUiKind.FORECAST
     "external_target_retained" -> TargetManagerReasonUiKind.EXTERNAL_TARGET
     "external_target_writer_conflict" -> TargetManagerReasonUiKind.EXTERNAL_WRITER_CONFLICT
+    "eating_soon_target_active" -> TargetManagerReasonUiKind.EATING_SOON_ACTIVE
     "therapy_writes_disabled" -> TargetManagerReasonUiKind.THERAPY_WRITES_DISABLED
     "legacy_target_drain" -> TargetManagerReasonUiKind.LEGACY_DRAIN
     "safety_bounds" -> TargetManagerReasonUiKind.SAFETY_BOUNDS
@@ -695,6 +697,7 @@ internal fun targetManagerReasonLabel(kind: TargetManagerReasonUiKind): String =
         TargetManagerReasonUiKind.FORECAST -> R.string.overview_target_manager_reason_forecast
         TargetManagerReasonUiKind.EXTERNAL_TARGET -> R.string.overview_target_manager_reason_external_target
         TargetManagerReasonUiKind.EXTERNAL_WRITER_CONFLICT -> R.string.overview_target_manager_reason_writer_conflict
+        TargetManagerReasonUiKind.EATING_SOON_ACTIVE -> R.string.overview_target_manager_reason_eating_soon
         TargetManagerReasonUiKind.THERAPY_WRITES_DISABLED -> R.string.overview_target_manager_reason_writes_disabled
         TargetManagerReasonUiKind.LEGACY_DRAIN -> R.string.overview_target_manager_reason_legacy_drain
         TargetManagerReasonUiKind.SAFETY_BOUNDS -> R.string.overview_target_manager_reason_safety_bounds

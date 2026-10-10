@@ -148,6 +148,7 @@ import io.aaps.copilot.domain.target.SensorTrustState
 import io.aaps.copilot.domain.target.TargetBaseProvenance
 import io.aaps.copilot.domain.target.TargetDecisionOutcome
 import io.aaps.copilot.domain.target.TargetIntent
+import io.aaps.copilot.domain.target.EatingSoonPolicy
 import io.aaps.copilot.domain.target.TargetManagerInput
 import io.aaps.copilot.domain.target.TargetManagerDecision
 import io.aaps.copilot.domain.target.TargetManagerMode
@@ -8587,9 +8588,11 @@ class AutomationRepository(
                 TargetDecisionOutcome.BLOCK_DELIVERY_TRUST -> "delivery_untrusted"
                 TargetDecisionOutcome.BLOCK_PROTECTIVE_DIRECTION -> "protective_direction"
                 TargetDecisionOutcome.BLOCK_FORECAST_RELIABILITY -> "forecast_unreliable"
-                TargetDecisionOutcome.BLOCK_MANUAL_TARGET -> if (
-                    "external_target_writer_conflict" in decision.reasonCodes
-                ) "external_target_writer_conflict" else "external_target_retained"
+                TargetDecisionOutcome.BLOCK_MANUAL_TARGET -> when {
+                    "eating_soon_target_active" in decision.reasonCodes -> "eating_soon_target_active"
+                    "external_target_writer_conflict" in decision.reasonCodes -> "external_target_writer_conflict"
+                    else -> "external_target_retained"
+                }
                 TargetDecisionOutcome.BLOCK_LEGACY_TARGET_DRAIN -> "legacy_target_drain"
                 TargetDecisionOutcome.BLOCK_SAFETY_BOUNDS -> "safety_bounds"
                 TargetDecisionOutcome.DELIVERY_FAILED -> "delivery_failed"
@@ -10854,11 +10857,15 @@ class AutomationRepository(
             val usableRows = rows.zip(markerIds)
                 .filterNot { (_, markerId) -> markerId in markedIds }
                 .map { (row, _) -> row }
-            return resolveActiveAapsTargetStatic(
+            val active = resolveActiveAapsTargetStatic(
                 now = window.causalThroughInclusive,
                 recentTargets = usableRows,
                 gson = gson
             )
+            // An imported note alone is not a confirmed manual intent.
+            val command = active?.idempotencyKey?.takeIf(EatingSoonPolicy::isRequestKey)
+                ?.let { db.actionCommandDao().forTargetObservationProof(it).singleOrNull() }
+            return withConfirmedEatingSoonContext(active, command, window.causalThroughInclusive, gson)
         }
 
         private suspend fun observeLocalSafetyClockStatic(

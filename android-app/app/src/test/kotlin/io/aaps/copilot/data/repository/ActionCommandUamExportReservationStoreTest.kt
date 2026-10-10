@@ -178,6 +178,9 @@ class ActionCommandUamExportReservationStoreTest {
         override suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity? =
             rows.values.firstOrNull { it.idempotencyKey == idempotencyKey }
 
+        override suspend fun forTargetObservationProof(idempotencyKey: String): List<ActionCommandEntity> =
+            rows.values.filter { it.idempotencyKey == idempotencyKey }.take(2)
+
         override suspend fun deleteByIdempotencyKeyTypeAndStatus(
             idempotencyKey: String,
             type: String,

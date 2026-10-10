@@ -1,5 +1,28 @@
 # INVARIANTS
 
+## Confirmed Eating Soon Handoff
+
+- Imported target notes alone cannot establish Eating Soon. Derive context in
+  the current local-safety Room transaction from exactly one matching SENT
+  canonical manual command and the resolved active AAPS observation, including
+  exact key, existing transport-rounded target, 30-minute window and causal time.
+- Existing Eating Soon 4.1 mmol/L / 30-minute eligibility, full 5/30/60 forecasts,
+  kill/arm/sensor/chronology guards and delivery uncertainty remain unchanged.
+- Confirmed Eating Soon retains its observed window against ordinary control
+  and recovery. Existing qualified protective increases may replace it only
+  under the existing Copilot-priority opt-in and all manager/dispatch safety gates.
+  This intent is not an unrelated external-writer conflict; no cooldown is
+  removed for other manual/foreign targets.
+- Recheck context identity at dispatch; loss/change of proof fails closed.
+  Never keep Eating Soon alive, extend its observed expiry or replay delivery.
+- An older SENT Eating Soon receipt ceases to block a later manager target only
+  when that current resolved target matches one unique durable SENT command.
+  A newer independently confirmed Eating Soon intent can likewise supersede
+  older canonical SENT Eating Soon holds, never its own current request.
+  Pending, failed/unknown and unrelated manual holds retain their existing guard.
+- No schema/settings/network/clinical threshold change or synthetic device
+  therapy trigger is authorized by this handoff fix.
+
 ## Pump-Link Source Boundary
 
 - Current technical source comes from checked durable monitor transitions,
