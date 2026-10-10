@@ -30,9 +30,11 @@ import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class NightscoutActionRepository(
     private val context: Context,
@@ -88,12 +90,44 @@ class NightscoutActionRepository(
     suspend fun submitTempTarget(
         command: ActionCommand,
         deliveryGuard: (suspend () -> String?)? = null
-    ): Boolean = TEMP_TARGET_WRITE_MUTEX.withLock {
-        val registration = registerPendingCommand(command)
+    ): Boolean {
+        val frozenCommand = command.copy(params = command.params.toMap())
+        // Publish manual intent before waiting so queued manager preflights see it.
+        val priorityRegistration = if (isExactEatingSoonCommand(frozenCommand)) {
+            registerPendingCommand(frozenCommand)
+        } else null
+        var admitted = false
+        try {
+            return TEMP_TARGET_WRITE_MUTEX.withLock {
+                admitted = true
+                val registration = priorityRegistration
+                    ?.takeIf { it.kind == PendingCommandRegistrationKind.FIRST_RESERVED }
+                    ?: registerPendingCommand(frozenCommand)
+                deliverNewTempTargetRegistration(registration, deliveryGuard)
+            }
+        } catch (cancelled: CancellationException) {
+            // Only the owner cancelled before admission can prove no delivery began.
+            if (!admitted && priorityRegistration?.kind == PendingCommandRegistrationKind.FIRST_RESERVED) {
+                try {
+                    withContext(NonCancellable) {
+                        markBlocked(priorityRegistration.command, "target_not_sent")
+                    }
+                } catch (cleanupFailure: Exception) {
+                    cancelled.addSuppressed(cleanupFailure)
+                }
+            }
+            throw cancelled
+        }
+    }
+
+    private suspend fun deliverNewTempTargetRegistration(
+        registration: PendingCommandRegistration,
+        deliveryGuard: (suspend () -> String?)?
+    ): Boolean {
         when (registration.kind) {
-            PendingCommandRegistrationKind.EXISTING_SENT -> return@withLock true
-            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> return@withLock false
-            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> return@withLock false
+            PendingCommandRegistrationKind.EXISTING_SENT -> return true
+            PendingCommandRegistrationKind.EXISTING_UNCERTAIN_OR_TERMINAL -> return false
+            PendingCommandRegistrationKind.RECONCILIATION_RETRY -> return false
             PendingCommandRegistrationKind.FIRST_RESERVED -> Unit
         }
         val registeredCommand = registration.command
@@ -104,21 +138,25 @@ class NightscoutActionRepository(
                 settings = settings,
                 preservePendingMeal = false
             )
-        ) return@withLock false
+        ) return false
         automaticTargetOwnershipBlockReasonStatic(
             mode = settings.targetManagerMode,
             idempotencyKey = registeredCommand.idempotencyKey
         )?.let { reason ->
             blockLegacyAutomaticCommand(registeredCommand, reason)
-            return@withLock false
+            return false
         }
-        deliverFirstReservedTempTarget(registeredCommand, deliveryGuard)
+        return deliverFirstReservedTempTarget(registeredCommand, deliveryGuard)
     }
 
     suspend fun submitOrRetryTempTarget(
         command: ActionCommand,
         deliveryGuard: (suspend () -> String?)? = null
     ): Boolean {
+        // Manual meal intent cannot inherit the manager's reconciliation retry.
+        if (EatingSoonPolicy.isRequestKey(command.idempotencyKey)) {
+            return submitTempTarget(command, deliveryGuard)
+        }
         val retryOwner = CompletableDeferred<Unit>()
         val activeOwner = TEMP_TARGET_RETRY_OWNERS.putIfAbsent(command.idempotencyKey, retryOwner)
         if (activeOwner != null) {
@@ -508,18 +546,18 @@ class NightscoutActionRepository(
         command: ActionCommand,
         deliveryGuard: suspend () -> String?
     ): EatingSoonResult {
-        if (command.type != "temp_target" || !command.idempotencyKey.startsWith("manual:meal:") ||
-            !command.idempotencyKey.endsWith(":eating-soon")) {
+        val frozenCommand = command.copy(params = command.params.toMap())
+        if (!isExactEatingSoonCommand(frozenCommand)) {
             return EatingSoonResult(MealDeliveryStatus.BLOCKED, "invalid_meal_identity")
         }
         var blockReason: String? = null
         val sent = try {
-            submitTempTarget(command) { deliveryGuard().also { blockReason = it } }
+            submitTempTarget(frozenCommand) { deliveryGuard().also { blockReason = it } }
         } catch (_: TempTargetDeliveryUnknownException) {
             false
         }
         if (sent) return EatingSoonResult(MealDeliveryStatus.SENT)
-        val record = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+        val record = db.actionCommandDao().byIdempotencyKey(frozenCommand.idempotencyKey)
         return manualMealTargetResult(record, blockReason)
     }
 
@@ -858,11 +896,12 @@ class NightscoutActionRepository(
 
     private fun isExactEatingSoonCommand(command: ActionCommand): Boolean =
         command.type == "temp_target" &&
-            command.idempotencyKey.startsWith("manual:meal:") &&
-            command.idempotencyKey.endsWith(":eating-soon") &&
-            command.params["targetMmol"]?.toDoubleOrNull() == EatingSoonPolicy.TARGET_MMOL &&
-            command.params["durationMinutes"]?.toIntOrNull() == EatingSoonPolicy.DURATION_MINUTES &&
-            command.params["reason"] == "Eating Soon"
+            EatingSoonPolicy.isCanonicalRequest(
+                command.idempotencyKey,
+                command.params["targetMmol"]?.toDoubleOrNull(),
+                command.params["durationMinutes"]?.toIntOrNull(),
+                command.params["reason"]
+            )
 
     private data class PendingCommandRegistration(
         val kind: PendingCommandRegistrationKind,

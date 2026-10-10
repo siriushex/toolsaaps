@@ -11,9 +11,19 @@ import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.SafetySnapshot
 import io.aaps.copilot.service.ApiFactory
 import io.aaps.copilot.service.hasActiveManualTempTargetStatic
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -134,6 +144,244 @@ class EatingSoonDeliveryRoomTest {
     }
 
     @After fun tearDown() { db.close() }
+
+    @Test fun queuedEatingSoonIsDurableBeforeWaitingAndBlocksQueuedManager() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val held = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val manual = command("priority-queued")
+            fun automatic(suffix: String, target: String) = command(suffix).copy(
+                params = mapOf("targetMmol" to target, "durationMinutes" to "30", "reason" to "normal_control"),
+                idempotencyKey = "TargetManager.v1:$suffix"
+            )
+            val first = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitTempTarget(automatic("priority-in-flight", "5.5")) {
+                    held.complete(Unit)
+                    release.await()
+                    null
+                }
+            }
+            withTimeout(5_000) { held.await() }
+            val queuedManager = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitTempTarget(automatic("priority-manager", "7.0")) {
+                    val pending = db.actionCommandDao().byTypeAndIdempotencyPrefixSince(
+                        "temp_target", "manual:%", 0L)
+                    if (hasActiveManualTempTargetStatic(pending, System.currentTimeMillis(), Gson())) {
+                        "manual_target_active_or_pending"
+                    } else null
+                }
+            }
+            val queuedManual = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitManualMealTarget(manual) { null }
+            }
+            try {
+                val pending = withTimeout(5_000) {
+                    db.actionCommandDao().observeLatest(10).first { rows ->
+                        rows.any { it.idempotencyKey == manual.idempotencyKey && it.status == "PENDING" }
+                    }
+                }
+                assertThat(pending.any { it.idempotencyKey == manual.idempotencyKey }).isTrue()
+                assertThat(server.requestCount).isEqualTo(0)
+                release.complete(Unit)
+                assertThat(withTimeout(5_000) { first.await() }).isTrue()
+                assertThat(withTimeout(5_000) { queuedManager.await() }).isFalse()
+                assertThat(withTimeout(5_000) { queuedManual.await() }.status).isEqualTo(MealDeliveryStatus.SENT)
+                assertThat(server.requestCount).isEqualTo(2)
+                val firstBody = Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)
+                val manualBody = Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)
+                assertThat(firstBody["notes"]).isEqualTo("copilot:TargetManager.v1:priority-in-flight")
+                assertThat(manualBody["notes"]).isEqualTo("copilot:${manual.idempotencyKey}")
+            } finally {
+                release.complete(Unit)
+                queuedManual.cancelAndJoin()
+                queuedManager.cancelAndJoin()
+                first.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test fun cancelledEatingSoonBeforeQueueAdmissionIsKnownNotSent() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val held = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val manual = command("priority-cancelled")
+            val first = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitTempTarget(command("queue-owner")) {
+                    held.complete(Unit)
+                    release.await()
+                    null
+                }
+            }
+            withTimeout(5_000) { held.await() }
+            val waiting = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitManualMealTarget(manual) { error("cancelled request must not run guard") }
+            }
+            try {
+                withTimeout(5_000) {
+                    db.actionCommandDao().observeLatest(10).first { rows ->
+                        rows.any { it.idempotencyKey == manual.idempotencyKey && it.status == "PENDING" }
+                    }
+                }
+                waiting.cancelAndJoin()
+                val persisted = checkNotNull(db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey))
+                assertThat(persisted.status).isEqualTo("BLOCKED")
+                assertThat(hasActiveManualTempTargetStatic(listOf(persisted), System.currentTimeMillis(), Gson())).isFalse()
+                assertThat(server.requestCount).isEqualTo(0)
+                release.complete(Unit)
+                assertThat(withTimeout(5_000) { first.await() }).isTrue()
+                assertThat(server.requestCount).isEqualTo(1)
+            } finally {
+                release.complete(Unit)
+                waiting.cancelAndJoin()
+                first.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test fun manualEatingSoonEntryRejectsNonCanonicalPayloadBeforeReservation() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server)
+            val changed = command("priority-changed").copy(params = mapOf(
+                "targetMmol" to "6.0", "durationMinutes" to "30", "reason" to "Eating Soon"))
+            val result = repository.submitManualMealTarget(changed) { "glucose_too_low" }
+            assertThat(result.status).isEqualTo(MealDeliveryStatus.BLOCKED)
+            assertThat(result.reason).isEqualTo("invalid_meal_identity")
+            assertThat(db.actionCommandDao().byIdempotencyKey(changed.idempotencyKey)).isNull()
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
+    @Test fun cancellingQueuedDuplicateCannotWithdrawOriginalEatingSoonReservation() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val held = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val manual = command("priority-duplicate")
+            val first = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitTempTarget(command("duplicate-owner")) {
+                    held.complete(Unit)
+                    release.await()
+                    null
+                }
+            }
+            withTimeout(5_000) { held.await() }
+            val waiting = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitManualMealTarget(manual) { null }
+            }
+            try {
+                withTimeout(5_000) {
+                    db.actionCommandDao().observeLatest(10).first { rows ->
+                        rows.any { it.idempotencyKey == manual.idempotencyKey && it.status == "PENDING" }
+                    }
+                }
+                val original = db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey)
+                val duplicate = async(start = CoroutineStart.UNDISPATCHED) {
+                    repository.submitManualMealTarget(manual) { error("duplicate must not deliver") }
+                }
+                duplicate.cancelAndJoin()
+                assertThat(db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey)).isEqualTo(original)
+                release.complete(Unit)
+                assertThat(withTimeout(5_000) { first.await() }).isTrue()
+                assertThat(withTimeout(5_000) { waiting.await() }.status).isEqualTo(MealDeliveryStatus.SENT)
+                assertThat(repository.submitManualMealTarget(manual) { error("sent duplicate must not run guard") }.status)
+                    .isEqualTo(MealDeliveryStatus.SENT)
+                assertThat(server.requestCount).isEqualTo(2)
+            } finally {
+                release.complete(Unit)
+                waiting.cancelAndJoin()
+                first.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test fun queuedEatingSoonCannotChangeAfterCallerMutatesBorrowedParams() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val held = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val params = command("priority-frozen").params.toMutableMap()
+            val manual = command("priority-frozen").copy(params = params)
+            val first = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitTempTarget(command("frozen-owner")) {
+                    held.complete(Unit)
+                    release.await()
+                    null
+                }
+            }
+            withTimeout(5_000) { held.await() }
+            val waiting = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitManualMealTarget(manual) { null }
+            }
+            try {
+                withTimeout(5_000) {
+                    db.actionCommandDao().observeLatest(10).first { rows ->
+                        rows.any { it.idempotencyKey == manual.idempotencyKey && it.status == "PENDING" }
+                    }
+                }
+                params["targetMmol"] = "6.0"
+                params["durationMinutes"] = "120"
+                release.complete(Unit)
+                assertThat(withTimeout(5_000) { first.await() }).isTrue()
+                assertThat(withTimeout(5_000) { waiting.await() }.status).isEqualTo(MealDeliveryStatus.SENT)
+                server.takeRequest()
+                val body = Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)
+                assertThat(body["targetBottom"]).isEqualTo(74.0)
+                assertThat(body["duration"]).isEqualTo(30.0)
+                val persisted = checkNotNull(db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey))
+                assertThat(isCanonicalEatingSoonCommand(persisted, Gson())).isTrue()
+                assertThat(server.requestCount).isEqualTo(2)
+            } finally {
+                release.complete(Unit)
+                waiting.cancelAndJoin()
+                first.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test fun cancellingEatingSoonAfterHttpStartedPreservesUnknownAndNeverReplays() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+            val repository = repository(server)
+            val manual = command("priority-http-cancelled")
+            val sending = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitManualMealTarget(manual) { null }
+            }
+            try {
+                val posted = withContext(Dispatchers.IO) { server.takeRequest(5, TimeUnit.SECONDS) }
+                assertThat(posted).isNotNull()
+                sending.cancelAndJoin()
+                assertThat(db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey)?.status).isEqualTo("PENDING")
+                val duplicate = repository.submitManualMealTarget(manual) { error("uncertain request must not replay") }
+                assertThat(duplicate.status).isEqualTo(MealDeliveryStatus.UNKNOWN)
+                assertThat(server.requestCount).isEqualTo(1)
+            } finally {
+                sending.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test fun managerRetryEntryPointCannotReplayUnknownEatingSoon() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(500))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val manual = command("priority-no-retry")
+            assertThat(repository.submitManualMealTarget(manual) { null }.status)
+                .isEqualTo(MealDeliveryStatus.UNKNOWN)
+            assertThat(repository.submitOrRetryTempTarget(manual) { null }).isFalse()
+            assertThat(db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey)?.status).isEqualTo("PENDING")
+            assertThat(server.requestCount).isEqualTo(1)
+        }
+    }
 
     @Test fun eatingSoonShapedKeyWithDifferentPayloadCannotUseFirstRefusalException() = runBlocking {
         MockWebServer().use { server ->

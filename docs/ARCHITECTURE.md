@@ -682,6 +682,12 @@ AAPS Predictive Copilot is a two-part system:
   - CI half-width calibration from rolling weighted quantiles of absolute residuals,
   - calibration stays causal and uses only past forecast-vs-actual pairs inside the lookback window.
 - Action channel priority: Nightscout API primary; local fallback optional.
+- Canonical manual Eating Soon intent is durably reserved before waiting on the
+  shared temporary-target write mutex. Existing manager manual-command preflight
+  sees this pending intent; an already admitted delivery is not preempted.
+  Only its first owner cancelled before admission can record known non-delivery;
+  duplicates and post-admission uncertainty retain existing idempotency rules.
+  Eating Soon keys cannot enter the manager-specific reconciliation retry path.
 - UAM carbs export channel: Nightscout treatments (`Carb Correction`) with backdated timestamp and deterministic note tag (`UAM_ENGINE|id=...|seq=...|...`).
 - Temp target command must stay in hard range and pass policy checks before sending.
 - Automatic temp target writes must also pass an outbound duplicate-throttle at action-repository level:

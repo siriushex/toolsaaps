@@ -1,3 +1,33 @@
+# Eating Soon Queue Priority - 2026-10-10
+
+- User reported another Eating Soon failure and requested priority over automatic
+  targets. The selected target reportedly never appeared. Read-only device APK
+  hashing matched the previous checked source, but USB disconnected before a
+  coherent current history capture. The real failure cause is not established.
+- Three real REDs reproduced: manual reservation hidden behind the global target
+  mutex, missing pre-admission cancellation evidence and noncanonical payload
+  accepted by the manual Eating Soon entry point.
+- Canonical frozen intent is now reserved before mutex waiting, enabling existing
+  manager pending-manual preflight. Only its first owner cancelled before admission
+  records known non-delivery. Duplicates cannot clear it; admitted cancellation
+  retains uncertainty. No priority setting, clinical bound or transport change.
+- Initial focused52 cases/4 suites pass; expanded332 cases/18 suites pass with zero
+  failures/errors/skips. Duplicate cancellation, borrowed parameters and HTTP-start
+  cancellation are covered. Initial full5081 cases/433 suites pass, zero failures/
+  errors,3 optional phone-copy skips; lint/compile/build passed9m14s.
+- Late inline review reproduced a fourth real RED: generic manager retry replayed
+  an unknown Eating Soon. These keys now delegate to ordinary idempotent submission.
+  Final focused372 cases/18 suites pass with zero failures/errors and1 optional
+  phone-copy skip. Final full5082 cases/433 suites pass with zero failures/errors
+  and3 optional phone-copy skips. Unit/lint/compile/APK gates passed11m6s;
+  lint has zero errors,305 existing warnings and4 hints. Inline review completed;
+  exact-source publication/CI evidence is recorded privately after completion.
+- User approved an in-place phone update after checks and a brief Copilot-only
+  pause for a coherent private backup. At17:13 UTC ADB was empty: no pause,
+  capture or install was performed. Reconnect and verify before device actions.
+- Request remains4.1 mmol/L/30 minutes; arming, kill/sensor/forecast/freshness and
+  qualified protective replacement guards stay. No synthetic therapy or AAPS edit.
+
 # Eating Soon Target Manager Handoff - 2026-10-10
 
 - Continued from d3398169 in the existing feature worktree for the user's

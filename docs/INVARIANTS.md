@@ -2,6 +2,15 @@
 
 ## Confirmed Eating Soon Handoff
 
+- Reserve canonical Eating Soon durably before waiting for the shared target
+  write mutex, so existing queued manager preflights see pending manual intent.
+  This does not preempt a delivery already admitted to that mutex. Freeze its
+  parameters; reject noncanonical manual-entry payload before reserving it.
+- Only the first reservation owner cancelled before mutex admission may mark
+  the request known-not-sent. Cancelling a duplicate cannot withdraw the owner;
+  cancellation after admission retains existing uncertainty and no-replay rules.
+  The generic manager retry entry point delegates Eating Soon keys to ordinary
+  idempotent submission, never manager reconciliation retry.
 - Imported target notes alone cannot establish Eating Soon. Derive context in
   the current local-safety Room transaction from exactly one matching SENT
   canonical manual command and the resolved active AAPS observation, including

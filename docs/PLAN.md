@@ -1,5 +1,25 @@
 # PLAN
 
+## Eating Soon Queue Priority (2026-10-10)
+
+- Reproduced three REDs: queued manual intent absent from Room, queue cancellation
+  without known-not-sent evidence and noncanonical manual-entry payload admission.
+- Reserve exact frozen Eating Soon before target-mutex waiting; reuse existing
+  manager pending-manual guard. First-owner pre-admission cancellation is BLOCKED;
+  duplicates/post-admission uncertainty are not replayed or reclassified.
+- Initial focused52 cases/4 suites pass. Expanded cancellation/duplicate/borrowed
+  payload verification passes332 cases/18 suites. A late real RED showed the
+  generic retry entry point replaying unknown Eating Soon; these keys now reuse
+  ordinary no-replay submission. Final focused372 cases/18 suites pass with zero
+  failures/errors and1 optional phone-copy skip.
+- Initial full5081 cases/433 suites, zero failures/errors and3 optional phone-copy
+  skips; lint0errors/305warnings, compile/build passed9m14s before the late source
+  boundary change. Final full5082 cases/433 suites pass with zero failures/errors
+  and3 optional phone-copy skips; final unit/lint/compile/APK passed11m6s with
+  zero lint errors. Inline review completed; exact-head publication/CI proof stays
+  in private task artifacts. No synthetic therapy test. USB disconnected before
+  the newly approved coherent backup/update; no real failure cause is claimed.
+
 ## Eating Soon Handoff (2026-10-10)
 
 - Three failing regressions established ordinary overwrite, protective writer
