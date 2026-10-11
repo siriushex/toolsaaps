@@ -222,9 +222,16 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         val targetDiagnostic = db.targetManagerDao().latestDecisions(10).single()
         val ruleRows = db.ruleExecutionDao().observeLatest(20).first()
         val forecastState = db.forecastDao().observeLatest(3).first().sortedBy { it.horizonMinutes }
+        val runtimeDigest = requireNotNull(db.telemetryDao().currentBySourceAndKey(
+            AutomationRepository.ACCEPTED_RUNTIME_TELEMETRY_SOURCE, "overview_accepted_forecast_digest"
+        ))
+        val runtimeTimestamp = runtimeDigest.timestamp
+        assertThat(runtimeDigest.valueText).isEqualTo(authority.digest)
+        assertThat(runtimeTimestamp).isAtMost(acceptedAt)
+        assertThat(authority.generationTimestamp).isAtMost(acceptedAt)
         val uamRows = db.telemetryDao().atTimestampBySourceAndKeys(
             source = "copilot_uam_runtime",
-            timestamp = acceptedAt,
+            timestamp = runtimeTimestamp,
             keys = listOf(
                 "uam_runtime_sensitivity_cycle_id",
                 "uam_runtime_sensitivity_settings_revision"
@@ -232,12 +239,12 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         ).associateBy { it.key }
         val overviewAcceptedRows = acceptedAuthorityRows(
             source = AutomationRepository.ACCEPTED_RUNTIME_TELEMETRY_SOURCE,
-            timestamp = acceptedAt,
+            timestamp = runtimeTimestamp,
             keyPrefix = "overview_accepted_forecast"
         )
         val overviewForecastRows = db.telemetryDao().atTimestampBySourceAndKeys(
             source = "copilot_sensor_lag",
-            timestamp = acceptedAt,
+            timestamp = runtimeTimestamp,
             keys = listOf(
                 "sensor_lag_control_forecast_5m",
                 "sensor_lag_control_forecast_30m",
@@ -246,12 +253,12 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         ).associateBy { it.key }
         val targetInputRows = acceptedAuthorityRows(
             source = AutomationRepository.TARGET_MANAGER_DELIVERY_TRUST_SOURCE,
-            timestamp = acceptedAt,
+            timestamp = runtimeTimestamp,
             keyPrefix = "target_manager_accepted_forecast"
         )
         val alertCauseRows = db.telemetryDao().atTimestampBySourceAndKeys(
             source = AutomationRepository.ALERT_CAUSE_DIAGNOSTIC_SOURCE,
-            timestamp = acceptedAt,
+            timestamp = runtimeTimestamp,
             keys = listOf(
                 "alert_cause_identity_status",
                 "alert_cause_sensitivity_cycle_id",
@@ -357,7 +364,7 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         assertThat(
             db.telemetryDao().atTimestampBySourceAndKeys(
                 source = "copilot_target_safety",
-                timestamp = acceptedAt,
+                timestamp = runtimeTimestamp,
                 keys = listOf(
                     "target_low_risk_active",
                     "target_low_risk_latched",

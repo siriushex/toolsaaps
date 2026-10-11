@@ -1264,12 +1264,10 @@ class AutomationRepository(
                 modelVersion = forecast.modelVersion
             )
         }.sortedBy(SensitivityAcceptedForecastRow::horizonMinutes)
-        val acceptedAtTs = allocateAcceptedSensitivityMarkerStatic(
+        val acceptedAtTs = allocateFreshAcceptedSensitivityMarkerStatic(
             telemetryDao = db.telemetryDao(),
-            wallClockTs = now
+            generationTimestamp = expectedForecastGeneration
         )
-        // Allocation may suspend; the tuple's sequence marker is not the freshness clock.
-        requireFreshAcceptedForecastGenerationStatic(expectedForecastGeneration, System.currentTimeMillis())
         var authenticatedRoomTuple: AcceptedSensitivityRoomTuple? = null
         val decisions = runAfterAcceptedSensitivityCycleStatic(
             persistPendingRoomTuple = {
@@ -9282,6 +9280,25 @@ class AutomationRepository(
                     )
                 ) { "accepted sensitivity Room publication commit was rejected" }
             }
+        }
+
+        internal suspend fun allocateFreshAcceptedSensitivityMarkerStatic(
+            telemetryDao: TelemetryDao,
+            generationTimestamp: Long,
+            authoritativeNow: () -> Long = { System.currentTimeMillis() },
+            suspendForMs: suspend (Long) -> Unit = { delayMs -> delay(delayMs) }
+        ): Long {
+            // The earlier input cut is not the publication time after a slow forecast.
+            val publicationNow = authoritativeNow()
+            requireFreshAcceptedForecastGenerationStatic(generationTimestamp, publicationNow)
+            val marker = allocateAcceptedSensitivityMarkerStatic(
+                telemetryDao, publicationNow, authoritativeNow, suspendForMs
+            )
+            val actualNow = authoritativeNow()
+            require(actualNow >= marker) { "accepted sensitivity publication clock moved backwards" }
+            // A suspended allocation cannot make an expired generation fresh again.
+            requireFreshAcceptedForecastGenerationStatic(generationTimestamp, actualNow)
+            return marker
         }
 
         internal suspend fun allocateAcceptedSensitivityMarkerStatic(

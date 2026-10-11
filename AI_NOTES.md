@@ -1,3 +1,25 @@
+# Accepted Forecast Publication Clock - 2026-10-11
+
+- A coherent current-device copy passed schema/integrity, migration and copied
+  TLS/history checks, but its latest historical accepted tuple failed freshness:
+  the forecast origin was later than the producer's earlier input-cut marker.
+  This rejected record is retained as evidence, not rewritten to pass a test.
+- Publication now allocates the acceptance marker from the completion clock.
+  Generation freshness is checked before allocation and after its bounded wait;
+  rollback fails before persistence. Sequence markers are not freshness clocks.
+- Runtime telemetry, maintenance and therapy history bounds retain the frozen
+  input cut. Exact Room authority checks, the existing freshness limit, clinical
+  coefficients, dispatch guards and arming settings are unchanged.
+- Added five clock regressions; the exact fanout integration test now checks
+  runtime timestamps separately from the later publication marker. Focused
+  verification: 106 tests, zero failures/errors/skips. Final Android unit/lint/
+  compile/APK gate: 5163 tests, zero failures/errors, 3 optional phone-copy skips;
+  BUILD SUCCESSFUL in 13m44s. Lint: no errors, 315 warnings and 4 hints.
+- New APK signature matches the previous installed signer. Exact-source CI,
+  in-place installation and passive device verification remain separate gates;
+  their results are recorded privately only when observed. No test therapy,
+  alarm-volume change or claimed phone resource reduction.
+
 # Native Clarity And Accepted Food Display - 2026-10-11
 
 - Implemented the selected native Clarity Overview with compact glucose/Target

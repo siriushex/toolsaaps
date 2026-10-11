@@ -76,6 +76,17 @@ zero/positive/unknown COB, full 12-hour domain and narrow native light/dark UI.
 Native screenshot evidence is private and synthetic. Device verification is a
 separate gate; it uses no test targets or boluses.
 
+A current-data copy exposed an old committed tuple whose CGM origin was later
+than its publication marker. The reader correctly rejects it; migration and
+integrity checks are independent of this freshness failure. Publication now
+allocates its marker from the completion clock, not the earlier input cut,
+checking generation freshness before allocation and again after its bounded
+sequence wait. A clock rollback is rejected before persistence. Future/stale
+inputs and existing exact tuple/readback guards are not relaxed, and old
+historical records are not rewritten.
+Runtime telemetry and maintenance retain their frozen input-cut timestamps;
+publication does not relabel old inputs or move therapy query bounds forward.
+
 UI rollback is selection of a previous style in Settings. APK rollback requires
 the verified previous signed APK and compatible schema; never uninstall or
 clear phone data as a substitute. No database migration, backend change,
