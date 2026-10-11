@@ -14,6 +14,8 @@ forecast calculations, acceptance clocks, alarms, backend and schema32 are uncha
 - IOB, COB, actual-source ISF/CR, calculated UAM and effective base target are
   visible before the glucose chart. Responsive3/2/1-column layout wraps text;
   no viewport-dependent font reduction, nested cards or fabricated zero values.
+  COB opens the existing meal-entry dialog, identical to the add-meal action.
+  IOB, source ISF/CR, UAM and base target keep their existing menus.
 - The large numerical forecast row is removed. Small5/30/60 marks open the
   existing read-only value/interval dialog. Marks require current, non-stale
   horizons and an exactly matching timestamp/value in the existing future path.
@@ -25,13 +27,15 @@ forecast calculations, acceptance clocks, alarms, backend and schema32 are uncha
   windows and pan/zoom reuse the existing bounded viewport, clamped to available
   data. Controls share a row on sufficient width and split for narrow/large text.
 - The full carbohydrate tail does not stretch the main glucose forecast axis.
-  Its separate COB row/dialog retains the original accepted display, quality
+  Its separate food-influence row/dialog retains the original accepted display, quality
   labels and full-period/start/end controls. No COB rescaling or GI change.
 - Existing source, IOB/UAM, target, profile warning, pump diagnostic and clinical
   report destinations remain. Recalculate/measurement/details icons have tooltips.
   Pump-link text reports technical evidence, never physical attachment or delivery.
 - Eating Soon confirmation, queue/unknown handling and canonical sender are reused.
   Opening any passive detail or graph does not submit therapy or save settings.
+  Opening/cancelling meal entry also does not submit; only its existing explicit
+  confirmation invokes the unchanged guarded manual-meal callback.
 
 ## Primary Navigation
 
@@ -57,3 +61,15 @@ Exact-source remote Verify remains a separate publication gate. These checks do 
 prove actual phone rendering, TalkBack behavior, clinical accuracy, therapy delivery,
 alarm audibility or CPU/RAM savings. Installation requires separate authorization
 and fresh private backup/device checks; no phone update is part of this source stage.
+
+## Carbohydrate Entry Correction (2026-10-12)
+
+The user's COB feedback restores the familiar meal-entry route without changing
+the form itself. A native RED established that COB opened the graph instead of
+the existing editor. Both COB and add-meal now reuse that editor; the food-influence
+row remains the separate graph. Existing IOB, ISF/CR, UAM and base-target menus
+are independently checked for open/cancel behavior without mutation callbacks.
+
+Focused16 cases pass. Full Android unit/lint/compile/APK gate passes:5203 cases,
+zero failures/errors,3 optional phone-copy skips; lint315 warnings/4 hints and
+zero errors. Exact-source CI and corrected on-device acceptance are separate gates.

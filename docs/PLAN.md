@@ -1,5 +1,16 @@
 # PLAN
 
+## Preserve Familiar Metric Menus (2026-10-12)
+
+- Restore COB to the existing meal-entry dialog shared with add-meal. Retain the
+  separate full food-curve row and all existing meal fields/validation/sending.
+- Native regression: COB and add-meal open the same form; curve remains separate.
+  IOB, ISF/CR, UAM and base-target menus reuse existing routes, with no automatic
+  submission/settings change on open or cancel. Preserve compact Balance.
+- Android unit/lint/compile/APK and exact-source CI are separate gates. Corrected
+  phone update requires fresh coherent backup and explicit pause authorization;
+  no real meal, target, bolus, profile or alarm test is authorized.
+
 ## Approved Balance Layout (2026-10-11)
 
 - Replace the large forecast row with small passive chart marks; expose six core

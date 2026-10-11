@@ -200,7 +200,7 @@ internal fun ClarityOverviewContent(
             }
             item {
                 HorizontalDivider()
-                ClarityMetrics(state, onIob, { foodDetails = true }, onIsf, onCr, onUam, onBaseTarget)
+                ClarityMetrics(state, onIob, onMeal, onIsf, onCr, onUam, onBaseTarget)
                 HorizontalDivider()
             }
             item { ClarityGlucoseChart(state, false, { chartExpanded = true }, { horizon = it }) }

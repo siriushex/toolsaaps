@@ -5,6 +5,9 @@
 The selected Clarity Overview now implements approved Balance: six open metrics,
 compact glucose/observed-target panel and current forecast marks on the existing
 chart. Marks match actual future-path timestamps/values and remain read-only.
+COB and the add-meal action both open the unchanged existing meal-entry dialog.
+The separate food-influence row opens the full read-only carbohydrate curve;
+opening or cancelling either route does not submit or persist a meal.
 The separate full food display retains its original accepted lifetime/quality;
 it does not extend the main glucose forecast domain. Primary navigation avoids
 saving/restoring secondary destinations as tabs. No settings, clinical, schema,

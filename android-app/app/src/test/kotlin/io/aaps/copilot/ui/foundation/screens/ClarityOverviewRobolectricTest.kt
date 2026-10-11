@@ -95,6 +95,59 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
+    @Test fun cobAndPlusOpenExistingMealEntryWithoutSending() {
+        var changes = 0
+        withUi { screen(ready(), { changes++ }, { changes++ }) }.use {
+            for (tag in listOf("clarityCob", "clarityAddMeal")) {
+                if (tag == "clarityCob") {
+                    compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag(tag))
+                }
+                compose.onNodeWithTag(tag).performClick()
+                compose.onNodeWithText(text(R.string.meal_entry_title)).assertIsDisplayed()
+                compose.onNodeWithTag("mealEntryClose").assertIsDisplayed()
+                compose.onNodeWithTag("mealManualCarbs").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithTag("mealGlycemicIndex").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithTag("overviewPrepareMeal").assertIsDisplayed()
+                compose.onNodeWithTag("clarityFoodDetails").assertDoesNotExist()
+                assertNoTextOverflow()
+                capture("restored-carb-entry-light.png", true)
+                compose.onNodeWithTag("mealEntryClose").performClick()
+                compose.onNodeWithTag("overviewPrepareMeal").assertDoesNotExist()
+                assertEquals(0, changes)
+            }
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("clarityFoodOpen"))
+            compose.onNodeWithTag("clarityFoodOpen").performClick()
+            compose.onNodeWithTag("clarityFoodDetails").assertIsDisplayed()
+            assertEquals(0, changes)
+        }
+    }
+
+    @Test fun otherPrimaryMetricsRetainExistingMenusWithoutChangesOnCancel() {
+        var changes = 0
+        withUi { screen(ready(), { changes++ }, { changes++ }) }.use {
+            val routes = listOf(
+                Triple("clarityIob", R.string.overview_iob_dialog_title, R.string.action_cancel),
+                Triple("clarityIsf", R.string.overview_isf_source_title, R.string.action_cancel),
+                Triple("clarityCr", R.string.overview_cr_source_title, R.string.action_cancel),
+                Triple("clarityUam", R.string.overview_uam_dialog_title, R.string.overview_uam_dialog_close)
+            )
+            for ((tag, title, close) in routes) {
+                compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag(tag))
+                compose.onNodeWithTag(tag).performClick()
+                if (tag == "clarityUam") {
+                    compose.onNodeWithTag("uamExportModeDialog").assertIsDisplayed()
+                } else compose.onNodeWithText(text(title)).assertIsDisplayed()
+                compose.onNodeWithText(text(close)).performClick()
+                assertEquals(0, changes)
+            }
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("clarityBaseTarget"))
+            compose.onNodeWithTag("clarityBaseTarget").performClick()
+            compose.onNodeWithTag("baseTargetScheduleDialog").assertIsDisplayed()
+            compose.onNodeWithTag("baseTargetScheduleCancel").performClick()
+            assertEquals(0, changes)
+        }
+    }
+
     @Test fun currentForecastMarkersOpenPassiveDetailsAndExpansion() {
         var sends = 0
         val future = listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) }
@@ -204,9 +257,14 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
-    @Composable private fun screen(state: OverviewUiState, onEating: (String) -> Unit) {
-        OverviewScreen(state, onRunCycleNow = {}, onSetKillSwitch = {}, onDisablePowerSave = {},
-            onAddBloodCheck = { _, _, _, _ -> }, onOpenClinicalReport = {}, onEatingSoon = onEating)
+    @Composable private fun screen(state: OverviewUiState, onEating: (String) -> Unit,
+        onChange: () -> Unit = {}) {
+        OverviewScreen(state, onRunCycleNow = onChange, onSetKillSwitch = { onChange() }, onDisablePowerSave = onChange,
+            onAddBloodCheck = { _, _, _, _ -> onChange() }, onOpenClinicalReport = {}, onEatingSoon = onEating,
+            onManualCarbs = { _, _, _, _, _, _, _, _ -> onChange() },
+            onOpenAapsBolus = onChange, onBaseTargetScheduleSave = { onChange() },
+            onUamExportUiModeChange = { onChange() }, onIsfRuntimeSourceChange = { onChange() },
+            onCrRuntimeSourceChange = { onChange() })
     }
 
     private fun text(id: Int) = RuntimeEnvironment.getApplication().getString(id)

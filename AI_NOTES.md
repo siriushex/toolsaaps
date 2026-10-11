@@ -1,3 +1,18 @@
+# Familiar Carbohydrate Entry Route - 2026-10-12
+
+- User reported the COB menu regression after the Balance update. A native
+  regression failed before correction: tapping COB did not display the existing
+  meal-entry form. COB now shares the existing add-meal callback instead of
+  opening the food-only graph. The separate food-influence row keeps that graph.
+- No meal-editor, fields, portion, GI, validation, confirmation, writer, therapy
+  policy, forecast, settings default, alarm, schema or background work changes.
+- Native tests cover both meal-entry routes and the separate curve, plus retained
+  IOB, ISF/CR, UAM and base-target menus. Opening/cancelling cannot call mutation
+  callbacks. Focused16 cases pass without failures/errors/skips. Full Android
+  gate passes:5203 cases,zero failures/errors,3 optional phone-copy skips;
+  lint zero errors,315 warnings,4 hints; Kotlin compile and signed APK pass.
+  Exact-source CI and corrected device acceptance remain separate gates.
+
 # Native Balance Presentation - 2026-10-11
 
 - Implements approved Balance in the existing Clarity style: open six-metric

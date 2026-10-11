@@ -9,6 +9,9 @@
   Layout wraps/reflows with system font scale instead of shrinking display text.
 - Six primary metrics reuse existing accepted values, sources and missing states.
   Opening source/target/food/status details does not save or send a command.
+- COB and add-meal reuse the same existing manual-meal editor and its explicit
+  submission path. The food-influence row remains a separate read-only curve.
+  Opening/cancelling any metric menu cannot submit therapy or change settings.
 - Returning from secondary screens cannot restore them as primary tab content or
   save their forms. Existing primary entries and normal tab save/restore remain.
 
