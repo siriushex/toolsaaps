@@ -1,3 +1,27 @@
+# Food-Profile Diagnostic Calculation - 2026-10-11
+
+- Two source-wiring regressions failed before the correction: inference loaded
+  unrestricted telemetry history and lacked an initial missing-snapshot route.
+- Inference now selects only sensor-block evidence inside the completed-day
+  window. Legacy key casing and text flags remain; existing key/time indexes
+  avoid unrelated payload reads. No migration or clinical coefficient change.
+- An enabled profile without a saved snapshot requests unique initial work via
+  the existing daily diagnostic worker. Disabled profiles, existing snapshots
+  and power save suppress it; no new periodic poller or clinical cycle is added.
+- Saved/reused diagnostic completion gains an audit marker. Enqueue does not
+  mean calculation completed; insufficient evidence remains insufficient.
+- Existing inference replay/clinical influence gates, live COB/food projection,
+  display-only GI and therapy safeguards stay unchanged. Actual phone causality
+  is not established from a historical local copy or synthetic tests.
+- Initial focused verification:87 tests, zero failures/errors/skips. Final
+  indexed-query/full Android gate passed:5193 cases, zero failures/errors,
+  3 optional phone-copy skips; lint no errors,315 warnings,4 hints. Kotlin and
+  APK build passed. A test-source nullable-property warning was corrected;
+  the final source recheck passed in1m39s with the same5193 results and no new
+  compiler warning. Publication/CI and device checks remain separate evidence.
+- Scope and acceptance matrix: docs/2026-10-11-food-absorption.md. Private data
+  and execution evidence are excluded from source publication.
+
 # Profile Save Completion - 2026-10-11
 
 - Reproduced two native UI failures before edits: premature dismissal during a

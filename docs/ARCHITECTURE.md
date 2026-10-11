@@ -1,5 +1,20 @@
 # ARCHITECTURE
 
+## Initial Food-Profile Diagnostics
+
+The diagnostic energy-profile inference reads only sensor-block telemetry inside
+the completed-day window. Case-insensitive key discovery uses the existing
+covering key index; exact keys/time use the composite index. It does not load the
+entire telemetry history into memory or change evidence eligibility.
+An enabled profile with no saved snapshot requests one unique initial execution
+of the existing daily diagnostic worker. Existing snapshots, disabled profiles
+and power-save mode suppress this request; enabled/power-save transitions are
+deduplicated. The worker rechecks power save and retains existing retry behavior.
+Nightly scheduling is unchanged. Completion is logged only after a saved or
+reused snapshot, not on enqueue. Diagnostic inference remains separate from
+live food curves and cannot enable clinical forecast or target influence.
+See [food absorption diagnostics](2026-10-11-food-absorption.md).
+
 ## Native Clarity Presentation
 
 Clarity is a selectable native Overview with separate observed AAPS target,

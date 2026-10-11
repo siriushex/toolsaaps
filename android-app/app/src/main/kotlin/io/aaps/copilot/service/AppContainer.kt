@@ -1413,7 +1413,7 @@ class AppContainer(context: Context) {
             loadTherapy = db.therapyDao()::between,
             loadGlucose = db.glucoseDao()::between,
             loadTelemetry = { fromTs, throughTs ->
-                db.telemetryDao().since(fromTs).filter { it.timestamp <= throughTs }
+                db.telemetryDao().betweenForEnergyProfileInference(fromTs, throughTs)
             },
             decodeTherapy = { row -> row.toDomain(gson) }
         )
@@ -1481,6 +1481,26 @@ class AppContainer(context: Context) {
     init {
         clinicalReportRepository.initialize()
         telegramDeliveryController.start(appScope)
+
+        appScope.launch {
+            settingsStore.settings
+                .map { it.energyProfile.enabled to PowerSaveController.isActive(it) }
+                .distinctUntilChanged()
+                .collect { (enabled, powerSaveActive) ->
+                    try {
+                        io.aaps.copilot.scheduler.ensureInitialEnergyProfileRefresh(
+                            profileEnabled = enabled,
+                            powerSaveActive = powerSaveActive,
+                            hasSnapshot = { db.energyProfileDao().observeLatestSnapshot().first() != null },
+                            enqueue = { WorkScheduler.requestInitialEnergyProfileRefresh(appContext) }
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        auditLogger.warn("energy_profile_initial_refresh_failed", emptyMap())
+                    }
+                }
+        }
 
         appScope.launch {
             try {

@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Food-Profile Diagnostic Refresh
+
+- Inference telemetry retrieval must be bounded to the completed-day window and
+  relevant sensor-block key, preserving legacy casing and text-valued flags.
+  Missing markers are not invented; eligibility and inference coefficients stay
+  unchanged. No telemetry/history/settings record is rewritten.
+- Initial calculation is unique diagnostic work, not a clinical cycle. It
+  requires an enabled profile, inactive power save and absent snapshot. Existing
+  snapshots prevent startup recalculation; cancellation/errors cannot report a
+  completed calculation. Enqueue is not proof of a saved result.
+- Existing replay/clinical influence gates remain closed. Automatic diagnostic
+  duration is not measured physiological absorption and cannot authorize therapy.
+
 ## Clarity And Accepted Food Display
 
 - Opening a target, horizon, IOB, COB or delivery detail does not send therapy.

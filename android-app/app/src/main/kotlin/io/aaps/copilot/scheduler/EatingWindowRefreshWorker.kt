@@ -12,6 +12,17 @@ import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
+internal suspend fun ensureInitialEnergyProfileRefresh(
+    profileEnabled: Boolean,
+    powerSaveActive: Boolean,
+    hasSnapshot: suspend () -> Boolean,
+    enqueue: () -> Unit
+): Boolean {
+    if (!profileEnabled || powerSaveActive || hasSnapshot()) return false
+    enqueue()
+    return true
+}
+
 /** Runs both daily diagnostic refreshes in order without creating another WorkManager job. */
 internal suspend fun refreshDailyEatingMaintenance(
     refreshEatingWindow: suspend () -> PersistedEatingWindowSnapshot,
@@ -41,7 +52,17 @@ class EatingWindowRefreshWorker(
                     container.eatingWindowSnapshotRepository.refresh(now = now, zoneId = zoneId)
                 },
                 refreshEnergyProfile = {
-                    container.energyProfileRepository.refreshInference(now = now, zoneId = zoneId)
+                    container.energyProfileRepository.refreshInference(now = now, zoneId = zoneId).also { result ->
+                        val profile = when (result) {
+                            is EnergyProfileInferenceRefreshResult.Stored -> result.snapshot
+                            is EnergyProfileInferenceRefreshResult.Reused -> result.snapshot
+                            EnergyProfileInferenceRefreshResult.Unavailable -> null
+                        }
+                        if (profile != null) container.auditLogger.info(
+                            "energy_profile_inference_completed",
+                            mapOf("qualityDays" to profile.qualityDays, "tier" to profile.tier)
+                        )
+                    }
                 }
             )
             container.auditLogger.info(

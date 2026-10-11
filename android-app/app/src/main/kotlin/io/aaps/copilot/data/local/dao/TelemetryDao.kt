@@ -240,6 +240,17 @@ interface TelemetryDao {
     @Query("SELECT * FROM telemetry_samples WHERE timestamp >= :since AND key IN (:keys) ORDER BY timestamp ASC")
     suspend fun sinceByKeys(since: Long, keys: List<String>): List<TelemetrySampleEntity>
 
+    // Resolve legacy key casing from the covering key index, not unrelated payload rows.
+    @Query(
+        "SELECT * FROM telemetry_samples WHERE timestamp BETWEEN :fromTs AND :throughTs " +
+            "AND key IN (SELECT DISTINCT key FROM telemetry_samples " +
+            "WHERE key = 'sensor_block' COLLATE NOCASE) ORDER BY timestamp ASC, id ASC"
+    )
+    suspend fun betweenForEnergyProfileInference(
+        fromTs: Long,
+        throughTs: Long
+    ): List<TelemetrySampleEntity>
+
     @Query(
         "SELECT * FROM telemetry_samples " +
             "WHERE timestamp BETWEEN :sinceTs AND :atTs AND key IN (:keys) " +

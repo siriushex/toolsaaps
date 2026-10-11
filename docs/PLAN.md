@@ -1,5 +1,18 @@
 # PLAN
 
+## Food-Profile Calculation Availability (2026-10-11)
+
+- Reproduce unrestricted telemetry loading and the absent initial refresh route.
+- Load only sensor-block evidence within the completed-day range using existing
+  indexes; retain case/text compatibility and all inference eligibility checks.
+- Request unique initial diagnostic work when an enabled profile has no snapshot,
+  preserving power-save exclusion and the existing nightly cadence.
+- Verify real Room selection/query plans, startup guards/errors/cancellation,
+  inference, absorption/GI/food-display regressions and full Android quality.
+- Publish reviewed source and inspect exact-commit CI. Actual device failure,
+  calculation completion and CPU/RAM remain separate unavailable-device checks.
+
+
 ## Profile Save Completion (2026-10-11)
 
 - Reproduce premature form dismissal and loss of edits after a rejected save.
