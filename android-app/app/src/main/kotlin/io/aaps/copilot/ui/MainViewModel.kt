@@ -235,6 +235,8 @@ import io.aaps.copilot.ui.foundation.screens.withSensitivityApplyPresentation
 import io.aaps.copilot.ui.foundation.screens.toSafetyUiState
 import io.aaps.copilot.ui.foundation.screens.toSettingsUiState
 import io.aaps.copilot.ui.foundation.screens.energyProfileSettingsUiState
+import io.aaps.copilot.ui.foundation.screens.EnergyProfileSaveCompletion
+import io.aaps.copilot.ui.foundation.screens.EnergyProfileSaveResult
 import io.aaps.copilot.ui.foundation.screens.toUamUiState
 import io.aaps.copilot.ui.foundation.screens.toUamExportControlUi
 import io.aaps.copilot.ui.foundation.screens.toClinicalReportDisclosureUi
@@ -6220,7 +6222,7 @@ class MainViewModel(application: Application) :
     }
 
     fun setEnergyProfileEnabled(enabled: Boolean) {
-        updateEnergyProfileSettings { current -> current.copy(enabled = enabled) }
+        updateEnergyProfileSettings(onComplete = {}) { current -> current.copy(enabled = enabled) }
     }
 
     fun saveMealPortionSettings(value: io.aaps.copilot.domain.nutrition.MealPortionSettings) {
@@ -6235,23 +6237,30 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun saveEnergyProfileUserProfile(draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyProfileUserProfile(
+        draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             applyEnergyProfileUserDraft(current, draft)
         }
     }
 
     fun saveEnergyProfileCorrection(
         draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
-        calories: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi
+        calories: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
     ) {
-        updateEnergyProfileSettings { current ->
+        updateEnergyProfileSettings(onComplete) { current ->
             applyEnergyProfileUserDraft(current, draft, calories)
         }
     }
 
-    fun saveEnergyProfileFoodSettings(draft: io.aaps.copilot.ui.foundation.screens.FoodProfileSettingsUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyProfileFoodSettings(
+        draft: io.aaps.copilot.ui.foundation.screens.FoodProfileSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             current.copy(
                 foodProfileMode = draft.mode,
                 manualFoodProfile = draft.manualProfile
@@ -6259,8 +6268,11 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun saveEnergyProfileActivitySettings(draft: io.aaps.copilot.ui.foundation.screens.ActivityProfileSettingsUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyProfileActivitySettings(
+        draft: io.aaps.copilot.ui.foundation.screens.ActivityProfileSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             current.copy(
                 activityProfileMode = draft.mode,
                 manualActivityProfile = draft.manualProfile,
@@ -6269,8 +6281,11 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun saveEnergyGoalSettings(draft: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyGoalSettings(
+        draft: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             current.copy(
                 calorieGoalMode = draft.mode,
                 manualCalorieTargetKcal = draft.manualTargetKcal,
@@ -6279,41 +6294,50 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun savePlannedActivity(event: io.aaps.copilot.ui.foundation.screens.PlannedActivityEventUi) {
+    fun savePlannedActivity(
+        event: io.aaps.copilot.ui.foundation.screens.PlannedActivityEventUi,
+        onComplete: EnergyProfileSaveCompletion
+    ) {
         viewModelScope.launch {
-            val current = energyProfileSettingsState.value.plannedEvents
-            if (!PlannedActivityInvalidationPolicy.saveChangesDurableState(current, event)) {
+            val result = try {
+                val current = energyProfileSettingsState.value.plannedEvents
+                if (!PlannedActivityInvalidationPolicy.saveChangesDurableState(current, event)) {
+                    EnergyProfileSaveResult.Saved
+                } else {
+                    val proposed = (current.filterNot { it.eventId == event.eventId } + event)
+                        .mapNotNull { it.toPlannedActivityScheduleOrNull() }
+                    if (proposed.size != current.filterNot { it.eventId == event.eventId }.size + 1) {
+                        EnergyProfileSaveResult.Failed(getApplication<Application>().getString(R.string.energy_activity_event_validation))
+                    } else {
+                        when (val saved = persistPlannedActivityClinicalInput(
+                            persistence = { container.energyProfileRepository.savePlannedActivitySchedule(proposed) },
+                            onClinicalInputPersisted = {
+                                container.clinicalInputInvalidationCoordinator.invalidatePersistedInput(
+                                    ClinicalInputInvalidationSource.PLANNED_ACTIVITY
+                                )
+                            }
+                        )) {
+                            is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Saved -> EnergyProfileSaveResult.Saved
+                            is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Invalid ->
+                                EnergyProfileSaveResult.Failed(getApplication<Application>().getString(
+                                    if (saved.validation is io.aaps.copilot.domain.profile.ScheduleValidation.Overlap)
+                                        R.string.energy_activity_events_overlap else R.string.energy_activity_event_validation
+                                ))
+                        }
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                EnergyProfileSaveResult.Failed(getApplication<Application>().getString(R.string.energy_activity_save_failed))
+            }
+            if (result == EnergyProfileSaveResult.Saved) {
                 energyProfileValidationMessage.value = null
                 messageState.value = "Activity schedule saved"
-                return@launch
+            } else if (result is EnergyProfileSaveResult.Failed) {
+                energyProfileValidationMessage.value = result.message
             }
-            val proposed = (current.filterNot { it.eventId == event.eventId } + event)
-                .mapNotNull { it.toPlannedActivityScheduleOrNull() }
-            if (proposed.size != current.filterNot { it.eventId == event.eventId }.size + 1) {
-                energyProfileValidationMessage.value = "Invalid activity schedule"
-                return@launch
-            }
-            when (val result = persistPlannedActivityClinicalInput(
-                persistence = { container.energyProfileRepository.savePlannedActivitySchedule(proposed) },
-                onClinicalInputPersisted = {
-                    container.clinicalInputInvalidationCoordinator.invalidatePersistedInput(
-                        ClinicalInputInvalidationSource.PLANNED_ACTIVITY
-                    )
-                }
-            )) {
-                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Saved -> {
-                    energyProfileValidationMessage.value = null
-                    messageState.value = "Activity schedule saved"
-                }
-                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Invalid -> {
-                    energyProfileValidationMessage.value = when (result.validation) {
-                        is io.aaps.copilot.domain.profile.ScheduleValidation.Overlap -> "Events overlap"
-                        is io.aaps.copilot.domain.profile.ScheduleValidation.Invalid -> "Invalid activity schedule"
-                        io.aaps.copilot.domain.profile.ScheduleValidation.Valid -> "Invalid activity schedule"
-                    }
-                    messageState.value = energyProfileValidationMessage.value
-                }
-            }
+            onComplete(result)
         }
     }
 
@@ -6392,56 +6416,53 @@ class MainViewModel(application: Application) :
     }
 
     private fun updateEnergyProfileSettings(
+        onComplete: EnergyProfileSaveCompletion,
         transform: (EnergyProfileSettings) -> EnergyProfileSettings
     ) {
         viewModelScope.launch {
-            val current = container.settingsStore.settings.first().energyProfile
-            when (
-                val decision = evaluateEnergyProfileSettingsUpdate(
-                    current = current,
-                    candidate = transform(current),
-                    today = LocalDate.now()
-                )
-            ) {
-                is EnergyProfileSettingsUpdate.Persist -> {
-                    try {
-                        if (current.physiologicalSex != decision.settings.physiologicalSex) {
-                            sensitivitySourceApplyCoordinator.run(
-                                metricLabel = "PHYSIOLOGICAL_SEX",
-                                requestedSource = decision.settings.physiologicalSex.name
-                            ) {
-                                container.automationRepository.applySensitivitySettings { settings ->
-                                    settings.copy(
-                                        energyProfile = settings.energyProfile.copy(
-                                            physiologicalSex = decision.settings.physiologicalSex
-                                        )
-                                    )
-                                }
+            val result = try {
+                val decision = persistEnergyProfileSettingsUpdate(
+                    readSettings = { container.settingsStore.settings.first() },
+                    transform = transform,
+                    applyPhysiologicalSex = { sex ->
+                        sensitivitySourceApplyCoordinator.run("PHYSIOLOGICAL_SEX", sex.name) {
+                            container.automationRepository.applySensitivitySettings { settings ->
+                                settings.copy(energyProfile = settings.energyProfile.copy(physiologicalSex = sex))
                             }
                         }
-                        container.settingsStore.setEnergyProfileSettings(decision.settings)
-                        if (decision.pediatricGoalReset) {
-                            messageState.value = getApplication<Application>().getString(
-                                R.string.energy_activity_pediatric_goal_reset
-                            )
-                        }
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (error: Throwable) {
-                        messageState.value = "Energy profile update failed: " +
-                            (error.message ?: "runtime unavailable")
-                    }
+                    },
+                    updateSettings = { update -> container.settingsStore.update(update) }
+                )
+                energyProfileValidationMessage.value = null
+                if (decision.pediatricGoalReset) {
+                    messageState.value = getApplication<Application>().getString(
+                        R.string.energy_activity_pediatric_goal_reset
+                    )
                 }
-                is EnergyProfileSettingsUpdate.Reject -> {
-                    messageState.value = decision.violations
+                EnergyProfileSaveResult.Saved
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: EnergyProfileSettingsRejected) {
+                EnergyProfileSaveResult.Failed(
+                    error.violations
                         .sortedBy(ProfileViolation::name)
                         .joinToString(separator = " ") { violation ->
-                            getApplication<Application>().getString(
-                                energyProfilePolicyErrorRes(violation)
-                            )
+                            getApplication<Application>().getString(energyProfilePolicyErrorRes(violation))
                         }
-                }
+                )
+            } catch (_: EnergyProfileSensitivityChangeRejected) {
+                EnergyProfileSaveResult.Failed(
+                    getApplication<Application>().getString(R.string.energy_activity_sensitivity_save_failed)
+                )
+            } catch (_: Exception) {
+                EnergyProfileSaveResult.Failed(
+                    getApplication<Application>().getString(R.string.energy_activity_save_failed)
+                )
             }
+            if (result is EnergyProfileSaveResult.Failed) {
+                energyProfileValidationMessage.value = result.message
+            }
+            onComplete(result)
         }
     }
 

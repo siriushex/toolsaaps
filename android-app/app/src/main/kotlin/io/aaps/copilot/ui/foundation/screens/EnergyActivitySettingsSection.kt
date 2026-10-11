@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
@@ -48,9 +51,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
 import io.aaps.copilot.util.LocaleFriendlyDecimalParser
@@ -79,13 +86,13 @@ import java.util.UUID
 fun EnergyActivitySettingsSection(
     state: EnergyProfileSettingsUiState,
     onEnabledChange: (Boolean) -> Unit,
-    onSaveUserProfile: (UserProfileDraftUi) -> Unit,
-    onSaveFoodSettings: (FoodProfileSettingsUi) -> Unit,
-    onSaveActivitySettings: (ActivityProfileSettingsUi) -> Unit,
-    onSaveEvent: (PlannedActivityEventUi) -> Unit,
+    onSaveUserProfile: (UserProfileDraftUi, EnergyProfileSaveCompletion) -> Unit,
+    onSaveFoodSettings: (FoodProfileSettingsUi, EnergyProfileSaveCompletion) -> Unit,
+    onSaveActivitySettings: (ActivityProfileSettingsUi, EnergyProfileSaveCompletion) -> Unit,
+    onSaveEvent: (PlannedActivityEventUi, EnergyProfileSaveCompletion) -> Unit,
     onDeleteEvent: (String) -> Unit,
-    onSaveEnergySettings: (EnergyGoalSettingsUi) -> Unit,
-    onSaveProfileCorrection: ((UserProfileDraftUi, EnergyGoalSettingsUi) -> Unit)? = null,
+    onSaveEnergySettings: (EnergyGoalSettingsUi, EnergyProfileSaveCompletion) -> Unit,
+    onSaveProfileCorrection: ((UserProfileDraftUi, EnergyGoalSettingsUi, EnergyProfileSaveCompletion) -> Unit)? = null,
     openPlannedActivityRequest: Int = 0,
     editorRequest: IssueDestination? = null,
     onEditorRequestHandled: () -> Unit = {},
@@ -156,7 +163,7 @@ fun EnergyActivitySettingsSection(
             detail = state.calorieSummary,
             onClick = { dialog = calorieEditor }
         )
-        state.validationMessage?.let { message ->
+        state.validationMessage?.takeIf { dialog == null }?.let { message ->
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodySmall,
@@ -172,17 +179,17 @@ fun EnergyActivitySettingsSection(
                 onSaveProfileCorrection != null && needsCalorieCorrection(it)
             },
             onDismiss = { dialog = null },
-            onSave = { onSaveUserProfile(it); dialog = null },
-            onSaveCorrection = { draft, calories ->
-                onSaveProfileCorrection?.invoke(draft, calories)
-                dialog = null
+            onSave = onSaveUserProfile,
+            onSaveCorrection = { draft, calories, done ->
+                onSaveProfileCorrection?.invoke(draft, calories, done)
+                    ?: done(EnergyProfileSaveResult.Failed())
             }
         )
         EnergyActivityDialog.FOOD -> FoodProfileDialog(
             initial = state.foodSettings,
             summary = state.foodSummary,
             onDismiss = { dialog = null },
-            onSave = { onSaveFoodSettings(it); dialog = null }
+            onSave = onSaveFoodSettings
         )
         EnergyActivityDialog.ACTIVITY -> ActivityProfileDialog(
             initial = state.activitySettings,
@@ -190,7 +197,7 @@ fun EnergyActivitySettingsSection(
             events = state.plannedEvents,
             validationMessage = state.validationMessage,
             onDismiss = { dialog = null },
-            onSave = { onSaveActivitySettings(it) },
+            onSave = onSaveActivitySettings,
             onSaveEvent = onSaveEvent,
             onDeleteEvent = onDeleteEvent
         )
@@ -198,7 +205,7 @@ fun EnergyActivitySettingsSection(
             initial = state.energyGoalSettings,
             ageYears = state.derivedAgeYears,
             onDismiss = { dialog = null },
-            onSave = { onSaveEnergySettings(it); dialog = null }
+            onSave = onSaveEnergySettings
         )
         null -> Unit
     }
@@ -238,11 +245,12 @@ private fun EnergyProfileRow(title: String, detail: String, onClick: () -> Unit)
 private fun UserProfileDialog(
     initial: UserProfileDraftUi,
     onDismiss: () -> Unit,
-    onSave: (UserProfileDraftUi) -> Unit,
+    onSave: (UserProfileDraftUi, EnergyProfileSaveCompletion) -> Unit,
     calorieCorrection: EnergyGoalSettingsUi? = null,
-    onSaveCorrection: (UserProfileDraftUi, EnergyGoalSettingsUi) -> Unit = { _, _ -> }
+    onSaveCorrection: (UserProfileDraftUi, EnergyGoalSettingsUi, EnergyProfileSaveCompletion) -> Unit = { _, _, done -> done(EnergyProfileSaveResult.Failed()) }
 ) {
     val context = LocalContext.current
+    val save = rememberProfileFormSaveState(onDismiss)
     var birthDate by rememberSaveable { mutableStateOf(initial.birthDateEpochDay?.let { runCatching { LocalDate.ofEpochDay(it) }.getOrNull() }) }
     var sex by rememberSaveable { mutableStateOf(initial.physiologicalSex) }
     var height by rememberSaveable { mutableStateOf(initial.heightCm?.toString().orEmpty()) }
@@ -258,12 +266,12 @@ private fun UserProfileDialog(
         calories.toIntOrNull()?.let { it in 500..10_000 } == true
     val valid = birthValid && heightValid && weightValid && calorieValid
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!save.busy) onDismiss() },
         title = { Text(stringResource(R.string.energy_activity_user_profile)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("issue_user_profile_form"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(modifier = Modifier.testTag("issue_profile_birth_date"), onClick = {
+                TextButton(enabled = !save.busy, modifier = Modifier.testTag("issue_profile_birth_date"), onClick = {
                     val base = birthDate ?: LocalDate.now().minusYears(30)
                     DatePickerDialog(context, { _, year, month, day ->
                         birthDate = LocalDate.of(year, month + 1, day)
@@ -282,30 +290,34 @@ private fun UserProfileDialog(
                         PhysiologicalSex.UNSPECIFIED -> R.string.issue_sex_unspecified
                     }) },
                     useMenu = true,
+                    enabled = !save.busy,
                     onSelected = { sex = it }
                 )
                 OutlinedTextField(height, { height = it }, label = { Text(stringResource(R.string.energy_activity_height_cm)) },
-                    singleLine = true, isError = !heightValid, modifier = Modifier.testTag("issue_profile_height"),
+                    enabled = !save.busy, singleLine = true, isError = !heightValid, modifier = Modifier.testTag("issue_profile_height"),
                     supportingText = { if (!heightValid) Text(stringResource(if (height.isBlank()) R.string.issue_height_missing else R.string.issue_height_invalid)) })
                 OutlinedTextField(weight, { weight = it }, label = { Text(stringResource(R.string.energy_activity_weight_kg)) },
-                    singleLine = true, isError = !weightValid, modifier = Modifier.testTag("issue_profile_weight"),
+                    enabled = !save.busy, singleLine = true, isError = !weightValid, modifier = Modifier.testTag("issue_profile_weight"),
                     supportingText = { if (!weightValid) Text(stringResource(if (weight.isBlank()) R.string.issue_weight_missing else R.string.issue_weight_invalid)) })
                 if (calorieCorrection != null) {
                     Text(stringResource(R.string.issue_joint_profile_correction), style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(calories, { calories = it }, label = { Text(stringResource(R.string.energy_activity_kcal)) },
-                        singleLine = true, isError = !calorieValid, modifier = Modifier.testTag("issue_joint_calories"),
+                        enabled = !save.busy, singleLine = true, isError = !calorieValid, modifier = Modifier.testTag("issue_joint_calories"),
                         supportingText = { if (!calorieValid) Text(stringResource(if (calories.isBlank()) R.string.issue_calories_missing else R.string.issue_calories_invalid)) })
                 }
+                ProfileSaveError(save)
             }
         },
         confirmButton = {
-            Button(enabled = valid, onClick = {
+            Button(modifier = Modifier.testTag("profile_save_confirm"), enabled = valid && !save.busy, onClick = {
                 val draft = UserProfileDraftUi(birthDate?.toEpochDay(), sex, heightValue, weightValue)
-                if (calorieCorrection == null) onSave(draft)
-                else onSaveCorrection(draft, calorieCorrection.copy(manualTargetKcal = calories.toIntOrNull()))
-            }) { Text(stringResource(android.R.string.ok)) }
+                save.submit { done ->
+                    if (calorieCorrection == null) onSave(draft, done)
+                    else onSaveCorrection(draft, calorieCorrection.copy(manualTargetKcal = calories.toIntOrNull()), done)
+                }
+            }) { ProfileSaveButtonContent(save.busy) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
+        dismissButton = { TextButton(enabled = !save.busy, onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
     )
 }
 
@@ -314,22 +326,24 @@ private fun FoodProfileDialog(
     initial: FoodProfileSettingsUi,
     summary: ResolvedProfileSummaryUi,
     onDismiss: () -> Unit,
-    onSave: (FoodProfileSettingsUi) -> Unit
+    onSave: (FoodProfileSettingsUi, EnergyProfileSaveCompletion) -> Unit
 ) {
-    var mode by remember { mutableStateOf(initial.mode) }
-    var profile by remember { mutableStateOf(initial.manualProfile) }
+    val save = rememberProfileFormSaveState(onDismiss)
+    var mode by rememberSaveable { mutableStateOf(initial.mode) }
+    var profile by rememberSaveable { mutableStateOf(initial.manualProfile) }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!save.busy) onDismiss() },
         title = { Text(stringResource(R.string.energy_activity_food_absorption)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("issue_food_profile_form"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 EvidenceSummary(summary)
-                EnumSelector(FoodProfileMode.entries.toList(), mode, { it.name.lowercase().replaceFirstChar(Char::titlecase) }) { mode = it }
-                if (mode == FoodProfileMode.MANUAL) FoodProfileSelector(profile, { profile = it })
+                EnumSelector(FoodProfileMode.entries.toList(), mode, { it.name.lowercase().replaceFirstChar(Char::titlecase) }, enabled = !save.busy) { mode = it }
+                if (mode == FoodProfileMode.MANUAL) FoodProfileSelector(profile, { if (!save.busy) profile = it })
+                ProfileSaveError(save)
             }
         },
-        confirmButton = { Button(onClick = { onSave(FoodProfileSettingsUi(mode, profile)) }) { Text(stringResource(android.R.string.ok)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
+        confirmButton = { Button(modifier = Modifier.testTag("profile_save_confirm"), enabled = !save.busy, onClick = { save.submit { done -> onSave(FoodProfileSettingsUi(mode, profile), done) } }) { ProfileSaveButtonContent(save.busy) } },
+        dismissButton = { TextButton(enabled = !save.busy, onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
     )
 }
 
@@ -340,27 +354,28 @@ private fun ActivityProfileDialog(
     events: List<PlannedActivityEventUi>,
     validationMessage: String?,
     onDismiss: () -> Unit,
-    onSave: (ActivityProfileSettingsUi) -> Unit,
-    onSaveEvent: (PlannedActivityEventUi) -> Unit,
+    onSave: (ActivityProfileSettingsUi, EnergyProfileSaveCompletion) -> Unit,
+    onSaveEvent: (PlannedActivityEventUi, EnergyProfileSaveCompletion) -> Unit,
     onDeleteEvent: (String) -> Unit
 ) {
-    var mode by remember { mutableStateOf(initial.mode) }
-    var profile by remember { mutableStateOf(initial.manualProfile) }
-    var forecastEnabled by remember { mutableStateOf(initial.forecastInfluenceEnabled) }
+    val save = rememberProfileFormSaveState(onDismiss)
+    var mode by rememberSaveable { mutableStateOf(initial.mode) }
+    var profile by rememberSaveable { mutableStateOf(initial.manualProfile) }
+    var forecastEnabled by rememberSaveable { mutableStateOf(initial.forecastInfluenceEnabled) }
     var editing by remember { mutableStateOf<PlannedActivityEventUi?>(null) }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!save.busy) onDismiss() },
         title = { Text(stringResource(R.string.energy_activity_and_schedule)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("issue_activity_profile_form"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 EvidenceSummary(summary)
-                EnumSelector(ActivityProfileMode.entries.toList(), mode, { it.name.lowercase().replaceFirstChar(Char::titlecase) }) { mode = it }
+                EnumSelector(ActivityProfileMode.entries.toList(), mode, { it.name.lowercase().replaceFirstChar(Char::titlecase) }, enabled = !save.busy) { mode = it }
                 if (mode == ActivityProfileMode.MANUAL) {
-                    EnumSelector(ActivityProfile.entries.toList(), profile, { it.name.lowercase().replaceFirstChar(Char::titlecase) }) { profile = it }
+                    EnumSelector(ActivityProfile.entries.toList(), profile, { it.name.lowercase().replaceFirstChar(Char::titlecase) }, enabled = !save.busy) { profile = it }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.energy_activity_forecast_influence), modifier = Modifier.weight(1f))
-                    Switch(forecastEnabled, { forecastEnabled = it })
+                    Switch(forecastEnabled, { forecastEnabled = it }, enabled = !save.busy)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.energy_activity_schedule), modifier = Modifier.weight(1f))
@@ -368,7 +383,7 @@ private fun ActivityProfileDialog(
                     ActivityScheduleIconButton(
                         icon = Icons.Default.Add,
                         label = stringResource(R.string.energy_activity_add_event),
-                        onClick = { editing = newPlannedEvent(defaultTitle) }
+                        onClick = { if (!save.busy) editing = newPlannedEvent(defaultTitle) }
                     )
                 }
                 events.forEach { event ->
@@ -377,12 +392,12 @@ private fun ActivityProfileDialog(
                         ActivityScheduleIconButton(
                             icon = Icons.Default.Edit,
                             label = stringResource(R.string.energy_activity_edit_event),
-                            onClick = { editing = event }
+                            onClick = { if (!save.busy) editing = event }
                         )
                         ActivityScheduleIconButton(
                             icon = Icons.Default.Delete,
                             label = stringResource(R.string.energy_activity_delete_event),
-                            onClick = { onDeleteEvent(event.eventId) }
+                            onClick = { if (!save.busy) onDeleteEvent(event.eventId) }
                         )
                     }
                 }
@@ -390,17 +405,18 @@ private fun ActivityProfileDialog(
                     Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.issueHelp(message, UiIssueKind.GENERIC_ERROR))
                 }
+                ProfileSaveError(save)
             }
         },
-        confirmButton = { Button(onClick = { onSave(ActivityProfileSettingsUi(mode, profile, forecastEnabled)); onDismiss() }) { Text(stringResource(android.R.string.ok)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
+        confirmButton = { Button(modifier = Modifier.testTag("profile_save_confirm"), enabled = !save.busy, onClick = { save.submit { done -> onSave(ActivityProfileSettingsUi(mode, profile, forecastEnabled), done) } }) { ProfileSaveButtonContent(save.busy) } },
+        dismissButton = { TextButton(enabled = !save.busy, onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
     )
     editing?.let { event ->
         PlannedEventDialog(
             event = event,
             existingEvents = events,
             onDismiss = { editing = null },
-            onSave = { edited -> onSaveEvent(edited); editing = null }
+            onSave = onSaveEvent
         )
     }
 }
@@ -431,17 +447,18 @@ private fun PlannedEventDialog(
     event: PlannedActivityEventUi,
     existingEvents: List<PlannedActivityEventUi>,
     onDismiss: () -> Unit,
-    onSave: (PlannedActivityEventUi) -> Unit
+    onSave: (PlannedActivityEventUi, EnergyProfileSaveCompletion) -> Unit
 ) {
-    var enabled by remember { mutableStateOf(event.enabled) }
-    var title by remember { mutableStateOf(event.title) }
-    var type by remember { mutableStateOf(event.activityType) }
-    var intensity by remember { mutableStateOf(event.intensity) }
-    var start by remember { mutableStateOf(event.localStartIso) }
-    var duration by remember { mutableStateOf(event.durationMinutes.toString()) }
-    var timezoneId by remember { mutableStateOf(event.timezoneId) }
-    var recurrenceMask by remember { mutableStateOf(event.recurrenceDaysMask) }
-    var recurrenceEnd by remember {
+    val save = rememberProfileFormSaveState(onDismiss)
+    var enabled by rememberSaveable { mutableStateOf(event.enabled) }
+    var title by rememberSaveable { mutableStateOf(event.title) }
+    var type by rememberSaveable { mutableStateOf(event.activityType) }
+    var intensity by rememberSaveable { mutableStateOf(event.intensity) }
+    var start by rememberSaveable { mutableStateOf(event.localStartIso) }
+    var duration by rememberSaveable { mutableStateOf(event.durationMinutes.toString()) }
+    var timezoneId by rememberSaveable { mutableStateOf(event.timezoneId) }
+    var recurrenceMask by rememberSaveable { mutableStateOf(event.recurrenceDaysMask) }
+    var recurrenceEnd by rememberSaveable {
         mutableStateOf(event.recurrenceEndEpochDay?.let(LocalDate::ofEpochDay)?.toString().orEmpty())
     }
     val selectedType = runCatching { PlannedActivityType.valueOf(type) }.getOrDefault(PlannedActivityType.AEROBIC)
@@ -469,36 +486,39 @@ private fun PlannedEventDialog(
     }
     val valid = recurrenceEndIsValid && validation == ScheduleValidation.Valid
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!save.busy) onDismiss() },
         title = { Text(stringResource(R.string.energy_activity_schedule)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("planned_activity_form"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.energy_activity_event_enabled), modifier = Modifier.weight(1f))
-                    Switch(checked = enabled, onCheckedChange = { enabled = it })
+                    Switch(checked = enabled, onCheckedChange = { enabled = it }, enabled = !save.busy)
                 }
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text(stringResource(R.string.energy_activity_event_title)) },
                     singleLine = true,
+                    enabled = !save.busy,
                     modifier = Modifier.testTag("planned_activity_title")
                 )
                 EnumSelector(
                     PlannedActivityType.entries.toList(),
                     selectedType,
-                    ::plannedActivityTypeLabel
+                    ::plannedActivityTypeLabel, useMenu = true, enabled = !save.busy
                 ) { type = it.name }
                 EnumSelector(
                     PlannedActivityIntensity.entries.toList(),
                     selectedIntensity,
-                    ::plannedActivityIntensityLabel
+                    ::plannedActivityIntensityLabel, useMenu = true, enabled = !save.busy
                 ) { intensity = it.name }
                 OutlinedTextField(
                     value = start,
                     onValueChange = { start = it },
                     label = { Text(stringResource(R.string.energy_activity_start_iso)) },
                     singleLine = true,
+                    enabled = !save.busy,
                     modifier = Modifier.testTag("planned_activity_start")
                 )
                 OutlinedTextField(
@@ -506,6 +526,7 @@ private fun PlannedEventDialog(
                     onValueChange = { duration = it },
                     label = { Text(stringResource(R.string.energy_activity_duration_minutes)) },
                     singleLine = true,
+                    enabled = !save.busy,
                     modifier = Modifier.testTag("planned_activity_duration")
                 )
                 OutlinedTextField(
@@ -513,6 +534,7 @@ private fun PlannedEventDialog(
                     onValueChange = { timezoneId = it },
                     label = { Text(stringResource(R.string.energy_activity_timezone)) },
                     singleLine = true,
+                    enabled = !save.busy,
                     modifier = Modifier.testTag("planned_activity_timezone")
                 )
                 Text(stringResource(R.string.energy_activity_repeat_days), style = MaterialTheme.typography.labelLarge)
@@ -521,6 +543,7 @@ private fun PlannedEventDialog(
                         row.forEach { day ->
                             val bit = 1 shl (day.value - 1)
                             FilterChip(
+                                enabled = !save.busy,
                                 selected = recurrenceMask and bit != 0,
                                 onClick = { recurrenceMask = recurrenceMask xor bit },
                                 label = { Text(dayOfWeekLabel(day)) },
@@ -536,6 +559,7 @@ private fun PlannedEventDialog(
                     onValueChange = { recurrenceEnd = it },
                     label = { Text(stringResource(R.string.energy_activity_repeat_until)) },
                     singleLine = true,
+                    enabled = !save.busy,
                     modifier = Modifier.testTag("planned_activity_repeat_until")
                 )
                 if (!valid) {
@@ -548,35 +572,39 @@ private fun PlannedEventDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
+                ProfileSaveError(save)
             }
         },
         confirmButton = {
             Button(
-                enabled = valid,
+                enabled = valid && !save.busy,
                 modifier = Modifier.testTag("planned_activity_save"),
                 onClick = {
-                    onSave(
-                        edited.copy(
-                            revision = event.revision + 1,
-                            updatedAtMs = System.currentTimeMillis()
+                    save.submit { done ->
+                        onSave(
+                            edited.copy(
+                                revision = event.revision + 1,
+                                updatedAtMs = System.currentTimeMillis()
+                            ), done
                         )
-                    )
+                    }
                 }
-            ) { Text(stringResource(android.R.string.ok)) }
+            ) { ProfileSaveButtonContent(save.busy) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
+        dismissButton = { TextButton(enabled = !save.busy, onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
     )
 }
 
 @Composable
-private fun EnergyGoalDialog(initial: EnergyGoalSettingsUi, ageYears: Int?, onDismiss: () -> Unit, onSave: (EnergyGoalSettingsUi) -> Unit) {
+private fun EnergyGoalDialog(initial: EnergyGoalSettingsUi, ageYears: Int?, onDismiss: () -> Unit, onSave: (EnergyGoalSettingsUi, EnergyProfileSaveCompletion) -> Unit) {
+    val save = rememberProfileFormSaveState(onDismiss)
     var mode by rememberSaveable { mutableStateOf(initial.mode) }
     var kcal by rememberSaveable { mutableStateOf(initial.manualTargetKcal?.toString().orEmpty()) }
     var share by rememberSaveable { mutableStateOf(initial.shareProfileWithAi) }
     val pediatricRestricted = ageYears != null && ageYears < 19 && mode in setOf(CalorieGoalMode.LOSS, CalorieGoalMode.GAIN)
     val validCalories = (kcal.isBlank() && mode != CalorieGoalMode.MANUAL_CLINICIAN) || kcal.toIntOrNull() in 500..10_000
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!save.busy) onDismiss() },
         title = { Text(stringResource(R.string.energy_activity_energy_and_ai)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()).testTag("issue_energy_goal_form"),
@@ -587,19 +615,20 @@ private fun EnergyGoalDialog(initial: EnergyGoalSettingsUi, ageYears: Int?, onDi
                     CalorieGoalMode.LOSS -> R.string.issue_goal_loss
                     CalorieGoalMode.GAIN -> R.string.issue_goal_gain
                     CalorieGoalMode.MANUAL_CLINICIAN -> R.string.issue_goal_manual
-                }) }, useMenu = true) { mode = it }
+                }) }, useMenu = true, enabled = !save.busy) { mode = it }
                 if (mode == CalorieGoalMode.MANUAL_CLINICIAN || kcal.isNotBlank()) OutlinedTextField(kcal, { kcal = it }, label = { Text(stringResource(R.string.energy_activity_kcal)) },
-                    singleLine = true, isError = !validCalories, modifier = Modifier.testTag("issue_profile_calories"),
+                    enabled = !save.busy, singleLine = true, isError = !validCalories, modifier = Modifier.testTag("issue_profile_calories"),
                     supportingText = { if (!validCalories) Text(stringResource(if (kcal.isBlank()) R.string.issue_calories_missing else R.string.issue_calories_invalid)) })
                 if (pediatricRestricted) Text(stringResource(R.string.energy_activity_pediatric_restriction), color = MaterialTheme.colorScheme.error)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.energy_activity_share_ai), modifier = Modifier.weight(1f))
-                    Switch(share, { share = it })
+                    Switch(share, { share = it }, enabled = !save.busy)
                 }
+                ProfileSaveError(save)
             }
         },
-        confirmButton = { Button(enabled = !pediatricRestricted && validCalories, onClick = { onSave(EnergyGoalSettingsUi(mode, kcal.toIntOrNull(), share)) }) { Text(stringResource(android.R.string.ok)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
+        confirmButton = { Button(modifier = Modifier.testTag("profile_save_confirm"), enabled = !pediatricRestricted && validCalories && !save.busy, onClick = { save.submit { done -> onSave(EnergyGoalSettingsUi(mode, kcal.toIntOrNull(), share), done) } }) { ProfileSaveButtonContent(save.busy) } },
+        dismissButton = { TextButton(enabled = !save.busy, onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } }
     )
 }
 
@@ -630,18 +659,19 @@ private fun <T> EnumSelector(
     selected: T,
     label: @Composable (T) -> String,
     useMenu: Boolean = false,
+    enabled: Boolean = true,
     onSelected: (T) -> Unit
 ) {
     if (useMenu) {
         var expanded by remember { mutableStateOf(false) }
         Column {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(enabled = enabled, onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(label(selected), modifier = Modifier.weight(1f))
                 Icon(Icons.Default.ArrowDropDown, contentDescription = null)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { option ->
-                    DropdownMenuItem(text = { Text(label(option)) }, onClick = { expanded = false; onSelected(option) })
+                    DropdownMenuItem(enabled = enabled, text = { Text(label(option)) }, onClick = { expanded = false; onSelected(option) })
                 }
             }
         }
@@ -650,6 +680,7 @@ private fun <T> EnumSelector(
     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
         options.forEachIndexed { index, option ->
             SegmentedButton(
+                enabled = enabled,
                 selected = selected == option,
                 onClick = { onSelected(option) },
                 shape = SegmentedButtonDefaults.itemShape(index, options.size),
@@ -657,6 +688,27 @@ private fun <T> EnumSelector(
                 label = { Text(label(option), maxLines = 1) }
             )
         }
+    }
+}
+
+@Composable
+private fun ProfileSaveError(save: ProfileFormSaveState) {
+    save.error?.let { failure ->
+        val message = failure.message ?: stringResource(R.string.energy_activity_save_failed)
+        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("profile_save_error").issueHelp(message, UiIssueKind.GENERIC_ERROR))
+    }
+}
+
+@Composable
+private fun ProfileSaveButtonContent(busy: Boolean) {
+    val saving = stringResource(R.string.energy_activity_saving)
+    Box(contentAlignment = Alignment.Center) {
+        // Keep the localized label's dimensions while showing progress, including enlarged fonts.
+        Text(stringResource(android.R.string.ok), modifier = if (busy)
+            Modifier.alpha(0f).clearAndSetSemantics {} else Modifier)
+        if (busy) CircularProgressIndicator(
+            modifier = Modifier.size(18.dp).semantics { contentDescription = saving }, strokeWidth = 2.dp)
     }
 }
 

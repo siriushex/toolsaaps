@@ -72,7 +72,7 @@ class IssueHelpRobolectricTest {
                         energyProfile = EnergyProfileSettingsUiState(enabled = true,
                             userProfile = UserProfileDraftUi(LocalDate.of(1990, 1, 1).toEpochDay(), PhysiologicalSex.UNSPECIFIED, null, 70.0))),
                     onVerboseLogsToggle = {}, onProModeToggle = {}, issueRequest = request,
-                    onEnergyProfileUserProfileSave = { saves += it }
+                    onEnergyProfileUserProfileSave = { draft, done -> saves += draft; done(EnergyProfileSaveResult.Saved) }
                 )
             }
         }.use {
@@ -105,7 +105,7 @@ class IssueHelpRobolectricTest {
                     energyGoalSettings = EnergyGoalSettingsUi(CalorieGoalMode.MANUAL_CLINICIAN, null, true))),
                 onVerboseLogsToggle = {}, onProModeToggle = {},
                 issueRequest = IssueSettingsRequest(1, IssueDestination.ENERGY_GOAL),
-                onEnergyGoalSettingsSave = { saves += it })
+                onEnergyGoalSettingsSave = { draft, done -> saves += draft; done(EnergyProfileSaveResult.Saved) })
         }.use {
             compose.onNodeWithTag("issue_energy_goal_form").assertIsDisplayed()
             compose.onNodeWithText(text(android.R.string.ok)).assertIsNotEnabled()
@@ -121,8 +121,8 @@ class IssueHelpRobolectricTest {
         withUi {
             EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(
                 energyGoalSettings = EnergyGoalSettingsUi(CalorieGoalMode.OFF, 1, true)),
-                onEnabledChange = {}, onSaveUserProfile = {}, onSaveFoodSettings = {}, onSaveActivitySettings = {},
-                onSaveEvent = {}, onDeleteEvent = {}, onSaveEnergySettings = {}, editorRequest = IssueDestination.ENERGY_GOAL)
+                onEnabledChange = {}, onSaveUserProfile = { _, _ -> }, onSaveFoodSettings = { _, _ -> }, onSaveActivitySettings = { _, _ -> },
+                onSaveEvent = { _, _ -> }, onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> }, editorRequest = IssueDestination.ENERGY_GOAL)
         }.use {
             compose.onNodeWithTag("issue_profile_calories").assertIsDisplayed()
             compose.onNodeWithText(text(android.R.string.ok)).assertIsNotEnabled()
@@ -143,9 +143,10 @@ class IssueHelpRobolectricTest {
                     energyGoalSettings = EnergyGoalSettingsUi(current.calorieGoalMode, current.manualCalorieTargetKcal))),
                 onVerboseLogsToggle = {}, onProModeToggle = {},
                 issueRequest = IssueSettingsRequest(1, IssueDestination.ENERGY_GOAL),
-                onEnergyProfileUserProfileSave = { separateSaves++ }, onEnergyGoalSettingsSave = { separateSaves++ },
-                onEnergyProfileCorrectionSave = { draft, calories ->
+                onEnergyProfileUserProfileSave = { _, _ -> separateSaves++ }, onEnergyGoalSettingsSave = { _, _ -> separateSaves++ },
+                onEnergyProfileCorrectionSave = { draft, calories, done ->
                     saves += evaluateEnergyProfileSettingsUpdate(current, applyEnergyProfileUserDraft(current, draft, calories), LocalDate.now())
+                    done(EnergyProfileSaveResult.Saved)
                 })
         }.use {
             compose.onNodeWithTag("issue_user_profile_form").assertIsDisplayed()
@@ -188,9 +189,9 @@ class IssueHelpRobolectricTest {
         withUi {
             CompositionLocalProvider(LocalIssueNavigator provides {}) {
                 EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(validationMessage = "Fixture rejected profile save"),
-                    onEnabledChange = {}, onSaveUserProfile = { saves++ }, onSaveFoodSettings = { saves++ },
-                    onSaveActivitySettings = { saves++ }, onSaveEvent = { saves++ }, onDeleteEvent = { saves++ },
-                    onSaveEnergySettings = { saves++ })
+                    onEnabledChange = {}, onSaveUserProfile = { _, _ -> saves++ }, onSaveFoodSettings = { _, _ -> saves++ },
+                    onSaveActivitySettings = { _, _ -> saves++ }, onSaveEvent = { _, _ -> saves++ }, onDeleteEvent = { saves++ },
+                    onSaveEnergySettings = { _, _ -> saves++ })
             }
         }.use {
             compose.onNodeWithText("Fixture rejected profile save").performClick()
@@ -252,8 +253,8 @@ class IssueHelpRobolectricTest {
         withUi {
             EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(
                 userProfile = UserProfileDraftUi(null, PhysiologicalSex.UNSPECIFIED, 175.0, 70.0)),
-                onEnabledChange = {}, onSaveUserProfile = { saves += it }, onSaveFoodSettings = {}, onSaveActivitySettings = {},
-                onSaveEvent = {}, onDeleteEvent = {}, onSaveEnergySettings = {}, editorRequest = IssueDestination.USER_PROFILE)
+                onEnabledChange = {}, onSaveUserProfile = { draft, done -> saves += draft; done(EnergyProfileSaveResult.Saved) }, onSaveFoodSettings = { _, _ -> }, onSaveActivitySettings = { _, _ -> },
+                onSaveEvent = { _, _ -> }, onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> }, editorRequest = IssueDestination.USER_PROFILE)
         }.use {
             compose.onNodeWithText(text(android.R.string.ok)).assertIsNotEnabled()
             compose.onNodeWithTag("issue_profile_birth_date").performScrollTo().performClick()
@@ -264,6 +265,50 @@ class IssueHelpRobolectricTest {
             }
             compose.onNodeWithText(text(android.R.string.ok)).assertIsEnabled().performClick()
             compose.runOnIdle { assertEquals(LocalDate.of(1990, 1, 1).toEpochDay(), saves.single().birthDateEpochDay) }
+        }
+    }
+
+    @Test fun profileSaveWaitsForPersistenceBeforeClosing() {
+        var requests = 0
+        withUi {
+            EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(
+                userProfile = UserProfileDraftUi(LocalDate.of(1990, 1, 1).toEpochDay(),
+                    PhysiologicalSex.UNSPECIFIED, 175.0, 70.0)),
+                onEnabledChange = {}, onSaveUserProfile = { _, _ -> requests++ },
+                onSaveFoodSettings = { _, _ -> }, onSaveActivitySettings = { _, _ -> }, onSaveEvent = { _, _ -> },
+                onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> }, editorRequest = IssueDestination.USER_PROFILE)
+        }.use {
+            val before = compose.onNodeWithTag("profile_save_confirm").fetchSemanticsNode().boundsInRoot
+            compose.onNodeWithText(text(android.R.string.ok)).performClick()
+            compose.runOnIdle { assertEquals(1, requests) }
+            compose.onNodeWithTag("issue_user_profile_form").assertIsDisplayed()
+            compose.onNodeWithTag("profile_save_confirm").assertIsNotEnabled()
+            val after = compose.onNodeWithTag("profile_save_confirm").fetchSemanticsNode().boundsInRoot
+            assertEquals(before.width, after.width, 0f)
+            assertEquals(before.height, after.height, 0f)
+        }
+    }
+
+    @Test fun failedProfileSaveKeepsEditedValuesInTheForm() {
+        val state = mutableStateOf(EnergyProfileSettingsUiState(
+            userProfile = UserProfileDraftUi(LocalDate.of(1990, 1, 1).toEpochDay(),
+                PhysiologicalSex.UNSPECIFIED, 175.0, 70.0)))
+        withUi {
+            EnergyActivitySettingsSection(state = state.value,
+                onEnabledChange = {}, onSaveUserProfile = { _, done ->
+                    state.value = state.value.copy(validationMessage = "Profile write rejected")
+                    done(EnergyProfileSaveResult.Failed("Profile write rejected"))
+                }, onSaveFoodSettings = { _, _ -> }, onSaveActivitySettings = { _, _ -> }, onSaveEvent = { _, _ -> },
+                onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> }, editorRequest = IssueDestination.USER_PROFILE)
+        }.use {
+            compose.onNodeWithTag("issue_profile_height").performScrollTo().performTextReplacement("176,5")
+            compose.onNodeWithTag("issue_profile_weight").performScrollTo().performTextReplacement("71,2")
+            compose.onNodeWithText(text(android.R.string.ok)).performClick()
+            compose.onNodeWithTag("issue_user_profile_form").assertIsDisplayed()
+            compose.onNodeWithTag("issue_profile_height").assertTextContains("176,5")
+            compose.onNodeWithTag("issue_profile_weight").assertTextContains("71,2")
+            compose.onNodeWithTag("profile_save_error").performScrollTo().assertTextContains("Profile write rejected")
+            compose.onNodeWithTag("profile_save_confirm").assertIsEnabled()
         }
     }
 
@@ -281,6 +326,129 @@ class IssueHelpRobolectricTest {
             compose.runOnIdle { assertEquals(1, handled); request.value = IssueSettingsRequest(2, IssueDestination.USER_PROFILE) }
             compose.onNodeWithTag("issue_user_profile_form").assertIsDisplayed()
             compose.runOnIdle { assertEquals(2, handled) }
+        }
+    }
+
+    @Test fun failedProfileSaveRetriesTheSameDraftAndReopensPersistedValues() {
+        val state = mutableStateOf(EnergyProfileSettingsUiState(
+            userProfile = UserProfileDraftUi(LocalDate.of(1990, 1, 1).toEpochDay(),
+                PhysiologicalSex.UNSPECIFIED, 175.0, 70.0)))
+        val drafts = mutableListOf<UserProfileDraftUi>()
+        withUi(dark = true) {
+            EnergyActivitySettingsSection(state = state.value, onEnabledChange = {},
+                onSaveUserProfile = { draft, done ->
+                    drafts += draft
+                    if (drafts.size == 1) done(EnergyProfileSaveResult.Failed("Fixture profile write failed"))
+                    else {
+                        state.value = state.value.copy(userProfile = draft)
+                        done(EnergyProfileSaveResult.Saved)
+                    }
+                }, onSaveFoodSettings = { _, _ -> }, onSaveActivitySettings = { _, _ -> },
+                onSaveEvent = { _, _ -> }, onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> },
+                editorRequest = IssueDestination.USER_PROFILE)
+        }.use {
+            compose.onNodeWithTag("issue_profile_height").performScrollTo().performTextReplacement("176,5")
+            compose.onNodeWithTag("issue_profile_weight").performScrollTo().performTextReplacement("71,2")
+            compose.onNodeWithTag("profile_save_confirm").performClick()
+            compose.onNodeWithTag("profile_save_error").performScrollTo().assertIsDisplayed()
+            capture("profile-save-error-dark.png")
+            compose.onNodeWithTag("profile_save_confirm").assertIsEnabled().performClick()
+            compose.onNodeWithTag("issue_user_profile_form").assertDoesNotExist()
+            compose.runOnIdle { assertEquals(2, drafts.size); assertEquals(drafts[0], drafts[1]) }
+            compose.onNodeWithText(text(R.string.energy_activity_user_profile)).performClick()
+            compose.onNodeWithTag("issue_profile_height").performScrollTo().assertTextContains("176.5")
+            compose.onNodeWithTag("issue_profile_weight").performScrollTo().assertTextContains("71.2")
+        }
+    }
+
+    @Test fun foodSettingsWaitForAcknowledgmentAndKeepTheFormOnFailure() = settingsSaveFlow(
+        R.string.energy_activity_food_absorption, "issue_food_profile_form")
+
+    @Test fun activitySettingsWaitForAcknowledgmentAndKeepTheFormOnFailure() = settingsSaveFlow(
+        R.string.energy_activity_and_schedule, "issue_activity_profile_form")
+
+    @Test fun calorieSettingsWaitForAcknowledgmentAndKeepTheFormOnFailure() = settingsSaveFlow(
+        R.string.energy_activity_energy_and_ai, "issue_energy_goal_form")
+
+    private fun settingsSaveFlow(title: Int, formTag: String) {
+        lateinit var complete: EnergyProfileSaveCompletion
+        var requests = 0
+        fun submitted(done: EnergyProfileSaveCompletion) { requests++; complete = done }
+        withUi {
+            EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(), onEnabledChange = {},
+                onSaveUserProfile = { _, done -> submitted(done) },
+                onSaveFoodSettings = { _, done -> submitted(done) },
+                onSaveActivitySettings = { _, done -> submitted(done) },
+                onSaveEvent = { _, _ -> }, onDeleteEvent = {}, onSaveEnergySettings = { _, done -> submitted(done) })
+        }.use {
+            compose.onNodeWithText(text(title)).performClick()
+            compose.onNodeWithTag("profile_save_confirm").performClick()
+            compose.onNodeWithTag(formTag).assertIsDisplayed()
+            compose.onNodeWithTag("profile_save_confirm").assertIsNotEnabled()
+            compose.onNodeWithText(text(android.R.string.cancel)).assertIsNotEnabled()
+            compose.runOnIdle { assertEquals(1, requests); complete(EnergyProfileSaveResult.Failed("Fixture save rejected")) }
+            compose.onNodeWithTag("profile_save_error").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("profile_save_confirm").assertIsEnabled().performClick()
+            compose.runOnIdle { assertEquals(2, requests); complete(EnergyProfileSaveResult.Saved) }
+            compose.onNodeWithTag(formTag).assertDoesNotExist()
+        }
+    }
+
+    @Test fun plannedActivityEditorWaitsForTheActualSaveResult() {
+        var requests = 0
+        withUi {
+            EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(), onEnabledChange = {},
+                onSaveUserProfile = { _, _ -> }, onSaveFoodSettings = { _, _ -> },
+                onSaveActivitySettings = { _, _ -> }, onSaveEvent = { _, _ -> requests++ },
+                onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> },
+                editorRequest = IssueDestination.ACTIVITY_SCHEDULE)
+        }.use {
+            compose.onNodeWithContentDescription(text(R.string.energy_activity_add_event)).performClick()
+            compose.onNodeWithTag("planned_activity_title").performScrollTo().performTextReplacement("Fixture evening walk")
+            compose.onNodeWithTag("planned_activity_save").assertIsEnabled().performClick()
+            compose.runOnIdle { assertEquals(1, requests) }
+            compose.onNodeWithTag("planned_activity_title").assertIsDisplayed()
+            compose.onNodeWithTag("planned_activity_save").assertIsNotEnabled()
+        }
+    }
+
+    @Test fun plannedActivitySaveFailureRetainsFieldsAndCanRetry() {
+        val state = mutableStateOf(EnergyProfileSettingsUiState())
+        val drafts = mutableListOf<PlannedActivityEventUi>()
+        withUi(dark = true) {
+            EnergyActivitySettingsSection(state = state.value, onEnabledChange = {},
+                onSaveUserProfile = { _, _ -> }, onSaveFoodSettings = { _, _ -> },
+                onSaveActivitySettings = { _, _ -> }, onSaveEvent = { draft, done ->
+                    drafts += draft
+                    if (drafts.size == 1) done(EnergyProfileSaveResult.Failed("Fixture schedule write failed"))
+                    else {
+                        state.value = state.value.copy(plannedEvents = listOf(draft))
+                        done(EnergyProfileSaveResult.Saved)
+                    }
+                }, onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> },
+                editorRequest = IssueDestination.ACTIVITY_SCHEDULE)
+        }.use {
+            val parentDialog = compose.runOnIdle { ShadowDialog.getLatestDialog() }
+            compose.onNodeWithContentDescription(text(R.string.energy_activity_add_event)).performClick()
+            compose.onNodeWithTag("planned_activity_title").performScrollTo().performTextReplacement("Fixture evening walk")
+            compose.onNodeWithTag("planned_activity_duration").performScrollTo().performTextReplacement("0")
+            compose.onNodeWithTag("planned_activity_save").assertIsNotEnabled()
+            compose.onNodeWithTag("planned_activity_duration").performTextReplacement("75")
+            compose.onNodeWithTag("planned_activity_save").assertIsEnabled().performClick()
+            compose.onNodeWithTag("profile_save_error").performScrollTo().assertIsDisplayed()
+            capture("planned-save-error-dark.png")
+            compose.onNodeWithTag("planned_activity_title").performScrollTo().assertTextContains("Fixture evening walk")
+            compose.onNodeWithTag("planned_activity_duration").performScrollTo().assertTextContains("75")
+            compose.onNodeWithTag("planned_activity_save").assertIsEnabled().performClick()
+            compose.onNodeWithTag("planned_activity_form").assertDoesNotExist()
+            compose.runOnIdle {
+                assertEquals(2, drafts.size)
+                assertEquals(drafts[0].eventId, drafts[1].eventId)
+                assertEquals(drafts[0].title, drafts[1].title)
+                assertEquals(75, drafts[1].durationMinutes)
+            }
+            compose.onNodeWithText("Fixture evening walk", substring = true).performScrollTo().assertIsDisplayed()
+            capture("planned-saved-list-dark.png", parentDialog)
         }
     }
 
@@ -316,9 +484,11 @@ class IssueHelpRobolectricTest {
         }
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, dialog: android.app.Dialog? = null) {
         val directory = System.getenv("ISSUE_UI_EVIDENCE_DIR") ?: return
-        val view = checkNotNull(ShadowDialog.getLatestDialog().window).decorView
+        val shown = dialog ?: ShadowDialog.getLatestDialog()
+        assertTrue(shown.isShowing)
+        val view = checkNotNull(shown.window).decorView
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))
         File(directory, name).outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
@@ -337,8 +507,8 @@ class IssueHelpRobolectricTest {
         withUi(dark = true) {
             EnergyActivitySettingsSection(state = EnergyProfileSettingsUiState(derivedAgeYears = 30,
                 energyGoalSettings = EnergyGoalSettingsUi(CalorieGoalMode.MANUAL_CLINICIAN, null, true)),
-                onEnabledChange = {}, onSaveUserProfile = {}, onSaveFoodSettings = {}, onSaveActivitySettings = {},
-                onSaveEvent = {}, onDeleteEvent = {}, onSaveEnergySettings = { saves++ }, editorRequest = IssueDestination.ENERGY_GOAL)
+                onEnabledChange = {}, onSaveUserProfile = { _, _ -> }, onSaveFoodSettings = { _, _ -> }, onSaveActivitySettings = { _, _ -> },
+                onSaveEvent = { _, _ -> }, onDeleteEvent = {}, onSaveEnergySettings = { _, _ -> saves++ }, editorRequest = IssueDestination.ENERGY_GOAL)
         }.use {
             val layouts = mutableListOf<TextLayoutResult>()
             val label = text(R.string.issue_goal_manual)

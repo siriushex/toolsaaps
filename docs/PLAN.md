@@ -1,5 +1,19 @@
 # PLAN
 
+## Profile Save Completion (2026-10-11)
+
+- Reproduce premature form dismissal and loss of edits after a rejected save.
+- Acknowledge profile, joint correction, food, activity and calorie writes only
+  after persistence. Keep errors and drafts in the editor; allow explicit retry.
+- Apply the same confirmation to the adjacent planned-activity editor after a
+  separate native reproduction, preserving its clinical-input persistence path.
+- Revalidate/merge within DataStore, preserving independent current settings and
+  the existing leased physiological-sex change, pediatric policy and bounds.
+- Verify native forms, real preferences-file close/reopen, cancellation, failures
+  and concurrent updates; run full Android unit/lint/compile/APK and exact-SHA CI.
+- Phone profile/restart checks remain separate. No synthetic therapy commands,
+  live personal-profile fabrication or unapproved alarm-hardware activation.
+
 ## Native Clarity And Accepted Food Lifetime (2026-10-11)
 
 - Implement selected native Clarity with compact glucose/Target Manager,

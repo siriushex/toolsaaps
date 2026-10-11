@@ -23,11 +23,17 @@
   Missing/stale calculation snapshots must not suggest altering valid fields.
 - Unknown error codes receive conservative journal guidance, not an invented
   diagnosis. Clinical blocking conditions are explained, never bypassed.
-- Opening forms never saves them. Corrections use existing explicit callbacks,
-  retain validation bounds and dismiss after the explicit save request. A failed
-  persistence attempt remains an error, not proof of a corrected stored profile.
+- Opening forms never saves them. Profile, food, activity, calorie and planned-event corrections
+  retain validation bounds and dismiss only after a successful durable save
+  completion. Pending saves disable duplicate submission and dismissal. Failure
+  retains the edited draft, shows a localized error and allows an explicit retry.
+  Late/duplicate completions cannot dismiss a disposed or newly opened editor.
 - Joint correction merges only the edited personal fields and calorie value into
   current settings. It cannot overwrite current modes or sharing from an old form.
+- Energy-profile updates revalidate and merge against the actual DataStore
+  transaction, not a pre-suspension snapshot. Physiological sex still requires
+  the existing leased accepted calculation; a changed or unapplied sex fails
+  closed before the ordinary settings write. No clinical lease bypass is added.
 
 ## Confirmed Eating Soon Handoff
 

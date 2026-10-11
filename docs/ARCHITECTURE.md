@@ -39,6 +39,16 @@ in the editor. Decimal height/weight input accepts either comma or point.
 If personal fields and stored calories are invalid together, the profile form
 offers both corrections in one explicit save through the existing validated
 settings update. It preserves current modes, sharing flags and unrelated fields.
+Energy-profile settings and planned-event editors use an explicit save-result callback.
+The form-scoped save state waits for persistence, blocks duplicates, retains the
+draft after failure and ignores late completions after disposal. The ViewModel
+reuses the existing policy and the leased sensitivity-change coordinator, then
+revalidates its field-specific transform within the current DataStore edit.
+No old pre-cycle profile snapshot is written over concurrent settings changes.
+Planned-event callbacks preserve the existing Room save, validation and clinical
+input invalidation semantics; the editor no longer dismisses before their result.
+See [profile save verification](2026-10-11-profile-save.md) for failure cases and
+the distinction between synthetic coverage and device acceptance.
 Transient operation messages offer Details without assuming every outcome is a
 failure and retain timed dismissal; long unknown text stays inside the scrollable
 diagnostic body.

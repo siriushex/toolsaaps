@@ -1,3 +1,38 @@
+# Profile Save Completion - 2026-10-11
+
+- Reproduced two native UI failures before edits: premature dismissal during a
+  pending write and lost height/weight edits after rejected persistence.
+- Profile, joint correction, food, activity and calorie editors now wait for an
+  explicit durable-write completion. Busy state blocks duplicates; errors retain
+  the draft and allow retry. Disposed forms ignore late callbacks. Button geometry
+  remains stable during progress, including enlarged localized text.
+- The ViewModel revalidates its field-specific transform inside DataStore's
+  transaction, preserving independent concurrent settings. Physiological sex
+  remains on the existing leased accepted-cycle path; no guard, clinical bound,
+  coefficient, therapy transport, schema or alert setting changed.
+- Added real preferences-file close/reopen and failure/concurrency regressions.
+  Intermediate focused gate:98 tests, zero failures/errors/skips. The final
+  Android gate, source publication/CI and phone acceptance are separate checks.
+- Intermediate full profile gate:5183 tests, zero failures/errors,3 optional
+  phone-copy skips; unit/lint/compile/APK passed. Lint:315 warnings,4 hints, no
+  errors. The source-wiring assertion remained unchanged after making the private
+  completion callback explicit rather than a default lambda.
+- A separate native test reproduced premature dismissal of the planned-activity
+  editor. Its save now waits for the existing persistence result, retains the
+  draft on failure and supports retry. Schedule/clinical invalidation policies
+  remain unchanged; final combined verification follows this additional fix.
+- Final combined Android gate passed in3m23s:5185 tests, zero failures/errors,
+  3 optional fresh-phone-copy skips; lint/compile/APK and isolated UI-test Kotlin
+  compilation passed. Lint retains315 warnings and4 hints, with no errors.
+  After a test-only capture correction, all23 native diagnostic/editor cases
+  passed; enlarged Russian error and saved-list images were inspected.
+- APK signature matches the previous signer. No phone was visible to ADB at
+  the final local device check, so installation, actual profile restart and
+  hardware delivery are not claimed. Exact-source CI is a separate publication
+  gate, recorded privately after its actual completion.
+- Scope and acceptance matrix: docs/2026-10-11-profile-save.md. Private phone
+  material and execution evidence remain outside the public source tree.
+
 # Accepted Forecast Publication Clock - 2026-10-11
 
 - A coherent current-device copy passed schema/integrity, migration and copied

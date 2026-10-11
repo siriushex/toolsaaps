@@ -1738,6 +1738,13 @@ data class UserProfileDraftUi(
     val weightKg: Double? = null
 )
 
+sealed interface EnergyProfileSaveResult {
+    data object Saved : EnergyProfileSaveResult
+    data class Failed(val message: String? = null) : EnergyProfileSaveResult
+}
+
+typealias EnergyProfileSaveCompletion = (EnergyProfileSaveResult) -> Unit
+
 data class FoodProfileSettingsUi(
     val mode: FoodProfileMode = FoodProfileMode.AUTO,
     val manualProfile: MealAbsorptionProfile = MealAbsorptionProfile.MIXED

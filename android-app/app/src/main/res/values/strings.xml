@@ -1885,4 +1885,7 @@
     <string name="issue_glucose_alert">Open alert history to see the episode, reason and delivery status. Opening it does not mute or acknowledge the alert.</string>
     <string name="issue_alert_audio">An alert audio source is unavailable or invalid. Review the selected clip and sound settings. Navigation does not play a test sound or change the volume.</string>
     <string name="issue_generic_error">This message has no precise automatic explanation. Check the diagnostic journal for the reason and time, then review the relevant connection or input. No automatic retry or command replay is performed.</string>
+    <string name="energy_activity_save_failed">Changes could not be saved</string>
+    <string name="energy_activity_sensitivity_save_failed">Saving the sex change could not be confirmed. Check current data and the diagnostic journal, then retry.</string>
+    <string name="energy_activity_saving">Saving</string>
 </resources>
