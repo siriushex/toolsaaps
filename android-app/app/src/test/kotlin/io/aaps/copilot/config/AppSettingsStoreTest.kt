@@ -543,6 +543,18 @@ class AppSettingsStoreTest {
         assertThat(harness.store.settings.first().sensitivitySettingsRevision).isEqualTo(0L)
     }
 
+    @Test fun clarityMigrationRunsOnceAndPreservesLaterStyleChoiceAndClinicalSettings() = runTest {
+        val harness = newHarness(backgroundScope)
+        val before = harness.store.settings.first()
+        assertThat(harness.store.ensureClarityUiDefault()).isTrue()
+        val clarity = harness.store.settings.first()
+        assertThat(clarity.uiStyle).isEqualTo(UiStyle.CLARITY)
+        assertThat(clarity.copy(uiStyle = before.uiStyle)).isEqualTo(before)
+        harness.store.update { it.copy(uiStyle = UiStyle.CLASSIC) }
+        assertThat(harness.store.ensureClarityUiDefault()).isFalse()
+        assertThat(harness.store.settings.first().uiStyle).isEqualTo(UiStyle.CLASSIC)
+    }
+
     @Test
     fun canonicalNoOpDoesNotInvalidateSensitivityRevision() = runTest {
         val harness = newHarness(backgroundScope)

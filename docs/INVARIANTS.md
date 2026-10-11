@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Clarity And Accepted Food Display
+
+- Opening a target, horizon, IOB, COB or delivery detail does not send therapy.
+  Standalone Eating Soon requires explicit confirmation and canonical existing
+  policy; queue, sent, observed confirmation and unknown are distinct.
+- UI observation cannot write safety clock markers or trigger telemetry loops.
+  Exact matching active readback is required for confirmed Eating Soon.
+- Retained food projections keep their original timestamp and one bounded
+  accepted snapshot. Fresh external COB does not rescale that snapshot. Scope
+  reset invalidates it; outdated display cannot grant clinical authority.
+- The Clarity migration changes only visual preference once. It does not arm
+  therapy, enable new alert hardware or change clinical settings/revisions.
+
 ## Diagnostic Navigation
 
 - Tapping a warning or its help action is read-only navigation. It cannot change

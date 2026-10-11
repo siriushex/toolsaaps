@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Native Clarity Presentation
+
+Clarity is a selectable native Overview with separate observed AAPS target,
+proposal and accepted forecast state. Explicit Eating Soon confirmation uses
+the canonical existing submission path. Readback reuses exact target evidence
+in a bounded read-only Room transaction; UI does not advance the safety clock.
+One UI pipeline writer retains one accepted food-display snapshot scoped to
+settings/source/calibration identity and exact historical origin. It cannot
+populate fresh clinical horizons or target authority. See
+[native Clarity](2026-10-11-native-clarity.md) for lifetime and rollback details.
+
 ## Prediction Time Integrity
 
 Enhanced `local-hybrid-v3.1` retains the current physiology and continuous-history

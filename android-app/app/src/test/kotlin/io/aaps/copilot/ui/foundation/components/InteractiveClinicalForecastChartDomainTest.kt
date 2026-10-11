@@ -6,9 +6,12 @@ import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
 import org.junit.Test
 
 class InteractiveClinicalForecastChartDomainTest {
-    @Test fun foodAloneCannotInventHistoryAndInvalidFoodCannotExpandTheDomain() {
-        assertThat(clinicalChartDomain(ClinicalForecastChartUiState(
-            mealImpactPoints = listOf(ChartPointUi(20, 5.0), ChartPointUi(100, 6.0))))).isNull()
+    @Test fun foodOnlyViewHasItsOwnDomainWithoutInventingObservedHistoryAndInvalidFoodIsIgnored() {
+        val foodOnly = ClinicalForecastChartUiState(
+            mealImpactPoints = listOf(ChartPointUi(20, 5.0), ChartPointUi(100, 6.0)))
+        assertThat(clinicalChartDomain(foodOnly)).isEqualTo(ClinicalChartDomain(20, 100, 20))
+        assertThat(foodOnly.historyPoints).isEmpty()
+        assertThat(foodOnly.futurePath).isEmpty()
         val chart = ClinicalForecastChartUiState(
             historyPoints = listOf(ChartPointUi(10, 5.0), ChartPointUi(20, 5.0)),
             mealImpactPoints = listOf(ChartPointUi(-1, 6.0), ChartPointUi(100, Double.NaN)))

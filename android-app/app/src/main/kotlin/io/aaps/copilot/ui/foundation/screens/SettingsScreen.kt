@@ -2311,6 +2311,7 @@ private fun SettingUiStyleRow(
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val options = listOf(
+        UiStyle.CLARITY to stringResource(id = R.string.settings_ui_style_clarity),
         UiStyle.CLASSIC to stringResource(id = R.string.settings_ui_style_classic),
         UiStyle.DYNAMIC_GRADIENT to stringResource(id = R.string.settings_ui_style_dynamic_gradient),
         UiStyle.MIDNIGHT_GLASS to stringResource(id = R.string.settings_ui_style_midnight_glass)
@@ -2336,7 +2337,7 @@ private fun SettingUiStyleRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(
+            androidx.compose.foundation.layout.FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {

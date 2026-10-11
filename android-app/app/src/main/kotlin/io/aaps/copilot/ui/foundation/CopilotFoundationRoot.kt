@@ -367,6 +367,7 @@ fun CopilotFoundationRoot(
                                     onAddBloodCheck = viewModel::addManualBloodGlucoseCheck,
                                     onResetBloodCalibration = viewModel::resetManualGlucoseCalibration,
                                     onBaseTargetScheduleSave = viewModel::saveBaseTargetSchedule,
+                                    onEatingSoon = viewModel::sendStandaloneEatingSoon,
                                     onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId, portionMetadata, glycemicIndex ->
                                         viewModel.sendManualCarbs(
                                             carbs,
@@ -1115,7 +1116,7 @@ private fun shellChromeColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color(0xFF10213F)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surfaceVariant
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surfaceVariant
     }
 }
 
@@ -1124,7 +1125,7 @@ private fun drawerSurfaceColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color(0xFF0B1831)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surface
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surface
     }
 }
 
@@ -1133,7 +1134,7 @@ private fun shellChromeContentColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color(0xFFF6FAFF)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.onSurfaceVariant
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.onSurfaceVariant
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 
@@ -1141,7 +1142,7 @@ private fun drawerScrimColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color.Black.copy(alpha = 0.56f)
         UiStyle.DYNAMIC_GRADIENT -> Color.Black.copy(alpha = 0.48f)
-        UiStyle.CLASSIC -> Color.Black.copy(alpha = 0.38f)
+        UiStyle.CLASSIC, UiStyle.CLARITY -> Color.Black.copy(alpha = 0.38f)
     }
 }
 

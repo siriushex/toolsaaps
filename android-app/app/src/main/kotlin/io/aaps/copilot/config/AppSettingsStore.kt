@@ -1239,6 +1239,17 @@ class AppSettingsStore internal constructor(
         }
     }
 
+    suspend fun ensureClarityUiDefault(): Boolean {
+        var migrated = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_UI_STYLE_CLARITY_MIGRATION_DONE] == true) return@edit
+            prefs[KEY_UI_STYLE] = UiStyle.CLARITY.name
+            prefs[KEY_UI_STYLE_CLARITY_MIGRATION_DONE] = true
+            migrated = true
+        }
+        return migrated
+    }
+
     suspend fun ensureUiStyleDefaultMidnightGlass(): Boolean {
         var migrated = false
         dataStore.edit { prefs ->
@@ -1499,6 +1510,7 @@ class AppSettingsStore internal constructor(
         private val KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED =
             booleanPreferencesKey("automatic_event_ai_analysis_enabled")
         private val KEY_UI_STYLE = stringPreferencesKey("ui_style")
+        private val KEY_UI_STYLE_CLARITY_MIGRATION_DONE = booleanPreferencesKey("ui_style_clarity_migration_done")
         private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
         private val KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID =
             stringPreferencesKey("therapy_actions_armed_install_id_v1")

@@ -17,6 +17,21 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class OverviewAcceptedTupleExpiryTest {
 
+    @Test fun eatingSoonExpiryEmitsOnceWithoutPollingOrDatabaseWrites() = runTest {
+        val base = 1_800_000_000_000L
+        val emissions = mutableListOf<Long>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            acceptedSensitivityTupleUiClock(generationTimestamps = MutableStateFlow(null),
+                eatingSoonTimestamps = MutableStateFlow(base), clock = { base + testScheduler.currentTime }).toList(emissions)
+        }
+        advanceTimeBy(30 * 60_000L + 1)
+        runCurrent()
+        assertThat(emissions).containsExactly(base, base + 30 * 60_000L + 1).inOrder()
+        advanceTimeBy(60 * 60_000L)
+        runCurrent()
+        assertThat(emissions).hasSize(2)
+    }
+
     @Test
     fun cobExpiresOnceWithoutForecastOrDatabaseEmissions() = runTest {
         val baseTs = 1_800_000_000_000L

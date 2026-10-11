@@ -66,17 +66,20 @@ internal fun clinicalChartDomain(chart: ClinicalForecastChartUiState): ClinicalC
             include(point.ts)
         }
     }
-    if (finiteSeriesCount < 2) return null
     chart.futureCi.forEach { point ->
         if (point.low.isFinite() && point.high.isFinite()) include(point.ts)
     }
     chart.mealImpactPoints.forEach { point ->
-        if (point.ts > 0L && point.value.isFinite() && point.value > 0.0) include(point.ts)
+        if (point.ts > 0L && point.value.isFinite() && point.value > 0.0) {
+            finiteSeriesCount += 1
+            include(point.ts)
+        }
     }
+    if (finiteSeriesCount < 2 || endTs <= startTs) return null
     return ClinicalChartDomain(
         startTs = startTs,
         endTs = endTs,
-        nowTs = nowTs ?: endTs
+        nowTs = nowTs ?: chart.mealImpactPoints.firstOrNull()?.ts ?: endTs
     )
 }
 

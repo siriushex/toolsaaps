@@ -1,5 +1,16 @@
 # PLAN
 
+## Native Clarity And Accepted Food Lifetime (2026-10-11)
+
+- Implement selected native Clarity with compact glucose/Target Manager,
+  explicit canonical Eating Soon delivery states and passive typed details.
+- Keep one scoped accepted food-display tail at its original clock. Provide
+  full-period/start/end navigation without inventing grams, rate or endpoint.
+- Gate on narrow native light/dark/large-font checks, authority/lifetime tests,
+  full Android unit/lint/compile/build and reviewed exact-commit CI.
+- Phone backup/install/passive verification remains a separate gate. No test
+  therapy commands, AAPS/pump stop or unvalidated clinical/alarm activation.
+
 ## Prediction Time Integrity And Refinement (2026-10-11)
 
 - Reproduced and corrected residual AR learning across missing buckets, the

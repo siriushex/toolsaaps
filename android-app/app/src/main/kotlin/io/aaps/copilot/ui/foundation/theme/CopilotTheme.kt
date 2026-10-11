@@ -89,6 +89,32 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
 )
 
+private val ClarityLightColors = LightColors.copy(
+    primary = Color(0xFF006E5C), onPrimary = Color.White,
+    primaryContainer = Color(0xFFD5F2E9), onPrimaryContainer = Color(0xFF00382E),
+    secondary = Color(0xFF3464D8), secondaryContainer = Color(0xFFE9EFFF),
+    onSecondaryContainer = Color(0xFF173775),
+    background = Color.White, surface = Color.White,
+    surfaceVariant = Color(0xFFF0F4F5), onSurface = Color(0xFF1D2B31),
+    onBackground = Color(0xFF1D2B31), onSurfaceVariant = Color(0xFF435761),
+    outlineVariant = Color(0xFFDCE3E7),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF8FAFA),
+    surfaceContainer = Color(0xFFF4F7F7), surfaceContainerHigh = Color(0xFFF0F4F5),
+    surfaceContainerHighest = Color(0xFFE8EEF0), surfaceDim = Color(0xFFE8EEF0), surfaceBright = Color.White
+)
+
+private val ClarityDarkColors = DarkColors.copy(
+    primary = Color(0xFF79D7BE), onPrimary = Color(0xFF00382E),
+    primaryContainer = Color(0xFF005345), onPrimaryContainer = Color(0xFFD5F2E9),
+    secondary = Color(0xFFB5C8FF), secondaryContainer = Color(0xFF173775),
+    onSecondaryContainer = Color(0xFFE9EFFF),
+    background = Color(0xFF14191A), surface = Color(0xFF14191A),
+    surfaceVariant = Color(0xFF222B2D), onSurfaceVariant = Color(0xFFC0CCCF),
+    surfaceContainerLowest = Color(0xFF101516), surfaceContainerLow = Color(0xFF192022),
+    surfaceContainer = Color(0xFF20282A), surfaceContainerHigh = Color(0xFF273134),
+    surfaceContainerHighest = Color(0xFF303C40), surfaceDim = Color(0xFF14191A), surfaceBright = Color(0xFF303C40)
+)
+
 private val MidnightGlassLightColors = lightColorScheme(
     primary = Color(0xFF2563EB),
     onPrimary = Color.White,
@@ -208,6 +234,7 @@ fun AapsCopilotTheme(
 ) {
     val context = LocalContext.current
     val colorScheme = when {
+        uiStyle == UiStyle.CLARITY -> if (darkTheme) ClarityDarkColors else ClarityLightColors
         uiStyle == UiStyle.MIDNIGHT_GLASS -> {
             MidnightGlassDarkColors
         }
@@ -231,7 +258,11 @@ fun AapsCopilotTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = AppTypography,
-            shapes = AppShapes,
+            shapes = if (uiStyle == UiStyle.CLARITY) Shapes(
+                small = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                medium = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                large = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+            ) else AppShapes,
             content = content
         )
     }
@@ -245,7 +276,7 @@ fun CopilotStyledBackground(
 ) {
     val darkTheme = isSystemInDarkTheme()
     when (uiStyle) {
-        UiStyle.CLASSIC -> {
+        UiStyle.CLASSIC, UiStyle.CLARITY -> {
             val backgroundColor = MaterialTheme.colorScheme.background
             Box(
                 modifier = modifier

@@ -1631,6 +1631,7 @@ class AppContainer(context: Context) {
             }.getOrDefault(false)
             val uiStyleMigrated = settingsStore.ensureUiStyleDefaultMidnightGlass()
             val uiStyleRedesignMigratedFrom = settingsStore.ensureLegacyUiStylesPromotedToMidnightGlass()
+            settingsStore.ensureClarityUiDefault()
             if (
                 adaptiveMigrationEnabled ||
                 uamConsentMigration != null ||

@@ -361,12 +361,13 @@ internal fun acceptedSensitivityTupleUiClock(
     generationTimestamps: Flow<Long?>,
     targetManagerStatusTimestamps: Flow<Long?> = flowOf(null),
     cobEvidence: Flow<Pair<Long?, Long>> = flowOf(null to 600_000L),
+    eatingSoonTimestamps: Flow<Long?> = flowOf(null),
     clock: () -> Long
-): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence) { generationTs, statusTs, cob ->
-    Triple(generationTs, statusTs, cob)
+): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence, eatingSoonTimestamps) { generationTs, statusTs, cob, eating ->
+    UiExpiryInputs(generationTs, statusTs, cob, eating)
 }
     .distinctUntilChanged()
-    .flatMapLatest { (generationTs, statusTs, cob) ->
+    .flatMapLatest { (generationTs, statusTs, cob, eating) ->
         flow {
             var authoritativeNowTs = clock()
             emit(authoritativeNowTs)
@@ -374,7 +375,8 @@ internal fun acceptedSensitivityTupleUiClock(
                 nowTs = authoritativeNowTs,
                 generationTs = generationTs,
                 targetManagerStatusTs = statusTs,
-                cobEvidence = cob
+                cobEvidence = cob,
+                eatingSoonTs = eating
             ).forEach { boundaryTs ->
                 delay((boundaryTs - authoritativeNowTs).coerceAtLeast(1L))
                 authoritativeNowTs = max(clock(), boundaryTs)
@@ -384,11 +386,14 @@ internal fun acceptedSensitivityTupleUiClock(
     }
     .distinctUntilChanged()
 
+private data class UiExpiryInputs(val generationTs: Long?, val statusTs: Long?, val cob: Pair<Long?, Long>, val eating: Long?)
+
 private fun uiExpiryBoundaries(
     nowTs: Long,
     generationTs: Long?,
     targetManagerStatusTs: Long?,
-    cobEvidence: Pair<Long?, Long>
+    cobEvidence: Pair<Long?, Long>,
+    eatingSoonTs: Long?
 ): List<Long> = listOfNotNull(
     uiExpiryBoundary(
         timestamp = generationTs,
@@ -404,7 +409,8 @@ private fun uiExpiryBoundaries(
         timestamp = cobEvidence.first,
         maxAgeMs = cobEvidence.second,
         nowTs = nowTs
-    )
+    ),
+    uiExpiryBoundary(eatingSoonTs, io.aaps.copilot.domain.target.EatingSoonPolicy.DURATION_MINUTES * 60_000L, nowTs)
 ).distinct().sorted()
 
 private fun uiExpiryBoundary(timestamp: Long?, maxAgeMs: Long, nowTs: Long): Long? {
@@ -3984,6 +3990,15 @@ class MainViewModel(application: Application) :
             this.lastAction = lastAction
             this.syncStatusLines = syncStatusLines
             this.glucoseHistoryPoints = glucoseHistoryPoints
+            this.mealDisplayCalibrationIdentity = if (currentCalibrationAuthorityForUi.contextValid) {
+                listOf(calibrationAuthorityTokenRow?.valueText ?: ACCEPTED_CALIBRATION_NONE,
+                    currentCalibrationAuthorityForUi.currentSessionKey.orEmpty(),
+                    currentCalibrationModelForUi?.id?.toString().orEmpty()).joinToString("\u0000")
+                    .takeIf { it.length <= 2048 }
+            } else null
+            this.eatingSoonReceipt = actionCommands.firstOrNull {
+                io.aaps.copilot.data.repository.isCanonicalEatingSoonCommand(it, container.gson)
+            }
         }
     }
 
@@ -4055,6 +4070,7 @@ class MainViewModel(application: Application) :
         cobEvidence = primaryUiState.map {
             it.latestExternalCobTimestamp to it.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
         },
+        eatingSoonTimestamps = primaryUiState.map { it.eatingSoonReceipt?.timestamp },
         clock = System::currentTimeMillis
     )
 
@@ -4068,6 +4084,9 @@ class MainViewModel(application: Application) :
     private val authoritativeGlucoseAlertMuteUntil = container.episodeAlertDelivery.mutedUntil
         .shareAuthoritativeAlertMuteUntil(viewModelScope)
 
+    private val standaloneEatingSoonState = MutableStateFlow<io.aaps.copilot.ui.foundation.screens.EatingSoonUiState?>(null)
+    private var acceptedFoodDisplayForOverview: io.aaps.copilot.ui.foundation.screens.AcceptedFoodDisplaySnapshot? = null
+
     val overviewUiState: StateFlow<OverviewUiState> = combine(
         timedOverviewRuntime,
         proModeState,
@@ -4078,6 +4097,15 @@ class MainViewModel(application: Application) :
         val runtime = timedRuntime.runtime
         val state = runtime.state
         val settings = runtime.settings
+        val observedEatingTarget = if (state.eatingSoonReceipt?.let {
+            it.status == io.aaps.copilot.data.repository.NightscoutActionRepository.STATUS_SENT &&
+                timedRuntime.authoritativeNowTs - it.timestamp in 0L until
+                io.aaps.copilot.domain.target.EatingSoonPolicy.DURATION_MINUTES * 60_000L
+            } == true) {
+            io.aaps.copilot.data.repository.AutomationRepository.observedAapsTargetForUiStatic(
+                db, container.gson, timedRuntime.authoritativeNowTs
+            )
+        } else null
         state.toOverviewUiState(
             isProMode = isProMode,
             baseTargetPresentation = targetPresentation,
@@ -4095,9 +4123,24 @@ class MainViewModel(application: Application) :
             showEventsOnGraph = settings.showEventsOnGraph
         ).copy(
             glucoseAlertMutedUntilTs = mutedUntilTs,
-            energyActivityStatus = energyActivityStatus
+            energyActivityStatus = energyActivityStatus,
+            eatingSoon = io.aaps.copilot.ui.foundation.screens.eatingSoonPresentation(
+                state.eatingSoonReceipt, observedEatingTarget, timedRuntime.authoritativeNowTs, container.gson
+            ),
+            observedAapsTargetMmol = observedEatingTarget?.takeIf {
+                it.evidenceResolved && it.startedAt in 1L..timedRuntime.authoritativeNowTs &&
+                    it.expiresAt > timedRuntime.authoritativeNowTs
+            }?.targetMmol
         )
     }
+        .map { current ->
+            io.aaps.copilot.ui.foundation.screens.retainAcceptedFoodDisplay(acceptedFoodDisplayForOverview, current).also {
+                acceptedFoodDisplayForOverview = it.acceptedFoodDisplay
+            }
+        }
+        .combine(standaloneEatingSoonState) { state, local ->
+            state.copy(eatingSoon = io.aaps.copilot.ui.foundation.screens.mergeEatingSoonPresentation(state.eatingSoon, local, state.foodDisplayNowTs))
+        }
         .combine(sensitivitySourceApplyState) { state, apply ->
             val presentation = sensitivitySourceApplyCoordinator.presentationStateForOverview(state, apply)
             state.withSensitivityApplyPresentation(
@@ -7680,6 +7723,36 @@ class MainViewModel(application: Application) :
                 messageState.value = it
                 refreshCloudJobs(silent = true)
             }
+        }
+    }
+
+    fun sendStandaloneEatingSoon(submissionId: String) {
+        if (!submissionId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) return
+        val current = overviewUiState.value.eatingSoon
+        if (current.status in setOf(
+                io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.QUEUED,
+                io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.AWAITING_AAPS,
+                io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.UNKNOWN
+            ) || standaloneEatingSoonState.value?.status == io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.QUEUED) return
+        val requested = io.aaps.copilot.ui.foundation.screens.EatingSoonUiState(
+            io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.QUEUED,
+            "manual:meal:$submissionId:eating-soon", System.currentTimeMillis()
+        )
+        standaloneEatingSoonState.value = requested
+        viewModelScope.launch {
+            val result = try {
+                container.submitManualEatingSoon("manual:meal:$submissionId")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                standaloneEatingSoonState.value = requested.copy(status = io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.UNKNOWN)
+                throw cancelled
+            } catch (_: Exception) {
+                io.aaps.copilot.data.repository.EatingSoonResult(io.aaps.copilot.data.repository.MealDeliveryStatus.UNKNOWN)
+            }
+            standaloneEatingSoonState.value = requested.copy(status = when (result.status) {
+                io.aaps.copilot.data.repository.MealDeliveryStatus.SENT -> io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.AWAITING_AAPS
+                io.aaps.copilot.data.repository.MealDeliveryStatus.BLOCKED -> io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.BLOCKED
+                else -> io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.UNKNOWN
+            }, reason = result.reason)
         }
     }
 
@@ -13238,6 +13311,9 @@ class MainUiState {
     var adaptiveAuditLines: List<String> = emptyList()
     var glucoseHistoryPoints: List<GlucoseHistoryRowUi> = emptyList()
     var lastAction: LastActionRowUi? = null
+    var eatingSoonReceipt: ActionCommandEntity? = null
+    var eatingSoonObservedTarget: io.aaps.copilot.domain.target.ActiveAapsTarget? = null
+    var mealDisplayCalibrationIdentity: String? = null
     var trend60ComponentMmol: Double? = null
     var mealImpactStepsJson: String? = null
     var therapy60ComponentMmol: Double? = null

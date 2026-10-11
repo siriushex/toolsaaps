@@ -282,6 +282,16 @@ data class OverviewUiState(
     val correctedGlucose: Double? = null,
     val delta: Double? = null,
     val sampleAgeMinutes: Long? = null,
+    val syncAgeMinutes: Long? = null,
+    val forecastsCurrent: Boolean = false,
+    val foodDisplayScope: FoodDisplayScope? = null,
+    val acceptedFoodDisplay: AcceptedFoodDisplaySnapshot? = null,
+    val foodDisplayScopeReset: Boolean = false,
+    val foodDisplayStatus: FoodDisplayStatus = FoodDisplayStatus.UNAVAILABLE,
+    val foodDisplayNowTs: Long = 0L,
+    val foodCobTimestamp: Long? = null,
+    val eatingSoon: EatingSoonUiState = EatingSoonUiState(),
+    val observedAapsTargetMmol: Double? = null,
     val calibrationGain: Double? = null,
     val calibrationOffsetMmol: Double? = null,
     val calibrationConfidence: Double? = null,
@@ -344,6 +354,15 @@ data class OverviewUiState(
     val powerSaveIndefinite: Boolean = false,
     val powerSaveRemainingText: String = "",
     val killSwitchEnabled: Boolean = false
+)
+
+enum class EatingSoonUiStatus { IDLE, QUEUED, AWAITING_AAPS, CONFIRMED, BLOCKED, UNKNOWN }
+
+data class EatingSoonUiState(
+    val status: EatingSoonUiStatus = EatingSoonUiStatus.IDLE,
+    val requestKey: String? = null,
+    val timestamp: Long? = null,
+    val reason: String? = null
 )
 
 data class ForecastDecompositionUi(

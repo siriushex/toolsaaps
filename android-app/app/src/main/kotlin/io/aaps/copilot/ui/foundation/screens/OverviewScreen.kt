@@ -215,6 +215,7 @@ fun OverviewScreen(
     onOpenIsfCrAnalytics: () -> Unit = {},
     authoritativeEditorRequest: OverviewAuthoritativeEditor? = null,
     onAuthoritativeEditorRequestHandled: () -> Unit = {},
+    onEatingSoon: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showKillSwitchConfirm by remember { mutableStateOf(false) }
@@ -481,6 +482,41 @@ fun OverviewScreen(
         errorText = state.errorText,
         emptyText = stringResource(id = R.string.overview_empty)
     ) {
+        if (LocalUiStyle.current == UiStyle.CLARITY) {
+            ClarityOverviewContent(
+                state = state,
+                onEatingSoon = onEatingSoon,
+                onMeal = openCobDialog,
+                onIob = { showIobDialog = true },
+                onBaseTarget = { showTargetDialog = true },
+                onAddBloodCheck = { showBloodCheckDialog = true },
+                warningContent = {
+                    state.warning?.let { warning ->
+                        OverviewWarningBanner(warning, state, false, onDisablePowerSave, onOpenSensorLagAnalytics)
+                    }
+                },
+                profileContent = {
+                    state.energyActivityStatus?.let { EnergyActivityStatusRow(it, false) }
+                    if (state.pumpLinkStatus.condition != PumpLinkCondition.HEALTHY &&
+                        state.pumpLinkStatus.condition != PumpLinkCondition.INTENTIONALLY_DISCONNECTED) {
+                        PumpLinkStatusRow(state.pumpLinkStatus, false)
+                    }
+                },
+                chartContent = { OverviewForecastSection(state, false, framed = false) },
+                detailsContent = {
+                    OverviewClinicalMatrix(
+                        state, false, { showIobDialog = true }, openCobDialog,
+                        { showTargetDialog = true }, { showBloodCheckDialog = true },
+                        { sourceSheet = MetricSourceSheetKind.ISF },
+                        { sourceSheet = MetricSourceSheetKind.CR },
+                        { showUamDialog = true }, onOpenClinicalReport
+                    )
+                    OverviewClinicalActions(state, onRunCycleNow, { showTargetDialog = true }, { showKillSwitchConfirm = true })
+                },
+                modifier = modifier
+            )
+            return@ScreenStateLayout
+        }
         LazyColumn(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -608,9 +644,11 @@ internal fun TargetManagerLiveStatusSection(
                     color = secondaryColor
                 )
                 TargetManagerLiveStatusAvailabilityUi.CURRENT -> {
-                    Row(
+                    androidx.compose.foundation.layout.FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        maxItemsInEachRow = if (LocalDensity.current.fontScale >= 1.3f) 1 else 2
                     ) {
                         TargetManagerTargetValue(
                             label = stringResource(id = R.string.overview_target_manager_current_target),
@@ -1655,7 +1693,8 @@ private fun MetricCandidateDetails(
 @Composable
 private fun OverviewForecastSection(
     state: OverviewUiState,
-    midnightGlass: Boolean
+    midnightGlass: Boolean,
+    framed: Boolean = true
 ) {
     val forecast30 = state.horizons.firstOrNull { it.horizonMinutes == 30 }
     val chartDescription = stringResource(
@@ -1674,7 +1713,7 @@ private fun OverviewForecastSection(
         shape = RoundedCornerShape(8.dp),
         color = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface,
         contentColor = if (midnightGlass) Color.White else MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = if (framed) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Column(
             modifier = Modifier.padding(Spacing.xs),
@@ -1698,6 +1737,10 @@ private fun OverviewForecastSection(
                         )
                     }
                 }
+            }
+            if (state.acceptedFoodDisplay != null && state.foodDisplayStatus in
+                setOf(FoodDisplayStatus.UPDATING, FoodDisplayStatus.OUTDATED)) {
+                FoodDisplayStatusLabel(state)
             }
             if (interactionState == null) {
                 ClinicalForecastChart(

@@ -1070,6 +1070,34 @@ class MainUiStateMappersTest {
         assertThat(expired.chart.futureCi).isEmpty()
     }
 
+    @Test fun newCgmDoesNotReanchorOldClinicalForecastButKeepsExactFoodOrigin() {
+        val snapshot = acceptedFallbackSnapshot()
+        val origin = snapshot.timestamp
+        val state = state {
+            latestGlucoseMmol = 6.8
+            acceptedSensitivityRuntimeSnapshot = snapshot
+            forecastAcceptedGenerationTs = origin
+            mealDisplayCalibrationIdentity = "session-a"
+            forecast5m = 5.5
+            forecast30m = 6.0
+            forecast60m = 6.5
+            mealImpactStepsJson = """{"schemaVersion":2,"cycle":"${snapshot.forecastCycleId}","predictionAtMs":$origin,"complete":true,"giAdjustedMeals":0,"modelVersion":"food_gi_shape_v1","steps":[0,0.1,0.1]}"""
+            glucoseHistoryPoints = listOf(GlucoseHistoryRowUi(origin, 5.4), GlucoseHistoryRowUi(origin + 300_000L, 6.8))
+        }
+        val ui = state.toOverviewUiState(false, authoritativeIsfSource = "AAPS", authoritativeCrSource = "EVIDENCE",
+            authoritativeSensitivitySettingsRevision = snapshot.settingsRevision, authoritativeNowTs = origin + 300_000L)
+        assertThat(ui.forecastsCurrent).isFalse()
+        assertThat(ui.chart.futurePath).isEmpty()
+        assertThat(ui.chart.futureCi).isEmpty()
+        assertThat(ui.chart.mealImpactPoints.first().ts).isEqualTo(origin)
+        assertThat(ui.chart.mealImpactPoints.first().value).isEqualTo(5.4)
+        assertThat(ui.currentIsfMmolPerUnit).isEqualTo(snapshot.isf.effective)
+        val forecast = state.toForecastUiState(ForecastRangeUi.H3, ForecastLayerState(), false)
+        assertThat(forecast.futurePath).isEmpty()
+        assertThat(forecast.futureCi).isEmpty()
+        assertThat(forecast.horizons).isEmpty()
+    }
+
     @Test
     fun applyingAndRevisionMismatchNeverShowOrRelabelOldAcceptedValues() {
         val snapshot = acceptedFallbackSnapshot()

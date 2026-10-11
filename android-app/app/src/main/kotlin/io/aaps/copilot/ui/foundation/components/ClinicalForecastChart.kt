@@ -212,7 +212,7 @@ internal fun ClinicalForecastChart(
     val axisPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     axisPaint.color = axisColor.toArgb()
     axisPaint.textSize = with(LocalDensity.current) { 10.sp.toPx() }
-    val series = visibleHistory + visibleFuture
+    val series = visibleHistory + visibleFuture + foodPoints
     val minTs = viewport?.startTs ?: series.minOf { it.ts }
     val maxTs = viewport?.endTs ?: series.maxOf { it.ts }
     val eventTypeLabels = mutableListOf<String>()

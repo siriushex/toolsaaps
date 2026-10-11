@@ -698,6 +698,8 @@ internal fun MainUiState.toOverviewUiState(
         .asSequence()
         .filter { point -> point.ts in chartHistoryCutoffTs..chartNowTs }
         .toList()
+    val forecastAtLatestCgm = acceptedIdentityMatches &&
+        history.maxOfOrNull { it.ts } == forecastAcceptedGenerationTs
     val currentUam = if (uamRuntimeIdentityMatches) {
         resolveCurrentUam()
     } else {
@@ -771,8 +773,15 @@ internal fun MainUiState.toOverviewUiState(
 
     val mealImpact = if (acceptedIdentityMatches) mealImpactChartData(
         mealImpactStepsJson, acceptedSnapshot?.forecastCycleId, forecastAcceptedGenerationTs,
-        history.maxByOrNull { it.ts }
+        acceptedMealImpactOrigin(mealImpactStepsJson, history, forecastAcceptedGenerationTs)
     ) else null
+    val foodScope = mealDisplayCalibrationIdentity?.let {
+        FoodDisplayScope(authoritativeSensitivitySettingsRevision, authoritativeIsfSource, authoritativeCrSource, it)
+    }
+    val foodSnapshot = if (mealImpact != null && foodScope != null && acceptedSnapshot != null &&
+        forecastAcceptedGenerationTs != null) AcceptedFoodDisplaySnapshot(foodScope,
+            acceptedSnapshot.forecastCycleId, forecastAcceptedGenerationTs!!,
+            mealImpact.points, mealImpact.complete, mealImpact.giAdjusted) else null
     val hasData = latestGlucoseMmol != null || horizons.any { it.pred != null }
     return OverviewUiState(
         loadState = resolveLoadState(hasData = hasData, errorText = error),
@@ -785,6 +794,14 @@ internal fun MainUiState.toOverviewUiState(
         correctedGlucose = correctedGlucoseMmol,
         delta = glucoseDelta,
         sampleAgeMinutes = latestDataAgeMinutes,
+        syncAgeMinutes = nightscoutSyncAgeMinutes,
+        forecastsCurrent = forecastAtLatestCgm,
+        foodDisplayScope = foodScope,
+        acceptedFoodDisplay = foodSnapshot,
+        foodDisplayScopeReset = forecastTupleError != null && forecastTupleError != "forecast_tuple_freshness_invalid",
+        foodDisplayNowTs = now,
+        foodCobTimestamp = latestExternalCobTimestamp,
+        eatingSoon = eatingSoonPresentation(eatingSoonReceipt, eatingSoonObservedTarget, now),
         calibrationGain = glucoseCalibrationGain,
         calibrationOffsetMmol = glucoseCalibrationOffsetMmol,
         calibrationConfidence = glucoseCalibrationConfidence,
@@ -808,8 +825,8 @@ internal fun MainUiState.toOverviewUiState(
             mealImpactGiAdjusted = mealImpact?.giAdjusted == true,
             mealImpactComplete = mealImpact?.complete,
             historyPoints = history,
-            futurePath = if (acceptedIdentityMatches) buildInterpolatedFuturePath(nowTs = chartNowTs) else emptyList(),
-            futureCi = if (acceptedIdentityMatches) buildInterpolatedFutureCi(nowTs = chartNowTs) else emptyList(),
+            futurePath = if (forecastAtLatestCgm) buildInterpolatedFuturePath(nowTs = chartNowTs) else emptyList(),
+            futureCi = if (forecastAtLatestCgm) buildInterpolatedFutureCi(nowTs = chartNowTs) else emptyList(),
             events = eventTimeline,
             eventTimelineNowTs = eventTimelineNowTs,
             showEvents = showEventsOnGraph
@@ -983,12 +1000,12 @@ internal fun MainUiState.toForecastUiState(
     isProMode: Boolean
 ): ForecastUiState {
     val error = inferErrorText()
-    val horizons = buildHorizonPredictions()
-
     val chartSource = chartGlucoseHistory()
     val nowTs = chartSource.lastOrNull()?.ts ?: System.currentTimeMillis()
     val historyCutoff = nowTs - range.hours * 60 * 60_000L
     val history = chartSource.filter { it.ts >= historyCutoff }
+    val horizons = if (forecastAcceptedGenerationTs != null && forecastAcceptedGenerationTs != nowTs) emptyList()
+        else buildHorizonPredictions()
 
     val futurePath = buildInterpolatedFuturePath(nowTs = nowTs)
     val futureCi = buildInterpolatedFutureCi(nowTs = nowTs)
@@ -2763,6 +2780,7 @@ private fun parseInsulinCurveCompact(raw: String?): List<InsulinProfilePointUi> 
 
 private fun MainUiState.buildInterpolatedFuturePath(nowTs: Long): List<ChartPointUi> {
     if (forecastTupleError != null) return emptyList()
+    if (forecastAcceptedGenerationTs != null && forecastAcceptedGenerationTs != nowTs) return emptyList()
     val current = calibratedGlucoseMmol ?: latestGlucoseMmol ?: return emptyList()
     val anchors = listOfNotNull(
         0 to current,
@@ -2780,6 +2798,7 @@ private fun MainUiState.buildInterpolatedFuturePath(nowTs: Long): List<ChartPoin
 
 private fun MainUiState.buildInterpolatedFutureCi(nowTs: Long): List<ChartCiPointUi> {
     if (forecastTupleError != null) return emptyList()
+    if (forecastAcceptedGenerationTs != null && forecastAcceptedGenerationTs != nowTs) return emptyList()
     val current = calibratedGlucoseMmol ?: latestGlucoseMmol ?: return emptyList()
     val lowAnchors = listOfNotNull(
         0 to current,

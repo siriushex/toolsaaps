@@ -15,6 +15,19 @@ internal fun mealImpactChartPoints(
     payload: String?, acceptedCycle: String?, generationTs: Long?, anchor: ChartPointUi?
 ): List<ChartPointUi> = mealImpactChartData(payload, acceptedCycle, generationTs, anchor)?.points.orEmpty()
 
+internal fun acceptedMealImpactOrigin(payload: String?, history: List<ChartPointUi>, generationTs: Long? = null): ChartPointUi? {
+    if (payload == null || payload.length > 16_384 || payload.toByteArray(Charsets.UTF_8).size > 16_384) return null
+    return try {
+        val json = JsonParser.parseString(payload).asJsonObject
+        if (!json.has("schemaVersion")) history.maxByOrNull { it.ts }
+            ?.takeIf { generationTs != null && it.ts <= generationTs }
+        else if (json.exactLong("schemaVersion") == 2L) {
+            val originTs = json.exactLong("predictionAtMs")
+            history.filter { it.ts == originTs }.singleOrNull()
+        } else null
+    } catch (_: Exception) { null }
+}
+
 internal fun mealImpactChartData(
     payload: String?, acceptedCycle: String?, generationTs: Long?, anchor: ChartPointUi?
 ): MealImpactChartData? {

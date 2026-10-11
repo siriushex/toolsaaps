@@ -1,3 +1,33 @@
+# Native Clarity And Accepted Food Display - 2026-10-11
+
+- Implemented the selected native Clarity Overview with compact glucose/Target
+  Manager, separate observed/proposed targets, current prediction details and
+  fixed Eating Soon/meal actions. Light/dark and enlarged Russian text use
+  responsive stacking. Existing warning correction routes remain reachable.
+- A once-only visual migration selects Clarity without changing clinical
+  settings or sensitivity revisions; subsequent style choices are preserved.
+- Eating Soon uses the existing canonical submission path and confirmation
+  guards. Queue, sent-awaiting-observation, confirmed, blocked and unknown are
+  distinct. Readback is bounded and read-only; unknown delivery cannot replay
+  automatically. Expiry adds a one-shot boundary, not a polling loop.
+- The accepted full food curve retains its original historical origin while
+  a new cycle runs. One bounded display snapshot is separate from therapy
+  authority; scope changes invalidate it. Full-period/start/end views preserve
+  the existing display-only GI estimate and never invent remaining grams.
+- New CGM samples cannot re-anchor old accepted clinical forecasts or intervals
+  in Overview or Forecast. Clinical algorithms, coefficients and target policy
+  are unchanged by this presentation stage. No database/backend migration.
+- Native synthetic light/dark screenshots, 320-pixel width and doubled font
+  scale were checked. Full food-only 12-hour viewport and passive dialogs are
+  covered without therapy commands. Details: docs/2026-10-11-native-clarity.md.
+- Final Android unit/lint/compile/APK gate passed in 10 minutes: 5158 cases,
+  zero failures/errors, 3 optional phone-copy skips. Lint has no errors,
+  315 warnings and 4 hints; warnings are not presented as a clean lint report.
+- APK signature verified against the previous debug signer. Device installation,
+  real UI/background checks and measured phone CPU/RAM remain separate gates:
+  no device was visible to ADB at the final local check. Publication and
+  exact-commit CI evidence are recorded privately when completed.
+
 # Prediction Time Integrity And Algorithm Audit - 2026-10-11
 
 - Audited the live V3 pipeline, scheduling, known-input filter, residual AR,

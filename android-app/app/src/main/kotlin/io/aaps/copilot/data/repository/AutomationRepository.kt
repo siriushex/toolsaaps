@@ -10687,6 +10687,20 @@ class AutomationRepository(
             nowTs: Long
         ): ActiveAapsTarget? = loadLocalSafetyEvidenceStatic(db, gson, nowTs).activeAapsTarget
 
+        internal suspend fun observedAapsTargetForUiStatic(
+            db: CopilotDatabase, gson: Gson, nowTs: Long,
+            monotonicNowTs: Long = SystemClock.elapsedRealtime()
+        ): ActiveAapsTarget? = db.withTransaction {
+            // UI readback must not advance the safety clock or trigger another telemetry emission.
+            val marker = db.telemetryDao().byId(LOCAL_SAFETY_CLOCK_HIGH_WATER_ID) ?: return@withTransaction null
+            val monotonicAnchor = canonicalLocalSafetyClockMonotonicTsStatic(marker) ?: return@withTransaction null
+            if (!isValidLocalSafetyWallTsStatic(nowTs) || !isValidLocalSafetyMonotonicTsStatic(monotonicNowTs) ||
+                nowTs < marker.timestamp || !isLocalSafetyClockProgressionConsistentStatic(
+                    marker.timestamp, monotonicAnchor, nowTs, monotonicNowTs
+                )) return@withTransaction null
+            resolveActiveAapsTargetInTransactionStatic(db, gson, LocalTargetSafetyTimeWindow.at(nowTs, nowTs))
+        }
+
         private fun isCanonicalLocalFutureTargetMarkerStatic(
             marker: TelemetrySampleEntity,
             causalThroughTs: Long

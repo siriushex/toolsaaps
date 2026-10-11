@@ -145,6 +145,18 @@ class EatingSoonDeliveryRoomTest {
 
     @After fun tearDown() { db.close() }
 
+    @Test fun uiReadbackNeverAdvancesClockOrWritesTelemetry() = runBlocking {
+        val now = 1_800_000_000_000L
+        val id = "copilot-local-safety-clock-high-water-v1"
+        AutomationRepository.loadLocalSafetyEvidenceStatic(db, Gson(), now, 1000L)
+        val before = db.telemetryDao().byId(id)
+        assertThat(before).isNotNull()
+        assertThat(AutomationRepository.observedAapsTargetForUiStatic(db, Gson(), now + 1000L, 2000L)).isNull()
+        assertThat(db.telemetryDao().byId(id)).isEqualTo(before)
+        assertThat(AutomationRepository.observedAapsTargetForUiStatic(db, Gson(), now - 1L, 2001L)).isNull()
+        assertThat(db.telemetryDao().byId(id)).isEqualTo(before)
+    }
+
     @Test fun queuedEatingSoonIsDurableBeforeWaitingAndBlocksQueuedManager() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))

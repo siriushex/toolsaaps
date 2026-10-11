@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Native Clarity And Display Lifetime (2026-10-11)
+
+- Passive details and warning routes do not issue therapy. The new standalone
+  confirmation calls only the existing canonical Eating Soon path; no generic
+  target, fabricated meal, clinical bypass or automatic retry is added.
+- Observed confirmation uses existing bounded unique-receipt/readback proof.
+  The UI transaction requires canonical consistent clock authority and performs
+  no writes. This avoids a self-triggering telemetry observation loop.
+- Food retention is display-only, at most145 points, scoped to current settings
+  and calibration identity. Malformed payloads cannot create fresh clinical
+  forecasts; absent shape/unknown COB cannot invent an absorption endpoint.
+- The once-only style migration preserves all clinical settings and later user
+  style choices. No permission/schema, backend, arming or audio change.
+- Synthetic UI/unit checks and APK build are not phone installation, actual
+  therapy delivery, alarm audibility or measured CPU/RAM improvement.
+
 ## Eating Soon Target Context (2026-10-10)
 
 - Explicit intent is derived from current resolved AAPS evidence plus one

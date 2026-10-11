@@ -354,24 +354,24 @@ fun OverviewBaseTargetBanner(
     val cardColor = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0xCC0C1830)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surface
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surface
     }
     val titleTone = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFF6FAFF) else MaterialTheme.colorScheme.onSurface
     val secondaryTone = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
     val heroColor = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0xE0122545)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
     }
     val heroBorder = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0x24FFFFFF)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.outlineVariant
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.outlineVariant
     }
     val buttonContainer = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0xFF17335F)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.secondaryContainer
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.secondaryContainer
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.secondaryContainer
     }
     val buttonContent = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFF6FAFF) else MaterialTheme.colorScheme.onSecondaryContainer
     val heroValue = UiFormatters.formatMmol(baseTargetMmol, 1)
