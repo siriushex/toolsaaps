@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
 
 @Composable
@@ -99,7 +100,10 @@ internal fun InteractiveClinicalForecastChart(
     resetLabel: String,
     modifier: Modifier = Modifier,
     components: List<ClinicalForecastComponent> = emptyList(),
-    onViewportChanged: ((ClinicalChartViewport) -> Unit)? = null
+    onViewportChanged: ((ClinicalChartViewport) -> Unit)? = null,
+    chartHeight: Dp = 280.dp,
+    forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
+    onForecastMarkerClick: (Int) -> Unit = {}
 ) {
     val density = LocalDensity.current
     var plotBounds by remember { mutableStateOf(ClinicalChartPlotHorizontalBounds(0f, 1f)) }
@@ -114,6 +118,9 @@ internal fun InteractiveClinicalForecastChart(
         plus30Label = plus30Label,
         components = components,
         viewport = interactionState.viewport,
+        chartHeight = chartHeight,
+        forecastMarkers = forecastMarkers,
+        onForecastMarkerClick = onForecastMarkerClick,
         modifier = modifier
             .testTag("overviewInteractiveChart")
             .onSizeChanged { size ->

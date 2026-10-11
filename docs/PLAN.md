@@ -1,5 +1,16 @@
 # PLAN
 
+## Approved Balance Layout (2026-10-11)
+
+- Replace the large forecast row with small passive chart marks; expose six core
+  metrics before the compact chart and keep the full food-tail view separate.
+- Reuse current/missing/stale and observed/proposed target semantics, existing
+  warning correction routes and explicit Eating Soon submission guards.
+- Correct secondary-to-primary navigation without saving forms or losing an
+  existing requested primary entry. Native NavHost and responsive rendering gates.
+- Full Android unit/lint/compile/APK, reviewed source publication and exact-SHA CI.
+  Actual phone install/rendering/TalkBack and CPU/RAM remain separate acceptance.
+
 ## Food-Profile Calculation Availability (2026-10-11)
 
 - Reproduce unrestricted telemetry loading and the absent initial refresh route.

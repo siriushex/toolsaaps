@@ -60,15 +60,15 @@ internal fun ClarityFoodCurve(state: OverviewUiState) {
             else stringResource(R.string.clarity_food_unknown), style = MaterialTheme.typography.bodySmall)
         if (interaction != null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                FoodCurveIconButton(Icons.Default.FirstPage, stringResource(R.string.clarity_food_start), "foodCurveStart") {
+                ClarityToolButton(Icons.Default.FirstPage, stringResource(R.string.clarity_food_start), "foodCurveStart") {
                     interaction.restore(ClinicalChartViewportSnapshot(90 * 60_000L,
                         interaction.domain.startTs + 90 * 60_000L - interaction.domain.nowTs, ClinicalChartViewportMode.EXPLORE))
                 }
-                FoodCurveIconButton(Icons.Default.ZoomOutMap, stringResource(R.string.clarity_food_fit), "foodCurveFit") {
+                ClarityToolButton(Icons.Default.ZoomOutMap, stringResource(R.string.clarity_food_fit), "foodCurveFit") {
                     interaction.restore(ClinicalChartViewportSnapshot(interaction.domain.durationMs,
                         interaction.domain.endTs - interaction.domain.nowTs, ClinicalChartViewportMode.EXPLORE))
                 }
-                FoodCurveIconButton(Icons.Default.LastPage, stringResource(R.string.clarity_food_end), "foodCurveEnd") {
+                ClarityToolButton(Icons.Default.LastPage, stringResource(R.string.clarity_food_end), "foodCurveEnd") {
                     interaction.restore(ClinicalChartViewportSnapshot(90 * 60_000L,
                         interaction.domain.endTs - interaction.domain.nowTs, ClinicalChartViewportMode.EXPLORE))
                 }
@@ -89,7 +89,7 @@ internal fun ClarityFoodCurve(state: OverviewUiState) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FoodCurveIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tag: String, onClick: () -> Unit) {
+internal fun ClarityToolButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tag: String, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         IconButton(modifier = Modifier.testTag(tag), onClick = onClick) { Icon(icon, label) }

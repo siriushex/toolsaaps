@@ -1,3 +1,29 @@
+# Native Balance Presentation - 2026-10-11
+
+- Implements approved Balance in the existing Clarity style: open six-metric
+  grid, compact glucose/observed target,190dp chart and small passive5/30/60 marks.
+  Large forecast row removed; full food-tail dialog and clinical actions retained.
+- Exact accepted path/point match and stale/missing guards prevent invented marks.
+  48dp targets fan apart with leaders; responsive controls/grid support enlarged
+  Russian text without shrinking fonts. No timer or heavy analytics observer added.
+- Secondary navigation returns to an existing primary entry, or avoids saving/
+  restoring secondary content as a tab. Normal primary state restoration remains.
+- Two native layout/marker regressions failed before edits. Native/light/dark/
+  large-text, food, explicit confirmation and navigation checks are separate from
+  the mandatory full quality and exact-source CI gates; record final results only
+  after completion. Test-fixture enum correction was not an app runtime defect.
+- Focused native/math/navigation acceptance:13 cases,zero failures/errors/skips.
+  Synthetic light/expanded/dark-large images inspected privately. Full Android
+  gate:5201 cases,zero failures/errors,3 optional phone-copy skips; lint zero
+  errors,315 warnings,4 hints; Kotlin compile and signed APK build passed.
+  Initial full run timed out in one unchanged report test; isolation and the
+  final full run passed without code or timeout changes. Exact-source CI remains
+  a separate publication gate.
+- No clinical algorithm, forecast clock, target policy, alert, settings default,
+  schema or backend change. Phone installation and CPU/RAM savings are not claimed.
+- Scope/verification: docs/2026-10-11-native-balance.md. Private synthetic renders
+  and execution evidence remain outside source publication.
+
 # Food-Profile Diagnostic Calculation - 2026-10-11
 
 - Two source-wiring regressions failed before the correction: inference loaded

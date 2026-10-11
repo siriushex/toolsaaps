@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Balance Display And Primary Navigation
+
+- Small forecast marks require current/non-stale horizons and matching existing
+  future-path timestamps/values. Label separation cannot move actual chart points
+  or give retained food/old forecasts fresh clinical authority.
+- Every mark keeps a48dp hit area; nearby marks separate rather than overlap.
+  Layout wraps/reflows with system font scale instead of shrinking display text.
+- Six primary metrics reuse existing accepted values, sources and missing states.
+  Opening source/target/food/status details does not save or send a command.
+- Returning from secondary screens cannot restore them as primary tab content or
+  save their forms. Existing primary entries and normal tab save/restore remain.
+
 ## Food-Profile Diagnostic Refresh
 
 - Inference telemetry retrieval must be bounded to the completed-day window and

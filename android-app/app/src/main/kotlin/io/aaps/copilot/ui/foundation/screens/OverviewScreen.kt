@@ -488,6 +488,10 @@ fun OverviewScreen(
                 onEatingSoon = onEatingSoon,
                 onMeal = openCobDialog,
                 onIob = { showIobDialog = true },
+                onIsf = { sourceSheet = MetricSourceSheetKind.ISF },
+                onCr = { sourceSheet = MetricSourceSheetKind.CR },
+                onUam = { showUamDialog = true },
+                onRunCycle = onRunCycleNow,
                 onBaseTarget = { showTargetDialog = true },
                 onAddBloodCheck = { showBloodCheckDialog = true },
                 warningContent = {
@@ -497,12 +501,13 @@ fun OverviewScreen(
                 },
                 profileContent = {
                     state.energyActivityStatus?.let { EnergyActivityStatusRow(it, false) }
-                    if (state.pumpLinkStatus.condition != PumpLinkCondition.HEALTHY &&
-                        state.pumpLinkStatus.condition != PumpLinkCondition.INTENTIONALLY_DISCONNECTED) {
-                        PumpLinkStatusRow(state.pumpLinkStatus, false)
+                    PumpLinkStatusRow(state.pumpLinkStatus, false)
+                    TextButton(onClick = onOpenClinicalReport, modifier = Modifier.testTag("clarityCurrentStatus")) {
+                        val currentStatus = resolveCurrentGlucoseStatus(state.glucose, state.isStale,
+                            state.chart.displayRangeLowMmol, state.chart.displayRangeHighMmol)
+                        Text(currentStatusLabel(currentStatus), color = currentStatusTone(currentStatus))
                     }
                 },
-                chartContent = { OverviewForecastSection(state, false, framed = false) },
                 detailsContent = {
                     OverviewClinicalMatrix(
                         state, false, { showIobDialog = true }, openCobDialog,
@@ -1363,7 +1368,7 @@ internal fun metricActualSourceShortLabel(
 }
 
 @Composable
-private fun metricActualSourceLabel(runtime: MetricRuntimeSourceUi): String = when (
+internal fun metricActualSourceLabel(runtime: MetricRuntimeSourceUi): String = when (
     metricActualSourceLabelKind(runtime.actualResolvedSource, runtime.availability)
 ) {
     MetricActualSourceLabelKind.AAPS -> stringResource(R.string.overview_source_aaps)

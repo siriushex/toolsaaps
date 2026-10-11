@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.ui.foundation.screens.ChartCiPointUi
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
@@ -148,7 +149,10 @@ internal fun ClinicalForecastChart(
     plus30Label: String,
     modifier: Modifier = Modifier,
     components: List<ClinicalForecastComponent> = emptyList(),
-    viewport: ClinicalChartViewport? = null
+    viewport: ClinicalChartViewport? = null,
+    chartHeight: Dp = 280.dp,
+    forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
+    onForecastMarkerClick: (Int) -> Unit = {}
 ) {
     var selectedEventIds by remember { mutableStateOf<List<String>>(emptyList()) }
     val visibleHistory = remember(state.historyPoints, viewport) {
@@ -188,7 +192,7 @@ internal fun ClinicalForecastChart(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(280.dp),
+                .height(chartHeight),
             contentAlignment = Alignment.Center
         ) {
             Text(text = emptyText, style = MaterialTheme.typography.bodyMedium)
@@ -229,7 +233,7 @@ internal fun ClinicalForecastChart(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(280.dp)
+            .height(chartHeight)
     ) {
         Canvas(
             modifier = Modifier
@@ -472,6 +476,9 @@ internal fun ClinicalForecastChart(
                 }
             }
         }
+        }
+        if (forecastMarkers.isNotEmpty()) {
+            ClinicalForecastMarkers(forecastMarkers, minTs, maxTs, bounds, onForecastMarkerClick)
         }
         if (state.showEvents) {
             EventTimelineRail(

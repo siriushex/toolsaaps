@@ -50,12 +50,17 @@ class ClarityOverviewRobolectricTest {
     private fun ready() = OverviewUiState(ScreenLoadState.READY, false, glucose = 7.2, delta = 0.2,
         sampleAgeMinutes = 1, syncAgeMinutes = 2, forecastsCurrent = true,
         currentIobUnits = 1.2, currentCobGrams = 22.0,
+        currentIsfMmolPerUnit = 2.4, currentCrGramsPerUnit = 10.0, calculatedUamCarbsGrams = 8.0,
+        isfRuntime = MetricRuntimeSourceUi(availability = MetricRuntimeAvailabilityUi.AVAILABLE, actualResolvedSource = "AAPS"),
+        crRuntime = MetricRuntimeSourceUi(availability = MetricRuntimeAvailabilityUi.AVAILABLE, actualResolvedSource = "AAPS"),
         horizons = listOf(5, 30, 60).map { HorizonPredictionUi(it, 7.5, 7.0, 8.0) },
         targetManagerLiveStatus = TargetManagerLiveStatusUi(availability = TargetManagerLiveStatusAvailabilityUi.CURRENT,
             currentTargetMmol = 5.6, proposedTargetMmol = 5.4, mode = "SHADOW"),
         acceptedFoodDisplay = AcceptedFoodDisplaySnapshot(scope, "meal-cycle", origin, points, true, true),
         foodDisplayStatus = FoodDisplayStatus.CURRENT,
-        chart = ClinicalForecastChartUiState(historyPoints = listOf(ChartPointUi(origin - 300_000L, 5.8), points.first()),
+        chart = ClinicalForecastChartUiState(historyPoints = List(37) { ChartPointUi(origin - (36 - it) * 300_000L,
+            7.2 + kotlin.math.sin(it * Math.PI / 18.0) * 0.8) },
+            futurePath = listOf(ChartPointUi(origin, 7.2)) + listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) },
             mealImpactPoints = points, mealImpactComplete = true, mealImpactGiAdjusted = true))
 
     @Test fun compactTargetAndPassiveDialogsNeverSendTherapy() {
@@ -72,6 +77,53 @@ class ClarityOverviewRobolectricTest {
             compose.onNodeWithTag("clarityEatingConfirm").assertIsDisplayed()
             compose.onNodeWithText(text(R.string.action_cancel)).performClick()
             assertEquals(0, sends)
+        }
+    }
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port")
+    fun balanceExposesSixMetricsBeforeCompactChart() {
+        withUi { screen(ready().copy(currentIsfMmolPerUnit = 2.4,
+            currentCrGramsPerUnit = 10.0, calculatedUamCarbsGrams = 8.0), {}) }.use {
+            listOf("clarityIob", "clarityCob", "clarityIsf", "clarityCr", "clarityUam", "clarityBaseTarget")
+                .forEach { compose.onNodeWithTag(it).assertIsDisplayed() }
+            compose.onNodeWithTag("clarityHorizon30").assertDoesNotExist()
+            val metrics = compose.onNodeWithTag("clarityMetrics").fetchSemanticsNode().boundsInRoot
+            val chart = compose.onNodeWithTag("clarityGlucoseChart").fetchSemanticsNode().boundsInRoot
+            assertTrue(metrics.toString(), metrics.bottom <= chart.top)
+            assertNoTextOverflow()
+            capture("balance-home-light.png")
+        }
+    }
+
+    @Test fun currentForecastMarkersOpenPassiveDetailsAndExpansion() {
+        var sends = 0
+        val future = listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) }
+        withUi { screen(ready().copy(chart = ready().chart.copy(futurePath = future)), { sends++ }) }.use {
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("forecastMarker30"))
+            compose.onNodeWithTag("forecastMarker30").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
+            compose.onNodeWithTag("forecastMarker30").performClick()
+            compose.onNodeWithTag("clarityForecastDetails").assertIsDisplayed()
+            compose.onNodeWithText(text(R.string.action_close)).performClick()
+            compose.onNodeWithTag("clarityChartExpand").performClick()
+            compose.onNodeWithTag("clarityChartDetails").assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("balance-expanded-light.png", true)
+            assertEquals(0, sends)
+        }
+    }
+
+    @Test fun enlargedRussianMetricsAndMarkersRemainReachableWithoutClipping() {
+        withUi(dark = true, fontScale = 2f) { screen(ready(), {}) }.use {
+            listOf("clarityIob", "clarityCob", "clarityIsf", "clarityCr", "clarityUam", "clarityBaseTarget").forEach {
+                compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag(it))
+                compose.onNodeWithTag(it).assertIsDisplayed()
+                assertNoTextOverflow()
+            }
+            capture("balance-metrics-dark-large.png")
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("forecastMarker30"))
+            compose.onNodeWithTag("forecastMarker30").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
+            assertNoTextOverflow()
+            capture("balance-chart-dark-large.png")
         }
     }
 
@@ -145,7 +197,9 @@ class ClarityOverviewRobolectricTest {
         withUi { screen(ready().copy(forecastsCurrent = false,
             targetManagerLiveStatus = ready().targetManagerLiveStatus.copy(currentTargetMmol = null)), {}) }.use {
             compose.onNodeWithTag("clarityObservedTarget", useUnmergedTree = true).assertTextEquals("--")
-            compose.onNodeWithTag("clarityHorizon30").performClick()
+            compose.onNodeWithTag("forecastMarker30").assertDoesNotExist()
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("clarityForecastInfo"))
+            compose.onNodeWithTag("clarityForecastInfo").performClick()
             compose.onNodeWithText(text(R.string.clarity_forecast_unavailable)).assertIsDisplayed()
         }
     }

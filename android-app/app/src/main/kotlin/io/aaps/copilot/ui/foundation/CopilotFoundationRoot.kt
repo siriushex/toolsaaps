@@ -297,13 +297,8 @@ fun CopilotFoundationRoot(
                             NavigationBarItem(
                                 selected = currentRoute == destination.route,
                                 onClick = {
-                                    navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                                    navController.navigateToPrimary(destination.route,
+                                        fromPrimary = Destinations.bottom.any { it.route == currentRoute })
                                 },
                                 icon = {
                                     Icon(

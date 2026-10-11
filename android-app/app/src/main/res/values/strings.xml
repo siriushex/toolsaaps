@@ -1888,4 +1888,9 @@
     <string name="energy_activity_save_failed">Changes could not be saved</string>
     <string name="energy_activity_sensitivity_save_failed">Saving the sex change could not be confirmed. Check current data and the diagnostic journal, then retry.</string>
     <string name="energy_activity_saving">Saving</string>
+    <string name="balance_chart_expand">Expand chart</string>
+    <string name="balance_chart_hours">%1$d h</string>
+    <string name="balance_forecast_details">Forecast details</string>
+    <string name="balance_forecast_marker">Forecast %1$d min: %2$s mmol/L. Interval %3$s to %4$s</string>
+    <string name="balance_recalculate">Recalculate</string>
 </resources>

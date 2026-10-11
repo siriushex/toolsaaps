@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Compact Balance Presentation
+
+The selected Clarity Overview now implements approved Balance: six open metrics,
+compact glucose/observed-target panel and current forecast marks on the existing
+chart. Marks match actual future-path timestamps/values and remain read-only.
+The separate full food display retains its original accepted lifetime/quality;
+it does not extend the main glucose forecast domain. Primary navigation avoids
+saving/restoring secondary destinations as tabs. No settings, clinical, schema,
+background subscription or timer change. See [native Balance](2026-10-11-native-balance.md).
+
 ## Initial Food-Profile Diagnostics
 
 The diagnostic energy-profile inference reads only sensor-block telemetry inside

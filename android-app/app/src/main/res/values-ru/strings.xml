@@ -1888,4 +1888,9 @@
     <string name="energy_activity_save_failed">Не удалось сохранить изменения</string>
     <string name="energy_activity_sensitivity_save_failed">Не удалось подтвердить сохранение изменения пола. Проверьте актуальность данных и журнал диагностики, затем повторите.</string>
     <string name="energy_activity_saving">Сохранение</string>
+    <string name="balance_chart_expand">Развернуть график</string>
+    <string name="balance_chart_hours">%1$d ч</string>
+    <string name="balance_forecast_details">Подробности прогноза</string>
+    <string name="balance_forecast_marker">Прогноз %1$d мин: %2$s ммоль/л. Интервал от %3$s до %4$s</string>
+    <string name="balance_recalculate">Пересчитать</string>
 </resources>
