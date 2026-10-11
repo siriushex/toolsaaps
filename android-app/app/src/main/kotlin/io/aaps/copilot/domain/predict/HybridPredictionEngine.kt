@@ -1877,7 +1877,7 @@ class HybridPredictionEngine(
 
     private companion object {
         const val LEGACY_MODEL_VERSION = "local-hybrid-v2"
-        const val ENHANCED_MODEL_VERSION = "local-hybrid-v3"
+        const val ENHANCED_MODEL_VERSION = "local-hybrid-v3.1"
         const val MIN_GLUCOSE_MMOL = 2.2
         const val MAX_GLUCOSE_MMOL = 22.0
         const val DEFAULT_ISF_MMOL_PER_UNIT = 2.3

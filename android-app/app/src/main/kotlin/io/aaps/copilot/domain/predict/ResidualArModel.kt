@@ -16,14 +16,24 @@ internal class ResidualArModel {
     )
 
     private val historyByBucket = LinkedHashMap<Long, Double>()
+    private var lastObservationTs: Long? = null
 
     internal fun copyForSimulation(): ResidualArModel = ResidualArModel().also {
         it.historyByBucket.putAll(historyByBucket)
+        it.lastObservationTs = lastObservationTs
     }
 
     fun appendOrUpdate(nowTs: Long, residualRocPer5: Double) {
+        if (!residualRocPer5.isFinite()) return
+        val previousTs = lastObservationTs
+        if (previousTs != null && nowTs < previousTs) return
         val bucket = nowTs / BUCKET_MS
+        // AR transitions and row weights require uninterrupted five-minute buckets.
+        if (previousTs != null && bucket - previousTs / BUCKET_MS > 1L) {
+            historyByBucket.clear()
+        }
         historyByBucket[bucket] = residualRocPer5.coerceIn(-1.2, 1.2)
+        lastObservationTs = nowTs
         trim(bucket)
     }
 

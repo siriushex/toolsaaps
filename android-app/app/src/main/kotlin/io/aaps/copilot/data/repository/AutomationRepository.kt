@@ -4210,23 +4210,7 @@ class AutomationRepository(
     }
 
     private fun ensureForecast30(forecasts: List<Forecast>): List<Forecast> {
-        val has30 = forecasts.any { it.horizonMinutes == 30 }
-        if (has30) return normalizeForecastSet(forecasts)
-
-        val f5 = forecasts.firstOrNull { it.horizonMinutes == 5 }?.valueMmol
-        val f60 = forecasts.firstOrNull { it.horizonMinutes == 60 }?.valueMmol
-        if (f5 == null || f60 == null) return forecasts
-        val baseTs = forecasts.maxOfOrNull { it.ts } ?: System.currentTimeMillis()
-        val f30 = 0.55 * f5 + 0.45 * f60
-        val synthetic = Forecast(
-            ts = baseTs + 30 * 60_000L,
-            horizonMinutes = 30,
-            valueMmol = f30,
-            ciLow = (f30 - 0.8).coerceAtLeast(2.2),
-            ciHigh = f30 + 0.8,
-                modelVersion = "local-interpolated-30m-v1"
-        )
-        return normalizeForecastSet(forecasts + synthetic)
+        return ensureForecast30Static(forecasts)
     }
 
     private fun normalizeForecastSet(forecasts: List<Forecast>): List<Forecast> {
@@ -11725,6 +11709,27 @@ class AutomationRepository(
                 compact.contains("UNKNOWN") || compact.contains("НЕИЗВЕСТ") -> 0
                 else -> null
             }
+        }
+
+        internal fun ensureForecast30Static(forecasts: List<Forecast>): List<Forecast> {
+            val has30 = forecasts.any { it.horizonMinutes == 30 }
+            if (has30) return normalizeForecastSetStatic(forecasts)
+
+            val anchors = normalizeForecastSetStatic(forecasts)
+            val f5 = anchors.firstOrNull { it.horizonMinutes == 5 } ?: return forecasts
+            val f60 = anchors.firstOrNull { it.horizonMinutes == 60 } ?: return forecasts
+            val origin = forecastGeneratedAtStatic(f5.ts, f5.horizonMinutes) ?: return forecasts
+            if (forecastGeneratedAtStatic(f60.ts, f60.horizonMinutes) != origin) return forecasts
+            val f30 = 0.55 * f5.valueMmol + 0.45 * f60.valueMmol
+            val synthetic = Forecast(
+                ts = origin + 30 * MINUTE_MS,
+                horizonMinutes = 30,
+                valueMmol = f30,
+                ciLow = (f30 - 0.8).coerceAtLeast(2.2),
+                ciHigh = f30 + 0.8,
+                modelVersion = "local-interpolated-30m-v1"
+            )
+            return normalizeForecastSetStatic(forecasts + synthetic)
         }
 
         internal fun normalizeForecastSetStatic(forecasts: List<Forecast>): List<Forecast> {

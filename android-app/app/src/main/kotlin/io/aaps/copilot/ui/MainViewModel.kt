@@ -2355,7 +2355,7 @@ class MainViewModel(application: Application) :
         val currentGlucose = selectOverviewCurrentGlucoseForUi(rawGlucose, now)
         val latest = currentGlucose.latest
         val prev = currentGlucose.previous
-        val quality = qualityEvaluator.evaluate(forecasts, glucose)
+        val quality = qualityEvaluator.evaluate(forecasts, glucose, evaluatedAt = now)
         val baselineDeltas = baselineComparator.compare(
             forecasts = forecasts.map { it.toDomainForecast() },
             baseline = baseline

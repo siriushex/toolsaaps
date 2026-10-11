@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Prediction Time Integrity
+
+Enhanced `local-hybrid-v3.1` retains the current physiology and continuous-history
+coefficients. Residual AR fits only the uninterrupted suffix of five-minute
+observation buckets; a missing bucket starts the existing decay fallback until
+enough new evidence arrives. Simulation copies preserve their own chronology.
+The missing-30m helper requires matching 5m/60m origins. UI quality evaluation
+uses an explicit clock and only observed outcomes, matched with binary search.
+See [prediction audit and refinement](2026-10-11-prediction-audit.md) for the
+remaining reference/provenance gaps and paired-validation design.
+
 ## Actionable UI Diagnostics
 
 Visible error banners and primary Overview/Safety warnings open passive help.
@@ -694,7 +705,9 @@ AAPS Predictive Copilot is a two-part system:
 - Enhanced local forecasting operates on a canonical 5-minute CGM series derived from raw `1..5` minute sensor input before trend/UAM/Kalman calculations.
 - Circadian pattern fitting operates on deduplicated canonical glucose history and stores a separate `15-minute` pattern layer for `WEEKDAY`, `WEEKEND`, and `ALL`.
 - On-device circadian verification must not depend on copying the live WAL-backed SQLite database; the app surfaces circadian state directly in `Analytics` (`READY / PARTIAL / STALE / EMPTY`, row counts, latest snapshot/replay timestamps, active segment sources).
-- Enhanced V3 Kalman filtering consumes deterministic known-input from therapy and bounded historical UAM on each canonical 5-minute interval, so residual AR sees only unexplained dynamics.
+- Enhanced V3 Kalman filtering consumes deterministic insulin and announced-food
+  known input on each canonical interval. Historical UAM input is currently zero;
+  active forward UAM instead suppresses positive residual extrapolation before AR.
 - Circadian prior is a bounded secondary forecast prior:
   - it is blended after physiology/path simulation,
   - weights are horizon-aware (`5m/30m/60m`) and confidence-gated,

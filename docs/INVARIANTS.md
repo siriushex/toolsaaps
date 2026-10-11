@@ -311,6 +311,13 @@ A durable pre-send claim prevents automatic retry after an uncertain HTTP outcom
    - ordinary adaptive trend releases only move an exactly owned NORMAL_CONTROL target toward, never across, the effective base. A new glucose observation beyond the previous send, trusted sensor/delivery, non-flat canonical trend and concordant same-cycle 5m forecast are required. All decrease reliability/low-risk/ownership/arm/freshness gates remain in force. Protective targets are not released by this exception.
 
 ## Prediction invariants
+Residual AR learning must not bridge a missing five-minute observation bucket
+as one ordinary transition. Repeated same-bucket observations do not increase
+sample count; obsolete/non-finite input cannot mutate current residual history.
+Any reconstructed horizon must use the common validated origin of its anchors.
+Retrospective UI scoring must exclude future CGM and forecasts outside the
+observed window at its explicit evaluation clock.
+
 New current CGM mutations request the existing durable clinical recalculation
 without a four-minute glucose scheduling hold. The mutation comparison and
 outbox write are transactional and share a frozen ingest clock; duplicate row
@@ -328,7 +335,9 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 6. UAM contribution must not be double-counted with positive residual trend when UAM is active.
 7. Synthetic/exported UAM carbs must never become announced-carb ground truth for forecast physiology or ISF/CR learning.
 8. External/AAPS raw `COB` is a reference signal only; runtime `effective COB` used by forecast/controller must subtract residual synthetic `UAM_ENGINE` carbs before merge so exported UAM does not re-enter prediction through `COB` bias.
-9. Enhanced V3 Kalman state must treat therapy and bounded historical UAM as known input before residual AR is fitted.
+9. Enhanced V3 Kalman state treats insulin and announced-food effects as known
+   input before residual AR is fitted. Current historical UAM input is zero;
+   positive residual extrapolation is suppressed when forward UAM is active.
 10. Recent forecast calibration must remain causal:
    - bias and CI width may use only already-matured forecast-vs-actual pairs inside the calibration lookback,
    - CI width calibration is based on empirical absolute residual quantiles, not future actuals.

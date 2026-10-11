@@ -1,5 +1,19 @@
 # PLAN
 
+## Prediction Time Integrity And Refinement (2026-10-11)
+
+- Reproduced and corrected residual AR learning across missing buckets, the
+  reconstructed 30m timestamp and premature UI quality scoring. Explicit clocks
+  and binary-search matching retain existing observed interpolation behavior.
+- Enhanced version becomes `local-hybrid-v3.1`; exact-version reliability needs
+  its own matured evidence. Continuous-history coefficients and target guards
+  are unchanged. Full source verification/publication is recorded in AI_NOTES.
+- Detailed follow-on experiments: [prediction audit](2026-10-11-prediction-audit.md).
+  Priorities are reversal response, residual drift, paired bias-layer ablation,
+  consistent evaluation provenance and held-out uncertainty calibration. These
+  candidate algorithms are not enabled by the time-integrity corrections.
+
+
 ## Actionable Errors (2026-10-10)
 
 - Implement typed passive help and navigation for shared screen errors, stale

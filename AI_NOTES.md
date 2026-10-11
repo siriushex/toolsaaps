@@ -1,3 +1,28 @@
+# Prediction Time Integrity And Algorithm Audit - 2026-10-11
+
+- Audited the live V3 pipeline, scheduling, known-input filter, residual AR,
+  meal/UAM fusion, post-processing and evaluation. Detailed source findings and
+  a chronological paired-validation design are in docs/2026-10-11-prediction-audit.md.
+  Real history and individual metrics remain private, outside publication.
+- Reproduced11 failures in26 focused cases: residual learning bridged absent
+  buckets, reconstructed30m used a90m target clock, and UI scoring substituted
+  nearby CGM for unobserved outcomes. Preserved original failing reports.
+- Residual training now starts anew after a missing five-minute bucket; stale
+  or non-finite updates cannot corrupt it. Continuous coefficients, bounds and
+  UAM constraints remain. Simulation copies retain independent chronology.
+- Missing30m fallback requires a common checked origin. UI evaluation now has
+  an explicit clock and observed-window bound, with binary-search matching.
+- Enhanced model label is local-hybrid-v3.1, so reliability must collect its own
+  matured evidence. No old result is relabelled as new-model accuracy.
+- Expanded315-case suite passed after correcting a legacy persistent-drift test
+  that used ten-minute updates for a five-minute model; sparse-input behavior
+  is covered separately. Explicit-clock and endpoint follow-up30 cases passed.
+- Full Android unit/lint/compile/APK gates passed in4m32s: 5137 cases across437
+  suites, zero failures/errors and3 optional skips. Lint has zero errors,
+  313 warnings and4 hints. Exact-commit publication/CI evidence is retained
+  privately after completion. No database schema, setting, therapy transport
+  or phone installation changes.
+
 # Actionable Errors - 2026-10-10
 
 - User requested tappable errors with explanation and a route to the actual
