@@ -1,3 +1,18 @@
+# Lenta Estimate UI Design Review - 2026-10-12
+
+- User selected a separate Estimate mode inside the existing Lenta dialog instead
+  of changing the Food form. Written spec awaits review before implementation:
+  superpowers/specs/2026-10-12-lenta-meal-estimate-design.md.
+- Preserve accepted Current COB/mmol-L display and its viewport; the independent
+  type/portion preview uses modeled grams and elapsed minutes through its full
+  endpoint. Existing Food/Eating Soon action routes and payloads stay unchanged.
+- First UI connection uses honest type-default presets only. The current history
+  audit cannot supply prepared personal episodes; no invented history count,
+  numerical GI, body-profile error, learned accuracy or therapy authority.
+- Documentation only, locally reviewed for scope/source privacy. No UI/code,
+  tests, APK, phone, schema, workers or clinical actions changed. Previous stage
+  verification is not evidence that this proposed UI has been implemented.
+
 # Hybrid Minimal-Data Advisory Preview - 2026-10-12
 
 - User approved the combined model and asked for minimum-data availability.
