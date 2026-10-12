@@ -1,3 +1,20 @@
+# Dashboard IOB And Infusion Indicator Design Review - 2026-10-13
+
+- User requested current IOB / signed net IOB on the primary panel. Both existing
+  Overview UI values are already available; proposed display preserves signs,
+  independent missing values, original Details and all calculation/action routes.
+- User approved the first infusion-indicator concept and specified three days:
+  reminder at72 elapsed hours from verified occurrence, independently of delivery
+  suspicion. Existing accepted diagnostic evidence is reused without new thresholds.
+- Two written specifications await review before implementation:
+  superpowers/specs/2026-10-13-dashboard-iob-pair-design.md and
+  superpowers/specs/2026-10-13-infusion-set-indicator-design.md.
+- Proposed reader rejects unknown units, receipt-time fallback, stale/echo evidence
+  and model-neutral age0. Reminder source/generation is independent of clinical
+  arming/network; no new audio escalation or ISF/usage failure model is enabled.
+- Documentation only. No UI/code/tests, build/APK, phone, schema, sound or therapy
+  changes. Pending Lenta Estimate written review remains a separate unchanged stage.
+
 # Lenta Estimate UI Design Review - 2026-10-12
 
 - User selected a separate Estimate mode inside the existing Lenta dialog instead
