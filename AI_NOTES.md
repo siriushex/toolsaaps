@@ -1,3 +1,16 @@
+# Base Target Direct Controls Design Review - 2026-10-13
+
+- User approved visible minus/value/plus for every interval, retaining the default
+  step0.1 and existing limits. The current interval stepper is hidden under Edit;
+  proposed Edit expands time only, with one always-visible target control.
+- Written specification awaits review before this UI change:
+  superpowers/specs/2026-10-13-base-target-direct-controls-design.md.
+- Preserve local draft and explicit validated Save/Cancel, interval IDs/time,
+  overnight/overlap rules and all clinical/circadian/Target Manager protections.
+  No schedule UI, persisted setting or therapy changes in this design stage.
+- IOB/infusion written specs are independently approved; their implementation
+  proceeds separately and this pending design does not hold up those stages.
+
 # Dashboard IOB And Infusion Indicator Design Review - 2026-10-13
 
 - User requested current IOB / signed net IOB on the primary panel. Both existing
