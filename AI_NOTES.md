@@ -1,3 +1,32 @@
+# Compact Clarity And Lenta UI - 2026-10-12
+
+- Approved UI/build-only stage supersedes the earlier COB-editor route after
+  explicit selection of full Lenta on COB. Plus retains the familiar form.
+- Refresh and blood entry reuse original root callbacks. More/lower duplicate
+  tools are removed; power save moves to the scrollable drawer, Safety and
+  compensation report remain reachable, and source errors remain visible.
+- Food view opens its complete accepted domain and records real entered meals,
+  never per-meal remaining COB or physiological event ends. It preserves stale/
+  updating status and origin; live external COB cannot rescale accepted points.
+- Removes manual GI input only. Portion/type, manual grams, optional calories,
+  Eating Soon defaults and explicit preparation remain. No new GI estimator,
+  clinical thresholds, target priorities, database, workers or AAPS/backend edits.
+- Six new behavior assertions failed before production changes. Native follow-up
+  found insufficient explicit icon size and root-chrome overflow; corrected UI
+  has explicit48dp controls, a font-sized event badge and a140dp chart minimum.
+- Focused subset33 cases passes with no failures/errors/skips. Synthetic native
+  320x640/360x800, light/dark and enlarged-Russian renders inspected privately.
+  Ordinary root-chrome view fits without scrolling; extra warnings/large fonts
+  retain scrolling instead of hiding data. Pump attention/open episodes retain
+  text, while healthy/unknown channel help uses the header indicator.
+- Full Android gate passes:5220 cases,zero failures/errors,3 optional phone-copy
+  skips. Lint zero errors,320 warnings,4 hints. Five added unused-resource warnings
+  are retained labels for removed controls; no check is disabled. Kotlin compile
+  and signed APK pass. Backend unchanged,327 tests pass with one dependency warning.
+- APK signer matches the previous local debug certificate. The reviewed source
+  publication and exact-source CI are separate final gates. No device update,
+  medical validation, GI calibration or CPU/RAM improvement is claimed.
+
 # Familiar Carbohydrate Entry Route - 2026-10-12
 
 - User reported the COB menu regression after the Balance update. A native

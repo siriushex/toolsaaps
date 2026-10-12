@@ -28,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.components.ClinicalChartViewportMode
 import io.aaps.copilot.ui.foundation.components.ClinicalChartViewportSnapshot
@@ -50,7 +51,8 @@ internal fun clarityForecastPoints(state: OverviewUiState): List<Pair<Int, Chart
 }
 
 @Composable
-internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onExpand: () -> Unit, onHorizon: (Int) -> Unit) {
+internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onExpand: () -> Unit,
+    onHorizon: (Int) -> Unit, compactHeight: Dp = 190.dp, statusContent: @Composable () -> Unit = {}) {
     // The full food tail belongs to its own view, not the one-hour glucose forecast.
     val chart = state.chart.copy(mealImpactPoints = emptyList(), mealImpactComplete = null, mealImpactGiAdjusted = false)
     val interaction = rememberInteractiveClinicalChartState(chart)
@@ -66,7 +68,7 @@ internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onEx
             UiFormatters.formatMmol(point.value, 1), UiFormatters.formatMmol(horizon.ciLow, 1), UiFormatters.formatMmol(horizon.ciHigh, 1)))
     }
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("clarityGlucoseChart")) {
-    val compactToolbar = maxWidth >= 320.dp && LocalDensity.current.fontScale < 1.3f
+    val compactToolbar = expanded && maxWidth >= 320.dp && LocalDensity.current.fontScale < 1.3f
     val ranges: @Composable () -> Unit = {
         listOf(1, 3, 6).forEach { value ->
             TextButton(onClick = { hours = value }, contentPadding = PaddingValues(horizontal = 4.dp),
@@ -79,16 +81,23 @@ internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onEx
     }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (expanded) "" else description, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            if (expanded) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) else {
+                Text(stringResource(R.string.clarity_cgm_age, clarityAge(state.sampleAgeMinutes)),
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.clarity_sync_age, clarityAge(state.syncAgeMinutes)),
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (compactToolbar) ranges()
+            if (!expanded) statusContent()
             if (expanded || markers.none { interaction != null && it.point.ts in interaction.viewport.startTs..interaction.viewport.endTs }) {
                 ClarityToolButton(Icons.Default.Info, stringResource(R.string.balance_forecast_details), "clarityForecastInfo") { onHorizon(30) }
             }
             if (!expanded) ClarityToolButton(Icons.Default.Fullscreen, stringResource(R.string.balance_chart_expand), "clarityChartExpand", onExpand)
             else ClarityToolButton(Icons.Default.Refresh, stringResource(R.string.overview_chart_reset_view), "clarityChartReset") { interaction?.reset() }
         }
-        if (!compactToolbar) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { ranges() }
-        val height = if (expanded) 300.dp else 190.dp
+        if (expanded && !compactToolbar) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { ranges() }
+        val height = if (expanded) 300.dp else compactHeight
         if (interaction == null) {
             ClinicalForecastChart(chart, description, stringResource(R.string.overview_chart_empty),
                 stringResource(R.string.overview_chart_now), stringResource(R.string.overview_chart_plus_30), chartHeight = height)

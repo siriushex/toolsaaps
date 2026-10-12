@@ -10,8 +10,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +29,6 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -263,7 +265,10 @@ fun CopilotFoundationRoot(
                         showStatusIndicators = chromeDetailsReady,
                         showGlucoseAlertToggle = currentRoute == Destinations.Overview.route,
                         glucoseAlertMutedUntilTs = overview.glucoseAlertMutedUntilTs,
-                        showPowerSaveAction = currentRoute == Destinations.Overview.route,
+                        showOverviewActions = currentRoute == Destinations.Overview.route && selectedUiStyle == UiStyle.CLARITY,
+                        canRunCycle = overview.canRunCycleNow,
+                        onOverviewRunCycle = viewModel::runCycleNow,
+                        onOverviewBloodCheck = { overviewAuthoritativeEditor = OverviewAuthoritativeEditor.BLOOD_CHECK },
                         onMenuClick = { drawerOpen = !drawerOpen },
                         onMuteGlucoseAlerts30m = viewModel::muteGlucoseAlerts30m,
                         onMuteGlucoseAlerts60m = viewModel::muteGlucoseAlerts60m,
@@ -275,14 +280,8 @@ fun CopilotFoundationRoot(
                         },
                         onOpenEvents = { showEventsDialog = true },
                         activeEventCount = overview.events.count { it.isActiveAt(overview.eventTimelineNowTs) },
-                        onPowerSaveClick = { showPowerSaveDialog = true },
                         onOpenHealth = {
                             navController.navigate(Destinations.Audit.route) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onNavigateMore = { destination ->
-                            navController.navigate(destination.route) {
                                 launchSingleTop = true
                             }
                         }
@@ -335,7 +334,8 @@ fun CopilotFoundationRoot(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+                        .padding(horizontal = Spacing.md,
+                            vertical = if (currentRoute == Destinations.Overview.route && selectedUiStyle == UiStyle.CLARITY) 4.dp else Spacing.sm)
                 ) {
                     if (routeShellReady) {
                         val showHealthWarning = appHealth.staleData || appHealth.killSwitchEnabled
@@ -698,6 +698,8 @@ fun CopilotFoundationRoot(
                     visible = drawerOpen,
                     currentRoute = currentRoute,
                     uiStyle = selectedUiStyle,
+                    showPowerSaveAction = currentRoute == Destinations.Overview.route,
+                    onPowerSaveClick = { drawerOpen = false; showPowerSaveDialog = true },
                     onDismiss = { drawerOpen = false },
                     onNavigate = { destination ->
                         drawerOpen = false
@@ -712,7 +714,7 @@ fun CopilotFoundationRoot(
 }
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun TopBar(
+internal fun TopBar(
     title: String,
     uiStyle: UiStyle,
     staleData: Boolean,
@@ -720,7 +722,10 @@ private fun TopBar(
     showStatusIndicators: Boolean,
     showGlucoseAlertToggle: Boolean,
     glucoseAlertMutedUntilTs: Long,
-    showPowerSaveAction: Boolean,
+    showOverviewActions: Boolean,
+    canRunCycle: Boolean,
+    onOverviewRunCycle: () -> Unit,
+    onOverviewBloodCheck: () -> Unit,
     onMenuClick: () -> Unit,
     onMuteGlucoseAlerts30m: () -> Unit,
     onMuteGlucoseAlerts60m: () -> Unit,
@@ -728,11 +733,8 @@ private fun TopBar(
     onOpenAlertHistory: () -> Unit,
     onOpenEvents: () -> Unit,
     activeEventCount: Int,
-    onPowerSaveClick: () -> Unit,
-    onOpenHealth: () -> Unit,
-    onNavigateMore: (MoreDestination) -> Unit
+    onOpenHealth: () -> Unit
 ) {
-    var moreExpanded by remember { mutableStateOf(false) }
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
         glucoseAlertMutedUntilTs
@@ -765,7 +767,11 @@ private fun TopBar(
             actionIconContentColor = contentColor,
             navigationIconContentColor = contentColor
         ),
-        title = { Text(text = title) },
+        title = {
+            if (!showOverviewActions) {
+                Text(text = title)
+            }
+        },
         navigationIcon = {
             IconButton(onClick = onMenuClick) {
                 Icon(
@@ -775,6 +781,9 @@ private fun TopBar(
             }
         },
         actions = {
+            if (showOverviewActions) {
+                ClarityOverviewActions(canRunCycle, onOverviewRunCycle, onOverviewBloodCheck)
+            }
             if (showGlucoseAlertToggle) {
                 EventAlertActions(
                     activeEventCount = activeEventCount,
@@ -802,49 +811,6 @@ private fun TopBar(
                     }
                 }
             }
-            IconButton(onClick = { moreExpanded = true }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = stringResource(id = R.string.menu_more)
-                )
-            }
-            if (moreExpanded) {
-                DropdownMenu(
-                    expanded = true,
-                    onDismissRequest = { moreExpanded = false }
-                ) {
-                    if (showPowerSaveAction) {
-                        DropdownMenuItem(
-                            text = { Text(text = stringResource(id = R.string.overview_power_save_title)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.PowerSettingsNew,
-                                    contentDescription = stringResource(id = R.string.overview_power_save_title)
-                                )
-                            },
-                            onClick = {
-                                moreExpanded = false
-                                onPowerSaveClick()
-                            }
-                        )
-                    }
-                    Destinations.more.forEach { destination ->
-                        DropdownMenuItem(
-                            text = { Text(text = stringResource(id = destination.titleRes)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = destination.icon,
-                                    contentDescription = stringResource(id = destination.titleRes)
-                                )
-                            },
-                            onClick = {
-                                moreExpanded = false
-                                onNavigateMore(destination)
-                            }
-                        )
-                    }
-                }
-            }
         }
     )
 }
@@ -868,12 +834,14 @@ internal fun EventAlertActions(
 ) {
     var alertMenuExpanded by remember { mutableStateOf(false) }
     val badgeText = activeEventBadgeText(activeEventCount)
+    val badgeHeight = (16f * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
     BadgedBox(
         badge = {
             badgeText?.let { text ->
                 val description = stringResource(R.string.events_active_badge_description, text)
                 Badge(
                     modifier = Modifier
+                        .heightIn(min = badgeHeight)
                         .testTag("eventsActiveBadge")
                         .semantics { contentDescription = description }
                 ) {
@@ -994,6 +962,8 @@ private fun RootDrawerOverlay(
     visible: Boolean,
     currentRoute: String?,
     uiStyle: UiStyle,
+    showPowerSaveAction: Boolean,
+    onPowerSaveClick: () -> Unit,
     onDismiss: () -> Unit,
     onNavigate: (MoreDestination) -> Unit
 ) {
@@ -1034,7 +1004,7 @@ private fun RootDrawerOverlay(
                     tonalElevation = 6.dp,
                     shadowElevation = 16.dp
                 ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                         Text(
                             text = stringResource(id = R.string.app_name),
                             modifier = Modifier.padding(start = 16.dp, top = 20.dp),
@@ -1078,6 +1048,15 @@ private fun RootDrawerOverlay(
                             style = MaterialTheme.typography.titleSmall,
                             color = if (uiStyle == UiStyle.MIDNIGHT_GLASS) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (showPowerSaveAction) {
+                            NavigationDrawerItem(
+                                label = { Text(stringResource(R.string.overview_power_save_title)) },
+                                selected = false,
+                                onClick = onPowerSaveClick,
+                                icon = { Icon(Icons.Default.PowerSettingsNew, null) },
+                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding).testTag("drawerPowerSave")
+                            )
+                        }
                         Destinations.more.forEach { destination ->
                             NavigationDrawerItem(
                                 label = { Text(text = stringResource(id = destination.titleRes)) },

@@ -87,8 +87,7 @@ class MealEntryLayoutRobolectricTest {
             }
             for (id in listOf(R.string.meal_portion_small, R.string.meal_portion_medium,
                 R.string.meal_portion_large, R.string.food_profile_fast_label,
-                R.string.food_profile_mixed_label, R.string.food_profile_slow_label,
-                R.string.meal_glycemic_index_optional)) {
+                R.string.food_profile_mixed_label, R.string.food_profile_slow_label)) {
                 val result = mutableListOf<TextLayoutResult>()
                 compose.onNodeWithText(app.getString(id), useUnmergedTree = true).performScrollTo()
                 compose.onNodeWithText(app.getString(id), useUnmergedTree = true).performSemanticsAction(
@@ -109,6 +108,7 @@ class MealEntryLayoutRobolectricTest {
             else assertEquals("Normal labels retain a compact row", eating.top, manual.top, 0.5f)
             compose.onNodeWithTag("overviewPrepareMeal").assertIsDisplayed()
             compose.onNodeWithTag("overviewManualMealEnergyKcal").assertDoesNotExist()
+            compose.onNodeWithTag("mealGlycemicIndex").assertDoesNotExist()
             if (interact) {
                 compose.onNodeWithTag("mealPortion_SMALL").performScrollTo().performClick()
                 compose.onNodeWithTag("mealProfile_FAST").performScrollTo().performClick()
@@ -118,16 +118,12 @@ class MealEntryLayoutRobolectricTest {
                 compose.onNodeWithTag("overviewPrepareMeal").assertIsNotEnabled()
                 compose.onNodeWithTag("mealConfirmGrams").performTextReplacement("80")
                 compose.onNodeWithTag("overviewPrepareMeal").assertIsEnabled()
-                compose.onNodeWithTag("mealGlycemicIndex").performScrollTo().performTextReplacement("201")
-                compose.onNodeWithTag("overviewPrepareMeal").assertIsEnabled()
-                compose.onNodeWithText(app.getString(R.string.meal_glycemic_index_invalid)).assertIsDisplayed()
-                compose.onNodeWithTag("mealGlycemicIndex").performTextReplacement("80")
                 compose.onNodeWithText(app.getString(R.string.meal_prepare_amount, "80")).assertIsDisplayed()
                 compose.onNodeWithTag("overviewEatingSoon").performScrollTo().performClick()
                 compose.onNodeWithTag("overviewPrepareMeal").performClick()
                 assertEquals(1, confirmations.size)
                 assertEquals(80.0, confirmations.single().grams, 0.0)
-                assertEquals(80.0, confirmations.single().glycemicIndex!!.value, 0.0)
+                assertNull(confirmations.single().glycemicIndex)
                 assertNull(confirmations.single().energyKcal)
                 assertFalse(confirmations.single().eatingSoon)
                 assertEquals(MealPortionProvenance.USER_CORRECTED, confirmations.single().provenance)

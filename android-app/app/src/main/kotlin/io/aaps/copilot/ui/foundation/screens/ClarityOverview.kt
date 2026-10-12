@@ -17,11 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bloodtype
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingFlat
 import androidx.compose.material.icons.filled.TrendingUp
@@ -48,6 +45,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.R
@@ -64,16 +64,14 @@ internal fun ClarityOverviewContent(
     onIsf: () -> Unit,
     onCr: () -> Unit,
     onUam: () -> Unit,
-    onRunCycle: () -> Unit,
     onBaseTarget: () -> Unit,
-    onAddBloodCheck: () -> Unit,
+    onOpenClinicalReport: () -> Unit,
     warningContent: @Composable () -> Unit,
     profileContent: @Composable () -> Unit,
-    detailsContent: @Composable ColumnScope.() -> Unit,
+    pumpStatusContent: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var targetDetails by rememberSaveable { mutableStateOf(false) }
-    var clinicalDetails by rememberSaveable { mutableStateOf(false) }
     var foodDetails by rememberSaveable { mutableStateOf(false) }
     var eatingDetails by rememberSaveable { mutableStateOf(false) }
     var confirmEating by rememberSaveable { mutableStateOf(false) }
@@ -101,15 +99,12 @@ internal fun ClarityOverviewContent(
             Text(stringResource(R.string.overview_target_edit))
         }
     }
-    if (clinicalDetails) ClarityDetailsDialog(
-        stringResource(R.string.clarity_details), "clarityClinicalDetails", { clinicalDetails = false }, detailsContent
-    )
-    if (foodDetails) ClarityDetailsDialog(
-        stringResource(R.string.clarity_food_details), "clarityFoodDetails", { foodDetails = false }
-    ) {
-        Text("${stringResource(R.string.metric_cob)} ${UiFormatters.formatGrams(state.currentCobGrams, 1)} ${stringResource(R.string.unit_g)}")
-        ClarityFoodCurve(state)
-    }
+    if (foodDetails) ClarityFoodDetailsDialog(state, { foodDetails = false },
+        onMeal = { foodDetails = false; onMeal() },
+        onEatingSoon = {
+            foodDetails = false
+            if (state.eatingSoon.status == EatingSoonUiStatus.IDLE) openConfirmation() else eatingDetails = true
+        })
     if (chartExpanded) ClarityDetailsDialog(
         stringResource(R.string.overview_chart_title), "clarityChartDetails", { chartExpanded = false }
     ) {
@@ -171,61 +166,41 @@ internal fun ClarityOverviewContent(
         }
     }
 
-    Column(modifier.fillMaxSize().testTag("clarityOverview")) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
+    val compactChartHeight = (maxHeight - 320.dp).coerceIn(140.dp, 190.dp)
+    Column(Modifier.fillMaxSize().testTag("clarityOverview")) {
         warningContent()
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("clarityContent"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.clarity_cgm_age, clarityAge(state.sampleAgeMinutes)),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall)
-                    Text(stringResource(R.string.clarity_sync_age, clarityAge(state.syncAgeMinutes)),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("clarityContent"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item {
                 BoxWithConstraints(Modifier.fillMaxWidth().testTag("clarityPrimaryPanel")) {
                     if (maxWidth < 280.dp || LocalDensity.current.fontScale >= 1.3f) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            ClarityGlucose(state)
+                            Column(Modifier.testTag("clarityClinicalReport")
+                                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.clarity_details),
+                                    onClick = onOpenClinicalReport)) { ClarityGlucose(state) }
                             HorizontalDivider()
                             ClarityTarget(displayedManager, { targetDetails = true }, Modifier.fillMaxWidth())
                         }
                     } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1.45f)) { ClarityGlucose(state) }
+                        Column(Modifier.weight(1.45f).testTag("clarityClinicalReport")
+                            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.clarity_details),
+                                onClick = onOpenClinicalReport)) { ClarityGlucose(state) }
                         ClarityTarget(displayedManager, { targetDetails = true }, Modifier.weight(1f))
                     }
                 }
             }
             item {
                 HorizontalDivider()
-                ClarityMetrics(state, onIob, onMeal, onIsf, onCr, onUam, onBaseTarget)
+                ClarityMetrics(state, onIob, { foodDetails = true }, onIsf, onCr, onUam, onBaseTarget)
+                OverviewSensitivitySourceStatus(state)
                 HorizontalDivider()
             }
-            item { ClarityGlucoseChart(state, false, { chartExpanded = true }, { horizon = it }) }
-            item {
-                if (state.currentCobGrams != 0.0 || state.acceptedFoodDisplay != null) {
-                    TextButton(modifier = Modifier.fillMaxWidth().testTag("clarityFoodOpen"), onClick = { foodDetails = true }) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${stringResource(R.string.clarity_food_title)} · ${UiFormatters.formatGrams(state.currentCobGrams, 1)} ${stringResource(R.string.unit_g)} COB")
-                            FoodDisplayStatusLabel(state)
-                        }
-                        Icon(Icons.Default.ChevronRight, null)
-                    }
-                }
-            }
+            item { ClarityGlucoseChart(state, false, { chartExpanded = true }, { horizon = it },
+                compactChartHeight, pumpStatusContent) }
             item { profileContent() }
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    if (state.canRunCycleNow) ClarityToolButton(Icons.Default.Refresh, stringResource(R.string.balance_recalculate), "clarityRunCycle", onRunCycle)
-                    ClarityToolButton(Icons.Default.Bloodtype, stringResource(R.string.overview_calibration_action), "clarityBloodCheck", onAddBloodCheck)
-                    ClarityToolButton(Icons.Default.MoreHoriz, stringResource(R.string.clarity_details), "clarityMoreDetails") { clinicalDetails = true }
-                }
-            }
         }
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("clarityEatingSoon"),
                 shape = RoundedCornerShape(6.dp),
@@ -243,6 +218,7 @@ internal fun ClarityOverviewContent(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -259,7 +235,7 @@ private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () 
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("clarityMetrics")) {
         val columns = when {
             LocalDensity.current.fontScale >= 1.8f -> 1
-            maxWidth < 300.dp || LocalDensity.current.fontScale >= 1.3f -> 2
+            maxWidth < 280.dp || LocalDensity.current.fontScale >= 1.3f -> 2
             else -> 3
         }
         Column {
@@ -281,7 +257,7 @@ private data class ClarityMetricSpec(val tag: String, val label: String, val val
 private fun ClarityGlucose(state: OverviewUiState) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(UiFormatters.formatMmol(state.glucose, 1), modifier = Modifier.testTag("clarityGlucose"),
-            style = MaterialTheme.typography.displayMedium.copy(fontSize = 48.sp, lineHeight = 52.sp),
+            style = MaterialTheme.typography.displayMedium.copy(fontSize = 40.sp, lineHeight = 44.sp),
             fontWeight = FontWeight.SemiBold)
         if (state.delta != null && state.delta.isFinite()) Icon(when {
             state.delta > 0.0 -> Icons.Default.TrendingUp
@@ -299,12 +275,12 @@ private fun ClarityGlucose(state: OverviewUiState) {
 
 @Composable
 private fun ClarityTarget(status: TargetManagerLiveStatusUi, onClick: () -> Unit, modifier: Modifier) {
-    Column(modifier.heightIn(min = 80.dp).testTag("clarityTargetSummary")
+    Column(modifier.heightIn(min = 68.dp).testTag("clarityTargetSummary")
         .clickable(role = Role.Button, onClickLabel = stringResource(R.string.clarity_target_details), onClick = onClick)
         .padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(stringResource(R.string.clarity_aaps_target), style = MaterialTheme.typography.labelMedium)
         Text(UiFormatters.formatMmol(status.currentTargetMmol, 1), modifier = Modifier.testTag("clarityObservedTarget"),
-            style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+            style = MaterialTheme.typography.headlineMedium.copy(fontSize = 24.sp, lineHeight = 28.sp), fontWeight = FontWeight.SemiBold)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(clarityManagerModeLabel(status.mode), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             Icon(Icons.Default.ChevronRight, null, Modifier.size(16.dp))
@@ -321,10 +297,12 @@ private fun ClarityTarget(status: TargetManagerLiveStatusUi, onClick: () -> Unit
 
 @Composable
 private fun ClarityMetric(label: String, value: String, unit: String, tag: String, onClick: () -> Unit, modifier: Modifier) {
-    Column(modifier.heightIn(min = 64.dp).testTag(tag).clickable(role = Role.Button, onClick = onClick).padding(vertical = 6.dp)) {
+    Column(modifier.heightIn(min = 48.dp).testTag(tag).clickable(role = Role.Button, onClick = onClick).padding(vertical = 4.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(value) }
+            withStyle(SpanStyle(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(" "); append(unit) }
+        }, style = MaterialTheme.typography.titleMedium)
     }
 }
 
@@ -347,7 +325,7 @@ internal fun clarityManagerModeLabel(mode: String?): String = stringResource(whe
 })
 
 @Composable
-private fun clarityEatingStatusLabel(status: EatingSoonUiStatus): String = stringResource(when (status) {
+internal fun clarityEatingStatusLabel(status: EatingSoonUiStatus): String = stringResource(when (status) {
     EatingSoonUiStatus.IDLE -> R.string.clarity_eating_soon
     EatingSoonUiStatus.QUEUED -> R.string.clarity_eating_queued
     EatingSoonUiStatus.AWAITING_AAPS -> R.string.clarity_eating_waiting
@@ -357,6 +335,6 @@ private fun clarityEatingStatusLabel(status: EatingSoonUiStatus): String = strin
 })
 
 @Composable
-private fun clarityAge(minutes: Long?): String = minutes?.let {
+internal fun clarityAge(minutes: Long?): String = minutes?.let {
     stringResource(R.string.clarity_age_minutes, it)
 } ?: stringResource(R.string.placeholder_missing)

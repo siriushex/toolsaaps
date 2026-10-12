@@ -5,13 +5,35 @@
 The selected Clarity Overview now implements approved Balance: six open metrics,
 compact glucose/observed-target panel and current forecast marks on the existing
 chart. Marks match actual future-path timestamps/values and remain read-only.
-COB and the add-meal action both open the unchanged existing meal-entry dialog.
-The separate food-influence row opens the full read-only carbohydrate curve;
-opening or cancelling either route does not submit or persist a meal.
+COB opens the selected full Lenta carbohydrate view. The add-meal action opens
+the existing meal-entry dialog; its manual GI field is removed, without adding
+an estimator. The remaining fields, defaults and explicit preparation remain.
+Food-view shortcuts close before opening the original forms or Eating Soon
+confirmation/status. Opening or cancelling cannot submit or persist a meal.
 The separate full food display retains its original accepted lifetime/quality;
 it does not extend the main glucose forecast domain. Primary navigation avoids
 saving/restoring secondary destinations as tabs. No settings, clinical, schema,
 background subscription or timer change. See [native Balance](2026-10-11-native-balance.md).
+
+## Compact Lenta Navigation
+
+Clarity Overview puts cycle refresh and the consumed blood-entry request in the
+top bar. The duplicated More dropdown and lower clinical toolbar are removed;
+power save lives in the scrollable drawer and the original Safety destination
+keeps emergency controls. Glucose opens the existing compensation report, while
+sensitivity-source errors and profile/pump warnings remain directly visible.
+Healthy/unknown pump-channel details use a passive header indicator; attention
+conditions and any open episode retain their text row and existing help.
+
+The food Dialog fits the full accepted domain by default without visible zoom
+buttons. It preserves chart gestures and accessibility actions, estimate status,
+origin, units and complete/unknown end. Its food-only rendering omits the glucose
+target band, not food points or forecast/controller data. Recorded meal grams
+are displayed as context, never as per-meal remaining COB or confirmed absorption.
+Rows use real USER/AAPS meals within the12h ending at the retained curve origin,
+latest identity revisions and finite non-conflicting declared carb aliases.
+No new database query, worker, setting, GI inference or target policy is added.
+See [approved scope](superpowers/specs/2026-10-12-compact-clarity-lenta-design.md).
 
 ## Initial Food-Profile Diagnostics
 

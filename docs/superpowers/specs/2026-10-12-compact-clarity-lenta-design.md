@@ -16,6 +16,10 @@ Approved 2026-10-12 after written compact-design review. UI-only scope.
 - Remove Clarity's duplicated lower clinical toolbar; preserve compensation-report
   navigation through the glucose summary and show applying/error messages beside
   sensitivity metrics with the same passive help and source routes.
+- Healthy/unknown pump-channel information uses the same passive help through
+  a48dp indicator. Attention states and open episodes retain their text row.
+- Preserve a readable main chart minimum140dp. Combine its freshness captions;
+  avoid the redundant main-tab title and extra lower tool row.
 - COB opens the selected full Lenta food view. Plus opens the same existing food
   form. The food view offers small add-food/Eating Soon actions, closes before
   opening their original dialogs, and never submits on opening/cancelling.

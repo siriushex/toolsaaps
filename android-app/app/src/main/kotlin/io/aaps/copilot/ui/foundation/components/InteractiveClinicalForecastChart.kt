@@ -102,6 +102,7 @@ internal fun InteractiveClinicalForecastChart(
     components: List<ClinicalForecastComponent> = emptyList(),
     onViewportChanged: ((ClinicalChartViewport) -> Unit)? = null,
     chartHeight: Dp = 280.dp,
+    showDisplayRange: Boolean = true,
     forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
     onForecastMarkerClick: (Int) -> Unit = {}
 ) {
@@ -119,6 +120,7 @@ internal fun InteractiveClinicalForecastChart(
         components = components,
         viewport = interactionState.viewport,
         chartHeight = chartHeight,
+        showDisplayRange = showDisplayRange,
         forecastMarkers = forecastMarkers,
         onForecastMarkerClick = onForecastMarkerClick,
         modifier = modifier

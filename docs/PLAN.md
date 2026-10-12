@@ -1,5 +1,17 @@
 # PLAN
 
+## Approved Compact Clarity And Lenta (2026-10-12)
+
+- Implements the approved compact main view, top refresh/blood actions and
+  removal of duplicated More/lower tools. Preserve unique safety and source help.
+- COB opens the selected full food Lenta; plus keeps the existing meal form.
+  No manual GI input, guessed GI, per-meal remaining COB or therapy-policy change.
+- Native regressions cover full default horizon, source errors, action enablement,
+  normal/enlarged layouts and passive/explicit-confirmation routes.
+- Full Android gates, exact-source CI and signed APK are required before stage
+  completion. Device installation and historical estimation are separate work.
+- Detailed checked plan: superpowers/plans/2026-10-12-compact-clarity-lenta.md.
+
 ## Preserve Familiar Metric Menus (2026-10-12)
 
 - Restore COB to the existing meal-entry dialog shared with add-meal. Retain the

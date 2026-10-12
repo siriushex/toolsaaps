@@ -491,9 +491,8 @@ fun OverviewScreen(
                 onIsf = { sourceSheet = MetricSourceSheetKind.ISF },
                 onCr = { sourceSheet = MetricSourceSheetKind.CR },
                 onUam = { showUamDialog = true },
-                onRunCycle = onRunCycleNow,
                 onBaseTarget = { showTargetDialog = true },
-                onAddBloodCheck = { showBloodCheckDialog = true },
+                onOpenClinicalReport = onOpenClinicalReport,
                 warningContent = {
                     state.warning?.let { warning ->
                         OverviewWarningBanner(warning, state, false, onDisablePowerSave, onOpenSensorLagAnalytics)
@@ -501,23 +500,12 @@ fun OverviewScreen(
                 },
                 profileContent = {
                     state.energyActivityStatus?.let { EnergyActivityStatusRow(it, false) }
-                    PumpLinkStatusRow(state.pumpLinkStatus, false)
-                    TextButton(onClick = onOpenClinicalReport, modifier = Modifier.testTag("clarityCurrentStatus")) {
-                        val currentStatus = resolveCurrentGlucoseStatus(state.glucose, state.isStale,
-                            state.chart.displayRangeLowMmol, state.chart.displayRangeHighMmol)
-                        Text(currentStatusLabel(currentStatus), color = currentStatusTone(currentStatus))
+                    if (state.pumpLinkStatus.episodeOpen ||
+                        state.pumpLinkStatus.condition !in setOf(PumpLinkCondition.HEALTHY, PumpLinkCondition.UNKNOWN)) {
+                        PumpLinkStatusRow(state.pumpLinkStatus, false)
                     }
                 },
-                detailsContent = {
-                    OverviewClinicalMatrix(
-                        state, false, { showIobDialog = true }, openCobDialog,
-                        { showTargetDialog = true }, { showBloodCheckDialog = true },
-                        { sourceSheet = MetricSourceSheetKind.ISF },
-                        { sourceSheet = MetricSourceSheetKind.CR },
-                        { showUamDialog = true }, onOpenClinicalReport
-                    )
-                    OverviewClinicalActions(state, onRunCycleNow, { showTargetDialog = true }, { showKillSwitchConfirm = true })
-                },
+                pumpStatusContent = { PumpLinkStatusIndicator(state.pumpLinkStatus) },
                 modifier = modifier
             )
             return@ScreenStateLayout
@@ -793,6 +781,14 @@ private fun PumpLinkStatusRow(status: PumpLinkUiStatus, midnightGlass: Boolean) 
     if (showInfo) {
         IssueHelpDialog(message, listOf(UiIssueKind.PUMP_LINK)) { showInfo = false }
     }
+}
+
+@Composable
+private fun PumpLinkStatusIndicator(status: PumpLinkUiStatus) {
+    var showInfo by rememberSaveable { mutableStateOf(false) }
+    val message = stringResource(status.condition.pumpLinkMessageRes())
+    ClarityToolButton(Icons.Default.Bluetooth, message, "pump_link_indicator") { showInfo = true }
+    if (showInfo) IssueHelpDialog(message, listOf(UiIssueKind.PUMP_LINK)) { showInfo = false }
 }
 
 @Composable
@@ -1297,34 +1293,26 @@ private fun OverviewClinicalMatrix(
                     }
                     OverviewClinicalMetricRow(metrics = rowMetrics, rowHeightDp = rowHeightDp)
                 }
-                val sensitivityStatus = when {
-                    state.sensitivitySourceApplying ->
-                        "${state.sensitivitySourcePendingMetric.orEmpty()}: applying " +
-                            state.sensitivitySourcePendingValue.orEmpty()
-                    !state.sensitivitySourceApplyError.isNullOrBlank() ->
-                        state.sensitivitySourceApplyError
-                    else -> null
-                }
-                sensitivityStatus?.let { status ->
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Text(
-                        text = status,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (state.sensitivitySourceApplying) Modifier else Modifier.issueHelp(status, UiIssueKind.GENERIC_ERROR))
-                            .padding(horizontal = 8.dp, vertical = 5.dp)
-                            .testTag("overviewSensitivitySourceStatus"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (state.sensitivitySourceApplying) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
-                    )
-                }
+                OverviewSensitivitySourceStatus(state)
             }
         }
     }
+}
+
+@Composable
+internal fun OverviewSensitivitySourceStatus(state: OverviewUiState) {
+    val status = when {
+        state.sensitivitySourceApplying -> "${state.sensitivitySourcePendingMetric.orEmpty()}: applying " +
+            state.sensitivitySourcePendingValue.orEmpty()
+        !state.sensitivitySourceApplyError.isNullOrBlank() -> state.sensitivitySourceApplyError
+        else -> null
+    } ?: return
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    Text(status, modifier = Modifier.fillMaxWidth()
+        .then(if (state.sensitivitySourceApplying) Modifier else Modifier.issueHelp(status, UiIssueKind.GENERIC_ERROR))
+        .padding(horizontal = 8.dp, vertical = 5.dp).testTag("overviewSensitivitySourceStatus"),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (state.sensitivitySourceApplying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
 }
 
 internal fun metricSourceSelectionShortLabel(sourceRaw: String): String = when (sourceRaw.trim().uppercase()) {

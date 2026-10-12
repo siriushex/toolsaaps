@@ -151,6 +151,7 @@ internal fun ClinicalForecastChart(
     components: List<ClinicalForecastComponent> = emptyList(),
     viewport: ClinicalChartViewport? = null,
     chartHeight: Dp = 280.dp,
+    showDisplayRange: Boolean = true,
     forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
     onForecastMarkerClick: (Int) -> Unit = {}
 ) {
@@ -297,6 +298,7 @@ internal fun ClinicalForecastChart(
         val bandTop = yOf(state.displayRangeHighMmol)
         val bandBottom = yOf(state.displayRangeLowMmol)
         clipRect(left = plotLeft, top = plotTop, right = plotRight, bottom = plotBottom) {
+            if (showDisplayRange) {
             drawRect(
                 color = displayBandColor,
                 topLeft = Offset(plotLeft, bandTop),
@@ -315,6 +317,7 @@ internal fun ClinicalForecastChart(
                 end = Offset(plotRight, bandBottom),
                 pathEffect = targetDash
             )
+            }
 
             if (visibleCi.size >= 2) {
                 val area = Path()
@@ -405,12 +408,10 @@ internal fun ClinicalForecastChart(
             }
         }
 
-        val yLabels = listOf(
-            bounds.max to yOf(bounds.max),
-            state.displayRangeHighMmol to bandTop,
-            state.displayRangeLowMmol to bandBottom,
-            bounds.min to yOf(bounds.min)
-        ).distinctBy { (value, _) -> String.format("%.1f", value) }
+        val rangeLabels = if (showDisplayRange) listOf(state.displayRangeHighMmol to bandTop,
+            state.displayRangeLowMmol to bandBottom) else emptyList()
+        val yLabels = (listOf(bounds.max to yOf(bounds.max), bounds.min to yOf(bounds.min)) + rangeLabels)
+            .sortedByDescending { it.first }.distinctBy { (value, _) -> String.format("%.1f", value) }
         yLabels.forEach { (value, y) ->
             drawContext.canvas.nativeCanvas.drawText(
                 String.format("%.1f", value),

@@ -43,4 +43,9 @@
     <string name="clarity_food_fit">Full period</string>
     <string name="clarity_food_end">End of curve</string>
     <string name="clarity_food_start">Start of curve</string>
+    <string name="clarity_food_entered">Recorded meals</string>
+    <string name="clarity_food_no_entries">No meal records in this period</string>
+    <string name="clarity_food_calculation">Calculation</string>
+    <string name="clarity_food_entries_context">Recorded grams are not remaining COB. Meal context durations are not confirmed absorption times.</string>
+    <string name="clarity_food_axis">Modeled food influence · mmol/L</string>
 </resources>

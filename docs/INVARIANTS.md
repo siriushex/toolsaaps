@@ -9,9 +9,16 @@
   Layout wraps/reflows with system font scale instead of shrinking display text.
 - Six primary metrics reuse existing accepted values, sources and missing states.
   Opening source/target/food/status details does not save or send a command.
-- COB and add-meal reuse the same existing manual-meal editor and its explicit
-  submission path. The food-influence row remains a separate read-only curve.
+- COB opens the full accepted food curve; add-meal and the food-view shortcut
+  reuse the existing manual-meal editor and explicit submission path.
   Opening/cancelling any metric menu cannot submit therapy or change settings.
+- Top refresh retains canRunCycleNow; blood entry retains the consumed editor
+  request, not a direct calibration action. Safety and power save stay reachable
+  after removal of the duplicated More menu.
+- No manual GI input or automatic GI estimate is introduced by this UI stage.
+  Existing GI domain/storage/wire compatibility and clinical guards stay intact.
+- A recorded meal amount is not remaining COB; event duration is not absorption
+  end. Food-view target shading is omitted without changing clinical bounds.
 - Returning from secondary screens cannot restore them as primary tab content or
   save their forms. Existing primary entries and normal tab save/restore remain.
 

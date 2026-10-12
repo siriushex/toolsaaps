@@ -43,4 +43,9 @@
     <string name="clarity_food_fit">Весь период</string>
     <string name="clarity_food_end">Конец кривой</string>
     <string name="clarity_food_start">Начало кривой</string>
+    <string name="clarity_food_entered">Записи еды</string>
+    <string name="clarity_food_no_entries">Нет записей еды за этот период</string>
+    <string name="clarity_food_calculation">Расчёт</string>
+    <string name="clarity_food_entries_context">Внесённые граммы не равны оставшемуся COB. Длительность события еды не подтверждает время усвоения.</string>
+    <string name="clarity_food_axis">Модельное влияние еды · ммоль/л</string>
 </resources>
