@@ -1,5 +1,20 @@
 # ARCHITECTURE
 
+## Dashboard IOB Pair And Direct Target Controls
+
+Both primary Overview renderers share a display-only IOB presentation from
+currentIobUnits and iobDetails.signedNetIobUnits. Each finite value is formatted
+independently; missing/nonfinite values remain unavailable. OverviewIobValue uses
+atomic FlowRow items for each number and the slash/net item, with reserved two-line
+height so narrow screens cannot split signed digits. Original Details navigation
+and accepted-source mapping/calculations are unchanged.
+
+BaseTargetScheduleDialog keeps one local draft and the existing editor policy.
+Every interval exposes its single target stepper without expanding Edit. Edit
+expands only start/end controls. Existing limits, 0.1 step, validation, revision,
+IDs, overnight handling and explicit Save/Cancel remain authoritative. Controls
+have 48dp bounds; large system fonts put the long default label above its controls.
+
 ## Hybrid Sparse-History Meal Preview
 
 HybridMealResponseEstimator is a pure, unregistered advisory calculation. Zero

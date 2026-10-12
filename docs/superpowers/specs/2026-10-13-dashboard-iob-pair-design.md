@@ -1,7 +1,7 @@
 # Dashboard IOB Pair
 
-Status: exact slash-pair presentation requested by the user; written specification
-awaits review before implementation. This is display-only, not an IOB model change.
+Status: written specification approved by the user for implementation and testing.
+This is display-only, not an IOB model change.
 
 ## Requested Presentation
 

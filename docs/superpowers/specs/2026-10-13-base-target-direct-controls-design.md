@@ -1,8 +1,8 @@
 # Base Target Schedule: Direct Interval Controls
 
 Status: user approved permanently visible target steppers for every interval.
-This written specification awaits review before implementation. The IOB and
-infusion stages are independently approved and may proceed while this is reviewed.
+The user approved this written specification for implementation and verification.
+The IOB and infusion stages are independently approved.
 
 ## Layout And Interaction
 

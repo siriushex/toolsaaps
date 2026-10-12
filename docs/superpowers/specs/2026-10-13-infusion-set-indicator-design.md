@@ -1,7 +1,7 @@
 # Infusion Set Indicator: First Stage
 
 Status: the user approved this first-stage concept and specified a three-day
-interval. This written specification awaits review before implementation.
+interval. The user approved this written specification for implementation/testing.
 It is separate from the pending Lenta Estimate and dashboard IOB presentation.
 
 ## Approved Scope

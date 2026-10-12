@@ -1,3 +1,24 @@
+# Dashboard IOB And Direct Schedule Implementation - 2026-10-13
+
+- Human approved both written specifications. Shared presentation displays
+  current IOB / signed net IOB in Clarity and Classic; it preserves negative signs,
+  missing sides and existing Details. Atomic FlowRow number items prevent splitting
+  digits on compact layouts. No IOB source/calculation/controller changes.
+- Interval target steppers are always visible; Edit shows only time. Default and
+  interval limits/step, draft validation, explicit Save/Cancel and therapy gates
+  remain unchanged. 48dp controls and system-font-aware value widths are tested.
+- Pure IOB tests and native synthetic UI tests cover values, passive actions,
+  stable bounds, independent interval drafts, limits, overnight times, invalid
+  overlap, Cancel, large fonts and dark/light themes. Screenshots are private.
+- Classic IOB bounds are scoped to the changed metric; unrelated pre-existing
+  hero delta text overflow is not a whole-Classic-page layout pass. Clarity tests
+  retain whole-screen bounds checks. No device installation/settings writes.
+- Full Android gate passed: 5282 cases/456 suites, zero failures/errors, 4 private
+  opt-in fixtures skipped; lint zero errors/fatal and 322 warnings. Kotlin compile
+  and assembleDebug passed. Existing v2 debug signature and package verified;
+  private APK checksum retained. Exact-source CI remains required after push.
+  Infusion work remains separate.
+
 # Base Target Direct Controls Design Review - 2026-10-13
 
 - User approved visible minus/value/plus for every interval, retaining the default

@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -283,6 +284,7 @@ fun BaseTargetScheduleDialog(
                     minTargetMmol = minTargetMmol,
                     maxTargetMmol = maxTargetMmol,
                     testTag = "baseTargetDefault",
+                    labelAbove = LocalDensity.current.fontScale >= 1.3f,
                     onChange = {
                         draft = BaseTargetScheduleEditorPolicy.setDefaultTarget(draft, it)
                     }
@@ -438,17 +440,21 @@ private fun IntervalEditorRow(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium
             )
-            Text(
-                text = UiFormatters.formatMmol(interval.targetMmol, 1),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            IconButton(onClick = onEdit, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.action_edit))
+            IconButton(onClick = onEdit, modifier = Modifier.size(48.dp).testTag("baseTargetIntervalEdit-${interval.id}")) {
+                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.base_target_schedule_edit_time))
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
             }
         }
+        TargetStepperRow(
+            label = stringResource(R.string.base_target_schedule_target),
+            targetMmol = interval.targetMmol,
+            minTargetMmol = minTargetMmol,
+            maxTargetMmol = maxTargetMmol,
+            testTag = "baseTargetIntervalTarget-${interval.id}",
+            onChange = { onChange(interval.startMinuteOfDay, interval.endMinuteOfDay, it) }
+        )
         if (editing) {
             TimeStepperRow(
                 label = stringResource(R.string.base_target_schedule_start),
@@ -459,14 +465,6 @@ private fun IntervalEditorRow(
                 label = stringResource(R.string.base_target_schedule_end),
                 minute = interval.endMinuteOfDay,
                 onChange = { onChange(interval.startMinuteOfDay, it, interval.targetMmol) }
-            )
-            TargetStepperRow(
-                label = stringResource(R.string.base_target_schedule_target),
-                targetMmol = interval.targetMmol,
-                minTargetMmol = minTargetMmol,
-                maxTargetMmol = maxTargetMmol,
-                testTag = "baseTargetIntervalTarget-${interval.id}",
-                onChange = { onChange(interval.startMinuteOfDay, interval.endMinuteOfDay, it) }
             )
         }
         errors.firstOrNull()?.let { error ->
@@ -486,11 +484,11 @@ private fun TimeStepperRow(label: String, minute: Int, onChange: (Int) -> Unit) 
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        IconButton(onClick = { onChange(minute - 15) }, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { onChange(minute - 15) }, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.action_decrease))
         }
-        Text(formatMinute(minute), modifier = Modifier.width(56.dp))
-        IconButton(onClick = { onChange(minute + 15) }, modifier = Modifier.size(36.dp)) {
+        Text(formatMinute(minute), modifier = Modifier.width(56.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)))
+        IconButton(onClick = { onChange(minute + 15) }, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_increase))
         }
     }
@@ -503,28 +501,36 @@ private fun TargetStepperRow(
     minTargetMmol: Double,
     maxTargetMmol: Double,
     testTag: String,
-    onChange: (Double) -> Unit
+    onChange: (Double) -> Unit,
+    labelAbove: Boolean = false
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(testTag),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+    val controls: @Composable () -> Unit = {
         IconButton(
+            modifier = Modifier.size(48.dp),
             enabled = targetMmol > minTargetMmol + 0.0001,
             onClick = { onChange((targetMmol - 0.1).coerceAtLeast(minTargetMmol)) }
         ) {
             Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.action_decrease))
         }
-        Text(UiFormatters.formatMmol(targetMmol, 1), modifier = Modifier.width(44.dp))
+        Text(UiFormatters.formatMmol(targetMmol, 1),
+            modifier = Modifier.width(44.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)))
         IconButton(
+            modifier = Modifier.size(48.dp),
             enabled = targetMmol < maxTargetMmol - 0.0001,
             onClick = { onChange((targetMmol + 0.1).coerceAtMost(maxTargetMmol)) }
         ) {
             Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_increase))
         }
+    }
+    if (labelAbove) {
+        Column(Modifier.fillMaxWidth().testTag(testTag), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically) { controls() }
+        }
+    } else Row(Modifier.fillMaxWidth().testTag(testTag), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        controls()
     }
 }
 

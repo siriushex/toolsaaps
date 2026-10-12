@@ -1179,7 +1179,8 @@ private data class OverviewClinicalMetric(
     val valueColor: Color? = null,
     val onClick: (() -> Unit)? = null,
     val contentDescription: String? = null,
-    val testTag: String? = null
+    val testTag: String? = null,
+    val iobPair: OverviewIobPresentation? = null
 )
 
 @Composable
@@ -1201,13 +1202,17 @@ private fun OverviewClinicalMatrix(
         displayLowMmol = state.chart.displayRangeLowMmol,
         displayHighMmol = state.chart.displayRangeHighMmol
     )
+    val iob = overviewIobPresentation(state.currentIobUnits, state.iobDetails.signedNetIobUnits)
     val metrics = listOf(
         OverviewClinicalMetric(
             label = stringResource(id = R.string.metric_iob),
-            value = UiFormatters.formatUnits(state.currentIobUnits, 1),
+            value = iob.value,
             unit = stringResource(id = R.string.unit_u),
             onClick = onIob,
-            contentDescription = stringResource(R.string.overview_iob_action_description)
+            contentDescription = stringResource(R.string.overview_iob_pair_description,
+                iob.current, iob.signedNet, stringResource(R.string.unit_u)),
+            testTag = "overviewIobMetric",
+            iobPair = iob
         ),
         OverviewClinicalMetric(
             label = stringResource(id = R.string.metric_cob),
@@ -1388,10 +1393,17 @@ private fun OverviewClinicalMetricRow(
     metrics: List<OverviewClinicalMetric>,
     rowHeightDp: Float
 ) {
+    val numericStyle = LocalNumericTypography.current.valueSmall
+    val labelStyle = MaterialTheme.typography.labelSmall
+    val pairedHeight = with(LocalDensity.current) {
+        val numericLine = if (numericStyle.lineHeight.isSp) numericStyle.lineHeight.toDp()
+            else numericStyle.fontSize.toDp() * 1.5f
+        12.dp + numericLine * 2 + labelStyle.lineHeight.toDp() * 2
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(rowHeightDp.dp)
+            .height(if (metrics.any { it.iobPair != null }) maxOf(rowHeightDp.dp, pairedHeight) else rowHeightDp.dp)
     ) {
         metrics.forEachIndexed { index, metric ->
             if (index > 0) {
@@ -1408,6 +1420,7 @@ private fun OverviewClinicalMetricRow(
                 onClick = metric.onClick,
                 contentDescription = metric.contentDescription,
                 testTag = metric.testTag,
+                iobPair = metric.iobPair,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1423,6 +1436,7 @@ private fun OverviewMetricCell(
     onClick: (() -> Unit)? = null,
     contentDescription: String? = null,
     testTag: String? = null,
+    iobPair: OverviewIobPresentation? = null,
     modifier: Modifier = Modifier
 ) {
     val taggedModifier = testTag?.let(modifier::testTag) ?: modifier
@@ -1442,12 +1456,16 @@ private fun OverviewMetricCell(
     ) {
         Text(
             text = label,
+            modifier = if (iobPair != null) Modifier.fillMaxWidth() else Modifier,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 2
         )
-        Text(
+        if (iobPair != null) OverviewIobValue(iobPair, "",
+            LocalNumericTypography.current.valueSmall.copy(fontWeight = FontWeight.SemiBold,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface),
+            MaterialTheme.typography.labelSmall, Modifier.fillMaxWidth(), centered = true) else Text(
             text = value,
             style = LocalNumericTypography.current.valueSmall.copy(letterSpacing = 0.sp),
             fontWeight = FontWeight.SemiBold,
@@ -1458,6 +1476,7 @@ private fun OverviewMetricCell(
         if (unit.isNotBlank()) {
             Text(
                 text = unit,
+                modifier = if (iobPair != null) Modifier.fillMaxWidth() else Modifier,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

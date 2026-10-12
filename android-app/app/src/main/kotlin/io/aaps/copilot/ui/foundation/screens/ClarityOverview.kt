@@ -44,6 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -224,8 +226,10 @@ internal fun ClarityOverviewContent(
 @Composable
 private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () -> Unit,
     onIsf: () -> Unit, onCr: () -> Unit, onUam: () -> Unit, onBase: () -> Unit) {
+    val iob = overviewIobPresentation(state.currentIobUnits, state.iobDetails.signedNetIobUnits)
     val metrics = listOf(
-        ClarityMetricSpec("clarityIob", stringResource(R.string.metric_iob), UiFormatters.formatUnits(state.currentIobUnits, 1), stringResource(R.string.unit_u), onIob),
+        ClarityMetricSpec("clarityIob", stringResource(R.string.metric_iob), iob.value, stringResource(R.string.unit_u), onIob,
+            stringResource(R.string.overview_iob_pair_description, iob.current, iob.signedNet, stringResource(R.string.unit_u)), iob),
         ClarityMetricSpec("clarityCob", stringResource(R.string.metric_cob), UiFormatters.formatGrams(state.currentCobGrams, 1), stringResource(R.string.unit_g), onCob),
         ClarityMetricSpec("clarityIsf", "ISF · ${metricActualSourceLabel(state.isfRuntime)}", UiFormatters.formatMmol(state.currentIsfMmolPerUnit, 1), stringResource(R.string.unit_mmol_u), onIsf),
         ClarityMetricSpec("clarityCr", "CR · ${metricActualSourceLabel(state.crRuntime)}", UiFormatters.formatGrams(state.currentCrGramsPerUnit, 1), stringResource(R.string.unit_g_u), onCr),
@@ -242,7 +246,8 @@ private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () 
             metrics.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { metric ->
-                        ClarityMetric(metric.label, metric.value, metric.unit, metric.tag, metric.onClick, Modifier.weight(1f))
+                        ClarityMetric(metric.label, metric.value, metric.unit, metric.tag, metric.onClick, Modifier.weight(1f),
+                            metric.description, metric.iobPair)
                     }
                 }
             }
@@ -251,7 +256,7 @@ private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () 
 }
 
 private data class ClarityMetricSpec(val tag: String, val label: String, val value: String,
-    val unit: String, val onClick: () -> Unit)
+    val unit: String, val onClick: () -> Unit, val description: String? = null, val iobPair: OverviewIobPresentation? = null)
 
 @Composable
 private fun ClarityGlucose(state: OverviewUiState) {
@@ -296,10 +301,15 @@ private fun ClarityTarget(status: TargetManagerLiveStatusUi, onClick: () -> Unit
 }
 
 @Composable
-private fun ClarityMetric(label: String, value: String, unit: String, tag: String, onClick: () -> Unit, modifier: Modifier) {
-    Column(modifier.heightIn(min = 48.dp).testTag(tag).clickable(role = Role.Button, onClick = onClick).padding(vertical = 4.dp)) {
+private fun ClarityMetric(label: String, value: String, unit: String, tag: String, onClick: () -> Unit, modifier: Modifier,
+    description: String? = null, iobPair: OverviewIobPresentation? = null) {
+    Column(modifier.heightIn(min = 48.dp).testTag(tag).clickable(role = Role.Button, onClick = onClick)
+        .semantics { description?.let { contentDescription = it } }.padding(vertical = 4.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(buildAnnotatedString {
+        if (iobPair != null) OverviewIobValue(iobPair, unit,
+            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant),
+            Modifier.fillMaxWidth()) else Text(buildAnnotatedString {
             withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(value) }
             withStyle(SpanStyle(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(" "); append(unit) }
         }, style = MaterialTheme.typography.titleMedium)

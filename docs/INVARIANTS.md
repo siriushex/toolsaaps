@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Dashboard Presentation And Target Draft
+
+- Primary IOB is current / signed net from existing accepted UI values, not a new
+  calculation. Negative net must not be clamped, made absolute or substituted
+  from current IOB. Either missing side remains independently unavailable.
+- IOB numbers/slash-net items cannot split digits; both renderers retain their
+  original passive Details routes. Presentation cannot write therapy or sources.
+- Every schedule interval has exactly one always-visible target control. Edit
+  affects only time visibility; adjusting targets does not change IDs/times/default.
+- Draft changes use the same limits, 0.1 step and validation as before. Only an
+  explicit valid Save applies; Cancel/close applies nothing. Clinical protections
+  and Target Manager arbitration are not changed by this UI stage.
+
 ## Hybrid Sparse-History Preview
 
 - Zero/sparse history, missing body profile and unavailable independent context

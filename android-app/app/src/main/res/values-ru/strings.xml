@@ -854,6 +854,8 @@
     <string name="overview_iob_current_value">Текущий IOB: %1$s %2$s (только для информации)</string>
     <string name="overview_value_unavailable">Недоступно</string>
     <string name="overview_iob_net_value">Знаковый суммарный IOB: %1$s Ед</string>
+    <string name="overview_iob_pair_description">Текущий IOB: %1$s %3$s; знаковый суммарный IOB: %2$s %3$s. Открыть подробности.</string>
+    <string name="base_target_schedule_edit_time">Изменить время интервала</string>
     <string name="overview_iob_bolus_value">Болюсный IOB: %1$s Ед</string>
     <string name="overview_iob_basal_value">Базальный IOB: %1$s Ед</string>
     <string name="overview_iob_activity_value">Активность инсулина: %1$s Ед/мин</string>

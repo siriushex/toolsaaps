@@ -65,6 +65,75 @@ class ClarityOverviewRobolectricTest {
             futurePath = listOf(ChartPointUi(origin, 7.2)) + listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) },
             mealImpactPoints = points, mealImpactComplete = true, mealImpactGiAdjusted = true))
 
+    @Test fun iobPairRetainsSignedTotalAndOriginalPassiveDetails() {
+        var changes = 0
+        withUi { screen(ready().copy(currentIobUnits = 1.8,
+            iobDetails = IobRuntimeDetailsUi(signedNetIobUnits = -0.4)), { changes++ }, { changes++ }) }.use {
+            compose.onNodeWithTag("clarityIob").assert(hasText("1.8")).assert(hasText("/\u00a0-0.4"))
+            assertNoTextOverflow()
+            capture("iob-pair-light-320.png")
+            compose.onNodeWithTag("clarityIob").performClick()
+            compose.onNodeWithText(text(R.string.overview_iob_dialog_title)).assertIsDisplayed()
+            compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+            assertEquals(0, changes)
+        }
+    }
+
+    @Test fun iobPairKeepsMissingNetAndStableCompactBounds() {
+        var state by mutableStateOf(ready().copy(currentIobUnits = 1.8))
+        withUi { screen(state, {}) }.use {
+            compose.onNodeWithTag("clarityIob").assert(hasText("1.8")).assert(hasText("/\u00a0--"))
+            val before = compose.onNodeWithTag("clarityMetrics").fetchSemanticsNode().boundsInRoot
+            compose.runOnIdle { state = state.copy(currentIobUnits = 60.0,
+                iobDetails = IobRuntimeDetailsUi(signedNetIobUnits = -60.0)) }
+            compose.onNodeWithTag("clarityIob").assert(hasText("60.0")).assert(hasText("/\u00a0-60.0"))
+            val after = compose.onNodeWithTag("clarityMetrics").fetchSemanticsNode().boundsInRoot
+            assertEquals(before.height, after.height, 1f)
+            assertNoTextOverflow()
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), useUnmergedTree = true)
+                .filter(hasText("/\u00a0-60.0", substring = true))[0]
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            val value = layout.layoutInput.text.text
+            assertEquals("slash must stay with signed total", layout.getLineForOffset(value.indexOf('/')),
+                layout.getLineForOffset(value.indexOf("-60.0")))
+            assertEquals("signed number must not split", layout.getLineForOffset(value.indexOf("-60.0")),
+                layout.getLineForOffset(value.indexOf("-60.0") + 4))
+            capture("iob-pair-large-values-320.png")
+        }
+    }
+
+    @Test fun iobPairIsAccessibleAtLargeFontInDarkTheme() {
+        val state = ready().copy(currentIobUnits = 1.8,
+            iobDetails = IobRuntimeDetailsUi(signedNetIobUnits = -0.4))
+        withUi(dark = true, fontScale = 2f) { screen(state, {}) }.use {
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("clarityIob"))
+            compose.onNodeWithTag("clarityIob").assert(hasText("1.8")).assert(hasText("/\u00a0-0.4"))
+            val app = RuntimeEnvironment.getApplication()
+            compose.onNodeWithTag("clarityIob").assertContentDescriptionEquals(app.getString(
+                R.string.overview_iob_pair_description, "1.8", "-0.4", app.getString(R.string.unit_u)))
+            assertNoTextOverflow()
+            capture("iob-pair-dark-large.png")
+        }
+    }
+
+    @Test fun classicIobPairAlsoKeepsAtomicNumbersAndOriginalDetails() {
+        var changes = 0
+        val state = ready().copy(currentIobUnits = 60.0,
+            iobDetails = IobRuntimeDetailsUi(signedNetIobUnits = -60.0))
+        withUi(style = UiStyle.CLASSIC) { screen(state, { changes++ }, { changes++ }) }.use {
+            compose.onNodeWithTag("overviewIobMetric").performScrollTo().assertIsDisplayed()
+                .assert(hasText("60.0")).assert(hasText("/\u00a0-60.0"))
+            assertNoTextOverflow(withinTag = "overviewIobMetric")
+            capture("iob-pair-classic-320.png")
+            compose.onNodeWithTag("overviewIobMetric").performClick()
+            compose.onNodeWithText(text(R.string.overview_iob_dialog_title)).assertIsDisplayed()
+            compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+            assertEquals(0, changes)
+        }
+    }
+
     @Test fun compactTargetAndPassiveDialogsNeverSendTherapy() {
         var sends = 0
         withUi { screen(ready(), { sends++ }) }.use {
@@ -374,7 +443,7 @@ class ClarityOverviewRobolectricTest {
     }
 
     private fun text(id: Int) = RuntimeEnvironment.getApplication().getString(id)
-    private fun withUi(dark: Boolean = false, fontScale: Float = 1f, chrome: Boolean = false,
+    private fun withUi(dark: Boolean = false, fontScale: Float = 1f, chrome: Boolean = false, style: UiStyle = UiStyle.CLARITY,
         content: @Composable () -> Unit): AutoCloseable {
         val app = RuntimeEnvironment.getApplication()
         val old = Configuration(app.resources.configuration)
@@ -385,7 +454,7 @@ class ClarityOverviewRobolectricTest {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         activity = controller.get()
         controller.get().setContent {
-            AapsCopilotTheme(darkTheme = dark, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
+            AapsCopilotTheme(darkTheme = dark, dynamicColor = false, uiStyle = style) {
                 Surface(Modifier.fillMaxSize()) {
                     if (chrome) {
                         androidx.compose.material3.Scaffold(
@@ -415,8 +484,9 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
-    private fun assertNoTextOverflow() {
-        val nodes = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), useUnmergedTree = true)
+    private fun assertNoTextOverflow(withinTag: String? = null) {
+        val all = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), useUnmergedTree = true)
+        val nodes = if (withinTag == null) all else all.filter(hasAnyAncestor(hasTestTag(withinTag)))
         repeat(nodes.fetchSemanticsNodes().size) { index ->
             val layouts = mutableListOf<TextLayoutResult>()
             nodes[index].performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }

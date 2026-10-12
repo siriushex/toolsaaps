@@ -1,5 +1,18 @@
 # PLAN
 
+## Approved Dashboard Controls (2026-10-13)
+
+- Written IOB and direct schedule specifications approved by the user.
+- Shared IOB display preserves signed totals, independent missing values, atomic
+  number wrapping and original passive Details in both primary renderers.
+- Every interval target stepper stays visible; Edit expands time only. Single
+  explicit validated Save and no-write Cancel preserve all existing target policy.
+- Functional REDs cover missing IOB pair, split digits, hidden interval controls,
+  undersized buttons and a split default label. Focused native/domain verification
+  and complete Android/CI release gates are tracked in the implementation plans.
+- Approved infusion indicator is the next independent stage; Lenta Estimate
+  written review remains pending. No phone or real therapy/settings changes.
+
 ## Approved Hybrid Minimal-Data Preview (2026-10-12)
 
 - Implements the requested combination with zero-history type/portion defaults
