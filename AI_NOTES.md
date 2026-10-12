@@ -1,3 +1,17 @@
+# Hybrid Meal Response Design Review - 2026-10-12
+
+- User requested combining an always-available type/portion curve with personal
+  CGM/insulin reaction history in comparable time-of-day windows.
+- Proposed a separate advisory hybrid estimate using existing cold-start defaults,
+  qualified descriptive response summaries and the existing chronological timing
+  evaluator. Sparse history does not bypass its evidence/validation requirements.
+- Written spec awaits review: superpowers/specs/2026-10-12-hybrid-meal-response-design.md.
+  It does not manufacture numeric GI from body size, duration or raw glucose.
+- Documentation only; no estimator, UI, runtime, worker, schema, phone, targets,
+  insulin, clinical COB or carbohydrate writes changed. No new tests or therapeutic
+  effect are claimed for this pending design. Prior implementation checks remain
+  evidence for their own exact source, not a verification of this future feature.
+
 # Approximate Meal Estimation Diagnostics - 2026-10-12
 
 - User clarified historical gram entries are approximate and requested proceeding
