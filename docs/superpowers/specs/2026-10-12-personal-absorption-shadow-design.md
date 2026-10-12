@@ -1,8 +1,12 @@
 # Personal CGM Absorption: Shadow Design
 
-The user selected personal CGM learning and, after the linked concrete proposal,
-requested implementation. This stage implements the proposal's diagnostic-only
-first phase. It does not estimate laboratory GI, infer carbohydrate grams, alter
+Status: diagnostic implementation after the user's approximate-quantity
+clarification and subsequent request to proceed. The ultimate requested
+actual-therapy integration remains separate and unvalidated; this stage cannot
+activate it. The earlier scope revision is resolved for these safe prerequisites.
+
+This stage defines approximate portion priors and conditional CGM timing. It does
+not estimate laboratory GI, infer measured carbohydrate mass, alter
 clinical COB/forecasts/targets, or register a worker/UI subscription. Standard
 GI is a controlled food/reference measurement, not routine CGM reconstruction:
 [University of Sydney GI methodology](https://glycemicindex.com/about-gi/).
@@ -16,6 +20,8 @@ independent insulin interval exposures, CGM and explicit context review.
 Unknown sensor/calibration/delivery/activity/illness/other-food context rejects
 the episode. Known faults, rescue, overlap, hypo and unconfirmed/synthetic meals
 are excluded. Connectivity cannot prove pump attachment.
+Arithmetic guards bound source strings and extreme finite glucose/ISF/CSF values
+to prevent numeric overflow; these are diagnostic inputs, not therapy limits.
 
 The input adapter requires 45 minutes of pre-meal context and observation through
 the maximum candidate duration. Five-minute intervals need >=90% coverage and
@@ -32,6 +38,18 @@ eligible input. Fitting accepts independently prepared evidence only. No schema
 or runtime capture is introduced to disguise missing historical evidence.
 
 ## Estimation
+
+Historical entered grams are noisy declared quantities, not weighed truth.
+Add a read-only quantity-prior description to the existing fourteen-day portion
+estimator without changing its estimate, eligibility or runtime registration.
+Return the existing suggestion plus P10/P90 of comparable declared quantities
+only when existing support is sufficient. Those quantiles describe observed
+declarations, not a confidence interval for eaten mass or validated precision.
+Insufficient support/overflow has no empirical range. Actual-mass accuracy is
+always unvalidated. Preserve all original gram entries and exclude model-derived
+suggestions/UAM as supervised labels. No fixed measurement-error percentage is
+invented. This quantity prior does not feed the timing fit: declared episode
+mass stays fixed, making timing results explicitly conditional on that mass.
 
 Reuse MealAbsorptionCurve: cumulative candidate fraction `F(age; type,D)^p`.
 Fit timing only with p=0.75..1.25 by 0.025 and D on the existing five-minute
@@ -75,7 +93,8 @@ Explicit offline execution only. Caps:5000 meal candidates,240 prepared meals,
 10000 CGM points,30000 insulin rows. Overflow returns a reason, not a selected
 partial sample. Domain result includes version, evidence cutoff/digest, support,
 candidate and uncertainty, never USER/CATALOG GI or therapy authority. The Room
-audit returns missing-source counts early, without loading unrelated telemetry.
+audit uses the existing type-filtered bounded reader and exact override revisions,
+returning missing-source counts early without loading unrelated telemetry.
 An optional JVM diagnostic tool supports a prepared private JSON bundle or a
 read-only coherent SQLite-copy audit. Neither is registered with the app.
 

@@ -1,5 +1,23 @@
 # INVARIANTS
 
+## Personal Apparent Absorption Diagnostics
+
+- Declared approximate grams remain declared, not measured truth. Empirical
+  declared-portion quantiles are not confidence bounds for actual eaten mass.
+- Synthetic UAM, accepted model suggestions, rescue, deleted/conflicting records
+  and missing provenance cannot become supervised independent meal labels.
+- Timing fits cannot jointly change grams, sensitivity or insulin action. Unknown
+  critical context, gaps, future/late evidence and overflow reject rather than
+  become zero values or silently selected subsets. Prepared steps are immutable.
+- Chronological whole-day holdout uses earlier completed evidence only. Model
+  comparison conditions on recorded insulin exposures; it is not a prospective
+  forecast or counterfactual therapy-effect evaluation. Digests are checksums of
+  source/model context, not authentication of externally supplied clinical truth.
+- Every diagnostic status retains false clinicalInfluenceAllowed and false
+  actualMassAccuracyValidated. It emits no laboratory GI or target percent.
+  No source publication/build/diagnostic pass authorizes live graph, clinical
+  COB, gram write, target, insulin, worker or phone changes.
+
 ## Balance Display And Primary Navigation
 
 - Small forecast marks require current/non-stale horizons and matching existing

@@ -1,5 +1,17 @@
 # PLAN
 
+## Approximate Meal Estimation Diagnostics (2026-10-12)
+
+- Implements declared-portion priors with honest empirical spread and a pure
+  conditional CGM timing evaluator, following approximate-history clarification.
+- Uses explicit evidence qualification, bounded chronological holdout, immutable
+  steps and source/model digests. No numeric learned GI or measured-mass claim.
+- Read-only Room/private-copy audit and prepared-JSON runner remain offline;
+  no production forecast/controller/display/worker registration or phone change.
+- Actual therapy integration remains outside this stage, pending independently
+  specified and validated clinical control requirements.
+- Detailed plan: superpowers/plans/2026-10-12-personal-absorption-shadow.md.
+
 ## Approved Compact Clarity And Lenta (2026-10-12)
 
 - Implements the approved compact main view, top refresh/blood actions and

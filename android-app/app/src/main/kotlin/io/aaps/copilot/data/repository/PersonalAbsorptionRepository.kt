@@ -1,0 +1,93 @@
+package io.aaps.copilot.data.repository
+
+import androidx.room.withTransaction
+import com.google.gson.Gson
+import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.entity.MealProfileOverrideEntity
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
+import io.aaps.copilot.domain.model.TherapyCarbComponentKind
+import io.aaps.copilot.domain.model.resolveTherapyComponents
+import io.aaps.copilot.domain.nutrition.MealPortion
+import io.aaps.copilot.domain.nutrition.MealPortionEvidence
+import io.aaps.copilot.domain.nutrition.MealPortionProvenance
+import io.aaps.copilot.domain.nutrition.toPortionObservation
+import io.aaps.copilot.domain.profile.MealAbsorptionProfile
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
+
+data class PersonalAbsorptionHistoryAudit(
+    val rawCarbRows: Int,
+    val syntheticCarbRows: Int,
+    val independentDeclaredMeals: Int,
+    val missingInputs: Set<String>,
+    val inputOverflow: Boolean = false
+) {
+    val eligibleTimingMeals: Int get() = 0
+    val clinicalInfluenceAllowed: Boolean get() = false
+    val actualMassAccuracyValidated: Boolean get() = false
+}
+
+/** Explicit read-only diagnostic requests; no app graph/worker/UI registration. */
+internal class PersonalAbsorptionRepository(
+    private val db: CopilotDatabase, private val gson: Gson, private val clock: Clock
+) {
+    suspend fun audit(zone: ZoneId): PersonalAbsorptionHistoryAudit {
+        val now = clock.instant()
+        val end = now.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()
+        val start = end.atZone(zone).minusDays(21).toInstant()
+        return db.withTransaction {
+            val rows = db.therapyDao().betweenForAlertAi(start.toEpochMilli(), end.toEpochMilli() - 1,
+                listOf("carbs", "meal_bolus"), 5001).map {
+                TherapyEventEntity(it.rowId, it.ts, it.type, it.payloadJson)
+            }
+            if (rows.size > 5000) return@withTransaction overflow()
+            val identities = rows.filter { it.type == "carbs" || it.type == "meal_bolus" }
+                .mapNotNull { row ->
+                    val trust = row.toDomain(gson).componentTrust
+                    val id = trust.canonicalCarbId ?: return@mapNotNull null
+                    val revision = trust.canonicalCarbRevision ?: return@mapNotNull null
+                    id.toString() to revision
+                }.distinct()
+            if (identities.size > 5000) return@withTransaction overflow()
+            val overrides = identities.mapNotNull { (id, revision) ->
+                db.energyProfileDao().matchingMealOverrideForIdentity(id, revision)
+            }
+            auditRows(rows, overrides, gson, start, end, now)
+        }
+    }
+
+    companion object {
+        private val missing = setOf("independent_insulin_intervals", "historical_timezone",
+            "glucose_availability", "historical_model_context", "context_review")
+        private fun overflow() = PersonalAbsorptionHistoryAudit(0, 0, 0, missing, true)
+
+        internal fun auditRows(
+            rows: List<TherapyEventEntity>, overrides: List<MealProfileOverrideEntity>, gson: Gson,
+            start: Instant, end: Instant, knownAt: Instant
+        ): PersonalAbsorptionHistoryAudit {
+            if (rows.size > 30000 || overrides.size > 5000) return overflow()
+            val carbRows = rows.filter { it.type == "carbs" || it.type == "meal_bolus" }
+            if (carbRows.size > 5000) return overflow()
+            val events = carbRows.map { it.toDomain(gson).copy(sourceRowId = null) }
+            val synthetic = events.count { resolveTherapyComponents(it).carbKind == TherapyCarbComponentKind.UAM_SYNTHETIC }
+            val byIdentity = overrides.groupBy { it.canonicalTherapyIdentity }
+            val independent = events.groupBy { it.componentTrust.canonicalCarbId }.count { (id, versions) ->
+                if (id == null || id <= 0) return@count false
+                val event = versions.distinct().singleOrNull() ?: return@count false
+                val revision = event.componentTrust.canonicalCarbRevision ?: return@count false
+                val evidence = byIdentity[id.toString()]?.distinct()?.singleOrNull() ?: return@count false
+                if (evidence.therapyRevisionHash != revision || evidence.source != "COPILOT_UI" || evidence.revision != 1L)
+                    return@count false
+                val profile = MealAbsorptionProfile.entries.find { it.name == evidence.profile } ?: return@count false
+                val portion = MealPortion.entries.find { it.name == evidence.portion } ?: return@count false
+                val origin = MealPortionProvenance.entries.find { it.name == evidence.portionProvenance } ?: return@count false
+                val grams = evidence.confirmedCarbsGrams ?: return@count false
+                val observation = event.toPortionObservation(MealPortionEvidence(id.toString(), revision, grams,
+                    portion, profile, origin, Instant.ofEpochMilli(evidence.updatedAtMs))) ?: return@count false
+                observation.timestamp >= start && observation.timestamp < end && observation.availableAt <= knownAt
+            }
+            return PersonalAbsorptionHistoryAudit(carbRows.size, synthetic, independent, missing)
+        }
+    }
+}

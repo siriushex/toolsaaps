@@ -33,6 +33,17 @@ data class MealPortionEstimate(
     val supportDays: Int
 )
 
+/** Quantiles of entered quantities, not bounds/confidence for actual eaten mass. */
+data class MealQuantityPrior(
+    val estimate: MealPortionEstimate,
+    val declaredP10Grams: Double?,
+    val declaredP90Grams: Double?,
+    val inputOverflow: Boolean = false
+) {
+    val actualMassAccuracyValidated: Boolean get() = false
+    val clinicalInfluenceAllowed: Boolean get() = false
+}
+
 /** Offline candidate only. Does not authorize submission or alter saved presets. */
 class MealPortionEstimator(private val clock: Clock) {
     fun estimate(
@@ -44,6 +55,52 @@ class MealPortionEstimator(private val clock: Clock) {
     ): MealPortionEstimate {
         require(settings.isValid())
         val now = clock.instant()
+        val (valid, comparable) = selectObservations(observations, settings, portion, profile, zone, now)
+        val days = comparable.map { it.timestamp.atZone(zone).toLocalDate() }.distinct().size
+        val historyDays = valid.map { it.timestamp.atZone(zone).toLocalDate() }.distinct().size
+        val range = settings.range(portion)
+        if (historyDays < 5 || comparable.size < 5 || days < 3) {
+            return MealPortionEstimate(range.defaultGrams, false, comparable.size, days)
+        }
+        val weighted = comparable.map {
+            val ageDays = Duration.between(it.timestamp, now).toMillis() / 86_400_000.0
+            it.grams to 1.0 / (1.0 + ageDays)
+        }.sortedWith(compareBy<Pair<Double, Double>> { it.first }.thenBy { it.second })
+        val halfway = weighted.sumOf { it.second } / 2.0
+        var cumulative = 0.0
+        val median = weighted.first {
+            cumulative += it.second
+            cumulative >= halfway
+        }.first
+        val historyWeight = comparable.size.toDouble() / (comparable.size + 5.0)
+        val estimate = range.defaultGrams + historyWeight * (median - range.defaultGrams)
+        return MealPortionEstimate(estimate.coerceIn(range.minGrams, range.maxGrams), true, comparable.size, days)
+    }
+
+    fun describePrior(
+        observations: List<MealPortionObservation>, settings: MealPortionSettings,
+        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId
+    ): MealQuantityPrior {
+        require(settings.isValid())
+        val now = clock.instant()
+        val overflow = observations.size > 5000
+        val bounded = if (overflow) emptyList() else observations
+        val estimate = MealPortionEstimator(Clock.fixed(now, zone)).estimate(bounded, settings, portion, profile, zone)
+        if (!estimate.fromHistory) return MealQuantityPrior(estimate, null, null, overflow)
+        val declared = selectObservations(bounded, settings, portion, profile, zone, now).second.map { it.grams }.sorted()
+        fun quantile(p: Double): Double {
+            val position = (declared.size - 1) * p
+            val lower = position.toInt()
+            val upper = (lower + 1).coerceAtMost(declared.lastIndex)
+            return declared[lower] + (declared[upper] - declared[lower]) * (position - lower)
+        }
+        return MealQuantityPrior(estimate, quantile(0.1), quantile(0.9))
+    }
+
+    private fun selectObservations(
+        observations: List<MealPortionObservation>, settings: MealPortionSettings,
+        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId, now: Instant
+    ): Pair<List<MealPortionObservation>, List<MealPortionObservation>> {
         val start = now.minus(Duration.ofDays(14))
         val range = settings.range(portion)
         // Conflicting revisions (including tombstones) need upstream reconciliation.
@@ -67,25 +124,6 @@ class MealPortionEstimator(private val clock: Clock) {
                 it.grams in range.minGrams..range.maxGrams &&
                 min(difference, 1440 - difference) <= 120
         }
-        val days = comparable.map { it.timestamp.atZone(zone).toLocalDate() }.distinct().size
-        val historyDays = valid.map { it.timestamp.atZone(zone).toLocalDate() }.distinct().size
-        if (historyDays < 5 || comparable.size < 5 || days < 3) {
-            return MealPortionEstimate(range.defaultGrams, false, comparable.size, days)
-        }
-        val weighted = comparable.map {
-            val ageDays = Duration.between(it.timestamp, now).toMillis() / 86_400_000.0
-            it.grams to 1.0 / (1.0 + ageDays)
-        }.sortedWith(compareBy<Pair<Double, Double>> { it.first }.thenBy { it.second })
-        val halfway = weighted.sumOf { it.second } / 2.0
-        var cumulative = 0.0
-        val median = weighted.first {
-            cumulative += it.second
-            cumulative >= halfway
-        }.first
-        val historyWeight = comparable.size.toDouble() / (comparable.size + 5.0)
-        val estimate = range.defaultGrams + historyWeight * (median - range.defaultGrams)
-        return MealPortionEstimate(
-            estimate.coerceIn(range.minGrams, range.maxGrams), true, comparable.size, days
-        )
+        return valid to comparable
     }
 }

@@ -1,3 +1,31 @@
+# Approximate Meal Estimation Diagnostics - 2026-10-12
+
+- User clarified historical gram entries are approximate and requested proceeding
+  after uncertainty/provenance requirements. Actual-therapy integration remains
+  a separate unvalidated scope, not enabled by this diagnostic implementation.
+- Added MealPortionEstimator.describePrior using the existing fourteen-day
+  selection and unchanged suggestion. P10/P90 describe entered quantities,
+  not confidence bounds on actual eaten mass. No range without support/overflow.
+- Added a pure CGM evidence adapter and bounded apparent-response timing search.
+  Declared grams and sensitivity stay fixed; negative residuals remain. Whole
+  chronological days split training/validation and source digests include the
+  historical model context. Limits and ambiguity never become measured GI.
+- All result statuses retain false clinical/actual-mass qualification and no
+  prospective forecast score, laboratory GI or target percentage. No runtime,
+  forecast, UI, worker, schema, settings, AAPS, network or therapy registration.
+- Added read-only Room audit and a private JVM JSON/saved-copy tool. Reports
+  require a new path outside source; no real patient input/report is published.
+- Missing-feature RED and additional mutability/overflow/source-digest REDs
+  preceded fixes. Focused38 cases pass with configured private-copy audit.
+  Synthetic JSON-to-result path also passes; numerical improvement in that
+  fixture is not clinical accuracy. Real history remains insufficiently qualified.
+- The saved-copy audit preserves its database checksum. Full Android unit/lint/
+  Kotlin/APK command passed:5247 cases,zero failures/errors,4 optional-input skips;
+  lint zero errors,320 warnings,4 hints. Backend unchanged:327 passed,one existing
+  dependency deprecation warning. APK signature verified with existing debug key.
+  Exact-source publication/CI is a separate final gate; no phone installation,
+  personal-model calibration or therapeutic effect is claimed.
+
 # Compact Clarity And Lenta UI - 2026-10-12
 
 - Approved UI/build-only stage supersedes the earlier COB-editor route after

@@ -1,5 +1,26 @@
 # ARCHITECTURE
 
+## Approximate Meal Estimation Diagnostics
+
+MealPortionEstimator.describePrior reuses the existing fourteen-day eligibility
+and suggestion, adding empirical P10/P90 of declared portions. Those quantiles
+are not accuracy bounds for eaten mass; no range is invented with insufficient
+support. Original entries/presets and existing estimate behavior are preserved.
+
+PersonalAbsorptionEvidenceAdapter requires canonical, independently declared
+meal provenance and explicitly prepared CGM/insulin/model/context evidence.
+It builds frozen pre-meal-corrected residuals for a pure, bounded timing search.
+PersonalAbsorptionEstimator keeps declared mass fixed, compares earlier/later
+whole days and emits a source-scoped apparent-response diagnostic, never GI,
+measured grams, prospective forecast accuracy or therapy authority. No controller,
+forecast, UI, worker, settings, schema, AAPS or network registration exists.
+
+PersonalAbsorptionRepository performs explicit read-only bounded meal audits in
+one Room transaction. The optional private JVM runner audits a saved SQLite
+copy or evaluates a prepared JSON bundle, outside source with exclusive report
+creation. Unknown historical ingestion/timezone/exposure context remains unknown.
+See [diagnostic design](superpowers/specs/2026-10-12-personal-absorption-shadow-design.md).
+
 ## Compact Balance Presentation
 
 The selected Clarity Overview now implements approved Balance: six open metrics,
