@@ -5,6 +5,7 @@ import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class MealQuantityPriorTest {
@@ -50,5 +51,21 @@ class MealQuantityPriorTest {
         assertThat(result.inputOverflow).isTrue()
         assertThat(result.estimate.fromHistory).isFalse()
         assertThat(result.declaredP10Grams).isNull()
+    }
+
+    @Test fun selectedMealHourDoesNotShiftCutoffOrChangeDefaultCallBehavior() {
+        val breakfast = rows().map { it.copy(timestamp = it.timestamp.minusSeconds(3 * 3600),
+            availableAt = it.availableAt.minusSeconds(3 * 3600)) }
+        assertThat(prior(breakfast).estimate.fromHistory).isFalse()
+        val selected = estimator.describePrior(breakfast, settings, MealPortion.MEDIUM,
+            MealAbsorptionProfile.MIXED, ZoneOffset.UTC, 9 * 60)
+        assertThat(selected.estimate.fromHistory).isTrue()
+        val notYetKnown = breakfast.first().copy(availableAt = now.plusSeconds(1))
+        assertThat(estimator.describePrior(breakfast.drop(1) + notYetKnown, settings, MealPortion.MEDIUM,
+            MealAbsorptionProfile.MIXED, ZoneOffset.UTC, 9 * 60).estimate.fromHistory).isFalse()
+        assertThrows(IllegalArgumentException::class.java) {
+            estimator.describePrior(breakfast, settings, MealPortion.MEDIUM,
+                MealAbsorptionProfile.MIXED, ZoneOffset.UTC, 1440)
+        }
     }
 }

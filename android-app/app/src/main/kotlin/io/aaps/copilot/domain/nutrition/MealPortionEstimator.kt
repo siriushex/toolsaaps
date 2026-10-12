@@ -51,11 +51,13 @@ class MealPortionEstimator(private val clock: Clock) {
         settings: MealPortionSettings,
         portion: MealPortion,
         profile: MealAbsorptionProfile,
-        zone: ZoneId
+        zone: ZoneId,
+        minuteOfDay: Int? = null
     ): MealPortionEstimate {
         require(settings.isValid())
+        require(minuteOfDay == null || minuteOfDay in 0..1439)
         val now = clock.instant()
-        val (valid, comparable) = selectObservations(observations, settings, portion, profile, zone, now)
+        val (valid, comparable) = selectObservations(observations, settings, portion, profile, zone, now, minuteOfDay)
         val days = comparable.map { it.timestamp.atZone(zone).toLocalDate() }.distinct().size
         val historyDays = valid.map { it.timestamp.atZone(zone).toLocalDate() }.distinct().size
         val range = settings.range(portion)
@@ -79,15 +81,17 @@ class MealPortionEstimator(private val clock: Clock) {
 
     fun describePrior(
         observations: List<MealPortionObservation>, settings: MealPortionSettings,
-        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId
+        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId,
+        minuteOfDay: Int? = null
     ): MealQuantityPrior {
         require(settings.isValid())
+        require(minuteOfDay == null || minuteOfDay in 0..1439)
         val now = clock.instant()
         val overflow = observations.size > 5000
         val bounded = if (overflow) emptyList() else observations
-        val estimate = MealPortionEstimator(Clock.fixed(now, zone)).estimate(bounded, settings, portion, profile, zone)
+        val estimate = MealPortionEstimator(Clock.fixed(now, zone)).estimate(bounded, settings, portion, profile, zone, minuteOfDay)
         if (!estimate.fromHistory) return MealQuantityPrior(estimate, null, null, overflow)
-        val declared = selectObservations(bounded, settings, portion, profile, zone, now).second.map { it.grams }.sorted()
+        val declared = selectObservations(bounded, settings, portion, profile, zone, now, minuteOfDay).second.map { it.grams }.sorted()
         fun quantile(p: Double): Double {
             val position = (declared.size - 1) * p
             val lower = position.toInt()
@@ -99,7 +103,8 @@ class MealPortionEstimator(private val clock: Clock) {
 
     private fun selectObservations(
         observations: List<MealPortionObservation>, settings: MealPortionSettings,
-        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId, now: Instant
+        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId, now: Instant,
+        minuteOfDay: Int?
     ): Pair<List<MealPortionObservation>, List<MealPortionObservation>> {
         val start = now.minus(Duration.ofDays(14))
         val range = settings.range(portion)
@@ -115,7 +120,7 @@ class MealPortionEstimator(private val clock: Clock) {
                 (it.provenance == MealPortionProvenance.USER_ENTERED ||
                     it.provenance == MealPortionProvenance.USER_CORRECTED)
         }
-        val minuteNow = now.atZone(zone).toLocalTime().toSecondOfDay() / 60
+        val minuteNow = minuteOfDay ?: (now.atZone(zone).toLocalTime().toSecondOfDay() / 60)
         val comparable = valid.filter {
             val category = it.portion ?: settings.classifyHistoricalGrams(it.grams)
             val minute = it.timestamp.atZone(zone).toLocalTime().toSecondOfDay() / 60

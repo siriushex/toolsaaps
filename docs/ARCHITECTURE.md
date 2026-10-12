@@ -1,5 +1,30 @@
 # ARCHITECTURE
 
+## Hybrid Sparse-History Meal Preview
+
+HybridMealResponseEstimator is a pure, unregistered advisory calculation. Zero
+history uses the existing selected-type curve and portion preset; an absent type
+explicitly falls back to MIXED. Personal-profile completeness is context only,
+not an invented age/BMI coefficient or evidence multiplier. Entered grams remain
+separate from history/preset suggestions and cannot be overwritten by the preview.
+
+PersonalAbsorptionCohort shares the unchanged21-day canonical selection and
+prepared evidence with PersonalAbsorptionEstimator. One qualified completed
+episode produces signed apparent-response observations; singleton spread is
+absent. Missing intervals are not zero, and nonfinite normalization excludes the
+whole descriptive episode. Median/IQR summarize normalized per-meal residuals,
+not measured absorption, GI or prospective forecast precision.
+
+Only the existing EVALUATED personal timing status and an explicit food type may
+replace the advisory default shape. Sparse/ambiguous/no-gain/bounded/overflow
+states keep it available. The five-minute full curve conserves modeled mass and
+ends at modeled completion. This cannot replace accepted live food or clinical COB.
+Quantity-prior calls may specify a meal-time neighborhood while retaining the
+real cutoff; omitted optional minute arguments preserve existing callers. The
+hybrid excludes unfinished-day quantities and keeps the existing14-day prior.
+No runtime/UI/worker/database/settings/AAPS/controller registration is added.
+See [hybrid design](superpowers/specs/2026-10-12-hybrid-meal-response-design.md).
+
 ## Approximate Meal Estimation Diagnostics
 
 MealPortionEstimator.describePrior reuses the existing fourteen-day eligibility

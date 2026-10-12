@@ -1,8 +1,9 @@
 # Hybrid Meal Response With Sparse History
 
-Status: proposed combination requested by the user; written design awaits review.
-This is not an implemented feature or approval for automatic therapy. It extends
-the existing offline diagnostic stage, not its clinical authority.
+Status: approved combination and minimum-data clarification; advisory domain
+implementation locally verified, exact-source publication/CI pending. This is
+not approval for automatic therapy. It extends the existing offline diagnostic
+stage, not its clinical authority.
 
 ## Goal And Meaning
 
@@ -18,7 +19,7 @@ GI number by mapping duration, body mass or glucose amplitude to a0..100 scale.
 Known USER/CATALOG GI remains separate exact-identity metadata. No new automatic
 GI provenance is written into that existing type or database fields.
 
-## Proposed First Implementation
+## Approved First Implementation
 
 Add a pure HybridMealResponseEstimator and synthetic tests. Reuse the existing
 type curve, portion-prior and prepared-personal-evidence boundaries. Return a
@@ -27,8 +28,8 @@ No UI/runtime/worker registration or stored settings/schema changes in this
 first implementation. A later passive UI integration needs separately reviewed
 freshness and accepted-display rules; this design does not replace clinical curves.
 
-This scope needs user review because the ultimate prior request included actual
-therapy changes, while this stage cannot validate or enable them.
+The approved first stage remains pure advisory calculation. The ultimate prior
+request included actual therapy changes, which this stage cannot enable.
 
 ## Cold Start And Sparse Data
 
@@ -41,6 +42,9 @@ therapy changes, while this stage cannot validate or enable them.
   A suggested quantity is not written or treated as measured mass.
 - When history is insufficient for that existing portion estimator, retain the
   preset; do not bypass its provenance/minimum-support requirements.
+- Quantity lookup uses the requested meal hour without changing the true cutoff,
+  with the existing14-day prior. Hybrid quantity inputs exclude the unfinished
+  local day. Existing callers without the optional hour retain their behavior.
 - One or a few individually qualified episodes may produce a descriptive
   historical response summary. They do not produce a validated personal timing
   fit or replace the default preview shape.

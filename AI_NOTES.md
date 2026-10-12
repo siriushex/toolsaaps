@@ -1,3 +1,29 @@
+# Hybrid Minimal-Data Advisory Preview - 2026-10-12
+
+- User approved the combined model and asked for minimum-data availability.
+  Added a pure hybrid estimator: existing type/portion defaults need no history
+  or complete body profile; a single qualified episode yields signed observations.
+- Shared canonical cohort preparation preserves original personal timing checks,
+  chronology and fit thresholds. Existing EVALUATED status may supply only the
+  separate diagnostic curve with an explicitly selected type. No-gain/ambiguous/
+  bounded/insufficient/overflow states retain an available default.
+- Entered grams are preserved. Quantity-prior lookup supports an explicit meal
+  hour without shifting the real clock/cutoff; omitted arguments preserve legacy
+  callers. Current unfinished local-day declarations cannot bias hybrid priors.
+- Median/IQR describe normalized per-meal residuals, not GI or actual mass.
+  Missing points stay absent, singleton spread is null, nonfinite normalization
+  drops a whole descriptive episode and output point lists are immutable.
+- Missing-feature RED preceded implementation. Additional functional REDs caught
+  unfinished-day prior contamination and rejection-order digest instability;
+  both fixed. Focused65 unit cases pass, including existing GI/food/prior/timing
+  regressions. Full Android gate passed in6m3s:5267 cases,zero failures/errors,
+  four optional external-input skips; lint zero errors,320 warnings,4 hints.
+  Kotlin compile and APK pass; existing debug certificate verified. Backend source
+  is unchanged. Reviewed source publication and exact-source CI remain final gates.
+- No live UI/food graph, clinical COB, gram write, targets, doses, Eating Soon/hypo
+  policy, background work, backend/schema/settings or phone changes. No trained
+  real-user model, numerical laboratory GI or therapeutic accuracy is claimed.
+
 # Hybrid Meal Response Design Review - 2026-10-12
 
 - User requested combining an always-available type/portion curve with personal

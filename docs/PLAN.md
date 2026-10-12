@@ -1,5 +1,21 @@
 # PLAN
 
+## Approved Hybrid Minimal-Data Preview (2026-10-12)
+
+- Implements the requested combination with zero-history type/portion defaults
+  and observations beginning at one independently qualified completed episode.
+  Body-profile data is optional context, not a numerical GI/shape multiplier.
+- Shares personal evidence preparation and retains existing chronological fit
+  validation. Descriptive medians/IQR cannot activate sparse personal timing.
+- Complete immutable model curve, declared/suggested quantity origins and rejection
+  reasons remain advisory/unregistered; no UI, worker or clinical/phone changes.
+- Missing-feature and unfinished-day/digest-order functional REDs preceded fixes;
+  focused65 cases pass. Full Android gate passes:5267 cases,zero failures/errors,
+  four optional-input skips; lint zero errors, Kotlin/APK/signature verified.
+  Exact-source publication/CI remains a separate final gate, with no clinical
+  calibration or device acceptance implied.
+- Detailed plan: superpowers/plans/2026-10-12-hybrid-meal-response.md.
+
 ## Approximate Meal Estimation Diagnostics (2026-10-12)
 
 - Implements declared-portion priors with honest empirical spread and a pure

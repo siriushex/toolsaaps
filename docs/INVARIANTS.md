@@ -1,5 +1,28 @@
 # INVARIANTS
 
+## Hybrid Sparse-History Preview
+
+- Zero/sparse history, missing body profile and unavailable independent context
+  cannot disable a valid request's type-based advisory preview. Missing type is
+  explicitly MIXED, not a discovered personal food type. Invalid request data
+  errors rather than pretending zero food.
+- A single completed qualified episode can supply signed descriptive observations,
+  never validated personal timing, measured grams, laboratory GI or target percent.
+  No one-sample spread or arbitrary accuracy/confidence percentage is invented.
+- Shared cohort eligibility and existing held-out support requirements remain
+  unchanged. Unknown insulin/activity/sensor context cannot become zero or clean.
+  Missing intervals contribute no sample, and nonfinite normalization excludes
+  its entire episode. Long meals and duplicate telemetry cannot dominate a point.
+- Only an existing EVALUATED timing result with explicit food type can supply a
+  separate diagnostic shape. Failed/ambiguous/bounded results retain defaults;
+  known-GI shaping is not applied a second time. Lists of preview points are frozen.
+- Approximate entered mass remains entered mass. Quantity suggestions keep the
+  existing14-day rules, actual availability cutoff and explicit selected-hour
+  neighborhood; hybrid requests exclude the current unfinished local day.
+- Every result status is unqualified for clinical influence/actual-mass accuracy.
+  No live graph, clinical COB/forecast, carb write, target, insulin, priority,
+  hypo guard, worker, settings/schema or phone operation is authorized or changed.
+
 ## Personal Apparent Absorption Diagnostics
 
 - Declared approximate grams remain declared, not measured truth. Empirical

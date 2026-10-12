@@ -3,13 +3,11 @@ package io.aaps.copilot.domain.nutrition
 import io.aaps.copilot.domain.profile.MealAbsorptionCurve
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import java.security.MessageDigest
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 data class PersonalAbsorptionRequest(
@@ -42,49 +40,17 @@ data class PersonalAbsorptionEvaluation(
 
 /** Retrospective response reconstruction conditional on declared mass/exposures. */
 class PersonalAbsorptionEstimator {
-    fun evaluate(request: PersonalAbsorptionRequest, inputs: List<PersonalAbsorptionInput>): PersonalAbsorptionEvaluation {
-        require(request.cutoffMs > 0 && request.minuteOfDay in 0..1439)
+    fun evaluate(request: PersonalAbsorptionRequest, inputs: List<PersonalAbsorptionInput>): PersonalAbsorptionEvaluation =
+        evaluatePrepared(request, preparePersonalAbsorptionCohort(request, inputs))
+
+    internal fun evaluatePrepared(request: PersonalAbsorptionRequest,
+        cohort: PersonalAbsorptionCohort): PersonalAbsorptionEvaluation {
         val zone = ZoneId.of(request.recordedZoneId)
-        val end = Instant.ofEpochMilli(request.cutoffMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()
-        val start = end.atZone(zone).minusDays(21).toInstant()
-        if (inputs.size > 240) return PersonalAbsorptionEvaluation(PersonalAbsorptionStatus.OVERFLOW,
+        if (cohort.overflow) return PersonalAbsorptionEvaluation(PersonalAbsorptionStatus.OVERFLOW,
             rejections = mapOf(PersonalAbsorptionRejection.OVERFLOW to 1), evidenceCutoffMs = request.cutoffMs)
-        val rejects = linkedMapOf<PersonalAbsorptionRejection, Int>()
+        val rejects = cohort.rejections.toMutableMap()
         fun dropped(reason: PersonalAbsorptionRejection) { rejects[reason] = (rejects[reason] ?: 0) + 1 }
-        val known = inputs.filter { input ->
-            (input.meal.availableAt.toEpochMilli() <= request.cutoffMs).also {
-                if (!it) dropped(PersonalAbsorptionRejection.FUTURE_EVIDENCE)
-            }
-        }.groupBy { it.meal.canonicalId }.values.mapNotNull { versions ->
-            versions.distinct().singleOrNull().also {
-                if (it == null) dropped(PersonalAbsorptionRejection.CONFLICTING_IDENTITY)
-            }
-        }.sortedWith(compareBy<PersonalAbsorptionInput> { it.meal.timestamp }.thenBy { it.meal.canonicalId })
-        val adapter = PersonalAbsorptionEvidenceAdapter()
-        val episodes = known.mapNotNull { input ->
-            val meal = input.meal
-            if (meal.timestamp < start || meal.timestamp >= end) {
-                dropped(PersonalAbsorptionRejection.OUTSIDE_WINDOW); return@mapNotNull null
-            }
-            val local = meal.timestamp.atZone(zone)
-            val distance = abs(local.toLocalTime().toSecondOfDay() / 60 - request.minuteOfDay)
-            if (input.recordedZoneId != request.recordedZoneId || meal.profile != request.profile ||
-                meal.portion != request.portion || min(distance, 1440 - distance) > 120) {
-                dropped(PersonalAbsorptionRejection.NOT_COMPARABLE); return@mapNotNull null
-            }
-            val a = meal.timestamp.toEpochMilli()
-            val b = a + personalAbsorptionDurationRange(meal.profile).last * 60000L
-            if (known.any { other -> other.meal.canonicalId != meal.canonicalId && !other.meal.deleted &&
-                    other.meal.provenance != MealPortionProvenance.SYNTHETIC_UAM &&
-                    other.meal.grams.isFinite() && other.meal.grams > 0 &&
-                    other.meal.timestamp.toEpochMilli() < b &&
-                    a < other.meal.timestamp.toEpochMilli() + personalAbsorptionDurationRange(other.meal.profile).last * 60000L }) {
-                dropped(PersonalAbsorptionRejection.OVERLAPPING_MEAL); return@mapNotNull null
-            }
-            val prepared = adapter.prepare(input, request.cutoffMs)
-            prepared.rejections.forEach(::dropped)
-            prepared.episode
-        }
+        val episodes = cohort.episodes
         fun date(e: PersonalAbsorptionEpisode) = e.meal.timestamp.atZone(zone).toLocalDate()
         val dates = episodes.map(::date).distinct().sorted()
         val testDays = max(2, ceil(dates.size / 3.0).toInt())
