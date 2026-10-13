@@ -56,7 +56,8 @@ internal fun clarityForecastPoints(state: OverviewUiState): List<Pair<Int, Chart
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onExpand: () -> Unit,
-    onHorizon: (Int) -> Unit, compactHeight: Dp = 190.dp, statusContent: @Composable () -> Unit = {}) {
+    onHorizon: (Int) -> Unit, compactHeight: Dp = 190.dp, statusContent: @Composable () -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }) {
     // The full food tail belongs to its own view, not the one-hour glucose forecast.
     val chart = state.chart.copy(mealImpactPoints = emptyList(), mealImpactComplete = null, mealImpactGiAdjusted = false)
     val interaction = rememberInteractiveClinicalChartState(chart)
@@ -104,7 +105,8 @@ internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onEx
         val height = if (expanded) 300.dp else compactHeight
         if (interaction == null) {
             ClinicalForecastChart(chart, description, stringResource(R.string.overview_chart_empty),
-                stringResource(R.string.overview_chart_now), stringResource(R.string.overview_chart_plus_30), chartHeight = height)
+                stringResource(R.string.overview_chart_now), stringResource(R.string.overview_chart_plus_30), chartHeight = height,
+                onLoadEventContext = onLoadEventContext)
         } else {
             InteractiveClinicalForecastChart(chart, interaction, description,
                 "${UiFormatters.formatTimestamp(interaction.viewport.startTs)} - ${UiFormatters.formatTimestamp(interaction.viewport.endTs)}",
@@ -112,7 +114,8 @@ internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onEx
                 stringResource(R.string.overview_chart_plus_30), stringResource(R.string.overview_chart_zoom_in),
                 stringResource(R.string.overview_chart_zoom_out), stringResource(R.string.overview_chart_older),
                 stringResource(R.string.overview_chart_newer), stringResource(R.string.overview_chart_reset_view),
-                chartHeight = height, forecastMarkers = markers, onForecastMarkerClick = onHorizon)
+                chartHeight = height, forecastMarkers = markers, onForecastMarkerClick = onHorizon,
+                onLoadEventContext = onLoadEventContext)
         }
     }
     }

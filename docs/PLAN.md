@@ -1,5 +1,19 @@
 # PLAN
 
+## Event Compensation Context (2026-10-13)
+
+- Short Carbs/Insulin labels, GI with saved source or explicit missing state.
+- Bounded on-demand historical CGM/ISF/sensor context, canonical revision checks,
+  invalid/stale/mixed/overflow handling and passive native popup coverage.
+- Source queries/no-write behavior, pure edge cases and compact/large-font
+  dialog verification pass48 focused cases. Full local unit/lint/compile/APK
+  gates pass:5408 passed,4 existing skips, zero failures/errors and lint errors.
+  Exact-source CI and separately authorized device verification remain gates.
+- Individual minute-specific food timing advice needs a separate validated
+  meal-start/delivered-bolus evidence contract; it is not inferred from a marker.
+- No therapy or phone operation is authorized by this UI change. Existing phone
+  recovery and installation acceptance remain separate operational work.
+
 ## Chart Event Popup (2026-10-13)
 
 - Device follow-up: correct full-payload amount display and transport-marker

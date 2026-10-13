@@ -31,7 +31,9 @@ data class CompensationEvent(
     val provenance: String = "",
     // Presentation metadata must not compete with the clinical attribute budget.
     @Transient val displayCarbsGrams: Double? = null,
-    @Transient val displayRecordedInsulinUnits: Double? = null
+    @Transient val displayRecordedInsulinUnits: Double? = null,
+    @Transient val displayMealIdentity: String? = null,
+    @Transient val displayMealRevision: String? = null
 ) {
     init {
         require(localId.isNotBlank())

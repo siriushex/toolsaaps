@@ -216,6 +216,7 @@ fun OverviewScreen(
     authoritativeEditorRequest: OverviewAuthoritativeEditor? = null,
     onAuthoritativeEditorRequestHandled: () -> Unit = {},
     onEatingSoon: (String) -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() },
     onLoadMealEstimateHistory: suspend (Long, String) -> io.aaps.copilot.domain.nutrition.LentaMealHistory = { cutoff, zone ->
         io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone,
             status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
@@ -491,6 +492,7 @@ fun OverviewScreen(
                 state = state,
                 onEatingSoon = onEatingSoon,
                 onLoadMealEstimateHistory = onLoadMealEstimateHistory,
+                onLoadEventContext = onLoadEventContext,
                 onMeal = openCobDialog,
                 onIob = { showIobDialog = true },
                 onIsf = { sourceSheet = MetricSourceSheetKind.ISF },
@@ -580,7 +582,8 @@ fun OverviewScreen(
             item {
                 OverviewForecastSection(
                     state = state,
-                    midnightGlass = midnightGlass
+                    midnightGlass = midnightGlass,
+                    onLoadEventContext = onLoadEventContext
                 )
             }
             item {
@@ -1719,7 +1722,8 @@ private fun MetricCandidateDetails(
 private fun OverviewForecastSection(
     state: OverviewUiState,
     midnightGlass: Boolean,
-    framed: Boolean = true
+    framed: Boolean = true,
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     val forecast30 = state.horizons.firstOrNull { it.horizonMinutes == 30 }
     val chartDescription = stringResource(
@@ -1770,6 +1774,7 @@ private fun OverviewForecastSection(
             if (interactionState == null) {
                 ClinicalForecastChart(
                     state = state.chart,
+                    onLoadEventContext = onLoadEventContext,
                     contentDescription = chartDescription,
                     emptyText = stringResource(id = R.string.overview_chart_empty),
                     nowLabel = stringResource(id = R.string.overview_chart_now),
@@ -1793,6 +1798,7 @@ private fun OverviewForecastSection(
                 )
                 InteractiveClinicalForecastChart(
                     state = state.chart,
+                    onLoadEventContext = onLoadEventContext,
                     interactionState = interactionState,
                     contentDescription = chartDescription,
                     viewportStateDescription = viewportText,

@@ -364,6 +364,7 @@ fun CopilotFoundationRoot(
                                     onBaseTargetScheduleSave = viewModel::saveBaseTargetSchedule,
                                     onEatingSoon = viewModel::sendStandaloneEatingSoon,
                                     onLoadMealEstimateHistory = viewModel::loadLentaMealHistory,
+                                    onLoadEventContext = viewModel::loadEventCompensationContext,
                                     onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId, portionMetadata, glycemicIndex ->
                                         viewModel.sendManualCarbs(
                                             carbs,

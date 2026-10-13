@@ -1,3 +1,28 @@
+# Event Compensation Context - 2026-10-13
+
+- User requested GI, shorter quantity labels and useful compensation remarks.
+  Added source-backed saved GI and read-only historical context on meal selection.
+  Existing clinical calculation, GI model, targets, doses and meal writes unchanged.
+- Exact canonical selection binding, same-source/explicit-unit comparisons,
+  bounded Room reads, quality/gap/overflow guards and visible unknown states.
+  CGM range/peak timing and ISF changes are observations, not causal conclusions.
+  No universal sensor wear limit or unvalidated meal-delay minutes are guessed.
+- Final focused Kotlin/Compose/Room/native verification passed48 cases; synthetic
+  narrow and large-font screenshots were inspected. The first direct harness
+  compile used shadowed resource classes, fixed by prioritizing the updated R
+  jar; this environment failure is not a product regression.
+- Initial full unit run passed5409 cases with4 existing skips before source
+  review refinements; its obsolete lint was deliberately stopped. The final
+  combined local unit/lint/compile/assemble gate succeeded in12m19s:5412 cases,
+  5408 passed,4 opt-in private-data skips, zero failures/errors. Lint has zero
+  errors,326 warnings and7 hints. APK v2 signature verified with the existing
+  signer. No backend files changed; exact-source CI remains a separate gate.
+- Archive CGM is explicitly labeled without Copilot correction. Low baseline
+  takes precedence over subsequent high readings. The redundant modeled meal
+  graph-window text is removed; non-meal lifecycle information is retained.
+- Publication, source CI, phone recovery and installation are separate gates.
+  No device installation or restoration is claimed for this source stage.
+
 # Chart Event Details Device Follow-Up - 2026-10-13
 
 - Passive device inspection exposed two presentation defects: source payloads

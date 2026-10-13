@@ -104,7 +104,8 @@ internal fun InteractiveClinicalForecastChart(
     chartHeight: Dp = 280.dp,
     showDisplayRange: Boolean = true,
     forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
-    onForecastMarkerClick: (Int) -> Unit = {}
+    onForecastMarkerClick: (Int) -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     val density = LocalDensity.current
     var plotBounds by remember { mutableStateOf(ClinicalChartPlotHorizontalBounds(0f, 1f)) }
@@ -123,6 +124,7 @@ internal fun InteractiveClinicalForecastChart(
         showDisplayRange = showDisplayRange,
         forecastMarkers = forecastMarkers,
         onForecastMarkerClick = onForecastMarkerClick,
+        onLoadEventContext = onLoadEventContext,
         modifier = modifier
             .testTag("overviewInteractiveChart")
             .onSizeChanged { size ->

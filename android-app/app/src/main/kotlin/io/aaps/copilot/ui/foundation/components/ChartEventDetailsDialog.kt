@@ -16,6 +16,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -34,6 +39,11 @@ import io.aaps.copilot.domain.events.CompensationEventType
 import io.aaps.copilot.domain.events.EventSeverity
 import io.aaps.copilot.domain.events.EventSource
 import io.aaps.copilot.domain.events.MealAbsorptionProfile
+import io.aaps.copilot.domain.events.EventCompensationContext
+import io.aaps.copilot.domain.events.EventContextLoader
+import io.aaps.copilot.domain.events.EventContextStatus
+import io.aaps.copilot.domain.profile.GlycemicIndexSource
+import kotlinx.coroutines.CancellationException
 import io.aaps.copilot.domain.model.BloodGlucoseCheckStatus
 import io.aaps.copilot.ui.EventIconResources
 import io.aaps.copilot.ui.foundation.format.UiFormatters
@@ -46,8 +56,22 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Long, onDismiss: () -> Unit) {
+internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Long,
+    loadContext: EventContextLoader = { EventCompensationContext() }, onDismiss: () -> Unit) {
     val details = remember(events, nowTs) { events.map { it.toChartEventDetails(nowTs) } }
+    var contexts by remember(events) { mutableStateOf<Map<String, EventCompensationContext>>(emptyMap()) }
+    val loader by rememberUpdatedState(loadContext)
+    LaunchedEffect(events) {
+        // Read once per selected-record version, not once per CGM tick/recomposition.
+        contexts = events.filter { it.type == CompensationEventType.MEAL }.drop(8)
+            .associate { it.localId to EventCompensationContext(EventContextStatus.OVERFLOW) }
+        events.filter { it.type == CompensationEventType.MEAL }.take(8).forEach { event ->
+            val result = try { loader(event) } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { EventCompensationContext() }
+            contexts = contexts + (event.localId to result)
+        }
+    }
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
     val zone = ZoneId.systemDefault()
@@ -87,6 +111,12 @@ internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Lon
                             item.recordedInsulinUnits?.let {
                                 Fact(R.string.event_detail_insulin, "${UiFormatters.formatExactGrams(it, locale)} ${stringResource(R.string.unit_u)}")
                             }
+                            val context = contexts[item.id]
+                            Fact(R.string.event_detail_gi, context?.glycemicIndex?.let {
+                                stringResource(if (it.source == GlycemicIndexSource.USER) R.string.event_detail_gi_user
+                                    else R.string.event_detail_gi_catalog, UiFormatters.formatExactGrams(it.value, locale))
+                            } ?: stringResource(if (context == null)
+                                R.string.event_detail_context_loading else R.string.event_detail_gi_unknown))
                             item.mealProfile?.let { Fact(R.string.event_detail_food_type, stringResource(when (it) {
                                 MealAbsorptionProfile.FAST -> R.string.food_profile_fast_label
                                 MealAbsorptionProfile.MIXED -> R.string.food_profile_mixed_label
@@ -117,8 +147,9 @@ internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Lon
                         item.durationMinutes?.let { Fact(R.string.event_detail_duration,
                             "${UiFormatters.formatExactGrams(it, locale)} ${stringResource(R.string.unit_minutes)}") }
                         item.steps?.let { Fact(R.string.event_detail_steps, it.toString()) }
-                        item.contextEndTs?.let { Fact(R.string.event_detail_context_until, date(it)) }
-                        item.lifecycle?.let { lifecycle ->
+                        item.contextEndTs?.takeIf { item.type != CompensationEventType.MEAL }
+                            ?.let { Fact(R.string.event_detail_context_until, date(it)) }
+                        item.lifecycle?.takeIf { item.type != CompensationEventType.MEAL }?.let { lifecycle ->
                             Text(stringResource(when (lifecycle) {
                                 CompensationEventLifecycle.UPCOMING -> R.string.event_detail_upcoming
                                 CompensationEventLifecycle.ACTIVE -> R.string.event_detail_context_active
@@ -127,6 +158,9 @@ internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Lon
                             }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         item.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        if (item.type == CompensationEventType.MEAL) {
+                            CompensationNotes(contexts[item.id], item.startTs, ::date)
+                        }
                     }
                 }
             }
@@ -137,6 +171,49 @@ internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Lon
             }
         }
     )
+}
+
+@Composable
+private fun CompensationNotes(context: EventCompensationContext?, startTs: Long, date: (Long) -> String) {
+    Text(stringResource(R.string.event_detail_review_title), style = MaterialTheme.typography.titleSmall)
+    if (context == null) {
+        Text(stringResource(R.string.event_detail_context_loading), style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    if (context.status != EventContextStatus.READY) {
+        Text(stringResource(if (context.status == EventContextStatus.SOURCE_CHANGED) R.string.event_detail_context_changed
+            else R.string.event_detail_context_unavailable), style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val locale = LocalConfiguration.current.locales[0]
+    fun number(value: Double) = String.format(locale, "%.1f", value)
+    fun note(id: Int, vararg args: Any): Pair<Int, List<Any>> = id to args.toList()
+    val notes = buildList {
+        if (context.sensorConcern) add(note(R.string.event_detail_sensor_concern))
+        context.glucose?.let { glucose ->
+            add(note(R.string.event_detail_glucose_review, ((glucose.throughTs - startTs) / 60_000).toInt(),
+                number(glucose.baseline), number(glucose.minimum), number(glucose.peak), glucose.peakAfterMinutes))
+            if (glucose.minimum < 3.9 || glucose.baseline < 3.9) add(note(R.string.event_detail_low_review))
+            else if (glucose.peak >= 10.0) add(note(R.string.event_detail_high_review))
+        } ?: add(note(R.string.event_detail_glucose_insufficient))
+        if (context.overlappingMeal) add(note(R.string.event_detail_overlap_review))
+        context.isf?.let { isf ->
+            val percent = number(kotlin.math.abs(isf.changePercent))
+            add(note(R.string.event_detail_isf_review, number(isf.before), number(isf.atEvent),
+                (if (isf.changePercent >= 0) "+" else "−") + percent,
+                date(isf.beforeTs), date(isf.atEventTs)))
+            if (kotlin.math.abs(isf.changePercent) >= 0.05) add(note(if (isf.changePercent > 0)
+                R.string.event_detail_isf_up else R.string.event_detail_isf_down))
+        }
+        context.sensorAge?.let { sensor ->
+            add(note(R.string.event_detail_sensor_age, number(sensor.hours / 24.0), date(sensor.observedAt)))
+        }
+        add(note(R.string.event_detail_timing_unknown))
+    }
+    notes.forEach { (id, args) ->
+        Text(stringResource(id, *args.toTypedArray()), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable

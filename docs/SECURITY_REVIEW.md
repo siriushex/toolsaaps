@@ -1,9 +1,27 @@
 # SECURITY REVIEW
 
+## Event Compensation Context (2026-10-13)
+
+- An explicit read-only loader replaces the popup's previous record-only boundary.
+  Parameterized PK/range queries run in a Room snapshot off the main thread and
+  have row caps plus overflow sentinels. No new persistence, logging, network,
+  permissions, source cleanup or action gateway is introduced.
+- Exact selected meal identity/revision prevents attaching GI from another
+  canonical revision. Canonical display fields remain transient and independent
+  of clinical attribute budgeting. UI never accepts GI from arbitrary note text.
+- Missing quality, units or timing remain unknown; no therapy recommendations
+  in units, target percentages or meal-delay minutes are emitted. Clinical
+  thresholds are not changed. Synthetic fixtures only are published.
+- Scope of support follows individualized meal-insulin timing and CGM-quality
+  cautions, not a claimed clinical validation:
+  https://doi.org/10.2337/dc26-S009 and
+  https://professional.diabetes.org/sites/dpro/files/2024-04/CGM_Diabetes-Technology-and-Nutrition_FINAL.pdf.
+
 ## Chart Event Popup (2026-10-13)
 
-- Local presentation only; no network, permission, database write, action gateway
-  or new data query. The dialog exposes only a dismissal callback.
+- Local presentation only; no network, permission, database write or action
+  gateway. The original record-only popup has no queries; the later
+  optional bounded read-only context loader is described above.
 - Display quantities are resolved from existing semantics before bounded payload
   projection. Reserved incoming display fields cannot override resolved values.
   Original clinical keys and LocalEventImpactAnalyzer output are preserved.

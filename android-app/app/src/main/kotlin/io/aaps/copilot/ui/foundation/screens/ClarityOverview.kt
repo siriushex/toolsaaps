@@ -75,7 +75,8 @@ internal fun ClarityOverviewContent(
         io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone,
             status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
     },
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     var targetDetails by rememberSaveable { mutableStateOf(false) }
     var foodDetails by rememberSaveable { mutableStateOf(false) }
@@ -114,7 +115,7 @@ internal fun ClarityOverviewContent(
     if (chartExpanded) ClarityDetailsDialog(
         stringResource(R.string.overview_chart_title), "clarityChartDetails", { chartExpanded = false }
     ) {
-        ClarityGlucoseChart(state, true, {}, { horizon = it })
+        ClarityGlucoseChart(state, true, {}, { horizon = it }, onLoadEventContext = onLoadEventContext)
     }
     horizon?.let { minutes ->
         ClarityDetailsDialog(stringResource(R.string.clarity_horizon_title, minutes), "clarityForecastDetails", { horizon = null }) {
@@ -202,7 +203,7 @@ internal fun ClarityOverviewContent(
                 HorizontalDivider()
             }
             item { ClarityGlucoseChart(state, false, { chartExpanded = true }, { horizon = it },
-                compactChartHeight, pumpStatusContent) }
+                compactChartHeight, pumpStatusContent, onLoadEventContext) }
             item { profileContent() }
         }
         HorizontalDivider()

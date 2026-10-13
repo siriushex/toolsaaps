@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Event Compensation Review
+
+- Popup reads cannot write metadata or dispatch therapy. Saved GI must match the
+  selected canonical meal revision; missing/invalid/model-provenance GI is unknown.
+- Query overflow is not complete history. Future values, mixed sensor streams,
+  conflicting duplicates and low-quality/gapped coverage cannot supply a range.
+- Glucose range and observed peak time are retrospective associations, not
+  measured food absorption or proof of incorrect bolus timing/dose.
+- ISF changes compare historical same-source explicit units, not current settings
+  or mixed model/profile values. Sensor age alone cannot establish expiry.
+- Low CGM episodes cannot trigger advice to delay food. Without verified meal
+  start and delivered-bolus times, never manufacture an earlier/later minute value.
+- Transient canonical presentation identity/revision cannot alter persistence,
+  existing24 clinical attributes, event impact or wire serialization.
+
 ## Chart Event Detail Semantics
 
 - Details are passive selected-record data. They cannot dispatch commands or

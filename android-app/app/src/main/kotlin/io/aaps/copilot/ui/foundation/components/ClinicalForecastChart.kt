@@ -149,7 +149,8 @@ internal fun ClinicalForecastChart(
     chartHeight: Dp = 280.dp,
     showDisplayRange: Boolean = true,
     forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
-    onForecastMarkerClick: (Int) -> Unit = {}
+    onForecastMarkerClick: (Int) -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     var selectedEventIds by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(selectedEventIds, state.events, state.showEvents) {
@@ -502,7 +503,7 @@ internal fun ClinicalForecastChart(
         state.events.firstOrNull { it.localId == selectedId }
     }
     if (selectedEvents.isNotEmpty()) {
-        ChartEventDetailsDialog(selectedEvents, state.eventTimelineNowTs) { selectedEventIds = emptyList() }
+        ChartEventDetailsDialog(selectedEvents, state.eventTimelineNowTs, onLoadEventContext) { selectedEventIds = emptyList() }
     }
 }
 

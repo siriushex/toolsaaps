@@ -1,11 +1,41 @@
 # ARCHITECTURE
 
+## Event Compensation Context
+
+Opening a meal marker requests one bounded read-only Room snapshot through
+EventCompensationContextRepository. MainViewModel exposes a suspend loader;
+the chart/dialog has no action dependency. At most eight selected meals are
+loaded sequentially per selected-record version. Closing cancels the work;
+CGM clock ticks do not create subscriptions or repeated queries.
+
+The stored therapy row must still match the displayed event, including transient
+canonical meal identity/revision. GI comes only from an exact-revision saved
+override with existing USER/CATALOG validation, never an inferred laboratory GI.
+No override resolver with cleanup writes is used. Missing GI is explicit.
+
+Context uses up to four hours after the event, cut off at observation time;
+600 glucose,1200 telemetry and400 nearby therapy rows plus overflow sentinels
+bound each query. Continuous same-source glucose with a near-start baseline
+supports observed range/peak timing, not a causal meal-effect estimate. The
+source-series label explicitly excludes Copilot correction; retrospective
+application of the current calibration model is not invented for these values.
+Quality warnings, sensor changes, conflicting duplicates, gaps and mixed streams
+prevent that comparison. A nearby meal is an explicit attribution caveat.
+
+ISF compares same-source, explicit-unit historical telemetry near one hour before
+and at the event, never current runtime ISF or an assertion of physiology. Sensor
+age requires a recent historical hours sample; no universal replacement deadline
+is guessed. This source has no verified meal-start/bolus-delivery linkage, so
+minute-specific food timing advice is unavailable. No forecast, targets, doses,
+COB, schema, worker or background history scan changes.
+
 ## Chart Event Details
 
 The chart keeps its existing read-only AlertDialog and represented marker IDs.
 ChartEventDetailsUi projects only each selected CompensationEvent; the dialog
-has one dismiss callback and no therapy/action dependencies. Current source rows
-resolve selected IDs on every update; vanished IDs are removed from selection.
+has a dismiss callback, an optional read-only context loader and no therapy/action
+dependencies. Current source rows resolve selected IDs on every update; vanished
+IDs are removed from selection.
 
 EventDisplayQuantities reuses clinical component semantics only for presentation,
 rejecting conflicting display aliases without changing clinical parsing policy.

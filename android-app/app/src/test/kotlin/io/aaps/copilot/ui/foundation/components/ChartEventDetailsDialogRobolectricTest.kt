@@ -16,6 +16,7 @@ import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.data.repository.EventTimelineRepository
 import io.aaps.copilot.domain.events.*
 import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.domain.profile.MealGlycemicIndex
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
@@ -50,12 +51,15 @@ class ChartEventDetailsDialogRobolectricTest {
         status = CompensationEventStatus.CLOSED, provenance = "blood_glucose_checks")
     private val events = mutableStateOf(listOf(meal))
     private var forecastActions = 0
+    private var contextLoads = 0
+    private var context = EventCompensationContext()
 
     @Test fun singleMarkerShowsRecordedValuesAndCloseIsPassive() {
         withChart().use {
             open()
-            compose.onNodeWithText("Углеводы в записи: 24 г").assertIsDisplayed()
-            compose.onNodeWithText("Инсулин в записи: 1,4 Ед").assertIsDisplayed()
+            compose.onNodeWithText("Углеводы: 24 г").assertIsDisplayed()
+            compose.onNodeWithText("Инсулин: 1,4 Ед").assertIsDisplayed()
+            compose.onNodeWithText("ГИ: Не определён").assertExists()
             compose.onNodeWithText("Запись AAPS").assertIsDisplayed()
             compose.onNodeWithText("meal_bolus").assertDoesNotExist()
             assertNoOverflow()
@@ -89,8 +93,8 @@ class ChartEventDetailsDialogRobolectricTest {
         events.value = listOf(recorded)
         withChart().use {
             compose.onNodeWithTag("eventMarker:${recorded.localId}").performClick()
-            compose.onNodeWithText("Углеводы в записи: 24 г").assertIsDisplayed()
-            compose.onNodeWithText("Инсулин в записи: 1,4 Ед").assertIsDisplayed()
+            compose.onNodeWithText("Углеводы: 24 г").assertIsDisplayed()
+            compose.onNodeWithText("Инсулин: 1,4 Ед").assertIsDisplayed()
             compose.onNodeWithText(marker, substring = true).assertDoesNotExist()
             assertNoOverflow()
             capture("event-details-full-payload.png")
@@ -103,7 +107,7 @@ class ChartEventDetailsDialogRobolectricTest {
         withChart().use {
             open()
             compose.runOnIdle { events.value = listOf(meal.copy(attributes = meal.attributes + ("displayCarbsG" to "32"))) }
-            compose.onNodeWithText("Углеводы в записи: 32 г").assertExists()
+            compose.onNodeWithText("Углеводы: 32 г").assertExists()
             compose.runOnIdle { events.value = emptyList() }
             compose.onNodeWithTag("chartEventDetailsDialog").assertDoesNotExist()
             compose.runOnIdle { events.value = listOf(meal) }
@@ -147,6 +151,53 @@ class ChartEventDetailsDialogRobolectricTest {
         }
     }
 
+    @Test fun showsGiAndEvidenceBasedNotesWithSinglePassiveLoad() {
+        context = EventCompensationContext(EventContextStatus.READY,
+            glycemicIndex = MealGlycemicIndex.fromManualInput("55"),
+            glucose = EventGlucoseObservation(5.5, 4.7, 11.0, 45, origin + 60 * 60_000, 12, "aaps_broadcast"),
+            isf = EventIsfObservation(2.0, 2.5, origin - 60 * 60_000, origin, "aaps_broadcast"),
+            sensorAge = EventSensorAge(240.0, origin, "aaps_broadcast"))
+        withChart().use {
+            open()
+            compose.onNodeWithText("ГИ: 55 · сохранён пользователем").assertExists()
+            capture("event-context-gi-320.png")
+            compose.onNodeWithTag("eventClusterDetails").performScrollToNode(hasText("Что учесть"))
+            compose.onNodeWithText("CGM без коррекции Copilot за 60 мин", substring = true).assertExists()
+            compose.onNodeWithText("ISF телеметрии: 2,0 → 2,5", substring = true).assertExists()
+            compose.onNodeWithText("Переданный возраст сенсора: 10,0", substring = true).assertExists()
+            assertNoOverflow()
+            compose.onNodeWithTag("eventClusterDetails").performScrollToNode(hasText("Переданный возраст сенсора:", substring = true))
+            capture("event-context-review-320.png")
+            assertEquals(1, contextLoads)
+            compose.onNodeWithTag("chartEventDetailsClose").performClick()
+            assertEquals(0, forecastActions)
+        }
+    }
+
+    @Test fun lowEpisodeNeverRecommendsDelayingFoodAndLargeFontDoesNotClip() {
+        context = EventCompensationContext(EventContextStatus.READY,
+            glucose = EventGlucoseObservation(5.5, 3.2, 11.0, 45, origin + 60 * 60_000, 12, "aaps_broadcast"))
+        withChart(dark = true, fontScale = 1.8f).use {
+            open()
+            compose.onNodeWithTag("eventClusterDetails").performScrollToNode(hasText("В исходном CGM были низкие значения.", substring = true))
+            compose.onNodeWithText("В исходном CGM были высокие значения.", substring = true).assertDoesNotExist()
+            assertNoOverflow()
+            compose.onNodeWithTag("chartEventDetailsClose").assertIsDisplayed()
+            capture("event-context-large.png")
+        }
+    }
+
+    @Test fun lowBaselineHasPriorityEvenWhenLaterGlucoseIsHigh() {
+        context = EventCompensationContext(EventContextStatus.READY,
+            glucose = EventGlucoseObservation(3.2, 5.0, 11.0, 45, origin + 60 * 60_000, 12, "aaps_broadcast"))
+        withChart().use {
+            open()
+            compose.onNodeWithTag("eventClusterDetails").performScrollToNode(hasText("В исходном CGM были низкие значения.", substring = true))
+            compose.onNodeWithText("В исходном CGM были высокие значения.", substring = true).assertDoesNotExist()
+            assertEquals(0, forecastActions)
+        }
+    }
+
     private fun open() = compose.onNodeWithTag("eventMarker:meal-1").performClick()
     private fun withChart(dark: Boolean = false, fontScale: Float = 1f): AutoCloseable {
         val app = RuntimeEnvironment.getApplication()
@@ -161,7 +212,8 @@ class ChartEventDetailsDialogRobolectricTest {
                 ClinicalForecastChart(ClinicalForecastChartUiState(
                     historyPoints = listOf(ChartPointUi(origin - 3_600_000, 6.0), ChartPointUi(origin + 300_000, 6.4)),
                     events = events.value, eventTimelineNowTs = origin + 300_000),
-                    "Glucose", "No data", "Now", "+30", onForecastMarkerClick = { forecastActions++ })
+                    "Glucose", "No data", "Now", "+30", onForecastMarkerClick = { forecastActions++ },
+                    onLoadEventContext = { contextLoads++; context })
             }
         }
         return AutoCloseable {

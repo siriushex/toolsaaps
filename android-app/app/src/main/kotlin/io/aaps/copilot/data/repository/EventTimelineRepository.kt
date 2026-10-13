@@ -19,6 +19,8 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.model.TherapyCarbComponentKind
 import io.aaps.copilot.domain.model.resolveTherapyComponents
 import io.aaps.copilot.domain.profile.ActivityScheduleEngine
+import io.aaps.copilot.domain.profile.toMealTherapyReference
+import io.aaps.copilot.domain.profile.MealTherapyReferenceTrust
 import io.aaps.copilot.domain.profile.PlannedActivityIntensity
 import io.aaps.copilot.domain.profile.PlannedActivitySchedule
 import io.aaps.copilot.domain.profile.PlannedActivityType
@@ -224,6 +226,10 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
             else -> safeEnd(event.ts, duration * 60_000L)
         }
         val display = eventDisplayQuantities(event.type, event.payload, event.componentTrust)
+        val mealReference = event.toMealTherapyReference().takeIf {
+            type == CompensationEventType.MEAL && it.trust == MealTherapyReferenceTrust.TRUSTED &&
+                !event.componentTrust.legacyValidityConflict
+        }
         val attributes = boundedAttributes(event.payload).filterKeys {
             it != "displayCarbsG" && it != "displayInsulinU"
         }.toMutableMap().apply {
@@ -262,7 +268,9 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
             note = authoritativeNote,
             provenance = "therapy_events",
             displayCarbsGrams = display.carbsGrams,
-            displayRecordedInsulinUnits = display.insulinUnits
+            displayRecordedInsulinUnits = display.insulinUnits,
+            displayMealIdentity = mealReference?.identity,
+            displayMealRevision = mealReference?.revision
         )
     }
 

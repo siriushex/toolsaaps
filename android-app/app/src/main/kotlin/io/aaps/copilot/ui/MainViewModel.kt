@@ -6227,6 +6227,10 @@ class MainViewModel(application: Application) :
         updateEnergyProfileSettings(onComplete = {}) { current -> current.copy(enabled = enabled) }
     }
 
+    suspend fun loadEventCompensationContext(event: CompensationEvent): io.aaps.copilot.domain.events.EventCompensationContext =
+        io.aaps.copilot.data.repository.EventCompensationContextRepository(db, container.gson)
+            .load(event, System.currentTimeMillis())
+
     suspend fun loadLentaMealHistory(cutoffMs: Long, zoneId: String): io.aaps.copilot.domain.nutrition.LentaMealHistory =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
