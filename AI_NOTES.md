@@ -1,3 +1,38 @@
+# Prospective Meal Forecast Contract - 2026-10-13
+
+- Following the user's acceptance of forecast-validation prerequisites, added
+  paired pre-outcome research receipts and an on-demand adapter for the existing
+  authenticated accepted runtime capture. No applied-target, phone or clinical
+  input changes. This is one source prerequisite, not clinical activation.
+- Freeze3 horizons, model/evidence cutoff and timing, source/cycle/revision,
+  sensor/calibration/glucose basis and zone. Candidate/source mismatch, late
+  registration and future evidence reject. Missing candidate/intervals are
+  explicit; accepted control and local engine comparisons stay distinct.
+- Score exact same-series outcomes with availability/quality checks. No nearest
+  point substitution or low-value exclusion. Separate cohorts, equal day weights,
+  no repeat voting or favorable conflict selection; aggregate mean/lower-bound
+  missed lows, interval support/coverage, max overprediction and missingness.
+- First focused run:35 cases,2 reproduced failures. Fixed unknown availability
+  being lumped into missingness and unordered identical predictions conflicting.
+  Corrected run:35 passed plus1 optional file-tool skip. Import review reproduced
+  a third defect: missing JSON comparison-basis enum could bypass the typed
+  identity contract. Added explicit enum membership rejection. Final focused
+  checks passed36 cases with1 optional file-tool skip. Separate synthetic tool
+  execution verified rejection counts, paired metrics and no activation flags.
+- The initial full Android run used compilation preceding the import guard,
+  reproduced that failure and was deliberately interrupted; it is not final
+  verification evidence. The corrected combined gate runs with one Gradle worker.
+- Private tool revalidates supplied receipts and exports aggregates. It does not
+  authenticate historical capture. Final combined local unit/lint/compile/APK
+  passed in30m03s:5462 passed,6 optional external-input skips, zero failures or
+  errors across476 suites. Lint:zero errors,310 warnings,7 hints. APK v2 signature
+  matches the existing signer; five changed source/test hashes stayed unchanged
+  throughout the final gate. Exact-source publication/CI remains separate.
+  No real prospective accuracy or CPU/RAM claim.
+- Trusted durable collection, a qualified causal personalized forecast and
+  independent control assessment remain later work. Receipt/score code has no
+  controller, therapy DAO, dispatcher, app registration or background scanning.
+
 # GI Contribution Analysis - 2026-10-13
 
 - User requested comprehensive GI analysis and its influence on Target Manager.

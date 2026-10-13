@@ -1,5 +1,26 @@
 # PLAN
 
+## Prospective Meal Forecast Contract (2026-10-13)
+
+- Implemented immutable pre-outcome paired receipts, strict causal/model/input
+  identity checks and an on-demand accepted-runtime adapter with no action path.
+- Exact paired outcomes, day-balanced mean errors, separate model/context
+  cohorts, low/lower-bound misses, interval support and explicit missingness.
+  Overflow rejects instead of truncating; conflicting generations cannot cherry
+  pick a forecast. Caller-supplied private receipts export aggregate diagnostics.
+- First35-case focused run reproduced2 defects; both corrected. Final focused
+  run passed35 checks with the optional file tool skipped. Further import review
+  reproduced and fixed a missing comparison-basis rejection. Final focused checks
+  passed36 cases with1 optional skip. That tool separately
+  passed an explicit synthetic-bundle/report check. Full local Android unit/lint/
+  compile/assemble passed:5462 cases passed,6 optional external-input skips,
+  zero failures/errors and zero lint errors. Existing APK v2 signer verified.
+  Exact-source publication/CI remains a separate gate for this source stage.
+- Not a completed real-data accuracy evaluation or live collection feature.
+  Next prerequisites: trusted restart-safe receipt/outcome collection, qualified
+  prospective personal candidate, observed-data evaluation and independently
+  reviewed control-safety admission. No experimental target activation.
+
 ## GI Contribution Analysis (2026-10-13)
 
 - Implemented qualified known-GI contribution analysis: frozen chronological

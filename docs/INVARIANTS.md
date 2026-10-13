@@ -1,5 +1,27 @@
 # INVARIANTS
 
+## Prospective Meal Comparison
+
+- Freeze both forecasts and register before the first5-minute outcome. Candidate
+  model training and input coverage cannot include future samples; availability
+  must precede calculation. A future evaluation cutoff cannot fix a late receipt.
+- Compare the same anchor, accepted cycle/digest, revision, measurement basis,
+  sensor/calibration and zone. Local engine and adjusted control are explicit
+  alternative bases, never silently mixed. A label is not independent attestation.
+- Exact observed timestamps, explicit availability and trusted same-series
+  quality are required. Missingness is not a zero error; lows are retained.
+  Conflicts cannot choose the more favorable sample or generation. Repeats have
+  one vote. Days and separate model/context cohorts keep explicit support.
+- Missing candidate intervals do not inherit baseline CI or become calibrated
+  uncertainty. Report common interval support and lower-bound missed lows.
+- Capture/evaluation has no clinical DAO or action dependency. It cannot call
+  the live stateful controller, journal a target, dispatch, learn from outcomes,
+  overwrite COB/grams or authorize activation. Scores are observational under
+  actual historical control, not counterfactual outcomes of a different target.
+- Receipt file validation cannot prove capture occurred before an outcome.
+  Restart-safe trusted storage/collector and clinical model/control assessment
+  remain required. Never fabricate a phone ledger from old forecast rows.
+
 ## GI Contribution Research
 
 - GI is an independently sourced, revision-bound food attribute, not an inferred

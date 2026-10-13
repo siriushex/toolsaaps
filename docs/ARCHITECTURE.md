@@ -1,5 +1,36 @@
 # ARCHITECTURE
 
+## Prospective Meal Forecast Validation
+
+MealProspectiveFrame freezes paired5/30/60 predictions before the first future
+outcome. Explicit generation/cycle/settings, accepted-output digest, sensor,
+calibration, glucose basis and historical zone identify the comparison.
+Candidate training cutoff, model availability, input coverage/availability and
+calculation completion are checked; late/future/mismatched inputs cannot register.
+Missing candidates remain counted baseline-only receipts, not zero-error pairs.
+
+MealProspectiveCapture adapts an already authenticated MealAcceptedRuntimeSnapshot
+on demand. It selects LOCAL_ENGINE or ACCEPTED_CONTROL explicitly and checks the
+supplied current identity against that snapshot. It has no DAO, controller,
+dispatcher, AppContainer registration or background subscriber. Caller identity
+and basis attestations still require a trusted producer; matching metadata alone
+does not independently establish calibration, model correctness or freshness.
+
+MealProspectiveEvaluator scores identical exact-time, source/session/basis-matched
+future observations with known availability and OK quality. No interpolation,
+nearest-neighbor substitution or low-value exclusion is used. Conflicting
+generations/outcomes reject; duplicates do not vote. Model/runtime cohorts stay
+separate, days have equal weight, and missing scores/intervals remain null.
+Mean and lower-bound missed lows, interval support/coverage, worst overprediction
+and missingness are reported. Explicit bounds reject oversized input, not sample
+it. Every result denies clinical/control-safety admission.
+
+The optional private tool reconstructs receipts through the same registration
+checks and exports aggregates only. A supplied file cannot authenticate original
+capture. This stage does not produce a personalized candidate, persist a phone
+ledger, collect live outcomes or change existing clinical inputs. See
+superpowers/specs/2026-10-13-meal-prospective-validation.md for remaining gates.
+
 ## Qualified GI Contribution Analysis
 
 PersonalGiAnalyzer consumes a qualified source snapshot and exact-revision known

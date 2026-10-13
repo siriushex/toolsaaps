@@ -1,5 +1,11 @@
 package io.aaps.copilot.data.repository
 
+import io.aaps.copilot.domain.meal.MealForecastBasis
+import io.aaps.copilot.domain.meal.MealForecastIdentity
+import io.aaps.copilot.domain.meal.MealProspectiveCandidate
+import io.aaps.copilot.domain.meal.MealProspectiveModel
+import io.aaps.copilot.domain.meal.MealProspectiveRegistrationStatus
+import io.aaps.copilot.domain.meal.MealProspectiveValue
 import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucoseCalibrationCycleIdentity
@@ -174,5 +180,54 @@ class MealRuntimeCaptureTest {
         yield()
         assertFalse(late.isCompleted)
         late.cancel()
+    }
+
+    @Test fun prospectiveReceiptUsesSelectedBaselineAndNeverMutatesTheLiveEngine() = runBlocking {
+        val fixture = fixture()
+        val diagnostics = fixture.engine.diagnosticsSnapshot()
+        val sourceCalibration = calibration.copy(sensorSessionKey = "sensor-session-a")
+        val tuple = fixture.tuple.copy(accepted = fixture.tuple.accepted.copy(calibrationSessionKey = sourceCalibration.sensorSessionKey))
+        val snapshot = (update(fixture, tuple = tuple, sourceCalibration = sourceCalibration) as MealRuntimeUpdate.Captured).snapshot
+        fun identity(basis: MealForecastBasis) = MealForecastIdentity(now, fixture.sensitivity.forecastCycleId,
+            fixture.sensitivity.settingsRevision, snapshot.forecastDigest, "sensor", "sensor-session-a",
+            "accepted-glucose-basis", null, basis, "Asia/Tbilisi")
+        for (basis in MealForecastBasis.entries) {
+            val id = identity(basis)
+            val values = snapshot.simulation.baselineForecasts.map {
+                MealProspectiveValue(it.horizonMinutes, it.ts, it.valueMmol)
+            }
+            val candidate = MealProspectiveCandidate(id, MealProspectiveModel("candidate-a", "evidence-a", now - 60_000, now),
+                now, now, now + 100, now + 200, values)
+            val receipt = MealProspectiveCapture.register(snapshot, id, candidate) { now + 250 }
+            assertEquals(MealProspectiveRegistrationStatus.PAIRED, receipt.status)
+            val expected = if (basis == MealForecastBasis.LOCAL_ENGINE) fixture.local else snapshot.controlForecasts
+            assertEquals(expected.map { it.valueMmol }, receipt.frame!!.baseline.map { it.mmol })
+            assertSame(diagnostics, fixture.engine.diagnosticsSnapshot())
+        }
+        var clockReads = 0
+        val mismatch = MealProspectiveCapture.register(snapshot, identity(MealForecastBasis.LOCAL_ENGINE)
+            .copy(forecastCycleId = "replaced-cycle"), null) { clockReads++; now + 250 }
+        assertEquals(MealProspectiveRegistrationStatus.CONTEXT_MISMATCH, mismatch.status)
+        assertEquals(0, clockReads)
+        assertEquals(MealProspectiveRegistrationStatus.LATE_REGISTRATION,
+            MealProspectiveCapture.register(snapshot, identity(MealForecastBasis.LOCAL_ENGINE), null) { now + 300_000 }.status)
+    }
+
+    @Test fun cancelledProspectiveCaptureNeverReadsReceiptClock() = runBlocking {
+        val fixture = fixture()
+        val sourceCalibration = calibration.copy(sensorSessionKey = "sensor-session-a")
+        val tuple = fixture.tuple.copy(accepted = fixture.tuple.accepted.copy(calibrationSessionKey = sourceCalibration.sensorSessionKey))
+        val snapshot = (update(fixture, tuple = tuple, sourceCalibration = sourceCalibration) as MealRuntimeUpdate.Captured).snapshot
+        val identity = MealForecastIdentity(now, fixture.sensitivity.forecastCycleId, fixture.sensitivity.settingsRevision,
+            snapshot.forecastDigest, "sensor", "sensor-session-a", "accepted-glucose-basis", null,
+            MealForecastBasis.LOCAL_ENGINE, "Asia/Tbilisi")
+        var clockReads = 0
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Job().apply { cancel() }) {
+                MealProspectiveCapture.register(snapshot, identity, null) { clockReads++; now + 250 }
+            }
+            fail("Cancellation was swallowed")
+        } catch (_: CancellationException) { }
+        assertEquals(0, clockReads)
     }
 }
