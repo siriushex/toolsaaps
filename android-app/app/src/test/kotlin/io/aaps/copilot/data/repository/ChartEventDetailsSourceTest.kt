@@ -1,10 +1,12 @@
 package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
+import com.google.gson.Gson
 import io.aaps.copilot.domain.events.LocalEventImpactAnalyzer
 import io.aaps.copilot.domain.model.BloodGlucoseCheck
 import io.aaps.copilot.domain.model.BloodGlucoseCheckStatus
 import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.ui.foundation.screens.toChartEventDetails
 import org.junit.Test
 
 class ChartEventDetailsSourceTest {
@@ -54,6 +56,25 @@ class ChartEventDetailsSourceTest {
         val payload = (1..22).associate { "extra$it" to "value" } + mapOf("grams" to "24", "profile" to "FAST")
         val event = requireNotNull(repository.prepareTherapyEvent(TherapyEvent(10_000, "meal", payload)))
         assertThat(event.attributes).containsExactlyEntriesIn(payload)
+        assertThat(event.toChartEventDetails(10_000).carbsGrams).isEqualTo(24.0)
+        assertThat(LocalEventImpactAnalyzer().impact(event)).isEqualTo(
+            LocalEventImpactAnalyzer().impact(event.copy(attributes = payload)))
+    }
+
+    @Test fun fullAttributeBudgetRetainsRecordedAmountsOutsideClinicalAttributes() {
+        val payload = (1..24).associate { "extra$it" to "value" } +
+            mapOf("grams" to "24", "units" to "1.4")
+        val event = requireNotNull(repository.prepareTherapyEvent(TherapyEvent(10_000, "meal_bolus", payload)))
+        val ui = event.toChartEventDetails(10_000)
+        assertThat(event.attributes).hasSize(24)
+        assertThat(event.attributes).doesNotContainKey("grams")
+        assertThat(ui.carbsGrams).isEqualTo(24.0)
+        assertThat(ui.recordedInsulinUnits).isEqualTo(1.4)
+        assertThat(LocalEventImpactAnalyzer().impact(event)).isEqualTo(
+            LocalEventImpactAnalyzer().impact(event.copy(displayCarbsGrams = null, displayRecordedInsulinUnits = null)))
+        val json = Gson().toJson(event)
+        assertThat(json).doesNotContain("displayCarbsGrams")
+        assertThat(json).doesNotContain("displayRecordedInsulinUnits")
     }
 
     @Test fun ambiguousQuantitiesAndUntrustedDisplayKeysDoNotBecomeNumbers() {

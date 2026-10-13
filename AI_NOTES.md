@@ -1,3 +1,25 @@
+# Chart Event Details Device Follow-Up - 2026-10-13
+
+- Passive device inspection exposed two presentation defects: source payloads
+  filling all24 clinical attributes lost optional detail amounts; a transport
+  correlation note could appear as human text. Private device records and
+  screenshots remain outside Git. Regression fixtures are synthetic.
+- Reproduced3 assertion failures in26 focused/native checks before the fix.
+  Source-resolved quantities now also travel in two transient typed fields;
+  existing clinical attributes, parsing, storage and impact stay unchanged.
+  Presentation strips command correlation markers without inferring source or
+  delivery. Finite/range/provenance checks and missing-data semantics remain.
+- Fixed focused/native run passed27 cases, including full-payload grams and
+  recorded insulin, marker removal, preserved impact and Gson exclusion.
+  The compact synthetic screenshot was inspected. Full local unit/lint/compile/
+  assemble succeeded in18m22s:5391 cases/470 suites,5387 passed,4 opt-in private-data
+  skips, zero failures/errors. Lint has0 errors,326 warnings and7 hints. The new
+  APK verifies with the existing v2 signer. Publication/exact-source CI and
+  corrective device installation are separate gates, recorded privately.
+- User separately authorized a fresh coherent backup and corrective in-place
+  update after checks, with only Copilot briefly interrupted. No test therapy
+  or sound commands are part of device verification.
+
 # Chart Event Details - 2026-10-13
 
 - Reviewed source commit30f7c94bd9fda4aa8e0cc25433612af683c46913 is published.

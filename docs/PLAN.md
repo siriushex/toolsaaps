@@ -2,6 +2,11 @@
 
 ## Chart Event Popup (2026-10-13)
 
+- Device follow-up: correct full-payload amount display and transport-marker
+  text. Three synthetic assertion failures reproduced; fixed focused/native
+  checks pass27 cases. Full local unit/lint/compile/assemble passed:5387 tests,
+  4 opt-in private-data skips, zero failures/errors and zero lint errors. Exact
+  source CI and separately approved corrective device verification remain gates.
 - Expanded existing AlertDialog approved and implemented with typed read-only
   details, preserved cluster selection and current-record updates.
 - Missing blood-value, two display review regressions and the attribute-cap

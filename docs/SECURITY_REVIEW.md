@@ -13,6 +13,10 @@
   JSON. Native verification uses synthetic records; images and logs stay private.
 - Source status and recorded insulin do not prove physical delivery. Missing
   measurements and pairing remain explicitly unavailable.
+- Follow-up synthetic regressions cover full clinical payloads losing display
+  values and transport correlation notes reaching the popup. Typed transient
+  amounts preserve the existing24 attributes and are excluded from Gson; marker
+  removal is presentation-only, with no command parsing or provenance promotion.
 
 ## Qualified Personal Meal Source (2026-10-13)
 

@@ -13,7 +13,9 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import io.aaps.copilot.R
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.data.repository.EventTimelineRepository
 import io.aaps.copilot.domain.events.*
+import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
@@ -74,6 +76,25 @@ class ChartEventDetailsDialogRobolectricTest {
             compose.onNodeWithText("Статус: Контрольное измерение принято").assertExists()
             compose.onNodeWithText("Blood glucose check").assertDoesNotExist()
             assertNoOverflow()
+            assertEquals(0, forecastActions)
+        }
+    }
+
+    @Test fun fullSourcePayloadShowsGramsWithoutTechnicalCommandNote() {
+        val marker = "copilot:manual:meal:sample-meal"
+        val payload = (1..24).associate { "extra$it" to "value" } +
+            mapOf("grams" to "24", "units" to "1.4", "notes" to marker)
+        val recorded = requireNotNull(EventTimelineRepository().prepareTherapyEvent(
+            TherapyEvent(origin, "meal_bolus", payload)))
+        events.value = listOf(recorded)
+        withChart().use {
+            compose.onNodeWithTag("eventMarker:${recorded.localId}").performClick()
+            compose.onNodeWithText("Углеводы в записи: 24 г").assertIsDisplayed()
+            compose.onNodeWithText("Инсулин в записи: 1,4 Ед").assertIsDisplayed()
+            compose.onNodeWithText(marker, substring = true).assertDoesNotExist()
+            assertNoOverflow()
+            capture("event-details-full-payload.png")
+            compose.onNodeWithTag("chartEventDetailsClose").performClick()
             assertEquals(0, forecastActions)
         }
     }

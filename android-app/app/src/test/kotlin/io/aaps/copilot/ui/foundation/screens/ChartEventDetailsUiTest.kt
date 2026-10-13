@@ -87,4 +87,15 @@ class ChartEventDetailsUiTest {
         assertThat(event().copy(title = "Lunch", note = "Lunch").toChartEventDetails(10_000).note).isNull()
         assertThat(event().copy(note = "{\"token\":\"neutral\"}").toChartEventDetails(10_000).note).isNull()
     }
+
+    @Test fun commandCorrelationMarkersAreNotHumanNotesOrTitles() {
+        val marker = "copilot:manual:meal:sample-meal"
+        assertThat(event().copy(title = marker, note = marker).toChartEventDetails(10_000).title).isNull()
+        assertThat(event().copy(note = marker).toChartEventDetails(10_000).note).isNull()
+        assertThat(event().copy(note = "Lunch | $marker").toChartEventDetails(10_000).note).isEqualTo("Lunch")
+        assertThat(event().copy(note = "$marker\nLunch").toChartEventDetails(10_000).note).isEqualTo("Lunch")
+        assertThat(event().copy(note = "COPILOT:MANUAL:MEAL:sample-meal").toChartEventDetails(10_000).note).isNull()
+        assertThat(event().copy(note = "Discussed Copilot at lunch").toChartEventDetails(10_000).note)
+            .isEqualTo("Discussed Copilot at lunch")
+    }
 }

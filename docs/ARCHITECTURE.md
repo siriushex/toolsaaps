@@ -16,6 +16,12 @@ The original event timestamp is retained. A graph context envelope is not a
 confirmed uptake/delivery duration; accepted reference status is not applied
 calibration. UAM remains explicitly model context.
 
+Source-resolved meal quantities also travel as two transient typed presentation
+fields, so a full24-field clinical payload cannot erase the detail amounts. They
+are excluded from Gson serialization; existing attributes, persistence and
+clinical impact are unchanged. Popup text removes transport correlation markers
+without interpreting them as source, confirmation or delivery evidence.
+
 ## Qualified Personal Meal Evidence Source
 
 PersonalAbsorptionRepository.produce is an explicit read-only research request,

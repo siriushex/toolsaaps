@@ -70,14 +70,16 @@ internal fun CompensationEvent.toChartEventDetails(nowTs: Long): ChartEventDetai
     val activity = type == CompensationEventType.ACTIVITY
     val quantities = if (meal) eventDisplayQuantities("meal", attributes) else null
     val carbs = if (provenance == "therapy_events") {
-        attributes.finite("displayCarbsG", 0.0..500.0)
+        (displayCarbsGrams ?: attributes.finite("displayCarbsG", 0.0..500.0))
+            ?.takeIf { it.isFinite() && it in 0.0..500.0 }
     } else quantities?.carbsGrams
     return ChartEventDetailsUi(
         id = localId, type = type, heading = heading, title = cleanTitle, note = cleanNote,
         startTs = startTs, contextEndTs = endTs.takeIf { !point && it > startTs }, source = source,
         lifecycle = lifecycleAt(nowTs).takeUnless { point },
         carbsGrams = carbs.takeIf { meal },
-        recordedInsulinUnits = attributes.finite("displayInsulinU", 0.0..100.0)
+        recordedInsulinUnits = (displayRecordedInsulinUnits ?: attributes.finite("displayInsulinU", 0.0..100.0))
+            ?.takeIf { it.isFinite() && it in 0.0..100.0 }
             .takeIf { meal && provenance == "therapy_events" },
         mealProfile = enumValueOrNull<MealAbsorptionProfile>(attributes["profile"]).takeIf { meal },
         bloodMmol = attributes.finite("bloodMmol", 0.1..100.0).takeIf { blood },
@@ -102,10 +104,13 @@ private fun humanEventText(value: String?): String? {
         val json = runCatching { JsonParser.parseString(text) }.getOrNull()
         if (json?.isJsonObject == true || json?.isJsonArray == true || text.startsWith("{\"")) return null
     }
-    return text.lineSequence().map(String::trim)
+    return text.replace(COMMAND_NOTE_MARKER, "").lineSequence()
+        .map { it.trim('|', ' ', '\t') }
         .filterNot { it.contains("UAM_ENGINE|", true) || it.contains("COPILOT_CONTEXT_V1", true) }
         .joinToString("\n").trim('|', ' ', '\n').takeIf(String::isNotBlank)
 }
+
+private val COMMAND_NOTE_MARKER = Regex("(?i)(?<![a-z0-9_])copilot:[a-z0-9][a-z0-9._:-]*")
 
 private val MACHINE_EVENT_TITLES = setOf("meal", "meal_bolus", "carbs", "activity", "exercise",
     "stress", "illness", "sleep", "hormonal", "steroid", "alcohol", "note", "custom",

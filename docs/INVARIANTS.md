@@ -13,6 +13,9 @@
   keys, so previously clipped clinical fields cannot become newly visible.
 - Diagnostic labels retain reported/suspected meaning. Raw policy markers and
   JSON do not become explanatory text. Deleted selections cannot reopen later.
+- Transient presentation quantities cannot consume clinical attribute slots or
+  become persisted/wire authority. A full payload still shows its independently
+  source-resolved amounts; conflicting amounts remain unavailable.
 
 ## Qualified Meal Research Source
 

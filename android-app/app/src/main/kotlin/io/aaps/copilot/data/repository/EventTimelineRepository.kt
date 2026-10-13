@@ -223,13 +223,13 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
             explicitEnd != null && explicitEnd >= event.ts -> safeEnd(event.ts, explicitEnd - event.ts)
             else -> safeEnd(event.ts, duration * 60_000L)
         }
+        val display = eventDisplayQuantities(event.type, event.payload, event.componentTrust)
         val attributes = boundedAttributes(event.payload).filterKeys {
             it != "displayCarbsG" && it != "displayInsulinU"
         }.toMutableMap().apply {
             if (normalizedType in SENSOR_FAILURE_TYPES && this["trustPenalty"].isNullOrBlank()) {
                 this["trustPenalty"] = DEFAULT_SENSOR_FAILURE_TRUST_PENALTY.toString()
             }
-            val display = eventDisplayQuantities(event.type, event.payload, event.componentTrust)
             // Optional display values never displace clinical attributes at the cap.
             display.carbsGrams?.takeIf { size < 24 }?.let { this["displayCarbsG"] = it.toString() }
             display.insulinUnits?.takeIf { size < 24 }?.let { this["displayInsulinU"] = it.toString() }
@@ -260,7 +260,9 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
             },
             attributes = attributes,
             note = authoritativeNote,
-            provenance = "therapy_events"
+            provenance = "therapy_events",
+            displayCarbsGrams = display.carbsGrams,
+            displayRecordedInsulinUnits = display.insulinUnits
         )
     }
 
