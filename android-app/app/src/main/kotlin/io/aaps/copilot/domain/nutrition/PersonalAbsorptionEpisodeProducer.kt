@@ -109,7 +109,7 @@ class PersonalAbsorptionEpisodeProducer {
                 // Review/provenance available later cannot be used in an earlier held-out fit.
                 PersonalAbsorptionEpisode(original.meal, original.recordedZoneId, original.steps,
                     original.csfMmolPerGram, maxOf(original.latestEvidenceAtMs, frame!!.preparedAtMs),
-                    sourceDigest(original.sourceDigest, frame))
+                    sourceDigest(original.sourceDigest, frame), comparisonCohort(frame))
             }
             PersonalAbsorptionEpisodeOutcome(id, representative.therapyRevision,
                 representative.timestamp.toEpochMilli(), episode, problems, rejections)
@@ -172,6 +172,18 @@ class PersonalAbsorptionEpisodeProducer {
         val digest = MessageDigest.getInstance("SHA-256")
         listOf("qualified-episode-v1", original, frame.sensorSessionId!!, frame.calibrationIdentity!!,
             frame.contextReviewReference!!, frame.preparedAtMs.toString(), frame.glucoseBasis.name).forEach { value ->
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
+            digest.update(bytes)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+
+    private fun comparisonCohort(frame: PersonalAbsorptionEpisodeEvidence): String {
+        val context = requireNotNull(frame.input.context)
+        val digest = MessageDigest.getInstance("SHA-256")
+        listOf("meal-comparison-v1", frame.sensorSessionId!!, frame.calibrationIdentity!!,
+            context.insulinModelId, context.insulinDurationMinutes.toString()).forEach { value ->
             val bytes = value.toByteArray(Charsets.UTF_8)
             digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
             digest.update(bytes)

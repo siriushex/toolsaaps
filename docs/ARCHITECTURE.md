@@ -1,5 +1,19 @@
 # ARCHITECTURE
 
+## Qualified GI Contribution Analysis
+
+PersonalGiAnalyzer consumes a qualified source snapshot and exact-revision known
+GI. It isolates sensor/calibration/insulin-model cohorts, freezes whole-day splits
+before missing-GI filtering, reuses the personal timing fit and learns a bounded
+research-only GI exponent term. Identical validation windows compare type,
+personal and personal-plus-GI response reconstruction, with5/30/60-minute metrics
+and declared-mass sensitivity scenarios. These are NOT causal forecast scores.
+PersonalAbsorptionRepository.analyzeGi joins GI in the same single on-demand
+history read. A private opt-in aggregate-report tool is provided; no production
+subscription, clinical input or Target Manager writer is registered.
+See superpowers/specs/2026-10-13-gi-contribution-analysis.md for model/search
+limits, missingness and outstanding prospective/control-safety admission.
+
 ## Primary COB Presentation
 
 Dashboard COB and Current Lenta use the existing `cob_effective_grams` sample

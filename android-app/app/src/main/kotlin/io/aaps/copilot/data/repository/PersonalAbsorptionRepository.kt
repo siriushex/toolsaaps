@@ -15,6 +15,10 @@ import io.aaps.copilot.domain.nutrition.PersonalAbsorptionEpisodeEvidence
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionEpisodeProducer
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionSourceSnapshot
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionSourceStatus
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionRequest
+import io.aaps.copilot.domain.nutrition.PersonalGiAnalysis
+import io.aaps.copilot.domain.nutrition.PersonalGiAnalyzer
+import io.aaps.copilot.domain.nutrition.PersonalGiEvidence
 import io.aaps.copilot.domain.nutrition.toPortionObservation
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import java.time.Clock
@@ -38,10 +42,24 @@ internal class PersonalAbsorptionRepository(
     private val db: CopilotDatabase, private val gson: Gson, private val clock: Clock
 ) {
     suspend fun produce(zone: ZoneId, evidence: List<PersonalAbsorptionEpisodeEvidence> = emptyList()): PersonalAbsorptionSourceSnapshot {
+        return loadAnalysisSource(zone, evidence).first
+    }
+
+    suspend fun analyzeGi(zone: ZoneId, profile: MealAbsorptionProfile, portion: MealPortion,
+        minuteOfDay: Int, evidence: List<PersonalAbsorptionEpisodeEvidence> = emptyList(),
+        comparisonCohort: String? = null): PersonalGiAnalysis {
+        require(minuteOfDay in 0..1439)
+        val (snapshot, gi) = loadAnalysisSource(zone, evidence)
+        return PersonalGiAnalyzer().analyze(PersonalAbsorptionRequest(snapshot.cutoffMs, profile,
+            portion, zone.id, minuteOfDay), snapshot, gi, comparisonCohort)
+    }
+
+    private suspend fun loadAnalysisSource(zone: ZoneId, evidence: List<PersonalAbsorptionEpisodeEvidence>):
+        Pair<PersonalAbsorptionSourceSnapshot, List<PersonalGiEvidence>> {
         val cutoffMs = clock.millis()
         val producer = PersonalAbsorptionEpisodeProducer()
         if (PersonalAbsorptionEpisodeProducer.exceedsLimits(emptyList(), evidence))
-            return producer.produce(cutoffMs, zone.id, emptyList(), evidence)
+            return producer.produce(cutoffMs, zone.id, emptyList(), evidence) to emptyList()
         val frozenEvidence = PersonalAbsorptionEpisodeProducer.freezeEvidence(evidence)
         val history = LentaMealHistoryRepository(db, gson).load(cutoffMs, zone)
         val status = when (history.status) {
@@ -49,7 +67,11 @@ internal class PersonalAbsorptionRepository(
             LentaMealHistoryStatus.UNAVAILABLE -> PersonalAbsorptionSourceStatus.UNAVAILABLE
             LentaMealHistoryStatus.OVERFLOW -> PersonalAbsorptionSourceStatus.OVERFLOW
         }
-        return producer.produce(cutoffMs, zone.id, history.entries.map { it.meal }, frozenEvidence, status)
+        val gi = history.entries.mapNotNull { entry -> entry.glycemicIndex?.let { index ->
+            PersonalGiEvidence(entry.meal.canonicalId, requireNotNull(entry.meal.therapyRevision),
+                index.value, index.source.name, index.reference, entry.meal.availableAt.toEpochMilli())
+        } }
+        return producer.produce(cutoffMs, zone.id, history.entries.map { it.meal }, frozenEvidence, status) to gi
     }
 
     suspend fun audit(zone: ZoneId): PersonalAbsorptionHistoryAudit {

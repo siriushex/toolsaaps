@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## GI Contribution Research
+
+- GI is an independently sourced, revision-bound food attribute, not an inferred
+  CGM label. Missing GI/context cannot become a numerical default or clean data.
+- Training uses earlier complete days and available evidence only. Missing GI
+  cannot shift the held-out boundary; later outcomes cannot tune parameters.
+- Sensor, calibration and insulin-model cohorts are explicit. Do not select the
+  best cohort, extrapolate GI, silently truncate source or score gaps as zeros.
+- All comparisons use identical eligible windows. Gram stress is separate from
+  unchanged declared mass. Learned shape keeps monotonicity, mass and endpoint.
+- Conditional response error is not prospective forecast/control validation.
+  Analysis status and report blockers cannot enable live forecasts, COB, targets
+  or doses. Existing clinical writers, Eating Soon and safety policy are unchanged.
+
 ## Primary COB Source
 
 - Primary COB is a fresh, source-qualified runtime Copilot estimate, never a

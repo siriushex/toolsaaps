@@ -1,3 +1,23 @@
+# GI Contribution Analysis - 2026-10-13
+
+- User requested comprehensive GI analysis and its influence on Target Manager.
+  Implemented the research-analysis prerequisite, not clinical activation.
+- Qualified same-revision GI, explicit sensor/calibration/insulin-model cohorts,
+  fixed pre-missingness chronological split, existing timing fit plus bounded
+  empirical GI contribution, same-window5/30/60 response errors and fixed-model
+  declared-mass stress. No guessed laboratory GI or percentage target adjustment.
+- Repository reads known GI from the same bounded canonical snapshot. Optional
+  private tool exports aggregates with explicit prospective/control-safety
+  blockers. No new clinical source, writer, subscription, schema or phone action.
+- First direct Kotlin/JUnit/Room run passed72 tests. Expanded verification passed
+  74 checks with the private-input tool skipped; that tool separately passed an
+  explicit synthetic-bundle/report contract check. Full local unit/lint/compile/
+  assemble succeeded in13m55s:5440 passed,5 opt-in external-input skips, zero
+  failures/errors across474 suites. Lint:zero errors,326 warnings,7 hints.
+  Existing APK v2 signer verified. Exact-source CI remains a publication gate.
+  No personal accuracy is established: metrics condition on recorded insulin
+  and reviewed history, not causal future inputs or changed-target outcomes.
+
 # Primary Mixed COB Display - 2026-10-13
 
 - User selected the existing mixed Copilot estimate as the primary display.

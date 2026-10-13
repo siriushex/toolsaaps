@@ -6,7 +6,6 @@ import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -45,24 +44,23 @@ class PersonalAbsorptionEstimator {
 
     internal fun evaluatePrepared(request: PersonalAbsorptionRequest,
         cohort: PersonalAbsorptionCohort): PersonalAbsorptionEvaluation {
-        val zone = ZoneId.of(request.recordedZoneId)
         if (cohort.overflow) return PersonalAbsorptionEvaluation(PersonalAbsorptionStatus.OVERFLOW,
             rejections = mapOf(PersonalAbsorptionRejection.OVERFLOW to 1), evidenceCutoffMs = request.cutoffMs)
         val rejects = cohort.rejections.toMutableMap()
         fun dropped(reason: PersonalAbsorptionRejection) { rejects[reason] = (rejects[reason] ?: 0) + 1 }
         val episodes = cohort.episodes
+        val split = splitPersonalAbsorptionDays(request, episodes)
+        repeat(split.lateTrainingCount) { dropped(PersonalAbsorptionRejection.LATE_TRAINING_EVIDENCE) }
+        return evaluatePreparedSplit(request, split.training, split.validation, rejects, episodes)
+    }
+
+    internal fun evaluatePreparedSplit(request: PersonalAbsorptionRequest,
+        train: List<PersonalAbsorptionEpisode>, test: List<PersonalAbsorptionEpisode>,
+        rejects: Map<PersonalAbsorptionRejection, Int> = emptyMap(),
+        digestEpisodes: List<PersonalAbsorptionEpisode> = train + test): PersonalAbsorptionEvaluation {
+        val zone = ZoneId.of(request.recordedZoneId)
         fun date(e: PersonalAbsorptionEpisode) = e.meal.timestamp.atZone(zone).toLocalDate()
-        val dates = episodes.map(::date).distinct().sorted()
-        val testDays = max(2, ceil(dates.size / 3.0).toInt())
-        val boundary = dates.getOrNull((dates.size - testDays).coerceAtLeast(0))
-        val boundaryMs = boundary?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: 0
-        val train = episodes.filter { boundary != null && date(it) < boundary }.filter {
-            (it.latestEvidenceAtMs < boundaryMs).also { valid ->
-                if (!valid) dropped(PersonalAbsorptionRejection.LATE_TRAINING_EVIDENCE)
-            }
-        }
-        val test = episodes.filter { boundary != null && date(it) >= boundary }
-        val digest = digest(request, episodes)
+        val digest = digest(request, digestEpisodes)
         val base = PersonalAbsorptionEvaluation(PersonalAbsorptionStatus.INSUFFICIENT_DATA,
             train.size, train.map(::date).distinct().size, test.size, test.map(::date).distinct().size,
             rejections = rejects.toMap(), evidenceDigest = digest, evidenceCutoffMs = request.cutoffMs)

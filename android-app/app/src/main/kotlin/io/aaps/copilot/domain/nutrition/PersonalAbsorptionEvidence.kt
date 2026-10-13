@@ -68,7 +68,8 @@ data class PersonalAbsorptionStep(val ageMinutes: Int, val residualMmol: Double)
 class PersonalAbsorptionEpisode internal constructor(
     val meal: MealPortionObservation, val recordedZoneId: String,
     steps: List<PersonalAbsorptionStep>, val csfMmolPerGram: Double,
-    val latestEvidenceAtMs: Long, val sourceDigest: String
+    val latestEvidenceAtMs: Long, val sourceDigest: String,
+    val comparisonCohort: String? = null
 ) {
     val steps: List<PersonalAbsorptionStep> = Collections.unmodifiableList(steps.toList())
 }

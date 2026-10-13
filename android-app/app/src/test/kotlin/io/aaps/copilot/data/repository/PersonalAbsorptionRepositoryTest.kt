@@ -15,6 +15,7 @@ import io.aaps.copilot.domain.nutrition.MealPortionObservation
 import io.aaps.copilot.domain.nutrition.MealPortionProvenance
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionSourceProblem
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionSourceStatus
+import io.aaps.copilot.domain.nutrition.PersonalGiStatus
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import java.time.Clock
 import java.time.Instant
@@ -64,6 +65,29 @@ class PersonalAbsorptionRepositoryTest {
         MealPortionObservation(id.toString(), Instant.ofEpochMilli(row(id).timestamp), 35.0,
             MealAbsorptionProfile.MIXED, MealPortionProvenance.USER_CORRECTED, MealPortion.MEDIUM,
             availableAt = Instant.ofEpochMilli(override(id).updatedAtMs), therapyRevision = "r1"), ZoneOffset.UTC.id)
+
+    @Test fun giAnalysisJoinsSameRevisionRoomEvidenceWithoutWrites() = runBlocking {
+        db.therapyDao().upsertAll((1..18).map { row(it) })
+        (1..18).forEach { id -> db.energyProfileDao().upsertMealOverride(override(id).copy(
+            glycemicIndexValue = if (id % 2 == 0) 25.0 else 75.0, glycemicIndexSource = "USER")) }
+        val before = db.therapyDao().since(0)
+        val result = repository().analyzeGi(ZoneOffset.UTC, MealAbsorptionProfile.MIXED,
+            MealPortion.MEDIUM, 720, (1..18).map { prepared(it) })
+        assertThat(result.status).isEqualTo(PersonalGiStatus.ANALYZED)
+        assertThat(result.model!!.minimumTrainingGi).isEqualTo(25.0)
+        assertThat(result.model!!.maximumTrainingGi).isEqualTo(75.0)
+        assertThat(result.clinicalInfluenceAllowed).isFalse()
+        assertThat(db.therapyDao().since(0)).isEqualTo(before)
+        assertThat(db.energyProfileDao().matchingMealOverrideForIdentity("1", "r1")!!.glycemicIndexValue).isEqualTo(75.0)
+    }
+
+    @Test fun giAnalysisDoesNotGuessMissingInsulinOrGiFromLegacyRows() = runBlocking {
+        populate()
+        val result = repository().analyzeGi(ZoneOffset.UTC, MealAbsorptionProfile.MIXED, MealPortion.MEDIUM, 720)
+        assertThat(result.status).isEqualTo(PersonalGiStatus.INSUFFICIENT_DATA)
+        assertThat(result.rejections["SOURCE_INDEPENDENT_INSULIN_INTERVALS"]).isEqualTo(5)
+        assertThat(result.model).isNull()
+    }
 
     @Test fun sourceReportsLegacyGapsEvenWhenCgmRowsExistWithoutProvenance() = runBlocking {
         populate()

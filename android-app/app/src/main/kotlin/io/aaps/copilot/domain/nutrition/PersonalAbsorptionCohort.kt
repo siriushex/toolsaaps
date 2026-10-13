@@ -5,12 +5,35 @@ import java.time.ZoneId
 import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.ceil
+import kotlin.math.max
 
 internal data class PersonalAbsorptionCohort(
     val episodes: List<PersonalAbsorptionEpisode>,
     val rejections: Map<PersonalAbsorptionRejection, Int>,
     val overflow: Boolean = false
 )
+
+internal data class PersonalAbsorptionSplit(
+    val training: List<PersonalAbsorptionEpisode>,
+    val validation: List<PersonalAbsorptionEpisode>,
+    val lateTrainingCount: Int,
+    val boundaryMs: Long
+)
+
+internal fun splitPersonalAbsorptionDays(request: PersonalAbsorptionRequest,
+    episodes: List<PersonalAbsorptionEpisode>): PersonalAbsorptionSplit {
+    val zone = ZoneId.of(request.recordedZoneId)
+    fun date(e: PersonalAbsorptionEpisode) = e.meal.timestamp.atZone(zone).toLocalDate()
+    val dates = episodes.map(::date).distinct().sorted()
+    val testDays = max(2, ceil(dates.size / 3.0).toInt())
+    val boundary = dates.getOrNull((dates.size - testDays).coerceAtLeast(0))
+    val boundaryMs = boundary?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: 0L
+    val earlier = episodes.filter { boundary != null && date(it) < boundary }
+    return PersonalAbsorptionSplit(earlier.filter { it.latestEvidenceAtMs < boundaryMs },
+        episodes.filter { boundary != null && date(it) >= boundary },
+        earlier.count { it.latestEvidenceAtMs >= boundaryMs }, boundaryMs)
+}
 
 /** Shared eligibility; a sparse descriptive view cannot weaken the timing fit. */
 internal fun preparePersonalAbsorptionCohort(

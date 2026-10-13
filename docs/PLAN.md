@@ -1,5 +1,18 @@
 # PLAN
 
+## GI Contribution Analysis (2026-10-13)
+
+- Implemented qualified known-GI contribution analysis: frozen chronological
+  split, context cohorts, type/personal/GI ablation,5/30/60 conditional response
+  errors, mass stress, missingness and explicit target-integration blockers.
+- On-demand same-snapshot Room join and private aggregate replay tool, without
+  clinical registration. First focused source/domain/Room pass:72 tests.
+- Expanded direct checks passed74 cases plus an explicit synthetic report run.
+  Full local Android unit/lint/compile/assemble passed:5440 tests passed,5 optional
+  external-input skips, zero failures/errors and zero lint errors. Exact-source
+  publication/CI remains a separate gate. Actual clinical forecast validation
+  and control-safety admission are not completed. No phone/therapy activation.
+
 ## Primary Mixed COB Display (2026-10-13)
 
 - Implemented presentation-only primary runtime COB with explicit Copilot label
