@@ -8,6 +8,7 @@ import java.security.MessageDigest
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.pow
+import java.time.ZoneId
 
 enum class PersonalAbsorptionContextCheck { SENSOR, CALIBRATION, DELIVERY, ACTIVITY, ILLNESS, OTHER_FOOD }
 enum class PersonalAbsorptionConfound {
@@ -79,6 +80,8 @@ data class PersonalAbsorptionPreparation(
 class PersonalAbsorptionEvidenceAdapter {
     fun prepare(input: PersonalAbsorptionInput, cutoffMs: Long): PersonalAbsorptionPreparation {
         fun reject(reason: PersonalAbsorptionRejection) = PersonalAbsorptionPreparation(null, setOf(reason))
+        if (runCatching { ZoneId.of(input.recordedZoneId) }.isFailure)
+            return reject(PersonalAbsorptionRejection.INVALID_CONTEXT)
         if (input.glucose.size > 10000 || input.insulin.size > 30000)
             return reject(PersonalAbsorptionRejection.OVERFLOW)
         val meal = input.meal

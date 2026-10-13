@@ -41,6 +41,13 @@ class PersonalAbsorptionEstimatorTest {
     private fun history(duration: Int = 150, exponent: Double = 1.15, isf: Double = 3.0) =
         (1..18).map { input(it, duration, exponent, isf) }
 
+    @Test fun invalidHistoricalTimezoneRejectsInsteadOfPreparingAnEpisode() {
+        val result = PersonalAbsorptionEvidenceAdapter().prepare(
+            input(1).copy(recordedZoneId = "missing-zone"), cutoff)
+        assertThat(result.episode).isNull()
+        assertThat(result.rejections).contains(PersonalAbsorptionRejection.INVALID_CONTEXT)
+    }
+
     @Test fun learnsTimingFromCgmAndUsesLaterWholeDaysForValidation() {
         val result = estimator.evaluate(request, history())
         assertThat(result.status).isEqualTo(PersonalAbsorptionStatus.EVALUATED)

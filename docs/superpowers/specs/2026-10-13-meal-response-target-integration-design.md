@@ -1,7 +1,7 @@
 # Meal Response And Target Manager
 
 Date: 2026-10-13.
-Status: architecture choice approved; written specification awaiting review.
+Status: architecture and written specification approved; first evidence stage authorized.
 
 ## Outcome
 

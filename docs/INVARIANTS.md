@@ -1,5 +1,36 @@
 # INVARIANTS
 
+## Chart Event Detail Semantics
+
+- Details are passive selected-record data. They cannot dispatch commands or
+  infer a delivered dose, per-meal COB, true GI or completed absorption.
+- Point blood checks retain their timestamp and reference status. Their trust
+  context duration is not a measurement procedure or applied calibration.
+- Missing/nonfinite/conflicting quantities remain unknown; authoritative carb
+  semantics take precedence over legacy aliases. Optional display fields never
+  displace clinical attributes at the24-field cap.
+- Apply the existing attribute cap before removing/regenerating reserved display
+  keys, so previously clipped clinical fields cannot become newly visible.
+- Diagnostic labels retain reported/suspected meaning. Raw policy markers and
+  JSON do not become explanatory text. Deleted selections cannot reopen later.
+
+## Qualified Meal Research Source
+
+- Prepared evidence cannot create or revise its own canonical ground-truth meal.
+  Identity/revision/time/mass/type/portion/provenance/availability must match.
+- Missing insulin, CGM availability, zone, model context or review/session identity
+  is unknown, never zero or a fabricated reviewed assertion. Research-source
+  attestations cannot authorize clinical decisions or imply physical delivery.
+- Conflicting labels/evidence, known overlap, unfinished day/tail and invalid
+  adapter inputs cannot qualify. Historical timezone cannot fall back to current
+  settings. Later review availability belongs to episode chronology and digest.
+- Source queries and aggregate prepared rows are bounded. Overflow/unavailable
+  is not a complete partial training source; returned collections are immutable.
+- Freeze packet membership/arrays before the canonical read suspends. Explicit
+  contemporaneous glucose basis is required; unknown/retrospective is rejected.
+- READY is source-read status, not trained accuracy. Clinical influence and
+  actual mass accuracy remain false. No runtime/therapy/worker/schema change.
+
 ## Lenta Estimate History Boundary
 
 - Model grams are approximate declared/preset estimates, never measured COB or

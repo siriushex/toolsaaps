@@ -1,5 +1,28 @@
 # PLAN
 
+## Chart Event Popup (2026-10-13)
+
+- Expanded existing AlertDialog approved and implemented with typed read-only
+  details, preserved cluster selection and current-record updates.
+- Missing blood-value, two display review regressions and the attribute-cap
+  regression reproduced and fixed. Final focused/native verification passed24
+  cases; narrow, large-font and landscape screenshots were inspected.
+- Full local unit/lint/compile/APK gates passed:5384 passed,4 existing private-data
+  skips, zero errors/failures. Exact-source CI remains the publication gate.
+- No phone update or runtime therapy activation belongs to this stage.
+
+## Qualified Personal Meal Evidence (2026-10-13)
+
+- Written target-integration specification approved; this stage is the research
+  source prerequisite, not clinical forecast or target activation.
+- Implement a bounded canonical Room join and explicit prepared-episode producer;
+  missing legacy metadata, conflicts and unsafe contexts stay rejected.
+- Real adapter timezone RED reproduced; focused source/domain/Room verification
+  passed81 cases. Final combined local Android gates passed; exact-source CI
+  remains the publication gate.
+- Model predictive validation, prospective capture contract and separate control
+  safety assessment remain subsequent stages. No numerical target percentages.
+
 ## Lenta History Connection (2026-10-13)
 
 - Add separate Estimate mode with full modeled-gram horizon and passive point

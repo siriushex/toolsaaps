@@ -1,5 +1,44 @@
 # ARCHITECTURE
 
+## Chart Event Details
+
+The chart keeps its existing read-only AlertDialog and represented marker IDs.
+ChartEventDetailsUi projects only each selected CompensationEvent; the dialog
+has one dismiss callback and no therapy/action dependencies. Current source rows
+resolve selected IDs on every update; vanished IDs are removed from selection.
+
+EventDisplayQuantities reuses clinical component semantics only for presentation,
+rejecting conflicting display aliases without changing clinical parsing policy.
+EventTimelineRepository carries source-resolved amounts and blood-check values
+as optional display attributes without queries, schema changes or eviction of
+clinical keys. Incoming reserved display keys are discarded and regenerated.
+The original event timestamp is retained. A graph context envelope is not a
+confirmed uptake/delivery duration; accepted reference status is not applied
+calibration. UAM remains explicitly model context.
+
+## Qualified Personal Meal Evidence Source
+
+PersonalAbsorptionRepository.produce is an explicit read-only research request,
+not an AppContainer/worker/clinical subscription. It reuses Lenta's bounded
+canonical21-day transaction and batched overrides, then joins explicitly prepared
+source evidence to exact stored meal identity/revision/quantity/type/portion and
+confirmation availability. Legacy glucose rows alone lack availability and
+sensor/calibration/review provenance; no prepared context is invented from them.
+
+Prepared packets are frozen before the Room suspension. Unknown or retrospectively
+recalculated glucose cannot become contemporaneous CGM by having a source label.
+PersonalAbsorptionEpisodeProducer qualifies historical zone, source attestations,
+preparation availability and known overlaps before the existing adapter. It
+preserves eligibility/fit thresholds, includes later review availability in the
+episode cutoff/digest and exposes immutable outcomes without raw CGM/insulin
+retention.5000 canonical labels,240 prepared packets and aggregate20000 glucose/
+60000 insulin rows are resource caps; overflow rejects the whole source snapshot.
+READY describes a successful canonical read, not a trained or clinically cleared
+model. Supplied research attestations are not independently verified physical
+delivery evidence. Missing/invalid inputs remain explicit failures.
+No forecast, COB, food writes, target/insulin policy, schema or runtime registration
+changes. See superpowers/specs/2026-10-13-meal-response-target-integration-design.md.
+
 ## Lenta Personal-History Preview
 
 The separate Lenta Estimate mode requests one read-only history snapshot on first

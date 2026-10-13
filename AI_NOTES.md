@@ -1,8 +1,78 @@
+# Chart Event Details - 2026-10-13
+
+- Final combined local gate completed successfully in24m5s: unit tests, lint,
+  Kotlin compilation and debug assembly. Inspected XML:5388 cases/470 suites,
+  5384 passed,4 existing opt-in private-phone-data skips, zero failures/errors.
+  Lint has zero errors,326 warnings and7 hints; this is not a warning-free claim.
+  The popup's bounded Configuration height has an SDK-insets advisory; native
+  narrow, landscape and large-font layout tests passed without clipped text.
+  APK signature v2 verifies. Synthetic native screenshots were inspected.
+  Source publication/CI are the remaining gate; APK remains private and no phone
+  installation, therapy action or clinical model activation was performed.
+- User selected and authorized an expanded existing popup. Added typed detail
+  projection and compact read-only sections with date/time, source, recorded
+  quantities, reference-check status, explicit activity facts and human notes.
+- Source-resolved meal quantities preserve canonical precedence and refuse
+  ambiguous display aliases. Reserved display values cannot be injected through
+  incoming attributes; optional additions do not evict clinical keys at the cap.
+- Existing blood-check projection now preserves canonical blood and matched-CGM
+  values. LocalEventImpactAnalyzer inputs/clinical thresholds remain unchanged.
+- Point measurements do not become six-hour procedures. Modeled envelopes are
+  explicitly graph windows; accepted blood references do not imply calibration
+  application. Removing a selected event clears its selection permanently.
+- The actual missing-blood-value regression failed before enrichment (3 tests,
+  1 assertion failure). Typed projection passed9 isolated JVM tests. Two later
+  assertion regressions exposed multiline-JSON leakage and conflicting validity
+  still showing insulin; both were fixed. A missing existing intensity resource
+  name was corrected during compilation. Private harness resource-cache failures
+  were environment failures, not behavioral REDs.
+- Direct Kotlin2.2.21/Compose verification passed23 tests, including native
+  Robolectric single/cluster taps, update/delete/re-add, Close/back and layout
+  checks. Synthetic320px light, large-font dark and landscape images were
+  inspected. Final full local Android gates are running; no APK/publication claim.
+- Full unit tests then passed5387 cases with4 private-data skips. Review found
+  a further cap-order regression: removing reserved display keys before bounding
+  could expose a previously clipped clinical profile. A real1-test assertion RED
+  reproduced it. Bounding now precedes display-key removal; the fixed source
+  passed24 focused/native cases. The running lint was stopped before the fix;
+  a fresh full local gate is required. Matching time is labeled as alignment,
+  not an asserted physical CGM sample timestamp.
+- The earlier personal-source full run completed5364 tests, zero failures/errors,
+  4 existing skips, then was stopped deliberately during lint to verify the final
+  combined source once. It is not full-gate acceptance. All local gates remain
+  required before either source stage is published.
+
+# Qualified Personal Meal Source - 2026-10-13
+
+- Final combined Android unit/lint/compile/assemble gates passed locally; see
+  the chart-event entry above for the inspected totals. This verifies source
+  behavior, not personal-model accuracy or eligibility for clinical control.
+  Exact-source GitHub verification remains pending publication.
+- User approved the written specification and starting the first evidence stage.
+  Scoped plan: superpowers/plans/2026-10-13-personal-meal-evidence-producer.md.
+- Added on-demand bounded canonical join and pure prepared-episode qualification,
+  exact meal binding, missing-source reasons, conflict/overlap rejection, immutable
+  outcomes and preparation-aware chronology/digest. Legacy metadata is not guessed.
+- A real invalid historical-timezone test failed with an incorrectly prepared
+  episode before the adapter guard was added. New producer contract tests also
+  demonstrated missing types before implementation; this compile failure is not
+  claimed as a behavioral assertion RED. Focused domain/Room validation passed.
+- Existing eligibility/fit thresholds and clinical controls are unchanged. No
+  clinical forecast, COB/gram write, target/dose/priority, schema, worker or phone
+  change. Source-provided research attestations are not physical delivery proof.
+- First Gradle-focused run passed79 cases/6 suites, zero failures/errors/skips.
+  Direct Kotlin2.2.21 verification then reproduced2 assertion failures in81 cases:
+  source mutation across the actual Room query and unknown/retrospective CGM basis.
+  Added pre-query freezing and explicit basis qualification; all81 cases passed.
+  Initial private harness path/SDK/resource errors were not behavioral REDs and
+  are retained separately. Full local gates are required before publication,
+  following the user's latest choice; no early CI source publication.
+
 # Meal Response Target Integration Design - 2026-10-13
 
 - User requested actual GI-informed target influence and approved the route
   through a validated personal absorption model and existing forecast/controller,
-  instead of a direct target percentage. Written specification awaits review:
+  instead of a direct target percentage. Written specification now approved:
   superpowers/specs/2026-10-13-meal-response-target-integration-design.md.
 - Current GI exponent is display-only and uncalibrated. Personal prepared-input
   source is incomplete; research EVALUATED cannot enable clinical control.

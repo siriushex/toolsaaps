@@ -10,6 +10,11 @@ import io.aaps.copilot.domain.model.resolveTherapyComponents
 import io.aaps.copilot.domain.nutrition.MealPortion
 import io.aaps.copilot.domain.nutrition.MealPortionEvidence
 import io.aaps.copilot.domain.nutrition.MealPortionProvenance
+import io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionEpisodeEvidence
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionEpisodeProducer
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionSourceSnapshot
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionSourceStatus
 import io.aaps.copilot.domain.nutrition.toPortionObservation
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import java.time.Clock
@@ -32,6 +37,21 @@ data class PersonalAbsorptionHistoryAudit(
 internal class PersonalAbsorptionRepository(
     private val db: CopilotDatabase, private val gson: Gson, private val clock: Clock
 ) {
+    suspend fun produce(zone: ZoneId, evidence: List<PersonalAbsorptionEpisodeEvidence> = emptyList()): PersonalAbsorptionSourceSnapshot {
+        val cutoffMs = clock.millis()
+        val producer = PersonalAbsorptionEpisodeProducer()
+        if (PersonalAbsorptionEpisodeProducer.exceedsLimits(emptyList(), evidence))
+            return producer.produce(cutoffMs, zone.id, emptyList(), evidence)
+        val frozenEvidence = PersonalAbsorptionEpisodeProducer.freezeEvidence(evidence)
+        val history = LentaMealHistoryRepository(db, gson).load(cutoffMs, zone)
+        val status = when (history.status) {
+            LentaMealHistoryStatus.READY -> PersonalAbsorptionSourceStatus.READY
+            LentaMealHistoryStatus.UNAVAILABLE -> PersonalAbsorptionSourceStatus.UNAVAILABLE
+            LentaMealHistoryStatus.OVERFLOW -> PersonalAbsorptionSourceStatus.OVERFLOW
+        }
+        return producer.produce(cutoffMs, zone.id, history.entries.map { it.meal }, frozenEvidence, status)
+    }
+
     suspend fun audit(zone: ZoneId): PersonalAbsorptionHistoryAudit {
         val now = clock.instant()
         val end = now.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()

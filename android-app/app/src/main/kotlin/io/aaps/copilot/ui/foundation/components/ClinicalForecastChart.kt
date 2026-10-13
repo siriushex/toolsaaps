@@ -9,13 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import io.aaps.copilot.ui.foundation.screens.ChartCiPointUi
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
-import io.aaps.copilot.ui.foundation.screens.eventSourceLabelRes
 import io.aaps.copilot.ui.foundation.screens.eventTypeLabelRes
 import io.aaps.copilot.ui.foundation.screens.toChartMarkerUi
 import io.aaps.copilot.R
@@ -156,6 +152,12 @@ internal fun ClinicalForecastChart(
     onForecastMarkerClick: (Int) -> Unit = {}
 ) {
     var selectedEventIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(selectedEventIds, state.events, state.showEvents) {
+        val retained = if (state.showEvents) selectedEventIds.filter { id ->
+            state.events.any { it.localId == id }
+        } else emptyList()
+        if (retained != selectedEventIds) selectedEventIds = retained
+    }
     val visibleHistory = remember(state.historyPoints, viewport) {
         viewport?.let { selectClinicalChartPoints(state.historyPoints, it.startTs, it.endTs) }
             ?: state.historyPoints
@@ -500,32 +502,7 @@ internal fun ClinicalForecastChart(
         state.events.firstOrNull { it.localId == selectedId }
     }
     if (selectedEvents.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { selectedEventIds = emptyList() },
-            title = { Text(stringResource(R.string.events_details_title)) },
-            text = {
-                LazyColumn(
-                    modifier = Modifier
-                        .heightIn(max = 320.dp)
-                        .testTag("eventClusterDetails"),
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-                ) {
-                    items(selectedEvents, key = { it.localId }) { selected ->
-                        Column {
-                            val typeLabel = stringResource(eventTypeLabelRes(selected.type))
-                            Text(selected.title.ifBlank { typeLabel })
-                            Text(typeLabel)
-                            Text(stringResource(eventSourceLabelRes(selected.source)))
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedEventIds = emptyList() }) {
-                    Text(stringResource(R.string.events_close))
-                }
-            }
-        )
+        ChartEventDetailsDialog(selectedEvents, state.eventTimelineNowTs) { selectedEventIds = emptyList() }
     }
 }
 

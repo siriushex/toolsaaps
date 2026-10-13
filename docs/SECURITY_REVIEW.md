@@ -1,5 +1,36 @@
 # SECURITY REVIEW
 
+## Chart Event Popup (2026-10-13)
+
+- Local presentation only; no network, permission, database write, action gateway
+  or new data query. The dialog exposes only a dismissal callback.
+- Display quantities are resolved from existing semantics before bounded payload
+  projection. Reserved incoming display fields cannot override resolved values.
+  Original clinical keys and LocalEventImpactAnalyzer output are preserved.
+- Cap-before-removal is regression-tested: clearing a reserved display key must
+  not reveal a previously clipped profile or alter its clinical impact.
+- Details do not render raw attributes, internal IDs, protected note markers or
+  JSON. Native verification uses synthetic records; images and logs stay private.
+- Source status and recorded insulin do not prove physical delivery. Missing
+  measurements and pairing remain explicitly unavailable.
+
+## Qualified Personal Meal Source (2026-10-13)
+
+- Read-only on-demand research entry point; no new network, JSON wire route,
+  permission, schema, worker, AppContainer registration or clinical writer.
+- Explicit prepared inputs are bound to independently confirmed Room labels;
+  packet contents cannot restore tombstones or change grams/revisions. Source
+  attestations are not authentication of physical insulin delivery.
+- Caps before canonical Room reads and aggregate preparation bound resource use.
+  No raw CGM/insulin retention in outcomes or new medical logging/public fixtures.
+- Missing availability/session/calibration/context data is not inferred from
+  legacy source labels. Preparation timestamps and length-framed digest include
+  provenance so delayed review cannot be silently backdated into a fit.
+- Snapshot packet membership/arrays before Room suspension; concurrent caller
+  changes cannot relabel the request. Unknown/retrospective CGM basis is rejected.
+- Existing research and clinical flags/guards remain unchanged; code tests do
+  not validate therapeutic safety or accuracy on actual user history.
+
 ## Lenta History Preview (2026-10-13)
 
 - On-demand read-only Room source uses canonical revision and local independent
