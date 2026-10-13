@@ -1,3 +1,19 @@
+# Meal Response Target Integration Design - 2026-10-13
+
+- User requested actual GI-informed target influence and approved the route
+  through a validated personal absorption model and existing forecast/controller,
+  instead of a direct target percentage. Written specification awaits review:
+  superpowers/specs/2026-10-13-meal-response-target-integration-design.md.
+- Current GI exponent is display-only and uncalibrated. Personal prepared-input
+  source is incomplete; research EVALUATED cannot enable clinical control.
+  First implementation scope is a bounded qualified evidence producer, rejecting
+  unknown inputs rather than fabricating insulin/context or weakening eligibility.
+- Prediction evaluation and independent control-safety assessment are separate
+  gates. Existing Eating Soon, hypo/sensor/delivery protection, ownership,
+  freshness, bounds, arming and single-writer dispatch remain authoritative.
+- Documentation only: no clinical forecast/COB/gram/target/dose/priority changes,
+  build or device actions. Private audit details stay outside the repository.
+
 # Lenta Personal History Connection - 2026-10-13
 
 - Focused Android run passed76 cases in6 suites, zero failures/errors/skips,
