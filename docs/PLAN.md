@@ -8,7 +8,8 @@
   regression reproduced and fixed. Final focused/native verification passed24
   cases; narrow, large-font and landscape screenshots were inspected.
 - Full local unit/lint/compile/APK gates passed:5384 passed,4 existing private-data
-  skips, zero errors/failures. Exact-source CI remains the publication gate.
+  skips, zero errors/failures. Published source30f7c94b passed exact-source Verify
+  for push38368380803 and PR38368388884.
 - No phone update or runtime therapy activation belongs to this stage.
 
 ## Qualified Personal Meal Evidence (2026-10-13)
@@ -18,8 +19,8 @@
 - Implement a bounded canonical Room join and explicit prepared-episode producer;
   missing legacy metadata, conflicts and unsafe contexts stay rejected.
 - Real adapter timezone RED reproduced; focused source/domain/Room verification
-  passed81 cases. Final combined local Android gates passed; exact-source CI
-  remains the publication gate.
+  passed81 cases. Final combined local Android gates and exact-source push/PR
+  Verify passed for published source30f7c94b. The source stage is complete.
 - Model predictive validation, prospective capture contract and separate control
   safety assessment remain subsequent stages. No numerical target percentages.
 

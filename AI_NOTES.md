@@ -1,5 +1,9 @@
 # Chart Event Details - 2026-10-13
 
+- Reviewed source commit30f7c94bd9fda4aa8e0cc25433612af683c46913 is published.
+  Exact-source Verify passed for both push38368380803 and PR38368388884;
+  Android and backend jobs succeeded. Completion documentation changes no code.
+  Evidence: https://github.com/siriushex/toolsaaps/actions/runs/38368380803.
 - Final combined local gate completed successfully in24m5s: unit tests, lint,
   Kotlin compilation and debug assembly. Inspected XML:5388 cases/470 suites,
   5384 passed,4 existing opt-in private-phone-data skips, zero failures/errors.
@@ -7,7 +11,7 @@
   The popup's bounded Configuration height has an SDK-insets advisory; native
   narrow, landscape and large-font layout tests passed without clipped text.
   APK signature v2 verifies. Synthetic native screenshots were inspected.
-  Source publication/CI are the remaining gate; APK remains private and no phone
+  Source publication/CI then passed as recorded above. APK remains private; no phone
   installation, therapy action or clinical model activation was performed.
 - User selected and authorized an expanded existing popup. Added typed detail
   projection and compact read-only sections with date/time, source, recorded
@@ -47,7 +51,7 @@
 - Final combined Android unit/lint/compile/assemble gates passed locally; see
   the chart-event entry above for the inspected totals. This verifies source
   behavior, not personal-model accuracy or eligibility for clinical control.
-  Exact-source GitHub verification remains pending publication.
+  Reviewed source30f7c94b was published and exact-source push/PR Verify passed.
 - User approved the written specification and starting the first evidence stage.
   Scoped plan: superpowers/plans/2026-10-13-personal-meal-evidence-producer.md.
 - Added on-demand bounded canonical join and pure prepared-episode qualification,
