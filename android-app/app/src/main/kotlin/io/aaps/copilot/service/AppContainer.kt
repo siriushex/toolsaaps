@@ -319,6 +319,7 @@ class AppContainer(context: Context) {
         .build()
 
     val apiFactory = ApiFactory { LocalNightscoutTls.loadClientIdentity(appContext) }
+    internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mealStateInbox = io.aaps.copilot.data.repository.MealStateInbox(db)
@@ -714,6 +715,7 @@ class AppContainer(context: Context) {
             GlucoseAlertNotifier.clearPostedNotifications(context.applicationContext)
             PumpLinkNotifier.clear(context.applicationContext)
             io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(context.applicationContext)
+            io.aaps.copilot.data.repository.InfusionSetNotifier.clear(context.applicationContext)
         },
         postCommitObserver = alertAiProductionDispatcher
     )
@@ -740,6 +742,29 @@ class AppContainer(context: Context) {
         db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
         { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) }
     )
+    private val infusionSetNotifier = io.aaps.copilot.data.repository.InfusionSetNotifier(appContext)
+    val deliveryDiagnosticDisplay get() = deliveryDiagnostic.display
+    private suspend fun currentInfusionSetEvidence() = io.aaps.copilot.data.repository.InfusionSetEvidenceReader.read(
+        db.therapyDao().latestInfusionChangeCandidates(io.aaps.copilot.data.repository.InfusionSetEvidenceReader.TYPES,
+            io.aaps.copilot.data.repository.InfusionSetEvidenceReader.MAX_CANDIDATES + 1), System.currentTimeMillis())
+    val infusionSetReminder = io.aaps.copilot.data.repository.InfusionSetReminderRepository(
+        io.aaps.copilot.data.repository.DataStoreInfusionReminderStore.create(appContext, appScope),
+        ::currentInfusionSetEvidence, System::currentTimeMillis, { settingsStore.settings.first().softAlertEnabled },
+        infusionSetNotifier::capable,
+        { generation, due ->
+            io.aaps.copilot.data.repository.postCurrentInfusionReminder(db, generation, due, post = infusionSetNotifier::post)
+        }, { io.aaps.copilot.data.repository.InfusionSetNotifier.clear(appContext) },
+        { generation, due, replace -> io.aaps.copilot.scheduler.InfusionSetReminderScheduler.schedule(appContext, generation, due, replace) },
+        { io.aaps.copilot.scheduler.InfusionSetReminderScheduler.cancel(appContext) },
+        episodeAlertDelivery::coordinateMutedSideEffect
+    )
+    fun refreshInfusionSetAsync() {
+        appScope.launch {
+            try { infusionSetReminder.refresh() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { android.util.Log.w("InfusionReminder", "Maintenance state unavailable") }
+        }
+    }
     val pumpLinkMonitor: PumpLinkHealthMonitor = PumpLinkHealthMonitor(
         scope = appScope,
         store = DataStorePumpLinkRecordStore.create(appContext, appScope),
@@ -1481,6 +1506,24 @@ class AppContainer(context: Context) {
     init {
         clinicalReportRepository.initialize()
         telegramDeliveryController.start(appScope)
+
+        appScope.launch {
+            try { deliveryDiagnostic.refreshRetainedDisplay(System.currentTimeMillis()) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { android.util.Log.w("DeliveryDiagnostic", "Display history unavailable") }
+        }
+
+        appScope.launch {
+            db.therapyDao().observeInfusionChangeCandidates(io.aaps.copilot.data.repository.InfusionSetEvidenceReader.TYPES,
+                io.aaps.copilot.data.repository.InfusionSetEvidenceReader.MAX_CANDIDATES + 1)
+                .distinctUntilChanged()
+                .combine(settingsStore.settings.map { it.softAlertEnabled }.distinctUntilChanged()) { _, _ -> Unit }
+                .collect {
+                    try { infusionSetReminder.refresh() }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { android.util.Log.w("InfusionReminder", "Maintenance state unavailable") }
+                }
+        }
 
         appScope.launch {
             settingsStore.settings

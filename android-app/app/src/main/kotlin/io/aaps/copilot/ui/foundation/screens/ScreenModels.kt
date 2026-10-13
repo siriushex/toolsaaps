@@ -341,6 +341,8 @@ data class OverviewUiState(
     val warning: OverviewWarningUi? = null,
     val energyActivityStatus: EnergyActivityStatusUi? = null,
     val pumpLinkStatus: io.aaps.copilot.data.repository.PumpLinkUiStatus = io.aaps.copilot.data.repository.PumpLinkUiStatus(),
+    val infusionSetStatus: io.aaps.copilot.data.repository.InfusionSetUiStatus = io.aaps.copilot.data.repository.InfusionSetUiStatus(),
+    val deliveryDiagnosticEvidence: io.aaps.copilot.data.repository.DeliveryDiagnosticUiEvidence = io.aaps.copilot.data.repository.DeliveryDiagnosticUiEvidence(),
     val horizons: List<HorizonPredictionUi> = emptyList(),
     val uamActive: Boolean? = null,
     val uci0Mmol5m: Double? = null,

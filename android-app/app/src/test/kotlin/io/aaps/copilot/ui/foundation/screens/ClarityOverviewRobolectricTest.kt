@@ -65,6 +65,111 @@ class ClarityOverviewRobolectricTest {
             futurePath = listOf(ChartPointUi(origin, 7.2)) + listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) },
             mealImpactPoints = points, mealImpactComplete = true, mealImpactGiAdjusted = true))
 
+    @Test fun lentaEstimateLoadsPersonalHistoryOnceAndAllInspectionIsPassive() {
+        var reads = 0
+        var commands = 0
+        withUi {
+            ClarityFoodDetailsDialog(ready(), { commands++ }, { commands++ }, { commands++ },
+                onLoadHistory = { cutoff, zone ->
+                    reads++
+                    val whenMeal = java.time.Instant.ofEpochMilli(cutoff - 86400000L)
+                    io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone, listOf(
+                        io.aaps.copilot.domain.nutrition.LentaMealHistoryEntry(
+                            io.aaps.copilot.domain.nutrition.MealPortionObservation("food-a", whenMeal, 35.0,
+                                io.aaps.copilot.domain.profile.MealAbsorptionProfile.MIXED,
+                                io.aaps.copilot.domain.nutrition.MealPortionProvenance.USER_CORRECTED,
+                                io.aaps.copilot.domain.nutrition.MealPortion.MEDIUM,
+                                availableAt = whenMeal.plusSeconds(1), therapyRevision = "r1"),
+                            io.aaps.copilot.domain.profile.MealGlycemicIndex.fromStored(80.0, "USER"))))
+                })
+        }.use {
+            compose.onNodeWithTag("lentaModeCurrent").assertIsSelected()
+            compose.onNodeWithTag("clarityFoodCob").assertIsDisplayed()
+            assertEquals(0, reads)
+            compose.onNodeWithTag("lentaModeEstimate").performClick()
+            compose.onNodeWithTag("lentaEstimateSource").assert(hasText("1", substring = true))
+            compose.onNodeWithTag("lentaEstimateGi").assert(hasText("80", substring = true))
+            compose.onNodeWithTag("lentaEstimateCurve").assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "0 - 120"))
+                .performTouchInput { click(centerRight) }
+            compose.onNodeWithTag("lentaEstimatePoint").assert(hasText("120", substring = true))
+                .assertIsDisplayed()
+            val pointBounds = compose.onNodeWithTag("lentaEstimatePoint").fetchSemanticsNode().boundsInRoot
+            val footerBounds = compose.onNodeWithTag("clarityFoodEatingSoon").fetchSemanticsNode().boundsInRoot
+            assertTrue("full point readout must be above footer", pointBounds.bottom <= footerBounds.top)
+            assertNoTextOverflow()
+            capture("lenta-estimate-personal-320.png", dialog = true)
+            compose.onNodeWithTag("lentaEstimatePortion_SMALL").performClick()
+            compose.onNodeWithTag("lentaEstimatePoint").assert(hasText("0 мин", substring = true))
+            compose.onNodeWithTag("lentaEstimateType").performClick()
+            compose.onNodeWithTag("lentaEstimateType_FAT_PROTEIN").performClick()
+            compose.onNodeWithTag("lentaEstimateCurve")
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "0 - 270"))
+            compose.onNodeWithTag("lentaModeCurrent").performClick()
+            compose.onNodeWithTag("clarityFoodCob").assert(hasText("22.0", substring = true))
+            compose.onNodeWithTag("lentaModeEstimate").performClick()
+            compose.onNodeWithTag("lentaEstimatePortion_SMALL").assertIsSelected()
+            assertEquals(1, reads)
+            assertEquals(0, commands)
+        }
+    }
+
+    @Test fun loadingHistoryKeepsInspectionTimeButRefreshesModeledAmounts() {
+        val loaded = kotlinx.coroutines.CompletableDeferred<io.aaps.copilot.domain.nutrition.LentaMealHistory>()
+        var snapshot: io.aaps.copilot.domain.nutrition.LentaMealHistory? = null
+        withUi {
+            ClarityFoodDetailsDialog(ready(), {}, {}, {}, onLoadHistory = { cutoff, zone ->
+                val ts = java.time.Instant.ofEpochMilli(cutoff - 86400000L)
+                snapshot = io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone, listOf(
+                    io.aaps.copilot.domain.nutrition.LentaMealHistoryEntry(
+                        io.aaps.copilot.domain.nutrition.MealPortionObservation("food-b", ts, 35.0,
+                            io.aaps.copilot.domain.profile.MealAbsorptionProfile.MIXED,
+                            io.aaps.copilot.domain.nutrition.MealPortionProvenance.USER_CORRECTED,
+                            io.aaps.copilot.domain.nutrition.MealPortion.MEDIUM,
+                            availableAt = ts.plusSeconds(1), therapyRevision = "r1"))))
+                loaded.await()
+            })
+        }.use {
+            compose.onNodeWithTag("lentaModeEstimate").performClick()
+            compose.onNodeWithTag("lentaEstimateCurve").performTouchInput { click(center) }
+            compose.onNodeWithTag("lentaEstimatePoint").assert(hasText("60 мин", substring = true))
+                .assert(hasText("12.5", substring = true))
+            compose.runOnIdle { loaded.complete(checkNotNull(snapshot)) }
+            compose.onNodeWithTag("lentaEstimatePoint").assert(hasText("60 мин", substring = true))
+                .assert(hasText("13.1", substring = true))
+            compose.onNodeWithTag("lentaEstimatePortion_SMALL").performClick()
+            compose.onNodeWithTag("lentaEstimatePoint").assert(hasText("0 мин", substring = true))
+        }
+    }
+
+    @Test fun estimateRemainsAvailableWithoutCurrentCobAndWithUnavailableHistory() {
+        withUi(dark = true, fontScale = 1.3f) {
+            ClarityFoodDetailsDialog(ready().copy(currentCobGrams = null,
+                acceptedFoodDisplay = null, foodDisplayStatus = FoodDisplayStatus.INACTIVE), {}, {}, {})
+        }.use {
+            compose.onNodeWithTag("lentaModeEstimate").performClick()
+            compose.onNodeWithTag("lentaEstimateCurve").assertExists()
+            compose.onNodeWithTag("lentaEstimateGi").assert(hasText(text(R.string.lenta_history_gi_unknown)))
+            assertNoTextOverflow()
+            capture("lenta-estimate-dark-large.png", dialog = true)
+            compose.onNodeWithTag("clarityFoodAddMeal").assertIsDisplayed()
+        }
+    }
+
+    @Test fun invalidPortionSettingsNeverLeavePreviousEstimateVisible() {
+        var state by mutableStateOf(ready())
+        withUi { ClarityFoodDetailsDialog(state, {}, {}, {}) }.use {
+            compose.onNodeWithTag("lentaModeEstimate").performClick()
+            compose.onNodeWithTag("lentaEstimateCurve").assertExists()
+            compose.runOnIdle { state = state.copy(mealPortions = state.mealPortions.copy(
+                medium = state.mealPortions.medium.copy(defaultGrams = Double.NaN))) }
+            compose.onNodeWithTag("lentaEstimateCurve").assertDoesNotExist()
+            compose.onNodeWithTag("lentaEstimateUnavailable").assertExists()
+            compose.onNodeWithTag("lentaModeCurrent").performClick()
+            compose.onNodeWithTag("clarityFoodCob").assertExists()
+        }
+    }
+
     @Test fun iobPairRetainsSignedTotalAndOriginalPassiveDetails() {
         var changes = 0
         withUi { screen(ready().copy(currentIobUnits = 1.8,
@@ -131,6 +236,51 @@ class ClarityOverviewRobolectricTest {
             compose.onNodeWithText(text(R.string.overview_iob_dialog_title)).assertIsDisplayed()
             compose.onNodeWithText(text(R.string.action_cancel)).performClick()
             assertEquals(0, changes)
+        }
+    }
+
+    @Test fun infusionDueAndPassiveDetailsNeverSendTherapy() {
+        var changes = 0
+        val occurred = origin - io.aaps.copilot.domain.pump.InfusionSetPolicy.INTERVAL_MS
+        val status = io.aaps.copilot.data.repository.InfusionSetUiStatus(
+            io.aaps.copilot.domain.pump.InfusionSetPolicy.evaluate(origin,
+                io.aaps.copilot.domain.pump.InfusionSetEvidence(occurred, "infusion-$occurred", "nightscout_treatment")))
+        withUi { screen(ready().copy(foodDisplayNowTs = origin, infusionSetStatus = status), { changes++ }, { changes++ }) }.use {
+            compose.onNodeWithTag("infusionSetIndicator").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
+            compose.onNodeWithText(text(R.string.infusion_set_due)).assertIsDisplayed()
+            capture("infusion-due-details-320.png", dialog = true)
+            compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+            assertNoTextOverflow()
+            capture("infusion-due-320.png")
+            assertEquals(0, changes)
+        }
+    }
+
+    @Test fun reminderStorageFailureDoesNotAskToRewriteDateInAaps() {
+        withUi { screen(ready().copy(infusionSetStatus = io.aaps.copilot.data.repository.InfusionSetUiStatus(unavailable = true)), {}) }.use {
+            compose.onNodeWithTag("infusionSetIndicator").performClick()
+            compose.onNodeWithText("Состояние напоминания недоступно").assertIsDisplayed()
+            compose.onNodeWithText(text(R.string.infusion_set_record_help)).assertDoesNotExist()
+        }
+    }
+
+    @Test fun infusionUnknownRemainsAccessibleAtLargeFont() {
+        withUi(dark = true, fontScale = 2f) { screen(ready(), {}) }.use {
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("infusionSetIndicator"))
+            compose.onNodeWithTag("infusionSetIndicator").performClick()
+            compose.onNodeWithText(text(R.string.infusion_set_unknown)).assertIsDisplayed()
+            capture("infusion-unknown-dark-large.png", dialog = true)
+            compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+            assertNoTextOverflow()
+        }
+    }
+
+    @Test @Config(qualifiers = "w640dp-h320dp-land") fun infusionHeaderFitsLandscape() {
+        withUi { screen(ready(), {}) }.use {
+            compose.onNodeWithTag("clarityContent").performScrollToNode(hasTestTag("infusionSetIndicator"))
+            compose.onNodeWithTag("infusionSetIndicator").assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("infusion-landscape.png")
         }
     }
 

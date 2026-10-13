@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Lenta History Preview (2026-10-13)
+
+- On-demand read-only Room source uses canonical revision and local independent
+  meal confirmation; no network upload, worker, schema or command writer.
+- Bounded completed-day query and batched identity joins prevent unbounded scans;
+  over-cap snapshots do not become a partial apparently complete training set.
+- No old CGM availability/context is fabricated. Historical GI is source context,
+  not laboratory GI inferred from current glucose or body measurements.
+- Native/model/source and full quality checks are pending before release. Actual
+  phone medical records, logs, APKs and screenshots remain private.
+
 ## Native Clarity And Display Lifetime (2026-10-11)
 
 - Passive details and warning routes do not issue therapy. The new standalone

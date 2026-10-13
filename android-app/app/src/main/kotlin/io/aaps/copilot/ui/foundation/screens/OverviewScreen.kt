@@ -216,6 +216,10 @@ fun OverviewScreen(
     authoritativeEditorRequest: OverviewAuthoritativeEditor? = null,
     onAuthoritativeEditorRequestHandled: () -> Unit = {},
     onEatingSoon: (String) -> Unit = {},
+    onLoadMealEstimateHistory: suspend (Long, String) -> io.aaps.copilot.domain.nutrition.LentaMealHistory = { cutoff, zone ->
+        io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone,
+            status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
+    },
     modifier: Modifier = Modifier
 ) {
     var showKillSwitchConfirm by remember { mutableStateOf(false) }
@@ -486,6 +490,7 @@ fun OverviewScreen(
             ClarityOverviewContent(
                 state = state,
                 onEatingSoon = onEatingSoon,
+                onLoadMealEstimateHistory = onLoadMealEstimateHistory,
                 onMeal = openCobDialog,
                 onIob = { showIobDialog = true },
                 onIsf = { sourceSheet = MetricSourceSheetKind.ISF },
@@ -505,7 +510,10 @@ fun OverviewScreen(
                         PumpLinkStatusRow(state.pumpLinkStatus, false)
                     }
                 },
-                pumpStatusContent = { PumpLinkStatusIndicator(state.pumpLinkStatus) },
+                pumpStatusContent = {
+                    PumpLinkStatusIndicator(state.pumpLinkStatus)
+                    InfusionSetIndicator(state.infusionSetStatus, state.deliveryDiagnosticEvidence, state.foodDisplayNowTs)
+                },
                 modifier = modifier
             )
             return@ScreenStateLayout
@@ -534,6 +542,11 @@ fun OverviewScreen(
                 state.pumpLinkStatus.condition != PumpLinkCondition.INTENTIONALLY_DISCONNECTED) {
                 item {
                     PumpLinkStatusRow(state.pumpLinkStatus, midnightGlass)
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    InfusionSetIndicator(state.infusionSetStatus, state.deliveryDiagnosticEvidence, state.foodDisplayNowTs)
                 }
             }
             item {

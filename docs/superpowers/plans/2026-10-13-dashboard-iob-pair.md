@@ -48,11 +48,12 @@ internal fun overviewIobPresentation(current: Double?, signedNet: Double?) =
 - [x] Update architecture/invariants/plan/AI_NOTES and spec status to implemented only after actual checks.
 - [x] Run `rtk proxy ./gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugKotlin :app:assembleDebug`; inspect terminal success, XML counts and lint errors.
 - [x] Verify the built APK package/signature/checksum, keep a private stage artifact; do not install.
-- [ ] Fetch origin, inspect divergence and exact privacy diff; explicitly stage reviewed source/test/docs paths, commit/push the existing branch and inspect Verify CI on that exact SHA. Existing PR4 stays attached; no merge.
-- [ ] Record checkpoint completion and move to separately approved infusion stage. Schedule written review is approved and shares this UI gate. Lenta Estimate remains pending.
+- [x] Fetch origin, inspect divergence and exact privacy diff; explicitly stage reviewed source/test/docs paths, commit/push the existing branch and inspect Verify CI on that exact SHA. Existing PR4 stays attached; no merge.
+- [x] Record checkpoint completion and move to separately approved infusion stage. Schedule written review is approved and shares this UI gate. Lenta Estimate remains pending.
 
 Focused gate inspected: 99 tests, 7 suites, zero failures/errors/skips. Classic
 bounds check covers the changed IOB metric, not pre-existing hero delta overflow.
 Full local Android gate passed: 5282 cases, zero failures/errors, 4 private opt-in
 fixtures skipped; lint zero errors/fatal, 322 warnings. Package and v2 signature
-verified. Exact-source publication/CI remains pending.
+verified. Exact-source Verify push38310293860 and PR38310300722 passed on
+be9cc67bb9436ed5bbb218c9d4dc49693d6863ff. No phone actions.

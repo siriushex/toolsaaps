@@ -1,5 +1,49 @@
 # ARCHITECTURE
 
+## Lenta Personal-History Preview
+
+The separate Lenta Estimate mode requests one read-only history snapshot on first
+selection. LentaMealHistoryRepository bounds a21-day completed-day canonical
+meal query, joins matching local confirmation evidence in400-ID batches and
+rejects ambiguous/revised/synthetic/self-generated labels. No schema change,
+worker, network, CGM Flow or continuous scan is introduced.
+LentaMealEstimator reuses the fourteen-day type/portion/circular-hour selector
+and default HybridMealResponseEstimator. Sparse declared portions receive a
+bounded, preset-shrunk correction beginning at one comparable meal. Valid stored
+USER/CATALOG GI, if present, adjusts only preview timing via the existing display
+exponent, further shrunk by support. This is historical GI context, not a
+CGM-derived laboratory GI; unknown insulin/sensor/timezone evidence stays unknown.
+The full gram/minute curve and passive inspection do not feed clinical models or
+Food action payloads. Existing Current COB and its saved viewport stay separate.
+See superpowers/specs/2026-10-12-lenta-meal-estimate-design.md amendment.
+
+## Infusion Maintenance Indication
+
+InfusionSetEvidenceReader reads at most32 canonical change candidates plus an
+overflow sentinel through indexed type queries. Only qualified Nightscout/local
+Nightscout original dates matching the stored occurrence establish wear timing;
+receipt fallback, conflicting/deleted/echo/inferred markers and age aliases do not.
+InfusionSetPolicy uses72 elapsed hours, with unknown/future/overflow failure closed.
+
+InfusionSetReminderRepository serializes generation/attempt transitions in an
+independent no-backup DataStore, retaining a chronological attempt watermark.
+Source is committed before unique WorkManager enqueue. The worker rereads source;
+a brief Room read transaction binds the final canonical/deadline check to the
+synchronous silent Android notification post. Work has no network, CGM, clinical
+arming or forecast dependency. Enqueue uses existing asynchronous WorkManager
+style; restart/resume reconciles durable source. This is not an exact alarm.
+
+Claim precedes post; interrupted/unknown outcomes are terminal. Known capability
+blocks have at most one retry after restoration. OFF consumes/suppresses due
+reminders, does not move deadlines or replay them on expiry. Maintenance has a
+separate low-importance silent slot and cannot affect glucose/delivery playback.
+
+Overview exposes a48dp passive icon and details, distinct from PumpLink. Current
+delivery presentation is projected from the existing validated diagnostic state
+and fresh accepted assessment. Duplicates retain original timestamps; startup
+readback and insufficient/invalid/new-basis evidence are retained history only.
+Projection does not change diagnostic thresholds, claims, recovery or therapy.
+
 ## Dashboard IOB Pair And Direct Target Controls
 
 Both primary Overview renderers share a display-only IOB presentation from

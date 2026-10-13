@@ -101,6 +101,15 @@ class MealPortionEstimator(private val clock: Clock) {
         return MealQuantityPrior(estimate, quantile(0.1), quantile(0.9))
     }
 
+    internal fun comparableForPreview(
+        observations: List<MealPortionObservation>, settings: MealPortionSettings,
+        portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId, minuteOfDay: Int
+    ): List<MealPortionObservation> {
+        require(settings.isValid() && minuteOfDay in 0..1439)
+        if (observations.size > 5000) return emptyList()
+        return selectObservations(observations, settings, portion, profile, zone, clock.instant(), minuteOfDay).second
+    }
+
     private fun selectObservations(
         observations: List<MealPortionObservation>, settings: MealPortionSettings,
         portion: MealPortion, profile: MealAbsorptionProfile, zone: ZoneId, now: Instant,

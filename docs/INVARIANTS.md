@@ -1,5 +1,36 @@
 # INVARIANTS
 
+## Lenta Estimate History Boundary
+
+- Model grams are approximate declared/preset estimates, never measured COB or
+  automatic food-entry replacement. One matching meal has only bounded influence.
+- History labels require canonical revision and independent local confirmation.
+  Synthetic UAM, accepted suggestions, tombstones and conflicts cannot train it.
+- Known historical GI is displayed as historical context; absent GI is unknown.
+  Do not construct CGM timing inputs by treating missing insulin/context as clean.
+- Estimate interactions issue no therapy/calibration/sound commands. Its complete
+  gram/minute curve cannot replace accepted Current mmol/L/COB display.
+- Reads are once per dialog session, bounded and off the main thread. Overflow or
+  unavailable source uses a type model and cannot claim personal support.
+
+## Infusion Timing And Presentation
+
+- Recorded set age is not proof of physical wear or delivery. No green healthy
+  claim, neutral-age0 fallback, future-date clamp or bare-CAGE unit assumption.
+- 72h starts at verified original occurrence, not receipt/import/calendar midnight.
+  Reservoir/sensor/prime records do not reset cannula timing. Missing/conflicting,
+  deleted, synthetic/echo, future or overflow evidence remains unknown.
+- Durable generation precedes scheduling; stale workers must recheck canonical
+  evidence and deadline. Posting claims and chronological watermark survive restart,
+  deletion and reimport. Unknown post outcomes cannot blindly repeat.
+- Maintenance is silent, separate and best effort. No network/CGM/therapy arming
+  dependency. Existing OFF and urgent glucose/delivery priority remain intact.
+- Set replacement affects timing only, not independent diagnostic episodes.
+  Current delivery labels require existing policy-accepted fresh evidence; an OPEN
+  row alone is retained history. Duplicate input cannot renew accepted timestamps.
+- Passive details cannot write source events, goals, doses or settings. Corrupt
+  reminder state is distinct from missing original dates and never resets history.
+
 ## Dashboard Presentation And Target Draft
 
 - Primary IOB is current / signed net from existing accepted UI values, not a new

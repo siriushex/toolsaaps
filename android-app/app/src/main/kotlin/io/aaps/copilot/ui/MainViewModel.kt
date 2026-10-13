@@ -4153,6 +4153,8 @@ class MainViewModel(application: Application) :
             )
         }
         .combine(container.pumpLinkMonitor.state) { state, pumpLink -> state.copy(pumpLinkStatus = pumpLink) }
+        .combine(container.infusionSetReminder.state) { state, infusion -> state.copy(infusionSetStatus = infusion) }
+        .combine(container.deliveryDiagnosticDisplay) { state, delivery -> state.copy(deliveryDiagnosticEvidence = delivery) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -6224,6 +6226,16 @@ class MainViewModel(application: Application) :
     fun setEnergyProfileEnabled(enabled: Boolean) {
         updateEnergyProfileSettings(onComplete = {}) { current -> current.copy(enabled = enabled) }
     }
+
+    suspend fun loadLentaMealHistory(cutoffMs: Long, zoneId: String): io.aaps.copilot.domain.nutrition.LentaMealHistory =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                container.lentaMealHistory.load(cutoffMs, java.time.ZoneId.of(zoneId))
+            } catch (_: android.database.sqlite.SQLiteException) {
+                io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoffMs, zoneId,
+                    status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
+            }
+        }
 
     fun saveMealPortionSettings(value: io.aaps.copilot.domain.nutrition.MealPortionSettings) {
         viewModelScope.launch {

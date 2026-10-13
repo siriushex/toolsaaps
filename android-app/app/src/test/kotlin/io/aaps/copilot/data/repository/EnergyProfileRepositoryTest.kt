@@ -865,6 +865,12 @@ class EnergyProfileRepositoryTest {
         ): MealProfileOverrideEntity? = mealOverrides[canonicalTherapyIdentity]
             ?.takeIf { it.therapyRevisionHash == expectedTherapyRevisionHash }
 
+        override suspend fun mealOverridesForIdentities(
+            identities: List<String>
+        ): List<MealProfileOverrideEntity> = synchronized(this) {
+            identities.mapNotNull(mealOverrides::get)
+        }
+
         override suspend fun upsertMealOverride(override: MealProfileOverrideEntity) {
             if (blockLegacyUpsertsUntilConcurrent) {
                 val release = synchronized(this) { ++legacyUpsertArrivals == 2 }

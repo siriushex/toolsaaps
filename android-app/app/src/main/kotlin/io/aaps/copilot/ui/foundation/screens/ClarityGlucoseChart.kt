@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -50,6 +53,7 @@ internal fun clarityForecastPoints(state: OverviewUiState): List<Pair<Int, Chart
         }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onExpand: () -> Unit,
     onHorizon: (Int) -> Unit, compactHeight: Dp = 190.dp, statusContent: @Composable () -> Unit = {}) {
@@ -80,12 +84,12 @@ internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onEx
         }
     }
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
             if (expanded) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) else {
-                Text(stringResource(R.string.clarity_cgm_age, clarityAge(state.sampleAgeMinutes)),
-                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                Text(stringResource(R.string.clarity_sync_age, clarityAge(state.syncAgeMinutes)),
-                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                Text(stringResource(R.string.clarity_cgm_age_compact, clarityAge(state.sampleAgeMinutes)),
+                    Modifier.widthIn(min = 44.dp * LocalDensity.current.fontScale).weight(1f).align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.clarity_sync_age_compact, clarityAge(state.syncAgeMinutes)),
+                    Modifier.widthIn(min = 44.dp * LocalDensity.current.fontScale).weight(1f).align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (compactToolbar) ranges()

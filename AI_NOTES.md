@@ -1,3 +1,81 @@
+# Lenta Personal History Connection - 2026-10-13
+
+- Source-only CI publication was explicitly authorized by the user. Source,
+  synthetic tests and documentation may go to the existing feature branch;
+  medical records, logs, private screenshots, keys and APKs stay local.
+- The runtime-only workaround completed resource linking, Room generation and
+  app Kotlin/Java compilation. Unit-test compilation then exposed three test
+  EnergyProfileDao implementations missing the new read method. Their in-memory
+  implementations are now updated; focused Android verification is rerunning.
+  This is not a passed unit/lint/APK gate or a release.
+
+- Resume: added regression for pending-history inspection, and keyed selected
+  chart point to the frozen request rather than result metadata. History reload
+  refreshes values at the selected time; changing type/portion/settings resets it.
+  Native execution is still pending; this is not a claimed rendered validation.
+- Build diagnosis: installed Gradle9's Kotlin DSL classpath snapshotter was
+  observed before any task. Runtime-only scriptCompilationAvoidance=false with
+  SDK36 AAPT2 passed resource linking and Room KSP generation and reached app
+  Kotlin compilation on the original build scripts. No Groovy substitute,
+  project build setting, dependency upgrade or quality-check suppression was used.
+  Terminal focused/full/CI/APK acceptance still remains pending.
+
+- User requested immediate history connection instead of the earlier type-only
+  UI stage. Added separate Estimate mode, full gram/minute chart, type/portion
+  controls and passive point inspection, keeping Current and Food actions intact.
+- Read-only bounded Room source accepts canonical locally confirmed independent
+  meals; batched override lookup avoids one query per meal. No schema/worker or
+  per-CGM history subscription. Source is requested only on first Estimate open.
+- Shared comparability rules select type, portion and circular ±2-hour neighborhood.
+  Approximate declared quantity influence starts at one meal, shrunk to presets
+  and capped. Valid saved GI context adjusts only model shape with the existing
+  display heuristic; unknown GI is explicitly unavailable, not inferred from BMI.
+- Old CGM audit lacks qualified insulin/sensor/timezone context. No fabricated
+  prepared episodes, CGM-trained GI accuracy or actual-mass precision is claimed.
+  Clinical COB, forecasts, grams writes, targets, doses and priorities are unchanged.
+- Added domain/Room/native regressions. Direct Kotlin2.2.21 compilation and JUnit
+  passed6 focused model cases against existing debug dependencies. Room/native
+  and complete Android validation remain pending. First Gradle attempt exited
+  before tests: Maven AAPT2 daemon startup failed at resource linking. SDK36 AAPT2
+  itself starts successfully. Its command-only override retry stayed in project
+  configuration for more than20 minutes and was intentionally cancelled by
+  terminating only the owned Gradle daemon. No Room/native result or new APK.
+  Existing infusion edits are preserved; previous stage test results do not prove
+  this new source. No new APK publication, installation or therapy action yet.
+
+# Infusion Set Indicator Implementation - 2026-10-13
+
+- Implemented the approved first stage: bounded qualified original change records,
+  pure72h timing, independent reminder generation/attempt/watermark DataStore,
+  startup/source/resume reconciliation and one best-effort silent WorkManager slot.
+- Worker final source/deadline check and synchronous post share a brief Room read
+  transaction; stale workers cannot post after a committed replacement/deletion.
+  Missing date/unit aliases, receipt fallback, tombstones, conflicts, echoes,
+  nonfinite/future/overflow and unrelated maintenance fail closed for timing.
+- Durable claim precedes post; unknown/interrupted outcomes are terminal, known
+  capability restoration gets at most one retry. Existing global OFF is respected;
+  source history, deadline, clinical arming and glucose/delivery priority are not changed.
+- Passive primary indicator and details separate recorded wear from existing
+  policy-authorized diagnostic evidence. Startup/invalid/basis-changed/stale data
+  remains history, duplicates do not renew freshness, replacement cannot resolve
+  an independent diagnostic. No new insulin-consumption/ISF thresholds or therapy.
+- 26 core/platform/store cases passed. Initial80 combined cases caught landscape
+  test framing; corrected native80 passed with fresh screenshots. A further real
+  RED caught storage-failure help incorrectly asking to rewrite a date; separated
+  storage guidance without clearing history. A real RED also caught KEEP swallowing
+  a bounded capability-restoration retry; that case uses REPLACE without extending
+  the attempt budget. Final full gate/CI recorded below.
+- Final source unit run passed5320 cases/462 suites, zero failures/errors and4
+  private opt-in skips. Private verification harness used one fork/1g test heap;
+  no production Gradle setting changed. Fresh native screens and diff checked.
+- Local lint did not finish in the combined run or a fresh standalone2g JVM.
+  Thread snapshots show active Kotlin/Compose analysis; cause remains unconfirmed.
+  Both owned runs were stopped and audit output retained, not called success.
+  Infusion source is not committed/pushed/released; explicit authorization was
+  requested to finish static verification on CI. No new infusion APK acceptance.
+- Native/synthetic evidence is private, not phone acceptance or audible-delivery
+  proof. No phone install, medical data publication, test therapy or sounds.
+
 # Dashboard IOB And Direct Schedule Implementation - 2026-10-13
 
 - Human approved both written specifications. Shared presentation displays
@@ -16,7 +94,8 @@
 - Full Android gate passed: 5282 cases/456 suites, zero failures/errors, 4 private
   opt-in fixtures skipped; lint zero errors/fatal and 322 warnings. Kotlin compile
   and assembleDebug passed. Existing v2 debug signature and package verified;
-  private APK checksum retained. Exact-source CI remains required after push.
+  private APK checksum retained. Exact-source Verify push38310293860 and
+  PR38310300722 passed on be9cc67bb9436ed5bbb218c9d4dc49693d6863ff.
   Infusion work remains separate.
 
 # Base Target Direct Controls Design Review - 2026-10-13

@@ -1,5 +1,28 @@
 # PLAN
 
+## Lenta History Connection (2026-10-13)
+
+- Add separate Estimate mode with full modeled-gram horizon and passive point
+  inspection. Preserve Current COB and canonical Food/Eating Soon routes.
+- Connect bounded confirmed-meal history immediately, with sparse quantity and
+  provenance-backed historical GI influence. Do not fake missing CGM context.
+- Unit/source/native/layout and full Android lint/compile/APK/CI are release
+  gates. Implementation is in progress; no new release or phone install is claimed.
+- CGM-trained GI remains unavailable without qualified historical context.
+
+## Approved Infusion Indicator (2026-10-13)
+
+- Strict bounded original-event timing and pure72h policy, independent reminder
+  DataStore/generation/watermark, silent notifier and WorkManager lifecycle wiring.
+- Worker final canonical check/post binding is tested against actual Room source;
+  no-CGM, stale source/deletion, overflow and in-flight receipt serialization covered.
+- Native primary indication/details, age unknown/due versus current/retained
+  diagnostic evidence, zero action callbacks, compact/large-font/landscape checks.
+- First26 core/platform/store checks passed; initial80 combined checks exposed
+  landscape test framing, corrected with explicit scroll and fresh screenshot.
+  Complete release gate and exact-source CI are required before stage completion.
+- No new consumption/ISF detector, clinical control or phone/sound activation.
+
 ## Approved Dashboard Controls (2026-10-13)
 
 - Written IOB and direct schedule specifications approved by the user.

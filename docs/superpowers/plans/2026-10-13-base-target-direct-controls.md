@@ -42,11 +42,12 @@ TargetStepperRow(
 ## Task 3: Combined Dashboard UI Verification
 
 - [x] Verify IOB and schedule regressions together; update source docs/AI_NOTES with actual results.
-- [ ] Run the complete Android unit/lint/Kotlin/APK gate, retain signed private APK and inspect exact-source CI after scoped publication with the approved IOB stage.
-- [ ] Do not install on a phone, save real target settings or weaken automatic safety. Continue separately approved infusion work after this verified UI stage.
+- [x] Run the complete Android unit/lint/Kotlin/APK gate, retain signed private APK and inspect exact-source CI after scoped publication with the approved IOB stage.
+- [x] Do not install on a phone, save real target settings or weaken automatic safety. Continue separately approved infusion work after this verified UI stage.
 
 Focused gate inspected: 99 tests, 7 suites, zero failures/errors/skips. Classic
 bounds check covers the changed IOB metric, not pre-existing hero delta overflow.
 Full local Android gate passed: 5282 cases, zero failures/errors, 4 private opt-in
 fixtures skipped; lint zero errors/fatal, 322 warnings. Package and v2 signature
-verified. Exact-source publication/CI remains pending.
+verified. Exact-source Verify push38310293860 and PR38310300722 passed on
+be9cc67bb9436ed5bbb218c9d4dc49693d6863ff. No phone actions.

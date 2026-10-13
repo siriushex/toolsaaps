@@ -71,6 +71,10 @@ internal fun ClarityOverviewContent(
     warningContent: @Composable () -> Unit,
     profileContent: @Composable () -> Unit,
     pumpStatusContent: @Composable () -> Unit,
+    onLoadMealEstimateHistory: suspend (Long, String) -> io.aaps.copilot.domain.nutrition.LentaMealHistory = { cutoff, zone ->
+        io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone,
+            status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
+    },
     modifier: Modifier = Modifier
 ) {
     var targetDetails by rememberSaveable { mutableStateOf(false) }
@@ -106,7 +110,7 @@ internal fun ClarityOverviewContent(
         onEatingSoon = {
             foodDetails = false
             if (state.eatingSoon.status == EatingSoonUiStatus.IDLE) openConfirmation() else eatingDetails = true
-        })
+        }, onLoadHistory = onLoadMealEstimateHistory)
     if (chartExpanded) ClarityDetailsDialog(
         stringResource(R.string.overview_chart_title), "clarityChartDetails", { chartExpanded = false }
     ) {

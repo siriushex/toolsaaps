@@ -40,6 +40,11 @@ class MealFoodDisplayProjection private constructor(
         const val MODEL_VERSION = "food_gi_shape_v1"
         const val MAX_HORIZON_MINUTES = 720
 
+        internal fun giShapeExponent(value: Double): Double {
+            require(value.isFinite() && value in 0.0..200.0)
+            return 1.0 + 0.25 * ((60.0 - value) / 60.0).coerceIn(-1.0, 1.0)
+        }
+
         internal fun build(
             predictionAtMs: Long,
             csfMmolPerGram: Double,
@@ -65,7 +70,7 @@ class MealFoodDisplayProjection private constructor(
                 if (remainder == 0.0) continue
                 // Versioned display heuristic, not a calibrated physiological parameter.
                 val exponent = meal.glycemicIndex?.let {
-                    1.0 + 0.25 * ((60.0 - it.value) / 60.0).coerceIn(-1.0, 1.0)
+                    giShapeExponent(it.value)
                 } ?: 1.0
                 if (exponent != 1.0) adjusted += 1
                 var previousFraction = initial
