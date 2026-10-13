@@ -2,6 +2,7 @@
     <string name="lenta_mode_current">Current</string>
     <string name="lenta_mode_estimate">Estimate</string>
     <string name="lenta_estimate_type">Food type</string>
+    <string name="lenta_estimate_portion">Portion: %1$s</string>
     <string name="lenta_estimate_summary">%1$s g · %2$d min</string>
     <string name="lenta_estimate_remaining">Modeled remaining</string>
     <string name="lenta_estimate_minutes">%1$d min</string>

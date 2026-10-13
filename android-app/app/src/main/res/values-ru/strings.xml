@@ -2,6 +2,7 @@
     <string name="lenta_mode_current">Сейчас</string>
     <string name="lenta_mode_estimate">Оценка</string>
     <string name="lenta_estimate_type">Тип еды</string>
+    <string name="lenta_estimate_portion">Порция: %1$s</string>
     <string name="lenta_estimate_summary">%1$s г · %2$d мин</string>
     <string name="lenta_estimate_remaining">Модельный остаток</string>
     <string name="lenta_estimate_minutes">%1$d мин</string>

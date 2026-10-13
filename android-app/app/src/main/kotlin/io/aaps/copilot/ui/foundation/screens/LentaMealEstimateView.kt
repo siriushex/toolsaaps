@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Dp
@@ -76,21 +77,44 @@ internal fun lentaTypeLabel(profile: MealAbsorptionProfile): Int = when (profile
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LentaPortionSelector(portion: MealPortion, onPortion: (MealPortion) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    if (maxWidth < 288.dp * LocalDensity.current.fontScale) {
+        TextButton(onClick = { menu = true },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("lentaEstimatePortionMenu")) {
+            Text(stringResource(R.string.lenta_estimate_portion, stringResource(lentaPortionLabel(portion))),
+                Modifier.weight(1f))
+            Icon(Icons.Default.ExpandMore, null)
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            MealPortion.entries.forEach { choice ->
+                DropdownMenuItem(text = { Text(stringResource(lentaPortionLabel(choice))) },
+                    onClick = { menu = false; onPortion(choice) },
+                    modifier = Modifier.testTag("lentaEstimatePortion_${choice.name}")
+                        .semantics { selected = choice == portion })
+            }
+        }
+    } else {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         MealPortion.entries.forEachIndexed { index, choice ->
             SegmentedButton(selected = portion == choice, onClick = { onPortion(choice) },
                 icon = {},
                 shape = SegmentedButtonDefaults.itemShape(index, 3),
                 modifier = Modifier.heightIn(min = 48.dp).testTag("lentaEstimatePortion_${choice.name}")) {
-                Text(stringResource(when (choice) {
-                    MealPortion.SMALL -> R.string.meal_portion_small
-                    MealPortion.MEDIUM -> R.string.meal_portion_medium
-                    MealPortion.LARGE -> R.string.meal_portion_large
-                }), fontWeight = if (portion == choice) androidx.compose.ui.text.font.FontWeight.SemiBold
+                Text(stringResource(lentaPortionLabel(choice)),
+                    fontWeight = if (portion == choice) androidx.compose.ui.text.font.FontWeight.SemiBold
                     else androidx.compose.ui.text.font.FontWeight.Normal)
             }
         }
     }
+    }
+    }
+}
+
+private fun lentaPortionLabel(portion: MealPortion): Int = when (portion) {
+    MealPortion.SMALL -> R.string.meal_portion_small
+    MealPortion.MEDIUM -> R.string.meal_portion_medium
+    MealPortion.LARGE -> R.string.meal_portion_large
 }
 
 @Composable

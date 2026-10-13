@@ -1,5 +1,14 @@
 # Lenta Personal History Connection - 2026-10-13
 
+- Focused Android run passed76 cases in6 suites, zero failures/errors/skips,
+  including real Room and native Compose tests. Inspecting the native320px
+  dark/1.3-font screenshot exposed a readout below the viewport and awkward
+  portion wrapping. A strengthened native test reproduced the invisible readout
+  (one expected assertion failure, no compile error). Added adaptive portion
+  menu and font-aware chart space; fresh native verification is running.
+  The started full local gate was intentionally stopped before source edits;
+  its partial output is not acceptance. Exact-source CI for bb73dd62 is running.
+
 - Source-only CI publication was explicitly authorized by the user. Source,
   synthetic tests and documentation may go to the existing feature branch;
   medical records, logs, private screenshots, keys and APKs stay local.

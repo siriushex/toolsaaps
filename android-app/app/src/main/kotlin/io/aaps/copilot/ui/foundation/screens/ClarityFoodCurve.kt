@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -105,7 +106,9 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize().testTag("clarityFoodDetails"), color = MaterialTheme.colorScheme.surface) {
             BoxWithConstraints(Modifier.fillMaxSize().padding(12.dp)) {
-                val curveHeight = (maxHeight - if (estimateMode) 420.dp else 360.dp).coerceIn(120.dp, 240.dp)
+                val fontReserve = 320.dp * (LocalDensity.current.fontScale - 1f).coerceAtLeast(0f)
+                val curveHeight = (maxHeight - if (estimateMode) 420.dp + fontReserve else 360.dp)
+                    .coerceIn(120.dp, 240.dp)
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         ClarityToolButton(Icons.Default.Close, stringResource(R.string.action_close), "clarityFoodClose", onDismiss)

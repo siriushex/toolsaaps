@@ -150,9 +150,17 @@ class ClarityOverviewRobolectricTest {
             compose.onNodeWithTag("lentaModeEstimate").performClick()
             compose.onNodeWithTag("lentaEstimateCurve").assertExists()
             compose.onNodeWithTag("lentaEstimateGi").assert(hasText(text(R.string.lenta_history_gi_unknown)))
+            compose.onNodeWithTag("lentaEstimatePoint").assertIsDisplayed()
+            val readout = compose.onNodeWithTag("lentaEstimatePoint").fetchSemanticsNode().boundsInRoot
+            val footer = compose.onNodeWithTag("clarityFoodEatingSoon").fetchSemanticsNode().boundsInRoot
+            assertTrue("large-font point readout must remain above footer", readout.bottom <= footer.top)
             assertNoTextOverflow()
             capture("lenta-estimate-dark-large.png", dialog = true)
             compose.onNodeWithTag("clarityFoodAddMeal").assertIsDisplayed()
+            compose.onNodeWithTag("lentaEstimatePortionMenu").performClick()
+            compose.onNodeWithTag("lentaEstimatePortion_SMALL").performClick()
+            compose.onNodeWithTag("lentaEstimatePortionMenu").assert(hasText(text(R.string.meal_portion_small), substring = true))
+            compose.onNodeWithTag("lentaEstimatePoint").assert(hasText("0 мин", substring = true))
         }
     }
 

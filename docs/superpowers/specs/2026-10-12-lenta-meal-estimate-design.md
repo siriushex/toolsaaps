@@ -86,6 +86,8 @@ The body contains, in order:
 1. A compact menu using the existing food-type labels/images: Fast, Mixed,
    Fat/Protein. The closed control shows the selected type.
 2. One segmented strip using the existing Small, Medium and Large portion labels.
+   On narrow displays with larger text, replace this strip with a full-width
+   portion menu using the same choices; never wrap words into clipped buttons.
 3. A compact summary of modeled portion grams and modeled duration, followed by
    a type-model or matching-history source/count label and known/unknown GI context.
 4. A full-horizon modeled-remaining-grams chart and a compact selected-point
@@ -113,6 +115,10 @@ touch precision. No visible zoom controls or changing chart height on selection.
 An arriving/refreshed history snapshot keeps the selected elapsed time while
 refreshing its modeled values. Inspection resets on request parameters, not
 support-count/result metadata. Rotation reloading history must not reset it.
+
+Reserve extra vertical space for scaled text by reducing chart height, with a
+120dp minimum. The selected-point readout must remain above the fixed action
+footer at320x640 and1.3 font scale. Extreme text sizes may scroll, not truncate.
 
 Estimate does not inherit Current's unavailable/stale/inactive state. It remains
 available with no active COB, no meals or no connected clinical stream when the

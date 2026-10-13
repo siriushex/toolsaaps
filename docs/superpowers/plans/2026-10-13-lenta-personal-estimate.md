@@ -10,8 +10,10 @@ clinical effect, phone operations or unqualified CGM-trained GI claim.
 - [x] Add separate mode, full gram/minute chart and passive inspection.
 - [x] Add domain, Room and native interaction regressions; update project docs.
 - [x] Direct Kotlin/JUnit model check:6 cases pass against existing debug dependencies.
+- [x] Initial focused Android run:76 cases/6 suites, no failures/errors/skips.
+- [x] Inspect initial native snapshots and reproduce large-font hidden readout with a failing assertion.
 - [ ] Run focused domain/source/native tests and inspect actual failures.
-- [ ] Inspect native portrait/dark/large-font chart screenshots and bounds.
+- [ ] Inspect corrected native portrait/dark/large-font chart screenshots and bounds.
 - [ ] Run full Android unit, lint, compile and APK/signature gates.
 - [ ] Review source/privacy, publish the authorized source-only CI stage and inspect exact-SHA CI.
 
