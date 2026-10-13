@@ -1,5 +1,24 @@
 # ARCHITECTURE
 
+## Primary COB Presentation
+
+Dashboard COB and Current Lenta use the existing `cob_effective_grams` sample
+from `copilot_runtime_cob_iob`, labeled Copilot. The UI does not recalculate
+absorption or prefer a newer external sample. Both MainUiState builders carry
+explicit effective value/time fields separately from the legacy fallback field.
+The exact runtime source, OK quality, gram unit, finite existing runtime bounds
+and inclusive configured freshness window are required. An invalid/future or
+conflicting newest runtime result cannot resurrect an earlier good value.
+
+AAPS COB retains its independent selector, range and timestamp as a reference in
+food information and Pro telemetry. A missing/expired effective value stays
+unknown even while AAPS is fresh. Existing one-shot UI expiry scheduling covers
+both clocks without new queries, timers that poll, workers or database writes.
+Accepted food-curve identity, points, GI shaping and endpoint are not rescaled
+by the primary number. These are model estimates, not measured absorption;
+forecast/controller inputs, doses, targets, carb entry limits and storage are
+unchanged by this presentation decision.
+
 ## Event Compensation Context
 
 Opening a meal marker requests one bounded read-only Room snapshot through

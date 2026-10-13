@@ -106,6 +106,10 @@
     <string name="metric_delta">Glucose delta</string>
     <string name="metric_iob">IOB</string>
     <string name="metric_cob">COB</string>
+    <string name="metric_cob_copilot">COB · Copilot</string>
+    <string name="cob_copilot_detail">COB · Copilot: %1$s g\nCalculated: %2$s</string>
+    <string name="cob_aaps_detail">COB · AAPS: %1$s g\nReceived: %2$s</string>
+    <string name="cob_estimate_context">Copilot combines local absorption and external COB estimates. This is a model estimate, not a measurement of unabsorbed carbs. AAPS uses its own COB calculation.</string>
     <string name="widget_glucose_title">Copilot glucose</string>
     <string name="widget_glucose_description">Shows calibrated glucose, 30 minute prediction, IOB, COB, and trend.</string>
     <string name="widget_glucose_status_loading">Loading</string>

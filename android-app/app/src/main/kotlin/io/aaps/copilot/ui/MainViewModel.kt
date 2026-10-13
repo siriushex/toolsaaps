@@ -364,12 +364,13 @@ internal fun acceptedSensitivityTupleUiClock(
     targetManagerStatusTimestamps: Flow<Long?> = flowOf(null),
     cobEvidence: Flow<Pair<Long?, Long>> = flowOf(null to 600_000L),
     eatingSoonTimestamps: Flow<Long?> = flowOf(null),
+    externalCobEvidence: Flow<Pair<Long?, Long>> = flowOf(null to 600_000L),
     clock: () -> Long
-): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence, eatingSoonTimestamps) { generationTs, statusTs, cob, eating ->
-    UiExpiryInputs(generationTs, statusTs, cob, eating)
+): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence, eatingSoonTimestamps, externalCobEvidence) { generationTs, statusTs, cob, eating, externalCob ->
+    UiExpiryInputs(generationTs, statusTs, cob, eating, externalCob)
 }
     .distinctUntilChanged()
-    .flatMapLatest { (generationTs, statusTs, cob, eating) ->
+    .flatMapLatest { (generationTs, statusTs, cob, eating, externalCob) ->
         flow {
             var authoritativeNowTs = clock()
             emit(authoritativeNowTs)
@@ -378,6 +379,7 @@ internal fun acceptedSensitivityTupleUiClock(
                 generationTs = generationTs,
                 targetManagerStatusTs = statusTs,
                 cobEvidence = cob,
+                externalCobEvidence = externalCob,
                 eatingSoonTs = eating
             ).forEach { boundaryTs ->
                 delay((boundaryTs - authoritativeNowTs).coerceAtLeast(1L))
@@ -388,13 +390,15 @@ internal fun acceptedSensitivityTupleUiClock(
     }
     .distinctUntilChanged()
 
-private data class UiExpiryInputs(val generationTs: Long?, val statusTs: Long?, val cob: Pair<Long?, Long>, val eating: Long?)
+private data class UiExpiryInputs(val generationTs: Long?, val statusTs: Long?, val cob: Pair<Long?, Long>, val eating: Long?,
+    val externalCob: Pair<Long?, Long>)
 
 private fun uiExpiryBoundaries(
     nowTs: Long,
     generationTs: Long?,
     targetManagerStatusTs: Long?,
     cobEvidence: Pair<Long?, Long>,
+    externalCobEvidence: Pair<Long?, Long>,
     eatingSoonTs: Long?
 ): List<Long> = listOfNotNull(
     uiExpiryBoundary(
@@ -412,7 +416,8 @@ private fun uiExpiryBoundaries(
         maxAgeMs = cobEvidence.second,
         nowTs = nowTs
     ),
-    uiExpiryBoundary(eatingSoonTs, io.aaps.copilot.domain.target.EatingSoonPolicy.DURATION_MINUTES * 60_000L, nowTs)
+    uiExpiryBoundary(eatingSoonTs, io.aaps.copilot.domain.target.EatingSoonPolicy.DURATION_MINUTES * 60_000L, nowTs),
+    uiExpiryBoundary(externalCobEvidence.first, externalCobEvidence.second, nowTs)
 ).distinct().sorted()
 
 private fun uiExpiryBoundary(timestamp: Long?, maxAgeMs: Long, nowTs: Long): Long? {
@@ -3308,6 +3313,11 @@ class MainViewModel(application: Application) :
             this.latestIobTherapyCoverage = latestIobTherapyCoverage
             this.latestIobRuntimeFallbackReason = latestIobRuntimeFallbackReason
             this.latestCobGrams = latestCobGrams
+            val effectiveCob = selectEffectiveCobForUi(
+                telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+            )
+            this.latestEffectiveCobGrams = effectiveCob?.valueDouble
+            this.latestEffectiveCobTimestamp = effectiveCob?.timestamp
             val externalCob = selectExternalCobForUi(
                 telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
             )
@@ -3909,6 +3919,11 @@ class MainViewModel(application: Application) :
             this.latestIobTherapyCoverage = latestIobTherapyCoverage
             this.latestIobRuntimeFallbackReason = latestIobRuntimeFallbackReason
             this.latestCobGrams = latestCobGrams
+            val effectiveCob = selectEffectiveCobForUi(
+                telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+            )
+            this.latestEffectiveCobGrams = effectiveCob?.valueDouble
+            this.latestEffectiveCobTimestamp = effectiveCob?.timestamp
             val externalCob = selectExternalCobForUi(
                 telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
             )
@@ -4070,6 +4085,9 @@ class MainViewModel(application: Application) :
         generationTimestamps = primaryUiState.map { it.forecastAcceptedGenerationTs },
         targetManagerStatusTimestamps = primaryUiState.map { it.targetManagerLiveStatus?.timestamp },
         cobEvidence = primaryUiState.map {
+            it.latestEffectiveCobTimestamp to it.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+        },
+        externalCobEvidence = primaryUiState.map {
             it.latestExternalCobTimestamp to it.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
         },
         eatingSoonTimestamps = primaryUiState.map { it.eatingSoonReceipt?.timestamp },
@@ -13105,6 +13123,8 @@ class MainUiState {
     var latestCobGrams: Double? = null
     var latestExternalCobGrams: Double? = null
     var latestExternalCobTimestamp: Long? = null
+    var latestEffectiveCobGrams: Double? = null
+    var latestEffectiveCobTimestamp: Long? = null
     var insulinRealOnsetMinutes: Double? = null
     var insulinRealProfileCurveCompact: String? = null
     var insulinRealProfileUpdatedTs: Long? = null

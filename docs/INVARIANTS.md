@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Primary COB Source
+
+- Primary COB is a fresh, source-qualified runtime Copilot estimate, never a
+  hardcoded value, new absorption calculation or raw-AAPS fallback.
+- Source, units, quality, timestamp and finite bounds are validated before
+  presentation. An invalid/conflicting latest result cannot revive an older one.
+- Both source clocks expire without a database emission. AAPS reference remains
+  separate and cannot reanimate an expired curve or grant therapy authority.
+- Changing the displayed number does not rewrite accepted projection points,
+  food records, GI, forecast/controller inputs, targets, doses or existing limits.
+
 ## Event Compensation Review
 
 - Popup reads cannot write metadata or dispatch therapy. Saved GI must match the

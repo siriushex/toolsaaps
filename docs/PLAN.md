@@ -1,5 +1,17 @@
 # PLAN
 
+## Primary Mixed COB Display (2026-10-13)
+
+- Implemented presentation-only primary runtime COB with explicit Copilot label
+  and independent AAPS reference/time in food information.
+- Strict source/quality/range/latest-conflict handling; independent one-shot
+  expiry, zero vs unavailable, passive compact/large-font UI and retained curve
+  regression coverage. All146 affected-suite tests pass and native screenshots
+  are inspected. Full local unit/lint/compile/assemble pass:5418 tests passed,
+  4 existing private-data skips, zero failures/errors and zero lint errors.
+- No GI inference, therapy changes, phone stop or installation in this stage.
+  Publication and exact-source CI remain separate verification gates.
+
 ## Event Compensation Context (2026-10-13)
 
 - Short Carbs/Insulin labels, GI with saved source or explicit missing state.

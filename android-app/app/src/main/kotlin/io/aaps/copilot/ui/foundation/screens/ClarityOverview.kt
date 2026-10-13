@@ -235,7 +235,7 @@ private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () 
     val metrics = listOf(
         ClarityMetricSpec("clarityIob", stringResource(R.string.metric_iob), iob.value, stringResource(R.string.unit_u), onIob,
             stringResource(R.string.overview_iob_pair_description, iob.current, iob.signedNet, stringResource(R.string.unit_u)), iob),
-        ClarityMetricSpec("clarityCob", stringResource(R.string.metric_cob), UiFormatters.formatGrams(state.currentCobGrams, 1), stringResource(R.string.unit_g), onCob),
+        ClarityMetricSpec("clarityCob", stringResource(R.string.metric_cob_copilot), UiFormatters.formatGrams(state.currentCobGrams, 1), stringResource(R.string.unit_g), onCob),
         ClarityMetricSpec("clarityIsf", "ISF · ${metricActualSourceLabel(state.isfRuntime)}", UiFormatters.formatMmol(state.currentIsfMmolPerUnit, 1), stringResource(R.string.unit_mmol_u), onIsf),
         ClarityMetricSpec("clarityCr", "CR · ${metricActualSourceLabel(state.crRuntime)}", UiFormatters.formatGrams(state.currentCrGramsPerUnit, 1), stringResource(R.string.unit_g_u), onCr),
         ClarityMetricSpec("clarityUam", stringResource(R.string.overview_model_uam), UiFormatters.formatGrams(state.calculatedUamCarbsGrams, 1), stringResource(R.string.unit_g), onUam),

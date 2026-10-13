@@ -641,7 +641,13 @@ internal fun MainUiState.toOverviewUiState(
     profileSex: PhysiologicalSex = physiologicalSex,
     showEventsOnGraph: Boolean = true
 ): OverviewUiState {
-    val displayedCob = latestExternalCobGrams?.takeIf { value ->
+    val displayedCob = latestEffectiveCobGrams?.takeIf { value ->
+        val timestamp = latestEffectiveCobTimestamp
+        value.isFinite() && value in 0.0..io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS &&
+            timestamp != null && timestamp > 0L && timestamp <= authoritativeNowTs &&
+            authoritativeNowTs - timestamp <= staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+    }
+    val externalCob = latestExternalCobGrams?.takeIf { value ->
         val timestamp = latestExternalCobTimestamp
         value.isFinite() && value in 0.0..400.0 && timestamp != null && timestamp > 0L &&
             timestamp <= authoritativeNowTs &&
@@ -746,8 +752,8 @@ internal fun MainUiState.toOverviewUiState(
             add(TelemetryChipUi("IOB source", latestIobRuntimeSource.orEmpty() + confidence, null))
         }
         add(TelemetryChipUi("COB", UiFormatters.formatGrams(displayedCob), "g"))
-        if (isProMode && latestCobGrams != null) {
-            add(TelemetryChipUi("COB effective", UiFormatters.formatGrams(latestCobGrams), "g"))
+        if (isProMode && externalCob != null) {
+            add(TelemetryChipUi("COB · AAPS", UiFormatters.formatGrams(externalCob), "g"))
         }
         if (sensorLagMinutes != null && sensorLagMode?.equals("OFF", ignoreCase = true) != true && !sensorLagMode.isNullOrBlank()) {
             add(
@@ -800,7 +806,7 @@ internal fun MainUiState.toOverviewUiState(
         acceptedFoodDisplay = foodSnapshot,
         foodDisplayScopeReset = forecastTupleError != null && forecastTupleError != "forecast_tuple_freshness_invalid",
         foodDisplayNowTs = now,
-        foodCobTimestamp = latestExternalCobTimestamp,
+        foodCobTimestamp = latestEffectiveCobTimestamp.takeIf { displayedCob != null },
         eatingSoon = eatingSoonPresentation(eatingSoonReceipt, eatingSoonObservedTarget, now),
         calibrationGain = glucoseCalibrationGain,
         calibrationOffsetMmol = glucoseCalibrationOffsetMmol,
@@ -856,6 +862,8 @@ internal fun MainUiState.toOverviewUiState(
             fallbackReason = latestIobRuntimeFallbackReason
         ),
         currentCobGrams = displayedCob,
+        externalCobGrams = externalCob,
+        externalCobTimestamp = latestExternalCobTimestamp.takeIf { externalCob != null },
         currentIsfMmolPerUnit = acceptedSnapshot
             ?.takeIf { acceptedIdentityMatches }
             ?.isf

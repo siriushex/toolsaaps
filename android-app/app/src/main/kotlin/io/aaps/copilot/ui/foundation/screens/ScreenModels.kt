@@ -324,6 +324,8 @@ data class OverviewUiState(
     val currentIobUnits: Double? = null,
     val iobDetails: IobRuntimeDetailsUi = IobRuntimeDetailsUi(),
     val currentCobGrams: Double? = null,
+    val externalCobGrams: Double? = null,
+    val externalCobTimestamp: Long? = null,
     val currentIsfMmolPerUnit: Double? = null,
     val currentCrGramsPerUnit: Double? = null,
     val sensitivitySourceApplying: Boolean = false,

@@ -324,6 +324,43 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
+    @Test fun mixedCobAndExternalReferenceStayDistinctAndInspectionIsPassive() {
+        var changes = 0
+        val state = ready().copy(currentCobGrams = 18.4, foodCobTimestamp = origin,
+            externalCobGrams = 73.0, externalCobTimestamp = origin + 60_000L)
+        withUi(chrome = true) { screen(state, { changes++ }, { changes++ }) }.use {
+            compose.onNodeWithTag("clarityCob").assert(hasText("18.4", substring = true))
+                .assert(hasText(text(R.string.metric_cob_copilot))).assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("mixed-cob-home-320.png")
+            compose.onNodeWithTag("clarityCob").performClick()
+            compose.onNodeWithTag("clarityFoodCob").assertTextContains("18.4", substring = true)
+            compose.onNodeWithTag("clarityFoodInfo").performClick()
+            compose.onNodeWithTag("clarityCobEstimateDetail").assertTextContains("18.4", substring = true).assertIsDisplayed()
+            compose.onNodeWithTag("clarityCobAapsDetail").assertTextContains("73.0", substring = true).assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("mixed-cob-details-320.png", dialog = true)
+            assertEquals(0, changes)
+        }
+    }
+
+    @Test fun missingMixedCobIsNotReplacedByExternalValueInDarkLargeUi() {
+        var state by mutableStateOf(ready().copy(currentCobGrams = 18.4, foodCobTimestamp = origin,
+            externalCobGrams = 73.0, externalCobTimestamp = origin))
+        withUi(dark = true, fontScale = 1.6f) {
+            ClarityFoodDetailsDialog(state, {}, {}, {})
+        }.use {
+            compose.runOnIdle { state = state.copy(currentCobGrams = null, foodCobTimestamp = null) }
+            compose.onNodeWithTag("clarityFoodCob").assertTextContains("COB · Copilot", substring = true)
+                .assert(!hasText("73.0", substring = true))
+            compose.onNodeWithTag("clarityFoodInfo").performClick()
+            compose.onNodeWithTag("clarityCobEstimateDetail").assert(!hasText("18.4", substring = true))
+            compose.onNodeWithTag("clarityCobAapsDetail").assertTextContains("73.0", substring = true)
+            assertNoTextOverflow()
+            capture("mixed-cob-unavailable-dark-large.png", dialog = true)
+        }
+    }
+
     @Test fun cobOpensFullFoodAndPlusKeepsExistingMealEntryWithoutSending() {
         var changes = 0
         withUi { screen(ready(), { changes++ }, { changes++ }) }.use {

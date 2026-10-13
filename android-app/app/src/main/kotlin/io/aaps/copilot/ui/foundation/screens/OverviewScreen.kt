@@ -1231,7 +1231,7 @@ private fun OverviewClinicalMatrix(
             iobPair = iob
         ),
         OverviewClinicalMetric(
-            label = stringResource(id = R.string.metric_cob),
+            label = stringResource(id = R.string.metric_cob_copilot),
             value = UiFormatters.formatGrams(state.currentCobGrams, 1),
             unit = stringResource(id = R.string.unit_g),
             onClick = onCob,
@@ -1925,7 +1925,7 @@ private fun OverviewHighlightsRow(state: OverviewUiState, midnightGlass: Boolean
             modifier = Modifier.width(168.dp)
         )
         OverviewHighlightCard(
-            label = stringResource(id = R.string.metric_cob),
+            label = stringResource(id = R.string.metric_cob_copilot),
             value = cobChip?.value ?: stringResource(id = R.string.placeholder_missing),
             unit = cobChip?.unit ?: stringResource(id = R.string.unit_g),
             icon = Icons.Default.CheckCircle,

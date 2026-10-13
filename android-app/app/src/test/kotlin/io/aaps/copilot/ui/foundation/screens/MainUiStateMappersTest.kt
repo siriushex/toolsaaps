@@ -658,33 +658,68 @@ class MainUiStateMappersTest {
     }
 
     @Test
-    fun overviewCobShowsImportedValueWithoutReplacingEffectiveClinicalInput() {
+    fun overviewCobShowsRuntimeEstimateWithSeparateUnclippedAapsReference() {
+        val now = 1_800_000_000_000L
         val state = state {
             latestCobGrams = 18.8
+            latestEffectiveCobGrams = 18.4
+            latestEffectiveCobTimestamp = now - 1L
             latestExternalCobGrams = 75.0
-            latestExternalCobTimestamp = System.currentTimeMillis()
+            latestExternalCobTimestamp = now
         }
-        val ui = state.toOverviewUiState(isProMode = true)
-        assertThat(ui.currentCobGrams).isEqualTo(75.0)
-        assertThat(ui.telemetryChips.first { it.label == "COB" }.value).isEqualTo("75.0")
-        assertThat(ui.telemetryChips.first { it.label == "COB effective" }.value).isEqualTo("18.8")
+        val ui = state.toOverviewUiState(isProMode = true, authoritativeNowTs = now)
+        assertThat(ui.currentCobGrams).isEqualTo(18.4)
+        assertThat(ui.foodCobTimestamp).isEqualTo(now - 1L)
+        assertThat(ui.externalCobGrams).isEqualTo(75.0)
+        assertThat(ui.externalCobTimestamp).isEqualTo(now)
+        assertThat(ui.telemetryChips.first { it.label == "COB" }.value).isEqualTo("18.4")
+        assertThat(ui.telemetryChips.first { it.label == "COB · AAPS" }.value).isEqualTo("75.0")
         assertThat(state.latestCobGrams).isEqualTo(18.8)
-        val unavailable = state { latestCobGrams = 18.8 }.toOverviewUiState(isProMode = false)
+        val unavailable = state {
+            latestCobGrams = 18.8
+            latestExternalCobGrams = 75.0
+            latestExternalCobTimestamp = now
+        }.toOverviewUiState(isProMode = false, authoritativeNowTs = now)
         assertThat(unavailable.currentCobGrams).isNull()
+        assertThat(unavailable.externalCobGrams).isEqualTo(75.0)
     }
 
     @Test
     fun overviewDoesNotShowCobAfterItsFreshnessDeadline() {
         val now = 1_800_000_000_000L
         val state = state {
-            latestExternalCobGrams = 20.0
-            latestExternalCobTimestamp = now
+            latestEffectiveCobGrams = 20.0
+            latestEffectiveCobTimestamp = now
+            latestExternalCobGrams = 75.0
+            latestExternalCobTimestamp = now + 60_000L
             staleDataMaxMinutes = 10
         }
         assertThat(state.toOverviewUiState(isProMode = false, authoritativeNowTs = now + 600_000L).currentCobGrams)
             .isEqualTo(20.0)
-        assertThat(state.toOverviewUiState(isProMode = false, authoritativeNowTs = now + 600_001L).currentCobGrams)
-            .isNull()
+        val expired = state.toOverviewUiState(isProMode = true, authoritativeNowTs = now + 600_001L)
+        assertThat(expired.currentCobGrams).isNull()
+        assertThat(expired.foodCobTimestamp).isNull()
+        assertThat(expired.externalCobGrams).isEqualTo(75.0)
+        val bothExpired = state.toOverviewUiState(isProMode = true, authoritativeNowTs = now + 660_001L)
+        assertThat(bothExpired.externalCobGrams).isNull()
+        assertThat(bothExpired.externalCobTimestamp).isNull()
+        assertThat(bothExpired.telemetryChips.map { it.label }).doesNotContain("COB · AAPS")
+    }
+
+    @Test fun invalidOrFutureEffectiveCobCannotBecomePrimaryThroughMapping() {
+        val now = 1_800_000_000_000L
+        listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.1, 80.1, null).forEach { value ->
+            val ui = state {
+                latestEffectiveCobGrams = value
+                latestEffectiveCobTimestamp = now
+                latestExternalCobGrams = 75.0
+                latestExternalCobTimestamp = now
+            }.toOverviewUiState(false, authoritativeNowTs = now)
+            assertThat(ui.currentCobGrams).isNull()
+        }
+        val state = state { latestEffectiveCobGrams = 0.0; latestEffectiveCobTimestamp = now + 1L }
+        assertThat(state.toOverviewUiState(false, authoritativeNowTs = now).currentCobGrams).isNull()
+        assertThat(state.toOverviewUiState(false, authoritativeNowTs = now + 1L).currentCobGrams).isEqualTo(0.0)
     }
 
     @Test
@@ -706,6 +741,8 @@ class MainUiStateMappersTest {
             glucoseCalibrationLastCheckAgeMinutes = 42.0
             latestIobUnits = 1.76
             latestCobGrams = 22.4
+            latestEffectiveCobGrams = 22.4
+            latestEffectiveCobTimestamp = accepted.timestamp
             latestExternalCobGrams = 22.4
             latestExternalCobTimestamp = accepted.timestamp
             latestActivityRatio = 1.16
@@ -1166,6 +1203,8 @@ class MainUiStateMappersTest {
             glucoseDelta = 0.0
             latestIobUnits = 2.1
             latestCobGrams = 43.5
+            latestEffectiveCobGrams = 43.5
+            latestEffectiveCobTimestamp = now
             latestExternalCobGrams = 43.5
             latestExternalCobTimestamp = now
             baseTargetMmol = 5.5

@@ -133,8 +133,8 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
                             LentaMealEstimateView(estimate, type, portion, { typeName = it.name },
                                 { portionName = it.name }, loading, curveHeight, request)
                         } else {
-                        Text("${stringResource(R.string.metric_cob)} ${UiFormatters.formatGrams(state.currentCobGrams, 1)} ${stringResource(R.string.unit_g)}",
-                            style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("clarityFoodCob"))
+                        Text("${stringResource(R.string.metric_cob_copilot)} ${UiFormatters.formatGrams(state.currentCobGrams, 1)} ${stringResource(R.string.unit_g)}",
+                            style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("clarityFoodCob"))
                         ClarityFoodCurve(state, curveHeight)
                         HorizontalDivider()
                         Text(stringResource(R.string.clarity_food_entered), style = MaterialTheme.typography.labelMedium)
@@ -180,6 +180,13 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
             Text(stringResource(R.string.lenta_estimate_info))
             Text(stringResource(R.string.lenta_estimate_history_info))
         } else {
+            Text(stringResource(R.string.cob_copilot_detail,
+                UiFormatters.formatGrams(state.currentCobGrams, 1),
+                UiFormatters.formatTimestamp(state.foodCobTimestamp)), Modifier.testTag("clarityCobEstimateDetail"))
+            Text(stringResource(R.string.cob_aaps_detail,
+                UiFormatters.formatGrams(state.externalCobGrams, 1),
+                UiFormatters.formatTimestamp(state.externalCobTimestamp)), Modifier.testTag("clarityCobAapsDetail"))
+            Text(stringResource(R.string.cob_estimate_context))
             Text(stringResource(if (state.chart.mealImpactGiAdjusted) R.string.meal_impact_gi_legend else R.string.meal_impact_legend))
             Text(stringResource(R.string.clarity_food_entries_context))
         }

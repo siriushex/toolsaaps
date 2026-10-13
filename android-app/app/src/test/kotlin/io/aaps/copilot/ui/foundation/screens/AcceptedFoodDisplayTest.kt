@@ -62,6 +62,19 @@ class AcceptedFoodDisplayTest {
         assertEquals(FoodDisplayStatus.INACTIVE, result.foodDisplayStatus)
     }
 
+    @Test fun externalReferenceCannotRestoreExpiredCurveOrRewriteMixedCob() {
+        val current = state().copy(currentCobGrams = 0.0, externalCobGrams = 73.0,
+            externalCobTimestamp = points.last().ts + 1L, foodDisplayNowTs = points.last().ts + 1L)
+        val result = retainAcceptedFoodDisplay(display, current)
+        assertEquals(0.0, result.currentCobGrams)
+        assertNull(result.acceptedFoodDisplay)
+        assertEquals(FoodDisplayStatus.INACTIVE, result.foodDisplayStatus)
+        val missing = retainAcceptedFoodDisplay(display, state().copy(currentCobGrams = null, externalCobGrams = 73.0))
+        assertNull(missing.currentCobGrams)
+        assertEquals(FoodDisplayStatus.OUTDATED, missing.foodDisplayStatus)
+        assertEquals(points, missing.chart.mealImpactPoints)
+    }
+
     @Test fun onlyFoodSeriesStillHasAFullTwelveHourDomain() {
         val domain = clinicalChartDomain(ClinicalForecastChartUiState(mealImpactPoints = points))!!
         assertEquals(origin, domain.startTs)

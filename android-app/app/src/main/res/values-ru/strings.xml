@@ -106,6 +106,10 @@
     <string name="metric_delta">Изменение сахара</string>
     <string name="metric_iob">IOB</string>
     <string name="metric_cob">COB</string>
+    <string name="metric_cob_copilot">COB · Copilot</string>
+    <string name="cob_copilot_detail">COB · Copilot: %1$s г\nРасчёт: %2$s</string>
+    <string name="cob_aaps_detail">COB · AAPS: %1$s г\nПолучено: %2$s</string>
+    <string name="cob_estimate_context">Copilot объединяет локальную модель усвоения и внешний COB. Это модельная оценка, а не измерение остатка углеводов. AAPS использует собственный расчёт COB.</string>
     <string name="widget_glucose_title">Сахар Copilot</string>
     <string name="widget_glucose_description">Показывает откалиброванный сахар, прогноз на 30 минут, IOB, COB и тренд.</string>
     <string name="widget_glucose_status_loading">Загрузка</string>

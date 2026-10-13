@@ -1,3 +1,22 @@
+# Primary Mixed COB Display - 2026-10-13
+
+- User selected the existing mixed Copilot estimate as the primary display.
+  Dedicated effective value/time fields replace the external-only presentation;
+  external AAPS remains a separately labeled reference with its own freshness.
+- No absorption/GI calculation, meal edits, limits, forecast/controller changes,
+  targets or doses. The UI neither hardcodes a value nor validates physiological
+  accuracy. Existing accepted food-curve points and origin remain intact.
+- Newest exact-source OK gram sample is required; invalid/future/conflicting
+  results do not resurrect older estimates. Missing effective data cannot fall
+  back to external COB. Both sources expire through one-shot UI clock boundaries.
+- Synthetic selector/mapper/expiry/retained-curve/native UI regressions added.
+  All146 cases in the affected suites passed. Inspected compact320x640 and
+  dark/large-font native screenshots, including unavailable Copilot vs fresh AAPS.
+- Full local unit/lint/compile/assemble succeeded in28m49s:5422 cases across472
+  suites,5418 passed,4 existing opt-in private-data skips, zero failures/errors.
+  Lint has zero errors,326 warnings and7 hints. Existing APK v2 signer verified.
+  Exact-source CI remains a separate gate. No device changes or installation.
+
 # Event Compensation Context - 2026-10-13
 
 - User requested GI, shorter quantity labels and useful compensation remarks.
