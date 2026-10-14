@@ -2,6 +2,11 @@
 
 ## Synthetic Native Login Protocol (2026-10-14)
 
+- Pinned core/installation_id.rs forcibly sets its noncredential UUID to0644.
+  The synthetic scratch checker admits that exact file only with canonical
+  36-byte v4 UUID, owner/single-link/regular checks and enclosing0700 directories.
+  It does not admit arbitrary0644 files or any auth.json; identifier values are
+  not printed. No pre-existing installation identity is imported.
 - Actual native audit found automatic plugin-catalog git fetch attempts before
   any model turn; the empty command path blocked them. The auth-only test now
   explicitly disables plugins through the pinned supported feature setting.

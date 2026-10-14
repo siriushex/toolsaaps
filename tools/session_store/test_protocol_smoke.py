@@ -251,6 +251,35 @@ class ProtocolGuards(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.module.verify_trace(trace + bad)
 
+    def test_only_native_noncredential_installation_uuid_has_a_public_file_mode(self):
+        with tempfile.TemporaryDirectory(prefix="installation-state-") as name:
+            root = Path(name)
+            profile = root / "profile"
+            profile.mkdir(mode=0o700)
+            path = profile / "installation_id"
+            path.write_text("7c491cac-03f3-46a6-96b2-75b34d27e551")
+            path.chmod(0o644)
+            try:
+                receipt = self.module.verify_private_state(root)
+            except ValueError:
+                self.fail("pinned noncredential installation metadata admission missing")
+            self.assertEqual(receipt["files"], 1)
+            path.write_text("not-a-canonical-uuid")
+            with self.assertRaises(ValueError):
+                self.module.verify_private_state(root)
+            path.write_text("7c491cac-03f3-46a6-96b2-75b34d27e551")
+            path.chmod(0o664)
+            with self.assertRaises(ValueError):
+                self.module.verify_private_state(root)
+            path.chmod(0o644)
+            profile.chmod(0o755)
+            with self.assertRaises(ValueError):
+                self.module.verify_private_state(root)
+            profile.chmod(0o700)
+            path.rename(profile / "other_file")
+            with self.assertRaises(ValueError):
+                self.module.verify_private_state(root)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -191,7 +191,17 @@ def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> di
             if stat.S_IMODE(metadata.st_mode) != 0o700:
                 raise ValueError("nonprivate state directory")
         elif stat.S_ISREG(metadata.st_mode):
-            if stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1:
+            mode = stat.S_IMODE(metadata.st_mode)
+            native_identity = path == root / "profile" / "installation_id" and mode == 0o644
+            if native_identity:
+                try:
+                    value = path.read_text(encoding="ascii") if metadata.st_size == 36 else ""
+                    identity = uuid.UUID(value)
+                    if str(identity) != value or identity.version != 4:
+                        raise ValueError
+                except ValueError:
+                    raise ValueError("invalid native installation metadata") from None
+            if (mode != 0o600 and not native_identity) or metadata.st_nlink != 1:
                 raise ValueError(f"nonprivate state file: {str(path.relative_to(root))[:256]} "
                                  f"mode={stat.S_IMODE(metadata.st_mode):04o}")
             total += metadata.st_size

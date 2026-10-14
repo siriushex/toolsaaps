@@ -141,6 +141,12 @@ auth-only command explicitly sets the supported features.plugins=false option;
 failed git attempts are not added to the audit allowlist. Pinned source gates
 startup marketplace/sync tasks on this feature. Model and permission modes are
 unchanged. Actual no-extra-execution/network validation still precedes real use.
+Pinned native installation metadata intentionally chmods its installation_id
+to0644 even if pre-existing. The sole file-mode exception is the exact
+profile/installation_id: owned regular/single-link, exactly36 bytes containing
+a canonical v4 UUID, mode0644, with all enclosing scratch directories still0700.
+Its value is never printed. Every other regular file remains0600 and auth.json
+is always forbidden. This is metadata compatibility, not credential admission.
 
 ## Limits
 

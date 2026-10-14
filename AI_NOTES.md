@@ -1,5 +1,13 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Latest cancel case passed its syscall audit (plugin git attempts absent), then
+  refused native installation_id mode0644. Pinned core/installation_id.rs
+  explicitly chmods this noncredential UUID on every read, so pre-seeding0600
+  cannot fix compatibility. Admit only that exact owned regular/single-link,
+  36-byte canonical v4 UUID file with every enclosing directory0700; all other
+  regular files remain0600 and auth.json stays forbidden. New regression failed
+  first; all56 tooling cases pass locally. Full native suite still pending.
+
 - Per-process audit identified blocked automatic git plugin-catalog sync and
   pinned os_info bitness getconf lookups, not a proven trace interleaving bug.
   Disable plugins with the supported features.plugins=false setting: pinned
