@@ -1,0 +1,76 @@
+name: Native Client Candidate
+
+on:
+  push:
+    paths:
+      - tools/session_store/**
+      - .github/workflows/native-client.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-client-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-client:
+    name: Pinned Linux build and offline smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build tooling tests
+        run: python3 -m unittest discover -s tools/session_store -p 'test_*.py'
+      - name: Fetch exact public source
+        env:
+          GIT_CONFIG_NOSYSTEM: '1'
+          GIT_CONFIG_GLOBAL: /dev/null
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/native-source"
+          git -C "$RUNNER_TEMP/native-source" -c credential.helper= fetch --depth=1 https://github.com/openai/codex.git 042fb41b7c813ac7999105e886b2b7aa715b5081
+          git -C "$RUNNER_TEMP/native-source" checkout --detach 3d2ee51ca2d5db578f328aa75e20aa22c0197c9a
+          git -C "$RUNNER_TEMP/native-source" fsck --no-reflogs --no-dangling
+      - name: Verify and apply source-bound patch
+        run: python3 tools/session_store/native_build.py prepare --source-root "$RUNNER_TEMP/native-source" --receipt "$RUNNER_TEMP/build-receipt.json"
+      - name: Prepare native compiler and Linux dependencies
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.95.0 --profile minimal --no-self-update
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev bubblewrap
+          rustc +1.95.0 --version --verbose
+          df -h "$RUNNER_TEMP"
+      - name: Native login component tests
+        working-directory: ${{ runner.temp }}/native-source/codex-rs
+        run: cargo +1.95.0 test --locked --profile dev-small -p codex-login --lib -- --test-threads=2
+      - name: Build actual client
+        working-directory: ${{ runner.temp }}/native-source/codex-rs
+        run: cargo +1.95.0 build --locked --profile dev-small -p codex-cli --bin codex
+      - name: Verify source and binary provenance
+        run: |
+          set -euo pipefail
+          python3 tools/session_store/native_build.py verify --source-root "$RUNNER_TEMP/native-source" --receipt "$RUNNER_TEMP/build-receipt.json"
+          sha256sum "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex"
+          file "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex"
+      - name: Offline minimal-root version smoke
+        run: |
+          set -euo pipefail
+          host_net="$(readlink /proc/self/ns/net)"
+          timeout --signal=TERM --kill-after=3s 25s sudo -n setpriv --no-new-privs bwrap \
+            --unshare-pid --unshare-net --unshare-ipc --unshare-uts \
+            --die-with-parent --new-session --cap-drop ALL --uid 65534 --gid 65534 \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
+            --symlink usr/lib64 /lib64 --proc /proc --dev /dev --tmpfs /tmp \
+            --dir /work --ro-bind "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex" /work/client \
+            --ro-bind "$GITHUB_WORKSPACE/tools/session_store/offline_smoke.py" /work/check.py \
+            --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
+            -- /usr/bin/python3 /work/check.py "$host_net"

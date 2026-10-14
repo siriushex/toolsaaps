@@ -32,6 +32,28 @@ refuses wrong hashes or already-patched input; it does not build/install a clien
 The integration only moves the already locked tempfile dependency from test to
 runtime use and preserves the native JSON serialization and credential schema.
 
+## Full Linux Build Check
+
+`Native Client Candidate` uses a fresh ephemeral Ubuntu runner, no saved cache,
+credentials or profile. It fetches the exact public annotated tag object and
+checks its peeled commit, clean full checkout, native lock and toolchain hashes.
+`native_build.py prepare` applies the same three-path patch and creates an
+external digest receipt. `verify` refuses later source/lock/helper drift.
+
+Native Rust1.95.0 builds the login library tests and actual CLI with `--locked`
+and the upstream `dev-small` profile, two compile jobs and a90-minute job limit.
+This is a development validation build, not a release or reproducibility claim.
+No binary is uploaded or deployed. CI records source/patch/toolchain/binary
+digests; these bind the observed build, not an independently signed attestation.
+
+The version-only smoke uses a fresh minimal mount root, private PID/network/IPC/
+UTS namespaces, UID65534, no effective capabilities, no-new-privileges, cleared
+environment, empty private home and time/CPU/address-space/process limits. Only
+system runtime files, the binary and checker are mounted. The checker verifies
+the network namespace differs from the host and has no external interfaces,
+rejects host state mounts and requires exact quiet version output with no profile
+write. This does not test a real login, TLS headers, model access or cancellation.
+
 ## Limits
 
 - Tests execute the actual Rust helper on synthetic files, including controlled
@@ -43,8 +65,9 @@ runtime use and preserves the native JSON serialization and credential schema.
   A crash before local commit may still require fresh owner login. A profile-wide
   serialized lock, bounded orphan admission and no stale-token rollback remain
   controller requirements. This helper does not implement that controller.
-- POSIX storage behavior is tested; directory sync is Unix-only. Full upstream
-  client compilation, attested binary provenance, Linux host containment,
+- POSIX storage behavior is tested; directory sync is Unix-only. A successful full
+  build check still does not admit server adoption. Reviewed binary provenance,
+  Linux production-host containment,
   actual TLS/header/protocol/cancellation capture and owner approval of a runtime
   change remain required before real authorization.
 - No host keyring, API-key billing, model substitution, medical history transfer,

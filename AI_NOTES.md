@@ -1,3 +1,25 @@
+# Pinned Native Build Validation - 2026-10-14
+
+- Retrieved the complete official source for the fixed reference. It is an
+  annotated tag pointing to commit3d2ee51ca2d5db578f328aa75e20aa22c0197c9a,
+  not itself a commit. Git object validation and the existing source-bound
+  patch check passed. Native lock/toolchain hashes are fixed in the new helper.
+- Added tested clean-checkout admission and pre/post-build digest receipts,
+  plus a version-only Linux isolation checker. Eleven initial tests failed for
+  missing helpers; all20 Python cases then passed. The checkout check resolves
+  macOS canonical temporary paths before comparing the Git root. Actual complete
+  source preparation/application/verification passed locally with exactly the
+  reviewed three paths and unchanged native lock/toolchain.
+- Added a separate ephemeral Ubuntu build workflow using native Rust1.95.0,
+  locked dependencies, two jobs and upstream dev-small profile. It tests the
+  login library, builds the actual CLI and checks version in a fresh offline,
+  minimal-root, nonroot namespace without credentials or profile. Full Linux
+  compilation and smoke results remain pending until exact-SHA CI is inspected.
+- No binary upload/release or server runtime replacement, real authorization,
+  model request, medical data transfer, phone operation or therapy changes.
+  Build receipts are observed digests, not independent signed attestations;
+  offline version does not certify authenticated protocol or refresh safety.
+
 # Atomic Session Storage Candidate - 2026-10-14
 
 - Investigated native file persistence and auto/keyring fallback at the fixed

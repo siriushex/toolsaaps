@@ -1,5 +1,22 @@
 # DEVOPS
 
+## Pinned Native Build Validation
+
+Native Client Candidate is a source-only CI workflow, separate from Verify.
+See tools/session_store/README.md. It fetches the fixed annotated tag and checks
+the peeled commit, all clean checkout state, exact native lock/toolchain and the
+three-path patch receipt before/after compilation. The upstream dev-small
+profile and Rust1.95.0 are used without dependency/version substitution.
+Two compile jobs and a90-minute timeout bound the disposable Ubuntu runner;
+production hosts and existing login roots are not build workers.
+
+Native login library tests and the actual CLI build precede the no-network,
+minimal-root, nonroot version smoke. A success is build/provenance evidence only,
+not authenticated model access or production containment. No binary artifact,
+release, deployment, keyring/profile mount or real login is part of this workflow.
+Actual contained TLS/header/device-code/cancel tests and explicit runtime-change
+admission remain separate gates. Keep existing runtime and owner profile intact.
+
 ## Atomic Session Candidate
 
 tools/session_store is an offline source candidate, not an installed runtime or
