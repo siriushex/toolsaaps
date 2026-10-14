@@ -213,7 +213,7 @@ class ProtocolGuards(unittest.TestCase):
                 file.chmod(0o600)
             self.assertEqual(self.module.read_trace(prefix), "exec complete\nconnect complete\n")
             (prefix.parent / "trace.12").chmod(0o644)
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "process trace metadata rejected.*mode=0644"):
                 self.module.read_trace(prefix)
             (prefix.parent / "trace.12").chmod(0o600)
             (prefix.parent / "trace.12").write_bytes(b"x" * (1024 * 1024 + 1))

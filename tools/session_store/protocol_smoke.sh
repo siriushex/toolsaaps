@@ -50,7 +50,7 @@ timeout --signal=TERM --kill-after=5s 100s sudo -n setpriv --no-new-privs bwrap 
   --ro-bind "$scratch/peer.pem" /work/peer.pem --ro-bind "$scratch/peer.key" /work/peer.key \
   --ro-bind "$scratch/wrong.pem" /work/wrong.pem --ro-bind "$scratch/wrong.key" /work/wrong.key \
   --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
-  -- /bin/sh -eu -c 'ip link set lo up; exec setpriv --reuid=65534 --regid=65534 --clear-groups \
+  -- /bin/sh -eu -c 'umask 077; ip link set lo up; exec setpriv --reuid=65534 --regid=65534 --clear-groups \
      --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
      "$@"' session-setup "${check_command[@]}" > "$scratch/receipt.json" || {
   cat "$scratch/receipt.json"

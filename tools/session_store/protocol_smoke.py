@@ -156,7 +156,9 @@ def read_trace(prefix: Path) -> str:
         if (not re.fullmatch(re.escape(prefix.name) + r"\.[0-9]+", file.name)
                 or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
                 or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1):
-            raise ValueError("process trace metadata rejected")
+            raise ValueError(f"process trace metadata rejected: {file.name[:128]} "
+                             f"mode={stat.S_IMODE(metadata.st_mode):04o} uid={metadata.st_uid} "
+                             f"links={metadata.st_nlink}")
         total += metadata.st_size
         if total > 1024 * 1024:
             raise ValueError("trace byte budget exceeded")

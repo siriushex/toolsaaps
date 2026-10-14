@@ -1,5 +1,12 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Separate-trace no-client preflight refused trace metadata before compilation.
+  Set077 explicitly in the trusted namespace setup before the tracer starts,
+  rather than relying on the host wrapper mask or the later Python setup.
+  Retained0600 admission and added bounded mode/owner/link diagnostics; the
+  diagnostic regression failed first. All53 local tooling cases pass; actual
+  retry pending, not an authorization/runtime readiness claim.
+
 - The constrained native process reached the final syscall audit after the
   cancel scenario's initialize/code/poll/wrong-ID/correct-ID/repeat/silence checks.
   The final audit refused an execution record; protocol suite not passed. Split
