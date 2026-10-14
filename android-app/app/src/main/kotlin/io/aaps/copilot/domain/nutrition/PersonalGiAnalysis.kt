@@ -3,11 +3,9 @@ package io.aaps.copilot.domain.nutrition
 import io.aaps.copilot.domain.profile.MealAbsorptionCurve
 import io.aaps.copilot.domain.profile.MealGlycemicIndex
 import java.security.MessageDigest
-import java.time.Instant
 import java.time.ZoneId
 import java.util.Collections
 import kotlin.math.abs
-import kotlin.math.min
 
 /** A known food attribute, never a GI inferred from the CGM outcome being scored. */
 data class PersonalGiEvidence(
@@ -119,18 +117,8 @@ class PersonalGiAnalyzer {
             outcome.sourceProblems.forEach { reject("SOURCE_${it.name}") }
             outcome.preparationRejections.forEach { reject("EPISODE_${it.name}") }
         }
-        val end = Instant.ofEpochMilli(request.cutoffMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()
-        val start = end.atZone(zone).minusDays(21).toInstant()
-        val comparable = source.episodes.filter { episode ->
-            val meal = episode.meal
-            val minute = meal.timestamp.atZone(zone).toLocalTime().toSecondOfDay() / 60
-            val distance = abs(minute - request.minuteOfDay)
-            val valid = meal.timestamp >= start && meal.timestamp < end &&
-                episode.latestEvidenceAtMs <= request.cutoffMs && episode.recordedZoneId == request.recordedZoneId &&
-                meal.profile == request.profile && meal.portion == request.portion && min(distance, 1440 - distance) <= 120
-            if (!valid) reject("NOT_COMPARABLE")
-            valid
-        }
+        val comparable = comparablePersonalAbsorptionEpisodes(request, source)
+        reject("NOT_COMPARABLE", source.episodes.size - comparable.size)
         cohorts = comparable.mapNotNull { it.comparisonCohort }.groupingBy { it }.eachCount().toSortedMap()
         val selectedCohort = comparisonCohort ?: cohorts.keys.singleOrNull()
         if (selectedCohort == null && cohorts.size > 1) return result(PersonalGiStatus.MIXED_CONTEXT)

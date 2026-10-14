@@ -1,5 +1,23 @@
 # ARCHITECTURE
 
+## Isolated Personal Meal Forecast
+
+PersonalAbsorptionResearchModel freezes a qualified, later-day-evaluated timing
+fit and, when independently supported, a known-GI term. Shared comparable-meal
+selection and explicit sensor/calibration/effective-insulin-kernel cohorts avoid
+pooling changed contexts. PersonalMealCandidateBuilder substitutes one confirmed
+meal on a disposable engine fork: historical known food, UAM, future pressure,
+residual COB and Kalman/AR revision handling use the same cumulative curve.
+The existing hypothetical future meal-timing path remains unchanged.
+
+Only raw-cgm-v1 LOCAL_ENGINE comparison is supported. Exact runtime/model/meal
+identity and pre-first-outcome availability/completion gates apply. Candidate
+intervals remain absent. Existing accepted-runtime registration is still needed;
+caller-supplied context labels are not independent source attestation. No runtime
+subscriber, clinical forecast or target writer is added. Qualified live evidence,
+prospective data and independent control admission remain outstanding. See
+superpowers/specs/2026-10-14-personal-meal-forecast.md.
+
 ## Durable Prospective Forecast Journal
 
 An independent Room33 journal records authenticated accepted forecasts and

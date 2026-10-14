@@ -1,5 +1,26 @@
 # INVARIANTS
 
+## Personal Meal Candidate Isolation
+
+- Require qualified, explicitly selected sensor/calibration/insulin cohorts and
+  later-day support; sparse/ambiguous/bounded/unimproved timing cannot fit.
+- Shared comparison selection preserves complete-day cutoffs, portion/type and
+  circular hour. Missing GI never becomes a fitted food attribute. Accepted GI
+  models reject absent, guessed, late, revised or out-of-training-range labels.
+- Replace one canonical revision without changing grams, other meals or insulin.
+  One cumulative curve drives past known inputs, UAM and future food/COB; revised
+  known inputs invalidate old residual trend. Never use a future-only scenario
+  to impersonate consistent personalized historical absorption.
+- Source/default engine and display GI are unchanged; no persistent personal
+  setter, controller access, target write, worker or production subscription.
+- Model-selection evidence and input occurrence cannot pass the anchor;
+  availability precedes calculation, which finishes before the first outcome.
+  Effective insulin kernel and raw LOCAL_ENGINE basis
+  remain exact. Heuristic CI cannot become candidate-calibrated uncertainty.
+- Conditional fit admission is research-only, not prospective accuracy, source
+  attestation or closed-loop safety. Register against the authenticated runtime
+  receipt before observed-data evaluation; no activation through this adapter.
+
 ## Prospective Journal Isolation
 
 - Record exact authenticated outputs and frozen calibrated observation/context

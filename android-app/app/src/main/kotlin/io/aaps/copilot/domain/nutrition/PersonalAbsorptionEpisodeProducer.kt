@@ -181,14 +181,8 @@ class PersonalAbsorptionEpisodeProducer {
 
     private fun comparisonCohort(frame: PersonalAbsorptionEpisodeEvidence): String {
         val context = requireNotNull(frame.input.context)
-        val digest = MessageDigest.getInstance("SHA-256")
-        listOf("meal-comparison-v1", frame.sensorSessionId!!, frame.calibrationIdentity!!,
-            context.insulinModelId, context.insulinDurationMinutes.toString()).forEach { value ->
-            val bytes = value.toByteArray(Charsets.UTF_8)
-            digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
-            digest.update(bytes)
-        }
-        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+        return personalAbsorptionComparisonCohort(frame.sensorSessionId!!, frame.calibrationIdentity!!,
+            context.insulinModelId, context.insulinDurationMinutes)
     }
 
     companion object {

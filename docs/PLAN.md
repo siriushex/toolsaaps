@@ -1,5 +1,20 @@
 # PLAN
 
+## Personal Meal Forecast Candidate (2026-10-14)
+
+- Implement qualified immutable timing/optional-known-GI research artifact and
+  disposable causal engine replacement of one confirmed canonical meal.
+- Past/future/COB/UAM consistency, Kalman/AR revision handling, unchanged default
+  and meal-timing scenarios, strict local/raw/context/availability gates.
+- No clinical writer, live subscription, phone or new database schema. Next:
+  independently qualified live source and pre-outcome collection, prospective
+  evaluation and separate control-safety review; no applied-target admission.
+- Initial87 and strengthened88 focused checks passed, including populated AR,
+  held-out evidence, training-mass and future-clock guards. Full local Android
+  unit/lint/compile/assemble passed in11m31s:5492 cases passed,6 optional private-
+  input skips, zero failures/errors and lint errors. All9 reviewed Android hashes
+  remained unchanged; existing APK v2 signer verified. Exact-source CI is separate.
+
 ## Prospective Journal (2026-10-14)
 
 - Connect accepted-cycle observational capture and restart-safe Room33 storage,

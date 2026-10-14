@@ -5,6 +5,8 @@ import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.MealFutureInsulinPlan
+import io.aaps.copilot.domain.nutrition.MealPortionObservation
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionShape
 import java.util.Collections
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -20,6 +22,11 @@ internal class MealSimulationContext private constructor(
     val capturedAtMs: Long
 ) {
     fun newEngine(): HybridPredictionEngine = seed.forkForMealSimulation()
+
+    fun insulinKernelIdentity() = seed.mealInsulinKernelIdentity()
+
+    fun personalForecast(meal: MealPortionObservation, shape: PersonalAbsorptionShape) =
+        seed.forecastPersonalMeal(glucose, therapy, meal, shape)
 
     fun insulinProjection(horizonMinutes: Int) =
         seed.projectMealTimingInsulin(glucose, therapy, horizonMinutes)

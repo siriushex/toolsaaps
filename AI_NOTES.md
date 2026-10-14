@@ -1,3 +1,27 @@
+# Personal Meal Forecast Candidate - 2026-10-14
+
+- Continued qualified absorption research with an immutable timing/optional-GI
+  artifact and LOCAL_ENGINE prospective candidate, not an active-target change.
+- A separate disposable calculation applies one meal curve to historical known
+  inputs and future food/COB/UAM consistently. Existing hypothetical future meal
+  timing intentionally retains old history and is not changed. Changed known
+  inputs trigger the existing Kalman replay and residual AR invalidation.
+- Effective insulin kernel joins exact sensor/calibration cohorts. Shared meal
+  comparison selection retains the previous GI analysis semantics. Independent
+  known GI needs all-horizon held-out improvement, no boundary/extrapolation;
+  unavailable current GI cannot silently switch an accepted GI model to timing.
+- Candidate model/input clocks and runtime/meal/raw-local identities are checked
+  before the first outcome. Candidate intervals stay null; source metadata alone
+  is not trusted capture. No AppContainer/worker/journal/clinical writer change.
+- Initial focused87 synthetic tests passed; strengthened88 checks also passed,
+  including populated AR, unchanged held-out fit parameters, training mass
+  support and future model/clock guards. Full local unit/lint/compile/assemble
+  passed in11m31s:5492 passed,6 optional private-input skips, zero failures/errors
+  across481 suites. Lint:zero errors,311 warnings,8 hints. All9 reviewed Android
+  source/test hashes remained unchanged; APK v2 signer matches the existing
+  certificate. Exact-source publication/CI is a separate gate. No observed
+  patient accuracy, phone update, CPU/RAM measurement or target activation.
+
 # Prospective Forecast Journal - 2026-10-14
 
 - Continued observational validation: independent Room33 accepted-cycle journal,
