@@ -146,7 +146,7 @@ to0644 even if pre-existing. The sole file-mode exception is the exact
 profile/installation_id: owned regular/single-link, exactly36 bytes containing
 a canonical v4 UUID, mode0644, with all enclosing scratch directories still0700.
 Its value is never printed. Every other regular file remains0600 and auth.json
-is always forbidden. This is metadata compatibility, not credential admission.
+is forbidden in these original six cases. This is metadata compatibility, not credential admission.
 The no-client process inventory also runs in preflight. It admits the trusted
 root PID1 bwrap reaper in this launcher-created private PID namespace without
 ptracing it; every other process must retain the fixed nonroot identity and be
@@ -154,6 +154,34 @@ inspectable, and no mounted client may remain. After exit, the independent host
 observer still requires complete namespace absence. This is not a process-name
 allowlist for arbitrary host workloads. See the
 [PID namespace behavior](https://github.com/containers/bubblewrap#sandboxing).
+
+## Synthetic Exchange Mode
+
+The same private wrapper accepts --exchange as a separate mode with four fresh
+profiles. Success exercises the actual device-code grant, exact URL-encoded OAuth
+form, token parsing/private atomic save, matching completion/account notification
+and account/read. OAuth403, malformed token JSON and invalid identity claims must
+fail completion, leave account empty and persist no auth.json. The original six
+cases retain their two-route/no-auth defaults.
+
+Only successful synthetic exchange explicitly admits the exact profile/auth.json:
+owned regular single-link0600, bounded content, exact fixed synthetic claims and
+tokens, ChatGPT mode/no API key, fresh timezone-aware last_refresh, no unknown or
+duplicate JSON fields or known writer temporary orphan. All parents remain0700.
+These unsigned fake JWTs are not provider credentials; signature validation and
+real account entitlement are not established. The plus-plan fixture avoids the
+pinned workspace-only cloud-config loader. Both issuer and ChatGPT base URL are
+fixed to the private TLS peer; no credential header or inference route is allowed.
+
+After stopping the app-server, a second actual native process reads the saved
+profile with login status. Exact quiet ChatGPT status, exit0 and zero connection
+attempts are mandatory. This is not an authenticated app-server restart test:
+pinned app-server starts a model-catalog refresh worker when auth already exists.
+Do not broaden this test to real model/provider routes or disable TLS as fallback.
+Trace/private-state/process/namespace checks apply to both native processes;
+receipts print only counts and booleans, not session contents. The same disposable
+tmpfs is destroyed afterward. No persistent credential/binary artifact is uploaded.
+Actual exchange results require the exact-source native workflow to finish.
 
 ## Limits
 

@@ -1,5 +1,17 @@
 # PLAN
 
+## Synthetic Session Exchange (2026-10-15)
+
+- Previous six actual native protocol cases passed atb076302b; candidate remains
+  undeployed. Add a separate four-case exchange mode: full synthetic success,
+  native persisted login-status readback, OAuth403, malformed tokens and invalid
+  identity rejection. Nine failing-first guards and all66 local tooling cases
+  pass; exact-source native/Verify CI remains a gate for this new stage.
+- Default unauthenticated admission stays unchanged. No real profile/account,
+  model call, production gateway/controller or phone/therapy change. Next gates
+  remain serialized profile/orphan admission, immutable runtime delivery,
+  private owner code presentation and contained authenticated runtime/model tests.
+
 ## Synthetic Native Protocol (2026-10-14)
 
 - Exact-source native component tests/full CLI/offline version/provenance and

@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Synthetic Session Exchange (2026-10-15)
+
+- Separate opt-in OAuth/synthetic-session admission does not relax the existing
+  no-auth defaults. Only fixed test claims/tokens and local redirect/PKCE form
+  values qualify. Duplicate fields, extra grants/routes/headers, wrong schema,
+  API keys, stale timestamps, nonprivate/misplaced auth and writer orphans fail.
+- Successful exchange requires matching completion, exact account mode/identity,
+  private persistence and native login-status reload. OAuth403, malformed tokens
+  and invalid identity claims cannot create a session. This is not a JWT-signature
+  or real provider-authorization test; fixtures are unsigned synthetic data.
+- Pinned existing-auth app-server startup automatically requests model metadata.
+  The auth-only reload uses native login status instead and requires zero network
+  attempts. Existing-auth app-server/model routes remain a separate gate, not
+  silently permitted here. Both issuer and ChatGPT base URL are fixed to the
+  isolated local peer. No old/root auth, real login, history or therapy is admitted.
+
 ## Synthetic Native Login Protocol (2026-10-14)
 
 - Pinned core/installation_id.rs forcibly sets its noncredential UUID to0644.

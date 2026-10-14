@@ -1,3 +1,30 @@
+# Synthetic Session Exchange - 2026-10-15
+
+- Extended only the ephemeral CI harness with successful synthetic device-code
+  grant/OAuth exchange, exact private session content, account notification/read
+  and a second native process using login status. Three additional cases refuse
+  OAuth403, malformed token JSON and invalid identity claims without auth state.
+  Nine admission regressions failed before implementation; all66 tooling cases
+  now pass locally. Actual compiled-client exchange remains an exact-source CI
+  gate, not inferred from these unit tests.
+- OAuth form/header and synthetic auth-file admission are explicit opt-ins. The
+  existing six cases still forbid OAuth and auth.json. Success admits only fixed
+  unsigned synthetic claims, no API key, a fresh timestamp and0600/single-link/
+  owned exact auth path; duplicate fields and writer orphans are refused. No
+  fixture/token/code bodies are printed. Private CA/loopback/trace limits remain.
+- Pinned app-server starts a model-catalog refresh worker for existing ChatGPT
+  auth. Use the separate native login status process for persisted readback,
+  requiring exact ChatGPT status and zero connection attempts. This does not
+  attest authenticated app-server startup, provider signatures or model access.
+  Both issuer and ChatGPT base URL point to the local peer; plus-plan fixtures
+  are not eligible for native workspace cloud-config retrieval. No model,
+  reasoning, permission mode, storage schema or upstream patch is changed.
+- Local E/F checks use the existing long-line convention (ignore E501); the first
+  broader invocation reported line-length findings, not runtime failures. No
+  unrelated formatting was applied. No server, real login, device, medical data,
+  inference or therapy operation is connected. Profile serialization/orphans,
+  private owner code presentation and runtime admission remain later gates.
+
 # Synthetic Native Login Protocol - 2026-10-14
 
 - Moved the final no-client process inventory into early preflight as well.

@@ -1,6 +1,9 @@
 """Synthetic-only native login protocol test; requires a prepared Linux namespace."""
 
 import argparse
+import base64
+from datetime import datetime, timezone
+import hashlib
 import http.server
 import json
 import os
@@ -16,6 +19,7 @@ import subprocess
 import threading
 import time
 import uuid
+from urllib.parse import parse_qsl
 
 from offline_smoke import ALIASES, ALIAS_PREFIX, verify_isolation
 
@@ -23,17 +27,20 @@ from offline_smoke import ALIASES, ALIAS_PREFIX, verify_isolation
 ORIGIN = "https://login.example.test:8443"
 USERCODE = "/api/accounts/deviceauth/usercode"
 POLL = "/api/accounts/deviceauth/token"
+OAUTH = "/oauth/token"
 # Public application identifier from the pinned native protocol, not a credential.
 PUBLIC_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 SAMPLE_CODE = "SAMPLE-42"
 MODES = ("cancel", "terminate", "untrusted", "wrong-name", "refused", "malformed")
+EXCHANGE_MODES = ("exchange", "exchange-refused", "exchange-malformed", "invalid-identity")
 OS_LOOKUPS = {"lsb_release": "-a", "getconf": "LONG_BIT"}
 
 
 def native_command() -> list[str]:
     return ["/work/client", "-c", 'cli_auth_credentials_store="file"',
             "-c", "analytics.enabled=false", "-c", "check_for_update_on_startup=false",
-            "-c", "features.plugins=false", "app-server"]
+            "-c", "features.plugins=false",
+            "-c", f'chatgpt_base_url="{ORIGIN}/backend-api"', "app-server"]
 
 
 def native_environment(root: Path, *, trust: bool) -> dict:
@@ -56,11 +63,12 @@ def verify_name_mapping(etc: Path) -> None:
             raise ValueError("synthetic file-only name mapping rejected")
 
 
-def verify_headers(items: list[tuple[str, str]]) -> None:
+def verify_headers(items: list[tuple[str, str]], *, form: bool = False) -> None:
     headers = {key.lower(): value for key, value in items}
     if len(headers) != len(items):
         raise ValueError("duplicate HTTP headers")
-    if headers.get("host") != "login.example.test:8443" or headers.get("content-type") != "application/json":
+    content_type = "application/x-www-form-urlencoded" if form else "application/json"
+    if headers.get("host") != "login.example.test:8443" or headers.get("content-type") != content_type:
         raise ValueError("unexpected HTTP authority or content type")
     if any(key in headers for key in ("authorization", "proxy-authorization", "cookie")):
         raise ValueError("unexpected credential header")
@@ -82,6 +90,65 @@ def verify_request(method: str, path: str, body: bytes) -> None:
                 {"device_auth_id": "sample-session", "user_code": SAMPLE_CODE})
     if data != expected:
         raise ValueError("unexpected synthetic request body")
+
+
+def verify_exchange_request(method: str, path: str, body: bytes) -> None:
+    if path in (USERCODE, POLL):
+        verify_request(method, path, body)
+        return
+    if method != "POST" or path != OAUTH or len(body) > 2048:
+        raise ValueError("unexpected exchange route or size")
+    expected = {"grant_type": "authorization_code", "code": "sample-grant",
+                "redirect_uri": ORIGIN + "/deviceauth/callback",
+                "client_id": PUBLIC_CLIENT_ID, "code_verifier": "v" * 64}
+    try:
+        pairs = parse_qsl(body.decode("ascii"), strict_parsing=True, max_num_fields=8)
+    except (ValueError, UnicodeError):
+        raise ValueError("invalid synthetic grant form") from None
+    if len(pairs) != len(expected) or dict(pairs) != expected:
+        raise ValueError("unexpected synthetic grant body")
+
+
+def synthetic_tokens() -> dict:
+    # Unsigned test claims, never usable with a real provider. No real identity.
+    claims = {"email": "sample@example.invalid", "exp": 4102444800,
+              "https://api.openai.com/auth": {"chatgpt_account_id": "sample-account",
+                                              "chatgpt_user_id": "sample-user",
+                                              "chatgpt_plan_type": "plus"}}
+    encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+    token = "eyJhbGciOiJub25lIn0." + encoded + ".sample-signature"
+    return {"id_token": token, "access_token": token, "refresh_token": "sample-refresh"}
+
+
+def synthetic_auth() -> dict:
+    return {"auth_mode": "chatgpt", "OPENAI_API_KEY": None,
+            "tokens": synthetic_tokens() | {"account_id": "sample-account"},
+            "last_refresh": datetime.now(timezone.utc).isoformat()}
+
+
+def unique_object(pairs: list[tuple]) -> dict:
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate synthetic session field")
+    return result
+
+
+def verify_synthetic_auth(path: Path) -> None:
+    metadata = path.lstat()
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1
+            or metadata.st_size > 4096):
+        raise ValueError("synthetic session metadata rejected")
+    try:
+        data = json.loads(path.read_bytes(), object_pairs_hook=unique_object)
+        refreshed = datetime.fromisoformat(data["last_refresh"].replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - refreshed).total_seconds()
+        expected = synthetic_auth()
+        expected["last_refresh"] = data["last_refresh"]
+        if not -2 <= age <= 60 or data != expected:
+            raise ValueError
+    except (ValueError, UnicodeError, TypeError, KeyError, AttributeError):
+        raise ValueError("synthetic session content rejected") from None
 
 
 def verify_initialize(result: dict) -> None:
@@ -118,6 +185,31 @@ def verify_start(result: dict) -> str:
     return value
 
 
+def verify_exchange_completion(params: dict, login_id: str, *, success: bool) -> None:
+    if (params.get("loginId") != login_id or params.get("success") is not success
+            or (success and params.get("error") is not None)
+            or (not success and not isinstance(params.get("error"), str))):
+        raise ValueError("synthetic exchange completion mismatch")
+
+
+def verify_account(result: dict, *, authenticated: bool) -> None:
+    account = ({"type": "chatgpt", "email": "sample@example.invalid", "planType": "plus"}
+               if authenticated else None)
+    if (result != {"account": account, "requiresOpenaiAuth": True}
+            or result.get("requiresOpenaiAuth") is not True):
+        raise ValueError("synthetic account readback mismatch")
+
+
+def verify_exchange_events(events: list[str]) -> None:
+    if events != [USERCODE, POLL, OAUTH]:
+        raise ValueError("synthetic exchange order or fallback mismatch")
+
+
+def verify_status(code: int, output: bytes, error: bytes) -> None:
+    if code != 0 or output != b"" or error != b"Logged in using ChatGPT\n":
+        raise ValueError("native synthetic status readback mismatch")
+
+
 def verify_trace(trace: str, *, expected_executable: str = "/work/client") -> dict:
     if expected_executable not in {"/work/client", "/usr/bin/python3"}:
         raise ValueError("unknown tracer entrypoint")
@@ -129,7 +221,7 @@ def verify_trace(trace: str, *, expected_executable: str = "/work/client") -> di
         if path and line.endswith("= -1 ENOENT (No such file or directory)"):
             value = path.group(1)
             for program, argument in OS_LOOKUPS.items():
-                pattern = (r"/tmp/(?:" + "|".join(MODES) + r")/profile/tmp/arg0/"
+                pattern = (r"/tmp/(?:" + "|".join(MODES + EXCHANGE_MODES) + r")/profile/tmp/arg0/"
                            + re.escape(ALIAS_PREFIX) + r"[A-Za-z0-9]{6}/" + re.escape(program))
                 if (f'["{program}", "{argument}"]' in line
                         and (value == f"/work/empty/{program}" or re.fullmatch(pattern, value))):
@@ -203,12 +295,20 @@ def verify_no_native_processes(proc: Path = Path("/proc")) -> dict:
     return {"inspected": inspected, "trusted_init": trusted_init}
 
 
-def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> dict:
-    total, count = 0, 0
+def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024,
+                         synthetic_session: bool = False) -> dict:
+    total, count, sessions = 0, 0, 0
     for path in [root, *root.rglob("*")]:
         metadata = path.lstat()
-        if metadata.st_uid != os.geteuid() or path.name == "auth.json":
+        if metadata.st_uid != os.geteuid():
             raise ValueError("unexpected authorization state or owner")
+        if path.name == "auth.json":
+            if not synthetic_session or path != root / "profile" / "auth.json":
+                raise ValueError("unexpected authorization state or owner")
+            verify_synthetic_auth(path)
+            sessions += 1
+        if synthetic_session and path.parent == root / "profile" and path.name.startswith(".tmp"):
+            raise ValueError("synthetic session writer orphan")
         if stat.S_ISLNK(metadata.st_mode):
             if path.name not in ALIASES or os.readlink(path) != "/work/client":
                 raise ValueError("unexpected state link")
@@ -235,6 +335,8 @@ def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> di
             raise ValueError("unexpected state file type")
         if total > max_bytes or count > 128:
             raise ValueError("state budget exceeded")
+    if synthetic_session and sessions != 1:
+        raise ValueError("missing synthetic session")
     return {"files": count, "bytes": total}
 
 
@@ -258,11 +360,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.connection.settimeout(2)
         peer = self.server
         try:
-            verify_headers(list(self.headers.items()))
+            exchange = peer.mode in EXCHANGE_MODES
+            verify_headers(list(self.headers.items()), form=exchange and self.path == OAUTH)
             length = int(self.headers.get("Content-Length", "-1"))
             if not 0 <= length <= 2048 or self.headers.get("Transfer-Encoding") or len(peer.events) >= 16:
                 raise ValueError("HTTP request budget exceeded")
-            verify_request(self.command, self.path, self.rfile.read(length))
+            validator = verify_exchange_request if exchange else verify_request
+            validator(self.command, self.path, self.rfile.read(length))
             peer.events.append(self.path)
             status, body = 403, b"{}"
             if self.path == USERCODE and peer.mode != "refused":
@@ -270,6 +374,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 body = (b"{" if peer.mode == "malformed" else
                         json.dumps({"device_auth_id": "sample-session", "user_code": SAMPLE_CODE,
                                     "interval": "1"}).encode())
+            elif exchange and self.path == POLL:
+                verifier = "v" * 64
+                challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+                status, body = 200, json.dumps({"authorization_code": "sample-grant",
+                                               "code_verifier": verifier, "code_challenge": challenge}).encode()
+            elif exchange and self.path == OAUTH and peer.mode != "exchange-refused":
+                tokens = synthetic_tokens()
+                if peer.mode == "invalid-identity":
+                    tokens["id_token"] = "invalid-sample-identity"
+                status, body = 200, (b"{" if peer.mode == "exchange-malformed" else json.dumps(tokens).encode())
         except (ValueError, OSError):
             peer.errors.append("request rejected")
             status, body = 400, b"{}"
@@ -285,14 +399,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 class Rpc:
-    def __init__(self, root: Path, *, trust: bool):
+    def __init__(self, root: Path, *, trust: bool, status: bool = False):
         for child in ("home", "profile", "temporary"):
-            (root / child).mkdir(mode=0o700)
+            (root / child).mkdir(mode=0o700, exist_ok=status)
         env = native_environment(root, trust=trust)
-        self.trace = root / "trace"
+        self.trace = root / ("reload-trace" if status else "trace")
+        command = native_command()
+        if status:
+            command = command[:-1] + ["login", "status"]
         self.process = subprocess.Popen(
             ["/usr/bin/strace", "-ff", "-qq", "-s", "256", "-o", str(self.trace),
-             "-e", "trace=execve,connect", *native_command()],
+             "-e", "trace=execve,connect", *command],
             env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True, bufsize=0)
         self.selector = selectors.DefaultSelector()
@@ -362,7 +479,7 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
     root.mkdir(mode=0o700)
     peer = Peer(cert, key, mode)
     peer.thread.start()
-    rpc = None
+    rpc, restarted = None, False
     try:
         rpc = Rpc(root, trust=mode != "untrusted")
         rpc.send("initialize", {"clientInfo": {"name": "personal-ai", "version": "1"}}, 1)
@@ -376,6 +493,28 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
             expected = [] if mode in {"untrusted", "wrong-name"} else [USERCODE]
             if peer.events != expected:
                 raise ValueError("negative login continued")
+        elif mode in EXCHANGE_MODES:
+            login_id = verify_start(start.get("result", {}))
+            success = mode == "exchange"
+            completion = rpc.wait(lambda message: message.get("method") == "account/login/completed")
+            verify_exchange_completion(completion.get("params", {}), login_id, success=success)
+            if success:
+                update = rpc.wait(lambda message: message.get("method") == "account/updated")
+                if update.get("params") != {"authMode": "chatgpt", "planType": "plus"}:
+                    raise ValueError("synthetic account update mismatch")
+            rpc.send("account/read", {"refreshToken": False}, 3)
+            verify_account(rpc.response(3).get("result", {}), authenticated=success)
+            verify_exchange_events(peer.events)
+            rpc.close()
+            verify_private_state(root, synthetic_session=success)
+            if success:
+                rpc = Rpc(root, trust=True, status=True)
+                output, error = rpc.process.communicate(timeout=10)
+                verify_status(rpc.process.returncode, output, error)
+                restarted = True
+            # Any automatic retry/refresh/fallback is outside this auth-only case.
+            time.sleep(0.2)
+            verify_exchange_events(peer.events)
         else:
             login_id = verify_start(start.get("result", {}))
             deadline = time.monotonic() + 5
@@ -404,7 +543,7 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
         if peer.errors:
             raise ValueError("TLS peer rejected request")
     except Exception:
-        # This harness can only see synthetic, unauthenticated state. Bound failure
+        # This harness can only see synthetic state. Bound failure
         # details, never repurpose this reporter for a real owner login/profile.
         if rpc is not None:
             try:
@@ -435,15 +574,28 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
             peer.thread.join(timeout=3)
             if peer.thread.is_alive():
                 raise ValueError("TLS listener survived teardown")
-    return {"case": mode, "http_requests": len(peer.events),
-            "trace": verify_trace(read_trace(rpc.trace)), "state": verify_private_state(root)}
+    receipt = {"case": mode, "http_requests": len(peer.events),
+               "trace": verify_trace(read_trace(root / "trace")),
+               "state": verify_private_state(root, synthetic_session=mode == "exchange")}
+    if mode in EXCHANGE_MODES:
+        verify_exchange_events(peer.events)
+        receipt["synthetic_session"] = mode == "exchange"
+        receipt["restart_readback"] = restarted
+        if restarted:
+            receipt["restart_trace"] = verify_trace(read_trace(root / "reload-trace"))
+            if receipt["restart_trace"]["connections"] != 0:
+                raise ValueError("restart attempted a network connection")
+    return receipt
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("host_namespace")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--exchange", action="store_true")
     args = parser.parse_args()
+    if args.preflight and args.exchange:
+        raise ValueError("separate protocol modes required")
     if (os.getuid(), os.getgid(), os.getegid(), os.getgroups()) != (65534, 65534, 65534, []):
         raise ValueError("nonroot identity required")
     interfaces = {line.split(":", 1)[0].strip() for line in Path("/proc/net/dev").read_text().splitlines()
@@ -487,11 +639,11 @@ def main():
                           "private_namespace": os.readlink("/proc/self/ns/net")}))
         return
     receipts = []
-    for mode in MODES:
+    for mode in EXCHANGE_MODES if args.exchange else MODES:
         certificate = "/work/wrong.pem" if mode == "wrong-name" else "/work/peer.pem"
         key = "/work/wrong.key" if mode == "wrong-name" else "/work/peer.key"
         receipts.append(run_case(Path("/tmp") / mode, Path(certificate), Path(key), mode))
-    print(json.dumps({"synthetic_protocol": True, "external_network": False,
+    print(json.dumps({"synthetic_protocol": True, "synthetic_exchange": args.exchange, "external_network": False,
                       "processes": verify_no_native_processes(),
                       "private_namespace": os.readlink("/proc/self/ns/net"), "cases": receipts}))
 

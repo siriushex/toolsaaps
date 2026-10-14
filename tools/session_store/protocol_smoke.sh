@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 client="${1:?built client required}"
-if [[ "$#" -gt 2 || ( "${2:-}" != "" && "${2:-}" != --preflight ) ]]; then
+if [[ "$#" -gt 2 || ( "${2:-}" != "" && "${2:-}" != --preflight && "${2:-}" != --exchange ) ]]; then
   printf 'unexpected protocol harness option\n' >&2
   exit 2
 fi
@@ -31,7 +31,7 @@ printf 'hosts: files\n' > "$scratch/nsswitch.conf"
 chmod 644 "$scratch/hosts" "$scratch/nsswitch.conf"
 host_net="$(readlink /proc/self/ns/net)"
 check_args=("$host_net")
-if [[ "${2:-}" == --preflight ]]; then check_args+=(--preflight); fi
+if [[ -n "${2:-}" ]]; then check_args+=("$2"); fi
 check_command=(/usr/bin/python3 /work/protocol_smoke.py "${check_args[@]}")
 if [[ "${2:-}" == --preflight ]]; then
   check_command=(/usr/bin/strace -ff -qq -s 256 -o /tmp/tls-preflight.trace -e trace=execve,connect "${check_command[@]}")

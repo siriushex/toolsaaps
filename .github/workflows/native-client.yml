@@ -99,3 +99,5 @@ jobs:
             /usr/bin/python3 /work/check.py "$host_net"
       - name: Synthetic TLS device-code and cancellation
         run: bash tools/session_store/protocol_smoke.sh "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex"
+      - name: Synthetic OAuth exchange and session readback
+        run: bash tools/session_store/protocol_smoke.sh "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex" --exchange

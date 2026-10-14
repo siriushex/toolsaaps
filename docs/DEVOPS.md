@@ -28,6 +28,15 @@ token exchange, inference or production profile is involved. Explicit runtime-
 change admission and actual production containment remain separate gates.
 Keep existing runtime and owner profile intact.
 
+The separate --exchange mode adds four synthetic-only cases after the original
+six. Only this mode admits the exact OAuth form route and, on success, one fixed
+synthetic0600 auth.json with strict schema/content/time/metadata checks. It verifies
+account completion/readback and a separate native login status process with no
+connection attempts. This is not authenticated app-server restart: pinned native
+startup automatically fetches model metadata when already authenticated. Both
+auth issuer and ChatGPT base URL stay local; no real provider/credential/signature
+validation or model availability is claimed. CI retains no session/binary artifact.
+
 ## Atomic Session Candidate
 
 tools/session_store is an offline source candidate, not an installed runtime or
