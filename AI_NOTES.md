@@ -1,4 +1,25 @@
+# Synthetic Native Login Protocol - 2026-10-14
+
+- Added a CI-only harness for the pinned actual stdio app-server, fresh private
+  CA/local TLS peer and supported development issuer override. No real provider,
+  installed binary/profile, phone, medical data, model or therapy path is used.
+- Six bounded cases cover initialize, pending device-code polling, wrong/correct/
+  repeated cancellation, process termination, independent trust/name failures,
+  server refusal and malformed response. Strict request/header, syscall, private
+  file budget and namespace/process/listener teardown guards fail closed.
+- Nine initial guard tests failed before implementation; all44 tooling tests,
+  Ruff E/F and shell syntax now pass locally. A no-client TLS/network preflight
+  precedes compilation. Actual Linux protocol and exact-source Verify results
+  remain pending; publication is not deployment or real authentication.
+
 # Pinned Native Build Validation - 2026-10-14
+
+- Completed the exact-source native workflow at11e03445:169 native library tests,
+  full CLI build, strict offline version/private-scratch and provenance gates
+  passed. The single ignored outer entrypoint is parent-invoked. All35 Python
+  cases passed. Both push/PR Verify workflows passed backend/storage/Android.
+  Observed ELF digest was fa9607f213e252d25f01d2df2aa8ff42f3ab68ed3a9d4b27073dd2c083a4fc0f.
+  These results do not establish authenticated access or production readiness.
 
 - The corrected tmpfs run built the identical ELF digest again and successfully
   executed the exact quiet native --version offline. The strict scratch gate

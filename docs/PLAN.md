@@ -1,13 +1,24 @@
 # PLAN
 
+## Synthetic Native Protocol (2026-10-14)
+
+- Exact-source native component tests/full CLI/offline version/provenance and
+  push/PR Verify passed at11e03445. The candidate remains undeployed.
+- Implemented six CI-only local TLS protocol cases plus no-client preflight,
+  identity/route/body/syscall/private-state guards and independent namespace
+  teardown. All44 local tooling cases, Ruff and shell syntax passed. Actual
+  compiled-client protocol and exact-source publication/CI remain gates.
+- No real account login/token exchange, profile controller, production gateway,
+  authenticated inference, device history/chat or phone/therapy change.
+
 ## Atomic Session Storage Candidate (2026-10-14)
 
 - Original Rust file operations reproduced destructive interruption. The narrow
   tempfile/sync/replace candidate passed10 parent tests and9 verifier/fetch cases;
   source compatibility verifies clean application and exact tested helper bytes.
   Local format/Clippy/Python checks passed; an independent Linux CI gate is added.
-- This is not a full upstream/client binary build, deployment or authenticated
-  runtime. Resolve provider-rotation gaps and bounded serialized orphan admission,
+- Subsequent native-build validation passed; this is not deployment or an
+  authenticated runtime. Resolve provider-rotation gaps and bounded serialized orphan admission,
   obtain runtime-change approval and capture the actual isolated client before
   real owner login. No old auth, host keyring, phone or therapy change.
 

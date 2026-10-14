@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   linux-client:
-    name: Pinned Linux build and offline smoke
+    name: Pinned Linux build and synthetic protocol
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -46,9 +46,11 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.95.0 --profile minimal --no-self-update
           sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev bubblewrap
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev bubblewrap strace openssl iproute2
           rustc +1.95.0 --version --verbose
           df -h "$RUNNER_TEMP"
+      - name: Synthetic TLS namespace preflight
+        run: bash tools/session_store/protocol_smoke.sh /usr/bin/true --preflight
       - name: Offline namespace preflight
         run: |
           set -euo pipefail
@@ -95,3 +97,5 @@ jobs:
             -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
             --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
             /usr/bin/python3 /work/check.py "$host_net"
+      - name: Synthetic TLS device-code and cancellation
+        run: bash tools/session_store/protocol_smoke.sh "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex"

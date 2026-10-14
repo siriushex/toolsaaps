@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Synthetic Native Login Protocol (2026-10-14)
+
+- CI-only peers use fresh private TLS material in an isolated loopback-only
+  network/PID/mount context. Nonroot/no-capabilities/no-new-privileges and cleared
+  native environment are checked before execution; no host profile is mounted.
+- Exact synthetic POST bodies/routes and neutral/absent identity headers are
+  admitted. No OAuth exchange or successful authorization is simulated. TLS trust
+  and certificate-name failures, server refusal and malformed replies must fail.
+- Actual client execution/connection trace, private bounded scratch, cancellation
+  polling silence, process/listener teardown and post-exit kernel namespace
+  references are checked. CI is not a production cgroup/seccomp/gateway proof;
+  bounded files are not a full native filename allowlist. No medical data or
+  provider credential can enter this harness. Real login remains separate.
+
 ## Offline Session Candidate (2026-10-14)
 
 - File persistence candidate only, with source-hash admission and fixed patch

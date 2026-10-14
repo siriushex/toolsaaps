@@ -10,6 +10,9 @@
   orphan promotion, guaranteed session continuity or power-cut claim.
 - Standalone helper/source checks do not attest a full installed client, active
   containment or authorization. No runtime replacement follows from passing CI.
+- Synthetic native protocol runs use only a fresh private CA/local peer and
+  development issuer override. They cannot broaden the independent HEAD-only
+  public transport profile or authorize real login/provider token exchange.
 
 ## Transport Probe Isolation
 

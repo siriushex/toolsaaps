@@ -2,7 +2,8 @@
 
 Source-level repair for the pinned upstream file backend. **Not deployed and not
 an authenticated runtime.** No client launcher, account/token import or provider
-request is included. Keep the existing runtime and empty owner profile unchanged.
+request to a real provider is included. Keep the existing runtime and owner
+profile unchanged. The CI-only synthetic protocol harness below is separate.
 
 The helper writes a private sibling temporary file, syncs its contents, atomically
 persists it over the destination, then syncs the parent directory on Unix. Before
@@ -73,6 +74,45 @@ and four links to the mounted client. Any authorization/config/history file,
 different path/link/type, nonempty lock or nonprivate alias group is refused.
 Only counts are reported. This does not test a real login, TLS headers, model
 access or cancellation, and no existing owner profile is mounted.
+
+## Synthetic Native Protocol
+
+After compilation/version validation, `protocol_smoke.sh` runs the actual CLI's
+stdio app-server against a newly generated private CA and local TLS peer. The
+native development build's supported login-issuer override selects only
+`https://login.example.test:8443`. The source, native protocol and storage patch
+are unchanged. This does not establish the release build's issuer selection,
+production gateway behavior or real provider compatibility.
+
+An early no-client preflight checks the same namespace, peer/trust setup and
+teardown before expensive compilation. Only loopback is enabled inside a fresh
+network namespace, with a file-only name mapping and no host resolver/profile.
+Trusted setup holds network-administration privileges only until loopback is up;
+the checker, TLS peer and client run as UID/GID65534, no supplementary groups,
+all capabilities cleared and no-new-privileges. Read-only runtime/test inputs,
+a128MiB private tmpfs and time/CPU/address-space/process/file-size limits bound
+the run. Host /tmp, keyrings, auth, configuration and histories are not mounted.
+
+Six scenarios cover initialize/device-code/pending polling, wrong-ID/correct-ID/
+repeat cancellation, process-group termination, untrusted CA, trusted CA with a
+wrong certificate name, provider403 and malformed user-code JSON. Only two exact
+POST routes and synthetic bodies are accepted; OAuth token exchange is not
+allowed. Initialization and effective HTTP identities must be neutral, or absent
+for the native raw-auth client. Credential headers are refused.
+
+A bounded syscall trace admits only the mounted client execution and loopback
+peer connection attempts. Each scenario checks private owner/modes, bounded
+file counts/bytes and absence of auth.json. This is a bounded scratch inventory,
+not a complete native filename allowlist or proof against malicious client code.
+Polling must stop after cancellation; process groups/listener threads must exit.
+An independent host-side kernel namespace-reference check follows Bubblewrap's
+PID-namespace teardown. Only count/status receipts are printed. Generated peer
+keys are removed by the wrapper; no binary or test-state artifact is uploaded.
+
+Actual native protocol results remain pending until the exact-source workflow
+finishes. Synthetic codes are not credentials, successful cancellation is not
+authenticated inference, and none of this authorizes a real owner login or
+server runtime replacement.
 
 ## Limits
 

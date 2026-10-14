@@ -19,8 +19,14 @@ Isolation preflight executes no client. Native login library tests and the actua
 minimal-root, nonroot version smoke. A success is build/provenance evidence only,
 not authenticated model access or production containment. No binary artifact,
 release, deployment, keyring/profile mount or real login is part of this workflow.
-Actual contained TLS/header/device-code/cancel tests and explicit runtime-change
-admission remain separate gates. Keep existing runtime and owner profile intact.
+The same workflow now includes a separate synthetic native protocol harness;
+see tools/session_store/README.md. It uses only a disposable private CA/loopback
+peer, the development build's supported issuer override, six bounded negative/
+cancel/termination cases and an independent namespace teardown check. Exact-source
+execution is a gate, not inferred from unit tests. No real provider login,
+token exchange, inference or production profile is involved. Explicit runtime-
+change admission and actual production containment remain separate gates.
+Keep existing runtime and owner profile intact.
 
 ## Atomic Session Candidate
 
