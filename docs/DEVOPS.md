@@ -1,5 +1,34 @@
 # DEVOPS
 
+## Synthetic Host Validation Boundary
+
+The owner-approved bounded synthetic operation recorded in AI_NOTES passed13
+cases using private TLS peers, isolated roots/namespaces and an aggregate
+512MiB/swap0/25%-of-one-core/64-task slice. Each of17 original service invocations
+was positively bound before stop; an independent read-only check confirmed own
+file/process/cgroup absence and preserved source identities. Exact operational
+manifests, certificates and evidence remain private, not a production launcher.
+
+SystemdStopVerifier defaults to system.slice; slice_id admits only a canonical
+v4 identity mapped to the fixed generated slice name. A loaded static unit may
+clear InvocationID only after successful original-invocation binding and stop,
+in the exact inactive/dead/blank-ID/empty-group state. Entry without the original
+ID, a different ID/user/unit/group or populated descendant still fails closed.
+Root validation compares device/inode, not proc symlink spelling. All Nginx HTTP
+temporary paths must use the bounded /work mount, not distribution defaults.
+
+Inactive unit definitions can remain in systemd's cache after own files are
+deleted; do not claim they were collected or globally reload unrelated units
+just to clear them. Unknown start/stop identity retains own files for inspection.
+After an interrupted operation, inspect actual state before retrying; never
+replace a missing receipt with a blanket stop/delete or reuse a job identity.
+
+This synthetic result does not establish provider connectivity, independent
+minimal login, authenticated neutral inference, malicious-context containment,
+real workload cancellation, retained history or device chat. Those are separate
+reviewed gates; no existing credentials, model profiles, phone or therapy are
+implicitly authorized by these results.
+
 ## Transport Profile Source Stage
 
 app.ai.egress_probe only generates profiles and validates status receipts; it

@@ -1,3 +1,37 @@
+# Synthetic Host Isolation - 2026-10-14
+
+- Continued the owner-approved temporary credential-free check. Extended the
+  trusted stop verifier with one generated-v4 shared slice; arbitrary unit/user
+  selection remains forbidden and the default parent remains system.slice.
+- Host checks exposed two real integration differences: proc-root links may spell
+  the prepared root as `/`, and static units may clear InvocationID after stop
+  while staying loaded. Administration now compares root device/inode; the
+  verifier accepts only the exact inactive/dead/blank-ID state after positively
+  binding and stopping the original invocation, never on entry or with populated
+  descendants. Added20 stop regressions;36 stop tests pass.
+- Actual minimal-root Nginx failed on a compiled-in temporary path outside /work.
+  Made all five HTTP temporary paths explicit under the existing bounded mount.
+  Reproduced missing-path regression before the fix. An unsupported curl test
+  option was separately corrected; parser errors were never accepted as denial.
+- Final private host run passed13 synthetic cases: two fixed TLS names, header
+  stripping, route/auth-header/method denial, wrong CA/name rejection, no external
+  route, unreadable host marker/socket and deny-all versus loopback-allow cgroup
+  controls. Kernel root identities, private namespaces, nonroot/no-capability/
+  no-new-privilege/seccomp state and aggregate512MiB/swap0/25%-one-core/64-task
+  limits were inspected. No real provider/model/auth request was made.
+- All17 service invocations received bound stop confirmation. Independent
+  postflight found no own directories, unit files, processes or cgroups and
+  verified original binary/library identities, hashes, modes and link counts.
+  Inactive cached unit definitions are explicitly not claimed collected; no
+  global daemon reload, existing service/config/firewall/rootfs or auth change.
+- Full final local backend:489 passed, zero failures/errors/skips, one existing
+  deprecation warning in81.96s; focused122 including22 real Nginx tests passed.
+  Private harness23 checks passed; later harness-only command changes passed18
+  affected checks. Isolated E/F and whitespace checks passed. Publication/CI is
+  an independent gate; private manifests, synthetic keys and host evidence stay
+  outside Git. This proves only synthetic isolation, not online inference,
+  authenticated model responses, contextual device chat or clinical readiness.
+
 # Credential-Free Transport Profile - 2026-10-14
 
 - Owner approved the isolated gateway proposal. Added an inactive pure profile

@@ -11,6 +11,13 @@
   each other. TLS verification and fixed upstream Host/SNI remain mandatory.
 - Generated properties/receipts do not prove actual network, cgroup, filesystem,
   relay environment, stop or cleanup. No deployment or API activation is implied.
+- Trusted stop is bound to the original invocation and exact generated parent.
+  Cleared static-unit identity is accepted only after stop in the exact inactive
+  state with empty descendants, never as entry authority. Cached inactive units
+  are not collected units. Compare kernel root identities, not link spelling.
+- Every HTTP temporary path stays under the bounded work mount. A failed probe
+  command or TLS error is not proof of denied network routing. Synthetic network
+  evidence never grants authentication, inference or clinical readiness.
 
 ## Personal History Isolation
 

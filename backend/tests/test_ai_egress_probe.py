@@ -21,6 +21,12 @@ def profile(api):
     return api.TransportProbeProfile(str(uuid4()), 998, 997)
 
 
+def test_all_nginx_temporary_paths_stay_inside_bounded_work_mount(profile):
+    configuration = profile.gateway_config()
+    for kind in ("client_body", "proxy", "fastcgi", "uwsgi", "scgi"):
+        assert kind + "_temp_path /work/" in configuration
+
+
 def test_profile_is_immutable_and_paths_are_run_bound(profile):
     assert profile.mode == "synthetic"
     assert profile.root_path.endswith("online-check-" + profile.run_id.replace("-", ""))

@@ -76,6 +76,9 @@ http {{
     send_timeout 3s;
     client_body_temp_path /work/client;
     proxy_temp_path /work/proxy;
+    fastcgi_temp_path /work/fastcgi;
+    uwsgi_temp_path /work/uwsgi;
+    scgi_temp_path /work/scgi;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_session_cache off;
     ssl_session_tickets off;
