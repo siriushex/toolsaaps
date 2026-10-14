@@ -98,7 +98,7 @@ class CheckoutTests(unittest.TestCase):
 class OfflineSmokeTests(unittest.TestCase):
     def setUp(self):
         self.module = load_helper("offline_smoke")
-        self.good = dict(uid=65534, status="CapEff:\t0000000000000000\nNoNewPrivs:\t1\n",
+        self.good = dict(uid=65534, status="CapEff:\t0\nCapPrm:\t0\nCapBnd:\t0\nCapInh:\t0\nCapAmb:\t0\nNoNewPrivs:\t1\n",
                          interfaces={"lo"}, host_ns="net:[10]", current_ns="net:[11]")
 
     def test_minimal_nonroot_offline_context_admitted(self):
@@ -114,6 +114,12 @@ class OfflineSmokeTests(unittest.TestCase):
         for change in ({"current_ns": "net:[10]"}, {"interfaces": {"lo", "eth0"}}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.module.verify_isolation(**(self.good | change))
+
+    def test_other_capability_sets_must_also_be_empty(self):
+        for field in ("CapPrm", "CapBnd", "CapInh", "CapAmb"):
+            status = self.good["status"].replace(f"{field}:\t0", f"{field}:\t1")
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.module.verify_isolation(**(self.good | {"status": status}))
 
     def test_only_exact_version_success_admitted(self):
         self.module.verify_version(0, b"codex-cli 0.153.4\n", b"")

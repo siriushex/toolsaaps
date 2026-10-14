@@ -1,5 +1,16 @@
 # Pinned Native Build Validation - 2026-10-14
 
+- Early namespace preflight refused the initial Bubblewrap invocation: its
+  --uid option requires a user namespace. Kept the planned minimal mount and
+  private PID/network/IPC/UTS namespaces; a narrowly privileged setup process now
+  retains only UID/GID and capability-bound transition permissions, then setpriv drops real UID/GID,
+  supplementary groups and every capability set before Python/client execution.
+  The checker requires real/effective UID/GID65534, no supplementary groups,
+  all five capability sets zero, no-new-privileges and
+  a distinct network namespace. No uncontained client fallback was introduced.
+  Four capability-set regressions initially failed; all27 Python tests and
+  local Ruff/YAML/shell checks passed after strengthening the checker.
+
 - First complete Linux attempt failed before compilation because the official
   release tag's149 internal lock entries retain0.0.0 while the manifests inherit
   0.153.4. Native Cargo metadata on the clean unpatched checkout confirmed all149

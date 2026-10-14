@@ -14,8 +14,9 @@ def verify_isolation(*, uid: int, status: str, interfaces: set[str],
     fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
     if uid != 65534 or fields.get("NoNewPrivs", "").strip() != "1":
         raise ValueError("nonroot no-new-privileges context required")
-    if "CapEff" not in fields or int(fields["CapEff"].strip(), 16) != 0:
-        raise ValueError("capabilities not cleared")
+    for capability in ("CapEff", "CapPrm", "CapBnd", "CapInh", "CapAmb"):
+        if capability not in fields or int(fields[capability].strip(), 16) != 0:
+            raise ValueError("capabilities not cleared")
     if not host_ns or host_ns == current_ns or interfaces - {"lo"}:
         raise ValueError("private network namespace required")
 
@@ -30,6 +31,8 @@ def main() -> None:
     parser.add_argument("host_namespace")
     parser.add_argument("--preflight", action="store_true")
     args = parser.parse_args()
+    if (os.getuid(), os.getgid(), os.getegid(), os.getgroups()) != (65534, 65534, 65534, []):
+        raise ValueError("real identity or supplementary groups not cleared")
     resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))

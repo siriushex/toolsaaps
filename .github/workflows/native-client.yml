@@ -55,12 +55,14 @@ jobs:
           host_net="$(readlink /proc/self/ns/net)"
           timeout --signal=TERM --kill-after=3s 25s sudo -n setpriv --no-new-privs bwrap \
             --unshare-pid --unshare-net --unshare-ipc --unshare-uts \
-            --die-with-parent --new-session --cap-drop ALL --uid 65534 --gid 65534 \
+            --die-with-parent --new-session --cap-drop ALL --cap-add CAP_SETUID --cap-add CAP_SETGID --cap-add CAP_SETPCAP \
             --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
             --symlink usr/lib64 /lib64 --proc /proc --dev /dev --tmpfs /tmp \
             --dir /work --ro-bind "$GITHUB_WORKSPACE/tools/session_store/offline_smoke.py" /work/check.py \
             --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
-            -- /usr/bin/python3 /work/check.py "$host_net" --preflight
+            -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /usr/bin/python3 /work/check.py "$host_net" --preflight
       - name: Normalize only upstream workspace version metadata
         working-directory: ${{ runner.temp }}/native-source/codex-rs
         run: cargo +1.95.0 update --workspace
@@ -84,10 +86,12 @@ jobs:
           host_net="$(readlink /proc/self/ns/net)"
           timeout --signal=TERM --kill-after=3s 25s sudo -n setpriv --no-new-privs bwrap \
             --unshare-pid --unshare-net --unshare-ipc --unshare-uts \
-            --die-with-parent --new-session --cap-drop ALL --uid 65534 --gid 65534 \
+            --die-with-parent --new-session --cap-drop ALL --cap-add CAP_SETUID --cap-add CAP_SETGID --cap-add CAP_SETPCAP \
             --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
             --symlink usr/lib64 /lib64 --proc /proc --dev /dev --tmpfs /tmp \
             --dir /work --ro-bind "$RUNNER_TEMP/native-source/codex-rs/target/dev-small/codex" /work/client \
             --ro-bind "$GITHUB_WORKSPACE/tools/session_store/offline_smoke.py" /work/check.py \
             --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
-            -- /usr/bin/python3 /work/check.py "$host_net"
+            -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /usr/bin/python3 /work/check.py "$host_net"
