@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Transport Probe Isolation
+
+- Profiles are pure trusted inputs, never HTTP-selected argv, mounts or hosts.
+  Canonical v4 run identity, nonroot numeric IDs and immutable public IPv4 pairs
+  are validated before interpolation. IPv6 and runtime DNS are not supported.
+- Only HEAD / to two fixed TLS names. No auth/model path, forwarded client
+  headers/body, credential/profile mount or inference readiness from HTTP200.
+- Synthetic Unix upstreams and public numeric destinations cannot fall back to
+  each other. TLS verification and fixed upstream Host/SNI remain mandatory.
+- Generated properties/receipts do not prove actual network, cgroup, filesystem,
+  relay environment, stop or cleanup. No deployment or API activation is implied.
+
 ## Personal History Isolation
 
 - Only an explicitly injected owner-scoped service mounts history routes. A

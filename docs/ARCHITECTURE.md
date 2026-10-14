@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Credential-Free Transport Probe Profile
+
+TransportProbeProfile is an inactive pure configuration component, not a worker
+launcher or OS containment proof. It produces a fixed HEAD-only Nginx TLS
+gateway, bounded curl arguments, separate synthetic-Unix/public-IPv4 upstreams,
+nonroot resource properties and strict status-only receipts. No credential,
+prompt, history, inference route, public endpoint or Android caller is connected.
+Host root preparation, relay/namespace composition, actual cgroup enforcement
+and all-role invocation-bound stop/cleanup remain independent operational gates.
+See superpowers/specs/2026-10-14-transport-probe-profile-design.md.
+
 ## Optional Personal History API
 
 The owner-approved first server stage adds an independently injected history

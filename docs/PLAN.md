@@ -1,5 +1,17 @@
 # PLAN
 
+## Credential-Free Transport Profile (2026-10-14)
+
+- Owner approved isolated gateway design. Implemented the first pure source slice:
+  immutable inputs, distinct synthetic/public profiles, HEAD-only TLS gateway,
+  bounded curl command and strict transport receipts. No privileged launcher.
+- Focused85 and full local468 checks passed, including22 actual Nginx1.24/curl
+  cases using local Unix TLS peers. Three Python hashes stayed stable through
+  the full gate. Configuration/engine tests are not host namespace/cgroup proof.
+- Before any remote test: exact prepared-root/file/unit/hash manifest, actual
+  enforcement/environment admission, all-role stop receipts and cleanup approval.
+  Authorization/model request, signed API/context and Android chat are later gates.
+
 ## Personal Device History API (2026-10-14)
 
 - Approved own-device architecture and365-day retention. First local stage:

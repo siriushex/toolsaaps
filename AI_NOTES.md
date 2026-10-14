@@ -1,3 +1,24 @@
+# Credential-Free Transport Profile - 2026-10-14
+
+- Owner approved the isolated gateway proposal. Added an inactive pure profile
+  builder, not a launcher: validated immutable v4/nonroot/public-IPv4 inputs,
+  separate Unix-synthetic/public-numeric upstreams, Nginx HEAD-only TLS policy,
+  bounded curl arguments and strict HTTP/TLS status-only receipt validation.
+- Missing-profile assertion reproduced before implementation; initial55 unit
+  contracts passed. Additional8 failures reproduced missing exit-status/final-
+  response admission and handshake limits. Real Nginx caught an unsupported HTTP
+  timeout directive; corrected against1.24 source to client_header_timeout.
+- Final focused85 checks passed, including22 real Nginx1.24/curl tests over Unix
+  TLS sockets only. No Docker daemon or system service was started; the local
+  engine was built in private scratch. Full local backend passed468 cases with
+  zero failures/errors/skips and one existing deprecation warning in82.50s.
+  All three Python input hashes stayed unchanged. Isolated E/F and whitespace
+  checks passed. Exact-source publication/CI remains an independent gate.
+- No existing service, host configuration, credential/profile, phone, medical
+  upload, API route, inference worker or therapy behavior changed. Actual prepared
+  roots/relay/network/cgroup/environment and all-role stop/cleanup remain separate
+  gates. HTTP transport, source tests and CLI version are not AI readiness.
+
 # Offline Runtime Boundary Check - 2026-10-14
 
 - An explicitly approved one-off version-only check ran the pinned runtime under

@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Credential-Free Transport Profile (2026-10-14)
+
+- Fixed trusted destinations, canonical identity/public IPv4 validation and no
+  caller-selected paths prevent configuration interpolation from untrusted input.
+  Declared public addresses do not attest DNS ownership or defeat a compromised
+  trusted launcher. Actual host enforcement remains a separate admission.
+- Nginx rejects unknown/crossed TLS names, noncanonical HEAD requests, credentials
+  and request bodies; forwards no incoming headers/body. Fixed upstream Host/SNI
+  and certificate validation prevent treating a shared-CDN IP as origin identity.
+- Synthetic upstreams/CA are separate from public mode. Payload logs, cookie/
+  Location forwarding and on-disk proxy buffering are disabled. No credentials,
+  model input/output, treatment data or new API reaches this source component.
+- Source/real-engine local tests are not proof of namespace/relay/cgroup or all-
+  descendant teardown. Stop uncertainty cannot release capacity. No privileged
+  installer, runtime worker or production acceptance is introduced here.
+
 ## Personal Device History API (2026-10-14)
 
 - Independent optional signed routes require enrolled owner/device identity and

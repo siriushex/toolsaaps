@@ -1,5 +1,26 @@
 # DEVOPS
 
+## Transport Profile Source Stage
+
+app.ai.egress_probe only generates profiles and validates status receipts; it
+does not construct roots, install units or perform networking. Synthetic mode
+requires two TLS Unix peers and an isolated test upstream CA; public mode requires
+one independently verified public IPv4 per fixed provider and the public CA bundle.
+The source has no mixed mode, runtime DNS, authorization or model request path.
+
+Optional real-engine suite: set NGINX_TEST_BINARY to a trusted Nginx1.24+ binary
+and run backend/tests/test_ai_egress_probe_nginx.py. It uses generated short-lived
+test certificates and filesystem sockets only. Tests rebase filesystem references
+for an unprivileged local directory, not the HTTP/TLS policy. Without the explicit
+binary these checks skip honestly; ordinary unit tests do not prove live egress.
+
+Before remote use, separately review exact root/library/config/certificate/socket
+and unit manifest. Worker and gateway properties alone omit relay/namespace setup,
+shared512MiB/25%-of-one-core/64-task budget, fixed launch environment, source/CA
+provenance, active cgroup filtering and independent stop receipts for every role.
+Do not compensate with host networking, broad mounts, credential reuse or a
+privileged public API. Existing services/firewall/profile remain untouched.
+
 ## Personal History Storage Stage
 
 This optional local library/API stage is not a server deployment. Default app
