@@ -23,6 +23,24 @@ separate rollout; never restore stale medical history to roll back application
 code. Existing per-device files are never deleted or rewritten as a fallback.
 
 ## Environments
+
+### Offline Runtime Validation Boundary
+
+The owner-approved version-only operational check recorded in AI_NOTES passed
+inside the existing offline root with the separate nonroot identity. Actual
+properties and an invocation-bound stop receipt were inspected, then disposable
+unit/cgroup/directory absence was independently checked. Private operational
+evidence is retained outside Git; no credentials or medical payloads were used.
+
+This is not an online worker or deployment acceptance. A version string does not
+prove model compatibility, authenticated inference, provider-only network egress,
+hostile-context containment, cancellation under load or contextual device chat.
+The default API readiness remains unchanged. Any later online validation needs
+its own reviewed exact-target plan, rollback and explicit authorization; do not
+reuse the offline result as permission to mount credentials or upload history.
+
+### Development
+
 - Local Android development: `android-app` via Gradle.
 - Local backend development: `backend` via Python venv + uvicorn.
 

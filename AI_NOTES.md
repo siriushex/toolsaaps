@@ -1,3 +1,25 @@
+# Offline Runtime Boundary Check - 2026-10-14
+
+- An explicitly approved one-off version-only check ran the pinned runtime under
+  the existing offline root and separate nonroot service identity. No model
+  inference, authorization material, medical input, model setting, public API,
+  phone package or therapy command was involved.
+- Reviewed actual unit properties matched the offline network/filesystem and
+  CPU/memory/PID/time limits. The existing SystemdStopVerifier bound the original
+  invocation and independently confirmed stop; a separate later host inspection
+  confirmed absence of the disposable unit, descendant cgroup and own directory.
+- A neutral temporary hardlink was mounted over an already-existing empty file
+  only inside the unit namespace. The source binary identity and original mount
+  target were preserved; no new file was created in the existing rootfs.
+- Four private diagnostic contract tests passed after missing-helper and
+  mount-target/cleanup guard failures were reproduced. Diagnostic/verifier input
+  hashes stayed unchanged during the live check. Operational evidence remains
+  private and is not included in the repository.
+- This proves only this bounded offline version invocation and its teardown.
+  Online egress containment, hostile/timeout descendant tests, real inference,
+  retained context, device synchronization and contextual chat remain separate
+  gates. No production launcher or inference readiness is claimed.
+
 # Personal Device History API - 2026-10-14
 
 - User approved own-device contextual server architecture and365-day retention,
