@@ -203,6 +203,32 @@ class ProtocolGuards(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.module.verify_message(bad)
 
+    def test_per_process_trace_is_read_without_interleaved_syscalls(self):
+        self.assertTrue(hasattr(self.module, "read_trace"), "per-process trace reader missing")
+        with tempfile.TemporaryDirectory(prefix="process-trace-") as name:
+            prefix = Path(name) / "trace"
+            for identity, content in ((12, "connect complete\n"), (8, "exec complete\n")):
+                file = prefix.with_name(f"trace.{identity}")
+                file.write_text(content)
+                file.chmod(0o600)
+            self.assertEqual(self.module.read_trace(prefix), "exec complete\nconnect complete\n")
+            (prefix.parent / "trace.12").chmod(0o644)
+            with self.assertRaises(ValueError):
+                self.module.read_trace(prefix)
+            (prefix.parent / "trace.12").chmod(0o600)
+            (prefix.parent / "trace.12").write_bytes(b"x" * (1024 * 1024 + 1))
+            with self.assertRaises(ValueError):
+                self.module.read_trace(prefix)
+            (prefix.parent / "trace.12").unlink()
+            (prefix.parent / "trace.12").symlink_to(prefix.parent / "trace.8")
+            with self.assertRaises(ValueError):
+                self.module.read_trace(prefix)
+
+    def test_unexpected_execution_reports_only_bounded_command_context(self):
+        trace = '42 execve("/work/client", ["/work/client"], 0x1) = 0\n'
+        with self.assertRaisesRegex(ValueError, "unexpected child execution.*other_tool"):
+            self.module.verify_trace(trace + '43 execve("/work/other_tool", ["other_tool"], 0x1) = 0\n')
+
 
 if __name__ == "__main__":
     unittest.main()

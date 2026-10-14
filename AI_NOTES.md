@@ -1,5 +1,14 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- The constrained native process reached the final syscall audit after the
+  cancel scenario's initialize/code/poll/wrong-ID/correct-ID/repeat/silence checks.
+  The final audit refused an execution record; protocol suite not passed. Split
+  tracing per process to avoid cross-thread unfinished/resumed interleaving,
+  with private typed/bounded trace-file admission and bounded rejected-command
+  context. Added a zero core-size limit after the earlier synthetic abort.
+  Two new regressions failed first; all53 tooling cases pass locally. Actual
+  full-suite retry remains pending; no real login or runtime change occurred.
+
 - Pinned app-server source unconditionally emits a remote-control status
   snapshot after initialization. Admit only a notification with disabled status
   and no environment; every server request, connected status or unknown method

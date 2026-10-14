@@ -34,7 +34,7 @@ check_args=("$host_net")
 if [[ "${2:-}" == --preflight ]]; then check_args+=(--preflight); fi
 check_command=(/usr/bin/python3 /work/protocol_smoke.py "${check_args[@]}")
 if [[ "${2:-}" == --preflight ]]; then
-  check_command=(/usr/bin/strace -f -qq -s 256 -o /tmp/tls-preflight.trace -e trace=execve,connect "${check_command[@]}")
+  check_command=(/usr/bin/strace -ff -qq -s 256 -o /tmp/tls-preflight.trace -e trace=execve,connect "${check_command[@]}")
 fi
 timeout --signal=TERM --kill-after=5s 100s sudo -n setpriv --no-new-privs bwrap \
   --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --new-session \

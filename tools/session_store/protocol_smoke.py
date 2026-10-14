@@ -137,13 +137,32 @@ def verify_trace(trace: str, *, expected_executable: str = "/work/client") -> di
     connections = [line for line in connections if line not in missing_cache]
     if (len(executions) != 1 or f'execve("{expected_executable}",' not in executions[0]
             or not executions[0].endswith("= 0")):
-        raise ValueError("unexpected child execution")
+        raise ValueError("unexpected child execution: " + json.dumps([line[:512] for line in executions[:8]]))
     for line in connections:
         if ("sa_family=AF_INET," not in line or "sin_port=htons(8443)" not in line
                 or 'sin_addr=inet_addr("127.0.0.1")' not in line):
             raise ValueError("unexpected connection attempt: " + line[:512])
     return {"execs": len(executions), "connections": len(connections), "absent_os_lookups": len(absent),
             "absent_name_cache_lookups": len(missing_cache)}
+
+
+def read_trace(prefix: Path) -> str:
+    files = list(prefix.parent.glob(prefix.name + ".*"))
+    if not files or len(files) > 128:
+        raise ValueError("missing or excessive process traces")
+    total, parts = 0, []
+    for file in files:
+        metadata = file.lstat()
+        if (not re.fullmatch(re.escape(prefix.name) + r"\.[0-9]+", file.name)
+                or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1):
+            raise ValueError("process trace metadata rejected")
+        total += metadata.st_size
+        if total > 1024 * 1024:
+            raise ValueError("trace byte budget exceeded")
+    for file in sorted(files, key=lambda path: int(path.suffix[1:])):
+        parts.append(file.read_text())
+    return "".join(parts)
 
 
 def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> dict:
@@ -160,7 +179,8 @@ def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> di
                 raise ValueError("nonprivate state directory")
         elif stat.S_ISREG(metadata.st_mode):
             if stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1:
-                raise ValueError("nonprivate state file")
+                raise ValueError(f"nonprivate state file: {str(path.relative_to(root))[:256]} "
+                                 f"mode={stat.S_IMODE(metadata.st_mode):04o}")
             total += metadata.st_size
             count += 1
         else:
@@ -223,7 +243,7 @@ class Rpc:
         env = native_environment(root, trust=trust)
         self.trace = root / "trace"
         self.process = subprocess.Popen(
-            ["/usr/bin/strace", "-f", "-qq", "-s", "256", "-o", str(self.trace),
+            ["/usr/bin/strace", "-ff", "-qq", "-s", "256", "-o", str(self.trace),
              "-e", "trace=execve,connect", "/work/client",
              "-c", 'cli_auth_credentials_store="file"', "-c", "analytics.enabled=false",
              "-c", "check_for_update_on_startup=false", "app-server"],
@@ -341,11 +361,10 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
         # This harness can only see synthetic, unauthenticated state. Bound failure
         # details, never repurpose this reporter for a real owner login/profile.
         if rpc is not None:
-            tail = b""
-            if rpc.trace.is_file():
-                with rpc.trace.open("rb") as stream:
-                    stream.seek(max(0, rpc.trace.stat().st_size - 4096))
-                    tail = stream.read(4096)
+            try:
+                tail = read_trace(rpc.trace)[-4096:]
+            except (ValueError, OSError):
+                tail = "trace unavailable"
             processes = []
             for path in Path("/proc").glob("[0-9]*/status"):
                 try:
@@ -357,7 +376,7 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
                     pass
             print(json.dumps({"failed_case": mode, "native_exit": rpc.process.poll(),
                               "stderr_tail": rpc.error.decode(errors="replace"),
-                              "syscalls_tail": tail.decode(errors="replace"),
+                              "syscalls_tail": tail,
                               "processes": processes[:16]}), flush=True)
         raise
     finally:
@@ -371,7 +390,7 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
             if peer.thread.is_alive():
                 raise ValueError("TLS listener survived teardown")
     return {"case": mode, "http_requests": len(peer.events),
-            "trace": verify_trace(rpc.trace.read_text()), "state": verify_private_state(root)}
+            "trace": verify_trace(read_trace(rpc.trace)), "state": verify_private_state(root)}
 
 
 def main():
@@ -395,6 +414,7 @@ def main():
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
     resource.setrlimit(resource.RLIMIT_FSIZE, (32 * 1024 * 1024, 32 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     os.umask(0o077)
     if args.preflight:
         for mode in ("trusted", "untrusted", "wrong-name"):
@@ -415,7 +435,7 @@ def main():
                 peer.thread.join(timeout=3)
             if accepted != (mode == "trusted") or peer.thread.is_alive():
                 raise ValueError("TLS preflight mismatch")
-        trace = verify_trace(Path("/tmp/tls-preflight.trace").read_text(), expected_executable="/usr/bin/python3")
+        trace = verify_trace(read_trace(Path("/tmp/tls-preflight.trace")), expected_executable="/usr/bin/python3")
         print(json.dumps({"tls_preflight": True, "client_executed": False, "trace": trace,
                           "private_namespace": os.readlink("/proc/self/ns/net")}))
         return

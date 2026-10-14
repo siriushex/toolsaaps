@@ -131,6 +131,11 @@ Traced preflight observed libc's lookup of the absent /var/run/nscd/socket.
 At most8 exact ENOENT failures are counted separately. Any successful Unix
 service connection, different path or different failure is refused. /var and
 /run are still absent, not host mounts; no resolver-service access is enabled.
+Syscall output is split per process to avoid cross-thread unfinished/resumed
+interleaving. Only owned0600 regular, single-link numeric-suffix trace files
+are read, with128-file/1MiB total limits; symlinks and extra filename shapes fail.
+Trace/private-state failures include bounded synthetic command/path context,
+not file bodies. Core-size allowance is zero for the contained process tree.
 
 ## Limits
 
