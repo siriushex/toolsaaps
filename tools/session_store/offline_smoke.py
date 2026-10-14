@@ -60,7 +60,8 @@ def verify_scratch_state(home: Path) -> dict:
     if {path.name for path in group.iterdir()} != ALIASES | {".lock"}:
         raise ValueError("unexpected scratch files")
     lock = (group / ".lock").lstat()
-    if not stat.S_ISREG(lock.st_mode) or lock.st_size != 0 or lock.st_uid != os.geteuid():
+    if (not stat.S_ISREG(lock.st_mode) or lock.st_size != 0 or lock.st_uid != os.geteuid()
+            or stat.S_IMODE(lock.st_mode) != 0o600):
         raise ValueError("unexpected scratch lock")
     for name in ALIASES:
         path = group / name
@@ -69,6 +70,18 @@ def verify_scratch_state(home: Path) -> dict:
                 or os.readlink(path) != "/work/client"):
             raise ValueError("unexpected alias link")
     return {"directories": 4, "files": 1, "links": len(ALIASES)}
+
+
+def prepare_private_home(home: Path) -> None:
+    os.umask(0o077)
+    home.mkdir(mode=0o700)
+    probe = home / "permission-check"
+    probe.mkdir(mode=0o777)
+    metadata = probe.lstat()
+    if stat.S_IMODE(metadata.st_mode) != 0o700 or metadata.st_uid != os.geteuid():
+        raise ValueError("private umask not effective")
+    probe.rmdir()
+    verify_scratch_state(home)
 
 
 def main() -> None:
@@ -91,8 +104,7 @@ def main() -> None:
     if stat.S_IMODE(Path("/tmp").stat().st_mode) != 0o1777:
         raise ValueError("private temporary mount permissions rejected")
     home = Path("/tmp/session")
-    home.mkdir(mode=0o700)
-    verify_scratch_state(home)
+    prepare_private_home(home)
     if args.preflight:
         print(json.dumps({"isolation_preflight": True, "scratch_home_ready": True,
                           "client_executed": False}))

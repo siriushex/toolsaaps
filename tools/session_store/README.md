@@ -59,7 +59,8 @@ digests; these bind the observed build, not an independently signed attestation.
 
 An isolation-only preflight precedes compilation, creates/verifies the private
 scratch home on its fresh1777 tmpfs and does not execute a client. Host /tmp is
-never mounted or chmodded.
+never mounted or chmodded. Process-local umask077 is applied and proven with a
+default-mode directory creation before launch; native children inherit it.
 The version-only smoke uses a fresh minimal mount root, private PID/network/IPC/
 UTS namespaces, UID65534, no effective capabilities, no-new-privileges, cleared
 environment, empty private home and time/CPU/address-space/process limits. Only
@@ -67,7 +68,7 @@ system runtime files, the binary and checker are mounted. The checker verifies
 the network namespace differs from the host and has no external interfaces,
 rejects host state mounts and requires exact quiet version output. Native startup
 creates helper aliases even before parsing --version, so the fresh private home
-may contain only its exact bounded scratch tree: four directories, one empty lock
+may contain only its exact bounded scratch tree: four directories, one empty0600 lock
 and four links to the mounted client. Any authorization/config/history file,
 different path/link/type, nonempty lock or nonprivate alias group is refused.
 Only counts are reported. This does not test a real login, TLS headers, model

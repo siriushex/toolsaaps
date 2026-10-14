@@ -202,6 +202,7 @@ class ScratchStateTests(unittest.TestCase):
         self.group.mkdir(parents=True, mode=0o700)
         self.group.parent.chmod(0o700)
         (self.group / ".lock").touch()
+        (self.group / ".lock").chmod(0o600)
         for name in self.aliases:
             (self.group / name).symlink_to("/work/client")
 
@@ -223,6 +224,25 @@ class ScratchStateTests(unittest.TestCase):
         (self.group / ".lock").write_text("synthetic-state")
         with self.assertRaises(ValueError):
             self.validate()
+
+    def test_nonprivate_lock_refused(self):
+        self.populate()
+        (self.group / ".lock").chmod(0o644)
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_private_umask_is_inherited_by_native_style_writers(self):
+        self.assertTrue(hasattr(self.module, "prepare_private_home"), "private umask setup missing")
+        previous = os.umask(0o022)
+        self.addCleanup(os.umask, previous)
+        home = self.home / "fresh"
+        self.module.prepare_private_home(home)
+        group = home / "native-directory"
+        group.mkdir(mode=0o777)
+        lock = group / "lock"
+        lock.touch(mode=0o666)
+        self.assertEqual(group.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
 
     def test_external_alias_target_refused(self):
         self.populate()

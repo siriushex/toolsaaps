@@ -1,5 +1,16 @@
 # Pinned Native Build Validation - 2026-10-14
 
+- The corrected tmpfs run built the identical ELF digest again and successfully
+  executed the exact quiet native --version offline. The strict scratch gate
+  then refused the native temporary directory mode. Pinned tempfile3.27.0's Unix
+  implementation/documentation confirms directories use0777 filtered by umask,
+  unlike its0600 temporary files. Added process-local umask077 before any native
+  startup and a default-directory permission witness in no-client preflight.
+  Retained0700 directory checks and strengthened the empty lock to0600 rather
+  than admitting weaker modes. Two new regressions failed before implementation.
+  All35 Python tests, Ruff and whitespace checks passed. No profile data, real
+  login or server change; final exact-SHA CI still pending.
+
 - Complete native Linux compilation passed:169 login library tests, zero failures
   and one child-process entrypoint ignored by the outer harness; the parent
   scenarios invoke that entrypoint themselves. Full actual CLI build and source/
