@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import subprocess
 import sys
+import selectors
 import unittest
 
 from test_native_build import load_helper
@@ -123,6 +124,22 @@ class ProtocolGuards(unittest.TestCase):
             (root / "nsswitch.conf").write_text("hosts: files dns\n")
             with self.assertRaises(ValueError):
                 self.module.verify_name_mapping(root)
+
+    def test_early_native_exit_reports_bounded_diagnostic_without_waiting_for_timeout(self):
+        rpc = self.module.Rpc.__new__(self.module.Rpc)
+        rpc.process = subprocess.Popen([sys.executable, "-c",
+                                        "import sys; sys.stderr.write('sample startup failure'); sys.exit(2)"],
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE,
+                                       start_new_session=True, bufsize=0)
+        rpc.selector = selectors.DefaultSelector()
+        for stream in (rpc.process.stdout, rpc.process.stderr):
+            rpc.selector.register(stream, selectors.EVENT_READ)
+        rpc.buffer, rpc.total, rpc.messages, rpc.error = b"", 0, [], b""
+        try:
+            with self.assertRaisesRegex(ValueError, "native process exited.*sample startup failure"):
+                rpc.wait(lambda _: False, timeout=1)
+        finally:
+            rpc.close()
 
 
 if __name__ == "__main__":

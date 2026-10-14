@@ -1,5 +1,12 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Linux TLS/offline preflights,169 native component tests, full CLI build and
+  version/private scratch/provenance passed atc3f7496b (same ELF digest). Actual
+  protocol stopped awaiting initialize; discarded stderr hid early-process versus
+  timeout diagnosis. Added bounded synthetic-only failure diagnostics and an
+  early-exit regression, reproduced before implementation. All46 local tooling
+  cases pass. This is not a login or protocol success claim; retry is pending.
+
 - First Linux preflight stopped before native execution: the process-local077
   creation mask also made the new public hosts/nsswitch files unreadable after
   UID drop. Set0644 only on these fresh nonsecret read-only mounts; peer private

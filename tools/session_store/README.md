@@ -106,7 +106,9 @@ file counts/bytes and absence of auth.json. This is a bounded scratch inventory,
 not a complete native filename allowlist or proof against malicious client code.
 Polling must stop after cancellation; process groups/listener threads must exit.
 An independent host-side kernel namespace-reference check follows Bubblewrap's
-PID-namespace teardown. Only count/status receipts are printed. Generated peer
+PID-namespace teardown. Passing runs print only count/status receipts. Failure
+diagnostics bound synthetic-only stderr/syscall tails and selected process
+status; never reuse this reporter with real credentials/profiles. Generated peer
 keys are removed by the wrapper; no binary or test-state artifact is uploaded.
 
 Actual native protocol results remain pending until the exact-source workflow

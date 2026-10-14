@@ -190,7 +190,7 @@ class Rpc:
         for stream in (self.process.stdout, self.process.stderr):
             os.set_blocking(stream.fileno(), False)
             self.selector.register(stream, selectors.EVENT_READ)
-        self.buffer, self.total, self.messages = b"", 0, []
+        self.buffer, self.total, self.messages, self.error = b"", 0, [], b""
 
     def send(self, method: str, params: dict, identity: int | None = None):
         data = {"method": method, "params": params}
@@ -213,6 +213,7 @@ class Rpc:
                 if self.total > 512 * 1024:
                     raise ValueError("RPC output budget exceeded")
                 if key.fileobj is self.process.stderr:
+                    self.error = (self.error + chunk)[-2048:]
                     continue
                 self.buffer += chunk
                 while b"\n" in self.buffer:
@@ -224,6 +225,9 @@ class Rpc:
                     self.messages.append(message)
                     if len(self.messages) > 128:
                         raise ValueError("RPC message budget exceeded")
+            if not self.selector.get_map() and self.process.poll() is not None:
+                raise ValueError(f"native process exited {self.process.returncode}: "
+                                 + self.error.decode(errors="replace"))
         raise ValueError("RPC response timeout")
 
     def response(self, identity: int):
@@ -292,6 +296,29 @@ def run_case(root: Path, cert: Path, key: Path, mode: str) -> dict:
                     raise ValueError("polling survived cancellation")
         if peer.errors:
             raise ValueError("TLS peer rejected request")
+    except Exception:
+        # This harness can only see synthetic, unauthenticated state. Bound failure
+        # details, never repurpose this reporter for a real owner login/profile.
+        if rpc is not None:
+            tail = b""
+            if rpc.trace.is_file():
+                with rpc.trace.open("rb") as stream:
+                    stream.seek(max(0, rpc.trace.stat().st_size - 4096))
+                    tail = stream.read(4096)
+            processes = []
+            for path in Path("/proc").glob("[0-9]*/status"):
+                try:
+                    if os.getpgid(int(path.parent.name)) == rpc.process.pid:
+                        fields = dict(line.split(":", 1) for line in path.read_text().splitlines() if ":" in line)
+                        processes.append({key: fields.get(key, "").strip()
+                                          for key in ("Name", "State", "Threads", "VmRSS")})
+                except (FileNotFoundError, ProcessLookupError):
+                    pass
+            print(json.dumps({"failed_case": mode, "native_exit": rpc.process.poll(),
+                              "stderr_tail": rpc.error.decode(errors="replace"),
+                              "syscalls_tail": tail.decode(errors="replace"),
+                              "processes": processes[:16]}), flush=True)
+        raise
     finally:
         try:
             if rpc is not None:

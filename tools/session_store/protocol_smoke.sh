@@ -47,7 +47,10 @@ timeout --signal=TERM --kill-after=5s 100s sudo -n setpriv --no-new-privs bwrap 
   --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
   -- /bin/sh -eu -c 'ip link set lo up; exec setpriv --reuid=65534 --regid=65534 --clear-groups \
      --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
-     python3 /work/protocol_smoke.py "$@"' session-setup "${check_args[@]}" > "$scratch/receipt.json"
+     python3 /work/protocol_smoke.py "$@"' session-setup "${check_args[@]}" > "$scratch/receipt.json" || {
+  cat "$scratch/receipt.json"
+  exit 1
+}
 
 # Re-read kernel namespace references after Bubblewrap has reaped its PID namespace.
 sudo -n python3 - "$scratch/receipt.json" <<'PY'
