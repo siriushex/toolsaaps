@@ -1,3 +1,33 @@
+# Atomic Session Storage Candidate - 2026-10-14
+
+- Investigated native file persistence and auto/keyring fallback at the fixed
+  official source reference. Auto can fall back to the same truncate/write path;
+  no host keyring or credential/billing alternative was selected.
+- A Rust regression using the original storage operations failed with an empty
+  live file after interruption. Added a narrow source-level candidate: private
+  sibling tempfile, complete write, file sync, atomic persist, Unix directory
+  sync. Native serialization/schema remain unchanged in the integration patch.
+- Actual helper tests passed10 parent scenarios, including pre/post-replacement
+  child termination, error cleanup, permissions, open-reader snapshots and10000
+  concurrent reads. One ignored child entry point is invoked by those scenarios.
+  Nine source-pin/fetch unit cases and clean application to the two exact public input
+  files passed. All48 standalone lock dependencies match the native lock file;
+  tempfile3.27.0 moves from dev to runtime use without a native lock update.
+- tools/session_store contains the tested helper, hash-bound patch builder,
+  source compatibility check and provenance/limits. Added an independent Linux
+  CI job; final exact-source publication/CI remains a gate. Local format, Clippy
+  with warnings denied and isolated Python E/F checks passed.
+- Candidate only: no client compiled/replaced on the server, login, profile
+  mount, credentials, provider/model request, medical data or phone/therapy change.
+  Atomic file replacement is not a transaction with provider token rotation.
+  A private orphan can remain after forced termination; never auto-promote it,
+  restore an old token or claim guaranteed login continuity/power-cut durability.
+  Full upstream compilation, binary provenance, bounded serialized controller
+  and actual contained client/protocol tests remain runtime admission gates.
+- Raw source download returned404; unauthenticated fixed Contents API returned
+  the exact expected hash. Compatibility now uses that one explicit public API,
+  with no credentials, redirect/domain fallback or version/hash substitution.
+
 # Independent Login Profile - 2026-10-14
 
 - Owner selected a separate ChatGPT account login, not an API key, and approved

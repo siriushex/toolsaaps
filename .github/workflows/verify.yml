@@ -13,6 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  session-store:
+    name: Session storage candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Prepare test compiler
+        run: rustup toolchain install 1.93.0 --profile minimal --component rustfmt,clippy
+      - name: Format
+        run: cargo +1.93.0 fmt --manifest-path tools/session_store/Cargo.toml --check
+      - name: Lint
+        run: cargo +1.93.0 clippy --locked --all-targets --manifest-path tools/session_store/Cargo.toml -- -D warnings
+      - name: Storage interruption tests
+        run: cargo +1.93.0 test --locked --manifest-path tools/session_store/Cargo.toml
+      - name: Source pin tests
+        run: python3 -m unittest discover -s tools/session_store -p 'test_*.py'
+      - name: Public source compatibility
+        run: python3 tools/session_store/verify_upstream.py
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest

@@ -1,5 +1,16 @@
 # PLAN
 
+## Atomic Session Storage Candidate (2026-10-14)
+
+- Original Rust file operations reproduced destructive interruption. The narrow
+  tempfile/sync/replace candidate passed10 parent tests and9 verifier/fetch cases;
+  source compatibility verifies clean application and exact tested helper bytes.
+  Local format/Clippy/Python checks passed; an independent Linux CI gate is added.
+- This is not a full upstream/client binary build, deployment or authenticated
+  runtime. Resolve provider-rotation gaps and bounded serialized orphan admission,
+  obtain runtime-change approval and capture the actual isolated client before
+  real owner login. No old auth, host keyring, phone or therapy change.
+
 ## Independent Login Profile (2026-10-14)
 
 - Owner approved one new private profile for separate ChatGPT login. Sixteen

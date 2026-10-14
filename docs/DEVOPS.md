@@ -1,5 +1,25 @@
 # DEVOPS
 
+## Atomic Session Candidate
+
+tools/session_store is an offline source candidate, not an installed runtime or
+credential manager. Its README contains the locked Rust/Python checks and exact
+upstream source provenance. The patch builder admits only the two pinned source
+hashes and refuses an existing helper; it never reads an authorization profile.
+The compatibility check applies the patch only to its own fresh public-source
+copy and verifies dependency metadata, exact helper bytes and three changed paths.
+
+The helper syncs a private sibling file before atomic replacement and the parent
+directory afterward on Unix. Error after replacement is not rollback authority.
+Killed writers may leave private orphans; no auto-promotion or stale-token restore.
+File atomicity does not solve the provider-rotation/local-commit gap or certify
+hardware power-loss behavior. Serialize profile runs and refuse ambiguous state.
+
+Before server adoption: full pinned-source client build/provenance, explicit
+runtime-change admission, bounded profile/orphan policy and contained actual
+client TLS/headers/protocol/cancel tests. Never replace the installed binary,
+mount a host keyring, copy old auth or start a real login from this candidate.
+
 ## Independent Login Profile Boundary
 
 The owner selected a separate ChatGPT login and approved a new private profile.

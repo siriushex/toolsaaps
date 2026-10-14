@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Offline Session Candidate (2026-10-14)
+
+- File persistence candidate only, with source-hash admission and fixed patch
+  paths. No network input, application endpoint, profile reader or client launcher.
+  Optional CI compatibility fetches only fixed public source files over verified
+  HTTPS, rejects redirects and verifies content hashes; it is not model egress.
+- Temporary credentials would remain private after a killed writer; candidate
+  tests contain synthetic data only. A separate bounded orphan policy is still
+  mandatory before real credentials. Never restore a rotated token or auto-promote
+  an orphan. File atomicity is not provider/local transactional durability.
+- Helper tests/clean patch application are not full upstream compilation, binary
+  attestation, operational containment or authorization. No installed runtime is
+  changed and no credentials are admitted by this source stage.
+
 ## Credential-Free Transport Profile (2026-10-14)
 
 - Fixed trusted destinations, canonical identity/public IPv4 validation and no

@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Session Candidate Isolation
+
+- Exact public source hashes and tested helper bytes bind the candidate patch;
+  no arbitrary runtime version, credential schema or profile import is selected.
+- Pre-replacement errors preserve the live file; post-replacement failure cannot
+  justify rollback. Forced termination can leave private orphan state.
+- Atomic files are not atomic provider-token rotation. No stale-token restore,
+  orphan promotion, guaranteed session continuity or power-cut claim.
+- Standalone helper/source checks do not attest a full installed client, active
+  containment or authorization. No runtime replacement follows from passing CI.
+
 ## Transport Probe Isolation
 
 - Observed receipts require a gateway-owned matching upstream status, successful

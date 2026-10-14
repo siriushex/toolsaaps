@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Offline Session Storage Candidate
+
+tools/session_store supplies a tested Rust helper and a source-hash-bound native
+integration patch, separate from all backend routes/workers. It changes only file
+persistence: private sibling temporary, complete write/file sync, atomic replace
+and Unix directory sync. Native credential serialization and model settings are
+unchanged. No server launcher, profile lock, real login or runtime is connected.
+The existing transport and device-history components remain independent.
+
 ## Observed Upstream Transport
 
 ObservedProbeProfile extends the pure transport profile with a gateway-owned
