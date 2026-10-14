@@ -1,5 +1,28 @@
 # SECURITY REVIEW
 
+## Personal Device History API (2026-10-14)
+
+- Independent optional signed routes require enrolled owner/device identity and
+  fresh proof/current access, with separate per-path preauthorization so old job
+  owners are not accidentally blocked by the one-owner history policy.
+- Closed schema, outer/nested duplicate rejection, bounded UTF-8/HTTP/record/page
+  sizes and typed units exclude arbitrary raw exports/config fields. Text remains
+  untrusted observational evidence, never executable instructions or model truth.
+- Private owned local paths, generated filenames, no symlink/hardlink selection,
+  dedicated schema and key manifest reject foreign/wrong-key stores. AES-GCM AAD
+  binds device and version metadata; encrypted payload/receipt keys are derived
+  from an externally provided master key. No plaintext payload in SQLite bodies.
+- Opaque identifiers/times/index metadata remain readable. This is not full-file
+  encryption, secure SSD erasure, access audit or an authorized production key
+  provisioner. Same-UID/root compromise is outside private-directory isolation.
+- Atomic receipts/versions, quotas, SQL work budget, expiry filtering and tombstone
+  payload removal have synthetic tests. Restore tests use closed synthetic files;
+  no claims about real clinical backup correctness or resource savings.
+- Before production: encrypted local volume/backups, audited key custody/rotation,
+  periodic idle-store expiry, disk/CPU/RAM/load limits, current attestation/signer
+  policy, consent/export and endpoint/caller integration. Existing15-minute job
+  cache isolation remains unchanged; no model or therapy action is connected.
+
 ## Explicit Eating Soon Meal Intent (2026-10-14)
 
 - Checked target intent reuses the standalone canonical manual channel and all

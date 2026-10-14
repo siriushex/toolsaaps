@@ -1,5 +1,27 @@
 # DEVOPS
 
+## Personal History Storage Stage
+
+This optional local library/API stage is not a server deployment. Default app
+factories expose no history route. Compose HistoryStore and HistoryService with
+trusted activation/proof services, one explicit owner and an externally supplied
+32-byte master key; never place keys in history directories, URLs or logs.
+The POSIX private directory must be owned by the runtime account with0700 mode.
+Files use0600, local SQLite and per-device payload encryption; metadata remain
+plaintext and production still requires an encrypted local volume and backups.
+
+Records expire365 days after original event time; requests use original request
+time. Successful writes purge expired own-file data and queries filter it.
+HistoryStore.purge provides bounded maintenance for idle files; deployment must
+schedule it and enforce backup/key expiry. No automatic maintenance service is
+installed here. Key changes must fail closed, not initialize over existing files.
+
+Before enabling real ingestion: capacity/OS quotas, private master-key custody,
+audited restore and key rotation, current enrollment policy, monitoring without
+payload logging and storage-failure tests. Preserve current deployment before any
+separate rollout; never restore stale medical history to roll back application
+code. Existing per-device files are never deleted or rewritten as a fallback.
+
 ## Environments
 - Local Android development: `android-app` via Gradle.
 - Local backend development: `backend` via Python venv + uvicorn.

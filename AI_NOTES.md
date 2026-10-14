@@ -1,3 +1,31 @@
+# Personal Device History API - 2026-10-14
+
+- User approved own-device contextual server architecture and365-day retention,
+  beginning with local storage and protected API. No production operation belongs
+  to this source stage.
+- Added strict observational schemas and optional historical context, per-key
+  private SQLite files with derived AES-GCM payload/receipt encryption, atomic
+  batches/revisions/tombstones, fixed expiry and bounded stable pages/quotas.
+- Optional signed append/query routes are independent of inference and preserve
+  default route absence plus existing multi-owner job admission. Current access
+  is rechecked after exact-body proof; errors expose stable codes only.
+- Missing implementation RED reproduced27 contract failures and route/storage
+  absence. Extra regressions reproduced corrupt-duplicate acknowledgment and a
+  metadata-query connection leak; corrected. Focused54 checks passed, including
+  real synthetic attestation/proof HTTP exchange, refresh/revocation, coexistence,
+  encrypted restart/closed-file restore and concurrent conflict/rollback.
+- Encryption is payload-only; metadata, production key custody, encrypted volume,
+  idle purge/backup expiry, full Android export/adapters, actual contextual model
+  responses, deployment/load checks and GI control admission remain explicit gates.
+  No medical data, device files, credentials, phone or server changes.
+- Expanded on-disk nonce corruption regression also reproduced an unwrapped type
+  failure and now returns the stable storage error. Added explicit expired-retry
+  and receipt-purge coverage. Final backend passed383 cases, including56 new cases,
+  with one existing deprecation warning in33.91s. All seven
+  Python input hashes stayed unchanged. Isolated E/F checks passed with explicit
+  pytest imported-fixture exemptions. Publication/privacy review and exact-SHA CI
+  remain gates; no real inference or server/deployment evidence is implied.
+
 # Explicit Eating Soon Meal Intent - 2026-10-14
 
 - User reported differing positive/net IOB, a raised target despite rising

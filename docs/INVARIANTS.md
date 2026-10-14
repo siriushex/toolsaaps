@@ -1,5 +1,27 @@
 # INVARIANTS
 
+## Personal History Isolation
+
+- Only an explicitly injected owner-scoped service mounts history routes. A
+  request's authenticated owner/device key selects its file; body fields cannot.
+- Body proof, one-use nonce, current subscription and post-proof identity checks
+  precede storage. Other devices/owners, replay and revoked access cannot read it.
+  This admission does not preempt an already authorized in-flight transaction.
+- Payloads are typed observations, not commands or trusted training labels.
+  Missing historical context stays unknown. Imported assistant text is not a
+  verified server response. No clinical or inference authority is introduced.
+- All records and retry acknowledgment commit together. Exact-body retries do not
+  duplicate data; conflicts roll back. Revisions cannot move source event time,
+  change source/kind, extend expiry or resurrect tombstones.
+- Original event time determines365-day expiry, including archived chat requests.
+  Reads hide expired data; own-file purge removes it. Retention of idle files and
+  backups, physical erasure and authenticated key restoration remain release gates.
+- Private files, per-device payload encryption/AAD, byte/row/device/page/disk and
+  query-work bounds fail closed. No keys, raw bodies or provider errors in receipts
+  or HTTP failures. Metadata encryption is not claimed by payload encryption.
+- No endpoint fallback, remote deployment, Android transfer, model execution,
+  existing job-cache lifetime or GI/target/dose change is implicit in this stage.
+
 ## Independent Explicit Eating Soon
 
 - A checked meal target is independent of carb transport/annotation success.

@@ -51,7 +51,7 @@ def _unique(pairs):
 class _Admission:
     def __init__(self, app, requests_per_minute, body_timeout_seconds, *, post_fields=None,
                  get_paths=None, body_limits=None, detail_prefixes=(), protected_paths=(),
-                 bound_auth=None, clock_ms=None):
+                 bound_auth=None, bound_auth_by_path=None, clock_ms=None):
         self.app = app
         self.limit = requests_per_minute
         self.timeout = body_timeout_seconds
@@ -63,6 +63,7 @@ class _Admission:
         self.detail_prefixes = tuple(detail_prefixes)
         self.protected_paths = set(protected_paths)
         self.bound_auth = bound_auth
+        self.bound_auth_by_path = bound_auth_by_path or {}
         self.clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
 
     def _detail(self, path):
@@ -136,7 +137,8 @@ class _Admission:
             try:
                 credential = auth[0][7:].decode("ascii")
                 key_fingerprint = keys[0].decode("ascii")
-                device = await run_in_threadpool(self.bound_auth, credential,
+                authorize = self.bound_auth_by_path.get(path, self.bound_auth)
+                device = await run_in_threadpool(authorize, credential,
                     key_fingerprint, self.clock_ms())
             except AuthError:
                 return await fail(401, "unauthorized")
@@ -267,7 +269,7 @@ def create_ai_app(auth: ClientAuth, *, requests_per_minute: int = 60,
     return _Admission(api, requests_per_minute, body_timeout_seconds)
 
 
-def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, clock_ms=None):
+def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, history=None, clock_ms=None):
     """App-bound identity with optional injected jobs; never mounts bearer-only auth."""
     if clock_ms is None:
         clock_ms = lambda: time.time_ns() // 1_000_000
@@ -296,6 +298,12 @@ def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, clock_ms
 
     @api.exception_handler(JobServiceError)
     async def job_rejected(request, exc):
+        return _error(exc.status, exc.code)
+
+    from .ai.history_contract import HistoryError, MAX_BODY_BYTES
+
+    @api.exception_handler(HistoryError)
+    async def history_rejected(request, exc):
         return _error(exc.status, exc.code)
 
     def proof(request, *, bound=False):
@@ -353,6 +361,32 @@ def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, clock_ms
     get_paths = {BASE + "/session/status"}
     body_limits = {BASE + "/activation/complete": 96_000}
     protected_paths = set()
+    bound_auth_by_path = {}
+
+    if history is not None:
+        from .ai.history_service import HistoryService
+        if not isinstance(history, HistoryService):
+            raise ValueError("history_service_required")
+
+        def register_history_route(path, fields, operation):
+            post_fields[path] = fields
+            body_limits[path] = MAX_BODY_BYTES
+            protected_paths.add(path)
+            bound_auth_by_path[path] = history.preauthorize
+
+            async def exchange(request: Request):
+                current = await run_in_threadpool(history.verify_request,
+                    preauthorized=request.state.bound_device,
+                    access_token=request.state.credential,method="POST",path=path,
+                    body=request.state.body,now_ms=clock_ms(),**proof(request,bound=True))
+                return await run_in_threadpool(operation,current.owner_id,
+                    current.key_fingerprint,request.state.body,now_ms=clock_ms())
+
+            api.add_api_route(path,exchange,methods=["POST"],name="history_"+path.rsplit("/",1)[-1])
+
+        register_history_route(BASE+"/history/batches",{"batchId","records"},history.store.append)
+        register_history_route(BASE+"/history/query",
+            {"fromMs","untilMs","kinds","afterSequence","snapshotSequence","limit"},history.store.query)
 
     job_services = tuple(item for item in (jobs, meal_photo_jobs) if item is not None)
     detail_prefixes = []
@@ -453,4 +487,5 @@ def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, clock_ms
         body_limits=body_limits, detail_prefixes=tuple(detail_prefixes),
         protected_paths=protected_paths,
         bound_auth=job_services[0].preauthorize if job_services else None,
+        bound_auth_by_path=bound_auth_by_path,
         clock_ms=clock_ms)

@@ -1,5 +1,24 @@
 # PLAN
 
+## Personal Device History API (2026-10-14)
+
+- Approved own-device architecture and365-day retention. First local stage:
+  typed observational transport, private per-key encrypted payload storage and
+  explicitly injected signed append/query API, independent of inference jobs.
+- The56 new cases pass in the full suite after reproducing missing contract/routes and
+  storage edge cases: corrupt duplicates being acknowledged and a metadata-read
+  failure leaking a connection. Added revision/rollback/tombstone/retention/
+  pagination/quota/restart/restore/identity/replay/revocation/coexistence checks.
+- Final backend passed383 tests with one existing deprecation warning. The seven
+  reviewed Python file hashes stayed unchanged. Isolated E/F checks passed;
+  imported pytest fixture redefinitions are explicitly exempted. Exact-source
+  publication/CI remains a gate. No Android changes;
+  its previously passed gate is separate from this backend implementation.
+- Later stages remain: complete Android export contract/adapters, durable
+  enrollment reassociation, production storage/key/purge/backup/load validation,
+  contained real inference, retrieved context and actual device chat. No live
+  clinical GI activation or production setup is claimed.
+
 ## Explicit Eating Soon Meal Intent (2026-10-14)
 
 - Reproduced four failures before the fix:target called after carb/profile,

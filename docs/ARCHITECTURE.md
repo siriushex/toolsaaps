@@ -1,5 +1,23 @@
 # ARCHITECTURE
 
+## Optional Personal History API
+
+The owner-approved first server stage adds an independently injected history
+service, not inference or Android synchronization. Two signed POST routes reuse
+bound device authentication, exact body proofs and post-proof identity checks.
+Path-specific admission preserves existing multi-owner job behavior while the
+history service is configured for one owner. Default apps mount no history route.
+
+Closed observational records support selected glucose/therapy/meal/forecast/
+sensitivity/activity/device/alert/diagnostic/chat fields and optional historical
+context. All metadata remain device declarations, not qualified model evidence.
+Private generated per-key SQLite files use derived AES-GCM payload keys, atomic
+version/batch receipts, fixed365-day expiry, tombstones and high-water byte-bounded
+pages. Metadata remain readable; encrypted volumes, key provisioning/rotation,
+idle purge and backup expiry are deployment prerequisites. No raw clinical import,
+live model, UI, worker or therapy writer is enabled. See
+superpowers/specs/2026-10-14-personal-history-api-design.md.
+
 ## Explicit Meal Target Intent
 
 The checked Eating Soon option is an independent explicit manual target, like
