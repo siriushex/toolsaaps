@@ -45,8 +45,8 @@ class AlertsArchitectureTest {
         assertThat(repository).doesNotContain("WorkManager")
         assertThat(repository).doesNotContain("alertLocalDao")
         assertThat(repository).doesNotContain("RoomLocalAlarmStore")
-        // Version32 adds an independent cycle journal, not a writer in the alert read path.
-        assertThat(database).contains("version = 33")
+        // Version34 adds passive meal input observations, not an alert read-path writer.
+        assertThat(database).contains("version = 34")
     }
 
     @Test

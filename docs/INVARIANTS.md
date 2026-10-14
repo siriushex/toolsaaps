@@ -1,5 +1,24 @@
 # INVARIANTS
 
+## Meal Input Observation Isolation
+
+- Preserve actual raw/resolved measurement and source calibration basis. Local
+  engine output is not synonymous with uncalibrated input; frozen basis and
+  model ID must match the candidate. Unknown legacy basis is never guessed.
+- Source cohort/digest v2 includes measurement transform, separately from temporal
+  availability. Retrospective recalculation cannot become contemporaneous data.
+- Preserve original insulin, its timestamp and source independently of causal
+  alignment. A modeled activity sample is not physical delivery or interval
+  coverage; missing context/review cannot be synthesized as clean or zero.
+- Capture only after clinical fan-out, in the existing bounded nonfatal journal
+  budget, with no extra prediction, fit, controller, subscriber or action.
+- First insert and post-commit finalization are immutable. Retry/restart cannot
+  promote interrupted receipt time; collection time is not wire arrival.
+- Retention touches only the observation table. Review is bounded and rejects
+  partial coverage on overflow. Repeats have one vote and conflicts no winner.
+- Observational counts cannot emit qualified episodes or grant clinical/model
+  admission. No old-data backfill, external export, phone operation or therapy.
+
 ## Personal Meal Candidate Isolation
 
 - Require qualified, explicitly selected sensor/calibration/insulin cohorts and
@@ -15,7 +34,7 @@
   setter, controller access, target write, worker or production subscription.
 - Model-selection evidence and input occurrence cannot pass the anchor;
   availability precedes calculation, which finishes before the first outcome.
-  Effective insulin kernel and raw LOCAL_ENGINE basis
+  Effective insulin kernel and explicitly bound LOCAL_ENGINE measurement basis
   remain exact. Heuristic CI cannot become candidate-calibrated uncertainty.
 - Conditional fit admission is research-only, not prospective accuracy, source
   attestation or closed-loop safety. Register against the authenticated runtime

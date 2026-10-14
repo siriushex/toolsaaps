@@ -47,6 +47,15 @@ configured separately before claiming main is protected.
 ## Migration basics
 - Any DB schema change must include migration strategy and rollback note in PR + docs.
 
+### Room 33 To 34
+
+Migration34 adds the independent meal-input observation table and two indexes.
+No historical backfill, clinical/forecast/settings rewrite or model activation.
+Native migration/restart/integrity and supported older tails must pass. A schema33
+APK cannot open a migrated34 database; use a reviewed forward repair and fresh
+coherent backup, never APK-only downgrade, stale therapy restore or destructive
+fallback. This source stage does not authorize phone installation/disable/stop.
+
 ### Room 32 To 33
 
 Migration33 creates the independent prospective forecast journal and two indexes

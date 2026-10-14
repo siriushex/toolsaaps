@@ -24,7 +24,7 @@ class PersonalMealCandidateBuilderTest {
         val kernel = engine.mealInsulinKernelIdentity()
         val curve = MealAbsorptionCurve(meal.profile, duration)
         val gi = if (day % 2 == 0) 20.0 else 80.0
-        frame.copy(calibrationIdentity = "raw-cgm-v1", input = frame.input.copy(
+        frame.copy(calibrationIdentity = "raw-cgm-v1", measurementBasis = GlucoseMeasurementBasis.RAW, input = frame.input.copy(
             context = frame.input.context!!.copy(insulinModelId = kernel.id, insulinDurationMinutes = kernel.durationMinutes),
             glucose = frame.input.glucose.map { sample ->
                 val minute = (sample.timestampMs - meal.timestamp.toEpochMilli()) / 60_000.0
@@ -36,7 +36,7 @@ class PersonalMealCandidateBuilderTest {
         PersonalAbsorptionEpisodeProducer().produce(cutoff, "UTC", rows.map { it.input.meal }, rows)
     private fun cohort(engine: HybridPredictionEngine): String {
         val kernel = engine.mealInsulinKernelIdentity()
-        return personalAbsorptionComparisonCohort("sensor-session-1", "raw-cgm-v1", kernel.id, kernel.durationMinutes)
+        return personalAbsorptionComparisonCohort("sensor-session-1", "raw-cgm-v1", kernel.id, kernel.durationMinutes, GlucoseMeasurementBasis.RAW)
     }
     private fun giHistory() = (1..18).map { day -> PersonalGiEvidence("history-$day", "r1",
         if (day % 2 == 0) 20.0 else 80.0, "USER", null, cutoff - day * 86_400_000L + 1000) }
@@ -48,7 +48,8 @@ class PersonalMealCandidateBuilderTest {
             componentTrust = TherapyEventComponentTrust(12, "r1")))
         val glucose = (0..24).map { GlucosePoint(now - (24 - it) * 300_000L, 6.0 + it * 0.02, "sensor") }
         val forecasts = engine.predict(glucose, therapy)
-        val simulation = MealSimulationContext.capture(engine, glucose, therapy, forecasts, "meal-cycle-1", 7, now + 100)
+        val simulation = MealSimulationContext.capture(engine, glucose, therapy, forecasts, "meal-cycle-1", 7, now + 100,
+            GlucoseMeasurementBasis.RAW)
         val identity = MealForecastIdentity(now, "meal-cycle-1", 7, "accepted-digest", "sensor", "sensor-session-1",
             "raw-cgm-v1", null, MealForecastBasis.LOCAL_ENGINE, "UTC", forecasts.first().modelVersion)
         return Triple(simulation, identity, meal)
@@ -74,6 +75,32 @@ class PersonalMealCandidateBuilderTest {
         assertEquals(simulation.baselineForecasts, simulation.newEngine().predict(simulation.glucose, simulation.therapy))
         assertEquals("35", simulation.therapy.single().payload["carbs"])
         assertFalse(model.clinicalInfluenceAllowed)
+    }
+
+    @Test fun frozenCalibratedInputCannotBeRetaggedRawAndRequiresItsOwnQualifiedCohort() = runBlocking {
+        val (rawSimulation, rawIdentity, meal) = fixture()
+        val engine = engine()
+        val calibrated = MealSimulationContext.capture(engine, rawSimulation.glucose, rawSimulation.therapy,
+            engine.predict(rawSimulation.glucose, rawSimulation.therapy), "meal-cycle-1", 7, now + 100,
+            GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED, "model-a")
+        assertEquals(PersonalMealCandidateStatus.INVALID_CONTEXT,
+            PersonalMealCandidateBuilder.build(calibrated, rawIdentity, model(), meal, null) { now + 200 }.status)
+        val identity = rawIdentity.copy(glucoseBasisId = GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED.id,
+            calibrationModelId = "model-a")
+        assertEquals(PersonalMealCandidateStatus.MODEL_UNAVAILABLE,
+            PersonalMealCandidateBuilder.build(calibrated, identity, model(), meal, null) { now + 200 }.status)
+        val rows = frames(engine).map { it.copy(calibrationIdentity = "model-a",
+            measurementBasis = GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED) }
+        val kernel = engine.mealInsulinKernelIdentity()
+        val cohort = personalAbsorptionComparisonCohort("sensor-session-1", "model-a", kernel.id, kernel.durationMinutes,
+            GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED)
+        val fitted = PersonalAbsorptionResearchModel.fit(request, source(rows), cohort, emptyList()) { cutoff + 100 }!!
+        assertEquals(PersonalMealCandidateStatus.CREATED,
+            PersonalMealCandidateBuilder.build(calibrated, identity, fitted, meal, null) { now + 200 }.status)
+        val unknown = MealSimulationContext.capture(engine, rawSimulation.glucose, rawSimulation.therapy,
+            engine.predict(rawSimulation.glucose, rawSimulation.therapy), "meal-cycle-1", 7, now + 100)
+        assertEquals(PersonalMealCandidateStatus.INVALID_CONTEXT,
+            PersonalMealCandidateBuilder.build(unknown, rawIdentity, model(), meal, null) { now + 200 }.status)
     }
 
     @Test fun futureModelLateCompletionAndClockRollbackCannotRegister() = runBlocking {
@@ -105,11 +132,12 @@ class PersonalMealCandidateBuilderTest {
             identity.copy(predictionAtMs = now + 1), identity.copy(settingsRevision = 8),
             identity.copy(forecastCycleId = "other-cycle"), identity.copy(source = "other-source"),
             identity.copy(glucoseBasisId = "adjusted-cgm"),
+            identity.copy(calibrationModelId = "calibration-2"),
             identity.copy(baselineModelVersion = "other-version"), identity.copy(recordedZoneId = "Asia/Tbilisi"))) {
             assertEquals(PersonalMealCandidateStatus.INVALID_CONTEXT,
                 PersonalMealCandidateBuilder.build(simulation, changed, model, meal, null) { now + 200 }.status)
         }
-        for (changed in listOf(identity.copy(sensorSessionKey = "sensor-session-2"), identity.copy(calibrationModelId = "calibration-2"))) {
+        for (changed in listOf(identity.copy(sensorSessionKey = "sensor-session-2"))) {
             assertEquals(PersonalMealCandidateStatus.MODEL_UNAVAILABLE,
                 PersonalMealCandidateBuilder.build(simulation, changed, model, meal, null) { now + 200 }.status)
         }

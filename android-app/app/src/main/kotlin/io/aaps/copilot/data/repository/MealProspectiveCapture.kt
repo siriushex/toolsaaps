@@ -8,6 +8,7 @@ import io.aaps.copilot.domain.meal.MealProspectiveRegistration
 import io.aaps.copilot.domain.meal.MealProspectiveRegistrationStatus
 import io.aaps.copilot.domain.meal.MealProspectiveValue
 import io.aaps.copilot.domain.model.DataQuality
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -18,7 +19,12 @@ internal object MealProspectiveCapture {
         currentCoroutineContext().ensureActive()
         val simulation = snapshot.simulation
         val glucose = simulation.glucose
-        val identityMatches = currentIdentity.predictionAtMs == glucose.last().ts &&
+        val basisMatches = when (currentIdentity.basis) {
+            MealForecastBasis.LOCAL_ENGINE -> simulation.glucoseBasis != GlucoseMeasurementBasis.UNKNOWN &&
+                currentIdentity.glucoseBasisId == simulation.glucoseBasis.id
+            MealForecastBasis.ACCEPTED_CONTROL -> currentIdentity.glucoseBasisId == GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED.id
+        }
+        val identityMatches = basisMatches && currentIdentity.predictionAtMs == glucose.last().ts &&
             currentIdentity.forecastCycleId == simulation.forecastCycleId &&
             currentIdentity.settingsRevision == simulation.settingsRevision &&
             currentIdentity.acceptedForecastDigest == snapshot.forecastDigest &&

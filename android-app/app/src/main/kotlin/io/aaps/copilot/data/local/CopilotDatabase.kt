@@ -9,6 +9,8 @@ import io.aaps.copilot.data.local.dao.MealStateDao
 import io.aaps.copilot.data.local.dao.MealReceiptDao
 import io.aaps.copilot.data.local.dao.MealForecastJournalDao
 import io.aaps.copilot.data.local.entity.MealForecastJournalEntity
+import io.aaps.copilot.data.local.entity.MealInputObservationEntity
+import io.aaps.copilot.data.local.dao.MealInputObservationDao
 import io.aaps.copilot.data.local.entity.MealReceiptEntity
 import io.aaps.copilot.data.local.entity.MealStateEntity
 import io.aaps.copilot.data.local.entity.MealStateScenarioEntity
@@ -92,6 +94,7 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
     entities = [
         GlucoseSampleEntity::class,
         MealForecastJournalEntity::class,
+        MealInputObservationEntity::class,
         TherapyEventEntity::class,
         ForecastEntity::class,
         BloodGlucoseCheckEntity::class,
@@ -139,10 +142,11 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         AlertLocalStateEntity::class,
         AlertLocalCycleEntity::class
     ],
-    version = 33,
+    version = 34,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
+    abstract fun mealInputObservationDao(): MealInputObservationDao
     abstract fun mealForecastJournalDao(): MealForecastJournalDao
     abstract fun alertLocalDao(): AlertLocalDao
     abstract fun mealStateDao(): MealStateDao

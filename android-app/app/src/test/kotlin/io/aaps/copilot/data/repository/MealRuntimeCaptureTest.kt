@@ -10,6 +10,7 @@ import io.aaps.copilot.data.local.entity.ForecastEntity
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucoseCalibrationCycleIdentity
 import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.PredictionEngine
@@ -78,7 +79,7 @@ class MealRuntimeCaptureTest {
         val relay = MealRuntimeCaptureRelay { capturedAt }
         val result = async(start = CoroutineStart.UNDISPATCHED) { relay.updates.first() }
         relay.publish(fixture.engine, fixture.glucose, fixture.therapy, local,
-            sensitivity, sourceCalibration, tuple)
+            sensitivity, sourceCalibration, tuple, GlucoseMeasurementBasis.RAW)
         result.await()
     }
 
@@ -190,7 +191,8 @@ class MealRuntimeCaptureTest {
         val snapshot = (update(fixture, tuple = tuple, sourceCalibration = sourceCalibration) as MealRuntimeUpdate.Captured).snapshot
         fun identity(basis: MealForecastBasis) = MealForecastIdentity(now, fixture.sensitivity.forecastCycleId,
             fixture.sensitivity.settingsRevision, snapshot.forecastDigest, "sensor", "sensor-session-a",
-            "accepted-glucose-basis", null, basis, "Asia/Tbilisi")
+            if (basis == MealForecastBasis.LOCAL_ENGINE) GlucoseMeasurementBasis.RAW.id
+            else GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED.id, null, basis, "Asia/Tbilisi")
         for (basis in MealForecastBasis.entries) {
             val id = identity(basis)
             val values = snapshot.simulation.baselineForecasts.map {

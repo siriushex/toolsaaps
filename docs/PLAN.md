@@ -1,5 +1,20 @@
 # PLAN
 
+## Meal Input Observations (2026-10-14)
+
+- Correct falsely hardcoded raw CGM research identity: freeze actual resolved
+  basis/calibration ID, require source measurement metadata and comparison v2.
+- Add passive Room34 accepted-input observations after clinical fan-out. Original
+  CGM/insulin/context remain distinct from calibration/alignment and inferred
+  complete intervals. No training or active-target admission.
+- Strengthened focused source/basis/Room/migration checks passed83 cases with1
+  optional external-copy skip. Corrected full local unit/lint/compile/assemble
+  passed in11m38s:5510 passed,6 optional private-input skips, zero failures/errors
+  and lint errors across484 suites. All29 reviewed Android hashes unchanged;
+  existing APK v2 signer verified. Exact-source publication/Verify remains a gate.
+- Next: independently qualified interval/context review and prospective candidate
+  collection/evaluation, not automatic therapy experiments.
+
 ## Personal Meal Forecast Candidate (2026-10-14)
 
 - Implement qualified immutable timing/optional-known-GI research artifact and

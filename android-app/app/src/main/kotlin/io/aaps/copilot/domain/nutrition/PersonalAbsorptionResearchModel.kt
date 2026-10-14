@@ -6,11 +6,13 @@ import java.time.Instant
 import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.min
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 
 internal fun personalAbsorptionComparisonCohort(sensorSession: String, calibration: String,
-    insulinModel: String, insulinDurationMinutes: Int): String {
+    insulinModel: String, insulinDurationMinutes: Int, measurementBasis: GlucoseMeasurementBasis): String {
     val digest = MessageDigest.getInstance("SHA-256")
-    listOf("meal-comparison-v1", sensorSession, calibration, insulinModel, insulinDurationMinutes.toString()).forEach {
+    listOf("meal-comparison-v2", sensorSession, calibration, insulinModel,
+        insulinDurationMinutes.toString(), measurementBasis.id).forEach {
         val bytes = it.toByteArray(Charsets.UTF_8)
         digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
         digest.update(bytes)

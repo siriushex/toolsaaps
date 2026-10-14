@@ -32,6 +32,7 @@ internal object PersonalAbsorptionEpisodeFixtures {
                 PersonalAbsorptionContext(3.0, 10.0, "rapid-model", 360, ts - 1000, true),
                 PersonalAbsorptionContextCheck.entries.toSet(), emptySet()),
             "sensor-session-1", "calibration-1", "review-1", ts + end * 60_000L + 2000,
-            PersonalAbsorptionGlucoseBasis.CONTEMPORANEOUS)
+            PersonalAbsorptionGlucoseBasis.CONTEMPORANEOUS,
+            io.aaps.copilot.domain.model.GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED)
     }
 }

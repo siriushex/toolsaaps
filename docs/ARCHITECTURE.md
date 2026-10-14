@@ -1,5 +1,22 @@
 # ARCHITECTURE
 
+## Contemporaneous Meal Input Observations
+
+Room34 passively retains selected original/resolved CGM, original vs aligned
+insulin identity, accepted sensitivity context, local kernel identity and source
+quality after clinical fan-out in the existing nonfatal journal budget. There is
+no extra prediction/model fit, interval-coverage inference, training producer or
+clinical writer. First-write/post-commit semantics, isolated21-day retention,
+bounded on-demand review and explicit duplicate/conflict/missingness handling
+apply. Observation time is not original transport receipt. No raw payload export.
+
+Research simulations now freeze actual CGM measurement basis and calibration ID:
+local engine INPUT can already be calibrated, even though its OUTPUT precedes
+forecast bias/cloud adjustments. Candidate and runtime receipts reject false raw
+retagging. Qualified source cohort/digest v2 separates measurement transform from
+temporal availability; unknown legacy metadata cannot fit a model. See
+superpowers/specs/2026-10-14-meal-input-observations.md for remaining admission.
+
 ## Isolated Personal Meal Forecast
 
 PersonalAbsorptionResearchModel freezes a qualified, later-day-evaluated timing
@@ -10,7 +27,9 @@ meal on a disposable engine fork: historical known food, UAM, future pressure,
 residual COB and Kalman/AR revision handling use the same cumulative curve.
 The existing hypothetical future meal-timing path remains unchanged.
 
-Only raw-cgm-v1 LOCAL_ENGINE comparison is supported. Exact runtime/model/meal
+The original stage only supported a declared raw-cgm-v1 LOCAL_ENGINE comparison;
+the subsequent basis correction above binds raw/calibrated INPUT explicitly.
+Exact runtime/model/meal
 identity and pre-first-outcome availability/completion gates apply. Candidate
 intervals remain absent. Existing accepted-runtime registration is still needed;
 caller-supplied context labels are not independent source attestation. No runtime

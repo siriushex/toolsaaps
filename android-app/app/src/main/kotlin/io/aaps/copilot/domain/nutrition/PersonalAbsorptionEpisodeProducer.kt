@@ -5,11 +5,12 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Collections
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 
 enum class PersonalAbsorptionSourceStatus { READY, UNAVAILABLE, OVERFLOW }
 enum class PersonalAbsorptionGlucoseBasis { UNKNOWN, CONTEMPORANEOUS, RETROSPECTIVELY_RECALCULATED }
 enum class PersonalAbsorptionSourceProblem {
-    HISTORICAL_TIMEZONE, GLUCOSE_AVAILABILITY, GLUCOSE_BASIS, INDEPENDENT_INSULIN_INTERVALS,
+    HISTORICAL_TIMEZONE, GLUCOSE_AVAILABILITY, GLUCOSE_BASIS, GLUCOSE_MEASUREMENT_BASIS, INDEPENDENT_INSULIN_INTERVALS,
     HISTORICAL_MODEL_CONTEXT, CONTEXT_REVIEW, SENSOR_IDENTITY, CALIBRATION_IDENTITY,
     PREPARATION_AVAILABILITY, UNBOUND_MEAL, MEAL_MISMATCH, CONFLICTING_MEAL,
     CONFLICTING_EVIDENCE, OUTSIDE_WINDOW, INCOMPLETE_EPISODE
@@ -22,7 +23,8 @@ data class PersonalAbsorptionEpisodeEvidence(
     val calibrationIdentity: String?,
     val contextReviewReference: String?,
     val preparedAtMs: Long,
-    val glucoseBasis: PersonalAbsorptionGlucoseBasis = PersonalAbsorptionGlucoseBasis.UNKNOWN
+    val glucoseBasis: PersonalAbsorptionGlucoseBasis = PersonalAbsorptionGlucoseBasis.UNKNOWN,
+    val measurementBasis: GlucoseMeasurementBasis? = GlucoseMeasurementBasis.UNKNOWN
 )
 
 class PersonalAbsorptionEpisodeOutcome internal constructor(
@@ -126,6 +128,11 @@ class PersonalAbsorptionEpisodeProducer {
             problems += PersonalAbsorptionSourceProblem.GLUCOSE_AVAILABILITY
         if (frame.glucoseBasis != PersonalAbsorptionGlucoseBasis.CONTEMPORANEOUS)
             problems += PersonalAbsorptionSourceProblem.GLUCOSE_BASIS
+        if (frame.measurementBasis !in setOf(GlucoseMeasurementBasis.RAW, GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED) ||
+            (frame.measurementBasis == GlucoseMeasurementBasis.RAW && frame.calibrationIdentity != GlucoseMeasurementBasis.RAW.id) ||
+            (frame.measurementBasis == GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED &&
+                frame.calibrationIdentity == GlucoseMeasurementBasis.RAW.id))
+            problems += PersonalAbsorptionSourceProblem.GLUCOSE_MEASUREMENT_BASIS
         if (input.insulin.isEmpty()) problems += PersonalAbsorptionSourceProblem.INDEPENDENT_INSULIN_INTERVALS
         if (input.context == null) problems += PersonalAbsorptionSourceProblem.HISTORICAL_MODEL_CONTEXT
         if (!validReference(frame.sensorSessionId)) problems += PersonalAbsorptionSourceProblem.SENSOR_IDENTITY
@@ -170,8 +177,8 @@ class PersonalAbsorptionEpisodeProducer {
 
     private fun sourceDigest(original: String, frame: PersonalAbsorptionEpisodeEvidence): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        listOf("qualified-episode-v1", original, frame.sensorSessionId!!, frame.calibrationIdentity!!,
-            frame.contextReviewReference!!, frame.preparedAtMs.toString(), frame.glucoseBasis.name).forEach { value ->
+        listOf("qualified-episode-v2", original, frame.sensorSessionId!!, frame.calibrationIdentity!!,
+            frame.contextReviewReference!!, frame.preparedAtMs.toString(), frame.glucoseBasis.name, requireNotNull(frame.measurementBasis).id).forEach { value ->
             val bytes = value.toByteArray(Charsets.UTF_8)
             digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
             digest.update(bytes)
@@ -182,7 +189,7 @@ class PersonalAbsorptionEpisodeProducer {
     private fun comparisonCohort(frame: PersonalAbsorptionEpisodeEvidence): String {
         val context = requireNotNull(frame.input.context)
         return personalAbsorptionComparisonCohort(frame.sensorSessionId!!, frame.calibrationIdentity!!,
-            context.insulinModelId, context.insulinDurationMinutes)
+            context.insulinModelId, context.insulinDurationMinutes, requireNotNull(frame.measurementBasis))
     }
 
     companion object {

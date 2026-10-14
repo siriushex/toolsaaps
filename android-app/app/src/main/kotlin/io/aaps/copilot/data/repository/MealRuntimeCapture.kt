@@ -5,6 +5,7 @@ import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucoseCalibrationCycleIdentity
 import io.aaps.copilot.domain.model.GlucoseCalibrationModel
 import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.PredictionEngine
@@ -47,7 +48,8 @@ internal class MealAcceptedRuntimeSnapshot private constructor(
             sourceSensitivity: SensitivityRuntimeSnapshot,
             sourceCalibration: GlucoseCalibrationCycleIdentity,
             roomTuple: AcceptedSensitivityRoomTuple,
-            capturedAtMs: Long
+            capturedAtMs: Long,
+            glucoseBasis: GlucoseMeasurementBasis = GlucoseMeasurementBasis.UNKNOWN
         ): MealAcceptedRuntimeSnapshot {
             require(sourceSensitivity == roomTuple.snapshot &&
                 roomTuple.snapshotEntity == sourceSensitivity.toEntity() &&
@@ -74,7 +76,8 @@ internal class MealAcceptedRuntimeSnapshot private constructor(
                     it.ciLow <= it.valueMmol && it.valueMmol <= it.ciHigh
             })
             val simulation = MealSimulationContext.capture(engine, glucose, therapy, localForecasts,
-                sourceSensitivity.forecastCycleId, sourceSensitivity.settingsRevision, capturedAtMs)
+                sourceSensitivity.forecastCycleId, sourceSensitivity.settingsRevision, capturedAtMs,
+                glucoseBasis, sourceCalibration.modelId)
             return MealAcceptedRuntimeSnapshot(simulation,
                 Collections.unmodifiableList(authority.forecasts.toList()), authority.digest,
                 roomTuple.acceptedAtTs, sourceCalibration, roomTuple.calibrationModel)
@@ -99,14 +102,15 @@ internal class MealRuntimeCaptureRelay(private val clockMs: () -> Long = System:
         localForecasts: List<Forecast>,
         sourceSensitivity: SensitivityRuntimeSnapshot,
         sourceCalibration: GlucoseCalibrationCycleIdentity,
-        roomTuple: AcceptedSensitivityRoomTuple
+        roomTuple: AcceptedSensitivityRoomTuple,
+        glucoseBasis: GlucoseMeasurementBasis = GlucoseMeasurementBasis.UNKNOWN
     ) {
         if (mutableUpdates.subscriptionCount.value == 0) return
         val update = if (engine !is HybridPredictionEngine) {
             MealRuntimeUpdate.Unavailable(MealRuntimeUnavailableReason.UNSUPPORTED_ENGINE)
         } else try {
             MealRuntimeUpdate.Captured(MealAcceptedRuntimeSnapshot.capture(engine, glucose, therapy,
-                localForecasts, sourceSensitivity, sourceCalibration, roomTuple, clockMs()))
+                localForecasts, sourceSensitivity, sourceCalibration, roomTuple, clockMs(), glucoseBasis))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

@@ -1,6 +1,7 @@
 package io.aaps.copilot.domain.meal
 
 import io.aaps.copilot.domain.model.DataQuality
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import io.aaps.copilot.domain.nutrition.MealPortionObservation
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionResearchModel
 import io.aaps.copilot.domain.nutrition.PersonalGiEvidence
@@ -28,7 +29,9 @@ internal object PersonalMealCandidateBuilder {
         fun reject(status: PersonalMealCandidateStatus) = PersonalMealCandidateResult(status)
         val anchor = simulation.glucose.last().ts
         if (anchor > Long.MAX_VALUE - 3_600_000L || identity.basis != MealForecastBasis.LOCAL_ENGINE ||
-            identity.glucoseBasisId != "raw-cgm-v1" || identity.predictionAtMs != anchor ||
+            simulation.glucoseBasis == GlucoseMeasurementBasis.UNKNOWN ||
+            identity.glucoseBasisId != simulation.glucoseBasis.id ||
+            identity.calibrationModelId != simulation.calibrationModelId || identity.predictionAtMs != anchor ||
             identity.forecastCycleId != simulation.forecastCycleId || identity.settingsRevision != simulation.settingsRevision ||
             identity.baselineModelVersion != simulation.baselineForecasts.map { it.modelVersion }.distinct().singleOrNull() ||
             identity.recordedZoneId != model.request.recordedZoneId ||
@@ -38,7 +41,8 @@ internal object PersonalMealCandidateBuilder {
             return reject(PersonalMealCandidateStatus.INVALID_CONTEXT)
         val kernel = simulation.insulinKernelIdentity()
         val cohort = personalAbsorptionComparisonCohort(identity.sensorSessionKey,
-            identity.calibrationModelId ?: "raw-cgm-v1", kernel.id, kernel.durationMinutes)
+            identity.calibrationModelId ?: GlucoseMeasurementBasis.RAW.id,
+            kernel.id, kernel.durationMinutes, simulation.glucoseBasis)
         val started = clockMs()
         if (started < simulation.capturedAtMs || started >= anchor + 300_000L)
             return reject(PersonalMealCandidateStatus.LATE)

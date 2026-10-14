@@ -1213,6 +1213,8 @@ class AutomationRepository(
             calibrationIdentity = preparedCalibration.identity
         )
         val mergedForecasts = forecastRuntime.mergedForecasts
+        val mealInputBasis = io.aaps.copilot.domain.model.GlucoseMeasurementBasis.fromResolved(
+            latestResolved, forecastRuntime.calibrationIdentity)
         val controlForecasts = forecastRuntime.controlForecasts
         val lagCorrectedForecasts = forecastRuntime.lagCorrectedForecasts
         val calibrationApplied = forecastRuntime.calibrationApplied
@@ -1338,7 +1340,8 @@ class AutomationRepository(
                     localForecasts = forecastRuntime.rawLocalForecasts,
                     sourceSensitivity = sensitivitySnapshot,
                     sourceCalibration = forecastRuntime.calibrationIdentity,
-                    roomTuple = requireNotNull(authenticatedRoomTuple)
+                    roomTuple = requireNotNull(authenticatedRoomTuple),
+                    glucoseBasis = mealInputBasis
                 )
                 val acceptedForecasts = acceptedClinicalForecasts.forecasts
                 val acceptedUnifiedUam = bindUnifiedUamToAcceptedForecastsStatic(
@@ -1553,6 +1556,16 @@ class AutomationRepository(
                 sensorTrusted = dataFresh && !sensorBlocked && !sensorQuality.blocked &&
                     !sensorQuality.suspectFalseLow
             )
+            latestResolved?.let { resolved ->
+                MealInputObservationRepository(db, gson).record(
+                    tuple = requireNotNull(authenticatedRoomTuple), rawGlucose = rawGlucose.last(),
+                    resolvedGlucose = resolved, insulin = forecastInsulinCycle,
+                    kernel = (predictionEngine as? HybridPredictionEngine)?.mealInsulinKernelIdentity(),
+                    calibration = preparedCalibration.identity,
+                    sensorTrusted = dataFresh && !sensorBlocked && !sensorQuality.blocked && sensorQuality.score in 0.7..1.0 &&
+                        !sensorQuality.suspectFalseLow
+                )
+            }
         }
 
         if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) return sensitivitySnapshot

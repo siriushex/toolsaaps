@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Meal Input Observations (2026-10-14)
+
+- Room34 retains selected accepted-cycle raw/resolved CGM, original modeled
+  insulin, calibration and sensitivity context locally for21 days. It adds no
+  network route, permission, export, worker, raw-provider payload or medical log.
+  Retention deletes only the new table; review has a7000-row budget and sentinel.
+- Immutable cycle receipts and post-commit finalization distinguish unfinished
+  writes. Repeated samples do not vote repeatedly; conflicting values select no
+  winner. Missing measurement basis/session/quality is not upgraded from labels.
+- Observation time is not original transport arrival. Modeled AAPS activity is
+  not physical delivery or full-interval coverage; the review produces no
+  qualified training episodes or permission to influence clinical control.
+- Collection follows clinical fan-out within the existing nonfatal journal
+  budget. No candidate subscription, fit, target/dose writer or phone operation
+  is introduced. Unit/migration checks do not establish patient accuracy.
+
 ## Event Compensation Context (2026-10-13)
 
 - An explicit read-only loader replaces the popup's previous record-only boundary.

@@ -2,6 +2,7 @@ package io.aaps.copilot.domain.meal
 
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.MealFutureInsulinPlan
@@ -19,7 +20,9 @@ internal class MealSimulationContext private constructor(
     val baselineForecasts: List<Forecast>,
     val forecastCycleId: String,
     val settingsRevision: Long,
-    val capturedAtMs: Long
+    val capturedAtMs: Long,
+    val glucoseBasis: GlucoseMeasurementBasis,
+    val calibrationModelId: String?
 ) {
     fun newEngine(): HybridPredictionEngine = seed.forkForMealSimulation()
 
@@ -41,7 +44,8 @@ internal class MealSimulationContext private constructor(
     companion object {
         /**
          * Caller owns the cycle lock and all source collections until capture
-         * returns. Pass accepted LOCAL engine output, not calibrated/cloud output.
+         * returns. Pass accepted LOCAL engine output, not post-forecast/cloud output.
+         * Engine INPUT glucose may already be calibrated; its basis is explicit.
          * Revision labels must come from that same accepted cycle.
          */
         suspend fun capture(
@@ -51,11 +55,15 @@ internal class MealSimulationContext private constructor(
             acceptedLocalForecasts: List<Forecast>,
             forecastCycleId: String,
             settingsRevision: Long,
-            capturedAtMs: Long
+            capturedAtMs: Long,
+            glucoseBasis: GlucoseMeasurementBasis = GlucoseMeasurementBasis.UNKNOWN,
+            calibrationModelId: String? = null
         ): MealSimulationContext {
             val coroutine = currentCoroutineContext()
             coroutine.ensureActive()
             require(forecastCycleId.isNotBlank() && settingsRevision >= 0 && capturedAtMs > 0)
+            require(glucoseBasis != GlucoseMeasurementBasis.RAW || calibrationModelId == null)
+            require(glucoseBasis != GlucoseMeasurementBasis.CONTEMPORANEOUS_CALIBRATED || !calibrationModelId.isNullOrBlank())
             // Explicit allocation budgets: never truncate evidence silently.
             require(glucose.size in 1..20_000 && therapy.size <= 50_000)
             require(glucose.all { it.ts > 0 && it.ts <= capturedAtMs && it.valueMmol.isFinite() && it.valueMmol > 0 })
@@ -82,7 +90,7 @@ internal class MealSimulationContext private constructor(
             coroutine.ensureActive()
             require(reproduced == frozenForecasts) { "Meal simulation baseline mismatch" }
             return MealSimulationContext(seed, frozenGlucose, frozenTherapy, frozenForecasts,
-                forecastCycleId, settingsRevision, capturedAtMs)
+                forecastCycleId, settingsRevision, capturedAtMs, glucoseBasis, calibrationModelId)
         }
     }
 }

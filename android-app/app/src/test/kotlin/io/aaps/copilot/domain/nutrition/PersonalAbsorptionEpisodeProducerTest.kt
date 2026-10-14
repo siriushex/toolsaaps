@@ -136,6 +136,20 @@ class PersonalAbsorptionEpisodeProducerTest {
         }
     }
 
+    @Test fun measurementBasisIsExplicitAndSeparatesRawFromCalibratedCohorts() {
+        val basis = io.aaps.copilot.domain.model.GlucoseMeasurementBasis.RAW
+        for (changed in listOf(evidence.copy(measurementBasis = null),
+            evidence.copy(measurementBasis = io.aaps.copilot.domain.model.GlucoseMeasurementBasis.UNKNOWN),
+            evidence.copy(measurementBasis = basis), evidence.copy(calibrationIdentity = basis.id))) {
+            val result = produce(frames = listOf(changed))
+            assertThat(result.episodes).isEmpty()
+            assertThat(result.outcomes.single().sourceProblems).contains(PersonalAbsorptionSourceProblem.GLUCOSE_MEASUREMENT_BASIS)
+        }
+        val raw = produce(frames = listOf(evidence.copy(measurementBasis = basis, calibrationIdentity = basis.id)))
+        assertThat(raw.episodes).hasSize(1)
+        assertThat(raw.episodes.single().comparisonCohort).isNotEqualTo(produce().episodes.single().comparisonCohort)
+    }
+
     @Test fun adapterStillRejectsBadInsulinAndCgmRatherThanWeakeningThresholds() {
         val input = evidence.input
         val cases = listOf(input.copy(insulin = input.insulin.drop(1)) to PersonalAbsorptionRejection.INSUFFICIENT_INSULIN,

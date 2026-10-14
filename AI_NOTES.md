@@ -1,3 +1,28 @@
+# Meal Input Observations And Basis Correction - 2026-10-14
+
+- Source inspection found that prepareCalibrationRuntimeContext feeds resolved
+  calibrated CGM to the local engine, while the preceding research candidate
+  required a raw label unbound to its frozen inputs. Explicit measurement basis
+  and calibration identity now travel with the simulation; false raw retagging
+  rejects. Source measurement metadata and comparison/digest v2 are mandatory.
+- Added Room34 selected input observations after clinical fan-out within the
+  existing one-second nonfatal journal budget. Raw/resolved CGM, original insulin
+  vs aligned timestamp, accepted sensitivity and local kernel identity retained.
+  No second prediction/fit, new timer, training producer or clinical writer.
+- First-write/post-commit semantics, isolated21-day retention, bounded review and
+  same-sample deduplication/conflict rejection. Independent modeled AAPS activity
+  samples are NOT full insulin interval or physical delivery verification.
+- Added source/basis, candidate-binding, observation, native migration/restart
+  checks and advanced older supported tails to34. Strengthened focused checks:
+  83 passed and1 optional external-copy skip. The first full run found one
+  obsolete alert architecture schema-version expectation; updated33 to34 while
+  retaining alert read-path isolation assertions. Corrected full local unit/
+  lint/compile/assemble passed in11m38s:5510 passed,6 optional private-input skips,
+  zero failures/errors across484 suites. Lint:zero errors,311 warnings,8 hints.
+  All29 reviewed Android hashes stayed unchanged; existing APK v2 signer verified.
+  Exact-source publication/CI remains a separate gate.
+- No phone operation, observed patient accuracy, model admission or target change.
+
 # Personal Meal Forecast Candidate - 2026-10-14
 
 - Continued qualified absorption research with an immutable timing/optional-GI
