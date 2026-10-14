@@ -57,7 +57,9 @@ This is a development validation build, not a release or reproducibility claim.
 No binary is uploaded or deployed. CI records source/patch/toolchain/binary
 digests; these bind the observed build, not an independently signed attestation.
 
-An isolation-only preflight precedes compilation and does not execute a client.
+An isolation-only preflight precedes compilation, creates/verifies the private
+scratch home on its fresh1777 tmpfs and does not execute a client. Host /tmp is
+never mounted or chmodded.
 The version-only smoke uses a fresh minimal mount root, private PID/network/IPC/
 UTS namespaces, UID65534, no effective capabilities, no-new-privileges, cleared
 environment, empty private home and time/CPU/address-space/process limits. Only

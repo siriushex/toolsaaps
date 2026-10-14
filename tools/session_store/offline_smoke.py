@@ -88,11 +88,15 @@ def main() -> None:
                      current_ns=os.readlink("/proc/self/ns/net"))
     if any(Path(path).exists() for path in ("/root", "/home", "/run", "/var")):
         raise ValueError("unexpected host state mount")
-    if args.preflight:
-        print(json.dumps({"isolation_preflight": True, "client_executed": False}))
-        return
+    if stat.S_IMODE(Path("/tmp").stat().st_mode) != 0o1777:
+        raise ValueError("private temporary mount permissions rejected")
     home = Path("/tmp/session")
     home.mkdir(mode=0o700)
+    verify_scratch_state(home)
+    if args.preflight:
+        print(json.dumps({"isolation_preflight": True, "scratch_home_ready": True,
+                          "client_executed": False}))
+        return
     result = subprocess.run(["/work/client", "--version"],
                             env={"HOME": str(home), "TMPDIR": "/tmp", "PATH": "/usr/bin:/bin"},
                             capture_output=True, timeout=12)

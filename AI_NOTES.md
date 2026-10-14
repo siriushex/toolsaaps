@@ -1,5 +1,14 @@
 # Pinned Native Build Validation - 2026-10-14
 
+- Complete native Linux compilation passed:169 login library tests, zero failures
+  and one child-process entrypoint ignored by the outer harness; the parent
+  scenarios invoke that entrypoint themselves. Full actual CLI build and source/
+  binary provenance check passed. Offline smoke stopped before client execution:
+  the fresh root-owned tmpfs default mode prevented UID65534 creating its home.
+  Set1777 only on that new namespace's private tmpfs; no host /tmp changes. Moved
+  private-home creation/permission verification into the early no-client preflight
+  so this failure cannot wait until after another full build. Retry still pending.
+
 - Auditing native startup showed that --version still creates helper aliases
   before argument parsing. Replaced the invalid zero-scratch assumption with a
   strict filesystem contract: only the native four-directory alias tree, one
