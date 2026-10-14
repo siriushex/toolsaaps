@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Independent Explicit Eating Soon
+
+- A checked meal target is independent of carb transport/annotation success.
+  Attempt the existing guarded canonical target first; preserve both outcomes.
+- No mode switch, GI/portion value, carb throttle or annotation failure can
+  turn explicit intent into an automatic proposal or invent target success.
+- Cancellation and same-key duplicate submission cannot replay ambiguous actions.
+  Unstarted carbs, attempted unknown carbs and target statuses remain distinct.
+- Existing safety/arming/chronology and confirmed30-minute priority remain.
+  A sent request is not proof of AAPS application. No automatic renewal.
+- Signed net IOB for residual prediction and positive safety IOB stay distinct;
+  high mean forecasts alone cannot bypass low-bound/reliability protections.
+
 ## Meal Input Observation Isolation
 
 - Preserve actual raw/resolved measurement and source calibration basis. Local

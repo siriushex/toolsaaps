@@ -7,17 +7,19 @@ import io.aaps.copilot.data.repository.MealDeliveryStatus
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 
 internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, result: ManualMealResult?): String {
-    if (result?.carbs == MealDeliveryStatus.BLOCKED) return context.getString(
-        when (result.carbBlockReason) {
-            "carbs_rate_limit_30m" -> R.string.meal_carbs_rate_limited
-            "therapy_actions_not_armed" -> R.string.meal_carbs_disarmed
-            else -> R.string.meal_carbs_blocked
-        }
-    )
-    if (result?.carbs != MealDeliveryStatus.SENT) return context.getString(R.string.overview_meal_unconfirmed)
+    if (result == null) return context.getString(R.string.overview_meal_unconfirmed)
     return buildString {
-        append(context.getString(R.string.overview_meal_sent,
-            UiFormatters.formatExactGrams(carbsGrams, context.resources.configuration.locales[0])))
+        append(when (result.carbs) {
+            MealDeliveryStatus.SENT -> context.getString(R.string.overview_meal_sent,
+                UiFormatters.formatExactGrams(carbsGrams, context.resources.configuration.locales[0]))
+            MealDeliveryStatus.BLOCKED -> context.getString(when (result.carbBlockReason) {
+                "carbs_rate_limit_30m" -> R.string.meal_carbs_rate_limited
+                "therapy_actions_not_armed" -> R.string.meal_carbs_disarmed
+                else -> R.string.meal_carbs_blocked
+            })
+            MealDeliveryStatus.NOT_REQUESTED -> context.getString(R.string.meal_carbs_not_attempted)
+            MealDeliveryStatus.UNKNOWN -> context.getString(R.string.overview_meal_unconfirmed)
+        })
         when (result.eatingSoon.status) {
             MealDeliveryStatus.SENT -> append("\n" + context.getString(R.string.overview_eating_soon_sent))
             MealDeliveryStatus.BLOCKED -> append("\n" + manualEatingSoonBlockedMessage(context, result.eatingSoon.reason))
@@ -26,7 +28,7 @@ internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, r
         }
         val profileFailureExplained = result.eatingSoon.status == MealDeliveryStatus.BLOCKED &&
             result.eatingSoon.reason?.removePrefix("managed_preflight:") == "meal_profile_not_saved"
-        if (!result.profileSaved && !profileFailureExplained) {
+        if (result.carbs == MealDeliveryStatus.SENT && !result.profileSaved && !profileFailureExplained) {
             append("\n" + context.getString(R.string.overview_meal_profile_failed))
         }
     }

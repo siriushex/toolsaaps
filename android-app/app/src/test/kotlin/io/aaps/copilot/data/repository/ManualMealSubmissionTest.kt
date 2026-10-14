@@ -15,6 +15,74 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class ManualMealSubmissionTest {
+    @Test fun everyFoodProfileAndOptionalGiPreserveTheSameExplicitTargetIntent() = runTest {
+        for (profile in MealAbsorptionProfile.values()) {
+            for (gi in listOf(null, io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput("55"))) {
+                val calls = mutableListOf<String>()
+                val selected = MealAbsorptionSelection(profile, glycemicIndex = gi)
+                val subject = ManualMealSubmission(
+                    { calls += "carbs"; true },
+                    { _, staged, _ -> assertThat(staged).isEqualTo(selected); calls += "profile" },
+                    { calls += "target"; EatingSoonResult(MealDeliveryStatus.SENT) }
+                )
+                assertThat(subject.submit(command, selected, null, true).eatingSoon.status)
+                    .isEqualTo(MealDeliveryStatus.SENT)
+                assertThat(calls).containsExactly("target", "carbs", "profile").inOrder()
+            }
+        }
+    }
+
+    @Test fun cancellationDuringCarbsRetainsEarlierTargetWithoutReplayingEither() = runTest {
+        var targets = 0
+        var carbs = 0
+        val subject = ManualMealSubmission(
+            { carbs++; throw CancellationException() }, { _, _, _ -> error("no confirmed carbs") },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) }
+        )
+        try { subject.submit(command, selection, null, true) }
+        catch (_: CancellationException) { }
+        val result = subject.submit(command, selection, null, true)
+        assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(result.carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
+        assertThat(carbs).isEqualTo(1)
+        assertThat(targets).isEqualTo(1)
+    }
+
+    @Test fun explicitEatingSoonIsAttemptedBeforeCarbTransportAndProfilePersistence() = runTest {
+        val calls = mutableListOf<String>()
+        val subject = ManualMealSubmission(
+            { calls += "carbs"; true }, { _, _, _ -> calls += "profile" },
+            { calls += "target"; EatingSoonResult(MealDeliveryStatus.SENT) }
+        )
+        subject.submit(command, selection, null, true)
+        assertThat(calls).containsExactly("target", "carbs", "profile").inOrder()
+    }
+
+    @Test fun explicitEatingSoonSurvivesBlockedCarbsWithoutResendingEitherCommand() = runTest {
+        var targets = 0
+        var carbs = 0
+        val subject = ManualMealSubmission(
+            { carbs++; false }, { _, _, _ -> error("no submitted meal to annotate") },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) },
+            readCarbBlockReason = { "carbs_rate_limit_30m" }
+        )
+        val result = subject.submit(command, selection, null, true)
+        assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(result.carbs).isEqualTo(MealDeliveryStatus.BLOCKED)
+        assertThat(subject.submit(command, selection, null, true)).isEqualTo(result)
+        assertThat(targets).isEqualTo(1)
+        assertThat(carbs).isEqualTo(1)
+    }
+
+    @Test fun profileFailureDoesNotEraseIndependentlySentEatingSoon() = runTest {
+        val subject = ManualMealSubmission({ true }, { _, _, _ -> error("profile write failed") },
+            { EatingSoonResult(MealDeliveryStatus.SENT) })
+        val result = subject.submit(command, selection, null, true)
+        assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(result.carbs).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(result.profileSaved).isFalse()
+    }
+
     @Test fun mutableCallerPayloadCannotChangeReservedQuantityDuringObserverOrSend() = runTest {
         val params = mutableMapOf("carbsGrams" to "20.0")
         val amounts = mutableListOf<String?>()
@@ -38,18 +106,18 @@ class ManualMealSubmissionTest {
         )
         assertThat(subject.submit(command, selection, null, true).carbs).isEqualTo(MealDeliveryStatus.SENT)
         subject.submit(command, selection, null, true)
-        assertThat(calls).containsExactly("input", "carbs", "profile", "target").inOrder()
+        assertThat(calls).containsExactly("input", "target", "carbs", "profile").inOrder()
     }
-    @Test fun blockedCarbsRetainReasonWithoutRetryOrTarget() = runTest {
+    @Test fun uncheckedBlockedCarbsRetainReasonWithoutRetryOrTarget() = runTest {
         var sends = 0
         val subject = ManualMealSubmission(
             { sends++; false }, { _, _, _ -> error("profile") }, { error("target") },
             readCarbBlockReason = { "carbs_rate_limit_30m" }
         )
-        val result = subject.submit(command, selection, null, true)
+        val result = subject.submit(command, selection, null, false)
         assertThat(result.carbs).isEqualTo(MealDeliveryStatus.BLOCKED)
         assertThat(result.carbBlockReason).isEqualTo("carbs_rate_limit_30m")
-        assertThat(subject.submit(command, selection, null, true)).isEqualTo(result)
+        assertThat(subject.submit(command, selection, null, false)).isEqualTo(result)
         assertThat(sends).isEqualTo(1)
     }
 
@@ -80,14 +148,14 @@ class ManualMealSubmissionTest {
         idempotencyKey = "manual:meal:unique-dialog"
     )
 
-    @Test fun checkedSendsCarbsThenProfileThenTarget() = runTest {
+    @Test fun checkedSendsTargetThenCarbsThenProfile() = runTest {
         val calls = mutableListOf<String>()
         val subject = ManualMealSubmission(
             { calls += "carbs"; true }, { _, _, _ -> calls += "profile" },
             { calls += it; EatingSoonResult(MealDeliveryStatus.SENT) }
         )
         val result = subject.submit(command, selection, null, true)
-        assertThat(calls).containsExactly("carbs", "profile", command.idempotencyKey).inOrder()
+        assertThat(calls).containsExactly(command.idempotencyKey, "carbs", "profile").inOrder()
         assertThat(result.carbs).isEqualTo(MealDeliveryStatus.SENT)
         assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
     }
@@ -102,8 +170,8 @@ class ManualMealSubmissionTest {
     @Test fun failedCarbsDoesNotStageProfileOrSendTarget() = runTest {
         var calls = 0
         val subject = ManualMealSubmission({ calls++; false }, { _, _, _ -> error("profile") }, { error("target") })
-        val result = subject.submit(command, selection, null, true)
-        subject.submit(command, selection, null, true)
+        val result = subject.submit(command, selection, null, false)
+        subject.submit(command, selection, null, false)
         assertThat(result.carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
         assertThat(result.profileSaved).isFalse()
         assertThat(calls).isEqualTo(1)
@@ -141,7 +209,7 @@ class ManualMealSubmissionTest {
         assertThat(calls).isEqualTo(2)
     }
 
-    @Test fun cancellationDuringTargetRetainsCarbsAndNeverRetries() = runTest {
+    @Test fun cancellationDuringTargetNeverStartsCarbsOrRetriesUnknownTarget() = runTest {
         var calls = 0
         val subject = ManualMealSubmission({ calls++; true }, { _, _, _ -> }, { throw CancellationException() })
         try {
@@ -149,17 +217,17 @@ class ManualMealSubmissionTest {
             error("cancellation must propagate")
         } catch (_: CancellationException) { }
         val result = subject.submit(command, selection, null, true)
-        assertThat(result.carbs).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(result.carbs).isEqualTo(MealDeliveryStatus.NOT_REQUESTED)
         assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.UNKNOWN)
-        assertThat(calls).isEqualTo(1)
+        assertThat(calls).isEqualTo(0)
     }
 
-    @Test fun profileFailureDoesNotHideSentCarbsOrStartTarget() = runTest {
+    @Test fun uncheckedProfileFailureDoesNotHideSentCarbsOrStartTarget() = runTest {
         val subject = ManualMealSubmission({ true }, { _, _, _ -> error("profile write failed") }, { error("target") })
-        val result = subject.submit(command, selection, null, true)
+        val result = subject.submit(command, selection, null, false)
         assertThat(result.carbs).isEqualTo(MealDeliveryStatus.SENT)
         assertThat(result.profileSaved).isFalse()
-        assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.BLOCKED)
+        assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.NOT_REQUESTED)
     }
 
     @Test fun changedInputCannotReuseAnOperationId() = runTest {
@@ -182,10 +250,10 @@ class ManualMealSubmissionTest {
             { error("target must not be requested") }
         )
         try {
-            subject.submit(command, selection, null, true)
+            subject.submit(command, selection, null, false)
             error("cancellation must propagate")
         } catch (_: CancellationException) { }
-        val result = subject.submit(command, selection, null, true)
+        val result = subject.submit(command, selection, null, false)
         assertThat(result.carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
         assertThat(result.profileSaved).isFalse()
         assertThat(calls).isEqualTo(1)

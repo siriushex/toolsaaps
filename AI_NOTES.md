@@ -1,3 +1,31 @@
+# Explicit Eating Soon Meal Intent - 2026-10-14
+
+- User reported differing positive/net IOB, a raised target despite rising
+  forecast and lost Eating Soon when entering food. Source trace separates signed forecast residual from
+  positive safety IOB; screenshot cannot identify actual live block reason.
+- Four new tests failed before implementation:wrong target order, NOT_REQUESTED
+  after carb block, BLOCKED after profile failure, and false UI non-send claim.
+- Explicit target now uses the same guarded callback before carb/profile work;
+  independent outcomes survive failures and cancellation. Existing durable
+  idempotency, mode-independent manual path,30-minute priority and protections
+  retained. No new IOB/target tuning, physiology or GI clinical activation.
+- Added food-profile/GI, mode/HTTP refusal, cancellation/duplicate, signed-vs-
+  positive IOB and lower-target/CI/reliability regressions. First focused run
+  identified one obsolete no-target-after-carb-failure expectation. The expanded
+  HTTP fixture then exposed reused target/carb row IDs; corrected the fixture to
+  match the distinct production IDs. Final focused run:208 passed, zero skips/
+  failures/errors across9 suites. First full local unit/lint/compile/assemble passed
+  in12m58s:5520 passed,6 optional private-input skips, zero failures/errors across
+  484 suites. Lint:zero errors,311 warnings,8 hints. All12 reviewed Android
+  Kotlin/XML hashes unchanged and existing APK v2 signer verified. Public fixture
+  values subsequently replaced with synthetic quantities. Final exact-source
+  full gate passed in4m51s with the same5520 passes/6 skips and zero failures/
+  errors/lint errors; all12 final Android hashes unchanged. Publication/CI remains
+  a separate gate.
+- Redmi briefly appeared in ADB, then disconnected before version/diagnostic
+  reads. No phone stops, updates, therapy commands, recovered medical history
+  or actual refusal-cause claim.
+
 # Meal Input Observations And Basis Correction - 2026-10-14
 
 - Source inspection found that prepareCalibrationRuntimeContext feeds resolved

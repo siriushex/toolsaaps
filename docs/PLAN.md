@@ -1,5 +1,21 @@
 # PLAN
 
+## Explicit Eating Soon Meal Intent (2026-10-14)
+
+- Reproduced four failures before the fix:target called after carb/profile,
+  skipped on carb block, erased by profile failure and hidden by carb messages.
+- Attempt the existing guarded explicit target before carbohydrate transport and
+  profile annotation. Separate localized results, immutable input and no replay.
+- Added all-profile/optional-GI, mode/HTTP safety, cancellation, IOB split and
+  exact30-minute priority/expiry regressions. Final focused208 checks passed
+  across9 suites. Full local unit/lint/compile/assemble passed in12m58s:5520
+  passed,6 optional private-input skips, zero failures/errors and lint errors.
+  All12 reviewed Android Kotlin/XML hashes unchanged; existing APK v2 signer
+  verified. After public fixtures were anonymized, final exact-source full gate
+  passed in4m51s with the same counts and all12 final hashes unchanged.
+  Exact-source publication/CI remains a gate.
+- No new target/IOB physiology, relaxed safety, GI activation or phone operation.
+
 ## Meal Input Observations (2026-10-14)
 
 - Correct falsely hardcoded raw CGM research identity: freeze actual resolved

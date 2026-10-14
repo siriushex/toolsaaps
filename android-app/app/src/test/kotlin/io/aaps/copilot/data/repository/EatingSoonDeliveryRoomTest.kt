@@ -34,6 +34,31 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class EatingSoonDeliveryRoomTest {
+    @Test fun explicitEatingSoonUsesTheSameGuardedThirtyMinuteCommandInEveryManagerMode() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server)
+            for (mode in io.aaps.copilot.domain.target.TargetManagerMode.values()) {
+                settings.update { it.copy(targetManagerMode = mode) }
+                server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+                var guards = 0
+                val request = command("mode-${mode.name}")
+                val result = repository.submitManualMealTarget(request) { guards++; null }
+                assertThat(result.status).isEqualTo(MealDeliveryStatus.SENT)
+                assertThat(guards).isEqualTo(1)
+                val body = Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)
+                assertThat(body["duration"]).isEqualTo(30.0)
+                assertThat(body["reason"]).isEqualTo("Eating Soon")
+                assertThat(body["targetTop"]).isEqualTo(74.0)
+                assertThat(repository.submitManualMealTarget(request) { error("never retry a sent target") }.status)
+                    .isEqualTo(MealDeliveryStatus.SENT)
+            }
+            assertThat(server.requestCount).isEqualTo(3)
+            val blocked = repository.submitManualMealTarget(command("mode-safe-refusal")) { "glucose_too_low" }
+            assertThat(blocked.status).isEqualTo(MealDeliveryStatus.BLOCKED)
+            assertThat(server.requestCount).isEqualTo(3)
+        }
+    }
+
     @Test fun restartCannotTurnAcceptedSuggestionIntoIndependentTrainingLabel() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
@@ -497,27 +522,42 @@ class EatingSoonDeliveryRoomTest {
         }
     }
 
-    @Test fun ambiguousMealCarbsRemainPendingAndNeverTriggerTarget() = runBlocking {
+    @Test fun ambiguousMealCarbsRemainPendingWithoutErasingOrReplayingExplicitTarget() = runBlocking {
         MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
             server.enqueue(MockResponse().setResponseCode(500))
             val repository = repository(server)
             var targets = 0
-            val submission = ManualMealSubmission(repository::submitCarbs, { _, _, _ -> }, {
+            val target = command("carb-unknown")
+            val submission = ManualMealSubmission(repository::submitCarbs, { _, _, _ -> error("no confirmed meal") }, { key ->
+                assertThat(key).isEqualTo("manual:meal:carb-unknown")
                 targets++
-                EatingSoonResult(MealDeliveryStatus.SENT)
+                repository.submitManualMealTarget(target) { null }
             })
-            val meal = command("carb-unknown").copy(type = "carbs",
+            val meal = command("carb-unknown").copy(id = "carbs-carb-unknown", type = "carbs",
                 params = mapOf("carbsGrams" to "10", "reason" to "manual_ui_carbs"),
                 idempotencyKey = "manual:meal:carb-unknown")
             val result = submission.submit(meal,
                 io.aaps.copilot.domain.profile.MealAbsorptionSelection(
                     io.aaps.copilot.domain.profile.MealAbsorptionProfile.MIXED), null, true)
             assertThat(result.carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
-            assertThat(targets).isEqualTo(0)
-            assertThat(server.requestCount).isEqualTo(1)
+            assertThat(result.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+            assertThat(targets).isEqualTo(1)
+            assertThat(server.requestCount).isEqualTo(2)
+            assertThat(Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)["duration"])
+                .isEqualTo(30.0)
+            assertThat(Gson().fromJson(server.takeRequest().body.readUtf8(), Map::class.java)["carbs"])
+                .isEqualTo(10.0)
             assertThat(db.actionCommandDao().byIdempotencyKey(meal.idempotencyKey)?.status).isEqualTo("PENDING")
+            assertThat(db.actionCommandDao().byIdempotencyKey(target.idempotencyKey)?.status).isEqualTo("SENT")
+            assertThat(submission.submit(meal,
+                io.aaps.copilot.domain.profile.MealAbsorptionSelection(
+                    io.aaps.copilot.domain.profile.MealAbsorptionProfile.MIXED), null, true)).isEqualTo(result)
+            assertThat(targets).isEqualTo(1)
             assertThat(repository.submitCarbs(meal)).isFalse()
-            assertThat(server.requestCount).isEqualTo(1)
+            assertThat(repository.submitManualMealTarget(target) { error("no target replay") }.status)
+                .isEqualTo(MealDeliveryStatus.SENT)
+            assertThat(server.requestCount).isEqualTo(2)
         }
     }
 

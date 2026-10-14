@@ -65,7 +65,7 @@ internal class ManualMealSubmission(
         // Reserve before I/O; cancellation/unknown delivery must not replay a meal.
         // Persisted action idempotency still protects operations after eviction/restart.
         val entry = Entry(input, ManualMealResult(
-            MealDeliveryStatus.UNKNOWN, EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED),
+            MealDeliveryStatus.NOT_REQUESTED, EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED),
             profileSaved = false
         ))
         completed[key] = entry
@@ -74,6 +74,20 @@ internal class ManualMealSubmission(
         try { onMealInput(reservedCommand) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { }
+        // Explicit target intent is independent of carbohydrate transport and annotations.
+        // Its existing delivery callback still performs the live safety preflight.
+        if (eatingSoon) {
+            entry.result = entry.result.copy(eatingSoon = EatingSoonResult(MealDeliveryStatus.UNKNOWN))
+            val target = try {
+                sendEatingSoon(key)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                EatingSoonResult(MealDeliveryStatus.UNKNOWN, "delivery_unconfirmed")
+            }
+            entry.result = entry.result.copy(eatingSoon = target)
+        }
+        entry.result = entry.result.copy(carbs = MealDeliveryStatus.UNKNOWN)
         val sent = try {
             sendCarbs(reservedCommand)
         } catch (cancelled: CancellationException) {
@@ -94,33 +108,15 @@ internal class ManualMealSubmission(
             )
             return@withLock entry.result
         }
-        entry.result = ManualMealResult(
-            MealDeliveryStatus.SENT,
-            EatingSoonResult(if (eatingSoon) MealDeliveryStatus.UNKNOWN else MealDeliveryStatus.NOT_REQUESTED),
-            profileSaved = false
-        )
+        entry.result = entry.result.copy(carbs = MealDeliveryStatus.SENT)
         try {
             stageSelection(reservedCommand, selection, mealEnergyKcal)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            entry.result = entry.result.copy(eatingSoon = EatingSoonResult(
-                if (eatingSoon) MealDeliveryStatus.BLOCKED else MealDeliveryStatus.NOT_REQUESTED,
-                "meal_profile_not_saved"
-            ))
             return@withLock entry.result
         }
         entry.result = entry.result.copy(profileSaved = true)
-        if (eatingSoon) {
-            val target = try {
-                sendEatingSoon(key)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                EatingSoonResult(MealDeliveryStatus.UNKNOWN, "delivery_unconfirmed")
-            }
-            entry.result = entry.result.copy(eatingSoon = target)
-        }
         entry.result
     }
 }

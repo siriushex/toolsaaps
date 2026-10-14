@@ -927,7 +927,7 @@
     <string name="overview_eating_soon_target">4,1 ммоль/л · 30 мин</string>
     <string name="overview_confirm_carbs_eating_soon">Добавить %1$s г и запросить цель Eating soon 4,1 ммоль/л на 30 минут?</string>
     <string name="overview_meal_sent">Углеводы отправлены: %1$s г.</string>
-    <string name="overview_meal_unconfirmed">Отправка углеводов не подтверждена. Проверьте AAPS перед повторным вводом; Eating soon не отправлена.</string>
+    <string name="overview_meal_unconfirmed">Отправка углеводов не подтверждена. Проверьте AAPS перед повторным вводом.</string>
     <string name="overview_eating_soon_sent">Запрос Eating soon отправлен: 4,1 ммоль/л на 30 мин. Применение в AAPS не подтверждено.</string>
     <string name="overview_eating_soon_blocked">Eating soon не отправлена. Углеводы повторно не отправляются.</string>
     <string name="eating_soon_reason_kill_switch">Включён Kill Switch.</string>

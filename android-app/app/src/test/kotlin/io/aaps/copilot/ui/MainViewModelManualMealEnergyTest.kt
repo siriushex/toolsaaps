@@ -70,7 +70,7 @@ class MainViewModelManualMealEnergyTest {
                     manualMealEnergyKcal = manualMealEnergyKcal
                 )
             },
-            sendEatingSoon = { error("failed carbs must not request target") }
+            sendEatingSoon = { io.aaps.copilot.data.repository.EatingSoonResult(MealDeliveryStatus.SENT) }
         )
         val command = ActionCommand(
             id = "manual-carb-command",
@@ -93,6 +93,7 @@ class MainViewModelManualMealEnergyTest {
         )
 
         assertThat(delivered.carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
+        assertThat(delivered.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
         assertThat(submitCalls).isEqualTo(1)
         assertThat(dao.pendingIntents).isEmpty()
 

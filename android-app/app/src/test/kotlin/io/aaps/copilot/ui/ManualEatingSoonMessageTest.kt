@@ -16,6 +16,20 @@ import java.util.Locale
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class ManualEatingSoonMessageTest {
+    @Test fun independentTargetStatusRemainsVisibleWhenCarbsAreBlockedOrUnknown() {
+        for (language in listOf("en", "ru")) {
+            val context = context(language)
+            for (carbs in listOf(MealDeliveryStatus.BLOCKED, MealDeliveryStatus.UNKNOWN)) {
+                val result = ManualMealResult(carbs, EatingSoonResult(MealDeliveryStatus.SENT), false,
+                    "carbs_rate_limit_30m")
+                val message = manualMealSubmissionMessage(context, 20.0, result)
+                assertThat(message).contains(context.getString(R.string.overview_eating_soon_sent))
+                assertThat(message).doesNotContain(context.getString(R.string.overview_meal_sent, "20"))
+                assertThat(message.lines()).hasSize(2)
+            }
+        }
+    }
+
     @Test fun sentMealMessagePreservesExactQuantityInBothLanguages() {
         val result = ManualMealResult(MealDeliveryStatus.SENT,
             EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED))

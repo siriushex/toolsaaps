@@ -926,7 +926,7 @@
     <string name="overview_eating_soon_target">4.1 mmol/L · 30 min</string>
     <string name="overview_confirm_carbs_eating_soon">Add %1$s g and request an Eating soon target of 4.1 mmol/L for 30 minutes?</string>
     <string name="overview_meal_sent">Carbohydrates sent: %1$s g.</string>
-    <string name="overview_meal_unconfirmed">Carbohydrate delivery is unconfirmed. Check AAPS before adding again; Eating soon was not sent.</string>
+    <string name="overview_meal_unconfirmed">Carbohydrate delivery is unconfirmed. Check AAPS before adding again.</string>
     <string name="overview_eating_soon_sent">Eating soon request sent: 4.1 mmol/L for 30 min. Application in AAPS is not confirmed.</string>
     <string name="overview_eating_soon_blocked">Eating soon was not sent. Carbohydrates will not be sent again.</string>
     <string name="eating_soon_reason_kill_switch">Kill Switch is active.</string>

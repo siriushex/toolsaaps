@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Explicit Eating Soon Meal Intent (2026-10-14)
+
+- Checked target intent reuses the standalone canonical manual channel and all
+  existing preflight/arming/kill-switch/bounds/sensor/low-risk checks. No new
+  network route, permission, physiological model or automatic target authority.
+- Freeze/reserve both intents before I/O. Same-key duplicates cannot retry an
+  ambiguous target or carb send; changed meal payloads cannot inherit acceptance.
+- Independent statuses prevent a carb/profile failure from inventing target
+  refusal or success. HTTP acceptance remains distinct from observed AAPS target.
+- Synthetic local/HTTP checks do not establish real-device delivery or justify
+  bypassing hypoglycemia protection. No patient data or APK is published.
+
 ## Meal Input Observations (2026-10-14)
 
 - Room34 retains selected accepted-cycle raw/resolved CGM, original modeled

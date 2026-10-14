@@ -1,5 +1,17 @@
 # ARCHITECTURE
 
+## Explicit Meal Target Intent
+
+The checked Eating Soon option is an independent explicit manual target, like
+the standalone button. ManualMealSubmission freezes/reserves both intentions,
+then attempts the existing guarded target before carbohydrate transport and
+profile annotation. Carb/annotation failure cannot prevent the target attempt
+or overwrite its result. Cancellation/duplicates retain separate statuses with
+no ambiguous retry. English/Russian messages show both independent outcomes.
+Canonical duration, confirmed target priority, safety gates, IOB physiology and
+automatic controller behavior are unchanged. See
+superpowers/specs/2026-10-14-explicit-eating-soon-meal-intent.md.
+
 ## Contemporaneous Meal Input Observations
 
 Room34 passively retains selected original/resolved CGM, original vs aligned

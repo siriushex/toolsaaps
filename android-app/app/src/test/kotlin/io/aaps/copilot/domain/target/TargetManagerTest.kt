@@ -13,6 +13,39 @@ class TargetManagerTest {
 
     private val manager = TargetManager()
 
+    @Test fun raisedTargetCanDecreaseButLowBoundsAndUnreliabilityStillBlockIt() {
+        val safe = input(activeTarget = activeTarget(7.4), baseTarget = 5.8,
+            currentGlucoseMmol = 5.6, minimumPredictedOrCiMmol = 5.1, safetyIobUnits = 2.0,
+            proposals = listOf(proposal(target = 5.1)))
+        assertThat(manager.decide(safe).outcome).isEqualTo(TargetDecisionOutcome.SEND)
+        assertThat(manager.decide(safe).command?.targetMmol).isEqualTo(5.1)
+        val low = manager.decide(safe.copy(safety = safe.safety.copy(minimumPredictedOrCiMmol = 4.3)))
+        assertThat(low.command).isNull()
+        assertThat(low.reasonCodes).contains("low_risk_blocks_target_decrease")
+        val uncertain = manager.decide(safe.copy(reliability = safe.reliability.mapValues {
+            it.value.copy(state = HorizonReliabilityState.DEGRADED)
+        }))
+        assertThat(uncertain.command).isNull()
+        assertThat(uncertain.reasonCodes).contains("forecast_reliability_blocks_target_decrease")
+    }
+
+    @Test fun eatingSoonKeepsOrdinaryControlOutUntilTheExactThirtyMinuteEnd() {
+        val started = NOW - 30 * MINUTE_MS
+        val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
+            startedAt = started, expiresAt = NOW,
+            idempotencyKey = "manual:meal:exact-end:eating-soon", eatingSoonConfirmed = true)
+        for (mode in listOf(TargetManagerMode.ACTIVE, TargetManagerMode.SHADOW)) {
+            val before = manager.decide(input(nowTs = NOW - 1, mode = mode, activeTarget = active,
+                copilotPriorityEnabled = true, proposals = listOf(proposal(target = 5.5))))
+            assertThat(before.command).isNull()
+            assertThat(before.reasonCodes).contains("eating_soon_target_active")
+            val expired = manager.decide(input(mode = mode, activeTarget = active,
+                copilotPriorityEnabled = true, proposals = listOf(proposal(target = 5.5))))
+            assertThat(expired.outcome).isEqualTo(if (mode == TargetManagerMode.ACTIVE)
+                TargetDecisionOutcome.SEND else TargetDecisionOutcome.SHADOW_WOULD_SEND)
+        }
+    }
+
     @Test
     fun confirmedEatingSoonRetainsManualWindowAgainstOrdinaryControlAndRecovery() {
         val active = activeTarget(4.1, ActiveTargetOwnership.MANUAL_OR_FOREIGN).copy(
