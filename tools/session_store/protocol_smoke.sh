@@ -32,13 +32,18 @@ chmod 644 "$scratch/hosts" "$scratch/nsswitch.conf"
 host_net="$(readlink /proc/self/ns/net)"
 check_args=("$host_net")
 if [[ "${2:-}" == --preflight ]]; then check_args+=(--preflight); fi
+check_command=(/usr/bin/python3 /work/protocol_smoke.py "${check_args[@]}")
+if [[ "${2:-}" == --preflight ]]; then
+  check_command=(/usr/bin/strace -f -qq -s 256 -o /tmp/tls-preflight.trace -e trace=execve,connect "${check_command[@]}")
+fi
 timeout --signal=TERM --kill-after=5s 100s sudo -n setpriv --no-new-privs bwrap \
   --unshare-pid --unshare-net --unshare-ipc --unshare-uts --die-with-parent --new-session \
   --cap-drop ALL --cap-add CAP_SETUID --cap-add CAP_SETGID --cap-add CAP_SETPCAP --cap-add CAP_NET_ADMIN \
   --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
   --proc /proc --dev /dev --perms 1777 --size 134217728 --tmpfs /tmp \
   --dir /etc --ro-bind "$scratch/hosts" /etc/hosts --ro-bind "$scratch/nsswitch.conf" /etc/nsswitch.conf \
-  --dir /work --ro-bind "$client" /work/client \
+  --symlink /usr/lib/os-release /etc/os-release \
+  --dir /work --dir /work/empty --ro-bind "$client" /work/client \
   --ro-bind "$here/protocol_smoke.py" /work/protocol_smoke.py \
   --ro-bind "$here/offline_smoke.py" /work/offline_smoke.py \
   --ro-bind "$scratch/ca.pem" /work/ca.pem \
@@ -47,7 +52,7 @@ timeout --signal=TERM --kill-after=5s 100s sudo -n setpriv --no-new-privs bwrap 
   --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
   -- /bin/sh -eu -c 'ip link set lo up; exec setpriv --reuid=65534 --regid=65534 --clear-groups \
      --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
-     python3 /work/protocol_smoke.py "$@"' session-setup "${check_args[@]}" > "$scratch/receipt.json" || {
+     "$@"' session-setup "${check_command[@]}" > "$scratch/receipt.json" || {
   cat "$scratch/receipt.json"
   exit 1
 }

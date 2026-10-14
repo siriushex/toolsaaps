@@ -7,6 +7,7 @@ import selectors
 import unittest
 
 from test_native_build import load_helper
+from unittest.mock import patch
 
 
 class ProtocolGuards(unittest.TestCase):
@@ -65,7 +66,7 @@ class ProtocolGuards(unittest.TestCase):
         trace = ('42 execve("/work/client", ["/work/client", "app-server"], 0x1) = 0\n'
                  '43 connect(7, {sa_family=AF_INET, sin_port=htons(8443), '
                  'sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS\n')
-        self.assertEqual(self.module.verify_trace(trace), {"execs": 1, "connections": 1})
+        self.assertEqual(self.module.verify_trace(trace), {"execs": 1, "connections": 1, "absent_os_lookups": 0})
         for extra in ('44 execve("/bin/sh", ["sh"], 0x1) = 0\n',
                       '44 connect(7, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("8.8.8.8")}, 16) = 0\n',
                       '44 connect(7, {sa_family=AF_UNIX, sun_path="/run/socket"}, 10) = 0\n'):
@@ -140,6 +141,39 @@ class ProtocolGuards(unittest.TestCase):
                 rpc.wait(lambda _: False, timeout=1)
         finally:
             rpc.close()
+
+    def test_native_environment_is_closed_and_restricts_allocator_and_command_search(self):
+        self.assertTrue(hasattr(self.module, "native_environment"), "native environment admission missing")
+        env = self.module.native_environment(Path("/tmp/cancel"), trust=True)
+        self.assertEqual(env["PATH"], "/work/empty")
+        self.assertEqual(env["MALLOC_ARENA_MAX"], "2")
+        self.assertEqual(env["SSL_CERT_FILE"], "/work/ca.pem")
+        self.assertNotIn("SSL_CERT_FILE", self.module.native_environment(Path("/tmp/cancel"), trust=False))
+        self.assertEqual(len(env), 8)
+
+    def test_only_failed_bounded_os_lookup_is_admitted_not_an_executed_tool(self):
+        trace = '42 execve("/work/client", ["/work/client", "app-server"], 0x1) = 0\n'
+        failure = ('43 execve("/tmp/cancel/profile/tmp/arg0/helper-ABC123/lsb_release", '
+                   '["lsb_release", "-a"], 0x1) = -1 ENOENT (No such file or directory)\n')
+        with patch.object(self.module, "ALIAS_PREFIX", "helper-", create=True):
+            self.assertEqual(self.module.verify_trace(trace + failure),
+                             {"execs": 1, "connections": 0, "absent_os_lookups": 1})
+            for line in (failure.replace("= -1 ENOENT (No such file or directory)", "= 0"),
+                         failure.replace("lsb_release", "other_tool"), failure * 17):
+                with self.assertRaises(ValueError):
+                    self.module.verify_trace(trace + line)
+
+    def test_no_client_preflight_has_a_separate_fixed_tracer_entrypoint(self):
+        trace = '42 execve("/usr/bin/python3", ["python3"], 0x1) = 0\n'
+        try:
+            receipt = self.module.verify_trace(trace, expected_executable="/usr/bin/python3")
+        except TypeError:
+            self.fail("separate preflight trace admission missing")
+        self.assertEqual(receipt["execs"], 1)
+        with self.assertRaises(ValueError):
+            self.module.verify_trace(trace)
+        with self.assertRaises(ValueError):
+            self.module.verify_trace(trace, expected_executable="/bin/sh")
 
 
 if __name__ == "__main__":

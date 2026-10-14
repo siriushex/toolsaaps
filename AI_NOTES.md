@@ -1,5 +1,18 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Bounded retry diagnostics confirmed native SIGABRT/failed allocation under the
+  unchanged1GiB address-space ceiling, plus automatic OS/platform helper execs.
+  Test the glibc arena-limit hypothesis with MALLOC_ARENA_MAX=2, not a larger
+  address-space allowance. Supply public read-only OS metadata and a nonwritable
+  empty native command search path; platform warnings remain visible. The pinned
+  os_info3.14 source/checksum confirms it tries lsb_release before file fallback.
+  Only bounded failed ENOENT lookups for that exact command/path are admissible,
+  never successful extra tool execution. Actual retry remains pending.
+- Added a separate fixed Python tracer entrypoint for no-client TLS preflight,
+  so libc name-resolution connection behavior is audited before the full build,
+  not only when the native client finally starts. All49 local tooling cases,
+  Ruff and shell/whitespace checks pass after the new failing-first regressions.
+
 - Linux TLS/offline preflights,169 native component tests, full CLI build and
   version/private scratch/provenance passed atc3f7496b (same ELF digest). Actual
   protocol stopped awaiting initialize; discarded stderr hid early-process versus

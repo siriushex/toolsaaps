@@ -116,6 +116,18 @@ finishes. Synthetic codes are not credentials, successful cancellation is not
 authenticated inference, and none of this authorizes a real owner login or
 server runtime replacement.
 
+The native test uses an empty nonwritable command-search directory, not the
+system executable search path. Native platform warnings are not suppressed.
+Read-only public OS release metadata supports the pinned os_info library's
+normal file fallback. Its preceding exact lsb_release lookup may fail ENOENT;
+at most16 such attempts at the two fixed search locations are accepted, but
+successful additional executable/tool invocation is refused. This constrained
+test environment is not a claim about a normally configured production PATH.
+The1GiB address-space ceiling stays unchanged. MALLOC_ARENA_MAX=2 is tested as
+a bounded allocator configuration after observed native allocation failure;
+it is not a measured RAM reduction claim. See the
+[glibc arena limit](https://sourceware.org/glibc/manual/latest/html_node/Memory-Allocation-Tunables.html).
+
 ## Limits
 
 - Tests execute the actual Rust helper on synthetic files, including controlled
