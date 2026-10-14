@@ -84,6 +84,20 @@ def verify_initialize(result: dict) -> None:
         raise ValueError("initialization identity mismatch")
 
 
+def verify_message(message: dict) -> None:
+    if "method" not in message:
+        return
+    method = message["method"]
+    if "id" in message or not isinstance(method, str):
+        raise ValueError("unexpected RPC request")
+    if method == "remoteControl/status/changed":
+        params = message.get("params", {})
+        if params.get("status") != "disabled" or params.get("environmentId") is not None:
+            raise ValueError("remote control is not disabled")
+    elif method not in {"account/login/completed", "account/updated", "configWarning"}:
+        raise ValueError("unexpected RPC notification: " + method[:128])
+
+
 def verify_start(result: dict) -> str:
     if (result.get("type") != "chatgptDeviceCode" or result.get("userCode") != SAMPLE_CODE
             or result.get("verificationUrl") != ORIGIN + "/codex/device"):
@@ -248,9 +262,7 @@ class Rpc:
                 while b"\n" in self.buffer:
                     line, self.buffer = self.buffer.split(b"\n", 1)
                     message = json.loads(line)
-                    if "method" in message and ("id" in message or message["method"] not in
-                            {"account/login/completed", "account/updated", "configWarning"}):
-                        raise ValueError("unexpected RPC method")
+                    verify_message(message)
                     self.messages.append(message)
                     if len(self.messages) > 128:
                         raise ValueError("RPC message budget exceeded")

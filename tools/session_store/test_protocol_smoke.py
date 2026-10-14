@@ -191,6 +191,18 @@ class ProtocolGuards(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.module.verify_trace(trace + change)
 
+    def test_native_disabled_status_notification_is_not_a_tool_request(self):
+        self.assertTrue(hasattr(self.module, "verify_message"), "notification admission missing")
+        message = {"method": "remoteControl/status/changed", "params": {
+            "status": "disabled", "serverName": "session-peer", "environmentId": None,
+            "installationId": "7c491cac-03f3-46a6-96b2-75b34d27e551"}}
+        self.module.verify_message(message)
+        for bad in (message | {"id": 1}, message | {"method": "tool/call"},
+                    message | {"params": message["params"] | {"status": "connected"}},
+                    message | {"params": message["params"] | {"environmentId": "other"}}):
+            with self.assertRaises(ValueError):
+                self.module.verify_message(bad)
+
 
 if __name__ == "__main__":
     unittest.main()

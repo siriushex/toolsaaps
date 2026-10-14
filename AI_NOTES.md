@@ -1,5 +1,11 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Pinned app-server source unconditionally emits a remote-control status
+  snapshot after initialization. Admit only a notification with disabled status
+  and no environment; every server request, connected status or unknown method
+  still fails. A regression failed before implementation; all51 tooling cases
+  now pass. No remote-control API is invoked or enabled.
+
 - The new traced no-client preflight caught libc's absent nscd Unix-socket lookup
   before another native compile. Added an exact-path ENOENT-only, at-most8
   compatibility allowance. A successful socket connection, different service or
