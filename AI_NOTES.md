@@ -1,5 +1,11 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- The new traced no-client preflight caught libc's absent nscd Unix-socket lookup
+  before another native compile. Added an exact-path ENOENT-only, at-most8
+  compatibility allowance. A successful socket connection, different service or
+  extra attempts still fail; /var and /run remain absent/unmounted. The new
+  regression failed first; all50 tooling cases then passed locally.
+
 - Bounded retry diagnostics confirmed native SIGABRT/failed allocation under the
   unchanged1GiB address-space ceiling, plus automatic OS/platform helper execs.
   Test the glibc arena-limit hypothesis with MALLOC_ARENA_MAX=2, not a larger

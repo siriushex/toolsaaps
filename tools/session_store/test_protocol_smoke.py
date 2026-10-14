@@ -66,7 +66,8 @@ class ProtocolGuards(unittest.TestCase):
         trace = ('42 execve("/work/client", ["/work/client", "app-server"], 0x1) = 0\n'
                  '43 connect(7, {sa_family=AF_INET, sin_port=htons(8443), '
                  'sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS\n')
-        self.assertEqual(self.module.verify_trace(trace), {"execs": 1, "connections": 1, "absent_os_lookups": 0})
+        self.assertEqual(self.module.verify_trace(trace), {"execs": 1, "connections": 1, "absent_os_lookups": 0,
+                                                         "absent_name_cache_lookups": 0})
         for extra in ('44 execve("/bin/sh", ["sh"], 0x1) = 0\n',
                       '44 connect(7, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("8.8.8.8")}, 16) = 0\n',
                       '44 connect(7, {sa_family=AF_UNIX, sun_path="/run/socket"}, 10) = 0\n'):
@@ -157,7 +158,8 @@ class ProtocolGuards(unittest.TestCase):
                    '["lsb_release", "-a"], 0x1) = -1 ENOENT (No such file or directory)\n')
         with patch.object(self.module, "ALIAS_PREFIX", "helper-", create=True):
             self.assertEqual(self.module.verify_trace(trace + failure),
-                             {"execs": 1, "connections": 0, "absent_os_lookups": 1})
+                             {"execs": 1, "connections": 0, "absent_os_lookups": 1,
+                              "absent_name_cache_lookups": 0})
             for line in (failure.replace("= -1 ENOENT (No such file or directory)", "= 0"),
                          failure.replace("lsb_release", "other_tool"), failure * 17):
                 with self.assertRaises(ValueError):
@@ -174,6 +176,20 @@ class ProtocolGuards(unittest.TestCase):
             self.module.verify_trace(trace)
         with self.assertRaises(ValueError):
             self.module.verify_trace(trace, expected_executable="/bin/sh")
+
+    def test_only_missing_name_cache_socket_is_admitted_never_a_service_connection(self):
+        trace = '42 execve("/work/client", ["/work/client"], 0x1) = 0\n'
+        absent = ('43 connect(3, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) '
+                  '= -1 ENOENT (No such file or directory)\n')
+        try:
+            receipt = self.module.verify_trace(trace + absent)
+        except ValueError:
+            self.fail("missing name-cache compatibility admission")
+        self.assertEqual(receipt["absent_name_cache_lookups"], 1)
+        for change in (absent.replace("= -1 ENOENT (No such file or directory)", "= 0"),
+                       absent.replace("/var/run/nscd/socket", "/run/other"), absent * 9):
+            with self.assertRaises(ValueError):
+                self.module.verify_trace(trace + change)
 
 
 if __name__ == "__main__":

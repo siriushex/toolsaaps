@@ -127,6 +127,10 @@ The1GiB address-space ceiling stays unchanged. MALLOC_ARENA_MAX=2 is tested as
 a bounded allocator configuration after observed native allocation failure;
 it is not a measured RAM reduction claim. See the
 [glibc arena limit](https://sourceware.org/glibc/manual/latest/html_node/Memory-Allocation-Tunables.html).
+Traced preflight observed libc's lookup of the absent /var/run/nscd/socket.
+At most8 exact ENOENT failures are counted separately. Any successful Unix
+service connection, different path or different failure is refused. /var and
+/run are still absent, not host mounts; no resolver-service access is enabled.
 
 ## Limits
 

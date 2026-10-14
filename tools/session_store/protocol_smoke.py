@@ -115,6 +115,12 @@ def verify_trace(trace: str, *, expected_executable: str = "/work/client") -> di
         raise ValueError("OS lookup budget exceeded")
     executions = [line for line in executions if line not in absent]
     connections = [line for line in trace.splitlines() if "connect(" in line]
+    missing_cache = [line for line in connections
+                     if 'sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"' in line
+                     and line.endswith("= -1 ENOENT (No such file or directory)")]
+    if len(missing_cache) > 8:
+        raise ValueError("name-cache lookup budget exceeded")
+    connections = [line for line in connections if line not in missing_cache]
     if (len(executions) != 1 or f'execve("{expected_executable}",' not in executions[0]
             or not executions[0].endswith("= 0")):
         raise ValueError("unexpected child execution")
@@ -122,7 +128,8 @@ def verify_trace(trace: str, *, expected_executable: str = "/work/client") -> di
         if ("sa_family=AF_INET," not in line or "sin_port=htons(8443)" not in line
                 or 'sin_addr=inet_addr("127.0.0.1")' not in line):
             raise ValueError("unexpected connection attempt: " + line[:512])
-    return {"execs": len(executions), "connections": len(connections), "absent_os_lookups": len(absent)}
+    return {"execs": len(executions), "connections": len(connections), "absent_os_lookups": len(absent),
+            "absent_name_cache_lookups": len(missing_cache)}
 
 
 def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> dict:
