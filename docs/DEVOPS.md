@@ -1,5 +1,31 @@
 # DEVOPS
 
+## Public Transport Validation Boundary
+
+The owner-approved anonymous check recorded in AI_NOTES passed actual public
+transport to both fixed names with matching local/upstream403 and verified TLS.
+Before public HEAD, the trusted controller pinned fresh fixed-name DNS/public CA
+inputs and proved same-address host-network deny/allow with a private test CA.
+The latter cannot send HTTP to a public origin. Gateway upstream trust then used
+only the pinned public bundle, fixed IPv4 addresses and fixed provider Host/SNI.
+
+Only two public HEAD requests were made; no redirects, credentials, prompts or
+model/auth routes. All13 controls and16 bound stops passed. Independent checks
+confirmed own-file/process/cgroup absence and unchanged sources/public CA.
+Operational roots/addresses/keys/manifests remain private, not installed services.
+
+ObservedProbeProfile outputs only HTTP status, local TLS result and its own
+upstream status. It uses curl's header write-out support, introduced in7.84.0;
+see https://curl.se/docs/manpage.html#-w. Optional real-engine coverage is
+backend/tests/test_ai_upstream_probe_nginx.py with NGINX_TEST_BINARY. Raw headers
+or provider bodies are never receipts. Original profile semantics are unchanged.
+
+A403 may be an anonymous-access or edge-policy refusal; it is not authenticated
+model access or permission to bypass challenges. Login needs a separately reviewed
+minimal profile, fixed-version protocol capture and owner participation. Do not
+copy root/old authorization, broaden paths after refusal, expose privileged HTTP
+installation, upload device data or claim personal AI readiness from this check.
+
 ## Synthetic Host Validation Boundary
 
 The owner-approved bounded synthetic operation recorded in AI_NOTES passed13

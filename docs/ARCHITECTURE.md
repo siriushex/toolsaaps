@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Observed Upstream Transport
+
+ObservedProbeProfile extends the pure transport profile with a gateway-owned
+numeric upstream status only. Existing response hides remain at their original
+HTTP scope; upstream status-header copies are hidden. Bounded three-field
+receipts require successful process/local TLS and a matching final upstream
+status below500. Local gateway refusal and upstream TLS/proxy failures cannot
+become provider transport success. No server route, launcher or model is wired.
+Anonymous403 from a fixed origin is transport evidence, not login/API readiness.
+
 ## Credential-Free Transport Probe Profile
 
 TransportProbeProfile is an inactive pure configuration component, not a worker

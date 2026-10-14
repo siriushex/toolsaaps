@@ -1,3 +1,37 @@
+# Public Transport Validation - 2026-10-14
+
+- Continued the approved anonymous HEAD-only gateway stage, with no login,
+  prompt, model request, medical data, phone change or API deployment.
+- Added pure ObservedProbeProfile and strict three-field status receipt. The
+  gateway hides upstream-supplied status copies while preserving the inherited
+  cookie/Location/authentication-header hides. A numeric gateway-owned upstream
+  status distinguishes public origin responses from local denials. Failed exit,
+  failed local TLS, missing/mismatched/interim/5xx status never proves transport.
+  The original TransportProbeProfile and receipt behavior remain unchanged.
+- Missing implementation reproduced31 failures. Unit contracts passed31; four
+  actual Nginx/curl TLS checks passed after correcting a test-fixture CA path.
+  Engine checks include spoofed upstream headers, local403 and wrong upstream
+  name/issuer yielding502 despite successful local TLS. Full local backend524
+  passed, zero failures/errors/skips, one existing warning in116.93s. Private14
+  DNS/manifest/admission checks and isolated E/F/whitespace checks passed.
+- Fresh host-only fixed-name DNS/public CA/binary/library inputs were pinned.
+  Desktop DNS lookup timed out and was not represented as corroboration. Before
+  any public HTTP, separate same-address host-network cgroup deny/allow controls
+  yielded connection timeout versus expected private-CA TLS refusal; no HTTP can
+  pass that private-CA control. Only then was the public-CA gateway started.
+- Two anonymous HEAD requests produced matching local/upstream403 over verified
+  TLS for both fixed provider names.403 proves transport here, not login, model
+  API availability, bot-challenge bypass or an authenticated response. Remaining
+  local route/method/header/CA/name/filesystem/network controls also passed.
+  All13 checks and16 invocation-bound stops passed under the existing aggregate
+  512MiB/swap0/25%-one-core/64-task limits. No existing services/firewall changed.
+- Independent postflight confirmed own roots/files/processes/cgroups absent,
+  all units inactive and original binary/library/public CA identities unchanged.
+  Inactive cached definitions are not claimed collected. Private manifests,
+  ephemeral keys, host addresses and evidence remain outside Git. Exact-source
+  publication/CI remains a separate gate; minimal login, captured real-client
+  protocol, inference and contextual device chat remain unimplemented gates.
+
 # Synthetic Host Isolation - 2026-10-14
 
 - Continued the owner-approved temporary credential-free check. Extended the

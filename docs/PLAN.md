@@ -1,5 +1,19 @@
 # PLAN
 
+## Public Transport Validation (2026-10-14)
+
+- Added inactive observed profile/strict status-only receipt; unchanged original
+  profile.31 contract and4 actual-engine checks passed in the full local524 gate,
+  with zero skips/failures/errors and one existing warning. Private14 passed.
+- One bounded owner-approved operation proved host-network deny/allow before
+  two anonymous provider HEAD requests; matching local/upstream403 and verified
+  TLS passed for both fixed names.13 controls and16 bound stops passed; independent
+  own-object absence and source/public-CA preservation checks passed.
+- Exact-source publication/CI remains separate. Minimal independent login,
+  pinned-client protocol capture, real neutral inference, contained API/retrieval
+  and Android context transfer/chat remain gates. No credentials, medical data,
+  phone, therapy, public API or existing production-service change.
+
 ## Credential-Free Transport Profile (2026-10-14)
 
 - Owner approved isolated gateway design. Implemented the first pure source slice:

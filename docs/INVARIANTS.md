@@ -2,6 +2,12 @@
 
 ## Transport Probe Isolation
 
+- Observed receipts require a gateway-owned matching upstream status, successful
+  exit/local TLS and a non-5xx final response. Upstream status-header spoofing,
+  local refusals and failed upstream TLS cannot pass. Keep inherited hides.
+- Actual public403 is transport-only, not authentication or model readiness.
+  Cgroup enforcement and fresh fixed-host/public-CA admission precede public
+  HTTP. No credentials or old profile can be used as transport-test fallback.
 - Profiles are pure trusted inputs, never HTTP-selected argv, mounts or hosts.
   Canonical v4 run identity, nonroot numeric IDs and immutable public IPv4 pairs
   are validated before interpolation. IPv6 and runtime DNS are not supported.
