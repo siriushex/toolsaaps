@@ -1,4 +1,17 @@
 <resources>
+    <string name="prospective_review_title">Проверка прогноза</string>
+    <string name="prospective_review_refresh">Обновить проверку</string>
+    <string name="prospective_review_close">Закрыть</string>
+    <string name="prospective_review_basis">21 день · принятый прогноз и CGM с калибровкой на момент наблюдения. Без изменения терапии.</string>
+    <string name="prospective_review_loading">Проверяем сохранённые прогнозы…</string>
+    <string name="prospective_review_unavailable">Журнал недоступен. Повторите позже.</string>
+    <string name="prospective_review_overflow">Слишком много записей для полной проверки. Частичная оценка не показана.</string>
+    <string name="prospective_review_receipts">Записано: %1$d · исключено: %2$d</string>
+    <string name="prospective_review_sensor_unknown">Неизвестна сессия сенсора: %1$d</string>
+    <string name="prospective_review_empty">Накапливаются новые прогнозы. Старая история не восстанавливается.</string>
+    <string name="prospective_review_series">Серия %1$d</string>
+    <string name="prospective_review_row">%1$d мин · MAE %2$s ммоль/л · %3$d точек / %4$d дней</string>
+    <string name="prospective_review_support">Пропущено низких: %1$d / %2$d · ожидается: %3$d · недоступно: %4$d</string>
     <string name="lenta_mode_current">Сейчас</string>
     <string name="lenta_mode_estimate">Оценка</string>
     <string name="lenta_estimate_type">Тип еды</string>

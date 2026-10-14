@@ -223,6 +223,7 @@ import io.aaps.copilot.ui.foundation.screens.SettingsUiState
 import io.aaps.copilot.ui.foundation.screens.UamUiState
 import io.aaps.copilot.ui.foundation.screens.UamExportControlUi
 import io.aaps.copilot.ui.foundation.screens.toAnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.toReviewUi
 import io.aaps.copilot.ui.IsfCrOverlayPointUi
 import io.aaps.copilot.ui.foundation.screens.mapClinicalReportState
 import io.aaps.copilot.ui.foundation.screens.toAiAnalysisUiState
@@ -6248,6 +6249,10 @@ class MainViewModel(application: Application) :
     suspend fun loadEventCompensationContext(event: CompensationEvent): io.aaps.copilot.domain.events.EventCompensationContext =
         io.aaps.copilot.data.repository.EventCompensationContextRepository(db, container.gson)
             .load(event, System.currentTimeMillis())
+
+    suspend fun loadProspectiveForecastReview(): io.aaps.copilot.ui.foundation.screens.ProspectiveForecastReviewUi =
+        io.aaps.copilot.data.repository.MealForecastJournalRepository(db, container.gson)
+            .review(System.currentTimeMillis()).toReviewUi()
 
     suspend fun loadLentaMealHistory(cutoffMs: Long, zoneId: String): io.aaps.copilot.domain.nutrition.LentaMealHistory =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

@@ -1,4 +1,17 @@
 <resources>
+    <string name="prospective_review_title">Prospective Forecast Check</string>
+    <string name="prospective_review_refresh">Refresh check</string>
+    <string name="prospective_review_close">Close</string>
+    <string name="prospective_review_basis">21 days · accepted forecast vs contemporaneous calibrated CGM. Observations only, no therapy changes.</string>
+    <string name="prospective_review_loading">Checking recorded forecasts…</string>
+    <string name="prospective_review_unavailable">Journal unavailable. Try again later.</string>
+    <string name="prospective_review_overflow">Too many records for a complete check. No partial accuracy score.</string>
+    <string name="prospective_review_receipts">Recorded: %1$d · excluded: %2$d</string>
+    <string name="prospective_review_sensor_unknown">Sensor session unknown: %1$d</string>
+    <string name="prospective_review_empty">Collecting new forecasts. Old history is not reconstructed.</string>
+    <string name="prospective_review_series">Series %1$d</string>
+    <string name="prospective_review_row">%1$d min · MAE %2$s mmol/L · %3$d samples / %4$d days</string>
+    <string name="prospective_review_support">Missed lows: %1$d / %2$d · pending: %3$d · unavailable: %4$d</string>
     <string name="lenta_mode_current">Current</string>
     <string name="lenta_mode_estimate">Estimate</string>
     <string name="lenta_estimate_type">Food type</string>

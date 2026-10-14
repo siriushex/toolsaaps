@@ -1,3 +1,26 @@
+# Prospective Forecast Journal - 2026-10-14
+
+- Continued observational validation: independent Room33 accepted-cycle journal,
+  post-commit finalization, unknown/late/interrupted states, no engine rerun or
+  old-history backfill. No personalized candidate or new clinical input.
+- Outcomes are contemporaneous calibrated accepted-cycle CGM. Their clocks
+  establish journal availability, not original transport arrival or blood truth.
+- Baseline-only errors reuse the strict matcher, separate from personal pairs;
+  baseline versions also separate cohorts. Passive Analytics checks on demand.
+- Synthetic evaluation/Room/native migration/restart/compact/large-font tests
+  added. First compile found a callback wired to the neighboring Analysis screen;
+  corrected to Analytics before tests. Focused96 cases passed with1 optional
+  external phone-copy skip. Inspected320x640 and1.8font native screenshots.
+- Full local unit/lint/compile gates passed:5479 tests passed,6 optional
+  external-input skips, zero failures/errors across479 suites; lint zero errors,
+  311 warnings and8 hints. The combined terminal session became unavailable
+  after lint during APK packaging; no final combined success is claimed.
+  Resumed only assembleDebug, which passed in46s. All25 reviewed Android file
+  hashes remained unchanged; existing APK v2 signer verified. Exact-source CI
+  is a separate publication gate. No patient accuracy or CPU/RAM measurement.
+- Schema32 APK rollback is incompatible after33; reviewed forward repair with
+  fresh coherent backup only. No destructive fallback or phone operation.
+
 # Prospective Meal Forecast Contract - 2026-10-13
 
 - Following the user's acceptance of forecast-validation prerequisites, added

@@ -763,6 +763,19 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_32_33: Migration = object : Migration(32, 33) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `meal_forecast_journal` (" +
+                "`cycleId` TEXT NOT NULL PRIMARY KEY, `predictionAtMs` INTEGER NOT NULL, " +
+                "`acceptedAtMs` INTEGER NOT NULL, `observedAtMs` INTEGER NOT NULL, `finalizedAtMs` INTEGER, " +
+                "`settingsRevision` INTEGER NOT NULL, `forecastDigest` TEXT NOT NULL, `source` TEXT NOT NULL, " +
+                "`sensorSessionKey` TEXT, `calibrationModelId` TEXT, `recordedZoneId` TEXT NOT NULL, " +
+                "`modelVersion` TEXT NOT NULL, `glucoseMmol` REAL NOT NULL, `quality` TEXT NOT NULL, `forecastsJson` TEXT NOT NULL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_forecast_journal_observedAtMs` ON `meal_forecast_journal` (`observedAtMs`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_meal_forecast_journal_predictionAtMs` ON `meal_forecast_journal` (`predictionAtMs`)")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -786,6 +799,7 @@ object CopilotMigrations {
         MIGRATION_28_29,
         MIGRATION_29_30,
         MIGRATION_30_31,
-        MIGRATION_31_32
+        MIGRATION_31_32,
+        MIGRATION_32_33
     )
 }

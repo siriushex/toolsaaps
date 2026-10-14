@@ -1545,6 +1545,16 @@ class AutomationRepository(
             }
         )
 
+        runNonFatalCycleStep("prospective_forecast_journal", timeoutMs = 1_000L) {
+            MealForecastJournalRepository(db, gson).record(
+                tuple = requireNotNull(authenticatedRoomTuple),
+                observation = latestGlucose,
+                calibration = preparedCalibration.identity,
+                sensorTrusted = dataFresh && !sensorBlocked && !sensorQuality.blocked &&
+                    !sensorQuality.suspectFalseLow
+            )
+        }
+
         if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) return sensitivitySnapshot
 
         auditLogger.info(

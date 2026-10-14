@@ -42,6 +42,40 @@ class MealProspectiveValidationTest {
         samples: List<MealProspectiveOutcome> = outcomes(), cutoff: Long = now + 61 * minute) =
         MealProspectiveEvaluator().evaluate(frames, samples, cutoff, 3.9)
 
+    @Test fun baselineOnlyScoresAreSeparateAndNeverPretendToBeCandidatePairs() {
+        val result = evaluate(frames = listOf(frame(cand = null)), samples = outcomes(actual = 3.5))
+        assertTrue(result.horizons.isEmpty())
+        assertEquals(3, result.baselineOnlyHorizons.size)
+        result.baselineOnlyHorizons.forEach {
+            assertEquals(1, it.observedSamples)
+            assertEquals(0, it.pairedSamples)
+            assertEquals(2.5, it.baseline!!.maeMmol, 1e-9)
+            assertEquals(1, it.baselineMissedLows)
+            assertEquals(1, it.actualLowSamples)
+            assertEquals(1, it.baselineObservedIntervalSamples)
+            assertEquals(0.0, it.baselineIntervalCoverage!!, 0.0)
+            assertNull(it.candidate)
+            assertNull(it.cohort.model)
+        }
+        assertFalse(result.clinicalInfluenceAllowed)
+    }
+
+    @Test fun baselineOnlyUsesTheSameStrictOutcomeAndConflictRules() {
+        val baseline = frame(cand = null)
+        val samples = outcomes().map { it.copy(availableAtMs = null) }
+        assertTrue(evaluate(listOf(baseline), samples).baselineOnlyHorizons.all { it.rejectedOutcome == 1 && it.baseline == null })
+        val conflict = evaluate(listOf(baseline, frame(base = 7.0, cand = null)))
+        assertEquals(2, conflict.conflictingFrames)
+        assertTrue(conflict.baselineOnlyHorizons.all { it.observedSamples == 0 && it.baseline == null })
+    }
+
+    @Test fun baselineModelVersionsDoNotPoolAccuracy() {
+        val other = identity().copy(baselineModelVersion = "new-model")
+        val result = evaluate(listOf(frame(cand = null), frame(other, cand = null)))
+        assertEquals(6, result.baselineOnlyHorizons.size)
+        assertTrue(result.baselineOnlyHorizons.all { it.observedSamples == 1 })
+    }
+
     @Test fun registrationMustFinishBeforeFirstOutcomeAndAfterBothCalculations() {
         assertEquals(MealProspectiveRegistrationStatus.PAIRED, registration(at = now + 5 * minute - 1).status)
         assertEquals(MealProspectiveRegistrationStatus.LATE_REGISTRATION, registration(at = now + 5 * minute).status)

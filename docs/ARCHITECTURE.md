@@ -1,5 +1,17 @@
 # ARCHITECTURE
 
+## Durable Prospective Forecast Journal
+
+An independent Room33 journal records authenticated accepted forecasts and
+contemporaneous calibrated CGM after clinical fan-out, with a nonfatal one-second
+budget and post-insert-commit finalization. No engine fork, historical backfill,
+personalized candidate, clinical writer or export is added. Unknown/poor-quality
+and unfinished/late captures remain explicit. Availability is journal observation
+of an accepted cycle, not transport arrival. Analytics offers a bounded on-demand
+21-day baseline check; versions and sensor/calibration/settings cohorts remain
+separate. Candidate pairs stay independent. See
+superpowers/specs/2026-10-14-prospective-forecast-journal.md for limits/admission.
+
 ## Prospective Meal Forecast Validation
 
 MealProspectiveFrame freezes paired5/30/60 predictions before the first future
@@ -27,8 +39,8 @@ it. Every result denies clinical/control-safety admission.
 
 The optional private tool reconstructs receipts through the same registration
 checks and exports aggregates only. A supplied file cannot authenticate original
-capture. This stage does not produce a personalized candidate, persist a phone
-ledger, collect live outcomes or change existing clinical inputs. See
+capture. The original contract stage has no personalized candidate or clinical
+input changes; the subsequent journal above adds observation, not therapy. See
 superpowers/specs/2026-10-13-meal-prospective-validation.md for remaining gates.
 
 ## Qualified GI Contribution Analysis

@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Prospective Journal Isolation
+
+- Record exact authenticated outputs and frozen calibrated observation/context
+  after clinical fan-out, without a second engine/controller run.
+- A post-commit marker and strict pre-first-outcome registration are required.
+  Unfinished/crashed/late rows cannot be promoted by retry, restart or backfill.
+- Journal observation time is not CGM transport arrival or true blood glucose.
+  Unknown sessions and sensor warnings cannot become clean evidence.
+- Baseline-only scores never impersonate a personal candidate. Baseline model
+  versions/settings/calibration/sensor cohorts remain separate.
+- Review is bounded, passive and on demand: no clinical writes, export, polling
+  or activation. Overflow refuses partial accuracy. Independent21-day retention
+  cannot delete clinical rows. Applied-target model/control admission is pending.
+
 ## Prospective Meal Comparison
 
 - Freeze both forecasts and register before the first5-minute outcome. Candidate

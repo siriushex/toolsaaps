@@ -1,5 +1,19 @@
 # PLAN
 
+## Prospective Journal (2026-10-14)
+
+- Connect accepted-cycle observational capture and restart-safe Room33 storage,
+  with post-commit/unfinished semantics and isolated21-day retention.
+- Separate baseline-only scores and model cohorts; passive on-demand Analytics
+  review of support/MAE/lows/missingness, not clinical admission.
+- Focused96 checks and native compact/large-font review pass. Full local unit/
+  lint/compile and resumed assemble pass:5479 cases passed,6 optional external-
+  input skips, zero failures/errors and lint errors. Unchanged reviewed Android
+  hashes and existing APK v2 signer verified. Exact-source CI is separate.
+  No phone, real personal accuracy or therapy activation claim.
+- Qualified causal personal candidate, original transport availability and
+  independent control assessment remain separate prerequisites.
+
 ## Prospective Meal Forecast Contract (2026-10-13)
 
 - Implemented immutable pre-outcome paired receipts, strict causal/model/input

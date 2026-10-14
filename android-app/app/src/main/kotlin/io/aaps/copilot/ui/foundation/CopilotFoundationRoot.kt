@@ -506,6 +506,7 @@ fun CopilotFoundationRoot(
                                 val analytics by viewModel.analyticsUiState.collectAsStateWithLifecycle()
                                 AnalyticsScreen(
                                     state = analytics,
+                                    onLoadProspectiveReview = viewModel::loadProspectiveForecastReview,
                                     onRunDailyAnalysis = viewModel::runDailyAnalysisNow,
                                     onInsulinProfileActivate = viewModel::setInsulinProfile,
                                     onSensorLagCorrectionModeChange = viewModel::setSensorLagCorrectionMode,

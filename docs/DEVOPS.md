@@ -47,6 +47,15 @@ configured separately before claiming main is protected.
 ## Migration basics
 - Any DB schema change must include migration strategy and rollback note in PR + docs.
 
+### Room 32 To 33
+
+Migration33 creates the independent prospective forecast journal and two indexes
+only. No backfill or clinical/alarm/meal mutation. File-backed migration/restart
+and supported migration tails must pass. A schema32 APK cannot open migrated33;
+use a reviewed forward fix and fresh coherent current-data backup. Do not restore
+stale therapy or use APK-only downgrade. No destructive fallback. Publication
+does not authorize phone installation.
+
 ### Room 31 To 32
 
 Migration32 only creates the local alarm state/cycle journal and its scheduling
