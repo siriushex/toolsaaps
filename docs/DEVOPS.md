@@ -1,5 +1,26 @@
 # DEVOPS
 
+## Independent Login Profile Boundary
+
+The owner selected a separate ChatGPT login and approved a new private profile.
+Only an empty service-owned0700 directory has been created and independently
+verified. It is persistent state, not one of the temporary transport-test roots.
+Existing authorization files and profiles remain unread and unchanged. The
+directory itself proves neither authentication nor successful model access.
+
+Before first login, capture the pinned client's supported device-code protocol
+with synthetic state in containment. Verify private-CA support, effective neutral
+headers, exact methods/routes, no extra egress, cancellation and bounded private
+state writes. Keep one serialized owner profile and preserve atomic refreshes.
+Present a real one-time code only directly to its initiating owner, never to
+application logs, this project's artifacts, model context or source control.
+Login/provider refusal must not broaden routes or switch credential/billing mode.
+
+Rollback can remove only the original newly created, still-empty directory after
+identity verification. If state appears or identity changes, preserve it and
+inspect; do not recursively delete it or overwrite it with an old snapshot.
+No login worker, authentication gateway, model request or API is enabled here.
+
 ## Public Transport Validation Boundary
 
 The owner-approved anonymous check recorded in AI_NOTES passed actual public

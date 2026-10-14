@@ -1,5 +1,17 @@
 # PLAN
 
+## Independent Login Profile (2026-10-14)
+
+- Owner approved one new private profile for separate ChatGPT login. Sixteen
+  private creation/admission/rollback tests passed; fresh remote admission and
+  independent post-creation checks confirmed an empty service-owned0700 directory.
+  No old authorization, existing service/configuration or phone was touched.
+- Pinned official source identifies device-code account login and neutral client
+  initialization as the next candidate. Actual contained protocol/header/TLS and
+  private-state/cancellation verification precede real owner participation.
+  No authenticated inference, history ingestion, contextual chat or therapy gate
+  is satisfied by profile creation. Operational receipts remain private.
+
 ## Public Transport Validation (2026-10-14)
 
 - Added inactive observed profile/strict status-only receipt; unchanged original

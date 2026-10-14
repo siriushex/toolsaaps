@@ -1,3 +1,25 @@
+# Independent Login Profile - 2026-10-14
+
+- Owner selected a separate ChatGPT account login, not an API key, and approved
+  one new private service profile. Created only the initially empty directory;
+  no old authorization/profile was read, copied, mounted or replaced.
+- Sixteen private filesystem checks passed before mutation: existing directory,
+  file, symlink and dangling link refusals, parent metadata/permission drift,
+  private ownership/mode and conservative failure cleanup. Fresh remote parent
+  admission preceded exclusive creation; independent stat and entry count then
+  confirmed the original receipt identity, service ownership, mode0700 and empty
+  contents. No existing service or configuration changed.
+- Read-only official pinned-source inspection identifies a candidate app-server
+  device-code login path and neutral client initialization. Source inspection is
+  not installed-client or outgoing-header verification. A contained synthetic
+  protocol/TLS/state test remains required before real owner authorization.
+- No real login, model request, medical data transfer, phone operation or therapy
+  change. The new persistent directory is retained; never remove nonempty login
+  state as routine temporary-test cleanup. Operational evidence stays private.
+- Previous public-transport source commit completed both exact-SHA Verify events:
+  backend498 passed/26 optional engine skips and Android tests/lint/build passed.
+  All26 engine cases ran locally within524 passing tests. No release or merge.
+
 # Public Transport Validation - 2026-10-14
 
 - Continued the approved anonymous HEAD-only gateway stage, with no login,
