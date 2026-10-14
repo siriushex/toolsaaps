@@ -6,7 +6,15 @@ import json
 import os
 from pathlib import Path
 import resource
+import re
+import stat
 import subprocess
+
+
+# Exact native filesystem compatibility names, never probe or session labels.
+STATE_ROOT = ".codex"
+ALIAS_PREFIX = "codex-arg0"
+ALIASES = {"apply_patch", "applypatch", "codex-linux-sandbox", "codex-execve-wrapper"}
 
 
 def verify_isolation(*, uid: int, status: str, interfaces: set[str],
@@ -24,6 +32,43 @@ def verify_isolation(*, uid: int, status: str, interfaces: set[str],
 def verify_version(code: int, output: bytes, error: bytes) -> None:
     if code != 0 or output != b"codex-cli 0.153.4\n" or error:
         raise ValueError("exact quiet version check failed")
+
+
+def verify_scratch_state(home: Path) -> dict:
+    def directory(path: Path, *, private: bool = False) -> None:
+        metadata = path.lstat()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid()
+                or mode & 0o022 or (private and mode != 0o700)):
+            raise ValueError("unexpected scratch directory")
+
+    directory(home, private=True)
+    if not list(home.iterdir()):
+        return {"directories": 0, "files": 0, "links": 0}
+    state = home / STATE_ROOT
+    temporary = state / "tmp"
+    aliases = temporary / "arg0"
+    for parent, child in ((home, state), (state, temporary), (temporary, aliases)):
+        if set(parent.iterdir()) != {child}:
+            raise ValueError("unexpected profile state")
+        directory(child, private=child == aliases)
+    groups = list(aliases.iterdir())
+    if len(groups) != 1 or not re.fullmatch(re.escape(ALIAS_PREFIX) + r"[A-Za-z0-9]{6}", groups[0].name):
+        raise ValueError("unexpected alias group")
+    group = groups[0]
+    directory(group, private=True)
+    if {path.name for path in group.iterdir()} != ALIASES | {".lock"}:
+        raise ValueError("unexpected scratch files")
+    lock = (group / ".lock").lstat()
+    if not stat.S_ISREG(lock.st_mode) or lock.st_size != 0 or lock.st_uid != os.geteuid():
+        raise ValueError("unexpected scratch lock")
+    for name in ALIASES:
+        path = group / name
+        metadata = path.lstat()
+        if (not stat.S_ISLNK(metadata.st_mode) or metadata.st_uid != os.geteuid()
+                or os.readlink(path) != "/work/client"):
+            raise ValueError("unexpected alias link")
+    return {"directories": 4, "files": 1, "links": len(ALIASES)}
 
 
 def main() -> None:
@@ -52,10 +97,9 @@ def main() -> None:
                             env={"HOME": str(home), "TMPDIR": "/tmp", "PATH": "/usr/bin:/bin"},
                             capture_output=True, timeout=12)
     verify_version(result.returncode, result.stdout, result.stderr)
-    if list(home.iterdir()):
-        raise ValueError("unexpected profile write")
+    scratch = verify_scratch_state(home)
     print(json.dumps({"version": "0.153.4", "offline": True, "nonroot": True,
-                      "capabilities": 0, "profile_entries": 0,
+                      "capabilities": 0, "scratch": scratch,
                       "version_output_sha256": hashlib.sha256(result.stdout).hexdigest()}))
 
 

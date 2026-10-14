@@ -1,5 +1,15 @@
 # Pinned Native Build Validation - 2026-10-14
 
+- Auditing native startup showed that --version still creates helper aliases
+  before argument parsing. Replaced the invalid zero-scratch assumption with a
+  strict filesystem contract: only the native four-directory alias tree, one
+  empty lock and four exact links to the mounted client; no auth/config/history
+  files, other link target, nonprivate alias group or extra state. Six initial
+  guard regressions failed before implementation. All fixtures use neutral names;
+  production literals only reference the pinned native filesystem protocol.
+  All33 Python tests and local Ruff/whitespace checks passed with the bounded
+  scratch contract. The Linux build/protocol result is not inferred from them.
+
 - Early namespace preflight refused the initial Bubblewrap invocation: its
   --uid option requires a user namespace. Kept the planned minimal mount and
   private PID/network/IPC/UTS namespaces; a narrowly privileged setup process now

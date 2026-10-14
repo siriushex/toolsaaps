@@ -63,8 +63,13 @@ UTS namespaces, UID65534, no effective capabilities, no-new-privileges, cleared
 environment, empty private home and time/CPU/address-space/process limits. Only
 system runtime files, the binary and checker are mounted. The checker verifies
 the network namespace differs from the host and has no external interfaces,
-rejects host state mounts and requires exact quiet version output with no profile
-write. This does not test a real login, TLS headers, model access or cancellation.
+rejects host state mounts and requires exact quiet version output. Native startup
+creates helper aliases even before parsing --version, so the fresh private home
+may contain only its exact bounded scratch tree: four directories, one empty lock
+and four links to the mounted client. Any authorization/config/history file,
+different path/link/type, nonempty lock or nonprivate alias group is refused.
+Only counts are reported. This does not test a real login, TLS headers, model
+access or cancellation, and no existing owner profile is mounted.
 
 ## Limits
 

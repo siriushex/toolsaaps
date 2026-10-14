@@ -179,5 +179,69 @@ class LockMetadataTests(unittest.TestCase):
             self.validate()
 
 
+class ScratchStateTests(unittest.TestCase):
+    def setUp(self):
+        self.module = load_helper("offline_smoke")
+        self.directory = tempfile.TemporaryDirectory(prefix="version-home-")
+        self.addCleanup(self.directory.cleanup)
+        self.home = Path(self.directory.name)
+        self.aliases = {"helper-a", "helper-b", "helper-c", "helper-d"}
+        for name, value in (("STATE_ROOT", "state"), ("ALIAS_PREFIX", "helper-"),
+                            ("ALIASES", self.aliases)):
+            if hasattr(self.module, name):
+                manager = patch.object(self.module, name, value)
+                manager.start()
+                self.addCleanup(manager.stop)
+
+    def validate(self):
+        self.assertTrue(hasattr(self.module, "verify_scratch_state"), "bounded scratch-state guard missing")
+        return self.module.verify_scratch_state(self.home)
+
+    def populate(self):
+        self.group = self.home / "state/tmp/arg0/helper-ABC123"
+        self.group.mkdir(parents=True, mode=0o700)
+        self.group.parent.chmod(0o700)
+        (self.group / ".lock").touch()
+        for name in self.aliases:
+            (self.group / name).symlink_to("/work/client")
+
+    def test_empty_home_admitted(self):
+        self.assertEqual(self.validate(), {"directories": 0, "files": 0, "links": 0})
+
+    def test_only_bounded_native_alias_scratch_admitted(self):
+        self.populate()
+        self.assertEqual(self.validate(), {"directories": 4, "files": 1, "links": 4})
+
+    def test_unexpected_state_refused(self):
+        self.populate()
+        (self.home / "state/unexpected-state").write_text("synthetic-state")
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_nonempty_lock_refused(self):
+        self.populate()
+        (self.group / ".lock").write_text("synthetic-state")
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_external_alias_target_refused(self):
+        self.populate()
+        path = self.group / "helper-a"
+        path.unlink()
+        path.symlink_to("/unexpected")
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_nonprivate_or_multiple_alias_groups_refused(self):
+        self.populate()
+        self.group.chmod(0o755)
+        with self.assertRaises(ValueError):
+            self.validate()
+        self.group.chmod(0o700)
+        (self.group.parent / "helper-DEF456").mkdir(mode=0o700)
+        with self.assertRaises(ValueError):
+            self.validate()
+
+
 if __name__ == "__main__":
     unittest.main()
