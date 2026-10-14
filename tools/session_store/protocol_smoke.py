@@ -28,6 +28,16 @@ PUBLIC_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 SAMPLE_CODE = "SAMPLE-42"
 
 
+def verify_name_mapping(etc: Path) -> None:
+    for name, content in (("hosts", "127.0.0.1 login.example.test\n"),
+                          ("nsswitch.conf", "hosts: files\n")):
+        path = etc / name
+        metadata = path.lstat()
+        if (not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o644
+                or path.read_text() != content):
+            raise ValueError("synthetic file-only name mapping rejected")
+
+
 def verify_headers(items: list[tuple[str, str]]) -> None:
     headers = {key.lower(): value for key, value in items}
     if len(headers) != len(items):
@@ -310,6 +320,7 @@ def main():
                      current_ns=os.readlink("/proc/self/ns/net"))
     if any(Path(path).exists() for path in ("/root", "/home", "/run", "/var")):
         raise ValueError("unexpected host state mount")
+    verify_name_mapping(Path("/etc"))
     resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))

@@ -28,6 +28,7 @@ sudo -n chown 65534:65534 "$scratch/peer.key" "$scratch/wrong.key"
 chmod 644 "$scratch/ca.pem" "$scratch/peer.pem" "$scratch/wrong.pem"
 printf '127.0.0.1 login.example.test\n' > "$scratch/hosts"
 printf 'hosts: files\n' > "$scratch/nsswitch.conf"
+chmod 644 "$scratch/hosts" "$scratch/nsswitch.conf"
 host_net="$(readlink /proc/self/ns/net)"
 check_args=("$host_net")
 if [[ "${2:-}" == --preflight ]]; then check_args+=(--preflight); fi

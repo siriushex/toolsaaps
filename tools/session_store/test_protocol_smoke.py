@@ -106,6 +106,24 @@ class ProtocolGuards(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn(b"--preflight", result.stdout)
 
+    def test_private_dns_mapping_must_be_exact_and_readable_after_uid_drop(self):
+        self.assertTrue(hasattr(self.module, "verify_name_mapping"), "name-map admission missing")
+        with tempfile.TemporaryDirectory(prefix="peer-mapping-") as name:
+            root = Path(name)
+            for filename, content in (("hosts", "127.0.0.1 login.example.test\n"),
+                                      ("nsswitch.conf", "hosts: files\n")):
+                path = root / filename
+                path.write_text(content)
+                path.chmod(0o644)
+            self.module.verify_name_mapping(root)
+            (root / "hosts").chmod(0o600)
+            with self.assertRaises(ValueError):
+                self.module.verify_name_mapping(root)
+            (root / "hosts").chmod(0o644)
+            (root / "nsswitch.conf").write_text("hosts: files dns\n")
+            with self.assertRaises(ValueError):
+                self.module.verify_name_mapping(root)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,11 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- First Linux preflight stopped before native execution: the process-local077
+  creation mask also made the new public hosts/nsswitch files unreadable after
+  UID drop. Set0644 only on these fresh nonsecret read-only mounts; peer private
+  keys remain0600. Added exact file-only content/mode admission and a regression
+  that failed before implementation. All45 tooling cases now pass locally.
+
 - Added a CI-only harness for the pinned actual stdio app-server, fresh private
   CA/local TLS peer and supported development issuer override. No real provider,
   installed binary/profile, phone, medical data, model or therapy path is used.
