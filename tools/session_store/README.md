@@ -40,12 +40,24 @@ checks its peeled commit, clean full checkout, native lock and toolchain hashes.
 `native_build.py prepare` applies the same three-path patch and creates an
 external digest receipt. `verify` refuses later source/lock/helper drift.
 
+The published upstream tag has a pre-existing release metadata mismatch: all149
+local packages remain version0.0.0 in Cargo.lock while their manifests inherit
+0.153.4. Before the locked build, Cargo's `update --workspace` repairs that
+metadata in the disposable checkout. `record-lock` parses both lockfiles and
+admits exactly those149 version fields. Every external version, source, checksum,
+dependency list and other field must remain identical. Original and derived lock
+digests are both recorded. Any additional change stops before compilation; no
+unlocked build or dependency substitution is allowed. The original storage patch
+still touches only three source paths; the separately admitted metadata repair
+adds the lockfile as the fourth changed path in the full-build checkout.
+
 Native Rust1.95.0 builds the login library tests and actual CLI with `--locked`
 and the upstream `dev-small` profile, two compile jobs and a90-minute job limit.
 This is a development validation build, not a release or reproducibility claim.
 No binary is uploaded or deployed. CI records source/patch/toolchain/binary
 digests; these bind the observed build, not an independently signed attestation.
 
+An isolation-only preflight precedes compilation and does not execute a client.
 The version-only smoke uses a fresh minimal mount root, private PID/network/IPC/
 UTS namespaces, UID65534, no effective capabilities, no-new-privileges, cleared
 environment, empty private home and time/CPU/address-space/process limits. Only

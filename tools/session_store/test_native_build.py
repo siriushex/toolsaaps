@@ -1,8 +1,10 @@
 import hashlib
 import importlib.util
+import copy
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -119,6 +121,56 @@ class OfflineSmokeTests(unittest.TestCase):
                        (0, b"codex-cli 0.153.4\n", b"warning")):
             with self.subTest(result=result), self.assertRaises(ValueError):
                 self.module.verify_version(*result)
+
+    def test_preflight_help_does_not_touch_runtime_state(self):
+        result = subprocess.run([sys.executable, str(HERE / "offline_smoke.py"), "--help"],
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(b"--preflight", result.stdout)
+
+
+class LockMetadataTests(unittest.TestCase):
+    def setUp(self):
+        self.module = load_helper("native_build")
+        self.original = {"version": 4, "package": [
+            {"name": "local-component", "version": "0.0.0", "dependencies": ["remote-library"]},
+            {"name": "remote-library", "version": "1.2.3", "source": "registry+https://example.invalid/index",
+             "checksum": "1" * 64},
+        ]}
+        self.updated = copy.deepcopy(self.original)
+        self.updated["package"][0]["version"] = "0.153.4"
+
+    def validate(self):
+        self.assertTrue(hasattr(self.module, "verify_lock_metadata"), "metadata-only lock guard missing")
+        return self.module.verify_lock_metadata(self.original, self.updated)
+
+    def test_only_local_version_metadata_admitted(self):
+        self.assertEqual(self.validate(), 1)
+
+    def test_dependency_version_source_checksum_and_fields_refused(self):
+        for field, value in (("version", "1.2.4"), ("source", "git+https://example.invalid/source#" + "2" * 40),
+                             ("checksum", "2" * 64), ("dependencies", ["unexpected"])):
+            with self.subTest(field=field):
+                updated = copy.deepcopy(self.updated)
+                updated["package"][1][field] = value
+                self.assertTrue(hasattr(self.module, "verify_lock_metadata"), "metadata-only lock guard missing")
+                with self.assertRaises(ValueError):
+                    self.module.verify_lock_metadata(self.original, updated)
+
+    def test_added_or_removed_package_refused(self):
+        self.updated["package"].pop()
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_wrong_local_version_refused(self):
+        self.updated["package"][0]["version"] = "0.154.0"
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_lock_metadata_changes_refused(self):
+        self.updated["version"] = 3
+        with self.assertRaises(ValueError):
+            self.validate()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 """Prepare and verify one clean, pinned upstream checkout; no client execution."""
 
 import argparse
+import copy
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
 import subprocess
+import tomllib
 
 import session_patch_bundle as bundle
 
@@ -69,6 +71,20 @@ def verify_inputs(root: Path) -> None:
     verify_pinned_file(root / TOOLCHAIN, TOOLCHAIN_SHA256)
 
 
+def verify_lock_metadata(original: dict, updated: dict) -> int:
+    expected = copy.deepcopy(original)
+    count = 0
+    for package in expected["package"]:
+        if "source" not in package:
+            if package["version"] != "0.0.0":
+                raise ValueError("unexpected original workspace version")
+            package["version"] = "0.153.4"
+            count += 1
+    if updated != expected or not count:
+        raise ValueError("lock changes exceed workspace version metadata")
+    return count
+
+
 def verify_outputs(root: Path, receipt: dict) -> None:
     expected = {
         "schema": 1, "source_ref": bundle.UPSTREAM_REF, "source_commit": UPSTREAM_COMMIT,
@@ -80,12 +96,25 @@ def verify_outputs(root: Path, receipt: dict) -> None:
         raise ValueError("build receipt identity rejected")
     if git(root, "rev-parse", "HEAD").decode().strip() != UPSTREAM_COMMIT:
         raise ValueError("source commit changed")
-    verify_inputs(root)
+    verify_pinned_file(root / TOOLCHAIN, TOOLCHAIN_SHA256)
+    changed = CHANGED
+    if "normalized_lock_sha256" in receipt:
+        original = git(root, "show", f"HEAD:{LOCK}")
+        if hashlib.sha256(original).hexdigest() != LOCK_SHA256:
+            raise ValueError("original lock identity rejected")
+        count = verify_lock_metadata(tomllib.loads(original.decode()),
+                                     tomllib.loads((root / LOCK).read_text()))
+        if count != 149 or receipt.get("workspace_metadata_updates") != count:
+            raise ValueError("workspace metadata count rejected")
+        verify_pinned_file(root / LOCK, receipt["normalized_lock_sha256"])
+        changed = CHANGED | {LOCK}
+    else:
+        verify_pinned_file(root / LOCK, LOCK_SHA256)
     tracked = git(root, "diff", "HEAD", "--name-only", "-z").decode().split("\0")
     untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z").decode().split("\0")
-    if (set(tracked) | set(untracked)) - {""} != CHANGED:
+    if (set(tracked) | set(untracked)) - {""} != changed:
         raise ValueError("unexpected source changes")
-    digests = {relative: file_digest(root / relative) for relative in sorted(CHANGED)}
+    digests = {relative: file_digest(root / relative) for relative in sorted(changed)}
     if digests != receipt.get("files"):
         raise ValueError("patched source changed")
     if (root / MODULE).read_bytes() != (bundle.HERE / "src/lib.rs").read_bytes():
@@ -112,7 +141,7 @@ def prepare(root: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("prepare", "verify"))
+    parser.add_argument("operation", choices=("prepare", "record-lock", "verify"))
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
     args = parser.parse_args()
@@ -126,7 +155,15 @@ def main() -> None:
             target.write("\n")
     else:
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+        if args.operation == "record-lock":
+            if "normalized_lock_sha256" in receipt:
+                raise ValueError("lock receipt already recorded")
+            receipt["normalized_lock_sha256"] = file_digest(root / LOCK)
+            receipt["workspace_metadata_updates"] = 149
+            receipt["files"][LOCK] = receipt["normalized_lock_sha256"]
         verify_outputs(root, receipt)
+        if args.operation == "record-lock":
+            args.receipt.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(receipt, sort_keys=True))
 
 

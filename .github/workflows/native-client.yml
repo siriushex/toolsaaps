@@ -49,6 +49,23 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev bubblewrap
           rustc +1.95.0 --version --verbose
           df -h "$RUNNER_TEMP"
+      - name: Offline namespace preflight
+        run: |
+          set -euo pipefail
+          host_net="$(readlink /proc/self/ns/net)"
+          timeout --signal=TERM --kill-after=3s 25s sudo -n setpriv --no-new-privs bwrap \
+            --unshare-pid --unshare-net --unshare-ipc --unshare-uts \
+            --die-with-parent --new-session --cap-drop ALL --uid 65534 --gid 65534 \
+            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib \
+            --symlink usr/lib64 /lib64 --proc /proc --dev /dev --tmpfs /tmp \
+            --dir /work --ro-bind "$GITHUB_WORKSPACE/tools/session_store/offline_smoke.py" /work/check.py \
+            --chdir /work --clearenv --setenv PATH /usr/bin:/bin \
+            -- /usr/bin/python3 /work/check.py "$host_net" --preflight
+      - name: Normalize only upstream workspace version metadata
+        working-directory: ${{ runner.temp }}/native-source/codex-rs
+        run: cargo +1.95.0 update --workspace
+      - name: Admit metadata-only lock delta
+        run: python3 tools/session_store/native_build.py record-lock --source-root "$RUNNER_TEMP/native-source" --receipt "$RUNNER_TEMP/build-receipt.json"
       - name: Native login component tests
         working-directory: ${{ runner.temp }}/native-source/codex-rs
         run: cargo +1.95.0 test --locked --profile dev-small -p codex-login --lib -- --test-threads=2

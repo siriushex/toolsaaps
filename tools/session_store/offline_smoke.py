@@ -1,12 +1,12 @@
 """Version-only check inside a pre-created minimal Linux mount/network namespace."""
 
+import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
 import resource
 import subprocess
-import sys
 
 
 def verify_isolation(*, uid: int, status: str, interfaces: set[str],
@@ -26,16 +26,23 @@ def verify_version(code: int, output: bytes, error: bytes) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("host_namespace")
+    parser.add_argument("--preflight", action="store_true")
+    args = parser.parse_args()
     resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
     interfaces = {line.split(":", 1)[0].strip() for line in Path("/proc/net/dev").read_text().splitlines()
                   if ":" in line}
     verify_isolation(uid=os.geteuid(), status=Path("/proc/self/status").read_text(),
-                     interfaces=interfaces, host_ns=sys.argv[1],
+                     interfaces=interfaces, host_ns=args.host_namespace,
                      current_ns=os.readlink("/proc/self/ns/net"))
     if any(Path(path).exists() for path in ("/root", "/home", "/run", "/var")):
         raise ValueError("unexpected host state mount")
+    if args.preflight:
+        print(json.dumps({"isolation_preflight": True, "client_executed": False}))
+        return
     home = Path("/tmp/session")
     home.mkdir(mode=0o700)
     result = subprocess.run(["/work/client", "--version"],

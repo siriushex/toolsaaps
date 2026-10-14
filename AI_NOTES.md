@@ -1,5 +1,16 @@
 # Pinned Native Build Validation - 2026-10-14
 
+- First complete Linux attempt failed before compilation because the official
+  release tag's149 internal lock entries retain0.0.0 while the manifests inherit
+  0.153.4. Native Cargo metadata on the clean unpatched checkout confirmed all149
+  mismatches. This is unrelated to moving the already locked tempfile dependency.
+- Cargo's workspace-only update on the local disposable full checkout changed
+  exactly149 version fields. Added strict parsed lock equality allowing only
+  those fields, recording both digests; external versions, sources, checksums
+  and dependency lists are unchanged. All builds/tests remain --locked. Initial
+  guard regressions failed; all26 Python tests now pass. Linux retry remains
+  pending. Added an isolation-only preflight before expensive compilation.
+
 - Retrieved the complete official source for the fixed reference. It is an
   annotated tag pointing to commit3d2ee51ca2d5db578f328aa75e20aa22c0197c9a,
   not itself a commit. Git object validation and the existing source-bound
