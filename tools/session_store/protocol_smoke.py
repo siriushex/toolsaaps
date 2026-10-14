@@ -27,6 +27,13 @@ POLL = "/api/accounts/deviceauth/token"
 PUBLIC_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 SAMPLE_CODE = "SAMPLE-42"
 MODES = ("cancel", "terminate", "untrusted", "wrong-name", "refused", "malformed")
+OS_LOOKUPS = {"lsb_release": "-a", "getconf": "LONG_BIT"}
+
+
+def native_command() -> list[str]:
+    return ["/work/client", "-c", 'cli_auth_credentials_store="file"',
+            "-c", "analytics.enabled=false", "-c", "check_for_update_on_startup=false",
+            "-c", "features.plugins=false", "app-server"]
 
 
 def native_environment(root: Path, *, trust: bool) -> dict:
@@ -116,16 +123,20 @@ def verify_trace(trace: str, *, expected_executable: str = "/work/client") -> di
         raise ValueError("unknown tracer entrypoint")
     executions = [line for line in trace.splitlines() if "execve(" in line]
     absent = []
+    lookup_counts = dict.fromkeys(OS_LOOKUPS, 0)
     for line in executions:
         path = re.search(r'execve\("([^"]+)", ', line)
-        if (path and line.endswith("= -1 ENOENT (No such file or directory)")
-                and '["lsb_release", "-a"]' in line):
+        if path and line.endswith("= -1 ENOENT (No such file or directory)"):
             value = path.group(1)
-            pattern = (r"/tmp/(?:" + "|".join(MODES) + r")/profile/tmp/arg0/"
-                       + re.escape(ALIAS_PREFIX) + r"[A-Za-z0-9]{6}/lsb_release")
-            if value == "/work/empty/lsb_release" or re.fullmatch(pattern, value):
-                absent.append(line)
-    if len(absent) > 16:
+            for program, argument in OS_LOOKUPS.items():
+                pattern = (r"/tmp/(?:" + "|".join(MODES) + r")/profile/tmp/arg0/"
+                           + re.escape(ALIAS_PREFIX) + r"[A-Za-z0-9]{6}/" + re.escape(program))
+                if (f'["{program}", "{argument}"]' in line
+                        and (value == f"/work/empty/{program}" or re.fullmatch(pattern, value))):
+                    absent.append(line)
+                    lookup_counts[program] += 1
+                    break
+    if any(count > 16 for count in lookup_counts.values()):
         raise ValueError("OS lookup budget exceeded")
     executions = [line for line in executions if line not in absent]
     connections = [line for line in trace.splitlines() if "connect(" in line]
@@ -246,9 +257,7 @@ class Rpc:
         self.trace = root / "trace"
         self.process = subprocess.Popen(
             ["/usr/bin/strace", "-ff", "-qq", "-s", "256", "-o", str(self.trace),
-             "-e", "trace=execve,connect", "/work/client",
-             "-c", 'cli_auth_credentials_store="file"', "-c", "analytics.enabled=false",
-             "-c", "check_for_update_on_startup=false", "app-server"],
+             "-e", "trace=execve,connect", *native_command()],
             env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True, bufsize=0)
         self.selector = selectors.DefaultSelector()

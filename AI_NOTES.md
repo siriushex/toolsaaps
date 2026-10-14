@@ -1,5 +1,14 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Per-process audit identified blocked automatic git plugin-catalog sync and
+  pinned os_info bitness getconf lookups, not a proven trace interleaving bug.
+  Disable plugins with the supported features.plugins=false setting: pinned
+  Config maps it to plugins_enabled, which guards startup sync/marketplace tasks.
+  Keep git attempts refused; no new network/tool execution is allowed. Admit
+  only exact failed ENOENT getconf LONG_BIT OS lookups, at most16 per OS helper.
+  Two regressions failed first; all55 tooling tests pass locally. Actual retry
+  still pending; no production configuration/profile or model/permission change.
+
 - Separate-trace no-client preflight refused trace metadata before compilation.
   Set077 explicitly in the trusted namespace setup before the tracer starts,
   rather than relying on the host wrapper mask or the later Python setup.

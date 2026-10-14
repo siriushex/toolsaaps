@@ -2,6 +2,12 @@
 
 ## Synthetic Native Login Protocol (2026-10-14)
 
+- Actual native audit found automatic plugin-catalog git fetch attempts before
+  any model turn; the empty command path blocked them. The auth-only test now
+  explicitly disables plugins through the pinned supported feature setting.
+  Do not admit git/fetch or provider-unrelated network routes as login fallback.
+  Failed exact OS metadata lookups are separate from successful tool execution;
+  only bounded ENOENT lsb_release/getconf lookups at fixed search paths qualify.
 - CI-only peers use fresh private TLS material in an isolated loopback-only
   network/PID/mount context. Nonroot/no-capabilities/no-new-privileges and cleared
   native environment are checked before execution; no host profile is mounted.

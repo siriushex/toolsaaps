@@ -229,6 +229,28 @@ class ProtocolGuards(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected child execution.*other_tool"):
             self.module.verify_trace(trace + '43 execve("/work/other_tool", ["other_tool"], 0x1) = 0\n')
 
+    def test_native_command_disables_plugins_without_changing_model_or_permission_mode(self):
+        self.assertTrue(hasattr(self.module, "native_command"), "fixed auth-only command missing")
+        command = self.module.native_command()
+        self.assertEqual(command[0], "/work/client")
+        self.assertEqual(command[-1], "app-server")
+        self.assertIn("features.plugins=false", command)
+        self.assertFalse(any("model=" in value or "sandbox_mode=" in value for value in command))
+
+    def test_getconf_lookup_may_fail_but_git_or_successful_helpers_are_refused(self):
+        trace = '42 execve("/work/client", ["/work/client"], 0x1) = 0\n'
+        absent = ('43 execve("/work/empty/getconf", ["getconf", "LONG_BIT"], 0x1) '
+                  '= -1 ENOENT (No such file or directory)\n')
+        try:
+            receipt = self.module.verify_trace(trace + absent)
+        except ValueError:
+            self.fail("missing pinned bitness-helper failure admission")
+        self.assertEqual(receipt["absent_os_lookups"], 1)
+        for bad in (absent.replace("= -1 ENOENT (No such file or directory)", "= 0"),
+                    absent.replace("getconf", "git"), absent * 17):
+            with self.assertRaises(ValueError):
+                self.module.verify_trace(trace + bad)
+
 
 if __name__ == "__main__":
     unittest.main()

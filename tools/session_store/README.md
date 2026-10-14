@@ -119,8 +119,8 @@ server runtime replacement.
 The native test uses an empty nonwritable command-search directory, not the
 system executable search path. Native platform warnings are not suppressed.
 Read-only public OS release metadata supports the pinned os_info library's
-normal file fallback. Its preceding exact lsb_release lookup may fail ENOENT;
-at most16 such attempts at the two fixed search locations are accepted, but
+normal file fallback. Its exact lsb_release -a and getconf LONG_BIT lookups may
+fail ENOENT; at most16 attempts per command at the two fixed search locations are accepted, but
 successful additional executable/tool invocation is refused. This constrained
 test environment is not a claim about a normally configured production PATH.
 The1GiB address-space ceiling stays unchanged. MALLOC_ARENA_MAX=2 is tested as
@@ -136,6 +136,11 @@ interleaving. Only owned0600 regular, single-link numeric-suffix trace files
 are read, with128-file/1MiB total limits; symlinks and extra filename shapes fail.
 Trace/private-state failures include bounded synthetic command/path context,
 not file bodies. Core-size allowance is zero for the contained process tree.
+The native CLI also starts plugin-catalog synchronization automatically. The
+auth-only command explicitly sets the supported features.plugins=false option;
+failed git attempts are not added to the audit allowlist. Pinned source gates
+startup marketplace/sync tasks on this feature. Model and permission modes are
+unchanged. Actual no-extra-execution/network validation still precedes real use.
 
 ## Limits
 
