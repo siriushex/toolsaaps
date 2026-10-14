@@ -1,5 +1,13 @@
 # Synthetic Native Login Protocol - 2026-10-14
 
+- Moved the final no-client process inventory into early preflight as well.
+  Distinguish the trusted root PID1 bwrap reaper (private PID namespace) from
+  UID65534 children; do not require ptrace access to the former, but fail on any
+  uninspectable owned process, foreign identity or surviving mounted client.
+  Root-owned PID1 is not mistaken for proof that other processes are gone;
+  post-exit host namespace-reference verification remains independent. New
+  regression failed first; all57 local tooling cases pass. Actual retry pending.
+
 - Latest cancel case passed its syscall audit (plugin git attempts absent), then
   refused native installation_id mode0644. Pinned core/installation_id.rs
   explicitly chmods this noncredential UUID on every read, so pre-seeding0600

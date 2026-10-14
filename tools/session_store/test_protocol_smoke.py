@@ -280,6 +280,31 @@ class ProtocolGuards(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.module.verify_private_state(root)
 
+    def test_cleanup_inventory_handles_trusted_init_without_hiding_owned_clients(self):
+        self.assertTrue(hasattr(self.module, "verify_no_native_processes"), "process inventory missing")
+        with tempfile.TemporaryDirectory(prefix="process-inventory-") as name:
+            proc = Path(name)
+            for pid, label, uid, executable in ((1, "bwrap", 0, "/usr/bin/bwrap"),
+                                                (2, "python3", 65534, "/usr/bin/python3.12")):
+                directory = proc / str(pid)
+                directory.mkdir()
+                (directory / "status").write_text(f"Name:\t{label}\nUid:\t{uid} {uid} {uid} {uid}\n")
+                (directory / "exe").symlink_to(executable)
+            original = self.module.os.readlink
+            def reader(path):
+                if Path(path).parent.name == "1":
+                    raise PermissionError("trusted init is not traceable")
+                return original(path)
+            with patch.object(self.module.os, "readlink", side_effect=reader):
+                self.assertEqual(self.module.verify_no_native_processes(proc), {"inspected": 1, "trusted_init": 1})
+            (proc / "2/exe").unlink()
+            (proc / "2/exe").symlink_to("/work/client")
+            with self.assertRaises(ValueError):
+                self.module.verify_no_native_processes(proc)
+            with patch.object(self.module.os, "readlink", side_effect=PermissionError):
+                with self.assertRaises(ValueError):
+                    self.module.verify_no_native_processes(proc)
+
 
 if __name__ == "__main__":
     unittest.main()

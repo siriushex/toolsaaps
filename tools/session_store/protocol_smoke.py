@@ -178,6 +178,31 @@ def read_trace(prefix: Path) -> str:
     return "".join(parts)
 
 
+def verify_no_native_processes(proc: Path = Path("/proc")) -> dict:
+    inspected, trusted_init = 0, 0
+    for directory in proc.iterdir():
+        if not directory.name.isdigit():
+            continue
+        try:
+            fields = dict(line.split(":", 1) for line in (directory / "status").read_text().splitlines() if ":" in line)
+            uids = fields.get("Uid", "").split()
+            if directory.name == "1" and uids == ["0"] * 4 and fields.get("Name", "").strip() == "bwrap":
+                trusted_init += 1
+                continue
+            if uids != ["65534"] * 4:
+                raise ValueError("unexpected process identity")
+            if os.readlink(directory / "exe") == "/work/client":
+                raise ValueError("native client survived teardown")
+            inspected += 1
+        except FileNotFoundError:
+            pass
+        except PermissionError:
+            raise ValueError("owned process is not inspectable") from None
+    if not inspected:
+        raise ValueError("missing process observer")
+    return {"inspected": inspected, "trusted_init": trusted_init}
+
+
 def verify_private_state(root: Path, *, max_bytes: int = 32 * 1024 * 1024) -> dict:
     total, count = 0, 0
     for path in [root, *root.rglob("*")]:
@@ -458,6 +483,7 @@ def main():
                 raise ValueError("TLS preflight mismatch")
         trace = verify_trace(read_trace(Path("/tmp/tls-preflight.trace")), expected_executable="/usr/bin/python3")
         print(json.dumps({"tls_preflight": True, "client_executed": False, "trace": trace,
+                          "processes": verify_no_native_processes(),
                           "private_namespace": os.readlink("/proc/self/ns/net")}))
         return
     receipts = []
@@ -465,13 +491,8 @@ def main():
         certificate = "/work/wrong.pem" if mode == "wrong-name" else "/work/peer.pem"
         key = "/work/wrong.key" if mode == "wrong-name" else "/work/peer.key"
         receipts.append(run_case(Path("/tmp") / mode, Path(certificate), Path(key), mode))
-    for path in Path("/proc").glob("[0-9]*/exe"):
-        try:
-            if os.readlink(path) == "/work/client":
-                raise ValueError("native client survived teardown")
-        except FileNotFoundError:
-            pass
     print(json.dumps({"synthetic_protocol": True, "external_network": False,
+                      "processes": verify_no_native_processes(),
                       "private_namespace": os.readlink("/proc/self/ns/net"), "cases": receipts}))
 
 

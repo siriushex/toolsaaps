@@ -147,6 +147,13 @@ profile/installation_id: owned regular/single-link, exactly36 bytes containing
 a canonical v4 UUID, mode0644, with all enclosing scratch directories still0700.
 Its value is never printed. Every other regular file remains0600 and auth.json
 is always forbidden. This is metadata compatibility, not credential admission.
+The no-client process inventory also runs in preflight. It admits the trusted
+root PID1 bwrap reaper in this launcher-created private PID namespace without
+ptracing it; every other process must retain the fixed nonroot identity and be
+inspectable, and no mounted client may remain. After exit, the independent host
+observer still requires complete namespace absence. This is not a process-name
+allowlist for arbitrary host workloads. See the
+[PID namespace behavior](https://github.com/containers/bubblewrap#sandboxing).
 
 ## Limits
 
