@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Signed Conversation Read
+
+The explicitly injected HistoryService also mounts POST history/conversations
+for full server chat pages. Existing owner/device proof and current-access gates
+apply; request identities cannot select another file. Separate4KiB request and
+128KiB response bounds preserve all existing route limits. Device/window-bound
+encrypted cursors fix membership in append order for15 minutes, with an original
+row/job anchor preventing rowid reuse after purge. Outcomes remain current per
+page, explicitly not a point-in-time snapshot. No migration/inference/write or
+default route activation. See the2026-10-15 server-conversation-query spec.
+
 ## Persistent Server Conversation
 
 An optional CHAT-only HistoryStore dependency records authenticated requests
@@ -12,8 +23,8 @@ automatically replayed or turned into fabricated success.
 
 ContextualChatWorker v2 includes bounded recent server exchanges as untrusted
 data, excluding the current question. Full stored text is not truncated, but
-model context excerpts disclose limits. This does not introduce a public archive
-endpoint or production launcher. See the2026-10-15 server-conversation spec for
+model context excerpts disclose limits. The signed read endpoint is described
+above; no production launcher is introduced. See the2026-10-15 server-conversation spec for
 migration, cancellation, retention and non-atomic ledger/archive failure windows.
 
 ## Contextual Native Text Adapter

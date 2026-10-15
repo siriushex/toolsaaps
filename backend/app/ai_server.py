@@ -368,9 +368,9 @@ def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, history=
         if not isinstance(history, HistoryService):
             raise ValueError("history_service_required")
 
-        def register_history_route(path, fields, operation):
+        def register_history_route(path, fields, operation, *, max_body=MAX_BODY_BYTES):
             post_fields[path] = fields
-            body_limits[path] = MAX_BODY_BYTES
+            body_limits[path] = max_body
             protected_paths.add(path)
             bound_auth_by_path[path] = history.preauthorize
 
@@ -387,6 +387,9 @@ def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, history=
         register_history_route(BASE+"/history/batches",{"batchId","records"},history.store.append)
         register_history_route(BASE+"/history/query",
             {"fromMs","untilMs","kinds","afterSequence","snapshotSequence","limit"},history.store.query)
+        from .ai.server_chat_query import FIELDS as CHAT_FIELDS, MAX_QUERY_BYTES
+        register_history_route(BASE+"/history/conversations", CHAT_FIELDS,
+                               history.store.query_chats, max_body=MAX_QUERY_BYTES)
 
     job_services = tuple(item for item in (jobs, meal_photo_jobs) if item is not None)
     detail_prefixes = []

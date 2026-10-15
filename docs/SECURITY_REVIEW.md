@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Signed Conversation Query (2026-10-15)
+
+- Existing preauthorization/exact proof/post-proof reauthorization gates protect
+  the explicitly injected owner/device read route. No body identity, bearer-only
+  fallback, cursor-only access or unbounded raw database export.
+- Encrypted continuation binds identity/window/membership/expiry. The anchor's
+  original job identity detects SQLite rowid reuse after purge; corrupt payload
+  checks refuse success. Outcomes remain current per page and unknown stays unknown.
+- Closed4KiB input, bounded SQL/time and128KiB full-text response limits have
+  synthetic tests. Reading does not create/migrate databases or run workers.
+- Updated test dependency pytest8.4.2 to9.0.3 for GHSA-6w46-j5rx-g56g. Other
+  dependency advisories, default-branch merge and actual host posture are separate.
+- Deployment still requires protected keys, encrypted volumes/backups, audited
+  retention/restore, real load limits, constrained runtime and Android E2E checks.
+
 ## Server Conversation Archive (2026-10-15)
 
 - Internal SERVER_ARCHIVE is not accepted by client history ingestion. Verified

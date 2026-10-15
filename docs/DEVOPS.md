@@ -1,5 +1,20 @@
 # DEVOPS
 
+## Conversation Query Verification
+
+Focused synthetic suites: test_ai_server_chat_query and test_ai_chat_query_transport.
+Full gate: PYTHONPATH=backend uv run --no-project --with-requirements
+backend/requirements.txt python -m pytest -q -rs backend/tests. The manifest now
+pins pytest9.0.3 to address GHSA-6w46-j5rx-g56g; refresh the test environment from
+that manifest. This does not deploy a runtime or close the default-branch alert.
+
+The optional owner-scoped history injection mounts history/conversations with
+its own4KiB/128KiB budgets. Preserve them in any future reverse proxy/client;
+do not widen jobs or observational-history limits. Signed-body query only, no
+URL credentials/filters or access logging. Cursor409 requires a fresh first
+page; fixed membership is not a historical outcome snapshot. No migration or
+database rewrite in this stage. Operational purge/key/load tests remain separate.
+
 ## Server Conversation Storage
 
 The optional CHAT service accepts chat_archive=HistoryStore. No default route,

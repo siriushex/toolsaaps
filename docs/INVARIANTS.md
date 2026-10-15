@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Signed Conversation Read
+
+- Full-text archive access requires current enrolled owner/device proof for each
+  exact body/path. A continuation token alone grants no authority or identity.
+- Page membership excludes later inserts. Missing/reused anchor and expired
+  cursor require restart; partial/corrupt scans cannot look complete.
+- Outcome state is current per page, not frozen with membership. Original expiry
+  still wins; unknown completion remains unknown and never starts a model replay.
+- Read does not migrate or create device databases. Full text is bounded by page
+  bytes, never silently truncated. Existing job/history route limits stay intact.
+
 ## Server Conversation Persistence
 
 - Only the trusted CHAT service writes SERVER_ARCHIVE. Device-declared source

@@ -1,12 +1,23 @@
 # PLAN
 
+## Signed Conversation Query (2026-10-15)
+
+- Added owner/device-signed full-text archive pages with bounded, identity/window-
+  bound continuation, append-membership snapshots and honest current outcome
+  timestamps. Read-only access uses existing HistoryService; no schema change.
+- Updated pytest to the fixed9.0.3 release for GHSA-6w46-j5rx-g56g. Full backend
+  validation and exact-head CI remain recorded independently in AI_NOTES.
+- Still required: constrained production supervisor/API composition, Android
+  history/server-chat adapters and actual key/storage/runtime/device validation.
+  The read API is not a deployment or full application AI activation.
+
 ## Server Conversation Archive (2026-10-15)
 
 - Previous9fcf0982 exact-head Verify passed all backend, Android and session jobs.
 - Implemented optional encrypted365-day server request/outcome persistence,
   additive schema2 migration, bounded follow-up context and failure/cancellation
   handling. Full synthetic verification and exact-head CI are tracked in AI_NOTES.
-- Still required: public signed archive retrieval/export, concrete constrained
+- Signed archive retrieval is implemented above. Still required: concrete constrained
   supervisor/nonroot API composition, Android history/chat wiring and measured
   storage/runtime/device rollout gates. No server/model/phone action in this stage.
 

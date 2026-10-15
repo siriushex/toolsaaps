@@ -697,3 +697,75 @@ class HistoryStore:
                 return result
             finally:
                 db.close()
+
+    def query_chats(self, owner: str, device: str, body: bytes, *, now_ms: int):
+        """Full-text read pages. Membership is fixed; outcomes are current per page."""
+        from .server_chat import decrypt_entry
+        from .server_chat_query import (
+            ArchiveCursor, MAX_RESPONSE_BYTES as CHAT_RESPONSE_BYTES, REVISION,
+            decode_cursor, decode_query as decode_chat_query, encode_cursor, public_entry,
+        )
+
+        query = decode_chat_query(body, now_ms=now_ms)
+        result = dict(revision=REVISION, origin="SERVER_ARCHIVE", generatedAtMs=now_ms,
+                      snapshotScope="MEMBERSHIP_ONLY", records=[], hasMore=False, nextCursor=None)
+        with self._locked():
+            self._identity(owner, device)
+            cursor = decode_cursor(self, owner, device, query, now_ms=now_ms)
+            db = self._open(owner, device, create=False)
+            if db is None:
+                if cursor is not None:
+                    raise HistoryError(409, "chat_cursor_stale")
+                return result
+            try:
+                db.execute("BEGIN")
+                if db.execute("PRAGMA user_version").fetchone()[0] == 1:
+                    if cursor is not None:
+                        raise HistoryError(409, "chat_cursor_stale")
+                    return result
+                stop_at = time.monotonic() + 5
+                remaining = 2000
+
+                def budget():
+                    nonlocal remaining
+                    remaining -= 1
+                    return int(remaining <= 0 or time.monotonic() >= stop_at)
+
+                db.set_progress_handler(budget, 1000)
+                if cursor is None:
+                    anchor = db.execute("SELECT rowid AS archive_row,* FROM server_chat ORDER BY rowid DESC LIMIT 1").fetchone()
+                    if anchor is None:
+                        return result
+                    cursor = ArchiveCursor(upperRow=anchor["archive_row"], upperJob=anchor["job_id"],
+                                           afterRow=0, issuedMs=now_ms)
+                else:
+                    anchor = db.execute("SELECT * FROM server_chat WHERE rowid=?", (cursor.upperRow,)).fetchone()
+                    if anchor is None or anchor["job_id"] != cursor.upperJob:
+                        # Without the original highest row, SQLite may reuse its
+                        # rowid after purge. Refuse the cursor instead of mixing pages.
+                        raise HistoryError(409, "chat_cursor_stale")
+                decrypt_entry(self, owner, device, anchor)
+                rows = db.execute(
+                    "SELECT rowid AS archive_row,* FROM server_chat WHERE rowid>? AND rowid<=? "
+                    "AND created_ms>=? AND created_ms<? AND updated_ms<=? AND expires_ms>? "
+                    "ORDER BY rowid LIMIT ?",
+                    (cursor.afterRow, cursor.upperRow, query.fromMs, query.untilMs,
+                     now_ms, now_ms, query.limit + 1)).fetchall()
+                last_row = cursor.afterRow
+                for row in rows:
+                    item = public_entry(decrypt_entry(self, owner, device, row), updated_ms=row["updated_ms"])
+                    if (len(result["records"]) >= query.limit
+                            or len(encoded(result)) + len(encoded(item)) + 2048 > CHAT_RESPONSE_BYTES):
+                        if not result["records"]:
+                            raise HistoryError(503, "chat_archive_unavailable")
+                        result["hasMore"] = True
+                        result["nextCursor"] = encode_cursor(self, owner, device, query,
+                            cursor.model_copy(update=dict(afterRow=last_row)))
+                        break
+                    result["records"].append(item)
+                    last_row = row["archive_row"]
+                if time.monotonic() >= stop_at or len(encoded(result)) > CHAT_RESPONSE_BYTES:
+                    raise HistoryError(503, "chat_archive_unavailable")
+                return result
+            finally:
+                db.close()

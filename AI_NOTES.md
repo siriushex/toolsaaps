@@ -1,3 +1,24 @@
+# Signed Conversation Read And Test Dependency - 2026-10-15
+
+- Added explicitly injected, owner/device-signed POST history/conversations for
+  complete server chat text after volatile result-cache expiry. Reuses current
+  access, exact-body/path proof and revocation gates; no default route or inference.
+- Closed4KiB queries and separately bounded128KiB pages retain full messages.
+  Encrypted15-minute cursors bind device/window/membership. Original row/job
+  anchor refuses stale rowid reuse; later inserts do not join the current scan.
+  Outcomes are current per page, explicitly not a historical state snapshot.
+- No schema mutation, old-database restore or real data access. Existing job and
+  observation limits are unchanged; storage/cursor errors disclose no raw payload.
+- Updated pytest8.4.2 to9.0.3 for moderate GHSA-6w46-j5rx-g56g. The actual test
+  runtime reports9.0.3. This is not a claim that the main-branch alert is closed.
+- Local full backend658passed/26existing Nginx skips/1existing Starlette warning;
+  37new cases. Scoped E/F lint passed with existing ai_server E731 and imported
+  fixture F811 exemptions; new code has no exemptions. Whitespace check passed.
+  Exact-head CI is independent. No Android, server/profile, provider or therapy
+  action. Constrained process/API composition and Android integration remain.
+- Reproduce: PYTHONPATH=backend uv run --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
 # Persistent Server Conversation - 2026-10-15
 
 - Added optional CHAT request/result archival in the existing private encrypted
