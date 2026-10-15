@@ -1,5 +1,20 @@
 # PLAN
 
+## Contextual Text Integration (2026-10-15)
+
+- Independent owner login and one admitted direct/text-only synthetic native
+  request succeeded with verified teardown. No application/medical rollout.
+- Added authenticated JobWork identity, bounded read-only device context and the
+  single-turn native text adapter; existing signed API is exercised end-to-end
+  with a synthetic contained process. Clinical algorithms and Android unchanged.
+- Local backend581passed/26existing Nginx skips/1existing warning,45new focused
+  cases and scoped lint passed before source publication. Exact-source Verify
+  is still an independent gate.
+- Next: narrow trusted supervisor plus unprivileged API bootstrap, persistent
+  server request/result archive, Android signed history/current-state export and
+  server-chat adapter. Then actual runtime/load/storage/phone checks. The adapter
+  alone is not full AI activation. See the2026-10-15 contextual-text spec.
+
 ## Runtime Candidate Delivery (2026-10-15)
 
 - Owner approved seven-day CI retention of the verified Linux candidate, not

@@ -526,3 +526,41 @@ class HistoryStore:
                     db.commit()
                 finally:
                     db.close()
+
+    def context_snapshot(self, owner: str, device: str, *, now_ms: int):
+        """Internal read-only context; a scan timeout never becomes partial success."""
+        from .history_context import HistoryContext
+
+        valid_time(now_ms)
+        with self._locked():
+            db = self._open(owner, device, create=False)
+            context = HistoryContext(now_ms=now_ms, snapshot=0)
+            if db is None:
+                return context.finish()
+            try:
+                db.execute("BEGIN")
+                context.snapshot = self._highwater(db)
+                stop_at = time.monotonic() + 5
+                instructions = 0
+
+                def budget():
+                    nonlocal instructions
+                    instructions += 1000
+                    return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
+
+                db.set_progress_handler(budget, 1000)
+                rows = db.execute(
+                    "SELECT r.* FROM history_records r WHERE r.event_ms>? AND r.event_ms<=? "
+                    "AND r.observed_ms<=? AND r.received_ms<=? AND r.deleted=0 AND NOT EXISTS "
+                    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
+                    "AND n.sequence>r.sequence) ORDER BY r.sequence",
+                    (max(0, now_ms - RETENTION_MS), now_ms, now_ms, now_ms))
+                cipher = self._cipher(owner, device)
+                for count, row in enumerate(rows, 1):
+                    if count > self.max_rows or time.monotonic() >= stop_at:
+                        raise HistoryError(503, "history_context_unavailable")
+                    context.add(dict(sequence=row["sequence"], receivedAtMs=row["received_ms"],
+                        record=self._read_record(owner, device, cipher, row)))
+                return context.finish()
+            finally:
+                db.close()

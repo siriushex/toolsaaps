@@ -1,3 +1,25 @@
+# Contextual Text Adapter - 2026-10-15
+
+- Moved the proven native text protocol shape into a bounded single-use adapter
+  with correlation, effective-settings, unknown-event/tool and final-answer checks.
+  Added exact direct/no-tools catalog transformation without changing model or
+  reasoning settings. Its injected IO is not an independent OS sandbox.
+- Signed JobWork now carries authenticated owner/device scope and acceptance time.
+  Added a read-only encrypted-history context scan with latest versions, original
+  expiry, clock/quality/context separation, bounded recent examples and explicit
+  omissions. Backfill arrival cannot displace newer events. No schema/data writes.
+- Connected these through ContextualChatWorker and existing executor settlement;
+  cancellation joins context reading and requires stop even after interrupted
+  process start. An injected signed API test covers device isolation through the
+  completed answer. No model/provider/network/phone/therapy calls in these tests.
+- All45 new focused cases and the full local backend581passed/26skipped/1warning
+  passed. Skips require an explicit Nginx engine binary; the existing Starlette
+  deprecation warning is unchanged. Scoped E/F lint and diff whitespace checks
+  passed. Exact-SHA CI remains separate. Production supervisor/bootstrap, server chat persistence and
+  Android upload/chat are still missing. Do not describe the app as AI-enabled.
+- Reproduce: PYTHONPATH=backend uv run --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
 # Runtime Candidate Package - 2026-10-15
 
 - First actual Linux run at2437c062 passed169 native tests/full CLI/provenance,

@@ -1,5 +1,21 @@
 # DEVOPS
 
+## Contextual Text Source Stage
+
+Run PYTHONPATH=backend uv run --no-project --with-requirements
+backend/requirements.txt python -m pytest -q backend/tests. Focused suites are
+test_ai_native_text, test_ai_history_context and test_ai_contextual_chat. All
+fixtures are synthetic; they do not launch systemd or call an upstream model.
+No migration, server/profile replacement or APK is included in this change.
+
+Before installing a production factory, independently pin native/catalog hashes,
+the new owner profile/control identities, official egress and kernel limits. The
+public API must not run as root. The narrow supervisor must serialize the profile,
+verify before releasing input and positively stop the original invocation before
+job settlement. Measure history scan/lock contention at the365-day volume; failures
+must stay explicit. Configure archive/key/purge/restore and then exercise signed
+device upload/chat; a synthetic adapter response is not deployment readiness.
+
 ## Inactive Profile Guard
 
 backend/app/ai/session_profile.py is not installed or injected anywhere. Local

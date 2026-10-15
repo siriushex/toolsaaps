@@ -6,6 +6,7 @@ whose stop receipt is independently verified by that worker implementation.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -29,6 +30,19 @@ class JobServiceError(Exception):
 
 
 @dataclass(frozen=True)
+class JobIdentity:
+    """Server-authenticated origin, never decoded from the question or history."""
+    owner_id: str
+    key_fingerprint: str
+
+    def __post_init__(self):
+        if (type(self.owner_id) is not str or str(UUID(self.owner_id)) != self.owner_id
+                or type(self.key_fingerprint) is not str
+                or not re.fullmatch(r"[0-9a-f]{64}", self.key_fingerprint)):
+            raise ValueError("invalid_job_identity")
+
+
+@dataclass(frozen=True)
 class JobWork:
     job_id: str
     request: ChatRequest | MealPhotoRequest
@@ -36,6 +50,8 @@ class JobWork:
     route_revision: str
     deadline_ms: int
     policy: JobPolicy
+    identity: JobIdentity
+    accepted_ms: int
 
 
 @dataclass(frozen=True)
@@ -247,7 +263,9 @@ class AiJobService:
         if created:
             work = JobWork(job_id=job.id, request=request, request_digest=digest,
                            route_revision=self.policy.route_revision,
-                           deadline_ms=deadline_ms, policy=self.policy)
+                           deadline_ms=deadline_ms, policy=self.policy,
+                           identity=JobIdentity(device.owner_id, device.key_fingerprint),
+                           accepted_ms=now_ms)
             rejection = None
             async with self._lock:
                 if not self.inference_ready:

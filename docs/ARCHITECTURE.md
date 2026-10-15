@@ -1,5 +1,23 @@
 # ARCHITECTURE
 
+## Contextual Native Text Adapter
+
+The optional ContextualChatWorker binds signed JobWork identity to one encrypted
+device history snapshot and one ephemeral native text turn. The immutable owner/
+device origin comes from verified authentication, not client payloads. Bounded
+latest-revision retrieval reports counts, UTC buckets, separate declared glucose
+cohorts, recent per-kind examples and omissions; record-weighted means are not TIR.
+No plaintext history, schema mutation or treatment inference is added.
+
+NativeTextSession checks exact thread/turn/model correlation, read-only settings,
+fixed byte/event limits and completed final output, refusing tools and unknown
+events. Direct tool-free catalog policy is mandatory in the trusted process.
+The injected process must independently verify OS containment and teardown;
+this module does not launch it. Existing JobExecutor controls result settlement.
+Server conversation archival, production supervisor/bootstrap, Android sync/chat
+and actual-device verification remain unimplemented integration work. See
+superpowers/specs/2026-10-15-contextual-text-adapter.md.
+
 ## Inactive Session Profile Guard
 
 session_profile is a trusted-host local control component, not an API/launcher.

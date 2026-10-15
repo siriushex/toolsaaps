@@ -199,7 +199,7 @@ def transport(service, tmp_path):
 
 def test_signed_chat_submit_retry_get_and_capabilities(transport, service):
     client, _, _, factory, _ = transport
-    _, key, tokens = activate(client, service)
+    owner, key, tokens = activate(client, service)
     capability_path = "/api/ai/v1/capabilities"
     capabilities = signed_get(client, key, tokens, capability_path)
     assert capabilities.status_code == 200
@@ -241,6 +241,9 @@ def test_signed_chat_submit_retry_get_and_capabilities(transport, service):
     assert work.request.text == "synthetic hello"
     assert work.policy.model == "trusted-server-model-v1"
     assert work.policy.allow_tools is work.policy.allow_actions is False
+    assert work.identity.owner_id == owner
+    assert work.identity.key_fingerprint == key_fingerprint(key)
+    assert work.accepted_ms == NOW + 2
 
 
 def test_job_proof_tampering_replay_and_idempotency_conflict_are_closed(transport, service):

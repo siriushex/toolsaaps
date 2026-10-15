@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Contextual Text Isolation
+
+- Worker history identity comes only from authenticated JobWork. No client field,
+  question, archived message or declared SERVER source grants identity/authority.
+- Latest eligible versions only; deletion, expiry, observation/receipt cutoff and
+  scan failure cannot produce stale resurrection or fabricated complete totals.
+- Samples and aggregates carry scope, quality and omissions. Unknown context is
+  not known calibration; record-weighted glucose means are never TIR/duration.
+- Context remains data, not system instructions or executable/therapy commands.
+  One native turn, exact model, direct dispatch and empty tool capabilities only.
+- No output publication before the existing executor's independent stop/settlement.
+  Cancelled process start still needs teardown; cancelled history reads are joined.
+- Injected protocol tests and containment flags are not OS proof or activation.
+  Production launcher, archive and Android wiring require their own verification.
+
 ## Session Profile Serialization
 
 - One trusted manifest maps one profile to one permanent private control root.

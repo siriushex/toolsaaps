@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Contextual Text Adapter (2026-10-15)
+
+- Bound owner/device identity is carried from verified authentication to worker
+  history lookup. Same-owner devices cannot select each other's history/results.
+- Existing AES-GCM metadata verification precedes descriptive context. Snapshot
+  transaction, original retention, revision/tombstone checks, wall/SQL/row/byte
+  bounds and explicit omissions prevent silent partial-completeness claims.
+- Raw imported chat and device source labels remain untrusted data. Prompt policy
+  separation is not a proof against all model hallucination/prompt injection;
+  deterministic no-tools/no-actions boundaries and no clinical writer remain.
+- Protocol rejects foreign replies, unsafe effective settings, unknown warnings,
+  server action requests and tool items. Direct catalog dispatch is required;
+  feature disabling alone is insufficient. No raw error/reasoning logging.
+- MUST before rollout: actual independently verified contained-process factory,
+  nonroot API/trusted-supervisor separation, durable server conversation archive,
+  storage retention/restore/load checks and real-device end-to-end verification.
+  There is no public production bootstrap or automatic therapy activation here.
+
 ## Inactive Session Profile Guard (2026-10-15)
 
 - Permanent private lock and durable marker prevent kernel-lock loss from being
