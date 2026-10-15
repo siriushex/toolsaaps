@@ -1,5 +1,13 @@
 # Runtime Candidate Package - 2026-10-15
 
+- First actual Linux run at2437c062 passed169 native tests/full CLI/provenance,
+  then packaging correctly stopped before protocol/upload because the input
+  executable had Cargo build hardlinks. The new regression reproduces that
+  refusal. Admit one/two links only for this trusted read-only build input and
+  copy bytes into a new single-link destination. Candidate/notice links remain
+  refused; do not unlink Cargo outputs or relax artifact validation. Record
+  input link count; retry the entire exact-source native/Verify gate.
+
 - Owner explicitly approved retaining the checked Linux runtime in GitHub CI
   for seven days. Retention is manual-dispatch opt-in only, not a release or
   deployment. No auth, profiles, logs, caches, medical data or databases enter

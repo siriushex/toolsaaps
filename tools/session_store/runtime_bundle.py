@@ -120,12 +120,14 @@ def consume(stream, limit, destination=None):
 
 
 @contextmanager
-def regular(path):
+def regular(path, *, cargo_output=False):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise ValueError("regular single-link file required")
+        # Cargo links its executable into the profile root; the destination is copied, not linked.
+        allowed_links = (1, 2) if cargo_output else (1,)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink not in allowed_links:
+            raise ValueError("regular file link count rejected")
         with os.fdopen(fd, "rb", closefd=False) as stream:
             yield stream
     finally:
@@ -235,7 +237,8 @@ def build(source, receipt, metadata, cargo, output, project_commit):
     put("licenses/index.json", encoded(index))
     binary = output / "bin/client"
     binary.parent.mkdir()
-    with regular(public_path(source / "codex-rs/target/dev-small/codex", [source])) as stream:
+    with regular(public_path(source / "codex-rs/target/dev-small/codex", [source]), cargo_output=True) as stream:
+        input_links = os.fstat(stream.fileno()).st_nlink
         binary_info = elf_info(stream)
         stream.seek(0)
         with binary.open("xb") as target:
@@ -246,7 +249,7 @@ def build(source, receipt, metadata, cargo, output, project_commit):
     (output / "manifest.json").write_bytes(encoded(manifest))
     digest = hashlib.sha256(encoded(manifest)).hexdigest()
     result = verify_directory(output, digest)
-    return {"manifest_sha256": digest, **result}
+    return {"manifest_sha256": digest, "build_input_links": input_links, **result}
 
 
 def verify_members(names, sizes, opener, expected_digest):

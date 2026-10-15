@@ -191,6 +191,11 @@ Actual exchange results require the exact-source native workflow to finish.
 packages the actual Linux ELF as `bin/client`, that receipt, the integration
 patch, upstream/patch licenses and a resolved Cargo dependency notice inventory.
 No profile, authorization, build cache, diagnostic log or database is included.
+Only the trusted Cargo executable input may have one or two hardlinks, because
+Cargo links the profile-root executable to its hashed build output. Its bytes
+are copied into an exclusively created single-link file, never linked. Candidate
+files and all other packaging inputs still require one link; CI records the
+observed executable input link count separately.
 The same packaged bytes run the offline version and all ten synthetic protocol/
 exchange cases. A final directory verification precedes any upload.
 

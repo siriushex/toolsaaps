@@ -56,8 +56,11 @@ class RuntimeBundleTests(unittest.TestCase):
                    "normalized_lock_sha256": "c" * 64, "workspace_metadata_updates": 149}
         return source, cargo, metadata, receipt
 
-    def build(self):
+    def build(self, linked_input=False):
         source, cargo, metadata, receipt = self.fixture()
+        if linked_input:
+            binary = source / "codex-rs/target/dev-small/codex"
+            os.link(binary, binary.with_name("compiled-alias"))
         with patch.object(self.module.native, "verify_outputs"), patch.object(self.module, "UPSTREAM_LICENSES", {
                 "LICENSE": hashlib.sha256((source / "LICENSE").read_bytes()).hexdigest(),
                 "NOTICE": hashlib.sha256((source / "NOTICE").read_bytes()).hexdigest()}):
@@ -70,6 +73,19 @@ class RuntimeBundleTests(unittest.TestCase):
         self.assertEqual(result["binary_sha256"], hashlib.sha256(sample_elf()).hexdigest())
         self.assertEqual(result["dependencies"], 1)
         self.assertFalse((candidate / "auth.json").exists())
+
+    def test_cargo_two_link_input_is_copied_to_single_link_candidate(self):
+        candidate, receipt = self.build(linked_input=True)
+        self.assertEqual(receipt["build_input_links"], 2)
+        self.assertEqual((candidate / "bin/client").stat().st_nlink, 1)
+        self.module.verify_directory(candidate, receipt["manifest_sha256"])
+
+    def test_notice_hardlinks_still_refused(self):
+        source, cargo, metadata, _ = self.fixture()
+        notice = next((cargo / "registry/src").glob("*/*/LICENSE-MIT"))
+        os.link(notice, self.root / "notice-alias")
+        with self.assertRaises(ValueError):
+            self.module.inventory(source, cargo, metadata, lambda *args: None)
 
     def test_elf_requires_linux_x64_dynamic_interpreter(self):
         self.module.elf_info(io.BytesIO(sample_elf()))
