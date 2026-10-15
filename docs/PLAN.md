@@ -10,12 +10,19 @@
   all-chain status checks pass121 focused tests.
 - [x] Final full backend1149 passed/27 existing skips; scoped lint/compilation
   and documentation/source review. Snapshot remains an operator-pinned input.
-- [ ] Source publication and exact-head CI.
-- [ ] Actual immutable image, expiring DNS/TLS/BPF admission/renewal, kernel and
-  exact lifecycle checks, private API stores/keys and authenticated device proof.
-- [ ] Synthetic provider/API proof, rollback verification and public activation.
+- [x] Source3b81c2a5 published; both exact-head Verify runs/all six jobs passed.
+- [x] Actual immutable image, expiring differential DNS/TLS/BPF admission/renewal,
+  kernel and exact lifecycle checks; separate nonroot API/private keys/stores.
+- [x] One actual synthetic provider turn, idle/stop confirmation; target-host
+  170-test synthetic storage/retention/restore/year-capacity gate passed.
+- [x] Readiness and socket/timer startup; private rollback and syntax-checked TLS
+  enrollment/API routing;11 public negative tests and503/recovery behavior.
+- [ ] Real hardware enrollment, signed phone history/chat and app acceptance.
+- [ ] Separate photo admission, daily worker/schedule and private admin delivery.
 
-No public route or model capability is activated by a source/import check.
+Text routing now exists after operational checks, not through a capability edit.
+No enrollment credential issued; full phone activation remains unverified. See
+DEVOPS.md. Android trust renewal remains an operator duty before seven-day expiry.
 
 ## Comparable Glucose History (2026-10-16)
 

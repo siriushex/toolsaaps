@@ -1,3 +1,31 @@
+# Owner Text API Operational Stage - 2026-10-16
+
+- Source3b81c2a5 published; both exact-head Verify runs/all six jobs succeeded.
+  User-authorized deployment installed its frozen Linux runtime separately from
+  earlier versions and preserved the original login/profile/controller binding.
+- Passed actual differential TLS/BPF controls, empty-profile kernel/start/stop/IO,
+  nonroot API storage startup and one real synthetic gpt-6-astra turn:OK,9.085s,
+  retries0,stop confirmed. Original profile independently idle; no running native
+  job. SDK alone used its auth mount; API/operator did not read/copy auth bodies.
+- Target-host synthetic store/context/owner/attestation/year suite:170passed,
+  one dependency warning;210241 encrypted records, cold3.664s/cache1.1319s/
+  restart3.4781s/external revision3.6287s,239.7MiB peak,zero swap. No budget,
+  encryption, revision, original-time retention or integrity guard weakened.
+- Corrected service startup defects without bypasses: a read-open-validated socket
+  parent needs0755, and API startup must wait for its PID-bound supervisor listener.
+  Added explicit readiness and a singleton five-minute public admission renewal;
+  expiry remains12minutes and failures close the owned API/socket.
+- Exact owned-site rollback saved privately, nginx syntax checked before reload.
+  Authenticated TLS enrollment/API routing now serves actual nonroot services;
+  eleven public negative checks passed. Explicit closure returns503; recovery401.
+  An early negative-probe path mistake and a probe racing the deliberate outage
+  are preserved privately; the corrected isolated complete run passed.
+- No phone enrollment credential issued, medical upload, phone stop/backup or
+  therapy command. ADB absent: hardware attestation and signed phone chat/history
+  remain pending, not inferred from401 or the controller model receipt. Photo,
+  daily model scheduling and admin are not enabled. Seven-day Android trust
+  refresh remains a separate trusted operator duty; see DEVOPS.md.
+
 # Owner API Activation Gate - 2026-10-16
 
 - User explicitly requested operational AI/API activation. Fresh host inspection

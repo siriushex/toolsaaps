@@ -1,5 +1,54 @@
 # DEVOPS
 
+## Owner Text API Rollout (2026-10-16)
+
+Source3b81c2a5 has passed both exact-head Verify runs (all six jobs). The
+owner-authorized Linux rollout now runs a separate nonroot HTTP API behind TLS
+and the existing proof/attestation boundary. The root Unix text controller alone
+launches the distinct contained native identity. Private keys/stores remain
+separate from the preserved owner profile; neither the API nor operator copied
+login credentials. No medical payload was used for deployment tests.
+
+Observed gates: differential permitted/denied TLS/BPF probes, actual empty-profile
+kernel/start/stop/IO checks, protected nonroot API startup, and exactly one real
+synthetic text turn (OK,9.085s,no retry). Independent checks found an idle original
+profile and no running native job. The target-host synthetic store/context/API/
+attestation/year suite passed170 tests. Its210241 encrypted records read in3.664s
+cold,1.1319s verified-cache,3.4781s after restart and3.6287s after another writer's
+revision, within unchanged budgets;239.7MiB peak,zero swap. These are synthetic
+capacity results, not actual phone archive completeness or clinical accuracy.
+
+The admitted deployment has PID-bound supervisor readiness, actual HTTP readiness,
+socket activation and a singleton public-only admission renewal every5minutes.
+Each renewal rechecks DNS/TLS and differential network denial before publishing a
+12-minute descriptor; it cannot change the model, profile, peer or private binding.
+Failure closes only the owned API/socket. Recovery of an unknown profile/job claim
+is still manual, never a reset or replay. Known public image inventory is bounded;
+reaching its maintenance limit also fails closed. Trust snapshots remain separately
+operator-pinned: renew them under controlled drain before their seven-day freshness
+limit. A successful network renewal does not renew Android trust.
+
+Only the owned nginx site changed, after an exact private rollback copy and syntax
+checks. It streams128KiB-bounded API bodies without disk body/response spooling or
+request logging, preserves signed headers/raw request paths and strips forwarded
+identity. Eleven public TLS negative checks passed, including401/400/404/405/413/
+415 behavior. Owned API closure yielded public503; restart restored401. A401 is
+access rejection, not a successful signed model exchange or device activation.
+
+No enrollment credential has been issued. Real hardware attestation, signed
+phone history/chat and app UI acceptance remain pending because ADB is absent.
+Public routing is the authenticated enrollment surface, not a bypass of that
+device gate. Do not replace hardware proof with a synthetic root or bearer-only
+fallback. The image supervisor/photo capability, daily model worker/schedule and
+private admin are not enabled by this text deployment. Do not claim full AI
+feature completion from the synthetic text receipt.
+
+Rollback: close the owned API/socket, drain its exact controller/native invocation,
+retain encrypted stores and any uncertain claims, verify the current site matches
+the installed digest and restore only its saved original site before nginx test/
+reload. Preserve original profile tokens and metadata. Operational configs,
+private receipts and logs are not source-publication artifacts.
+
 ## Photo Supervisor And Decoder
 
 The source CLI is app.ai.vision_supervisor_host, with the closed protected
