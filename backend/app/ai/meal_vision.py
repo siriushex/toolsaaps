@@ -1,6 +1,8 @@
 """Inactive typed food-photo adapter for a separately admitted contained worker.
 
-There is deliberately no native RPC implementation here. The repository pins
+The separate native_vision/contained_vision modules implement native RPC and
+the concrete process, but this module does not construct or activate them.
+The repository pins
 public native source commit 3d2ee51ca2d5db578f328aa75e20aa22c0197c9a in
 tools/session_store/native_build.py. Public v2 image-input schema and cached
 model image modality do not establish a contained runtime admission.
@@ -54,7 +56,7 @@ FOOD_ONLY_PROMPT = (
 NATIVE_VISION_BLOCKERS = (
     "pinned_image_schema_requires_runtime_admission",
     "exact_model_vision_capability_not_admitted",
-    "contained_vision_transport_and_shared_profile_guard_not_connected",
+    "contained_vision_host_and_shared_profile_guard_not_connected",
     "decoder_os_isolation_not_admitted",
 )
 

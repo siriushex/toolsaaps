@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Native Image Isolation
+
+- Fixed inline JPEG and food prompt only; no paths, remote URLs, clinical history,
+  tools, provider fallback or retry. Preserve model/reasoning metadata.
+- Text input/pipe/stream limits remain unchanged. Image echo and food-result
+  budgets belong only to the dedicated native vision path.
+- Exact invocation/cgroup stop AND successful terminated IO precede the shared
+  profile's idle journal write. IO failure retains bound state, never a reset.
+- Concrete source transport is not a host/decoder/channel admission or public
+  photo capability. No synthetic readiness or provider-result claim.
+
 ## Food Photo And Context Cache
 
 - CHAT readiness never grants IMAGE authority; validate the selected route.

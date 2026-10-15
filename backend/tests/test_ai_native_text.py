@@ -147,6 +147,11 @@ def test_limits_and_cancellation_are_not_retried():
         run([asyncio.CancelledError()])
 
 
+def test_invalid_unicode_input_is_a_fixed_error_before_native_io():
+    with pytest.raises(NativeTextError, match="input_limit"):
+        run([], text="\ud800")
+
+
 def test_session_and_containment_admission_cannot_be_reused():
     with pytest.raises(ValueError, match="contained"):
         NativeTextSession(Transport([]), POLICY, containment_verified=False)

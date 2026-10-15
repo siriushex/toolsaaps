@@ -1,5 +1,20 @@
 # PLAN
 
+## Contained Meal Vision (2026-10-15)
+
+- [x] Reproduce the missing native image path and locate the explicit public503.
+- [x] Add dedicated pinned v2 inline image protocol, exact modality checks and
+  concrete process transport with independent image budgets; share strict checks.
+- [x] Fix shared profile idle ordering after independent IO confirmation.
+- [x] Focused protocol/process/profile tests, including actual local child pipes.
+- [x] Full backend994 passed/27 existing opt-in skips; scoped lint/source review.
+- [ ] Source publication and exact-head CI.
+- [ ] OS-isolated decoder and authenticated vision supervisor channel, actual
+  host/network/storage/model/signed-device admission before public activation.
+
+See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md). No provider/service/phone
+operation is included in the source stage.
+
 ## Combined UI And Photo Integration (2026-10-15)
 
 - [x] Merge PR #6 with current owner/Room source, preserve both doc histories.
@@ -9,7 +24,7 @@
 - [x] Full backend with decoder, independent synthetic capacity and Ruff.
 - [x] Frozen combined Android test/lint/APK (5667 tests, 6 private-fixture skips,
   zero failures/errors); signed APK retained locally.
-- [ ] Source publication and exact-head CI.
+- [x] Source publication and exact-head CI at06ddd75 (all6 checks successful).
 - [x] In-place update and main/food/photo-state/background smoke on the intended
   device; installed APK hash and unchanged app/DB identities verified.
 - [ ] Separate contained image transport/decoder admission and real server

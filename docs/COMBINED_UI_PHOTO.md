@@ -60,8 +60,10 @@ in that field, never a local file path. This is schema evidence, not proof of
 a working contained image turn. A cached model catalog's image modality is
 also not a live inference result or operational admission.
 
-Before enabling the route, implement and verify the dedicated contained image
-transport, bounded decoder isolation, image-sized pipes, exact model capability,
+The dedicated native image protocol, image-sized pipes and concrete process
+transport are now implemented in the separate source stage documented in
+[CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md), not connected to the owner API.
+Before enabling the route, admit the host/channel, bounded decoder isolation, exact model capability,
 the SAME login/text SessionProfileGuard and independently confirmed process/IO
 teardown. Keep model/reasoning settings and tool prohibitions. Do not widen or
 tunnel through the text-only supervisor. Then perform a separately scoped

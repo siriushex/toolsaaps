@@ -157,6 +157,9 @@ def verify_kernel(image, guard, egress, state, verifier):
 
 
 class PipeTextTransport:
+    send_limit = SEND_LIMIT
+    line_limit = LINE_LIMIT
+
     def __init__(self, process):
         self.process = process
         self.error_bytes = 0
@@ -186,7 +189,7 @@ class PipeTextTransport:
     async def send(self, value):
         self._check()
         raw = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode() + b"\n"
-        if len(raw) > SEND_LIMIT:
+        if len(raw) > self.send_limit:
             raise ProcessError("runtime_input_limit")
         self.process.stdin.write(raw)
         await self.process.stdin.drain()
@@ -202,7 +205,7 @@ class PipeTextTransport:
             await asyncio.wait({reading, self.error_reader}, return_when=asyncio.FIRST_COMPLETED)
             self._check()
             raw = await reading
-            if not raw or len(raw) > LINE_LIMIT or not raw.endswith(b"\n"):
+            if not raw or len(raw) > self.line_limit or not raw.endswith(b"\n"):
                 raise ProcessError("runtime_output_limit")
             return raw
         except (ValueError, OSError):
@@ -232,16 +235,19 @@ async def _drain(reader, limit):
             raise ProcessError("runtime_drain_limit")
 
 
-class SystemdTextProcess:
+class _SystemdProcess:
     """One fixed native session with a durable profile lease and exact stop.
 
     The host supplies an admitted immutable image, expiring official addresses
     and an initialized guard. Construction has no filesystem/process effects.
     """
+    policy_type = TextSessionPolicy
+    pipe_type = PipeTextTransport
+
     def __init__(self, image: RuntimeImage, guard: SessionProfileGuard,
-                 egress: OfficialEgress, policy: TextSessionPolicy):
+                 egress: OfficialEgress, policy):
         if (not isinstance(image, RuntimeImage) or not isinstance(guard, SessionProfileGuard)
-                or not isinstance(egress, OfficialEgress) or not isinstance(policy, TextSessionPolicy)
+                or not isinstance(egress, OfficialEgress) or type(policy) is not self.policy_type
                 or guard.control.uid != 0 or guard.control.gid != 0
                 or guard.cgroup_root != Path("/sys/fs/cgroup")):
             raise ValueError("trusted_runtime_configuration_required")
@@ -295,9 +301,9 @@ class SystemdTextProcess:
                          "/bin/sh", "-c", GATE, "personal-ai", *native]
                 self._spawn = asyncio.create_task(asyncio.create_subprocess_exec(*argv,
                     stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE, env=HOST_ENV, limit=LINE_LIMIT))
+                    stderr=asyncio.subprocess.PIPE, env=HOST_ENV, limit=self.pipe_type.line_limit))
                 self._process = await asyncio.shield(self._spawn)
-                self._transport = PipeTextTransport(self._process)
+                self._transport = self.pipe_type(self._process)
                 if await self._transport.receive() != b"READY\n":
                     raise ProcessError("runtime_gate_rejected")
                 state = await self._bind()
@@ -351,27 +357,8 @@ class SystemdTextProcess:
                     # Reserved-but-unbound state is deliberately retained.
                     return False
                 await self._bind()
-            await self._lease.finish(self._verifier)
-            if self._process is not None:
-                if self._transport is not None:
-                    await self._transport.close()
-                try:
-                    async with asyncio.timeout(PIPE_SECONDS):
-                        async with asyncio.TaskGroup() as tasks:
-                            tasks.create_task(self._process.wait())
-                            tasks.create_task(_drain(self._process.stdout, self.policy.max_stream_bytes))
-                            consumed = self._transport.error_bytes if self._transport is not None else 0
-                            tasks.create_task(_drain(self._process.stderr, max(0, STDERR_LIMIT - consumed)))
-                except Exception:
-                    # The native cgroup is proven empty; terminate only our pipe helper.
-                    if self._process.returncode is None:
-                        self._process.kill()
-                    # Both producers are now stopped; only finite buffered data
-                    # remains. Join all pipe readers, even after a drain failure.
-                    async with asyncio.timeout(PIPE_SECONDS):
-                        await self._process.communicate()
-                    return False
-            return self._transport is None or not self._transport.error_failed
+            await self._lease.finish(self._verifier, io_stopped=self._stop_io)
+            return True
         except (Exception, asyncio.CancelledError):
             return False
         finally:
@@ -385,3 +372,28 @@ class SystemdTextProcess:
                     self._context.__exit__(None, None, None)
                 except ProfileError:
                     pass
+
+    async def _stop_io(self):
+        if self._process is not None:
+            if self._transport is not None:
+                await self._transport.close()
+            try:
+                async with asyncio.timeout(PIPE_SECONDS):
+                    async with asyncio.TaskGroup() as tasks:
+                        tasks.create_task(self._process.wait())
+                        tasks.create_task(_drain(self._process.stdout, self.policy.max_stream_bytes))
+                        consumed = self._transport.error_bytes if self._transport is not None else 0
+                        tasks.create_task(_drain(self._process.stderr, max(0, STDERR_LIMIT - consumed)))
+            except Exception:
+                # The exact native cgroup is empty. Reap only our pipe helper,
+                # but keep the durable profile marker blocked on any IO failure.
+                if self._process.returncode is None:
+                    self._process.kill()
+                async with asyncio.timeout(PIPE_SECONDS):
+                    await self._process.communicate()
+                return False
+        return self._transport is None or not self._transport.error_failed
+
+
+class SystemdTextProcess(_SystemdProcess):
+    """Fixed text-only public constructor; image policy is not accepted."""

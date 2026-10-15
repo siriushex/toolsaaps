@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Native Meal Vision Verification
+
+Focused gates: test_ai_native_vision, test_ai_contained_vision and the existing
+native-text/process/profile suites; then full backend/tests with pinned Pillow.
+See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md) for limits and pending
+rollout gates. The native transport does not activate owner_api or replace the
+public nginx503. Reuse the original guard binding, never initialize over it.
+No image through the text supervisor, root HTTP API or capability-only bypass.
+Rollback of a future admitted service must drain its exact invocations, retain
+uncertain claims and private storage, and restore only its owned proxy mapping.
+
 ## Combined UI And Photo Gate
 
 See [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md) for exact source scope,

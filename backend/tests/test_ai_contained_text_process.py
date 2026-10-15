@@ -31,9 +31,11 @@ class Lease:
         self.invocation = invocation
         self.guard.events.append("bound")
 
-    async def finish(self, verifier):
+    async def finish(self, verifier, *, io_stopped=None):
         assert verifier.invocation_id == self.invocation
         if not await verifier.stop_and_confirm():
+            raise ValueError("stop_unconfirmed")
+        if io_stopped is not None and await io_stopped() is not True:
             raise ValueError("stop_unconfirmed")
         self.guard.events.append("idle")
 
@@ -51,13 +53,14 @@ class Guard(SessionProfileGuard):
 
 
 @pytest.fixture
-def host(image, monkeypatch, tmp_path):
+def host(image, monkeypatch, tmp_path, request):
     bind = DirectoryBinding
     guard = Guard(profile=bind(tmp_path / "profile", 1, 2, 993, 985),
         control=bind(tmp_path / "control", 1, 3, 0, 0), cgroup_root=Path("/sys/fs/cgroup"))
     object.__setattr__(guard, "events", [])
     object.__setattr__(guard, "leases", [])
     events, children, calls = guard.events, [], []
+    frames = getattr(request, "param", None) or transcript()
     original_spawn = asyncio.create_subprocess_exec
     source = (
         "import json,sys\n"
@@ -74,7 +77,7 @@ def host(image, monkeypatch, tmp_path):
     )
     async def spawn(*args, **kwargs):
         calls.append((args, kwargs))
-        child = await original_spawn(sys.executable, "-u", "-c", source, json.dumps(transcript()), **kwargs)
+        child = await original_spawn(sys.executable, "-u", "-c", source, json.dumps(frames), **kwargs)
         children.append(child)
         events.append("spawned")
         return child
@@ -444,13 +447,15 @@ def test_pipe_drain_failure_still_reaps_owned_helper_and_refuses_receipt(host, m
         assert all(child.returncode is not None for child in children)
     asyncio.run(scenario())
     assert "stopped" in events
+    assert "idle" not in events
 
 
 def test_stderr_budget_violation_discovered_after_answer_still_refuses_receipt(host):
-    process, _, _, _, _ = host
+    process, events, _, _, _ = host
     async def scenario():
         runner = NativeTextRunner(process)
         assert await runner.run("Synthetic question", POLICY)
         process._transport.error_failed = True
         assert not await runner.stop_and_confirm()
     asyncio.run(scenario())
+    assert "idle" not in events

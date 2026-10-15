@@ -1,3 +1,22 @@
+# Dedicated Native Meal Vision - 2026-10-15
+
+- Implements the pinned v2 inline-image schema with fixed food-only prompt,
+  strict per-100g result validation and independent image pipe/echo budgets.
+  Restricted exact-model image catalog preserves reasoning metadata. Shared
+  internal protocol/process checks avoid duplicating correlation and containment;
+  public text-only entry points and their limits remain unchanged.
+- Fixes a shared teardown defect: the durable profile could become idle before
+  discovering native IO failure. Exact stop and successful IO confirmation now
+  precede inventory and idle; failures/cancellation retain bound admission.
+- Focused checks pass using synthetic frames and actual local pipes. Final full
+  backend:994 passed,27 existing opt-in skips and one dependency deprecation
+  warning. Scoped correctness Ruff/new-file import checks and diff review pass.
+  Exact-head CI remains a separate publication check.
+- No provider/model, service/proxy/profile, phone or therapy action. Read-only
+  host inspection locates the explicit nginx503. Isolated decoder, authenticated
+  image supervisor and actual host/storage/model/client admission remain pending;
+  this stage does not claim operational photo readiness. See CONTAINED_MEAL_VISION.md.
+
 # Combined UI And Food Photo Source - 2026-10-15
 
 - Integrates native graphics/motion PR #6 with current owner AI/Room source,

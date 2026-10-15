@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Dedicated Native Vision (2026-10-15)
+
+- Dedicated fixed image schema/prompt/result validation, bounded inline input,
+  model modality and tool-free catalog; no arbitrary path/URL or history upload.
+  Text's public contracts/limits remain unchanged; shared strict protocol and
+  process lifecycles avoid diverging correlation and stop implementations.
+- Fixed profile idle ordering: failed stderr/drain or interrupted IO confirmation
+  can no longer release durable admission after a cgroup-only stop receipt.
+- Synthetic frames and actual child pipes test rejection, cancellation and
+  teardown. No account/provider or privileged containment evidence is claimed.
+- MUST before activation: separately isolated decoder, authenticated typed vision
+  channel, immutable Linux image/active network verification, shared guarded
+  profile and nonroot API/encrypted-storage operations. Public nginx still503.
+  See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md).
+
 ## Photo Integration And Context Cache (2026-10-15)
 
 - Fixed: same-ID concurrency, cached photo rebinding and cancellation authority

@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Dedicated Native Meal Vision
+
+NativeMealVisionSession and NativeMealVisionTransport implement one fixed inline
+food-image turn with a separate result schema and pipe/stream budgets. The exact
+image-capable catalog is pinned by VisionRuntimeImage; SystemdVisionProcess
+shares text's trusted process/guard/kernel lifecycle without widening public
+CHAT or its supervisor. The shared profile becomes idle only after exact stop
+AND IO confirmation. Host/channel/isolated-decoder admission and public API
+activation remain separate. See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md).
+
 ## Combined Photo Entry And Year Context
 
 See [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md). The signed photo client and
