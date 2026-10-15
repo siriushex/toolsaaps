@@ -66,16 +66,26 @@ class AiChatRepository internal constructor(
     private val baseUrlProvider: suspend () -> String,
     private val credentialReader: suspend () -> String,
     private val auditLogger: AuditLogger,
-    private val httpClient: OkHttpClient = defaultHttpClient()
+    private val httpClient: OkHttpClient = defaultHttpClient(),
+    private val serverGateway: ServerAiChatGateway? = null,
+    private val serverRoutingProvider: () -> ServerAiChatRouting = {
+        serverGateway?.routingState() ?: ServerAiChatRouting.UNCONFIGURED
+    }
 ) {
     constructor(
         settingsStore: AppSettingsStore,
         credentialProvider: OpenAiCredentialProvider,
-        auditLogger: AuditLogger
+        auditLogger: AuditLogger,
+        serverGateway: ServerAiChatGateway? = null,
+        serverRoutingProvider: () -> ServerAiChatRouting = {
+            serverGateway?.routingState() ?: ServerAiChatRouting.UNCONFIGURED
+        }
     ) : this(
         baseUrlProvider = { settingsStore.settings.first().cloudBaseUrl },
         credentialReader = { credentialProvider.requireCredential() },
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        serverGateway = serverGateway,
+        serverRoutingProvider = serverRoutingProvider
     )
 
     private val optimizerHttpClient: OkHttpClient = httpClient.newBuilder()
@@ -83,11 +93,31 @@ class AiChatRepository internal constructor(
         .callTimeout(120, TimeUnit.SECONDS)
         .build()
 
+    /** The controller can require server routing even before the gateway is wired. */
+    fun chatRoutingState(): ServerAiChatRouting =
+        if (serverGateway?.routingState() == ServerAiChatRouting.SERVER_REQUIRED) ServerAiChatRouting.SERVER_REQUIRED
+        else serverRoutingProvider()
+
+    private fun configuredServerGateway(): ServerAiChatGateway? = when (chatRoutingState()) {
+        ServerAiChatRouting.UNCONFIGURED -> null
+        ServerAiChatRouting.SERVER_REQUIRED -> serverGateway
+            ?: throw ServerAiChatFailure(ServerAiChatError.ROUTING_UNAVAILABLE)
+    }
+
+    private fun requirePersonalChatModality() {
+        if (chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED) {
+            throw ServerAiChatFailure(ServerAiChatError.UNSUPPORTED_MODALITY)
+        }
+    }
+
     suspend fun ask(
         question: String,
         contextSummary: String,
         history: List<AiChatTurn> = emptyList()
     ): String = withContext(Dispatchers.IO) {
+        configuredServerGateway()?.let { gateway ->
+            return@withContext gateway.ask(question, contextSummary, history)
+        }
         val baseUrl = baseUrlProvider()
         val apiKey = credentialReader()
 
@@ -149,6 +179,7 @@ class AiChatRepository internal constructor(
         if (attachments.isEmpty()) {
             return@withContext ask(question = question, contextSummary = contextSummary, history = history)
         }
+        requirePersonalChatModality()
         val baseUrl = baseUrlProvider()
         val apiKey = credentialReader()
         val endpoint = normalizeBaseUrl(baseUrl) + "responses"
@@ -202,6 +233,7 @@ class AiChatRepository internal constructor(
         audioFile: File,
         promptHint: String? = null
     ): String = withContext(Dispatchers.IO) {
+        requirePersonalChatModality()
         val baseUrl = baseUrlProvider()
         val apiKey = credentialReader()
         val endpoint = normalizeBaseUrl(baseUrl) + "audio/transcriptions"
@@ -242,6 +274,7 @@ class AiChatRepository internal constructor(
         text: String,
         outputDir: File
     ): File = withContext(Dispatchers.IO) {
+        requirePersonalChatModality()
         val baseUrl = baseUrlProvider()
         val apiKey = credentialReader()
         if (!outputDir.exists()) {

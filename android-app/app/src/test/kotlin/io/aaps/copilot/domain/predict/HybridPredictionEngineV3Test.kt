@@ -457,9 +457,9 @@ class HybridPredictionEngineV3Test {
         val baseStart = 3_000_000_000L
 
         repeat(12) { idx ->
-            val start = baseStart + idx * 10 * 60_000L
+            val start = baseStart + idx * FIVE_MINUTES
             // Advancing the window must not rewrite its overlapping historical samples.
-            val glucose = List(8) { pointIndex -> 6.0 + (idx * 2 + pointIndex) * 0.08 }.series(start)
+            val glucose = List(8) { pointIndex -> 6.0 + (idx + pointIndex) * 0.08 }.series(start)
             engine.predict(glucose, emptyList())
             assertThat(engine.lastDiagnosticsForTest()!!.kfHistoryRebuilt).isFalse()
         }

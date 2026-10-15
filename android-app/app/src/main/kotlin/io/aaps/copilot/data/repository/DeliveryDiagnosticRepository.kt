@@ -14,6 +14,8 @@ import io.aaps.copilot.domain.alerts.DeliveryDiagnosticReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** Advisory only. Room claims are terminal even when Android posting has an unknown outcome. */
 class DeliveryDiagnosticRepository(
@@ -23,12 +25,29 @@ class DeliveryDiagnosticRepository(
     private val clear: () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
+    private val mutableDisplay = MutableStateFlow(DeliveryDiagnosticUiEvidence())
+    val display = mutableDisplay.asStateFlow()
+
+    suspend fun refreshRetainedDisplay(nowTs: Long) {
+        episodeAlerts.coordinateMutedSideEffect {
+            val retained = db.withTransaction {
+                val state = db.alertEventDao().byEpisodeId(STATE_ID)?.let {
+                    DeliveryDiagnosticStateCodec.decode(it.localSnapshotJson)
+                } ?: DeliveryDiagnosticState()
+                require(db.alertEventDao().unresolvedDeliveryDiagnosticIds() == listOfNotNull(state.activeEpisodeId.takeIf(String::isNotEmpty)))
+                displayOf(state, nowTs, false)
+            }
+            mutableDisplay.value = retained
+        }
+    }
+
     suspend fun accept(nowTs: Long, observation: DeliveryDiagnosticObservation?, enabled: Boolean, lowRisk: Boolean) {
         require(nowTs > 0)
         episodeAlerts.coordinateMutedSideEffect { muted ->
             // Mandatory removal cannot depend on decoding possibly corrupt diagnostic evidence.
             if (!enabled || lowRisk || muted) clear()
             val outcome = db.withTransaction { advance(nowTs, observation, enabled, lowRisk, muted) }
+            outcome.display?.let { mutableDisplay.value = it }
             if (outcome.clear) clear()
             val claim = outcome.claim ?: return@coordinateMutedSideEffect
             currentCoroutineContext().ensureActive()
@@ -142,7 +161,28 @@ class DeliveryDiagnosticRepository(
                 DeliveryDiagnosticStateCodec.encode(next)).copy(createdAt = saved?.createdAt ?: nowTs,
                 resolvedAt = Long.MAX_VALUE, revision = Math.addExact(saved?.revision ?: 0, 1)))
         }
-        return outcome
+        return outcome.copy(display = displayOf(next, nowTs, true))
+    }
+
+    private suspend fun displayOf(state: DeliveryDiagnosticState, now: Long, accepted: Boolean): DeliveryDiagnosticUiEvidence {
+        val id = state.activeEpisodeId.takeIf(String::isNotEmpty) ?: return DeliveryDiagnosticUiEvidence()
+        val active = db.alertEventDao().byEpisodeId(id) ?: return DeliveryDiagnosticUiEvidence()
+        if (active.status != "OPEN" || active.eventType != EVENT_TYPE || active.createdAt !in 1..now ||
+            active.updatedAt !in active.createdAt..now) return DeliveryDiagnosticUiEvidence()
+        val recorded = try {
+            require(active.localSnapshotJson.length <= 65_536)
+            val root = JsonParser.parseString(active.localSnapshotJson).asJsonObject
+            val reason = DeliveryDiagnosticReason.valueOf(root.get("reason").asString)
+            require(reason in setOf(DeliveryDiagnosticReason.UNEXPECTED_RISE, DeliveryDiagnosticReason.PERSISTENT_HIGH))
+            val food = root.get("foodConfounded").also { require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean) }.asBoolean
+            DeliveryDiagnosticUiEvidence(id, active.createdAt, reason, food)
+        } catch (_: RuntimeException) { return DeliveryDiagnosticUiEvidence() }
+        if (!accepted) return recorded
+        val assessment = DeliveryDiagnosticPolicy.assess(state.history, now)
+        if (assessment.reason !in setOf(DeliveryDiagnosticReason.UNEXPECTED_RISE, DeliveryDiagnosticReason.PERSISTENT_HIGH)) return recorded
+        val sample = state.history.last()
+        return recorded.copy(reason = assessment.reason, foodConfounded = assessment.foodConfounded,
+            acceptedAt = minOf(sample.glucoseTs, sample.observedAt))
     }
 
     private fun event(id: String, type: String, status: String, now: Long, json: String, cause: String? = null) =
@@ -150,7 +190,7 @@ class DeliveryDiagnosticRepository(
             null, null, null, 1)
 
     private data class Outcome(val clear: Boolean = false, val claim: AlertDeliveryReceiptEntity? = null,
-        val assessment: DeliveryDiagnosticAssessment? = null)
+        val assessment: DeliveryDiagnosticAssessment? = null, val display: DeliveryDiagnosticUiEvidence? = null)
 
     companion object {
         const val STATE_ID = "__delivery_diagnostic_state_v1"

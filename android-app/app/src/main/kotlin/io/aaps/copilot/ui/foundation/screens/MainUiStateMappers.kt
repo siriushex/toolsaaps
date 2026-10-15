@@ -558,10 +558,9 @@ internal fun energyActivityOverviewStatus(
     policy: EnergyProfilePolicy = EnergyProfilePolicy()
 ): EnergyActivityStatusUi? {
     if (!settings.enabled) return null
-    if (policy.resolve(settings, now.atZone(ZoneId.systemDefault()).toLocalDate()) !is ProfileResolution.Complete ||
-        snapshot == null || snapshot.stale
-    ) {
-        return EnergyActivityStatusUi(EnergyActivityStatusKind.PROFILE_ISSUE)
+    val issues = energyProfileIssues(settings, snapshot, now.atZone(ZoneId.systemDefault()).toLocalDate(), policy)
+    if (issues.isNotEmpty()) {
+        return EnergyActivityStatusUi(EnergyActivityStatusKind.PROFILE_ISSUE, issues = issues)
     }
 
     val engine = ActivityScheduleEngine()
@@ -642,7 +641,13 @@ internal fun MainUiState.toOverviewUiState(
     profileSex: PhysiologicalSex = physiologicalSex,
     showEventsOnGraph: Boolean = true
 ): OverviewUiState {
-    val displayedCob = latestExternalCobGrams?.takeIf { value ->
+    val displayedCob = latestEffectiveCobGrams?.takeIf { value ->
+        val timestamp = latestEffectiveCobTimestamp
+        value.isFinite() && value in 0.0..io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS &&
+            timestamp != null && timestamp > 0L && timestamp <= authoritativeNowTs &&
+            authoritativeNowTs - timestamp <= staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+    }
+    val externalCob = latestExternalCobGrams?.takeIf { value ->
         val timestamp = latestExternalCobTimestamp
         value.isFinite() && value in 0.0..400.0 && timestamp != null && timestamp > 0L &&
             timestamp <= authoritativeNowTs &&
@@ -699,6 +704,8 @@ internal fun MainUiState.toOverviewUiState(
         .asSequence()
         .filter { point -> point.ts in chartHistoryCutoffTs..chartNowTs }
         .toList()
+    val forecastAtLatestCgm = acceptedIdentityMatches &&
+        history.maxOfOrNull { it.ts } == forecastAcceptedGenerationTs
     val currentUam = if (uamRuntimeIdentityMatches) {
         resolveCurrentUam()
     } else {
@@ -745,8 +752,8 @@ internal fun MainUiState.toOverviewUiState(
             add(TelemetryChipUi("IOB source", latestIobRuntimeSource.orEmpty() + confidence, null))
         }
         add(TelemetryChipUi("COB", UiFormatters.formatGrams(displayedCob), "g"))
-        if (isProMode && latestCobGrams != null) {
-            add(TelemetryChipUi("COB effective", UiFormatters.formatGrams(latestCobGrams), "g"))
+        if (isProMode && externalCob != null) {
+            add(TelemetryChipUi("COB · AAPS", UiFormatters.formatGrams(externalCob), "g"))
         }
         if (sensorLagMinutes != null && sensorLagMode?.equals("OFF", ignoreCase = true) != true && !sensorLagMode.isNullOrBlank()) {
             add(
@@ -770,6 +777,17 @@ internal fun MainUiState.toOverviewUiState(
         add(TelemetryChipUi("Steps", UiFormatters.formatDecimalOrPlaceholder(latestStepsCount, decimals = 0), null))
     }
 
+    val mealImpact = if (acceptedIdentityMatches) mealImpactChartData(
+        mealImpactStepsJson, acceptedSnapshot?.forecastCycleId, forecastAcceptedGenerationTs,
+        acceptedMealImpactOrigin(mealImpactStepsJson, history, forecastAcceptedGenerationTs)
+    ) else null
+    val foodScope = mealDisplayCalibrationIdentity?.let {
+        FoodDisplayScope(authoritativeSensitivitySettingsRevision, authoritativeIsfSource, authoritativeCrSource, it)
+    }
+    val foodSnapshot = if (mealImpact != null && foodScope != null && acceptedSnapshot != null &&
+        forecastAcceptedGenerationTs != null) AcceptedFoodDisplaySnapshot(foodScope,
+            acceptedSnapshot.forecastCycleId, forecastAcceptedGenerationTs!!,
+            mealImpact.points, mealImpact.complete, mealImpact.giAdjusted) else null
     val hasData = latestGlucoseMmol != null || horizons.any { it.pred != null }
     return OverviewUiState(
         loadState = resolveLoadState(hasData = hasData, errorText = error),
@@ -782,6 +800,14 @@ internal fun MainUiState.toOverviewUiState(
         correctedGlucose = correctedGlucoseMmol,
         delta = glucoseDelta,
         sampleAgeMinutes = latestDataAgeMinutes,
+        syncAgeMinutes = nightscoutSyncAgeMinutes,
+        forecastsCurrent = forecastAtLatestCgm,
+        foodDisplayScope = foodScope,
+        acceptedFoodDisplay = foodSnapshot,
+        foodDisplayScopeReset = forecastTupleError != null && forecastTupleError != "forecast_tuple_freshness_invalid",
+        foodDisplayNowTs = now,
+        foodCobTimestamp = latestEffectiveCobTimestamp.takeIf { displayedCob != null },
+        eatingSoon = eatingSoonPresentation(eatingSoonReceipt, eatingSoonObservedTarget, now),
         calibrationGain = glucoseCalibrationGain,
         calibrationOffsetMmol = glucoseCalibrationOffsetMmol,
         calibrationConfidence = glucoseCalibrationConfidence,
@@ -801,9 +827,12 @@ internal fun MainUiState.toOverviewUiState(
         eventTimelineNowTs = eventTimelineNowTs,
         physiologicalSex = profileSex,
         chart = ClinicalForecastChartUiState(
+            mealImpactPoints = mealImpact?.points.orEmpty(),
+            mealImpactGiAdjusted = mealImpact?.giAdjusted == true,
+            mealImpactComplete = mealImpact?.complete,
             historyPoints = history,
-            futurePath = if (acceptedIdentityMatches) buildInterpolatedFuturePath(nowTs = chartNowTs) else emptyList(),
-            futureCi = if (acceptedIdentityMatches) buildInterpolatedFutureCi(nowTs = chartNowTs) else emptyList(),
+            futurePath = if (forecastAtLatestCgm) buildInterpolatedFuturePath(nowTs = chartNowTs) else emptyList(),
+            futureCi = if (forecastAtLatestCgm) buildInterpolatedFutureCi(nowTs = chartNowTs) else emptyList(),
             events = eventTimeline,
             eventTimelineNowTs = eventTimelineNowTs,
             showEvents = showEventsOnGraph
@@ -833,6 +862,8 @@ internal fun MainUiState.toOverviewUiState(
             fallbackReason = latestIobRuntimeFallbackReason
         ),
         currentCobGrams = displayedCob,
+        externalCobGrams = externalCob,
+        externalCobTimestamp = latestExternalCobTimestamp.takeIf { externalCob != null },
         currentIsfMmolPerUnit = acceptedSnapshot
             ?.takeIf { acceptedIdentityMatches }
             ?.isf
@@ -846,6 +877,7 @@ internal fun MainUiState.toOverviewUiState(
         sensitivitySourcePendingValue = sensitivitySourcePendingValue,
         sensitivitySourceApplyError = sensitivitySourceApplyError,
         carbComputationMaxGrams = carbComputationMaxGrams,
+        mealPortions = mealPortions,
         isfRuntime = metricRuntimeSourceUi(
             requested = displayedIsfSource,
             acceptedSnapshot = acceptedSnapshot,
@@ -976,12 +1008,12 @@ internal fun MainUiState.toForecastUiState(
     isProMode: Boolean
 ): ForecastUiState {
     val error = inferErrorText()
-    val horizons = buildHorizonPredictions()
-
     val chartSource = chartGlucoseHistory()
     val nowTs = chartSource.lastOrNull()?.ts ?: System.currentTimeMillis()
     val historyCutoff = nowTs - range.hours * 60 * 60_000L
     val history = chartSource.filter { it.ts >= historyCutoff }
+    val horizons = if (forecastAcceptedGenerationTs != null && forecastAcceptedGenerationTs != nowTs) emptyList()
+        else buildHorizonPredictions()
 
     val futurePath = buildInterpolatedFuturePath(nowTs = nowTs)
     val futureCi = buildInterpolatedFutureCi(nowTs = nowTs)
@@ -1129,20 +1161,24 @@ internal fun MainUiState.toSafetyUiState(): SafetyUiState {
         SafetyChecklistItemUi(
             title = "Data freshness",
             ok = !isDataStale(),
-            details = "age=${UiFormatters.formatMinutes(latestDataAgeMinutes)} limit=${staleDataMaxMinutes}m"
+            details = "age=${UiFormatters.formatMinutes(latestDataAgeMinutes)} limit=${staleDataMaxMinutes}m",
+            issue = UiIssueKind.DATA_STALE
         ),
         SafetyChecklistItemUi(
             title = "Kill switch",
             ok = !killSwitch,
-            details = if (killSwitch) "Automatic actions blocked" else "Automatic actions allowed"
+            details = if (killSwitch) "Automatic actions blocked" else "Automatic actions allowed",
+            issue = UiIssueKind.KILL_SWITCH
         ),
         SafetyChecklistItemUi(
             title = "Sensor quality",
             ok = sensorQualityBlocked != true,
-            details = sensorQualityReason ?: "No sensor block flags"
+            details = sensorQualityReason ?: "No sensor block flags",
+            issue = UiIssueKind.SENSOR
         ),
         SafetyChecklistItemUi(
             title = "Nightscout local runtime",
+            issue = UiIssueKind.DATA_SOURCE_PENDING,
             ok = false,
             details = if (localNightscoutEnabled) {
                 "runtime state pending (configured port=$localNightscoutPort)"
@@ -2752,6 +2788,7 @@ private fun parseInsulinCurveCompact(raw: String?): List<InsulinProfilePointUi> 
 
 private fun MainUiState.buildInterpolatedFuturePath(nowTs: Long): List<ChartPointUi> {
     if (forecastTupleError != null) return emptyList()
+    if (forecastAcceptedGenerationTs != null && forecastAcceptedGenerationTs != nowTs) return emptyList()
     val current = calibratedGlucoseMmol ?: latestGlucoseMmol ?: return emptyList()
     val anchors = listOfNotNull(
         0 to current,
@@ -2769,6 +2806,7 @@ private fun MainUiState.buildInterpolatedFuturePath(nowTs: Long): List<ChartPoin
 
 private fun MainUiState.buildInterpolatedFutureCi(nowTs: Long): List<ChartCiPointUi> {
     if (forecastTupleError != null) return emptyList()
+    if (forecastAcceptedGenerationTs != null && forecastAcceptedGenerationTs != nowTs) return emptyList()
     val current = calibratedGlucoseMmol ?: latestGlucoseMmol ?: return emptyList()
     val lowAnchors = listOfNotNull(
         0 to current,

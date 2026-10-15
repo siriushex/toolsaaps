@@ -15,6 +15,22 @@ from typing import Callable, Protocol
 from .job_ledger import Job, JobLedger
 
 
+STOP_TIMEOUT_SECONDS = 20
+
+
+async def _complete_critical(operation):
+    """Finish owned metadata/teardown work even if its caller is cancelled."""
+    pending = asyncio.create_task(operation)
+    cancelled = False
+    while True:
+        try:
+            return await asyncio.shield(pending), cancelled
+        except asyncio.CancelledError:
+            if pending.cancelled():
+                raise
+            cancelled = True
+
+
 class ContainedWorker(Protocol):
     route_revision: str
     request_digest: str
@@ -43,11 +59,16 @@ class JobExecutor:
             return ExecutionOutcome(job)
         if worker.route_revision != job.route_revision or worker.request_digest != job.digest:
             raise ValueError("worker_binding_mismatch")
-        claim = await asyncio.to_thread(self.ledger.claim, owner_id, job_id, now_ms=self.clock_ms())
+        claim, cancelled = await _complete_critical(asyncio.to_thread(
+            self.ledger.claim, owner_id, job_id, now_ms=self.clock_ms()))
         if claim is None:
+            if cancelled:
+                raise asyncio.CancelledError
             return ExecutionOutcome(await asyncio.to_thread(self.ledger.get, owner_id, job_id))
-        state, result, cancelled = "FAILED", None, False
+        state, result = "FAILED", None
         try:
+            if cancelled:
+                raise asyncio.CancelledError
             # Relative timeout uses the monotonic event-loop clock. Recheck the
             # absolute deadline again at settlement to reject late results.
             remaining = max(0, min(900, (claim.job.deadline_ms - self.clock_ms()) / 1000))
@@ -58,24 +79,28 @@ class JobExecutor:
             state = "SUCCEEDED"
         except asyncio.CancelledError:
             cancelled = True
-            await asyncio.to_thread(self.ledger.cancel, owner_id, job_id, now_ms=self.clock_ms())
+            await _complete_critical(asyncio.to_thread(
+                self.ledger.cancel, owner_id, job_id, now_ms=self.clock_ms()))
         except Exception:
             # Exceptions and raw worker output must not enter the metadata DB.
             state = "FAILED"
         finally:
-            stopped = False
-            try:
-                async with asyncio.timeout(20):
-                    stopped = await worker.stop_and_confirm() is True
-            except Exception:
-                pass
-            if stopped:
-                job = await asyncio.to_thread(self.ledger.settle_stopped,
-                    owner_id, job_id, claim.token, state, now_ms=self.clock_ms())
-            else:
-                # Unconfirmed workers retain global capacity, even if their
-                # deadline expired. Startup reconciliation must inspect the OS.
-                job = await asyncio.to_thread(self.ledger.get, owner_id, job_id)
+            job, cleanup_cancelled = await _complete_critical(
+                self._stop_and_settle(owner_id, job_id, claim.token, state, worker))
+            cancelled |= cleanup_cancelled
         if cancelled:
             raise asyncio.CancelledError
         return ExecutionOutcome(job, result if job.state == "SUCCEEDED" else None)
+
+    async def _stop_and_settle(self, owner_id, job_id, token, state, worker):
+        stopped = False
+        try:
+            async with asyncio.timeout(STOP_TIMEOUT_SECONDS):
+                stopped = await worker.stop_and_confirm() is True
+        except Exception:
+            pass
+        if stopped:
+            return await asyncio.to_thread(self.ledger.settle_stopped,
+                owner_id, job_id, token, state, now_ms=self.clock_ms())
+        # An unconfirmed stop still retains the durable global slot.
+        return await asyncio.to_thread(self.ledger.get, owner_id, job_id)

@@ -2,6 +2,22 @@ package io.aaps.copilot.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import io.aaps.copilot.data.local.dao.AlertLocalDao
+import io.aaps.copilot.data.local.entity.AlertLocalStateEntity
+import io.aaps.copilot.data.local.entity.AlertLocalCycleEntity
+import io.aaps.copilot.data.local.dao.MealStateDao
+import io.aaps.copilot.data.local.dao.MealReceiptDao
+import io.aaps.copilot.data.local.dao.MealForecastJournalDao
+import io.aaps.copilot.data.local.entity.MealForecastJournalEntity
+import io.aaps.copilot.data.local.entity.MealInputObservationEntity
+import io.aaps.copilot.data.local.dao.MealInputObservationDao
+import io.aaps.copilot.data.local.entity.MealReceiptEntity
+import io.aaps.copilot.data.local.entity.MealStateEntity
+import io.aaps.copilot.data.local.entity.MealStateScenarioEntity
+import io.aaps.copilot.data.local.entity.MealStateAbsorptionEntity
+import io.aaps.copilot.data.local.dao.MealNotificationClaimDao
+import io.aaps.copilot.data.local.entity.MealNotificationClaimEntity
+import io.aaps.copilot.data.local.entity.MealNotificationClaimAliasEntity
 import io.aaps.copilot.data.local.dao.ActionCommandDao
 import io.aaps.copilot.data.local.dao.AlertAiAnalysisDao
 import io.aaps.copilot.data.local.dao.AlertAiDatasetDao
@@ -77,6 +93,8 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
 @Database(
     entities = [
         GlucoseSampleEntity::class,
+        MealForecastJournalEntity::class,
+        MealInputObservationEntity::class,
         TherapyEventEntity::class,
         ForecastEntity::class,
         BloodGlucoseCheckEntity::class,
@@ -114,12 +132,26 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         AlertEventEntity::class,
         AlertDeliveryReceiptEntity::class,
         AlertAiAnalysisEntity::class,
-        ContextEventSyncEntity::class
+        ContextEventSyncEntity::class,
+        MealNotificationClaimEntity::class,
+        MealNotificationClaimAliasEntity::class,
+        MealStateEntity::class,
+        MealStateScenarioEntity::class,
+        MealStateAbsorptionEntity::class,
+        MealReceiptEntity::class,
+        AlertLocalStateEntity::class,
+        AlertLocalCycleEntity::class
     ],
-    version = 26,
+    version = 34,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
+    abstract fun mealInputObservationDao(): MealInputObservationDao
+    abstract fun mealForecastJournalDao(): MealForecastJournalDao
+    abstract fun alertLocalDao(): AlertLocalDao
+    abstract fun mealStateDao(): MealStateDao
+    abstract fun mealReceiptDao(): MealReceiptDao
+    abstract fun mealNotificationClaimDao(): MealNotificationClaimDao
     abstract fun glucoseDao(): GlucoseDao
     abstract fun bloodGlucoseCheckDao(): BloodGlucoseCheckDao
     abstract fun glucoseCalibrationModelDao(): GlucoseCalibrationModelDao

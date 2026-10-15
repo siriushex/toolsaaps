@@ -17,7 +17,7 @@ class GlucoseAlertAudioProfilesTest {
 
         assertThat(spec.label).isEqualTo("Elk Creek.mp3")
         assertThat(spec.startMs).isEqualTo(32_000)
-        assertThat(spec.durationMs).isEqualTo(18_000)
+        assertThat(spec.durationMs).isEqualTo(2_000)
         assertThat(spec.valid).isTrue()
         assertThat(spec.fallbackUsed).isFalse()
     }
@@ -48,7 +48,7 @@ class GlucoseAlertAudioProfilesTest {
 
         assertThat(spec.label).isEqualTo("Elk Creek.mp3")
         assertThat(spec.startMs).isEqualTo(32_000)
-        assertThat(spec.durationMs).isEqualTo(18_000)
+        assertThat(spec.durationMs).isEqualTo(2_000)
         assertThat(spec.valid).isFalse()
         assertThat(spec.fallbackUsed).isTrue()
     }
@@ -87,7 +87,7 @@ class GlucoseAlertAudioProfilesTest {
     }
 
     @Test
-    fun durationWindow_validationRequires15to30Seconds() {
+    fun softDurationIsOneToFiveSecondsWhileCriticalKeepsItsOwnRange() {
         assertThat(
             GlucoseAlertAudioProfiles.isValid(
                 slot = GlucoseAlertAudioSlot.SOFT,
@@ -108,9 +108,11 @@ class GlucoseAlertAudioProfilesTest {
             GlucoseAlertAudioProfiles.isValid(
                 slot = GlucoseAlertAudioSlot.SOFT,
                 startMs = 32_000,
-                durationMs = 18_000
+                durationMs = 2_000
             )
         ).isTrue()
+        assertThat(GlucoseAlertAudioProfiles.isValid(GlucoseAlertAudioSlot.CRITICAL_PRIMARY, 0, 2_000)).isFalse()
+        assertThat(GlucoseAlertAudioProfiles.isValid(GlucoseAlertAudioSlot.CRITICAL_PRIMARY, 0, 20_000)).isTrue()
     }
 
     private fun testSettings(): AppSettings {

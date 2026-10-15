@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -219,22 +220,38 @@ fun SettingsScreen(
     onPostHypoTargetChange: (Double) -> Unit = {},
     onRetentionDaysChange: (Int) -> Unit = {},
     onEnergyProfileEnabledChange: (Boolean) -> Unit = {},
-    onEnergyProfileUserProfileSave: (UserProfileDraftUi) -> Unit = {},
-    onEnergyProfileFoodSettingsSave: (FoodProfileSettingsUi) -> Unit = {},
-    onEnergyProfileActivitySettingsSave: (ActivityProfileSettingsUi) -> Unit = {},
-    onPlannedActivitySave: (PlannedActivityEventUi) -> Unit = {},
+    onMealPortionsSave: (io.aaps.copilot.domain.nutrition.MealPortionSettings) -> Unit = {},
+    onEnergyProfileUserProfileSave: (UserProfileDraftUi, EnergyProfileSaveCompletion) -> Unit = { _, done -> done(EnergyProfileSaveResult.Failed()) },
+    onEnergyProfileCorrectionSave: ((UserProfileDraftUi, EnergyGoalSettingsUi, EnergyProfileSaveCompletion) -> Unit)? = null,
+    onEnergyProfileFoodSettingsSave: (FoodProfileSettingsUi, EnergyProfileSaveCompletion) -> Unit = { _, done -> done(EnergyProfileSaveResult.Failed()) },
+    onEnergyProfileActivitySettingsSave: (ActivityProfileSettingsUi, EnergyProfileSaveCompletion) -> Unit = { _, done -> done(EnergyProfileSaveResult.Failed()) },
+    onPlannedActivitySave: (PlannedActivityEventUi, EnergyProfileSaveCompletion) -> Unit = { _, done -> done(EnergyProfileSaveResult.Failed()) },
     onPlannedActivityDelete: (String) -> Unit = {},
-    onEnergyGoalSettingsSave: (EnergyGoalSettingsUi) -> Unit = {},
+    onEnergyGoalSettingsSave: (EnergyGoalSettingsUi, EnergyProfileSaveCompletion) -> Unit = { _, done -> done(EnergyProfileSaveResult.Failed()) },
     openPlannedActivityRequest: Int = 0,
+    issueRequest: IssueSettingsRequest? = null,
+    onIssueRequestHandled: (IssueSettingsRequest) -> Unit = {},
+    telegramSettingsContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedTabRaw by rememberSaveable { mutableStateOf(SettingsTab.BASIC.name) }
+    val listState = rememberLazyListState()
+    var pendingIssueEditor by rememberSaveable { mutableStateOf<IssueDestination?>(null) }
     var showBaseTargetDialog by rememberSaveable { mutableStateOf(false) }
     var pendingTargetManagerMode by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingTargetManagerPriorityEnable by rememberSaveable { mutableStateOf(false) }
     var pendingLocalNightscoutIdentityReset by rememberSaveable { mutableStateOf(false) }
     val selectedTab = runCatching { SettingsTab.valueOf(selectedTabRaw) }
         .getOrDefault(SettingsTab.BASIC)
+    LaunchedEffect(issueRequest) {
+        val request = issueRequest ?: return@LaunchedEffect
+        val location = issueSettingsLocation(request.destination) ?: return@LaunchedEffect
+        selectedTabRaw = if (location.advanced) SettingsTab.ADVANCED.name else SettingsTab.BASIC.name
+        pendingIssueEditor = location.editor
+        androidx.compose.runtime.withFrameNanos { }
+        listState.scrollToItem(location.itemIndex)
+        onIssueRequestHandled(request)
+    }
     LaunchedEffect(openPlannedActivityRequest) {
         if (openPlannedActivityRequest > 0) {
             selectedTabRaw = SettingsTab.ADVANCED.name
@@ -342,6 +359,7 @@ fun SettingsScreen(
         emptyText = stringResource(id = R.string.settings_empty)
     ) {
         LazyColumn(
+            state = listState,
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
@@ -430,6 +448,9 @@ fun SettingsScreen(
                             onResetGlucoseAlertAudio = onResetGlucoseAlertAudio
                         )
                     }
+                    if (telegramSettingsContent != null) {
+                        item { telegramSettingsContent() }
+                    }
                     item {
                         DisclaimerCard(text = state.warningText)
                     }
@@ -440,16 +461,24 @@ fun SettingsScreen(
 
                 SettingsTab.ADVANCED -> {
                     item {
+                        SettingsSectionCard {
+                            MealPortionSettingsEditor(value = state.mealPortions, onSave = onMealPortionsSave)
+                        }
+                    }
+                    item {
                         EnergyActivitySettingsSection(
                             state = state.energyProfile,
                             onEnabledChange = onEnergyProfileEnabledChange,
                             onSaveUserProfile = onEnergyProfileUserProfileSave,
+                            onSaveProfileCorrection = onEnergyProfileCorrectionSave,
                             onSaveFoodSettings = onEnergyProfileFoodSettingsSave,
                             onSaveActivitySettings = onEnergyProfileActivitySettingsSave,
                             onSaveEvent = onPlannedActivitySave,
                             onDeleteEvent = onPlannedActivityDelete,
                             onSaveEnergySettings = onEnergyGoalSettingsSave,
-                            openPlannedActivityRequest = openPlannedActivityRequest
+                            openPlannedActivityRequest = openPlannedActivityRequest,
+                            editorRequest = pendingIssueEditor,
+                            onEditorRequestHandled = { pendingIssueEditor = null }
                         )
                     }
                     item {
@@ -965,6 +994,7 @@ private fun IsfCrSettingsCard(
         } else if (!state.sensitivitySourceApplyError.isNullOrBlank()) {
             Text(
                 text = state.sensitivitySourceApplyError.orEmpty(),
+                modifier = Modifier.issueHelp(state.sensitivitySourceApplyError.orEmpty(), UiIssueKind.GENERIC_ERROR),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
@@ -2281,6 +2311,7 @@ private fun SettingUiStyleRow(
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val options = listOf(
+        UiStyle.CLARITY to stringResource(id = R.string.settings_ui_style_clarity),
         UiStyle.CLASSIC to stringResource(id = R.string.settings_ui_style_classic),
         UiStyle.DYNAMIC_GRADIENT to stringResource(id = R.string.settings_ui_style_dynamic_gradient),
         UiStyle.MIDNIGHT_GLASS to stringResource(id = R.string.settings_ui_style_midnight_glass)
@@ -2306,7 +2337,7 @@ private fun SettingUiStyleRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (midnightGlass) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(
+            androidx.compose.foundation.layout.FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
@@ -2804,6 +2835,7 @@ private fun GlucoseAlertsCard(
                             clipLabel = state.softAlertClipLabel,
                             startSeconds = state.softAlertAudioStartSeconds,
                             durationSeconds = state.softAlertAudioDurationSeconds,
+                            durationRangeSeconds = 1..5,
                             valid = state.softAlertAudioValid,
                             onStartSecondsChange = { next ->
                                 onSoftAlertAudioSettingsChange(next, state.softAlertAudioDurationSeconds)
@@ -2886,7 +2918,8 @@ private fun AlertAudioClipEditor(
     onDurationSecondsChange: (Int) -> Unit,
     onReplace: () -> Unit,
     onPreview: () -> Unit,
-    onStopPreview: () -> Unit
+    onStopPreview: () -> Unit,
+    durationRangeSeconds: IntRange = 15..30
 ) {
     Surface(
         shape = SettingsInfoShape,
@@ -2932,8 +2965,8 @@ private fun AlertAudioClipEditor(
                 title = stringResource(id = R.string.settings_glucose_alerts_audio_duration),
                 subtitle = clipLabel,
                 value = durationSeconds,
-                min = 15,
-                max = 30,
+                min = durationRangeSeconds.first,
+                max = durationRangeSeconds.last,
                 step = 1,
                 onValueChange = onDurationSecondsChange
             )
@@ -3711,7 +3744,10 @@ private fun SettingsSectionCard(
         modifier = Modifier.fillMaxWidth(),
         shape = SettingsSectionShape,
         border = BorderStroke(1.dp, if (midnightGlass) Color(0x263A4A66) else MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (midnightGlass) Color(0xFF1D2D49) else MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Column(
@@ -3821,7 +3857,7 @@ private fun SettingsScreenPreview() {
                 criticalAlertClip1Label = "Night Waltz.mp3",
                 criticalAlertClip2Label = "Snowbirds.mp3",
                 softAlertAudioStartSeconds = 32,
-                softAlertAudioDurationSeconds = 18,
+                softAlertAudioDurationSeconds = 2,
                 criticalAlertAudio1StartSeconds = 42,
                 criticalAlertAudio1DurationSeconds = 20,
                 criticalAlertAudio2StartSeconds = 36,

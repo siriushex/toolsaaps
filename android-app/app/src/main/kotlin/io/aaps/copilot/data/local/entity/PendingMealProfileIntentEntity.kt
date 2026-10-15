@@ -16,5 +16,10 @@ data class PendingMealProfileIntentEntity(
     val expectedCarbsGrams: Double,
     val manualMealEnergyKcal: Double? = null,
     val submittedAtMs: Long,
-    val expiresAtMs: Long
+    val expiresAtMs: Long,
+    val portion: String? = null,
+    val portionProvenance: String? = null,
+    val glycemicIndexValue: Double? = null,
+    val glycemicIndexSource: String? = null,
+    val glycemicIndexReference: String? = null
 )

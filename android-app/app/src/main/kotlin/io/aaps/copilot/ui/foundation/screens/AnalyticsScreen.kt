@@ -136,8 +136,29 @@ fun AnalyticsScreen(
     onSensorLagCorrectionModeChange: (String) -> Unit = {},
     openSensorLagTrendDetailRequest: Boolean = false,
     onSensorLagTrendDetailHandled: () -> Unit = {},
+    onLoadProspectiveReview: (suspend () -> ProspectiveForecastReviewUi)? = null,
     modifier: Modifier = Modifier
 ) {
+    var showProspectiveReview by rememberSaveable { mutableStateOf(false) }
+    var prospectiveRequest by remember { mutableStateOf(0) }
+    var prospectiveLoading by remember { mutableStateOf(false) }
+    var prospectiveReview by remember { mutableStateOf<ProspectiveForecastReviewUi?>(null) }
+    LaunchedEffect(showProspectiveReview, prospectiveRequest) {
+        if (!showProspectiveReview || onLoadProspectiveReview == null) return@LaunchedEffect
+        prospectiveLoading = true
+        prospectiveReview = null
+        try {
+            prospectiveReview = onLoadProspectiveReview()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            prospectiveReview = ProspectiveForecastReviewUi(ProspectiveReviewStatus.UNAVAILABLE)
+        } finally { prospectiveLoading = false }
+    }
+    if (showProspectiveReview) {
+        ProspectiveForecastReviewDialog(prospectiveReview, prospectiveLoading,
+            onRefresh = { prospectiveRequest++ }, onDismiss = { showProspectiveReview = false })
+    }
     var selectedTabRaw by rememberSaveable { mutableStateOf(AnalyticsTab.ISF_CR.name) }
     var selectedWindowRaw by rememberSaveable { mutableStateOf(IsfCrHistoryWindow.LAST_24H.name) }
     var selectedCircadianWindowRaw by rememberSaveable { mutableStateOf(CircadianPatternWindowUi.DAYS_14.name) }
@@ -276,6 +297,10 @@ fun AnalyticsScreen(
                     item {
                         AnalyticsSectionCard {
                             AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_quality))
+                            if (onLoadProspectiveReview != null) TextButton(onClick = { showProspectiveReview = true }) {
+                                Icon(Icons.Default.ShowChart, contentDescription = null)
+                                Text(stringResource(R.string.prospective_review_title))
+                            }
                             if (state.qualityLines.isEmpty()) {
                                 Text(
                                     text = stringResource(id = R.string.analytics_empty),

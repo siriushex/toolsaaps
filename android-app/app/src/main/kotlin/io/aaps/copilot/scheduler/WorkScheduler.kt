@@ -20,6 +20,14 @@ object WorkScheduler {
 
     internal const val SYNC_PERIODIC_INTERVAL_MINUTES = 15L
 
+    internal fun requestInitialEnergyProfileRefresh(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            ENERGY_PROFILE_INITIAL_REFRESH_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<EatingWindowRefreshWorker>().build()
+        )
+    }
+
     fun scheduleEatingWindowRefresh(
         context: Context,
         now: ZonedDateTime = ZonedDateTime.now()
@@ -156,6 +164,7 @@ object WorkScheduler {
     const val CIRCADIAN_TARGET_IMMEDIATE_WORK_NAME = "copilot.target.circadian.immediate"
     const val POWER_SAVE_RESUME_WORK_NAME = "copilot.power_save.resume"
     const val EATING_WINDOW_REFRESH_WORK_NAME = "copilot.eating_window.refresh"
+    internal const val ENERGY_PROFILE_INITIAL_REFRESH_WORK_NAME = "copilot.energy_profile.initial_refresh"
     internal const val LEGACY_RUNTIME_KEEPALIVE_WORK_NAME = "copilot.runtime.keepalive"
 
     private fun workManagerTransport(context: Context): ClinicalInputInvalidationWorkManagerTransport {

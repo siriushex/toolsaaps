@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
 
 @Composable
@@ -66,14 +67,20 @@ internal fun clinicalChartDomain(chart: ClinicalForecastChartUiState): ClinicalC
             include(point.ts)
         }
     }
-    if (finiteSeriesCount < 2) return null
     chart.futureCi.forEach { point ->
         if (point.low.isFinite() && point.high.isFinite()) include(point.ts)
     }
+    chart.mealImpactPoints.forEach { point ->
+        if (point.ts > 0L && point.value.isFinite() && point.value > 0.0) {
+            finiteSeriesCount += 1
+            include(point.ts)
+        }
+    }
+    if (finiteSeriesCount < 2 || endTs <= startTs) return null
     return ClinicalChartDomain(
         startTs = startTs,
         endTs = endTs,
-        nowTs = nowTs ?: endTs
+        nowTs = nowTs ?: chart.mealImpactPoints.firstOrNull()?.ts ?: endTs
     )
 }
 
@@ -93,7 +100,12 @@ internal fun InteractiveClinicalForecastChart(
     resetLabel: String,
     modifier: Modifier = Modifier,
     components: List<ClinicalForecastComponent> = emptyList(),
-    onViewportChanged: ((ClinicalChartViewport) -> Unit)? = null
+    onViewportChanged: ((ClinicalChartViewport) -> Unit)? = null,
+    chartHeight: Dp = 280.dp,
+    showDisplayRange: Boolean = true,
+    forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
+    onForecastMarkerClick: (Int) -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     val density = LocalDensity.current
     var plotBounds by remember { mutableStateOf(ClinicalChartPlotHorizontalBounds(0f, 1f)) }
@@ -108,6 +120,11 @@ internal fun InteractiveClinicalForecastChart(
         plus30Label = plus30Label,
         components = components,
         viewport = interactionState.viewport,
+        chartHeight = chartHeight,
+        showDisplayRange = showDisplayRange,
+        forecastMarkers = forecastMarkers,
+        onForecastMarkerClick = onForecastMarkerClick,
+        onLoadEventContext = onLoadEventContext,
         modifier = modifier
             .testTag("overviewInteractiveChart")
             .onSizeChanged { size ->
@@ -115,7 +132,7 @@ internal fun InteractiveClinicalForecastChart(
                     clinicalChartPlotHorizontalBounds(
                         totalWidthPx = size.width.toFloat(),
                         leftInsetPx = 34.dp.toPx(),
-                        rightInsetPx = 4.dp.toPx()
+                        rightInsetPx = 40.dp.toPx()
                     )
                 }
             }

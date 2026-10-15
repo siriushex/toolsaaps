@@ -3585,6 +3585,8 @@ class ClinicalReportRepositoryTest {
         val run = repository.prepareLocal(NOW, UTC)
         withTimeout(5_000) { run.job.join() }
         lateinit var release: kotlinx.coroutines.Job
+        // Assert lease ownership before staging can reach its terminal result.
+        val finishStaging = CompletableDeferred<Unit>()
         val coordinator = ClinicalReportPdfExportCoordinator(
             scope = this,
             acquireSourceLease = {
@@ -3596,7 +3598,10 @@ class ClinicalReportRepositoryTest {
                 acquired
             },
             sourceDispatcher = Dispatchers.Default,
-            stage = { ClinicalPdfStageResult.Failed },
+            stage = {
+                finishStaging.await()
+                ClinicalPdfStageResult.Failed
+            },
             copy = { _, _ -> ClinicalPdfCopyResult.Failed },
             share = { ClinicalPdfShareResult.Failed },
             discardShare = {},
@@ -3612,6 +3617,7 @@ class ClinicalReportRepositoryTest {
         assertThat(coordinator.state.value.phase)
             .isEqualTo(ClinicalPdfExportUiState.PREPARING)
         assertThat(release.isCompleted).isFalse()
+        finishStaging.complete(Unit)
         withTimeout(5_000) {
             coordinator.state.first { it.phase == ClinicalPdfExportUiState.FAILED }
         }

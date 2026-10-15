@@ -112,6 +112,7 @@ class GlucoseAlertNotifier(
             .setContentTitle(context.getString(R.string.glucose_alert_watch_title))
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setOnlyAlertOnce(true)
             .setContentIntent(alertsContentPendingIntent(claim.episodeId))
@@ -122,7 +123,7 @@ class GlucoseAlertNotifier(
         return deliverConfirmedGlucoseAlertChannels(
             notificationPermissionGranted = permissionGranted,
             postNotification = { postNotification(manager, claim, notification) },
-            invokeVibration = { vibrate(WATCH_VIBRATION) },
+            invokeVibration = { false },
             startAudio = { GlucoseAlertAudioPlaybackResult() }
         )
     }
@@ -157,6 +158,8 @@ class GlucoseAlertNotifier(
             .setContentTitle(title)
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            // The bounded app clip and vibration are the single soft-signal source.
+            .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setOnlyAlertOnce(true)
             .setContentIntent(alertsContentPendingIntent(claim.episodeId))

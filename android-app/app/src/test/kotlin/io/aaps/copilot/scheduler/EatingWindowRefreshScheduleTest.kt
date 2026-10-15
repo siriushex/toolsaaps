@@ -13,6 +13,37 @@ class EatingWindowRefreshScheduleTest {
 
     private val zone = ZoneOffset.ofHours(4)
 
+    @Test fun missingEnabledProfileRequestsOneImmediateCalculation() = kotlinx.coroutines.runBlocking {
+        var enqueued = 0
+        assertThat(ensureInitialEnergyProfileRefresh(true, false, { false }, { enqueued++ })).isTrue()
+        assertThat(enqueued).isEqualTo(1)
+        assertThat(ensureInitialEnergyProfileRefresh(true, false, { true }, { enqueued++ })).isFalse()
+        assertThat(enqueued).isEqualTo(1)
+    }
+
+    @Test fun disabledProfileAndPowerSaveDoNotReadHistoryOrScheduleWork() = kotlinx.coroutines.runBlocking {
+        for ((enabled, powerSave) in listOf(false to false, false to true, true to true)) {
+            assertThat(ensureInitialEnergyProfileRefresh(enabled, powerSave,
+                { error("unexpected snapshot read") }, { error("unexpected work") })).isFalse()
+        }
+    }
+
+    @Test fun snapshotReadFailureAndCancellationCannotScheduleWork() = kotlinx.coroutines.runBlocking {
+        for (failure in listOf(IllegalStateException("read failed"),
+            kotlinx.coroutines.CancellationException("cancelled"))) {
+            val result = runCatching {
+                ensureInitialEnergyProfileRefresh(true, false, { throw failure }, { error("unexpected work") })
+            }
+            org.junit.Assert.assertSame(failure, result.exceptionOrNull())
+        }
+    }
+
+    @Test fun enqueueFailureIsNotReportedAsSuccessfulCalculation() = kotlinx.coroutines.runBlocking {
+        val failure = IllegalStateException("enqueue failed")
+        val result = runCatching { ensureInitialEnergyProfileRefresh(true, false, { false }, { throw failure }) }
+        org.junit.Assert.assertSame(failure, result.exceptionOrNull())
+    }
+
     @Test
     fun schedulesSameNightWhenBeforeRefreshTime() {
         val now = ZonedDateTime.of(2026, 8, 2, 2, 0, 0, 0, zone)

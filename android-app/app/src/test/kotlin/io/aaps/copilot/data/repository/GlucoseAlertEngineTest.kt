@@ -11,6 +11,45 @@ class GlucoseAlertEngineTest {
     private val engine = GlucoseAlertEngine()
 
     @Test
+    fun tenMinuteDropIsNotHiddenByThirtyMinuteRecovery() {
+        val sample = input(settings = testSettings(), nowTs = 1_000_000L,
+            pred5 = 5.4, pred30 = 6.0, pred60 = 6.2, ciLow30 = 5.5, ciHigh30 = 6.5)
+            .copy(pred10 = 3.5)
+        val decision = engine.evaluate(sample, GlucoseAlertRuntimeState())
+        assertThat(decision.predictedMinutesToLow).isAtMost(10)
+        assertThat(decision.predictedMinutesToLow).isGreaterThan(5)
+    }
+
+    @Test
+    fun futureDatedSampleCannotConfirmSoftRisk() {
+        val sample = input(settings = testSettings(), nowTs = 1_000_000L,
+            pred30 = 11.0, ciLow30 = 10.5, ciHigh30 = 11.5).copy(currentGlucoseTimestamp = 1_100_000L)
+        val first = engine.evaluate(sample, GlucoseAlertRuntimeState())
+        val second = engine.evaluate(sample.copy(nowTs = 1_010_000L), first.nextState)
+        assertThat(second.state).isEqualTo(GlucoseAlertState.NONE)
+    }
+
+    @Test
+    fun repeatedCalculationOfOneSampleDoesNotConfirmSoftRisk() {
+        val sample = input(settings = testSettings(), nowTs = 1_000_000L, pred30 = 11.0,
+            ciLow30 = 10.5, ciHigh30 = 11.5).copy(currentGlucoseTimestamp = 990_000L)
+        val first = engine.evaluate(sample, GlucoseAlertRuntimeState())
+        val duplicate = engine.evaluate(sample.copy(nowTs = 1_010_000L), first.nextState)
+        assertThat(duplicate.state).isEqualTo(GlucoseAlertState.NONE)
+        val fresh = engine.evaluate(sample.copy(nowTs = 1_060_000L,
+            currentGlucoseTimestamp = 1_050_000L), duplicate.nextState)
+        assertThat(fresh.state).isEqualTo(GlucoseAlertState.SOFT_HIGH_RISK)
+    }
+
+    @Test
+    fun lowNowDoesNotWaitForAnotherSample() {
+        val sample = input(settings = testSettings(), nowTs = 1_000_000L)
+            .copy(currentGlucoseMmol = 3.7, currentGlucoseTimestamp = 990_000L)
+        assertThat(engine.evaluate(sample, GlucoseAlertRuntimeState()).state)
+            .isEqualTo(GlucoseAlertState.LOW_NOW)
+    }
+
+    @Test
     fun watch60_usesConfidenceBandAndNeedsTwoCycles() {
         val settings = testSettings()
         val baseTs = 1_000_000L

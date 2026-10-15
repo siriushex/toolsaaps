@@ -35,6 +35,8 @@ import io.aaps.copilot.data.repository.AlertAiProductionFactory
 import io.aaps.copilot.data.repository.AlertAiReportDatasetSource
 import io.aaps.copilot.data.repository.AndroidValidatedNetworkGate
 import io.aaps.copilot.data.repository.AiChatRepository
+import io.aaps.copilot.data.repository.ServerAiChatGateway
+import io.aaps.copilot.data.repository.ServerAiHistoryClient
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.BroadcastIngestRepository
@@ -175,6 +177,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -303,6 +307,7 @@ class AppContainer(context: Context) {
     val gson: Gson = Gson()
     val settingsStore = AppSettingsStore(context)
     val serverAiConnectionManager = ServerAiConnectionManager.create(appContext)
+    val serverAiHistoryClient = ServerAiHistoryClient(serverAiConnectionManager)
 
     val db: CopilotDatabase = Room.databaseBuilder(
         context,
@@ -317,8 +322,15 @@ class AppContainer(context: Context) {
         .build()
 
     val apiFactory = ApiFactory { LocalNightscoutTls.loadClientIdentity(appContext) }
+    internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mealStateInbox = io.aaps.copilot.data.repository.MealStateInbox(db)
+    internal val mealStateIngestion = io.aaps.copilot.data.repository.MealStateIngestionQueue(
+        scope = appScope,
+        process = mealStateInbox::persist,
+        drain = mealStateInbox::drainBatch
+    )
     internal val clinicalInvalidationExecutionEvidenceStore =
         DataStoreClinicalInvalidationExecutionEvidenceStore(appContext)
     internal val clinicalInputInvalidationCoordinator = ClinicalInputInvalidationCoordinator(
@@ -349,6 +361,19 @@ class AppContainer(context: Context) {
         }
     )
     init {
+        appScope.launch {
+            mealStateIngestion.health.map { Triple(it.failedBatches, it.quarantinedReceipts, it.rejectedBatches) }
+                .distinctUntilChanged().collect { (failed, quarantined, rejected) ->
+                    if (failed == 0L && quarantined == 0 && rejected == 0L) return@collect
+                    try {
+                        auditLogger.warnThrottled("meal_state_ingestion", 300_000L,
+                            "meal_state_ingestion_incomplete", mapOf(
+                                "failedBatches" to failed, "quarantinedReceipts" to quarantined,
+                                "rejectedBatches" to rejected))
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { }
+                }
+        }
         appScope.launch {
             clinicalInputInvalidationCoordinator.hydrateAndRedriveSafely()
         }
@@ -499,7 +524,9 @@ class AppContainer(context: Context) {
             therapyDao = db.therapyDao(),
             transactionRunner = AapsCarbImportTransactionRunner { block ->
                 db.withTransaction { block() }
-            }
+            },
+            persistMealPage = { mealStateIngestion.offerPage(it, wakeAfterPersist = false) },
+            onCommittedPage = { mealStateIngestion.wake() }
         ),
         syncStateDao = db.syncStateDao(),
         auditLogger = auditLogger
@@ -685,11 +712,13 @@ class AppContainer(context: Context) {
             glucoseAlertStateStore.update { current -> current.copy(mutedUntilTs = until) }
         },
         clearRiskSideEffects = {
+            pumpLinkMonitor.invalidateAlarmSource()
             glucoseAlertAudioController.stop()
             GlucoseAlertNotifier.cancelGlucoseAlertVibration(context.applicationContext)
             GlucoseAlertNotifier.clearPostedNotifications(context.applicationContext)
             PumpLinkNotifier.clear(context.applicationContext)
             io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(context.applicationContext)
+            io.aaps.copilot.data.repository.InfusionSetNotifier.clear(context.applicationContext)
         },
         postCommitObserver = alertAiProductionDispatcher
     )
@@ -699,13 +728,47 @@ class AppContainer(context: Context) {
         episodeDelivery = episodeAlertDelivery
     )
 
+    val telegramRepository = io.aaps.copilot.telegram.TelegramRepository(
+        io.aaps.copilot.telegram.EncryptedTelegramPersistence(
+            io.aaps.copilot.security.KeystoreSecretStorage(appContext,
+                io.aaps.copilot.security.RuntimeSecretStorageNamespaces.TELEGRAM)
+        ),
+        io.aaps.copilot.telegram.TelegramHttpApi()
+    )
+    val telegramDeliveryController = io.aaps.copilot.telegram.TelegramDeliveryController(
+        appContext, telegramRepository, db.alertEventDao(), episodeAlertDelivery, clinicalReportRepository
+    )
+
     private val pumpLinkNotifier = PumpLinkNotifier(appContext)
     private val deliveryDiagnosticNotifier = io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier(appContext)
     private val deliveryDiagnostic = io.aaps.copilot.data.repository.DeliveryDiagnosticRepository(
         db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
         { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) }
     )
-    val pumpLinkMonitor = PumpLinkHealthMonitor(
+    private val infusionSetNotifier = io.aaps.copilot.data.repository.InfusionSetNotifier(appContext)
+    val deliveryDiagnosticDisplay get() = deliveryDiagnostic.display
+    private suspend fun currentInfusionSetEvidence() = io.aaps.copilot.data.repository.InfusionSetEvidenceReader.read(
+        db.therapyDao().latestInfusionChangeCandidates(io.aaps.copilot.data.repository.InfusionSetEvidenceReader.TYPES,
+            io.aaps.copilot.data.repository.InfusionSetEvidenceReader.MAX_CANDIDATES + 1), System.currentTimeMillis())
+    val infusionSetReminder = io.aaps.copilot.data.repository.InfusionSetReminderRepository(
+        io.aaps.copilot.data.repository.DataStoreInfusionReminderStore.create(appContext, appScope),
+        ::currentInfusionSetEvidence, System::currentTimeMillis, { settingsStore.settings.first().softAlertEnabled },
+        infusionSetNotifier::capable,
+        { generation, due ->
+            io.aaps.copilot.data.repository.postCurrentInfusionReminder(db, generation, due, post = infusionSetNotifier::post)
+        }, { io.aaps.copilot.data.repository.InfusionSetNotifier.clear(appContext) },
+        { generation, due, replace -> io.aaps.copilot.scheduler.InfusionSetReminderScheduler.schedule(appContext, generation, due, replace) },
+        { io.aaps.copilot.scheduler.InfusionSetReminderScheduler.cancel(appContext) },
+        episodeAlertDelivery::coordinateMutedSideEffect
+    )
+    fun refreshInfusionSetAsync() {
+        appScope.launch {
+            try { infusionSetReminder.refresh() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { android.util.Log.w("InfusionReminder", "Maintenance state unavailable") }
+        }
+    }
+    val pumpLinkMonitor: PumpLinkHealthMonitor = PumpLinkHealthMonitor(
         scope = appScope,
         store = DataStorePumpLinkRecordStore.create(appContext, appScope),
         elapsedMs = SystemClock::elapsedRealtime,
@@ -980,6 +1043,14 @@ class AppContainer(context: Context) {
                 throughTs = evidence.causalThroughTs,
                 evidenceResolved = evidence.chronologyResolved
             )
+        },
+        managedReleaseReader = { key ->
+            val fingerprint = key.removePrefix(NightscoutActionRepository.TARGET_MANAGER_IDEMPOTENCY_PREFIX)
+            TempTargetSendThrottle.managedReleaseFromJournal(
+                entity = db.targetManagerDao().decisionByFingerprint(TargetManagerMode.ACTIVE.name, fingerprint),
+                idempotencyKey = key,
+                gson = gson
+            )
         }
     )
 
@@ -1049,7 +1120,7 @@ class AppContainer(context: Context) {
             if (finished.wallNowTs < now || finished.monotonicNowTs - started.monotonicNowTs !in 0..5_000L) {
                 return@withManagedTargetAuthorityProof "safety_read_expired"
             }
-            EatingSoonPolicy.blockReason(EatingSoonEvidence(
+            val blockReason = EatingSoonPolicy.blockReason(EatingSoonEvidence(
                 nowTs = finished.wallNowTs,
                 killSwitch = finalSettings.killSwitch,
                 actionsArmed = finalSettings.therapyActionsArmed,
@@ -1064,6 +1135,15 @@ class AppContainer(context: Context) {
                 sensorTrusted = sensorTrusted,
                 chronologyResolved = localSafety.chronologyResolved
             ))
+            if (blockReason != null) auditLogger.info(
+                "manual_meal_target_preflight_evidence",
+                mapOf(
+                    "reason" to blockReason,
+                    "glucoseAgeMs" to sample?.let { finished.wallNowTs - it.timestamp },
+                    "forecastAgeMs" to tuple.accepted.generationTimestamp?.let { finished.wallNowTs - it }
+                )
+            )
+            blockReason
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
@@ -1259,15 +1339,27 @@ class AppContainer(context: Context) {
             nowTs = observationNow
         )
         val manualTargetConflict = try {
+            val manualCommands = db.actionCommandDao().byTypeAndIdempotencyPrefixSince(
+                type = "temp_target",
+                idempotencyPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%",
+                since = observationNow - MANAGED_TARGET_ACTIVE_LOOKBACK_MS
+            )
+            val observed = currentObservation.activeAapsTarget
+            val observedCommand = observed?.idempotencyKey?.takeIf {
+                (observed.ownership == ActiveTargetOwnership.TARGET_MANAGER ||
+                    EatingSoonPolicy.isActiveConfirmedTarget(observed, observationNow)) && manualCommands.any { command ->
+                    command.status == NightscoutActionRepository.STATUS_SENT &&
+                        io.aaps.copilot.data.repository.isCanonicalEatingSoonCommand(command, gson)
+                }
+            }?.let { db.actionCommandDao().forTargetObservationProof(it).singleOrNull() }
+            val confirmedSupersedingTarget = io.aaps.copilot.data.repository.ConfirmedSupersedingTarget
+                .fromObservation(observed, observedCommand, observationNow, gson)
             hasActiveManualTempTargetStatic(
-                commands = db.actionCommandDao().byTypeAndIdempotencyPrefixSince(
-                    type = "temp_target",
-                    idempotencyPrefix = "${NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX}%",
-                    since = observationNow - MANAGED_TARGET_ACTIVE_LOOKBACK_MS
-                ),
+                commands = manualCommands,
                 now = observationNow,
                 gson = gson,
-                replaceableSentIdempotencyKey = replaceableSentIdempotencyKey
+                replaceableSentIdempotencyKey = replaceableSentIdempotencyKey,
+                confirmedSupersedingTarget = confirmedSupersedingTarget
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1349,7 +1441,7 @@ class AppContainer(context: Context) {
             loadTherapy = db.therapyDao()::between,
             loadGlucose = db.glucoseDao()::between,
             loadTelemetry = { fromTs, throughTs ->
-                db.telemetryDao().since(fromTs).filter { it.timestamp <= throughTs }
+                db.telemetryDao().betweenForEnergyProfileInference(fromTs, throughTs)
             },
             decodeTherapy = { row -> row.toDomain(gson) }
         )
@@ -1401,7 +1493,11 @@ class AppContainer(context: Context) {
     val aiChatRepository = AiChatRepository(
         settingsStore = settingsStore,
         credentialProvider = openAiCredentialProvider,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        serverGateway = ServerAiChatGateway(
+            serverAiConnectionManager,
+            serverAiHistoryClient::syncChatContext
+        )
     )
 
     val insightsRepository = InsightsRepository(
@@ -1415,7 +1511,47 @@ class AppContainer(context: Context) {
     )
 
     init {
+        appScope.launch { serverAiConnectionManager.load() }
         clinicalReportRepository.initialize()
+        telegramDeliveryController.start(appScope)
+
+        appScope.launch {
+            try { deliveryDiagnostic.refreshRetainedDisplay(System.currentTimeMillis()) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { android.util.Log.w("DeliveryDiagnostic", "Display history unavailable") }
+        }
+
+        appScope.launch {
+            db.therapyDao().observeInfusionChangeCandidates(io.aaps.copilot.data.repository.InfusionSetEvidenceReader.TYPES,
+                io.aaps.copilot.data.repository.InfusionSetEvidenceReader.MAX_CANDIDATES + 1)
+                .distinctUntilChanged()
+                .combine(settingsStore.settings.map { it.softAlertEnabled }.distinctUntilChanged()) { _, _ -> Unit }
+                .collect {
+                    try { infusionSetReminder.refresh() }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { android.util.Log.w("InfusionReminder", "Maintenance state unavailable") }
+                }
+        }
+
+        appScope.launch {
+            settingsStore.settings
+                .map { it.energyProfile.enabled to PowerSaveController.isActive(it) }
+                .distinctUntilChanged()
+                .collect { (enabled, powerSaveActive) ->
+                    try {
+                        io.aaps.copilot.scheduler.ensureInitialEnergyProfileRefresh(
+                            profileEnabled = enabled,
+                            powerSaveActive = powerSaveActive,
+                            hasSnapshot = { db.energyProfileDao().observeLatestSnapshot().first() != null },
+                            enqueue = { WorkScheduler.requestInitialEnergyProfileRefresh(appContext) }
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        auditLogger.warn("energy_profile_initial_refresh_failed", emptyMap())
+                    }
+                }
+        }
 
         appScope.launch {
             try {
@@ -1566,6 +1702,7 @@ class AppContainer(context: Context) {
             }.getOrDefault(false)
             val uiStyleMigrated = settingsStore.ensureUiStyleDefaultMidnightGlass()
             val uiStyleRedesignMigratedFrom = settingsStore.ensureLegacyUiStylesPromotedToMidnightGlass()
+            settingsStore.ensureClarityUiDefault()
             if (
                 adaptiveMigrationEnabled ||
                 uamConsentMigration != null ||
@@ -1814,7 +1951,8 @@ internal fun hasActiveManualTempTargetStatic(
     now: Long,
     gson: Gson,
     pendingLookbackMs: Long = 12L * 60L * 60L * 1_000L,
-    replaceableSentIdempotencyKey: String? = null
+    replaceableSentIdempotencyKey: String? = null,
+    confirmedSupersedingTarget: io.aaps.copilot.data.repository.ConfirmedSupersedingTarget? = null
 ): Boolean = commands.any { command ->
     if (
         !command.type.equals("temp_target", ignoreCase = true) ||
@@ -1826,6 +1964,8 @@ internal fun hasActiveManualTempTargetStatic(
     when (command.status) {
         NightscoutActionRepository.STATUS_PENDING -> true
         NightscoutActionRepository.STATUS_SENT -> {
+            if (io.aaps.copilot.data.repository.isSupersededEatingSoonCommand(
+                    command, confirmedSupersedingTarget, now, gson)) return@any false
             val payload = runCatching {
                 gson.fromJson(command.payloadJson, com.google.gson.JsonObject::class.java)
             }.getOrNull() ?: return@any true
@@ -1855,6 +1995,7 @@ internal fun managedTargetOwnershipPreflightFailureStatic(
 ): String? {
     TargetOwnershipPolicy.preflightFailure(candidate, currentObservation, nowTs)?.let { return it }
     val active = currentObservation.activeAapsTarget ?: return null
+    EatingSoonPolicy.replacementFailure(active, nowTs, candidate.intent, candidate.targetMmol)?.let { return it }
     val ownership: ActiveTargetOwnership? = active.ownership
     return when {
         ownership == null -> TargetOwnershipPolicy.TARGET_OBSERVATION_INVALID

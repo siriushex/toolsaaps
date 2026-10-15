@@ -1,6 +1,7 @@
 package io.aaps.copilot.config
 
 enum class UiStyle {
+    CLARITY,
     CLASSIC,
     DYNAMIC_GRADIENT,
     MIDNIGHT_GLASS;

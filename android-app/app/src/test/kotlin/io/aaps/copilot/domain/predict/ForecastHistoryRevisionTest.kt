@@ -109,6 +109,15 @@ class ForecastHistoryRevisionTest {
         GlucosePoint(end + index * 60_000L, 8.0, "test", DataQuality.OK)
     }
 
+    @Test fun observationAfterGapDoesNotReusePreviouslyLearnedRise() = runBlocking {
+        val live = engine()
+        val rising = series().mapIndexed { index, point -> point.copy(valueMmol = 5.0 + index * .05) }
+        for (size in 60..72) live.predict(rising.take(size), emptyList())
+        assertTrue(live.lastDiagnosticsForTest()!!.arMu > 0.0)
+        val resumed = rising + GlucosePoint(end + 30 * 60_000L, 7.0, "test", DataQuality.OK)
+        assertParity(engine().predict(resumed, emptyList()), live.predict(resumed, emptyList()))
+    }
+
     @Test fun gridShiftDoesNotHideCalibrationRevision() = runBlocking {
         val live = engine(true)
         val points = minuteSeries()

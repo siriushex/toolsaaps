@@ -17,6 +17,62 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class OverviewAcceptedTupleExpiryTest {
 
+    @Test fun bothCobSourcesExpireIndependentlyWithoutPolling() = runTest {
+        val base = 1_800_000_000_000L
+        val emissions = mutableListOf<Long>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            acceptedSensitivityTupleUiClock(
+                generationTimestamps = MutableStateFlow(null),
+                cobEvidence = MutableStateFlow(base - 60_000L to 300_000L),
+                externalCobEvidence = MutableStateFlow(base to 300_000L),
+                clock = { base + testScheduler.currentTime }
+            ).toList(emissions)
+        }
+        advanceTimeBy(240_001L)
+        runCurrent()
+        assertThat(emissions).containsExactly(base, base + 240_001L).inOrder()
+        advanceTimeBy(60_000L)
+        runCurrent()
+        assertThat(emissions).containsExactly(base, base + 240_001L, base + 300_001L).inOrder()
+        advanceTimeBy(3_600_000L)
+        runCurrent()
+        assertThat(emissions).hasSize(3)
+    }
+
+    @Test fun replacingEffectiveCobCancelsOnlyItsOldDeadline() = runTest {
+        val base = 1_800_000_000_000L
+        val cob = MutableStateFlow<Pair<Long?, Long>>(base to 300_000L)
+        val emissions = mutableListOf<Long>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            acceptedSensitivityTupleUiClock(
+                generationTimestamps = MutableStateFlow(null), cobEvidence = cob,
+                externalCobEvidence = MutableStateFlow(base - 60_000L to 300_000L),
+                clock = { base + testScheduler.currentTime }
+            ).toList(emissions)
+        }
+        advanceTimeBy(180_000L)
+        cob.value = base + 180_000L to 300_000L
+        runCurrent()
+        advanceTimeBy(300_001L)
+        runCurrent()
+        assertThat(emissions).containsExactly(base, base + 180_000L, base + 240_001L, base + 480_001L).inOrder()
+    }
+
+    @Test fun eatingSoonExpiryEmitsOnceWithoutPollingOrDatabaseWrites() = runTest {
+        val base = 1_800_000_000_000L
+        val emissions = mutableListOf<Long>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            acceptedSensitivityTupleUiClock(generationTimestamps = MutableStateFlow(null),
+                eatingSoonTimestamps = MutableStateFlow(base), clock = { base + testScheduler.currentTime }).toList(emissions)
+        }
+        advanceTimeBy(30 * 60_000L + 1)
+        runCurrent()
+        assertThat(emissions).containsExactly(base, base + 30 * 60_000L + 1).inOrder()
+        advanceTimeBy(60 * 60_000L)
+        runCurrent()
+        assertThat(emissions).hasSize(2)
+    }
+
     @Test
     fun cobExpiresOnceWithoutForecastOrDatabaseEmissions() = runTest {
         val baseTs = 1_800_000_000_000L
