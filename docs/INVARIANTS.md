@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Native Artwork Isolation
+
+- No therapy, database, network, permission, acknowledgement or risk mutation
+  callback belongs to artwork. Visual bands are not clinical thresholds.
+- Urgent LOW_NOW/CRITICAL_5 and native notifications stay static. No animation
+  defers a message, infers resolution or completes an AI request by time.
+- Finite RESUMED-only clocks cancel in background and obey system/app power
+  save and reduced motion. Resume and CGM recomposition do not restart gestures.
+- Waiting remains indeterminate to accessibility after its visual cap and when
+  motion is disabled. Artwork timing never becomes request-completion evidence.
+- Public notifications reveal neither values nor glucose-band colors. Optional
+  image failure cannot discard the underlying alert. Clinical actions stay intact.
+- Main reconciliation retained exact verified Android source a74006dd before
+  this presentation patch. Phone installation remains a separate verification.
+
 ## Trusted Host Lifetime
 
 - Root CLI configuration is bounded, closed, root-owned/no-follow and stable

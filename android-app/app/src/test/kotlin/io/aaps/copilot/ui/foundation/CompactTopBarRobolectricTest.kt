@@ -72,6 +72,8 @@ class CompactTopBarRobolectricTest {
             assertEquals(1, cycles); assertEquals(1, blood); assertEquals(1, events)
             val bloodBounds = compose.onNodeWithTag("overviewTopBloodCheck").fetchSemanticsNode().boundsInRoot
             val refreshBounds = compose.onNodeWithTag("overviewTopRefresh").fetchSemanticsNode().boundsInRoot
+            val badgeBounds = compose.onNodeWithTag("eventsActiveBadge").getUnclippedBoundsInRoot()
+            assertTrue("event badge must remain below the top edge: $badgeBounds", badgeBounds.top.value >= -0.5f)
             assertTrue(refreshBounds.right <= bloodBounds.left + 0.5f)
             assertTrue("48dp blood control, actual $bloodBounds", bloodBounds.width >= 48f && bloodBounds.height >= 48f)
             val layouts = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult), useUnmergedTree = true)

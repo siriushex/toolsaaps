@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Native Artwork (2026-10-15)
+
+- Static local assets and pure native recipes, no remote loading or medical
+  payload interpreter. No WebView, additional permission or new runtime library.
+- Urgent glyphs/notifications are static. Risk, channels, IDs, audio, actions
+  and acknowledgements remain outside the motion layer.
+- Public redaction uses app name and gray owl only. Optional decorative decode
+  is best effort. Cache keys are seven fixed bands, not readings/history.
+- Root observers dispose together; clocks stop in background, reduced motion
+  and system/app power save. Tiny marks omit texture decoding.
+- Native pixel/semantics regressions verify moving/frozen frames and preserve
+  indeterminate waiting semantics without deriving success from elapsed time.
+- Native raster tests do not establish physical delivery, measured phone
+  CPU/RAM/battery, phone TalkBack behavior or clinical correctness.
+
 ## Trusted Supervisor Host (2026-10-15)
 
 - Closed protected128KiB descriptor, duplicate/NaN/path/type/root-peer refusal,

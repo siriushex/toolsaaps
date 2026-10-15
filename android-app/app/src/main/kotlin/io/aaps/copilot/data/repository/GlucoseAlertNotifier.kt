@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import io.aaps.copilot.R
+import io.aaps.copilot.ui.motion.OwlNotificationArtwork
 import io.aaps.copilot.AlertNotificationEntryActivity
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.domain.alerts.AlertCauseAnalysis
@@ -108,7 +109,7 @@ class GlucoseAlertNotifier(
             formatMinutes(decision.predictedMinutesToLow)
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_WATCH)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.copilot_glyph_low_watch)
             .setContentTitle(context.getString(R.string.glucose_alert_watch_title))
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -154,7 +155,7 @@ class GlucoseAlertNotifier(
             )
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_SOFT_SOUND)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(if (decision.notifyKind == GlucoseAlertNotifyKind.SOFT_HIGH) R.drawable.copilot_glyph_high_risk else R.drawable.copilot_glyph_low_warning)
             .setContentTitle(title)
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -198,7 +199,7 @@ class GlucoseAlertNotifier(
             }
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_CRITICAL)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(if (decision.notifyKind == GlucoseAlertNotifyKind.LOW_NOW) R.drawable.copilot_glyph_low_now else R.drawable.copilot_glyph_low_imminent)
             .setContentTitle(title)
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -331,6 +332,13 @@ class GlucoseAlertNotifier(
         currentGlucoseMmol: Double?,
         persistedCause: AlertCauseCode?
     ): NotificationCompat.Builder {
+        val artworkChannel = when (decision.notifyKind) {
+            GlucoseAlertNotifyKind.WATCH_60 -> CHANNEL_WATCH
+            GlucoseAlertNotifyKind.LOW_NOW, GlucoseAlertNotifyKind.CRITICAL_5 -> CHANNEL_CRITICAL
+            else -> CHANNEL_SOFT_SOUND
+        }
+        OwlNotificationArtwork.decorate(this,context,artworkChannel,currentGlucoseMmol,
+            decision.currentGlucoseFresh && currentGlucoseMmol == decision.currentGlucoseMmol)
         val compactView = RemoteViews(context.packageName, R.layout.notification_glucose_alert_compact).apply {
             setTextViewText(
                 R.id.glucose_alert_compact_message,

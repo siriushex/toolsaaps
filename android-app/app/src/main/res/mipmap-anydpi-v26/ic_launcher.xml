@@ -1,0 +1,1 @@
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/copilot_launcher_background"/><foreground android:drawable="@drawable/copilot_launcher_foreground"/><monochrome android:drawable="@drawable/ic_copilot_notification"/></adaptive-icon>

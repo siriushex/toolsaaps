@@ -1,12 +1,6 @@
 package io.aaps.copilot.ui.foundation.theme
 
 import android.os.Build
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -33,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.ui.motion.rememberFiniteMotionClock
 import kotlin.math.max
 
 private val LightColors = lightColorScheme(
@@ -290,16 +285,7 @@ fun CopilotStyledBackground(
         }
 
         UiStyle.DYNAMIC_GRADIENT -> {
-            val transition = rememberInfiniteTransition(label = "copilot-gradient")
-            val phase = transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 13_000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "phase"
-            )
+            val phase = rememberFiniteMotionClock(8_000L, "background-material", true)
             val primary = if (darkTheme) {
                 listOf(
                     Color(0xFF0B132B),
@@ -337,7 +323,7 @@ fun CopilotStyledBackground(
                     .drawBehind {
                         val w = size.width
                         val h = size.height
-                        val shift = phase.value
+                        val shift = (phase.value / 8_000f).coerceIn(0f, 1f)
                         drawRect(
                             brush = Brush.linearGradient(
                                 colors = primary,

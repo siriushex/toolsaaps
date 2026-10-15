@@ -1,5 +1,19 @@
 # ARCHITECTURE
 
+## Feather 01 Native Presentation
+
+`ui/motion` owns presentation-only owl paths, palettes and 52 finite glyph records
+from `design/owl01/source`. `tools/generate_feather_artwork.cjs` recreates the
+native data and assets without network, WebView, GIF playback or new dependencies.
+Draw-only clocks are finite and RESUMED-only. One root observer respects system
+animator scale, device/app power save and urgent presentation. Resume does not
+replay. Small marks skip texture decoding; optional gradient movement is bounded.
+Waiting preserves indeterminate accessibility semantics independently of its
+finite visual clock; only the existing request state can remove that indicator.
+Existing notifications retain static risk icons/channels/actions. Public artwork
+is neutral and contains no glucose data; optional bitmap failure is best effort.
+See `FEATHER_01_NATIVE.md`. No clinical state is owned by this layer.
+
 ## Sustained-Rise Target
 
 The adaptive controller can issue a guarded 4.1 mmol/L, 30-minute proposal

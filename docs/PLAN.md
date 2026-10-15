@@ -1,5 +1,22 @@
 # PLAN
 
+## Feather 01 Main Integration (2026-10-15)
+
+- User approved native artwork plus Git main. Isolated integration reconciles
+  main 120e6309 with verified a74006dd, excluding unfinished owner-AI files.
+  Android matched a74006dd exactly before the presentation patch; both docs
+  histories remain. Duplicate sustained-rise behavior was not reimplemented.
+- Shared native owl/glyph drawing, optical sizes, launcher/event assets, finite
+  foreground motion, static notification risk icons and private owl artwork.
+- Local model/recipe, native raster/lifecycle/pixel/semantics, compact-header
+  regressions, notification privacy, event details, unit/lint/compile/APK and
+  source review passed. Full regression: 5,541 tests with 6 private-fixture skips;
+  after the last waiting-role fix, 35 targeted tests and 10 event tests passed.
+- Integration gate: require successful exact-head Verify and a fresh main
+  divergence check. Record publication/main evidence in the PR and task audit;
+  a local build is not deployment evidence.
+- No phone install, alarm test or new clinical activation is authorized here.
+
 ## Trusted Supervisor Entry Point (2026-10-15)
 
 - Added explicit Linux root host CLI, protected closed configuration, fixed

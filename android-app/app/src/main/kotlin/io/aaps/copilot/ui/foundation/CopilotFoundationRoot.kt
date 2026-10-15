@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
@@ -93,6 +94,11 @@ import kotlinx.coroutines.flow.filterNotNull
 import io.aaps.copilot.R
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.ui.MainViewModel
+import io.aaps.copilot.ui.motion.CopilotOwl
+import io.aaps.copilot.ui.motion.OwlGesture
+import io.aaps.copilot.ui.motion.OwlColorBand
+import io.aaps.copilot.ui.motion.owlColorBand
+import io.aaps.copilot.ui.motion.ProvideCopilotMotion
 import io.aaps.copilot.ui.AutomaticEventAiAnalysisSettingsAction
 import io.aaps.copilot.ui.foundation.components.AppHealthBanner
 import io.aaps.copilot.ui.foundation.design.Spacing
@@ -280,6 +286,7 @@ fun CopilotFoundationRoot(
                         },
                         onOpenEvents = { showEventsDialog = true },
                         activeEventCount = overview.events.count { it.isActiveAt(overview.eventTimelineNowTs) },
+                        owlBand = owlColorBand(overview.glucose, !overview.isStale && overview.sampleAgeMinutes?.let { it in 0L..5L } == true),
                         onOpenHealth = {
                             navController.navigate(Destinations.Audit.route) {
                                 launchSingleTop = true
@@ -682,6 +689,8 @@ fun CopilotFoundationRoot(
         }
     }
     AapsCopilotTheme(uiStyle = selectedUiStyle) {
+        ProvideCopilotMotion(enabled = !overview.powerSaveActive && !overview.glucoseAlertStrongActive &&
+            overview.glucoseAlertState !in setOf("LOW_NOW", "CRITICAL_5")) {
         CopilotStyledBackground(
             uiStyle = selectedUiStyle,
             modifier = Modifier.fillMaxSize()
@@ -713,6 +722,7 @@ fun CopilotFoundationRoot(
                 )
             }
         }
+        }
     }
 }
 @Composable
@@ -736,7 +746,8 @@ internal fun TopBar(
     onOpenAlertHistory: () -> Unit,
     onOpenEvents: () -> Unit,
     activeEventCount: Int,
-    onOpenHealth: () -> Unit
+    onOpenHealth: () -> Unit,
+    owlBand: OwlColorBand = OwlColorBand.BRAND
 ) {
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
@@ -764,6 +775,7 @@ internal fun TopBar(
     }
 
     TopAppBar(
+        expandedHeight = (64f + 16f * (androidx.compose.ui.platform.LocalDensity.current.fontScale - 1f).coerceAtLeast(0f)).dp,
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = statusContainerColor,
             titleContentColor = contentColor,
@@ -771,9 +783,10 @@ internal fun TopBar(
             navigationIconContentColor = contentColor
         ),
         title = {
-            if (!showOverviewActions) {
-                Text(text = title)
-            }
+            if (showOverviewActions) {
+                CopilotOwl(size = 32.dp, band = owlBand, gesture = OwlGesture.LAUNCH,
+                    motionKey = "root-brand", modifier = Modifier.testTag("copilotBrand"))
+            } else Text(text = title)
         },
         navigationIcon = {
             IconButton(onClick = onMenuClick) {
@@ -844,6 +857,7 @@ internal fun EventAlertActions(
                 val description = stringResource(R.string.events_active_badge_description, text)
                 Badge(
                     modifier = Modifier
+                        .offset(y = (badgeHeight - 16.dp) / 2)
                         .heightIn(min = badgeHeight)
                         .testTag("eventsActiveBadge")
                         .semantics { contentDescription = description }

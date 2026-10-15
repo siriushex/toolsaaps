@@ -1,3 +1,29 @@
+# Feather 01 Native Presentation - 2026-10-15
+
+- User selected the first feathered family and explicitly approved Git main
+  integration. Isolated reconciliation includes verified a74006dd, not the other
+  task's unfinished owner-AI changes. Android matched that incoming SHA exactly
+  before presentation edits; duplicate main behavior and both doc histories stay.
+- Added native owl/glyph models and cached Compose drawing, finite lifecycle
+  clocks, system/app motion gates, optical sizes, adaptive launcher, event assets
+  and static risk icons. Busy state and clinical actions remain authoritative.
+- Private notification artwork is redacted to a gray owl and app name publicly.
+  Decorative bitmap decode is best effort; channels/audio/actions are unchanged.
+- Portable artwork sources, generator, provenance and Lucide license included.
+  Native pixel tests verify actual movement followed by a finite freeze. Waiting
+  retains indeterminate accessibility semantics after the cap and reduced motion.
+  Compact-header tests include unclipped badges with enlarged system fonts.
+- Immutable full regression before the last waiting-semantics fix: 5,541 tests,
+  zero failures/errors, 6 existing private-fixture skips. Final code: 35 targeted
+  motion/header/artwork/notification tests plus 10 event-detail tests passed.
+  Both frozen source-hashed unit/lint/APK gates completed successfully; final
+  lint has 355 warnings, 8 hints, zero errors. 32 unused static catalog recipes are
+  intentional and do not activate unsupported detection scenarios.
+- Debug APK signature/package verified. Verify repeats the complete suite on
+  the final Git head before main integration. No APK release upload, phone
+  installation, server deployment or clinical activation is performed here.
+  See docs/FEATHER_01_NATIVE.md.
+
 # Sustained-Rise Target Integration - 2026-09-27
 
 - Transferred only the guarded sustained-rise rule, manager/factory integration

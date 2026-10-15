@@ -33,7 +33,7 @@ class InfusionSetNotifier(private val context: Context) {
         if (!capable()) return InfusionPostResult.BLOCKED
         val manager = context.getSystemService(NotificationManager::class.java) ?: return InfusionPostResult.BLOCKED
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setSmallIcon(R.drawable.copilot_glyph_set_due)
             .setContentTitle(context.getString(R.string.infusion_set_due))
             .setContentText(context.getString(R.string.infusion_set_reminder))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
