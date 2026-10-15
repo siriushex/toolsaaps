@@ -6,6 +6,7 @@ trusted server configuration. Client headers cannot influence that policy.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -15,7 +16,7 @@ from typing import Iterable
 from asn1crypto import core, parser
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, ed448, padding, rsa
 from cryptography.x509.verification import (Criticality, ExtensionPolicy,
                                             PolicyBuilder, Store,
@@ -29,6 +30,42 @@ _MAX_CHAIN_CERTIFICATES = 8
 _MAX_CERTIFICATE_BYTES = 16_384
 _MAX_CHAIN_BYTES = 65_536
 _MAX_REVOCATION_AGE_MS = 7 * 86_400_000
+REVOCATION_SNAPSHOT_BYTES = 4 * 1024 * 1024
+_SERIAL = re.compile(r"[0-9a-f]{1,40}")
+
+
+def decode_revoked_serials(raw: bytes) -> frozenset[str]:
+    """Decode an operator-pinned Google status snapshot, never client policy."""
+    def unique(pairs):
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ValueError()
+        return result
+
+    try:
+        if type(raw) is not bytes or not 2 <= len(raw) <= REVOCATION_SNAPSHOT_BYTES:
+            raise ValueError()
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        if type(value) is not dict or set(value) != {"entries"}:
+            raise ValueError()
+        entries = value["entries"]
+        if type(entries) is not dict or len(entries) > 65536:
+            raise ValueError()
+        serials = set()
+        for serial, entry in entries.items():
+            if (not _SERIAL.fullmatch(serial) or type(entry) is not dict
+                    or set(entry) - {"status", "reason", "comment", "expires"}
+                    or entry.get("status") not in ("REVOKED", "SUSPENDED")
+                    or any(type(item) is not str or len(item) > 2048 for item in entry.values())):
+                raise ValueError()
+            canonical = format(int(serial, 16), "x")
+            if canonical in serials:
+                raise ValueError()
+            serials.add(canonical)
+        return frozenset(serials)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise ValueError("invalid_revocation_snapshot") from None
 
 _CA_EXTENSION_POLICY = (ExtensionPolicy.permit_all()
     .require_present(x509.BasicConstraints, Criticality.CRITICAL, None)
@@ -81,6 +118,7 @@ class AttestationTrustPolicy:
     revoked_certificate_sha256: frozenset[str]
     revocation_checked_ms: int
     max_revocation_age_ms: int = _MAX_REVOCATION_AGE_MS
+    revoked_certificate_serials: frozenset[str] = frozenset()
 
     def __post_init__(self):
         if not re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+", self.application_id):
@@ -92,6 +130,12 @@ class AttestationTrustPolicy:
                 raise ValueError("invalid_digest_set")
         if not self.allowed_signer_sha256 or not self.trusted_root_sha256:
             raise ValueError("trust_policy_required")
+        if (not isinstance(self.revoked_certificate_serials, frozenset)
+                or len(self.revoked_certificate_serials) > 65536
+                or any(type(value) is not str or not _SERIAL.fullmatch(value)
+                       or format(int(value, 16), "x") != value
+                       for value in self.revoked_certificate_serials)):
+            raise ValueError("invalid_revocation_serials")
         if (type(self.revocation_checked_ms) is not int
                 or type(self.max_revocation_age_ms) is not int
                 or not 0 < self.max_revocation_age_ms <= _MAX_REVOCATION_AGE_MS):
@@ -254,7 +298,9 @@ class AndroidAttestationVerifier:
         fingerprints = tuple(hashlib.sha256(item).hexdigest() for item in chain)
         if (fingerprints[-1] not in self.policy.trusted_root_sha256
                 or len(set(fingerprints)) != len(fingerprints)
-                or any(value in self.policy.revoked_certificate_sha256 for value in fingerprints)):
+                or any(value in self.policy.revoked_certificate_sha256 for value in fingerprints)
+                or any(format(certificate.serial_number, "x") in self.policy.revoked_certificate_serials
+                       for certificate in certificates)):
             raise AttestationError()
         when = datetime.fromtimestamp(now_ms / 1000, tz=UTC)
         for certificate in certificates:

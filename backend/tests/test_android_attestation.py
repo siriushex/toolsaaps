@@ -1,4 +1,5 @@
 import hashlib
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -280,6 +281,43 @@ def test_attestation_rejects_unpinned_or_revoked_certificates():
     with pytest.raises(AttestationError):
         AndroidAttestationVerifier(revoked).verify(
             certificate_chain_der=trusted_chain, expected_challenge=CHALLENGE, now_ms=NOW)
+
+
+@pytest.mark.parametrize("position", [0, -1])
+def test_revocation_serials_reject_any_certificate_in_the_chain(position):
+    from app.ai.android_attestation import decode_revoked_serials
+
+    chain, _ = _chain()
+    serial = format(x509.load_der_x509_certificate(chain[position]).serial_number, "x")
+    serials = decode_revoked_serials(json.dumps({"entries": {
+        serial: {"status": "REVOKED", "reason": "KEY_COMPROMISE"}
+    }}).encode())
+    policy = replace(_policy(chain), revoked_certificate_serials=serials)
+    with pytest.raises(AttestationError):
+        AndroidAttestationVerifier(policy).verify(
+            certificate_chain_der=chain, expected_challenge=CHALLENGE, now_ms=NOW)
+
+
+@pytest.mark.parametrize("raw", [
+    b'{"entries":{"a":{"status":"REVOKED"},"a":{"status":"REVOKED"}}}',
+    b'{"entries":{"01":{"status":"REVOKED"},"1":{"status":"SUSPENDED"}}}',
+    b'{"entries":{"GG":{"status":"REVOKED"}}}',
+    b'{"entries":{"a":{"status":"VALID"}}}',
+    b'{"entries":{"a":{"status":"REVOKED","unknown":1}}}',
+    b'{"entries":[]}', b'{"entries":{},"extra":1}', b'[]',
+])
+def test_revocation_snapshot_is_closed_and_rejects_ambiguous_input(raw):
+    from app.ai.android_attestation import decode_revoked_serials
+
+    with pytest.raises(ValueError, match="invalid_revocation_snapshot"):
+        decode_revoked_serials(raw)
+
+
+def test_revocation_snapshot_accepts_empty_and_suspended_without_inventing_expiry():
+    from app.ai.android_attestation import decode_revoked_serials
+
+    assert decode_revoked_serials(b'{"entries":{}}') == frozenset()
+    assert decode_revoked_serials(b'{"entries":{"0a":{"status":"SUSPENDED","expires":"2020-01-01"}}}') == frozenset({"a"})
 
 
 def test_attested_enrollment_binds_only_verified_key_and_session(tmp_path):

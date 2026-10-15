@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Owner Enrollment Rollout Gate (2026-10-16)
+
+- Deployment inspection found the trust adapter accepted certificate SHA256
+  denylists only, while Google's official status list keys are serial numbers.
+  New chain tests reproduced the missing check before its implementation.
+- Add a bounded closed snapshot parser, canonical lowercase serial matching and
+  all-chain revocation checks. REVOKED and SUSPENDED are denied, even when an
+  optional expiry string has passed. Unknown status, duplicate/ambiguous serials,
+  extra fields, malformed JSON or capacity excess fails closed.
+- Owner-only configuration v2 requires an external protected snapshot and its
+  SHA256 pin. The existing no-follow/owner/mode/link/race checks protect reads;
+  key/store/socket aliases are refused. v1 cannot claim deployment readiness.
+- Snapshot sourcing and renewal remain trusted operator duties. No network
+  lookup or attacker-selected trust input is added to a request. Original
+  root/signature/app/boot/hardware/freshness checks are unchanged.
+- Source: [Android key attestation](https://developer.android.com/privacy-and-security/security-key-attestation#certificate_status).
+  This correction alone is not API, network, device or provider admission.
+
 ## Isolated Photo Pipeline (2026-10-15)
 
 - Nonroot API photo work is immutable and peer/policy/binding-correlated over a

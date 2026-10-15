@@ -1,11 +1,13 @@
 """Explicit nonroot owner API composition, with no import-time resources.
 
 ASGI entry: ``uvicorn app.ai.owner_api:create_app --factory``. The required
-COPILOT_AI_OWNER_CONFIG points to a protected JSON descriptor (version 1):
+COPILOT_AI_OWNER_CONFIG points to a protected JSON descriptor (version 2):
 owner_id, model, roots {identity, proofs, jobs, history}, receipt_key,
 history_key, supervisor {socket, uid, gid}, attestation {application_id,
 allowed_signer_sha256, trusted_root_sha256, revoked_certificate_sha256,
-revocation_checked_ms}. All fields are required; no other settings are accepted.
+revocation_checked_ms, revocation_snapshot {path, sha256}}. The separate protected
+snapshot is the pinned official serial-number status JSON. All fields are
+required; no other settings are accepted. Version 1 is not deployment-ready.
 The sole optional addition is vision {socket, uid, gid} for a separately admitted
 image supervisor. It never enables a decoder or profile inside the HTTP process.
 
@@ -20,8 +22,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import ExitStack, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -35,7 +38,8 @@ from starlette.applications import Starlette
 
 from ..ai_server import _error, create_bound_ai_app
 from .activation import ActivationService
-from .android_attestation import AndroidAttestationVerifier, AttestationTrustPolicy
+from .android_attestation import (AndroidAttestationVerifier, AttestationTrustPolicy,
+                                 REVOCATION_SNAPSHOT_BYTES, decode_revoked_serials)
 from .client_auth import AuthError, ClientAuth, credentials
 from .contextual_chat import ContextualChatWorker, contextual_chat_policy
 from .history_service import HistoryService
@@ -164,6 +168,8 @@ class OwnerConfiguration:
     socket_path: Path
     supervisor_peer: PeerIdentity
     attestation: AttestationTrustPolicy
+    revocation_path: Path
+    revocation_sha256: str
     vision_socket_path: Path | None = None
     vision_peer: PeerIdentity | None = None
 
@@ -175,7 +181,7 @@ class OwnerConfiguration:
             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
         _fields(value, "version owner_id model roots receipt_key history_key supervisor attestation"
                 + (" vision" if "vision" in value else ""))
-        if (type(value["version"]) is not int or value["version"] != 1
+        if (type(value["version"]) is not int or value["version"] != 2
                 or type(value["owner_id"]) is not str
                 or str(UUID(value["owner_id"])) != value["owner_id"]):
             raise ValueError()
@@ -194,7 +200,14 @@ class OwnerConfiguration:
                for path in (receipt, history, socket_path)):
             raise ValueError()
         attestation = _fields(value["attestation"], "application_id allowed_signer_sha256 "
-            "trusted_root_sha256 revoked_certificate_sha256 revocation_checked_ms")
+            "trusted_root_sha256 revoked_certificate_sha256 revocation_checked_ms revocation_snapshot")
+        revocation = _fields(attestation["revocation_snapshot"], "path sha256")
+        revocation_path, revocation_digest = _path(revocation["path"]), revocation["sha256"]
+        if (type(revocation_digest) is not str or len(revocation_digest) != 64
+                or any(c not in "0123456789abcdef" for c in revocation_digest)
+                or revocation_path in (receipt, history, socket_path)
+                or any(revocation_path == root or root in revocation_path.parents for root in paths)):
+            raise ValueError()
         for name in ("allowed_signer_sha256", "trusted_root_sha256", "revoked_certificate_sha256"):
             items = attestation[name]
             if (type(items) is not list or len(items) > 256
@@ -210,12 +223,12 @@ class OwnerConfiguration:
             vision = _fields(value["vision"], "socket uid gid")
             vision_path, vision_peer = _path(vision["socket"]), PeerIdentity(vision["uid"], vision["gid"])
             if (len(str(vision_path).encode()) > 103 or vision_path == socket_path
-                    or vision_path in (receipt, history)
+                    or vision_path in (receipt, history, revocation_path)
                     or any(vision_path == root or root in vision_path.parents for root in paths)):
                 raise ValueError()
         return cls(value["owner_id"], contextual_chat_policy(value["model"]), roots,
             receipt, history, socket_path, PeerIdentity(supervisor["uid"], supervisor["gid"]), trust,
-            vision_path, vision_peer)
+            revocation_path, revocation_digest, vision_path, vision_peer)
 
 
 def read_configuration(path: Path):
@@ -225,7 +238,13 @@ def read_configuration(path: Path):
         config = OwnerConfiguration.decode(raw)
         if any(path == root or root in path.parents for root in config.roots.values()):
             raise ValueError()
-        return config
+        if path == config.revocation_path:
+            raise ValueError()
+        snapshot, _ = _read_protected(config.revocation_path, REVOCATION_SNAPSHOT_BYTES, minimum=2)
+        if hashlib.sha256(snapshot).hexdigest() != config.revocation_sha256:
+            raise ValueError()
+        return replace(config, attestation=replace(config.attestation,
+            revoked_certificate_serials=decode_revoked_serials(snapshot)))
     except Exception:
         raise OwnerApiError("owner_api_configuration_rejected") from None
 

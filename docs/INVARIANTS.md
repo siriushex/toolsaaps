@@ -92,6 +92,11 @@
 - Explicit owner API requires a nonroot service, protected configuration and
   keys, distinct private storage, current attestation policy and a fixed trusted
   supervisor peer. No default activation, root API or bearer-only shortcut.
+- Owner descriptor v2 requires a protected, digest-pinned serial revocation
+  snapshot. SHA256 revocations alone cannot represent Google's serial status
+  list. Check every chain certificate; suspended keys remain denied. No client
+  supplies trust, no snapshot fetch occurs inside enrollment, and existing
+  freshness/root/application/hardware/boot checks are not relaxed.
 - A lifetime lock prevents concurrent API owners. Unresolved executing claims
   block startup; unknown execution is never replay authority.
 - Concurrent inventories never share a lifetime directory cursor. Each owns a

@@ -1,3 +1,22 @@
+# Owner API Activation Gate - 2026-10-16
+
+- User explicitly requested operational AI/API activation. Fresh host inspection
+  confirms the explicit public503 and absent intended API, preserved idle owner
+  profile identity and separately prepared decoder. Public source/dependencies
+  are installed in a new revision directory and import successfully; no model,
+  API/proxy, medical payload, phone or therapy activation follows from that.
+- Found a deployment-blocking adapter gap: Google status entries identify revoked
+  certificate serials, not certificate SHA256. Added bounded closed parsing,
+  canonical serial rejection across every chain certificate and protected owner
+  descriptor v2 with a mandatory external snapshot/digest. Existing trust and
+  freshness checks remain; no network fetch inside enrollment or v1 fallback.
+- Red/green new checks observed. Focused attestation/owner121 passed; full final
+  backend1149 passed/27 existing skips/one dependency deprecation warning.
+  Scoped E/F lint and compilation pass; source publication/CI remain separate.
+- Native host/network/renewal, protected storage and actual signed device/provider
+  proof remain required before replacing the public503. Existing owner tokens
+  are never copied/reset. ADB currently absent; device requested for final proof.
+
 # Comparable Glucose History - 2026-10-16
 
 - Adds sparse hourly v2 facts, time-weighted 7/21-day compatible baselines and

@@ -1,5 +1,22 @@
 # PLAN
 
+## Owner API Activation (2026-10-16)
+
+- [x] Fresh read-only host/API/profile metadata inspection; existing API remains
+  explicitly503, owner session journal idle, no auth body read or token copy.
+- [x] Prepare isolated public source and frozen dependency runtime; import gate
+  passes without starting API, model or phone work.
+- [x] Reproduce/fix serial revocation adapter gap; protected v2 descriptor and
+  all-chain status checks pass121 focused tests.
+- [x] Final full backend1149 passed/27 existing skips; scoped lint/compilation
+  and documentation/source review. Snapshot remains an operator-pinned input.
+- [ ] Source publication and exact-head CI.
+- [ ] Actual immutable image, expiring DNS/TLS/BPF admission/renewal, kernel and
+  exact lifecycle checks, private API stores/keys and authenticated device proof.
+- [ ] Synthetic provider/API proof, rollback verification and public activation.
+
+No public route or model capability is activated by a source/import check.
+
 ## Comparable Glucose History (2026-10-16)
 
 - [x] Sparse hourly v2 facts preserve daily integration; DST clock matching is

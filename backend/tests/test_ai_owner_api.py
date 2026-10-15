@@ -56,12 +56,16 @@ def provisioned(tmp_path, monkeypatch):
         path = root / name
         path.write_bytes(value)
         path.chmod(0o600)
-    value = dict(version=1, owner_id=str(uuid4()), model="sample-model",
+    snapshot = root / "revocation.json"
+    snapshot.write_bytes(b'{"entries":{}}')
+    snapshot.chmod(0o600)
+    value = dict(version=2, owner_id=str(uuid4()), model="sample-model",
         roots=roots, receipt_key=str(root / "receipt.key"), history_key=str(root / "history.key"),
         supervisor=dict(socket="/run/personal-ai/text.sock", uid=os.geteuid(), gid=os.getegid()),
         attestation=dict(application_id="io.aaps.predictivecopilot",
             allowed_signer_sha256=["73" * 32], trusted_root_sha256=["ab" * 32],
-            revoked_certificate_sha256=[], revocation_checked_ms=NOW))
+            revoked_certificate_sha256=[], revocation_checked_ms=NOW,
+            revocation_snapshot=dict(path=str(snapshot), sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest())))
     path = root / "owner.json"
     path.write_text(json.dumps(value))
     path.chmod(0o600)
@@ -85,6 +89,40 @@ def test_configuration_derives_policy_without_opening_stores(provisioned):
     assert config.policy.allow_tools is config.policy.allow_actions is False
     assert "serverConversation" in config.policy.system_prompt
     assert not list(Path(value["roots"]["jobs"]).iterdir())
+
+
+def test_owner_configuration_loads_pinned_serial_snapshot(provisioned):
+    _, value = provisioned
+    snapshot = Path(value["attestation"]["revocation_snapshot"]["path"])
+    snapshot.write_bytes(b'{"entries":{"abc":{"status":"REVOKED"}}}')
+    value["attestation"]["revocation_snapshot"]["sha256"] = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    config = owner.read_configuration(save(provisioned))
+    assert config.attestation.revoked_certificate_serials == frozenset({"abc"})
+
+
+@pytest.mark.parametrize("change", ["missing", "legacy", "digest", "mode", "link", "private-key-path", "in-database"])
+def test_owner_refuses_unpinned_or_unsafe_revocation_snapshot(provisioned, change):
+    _, value = provisioned
+    descriptor = value["attestation"]["revocation_snapshot"]
+    path = Path(descriptor["path"])
+    if change == "missing":
+        del value["attestation"]["revocation_snapshot"]
+    elif change == "legacy":
+        value["version"] = 1
+    elif change == "digest":
+        path.write_bytes(b'{"entries":{"abc":{"status":"REVOKED"}}}')
+    elif change == "mode":
+        path.chmod(0o644)
+    elif change == "link":
+        target = path.with_suffix(".original")
+        path.rename(target)
+        path.symlink_to(target)
+    elif change == "private-key-path":
+        descriptor["path"] = value["history_key"]
+    else:
+        descriptor["path"] = value["roots"]["history"] + "/snapshot.json"
+    with pytest.raises(owner.OwnerApiError):
+        owner.read_configuration(save(provisioned))
 
 
 def test_optional_vision_descriptor_requires_separate_closed_socket(provisioned):

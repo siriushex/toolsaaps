@@ -55,6 +55,16 @@ that scoped rerun as a second complete-suite execution.
 
 ## Owner API Source Entry
 
+Before provisioning, use protected owner configuration version2. Its attestation
+object requires revocation_snapshot with exactly path and sha256, pointing to a
+separate single-link0400/0600 regular file readable by the API. Pin the complete
+official JSON response from https://android.googleapis.com/attestation/status;
+do not translate serial keys into imaginary certificate hashes or replace a
+failed fetch with an empty list. Set revocation_checked_ms from verified operator
+intake, keep the existing freshness bound, and renew/restart under controlled
+drain before that trust expires. The API never downloads trust from request data.
+Retain the prior descriptor and snapshot when replacing them; no v1 fallback.
+
 Storage validation runs concurrently with signed requests and worker admission.
 Inventory must use independent checked descriptors, not a shared lifetime cursor.
 The owner-api overlap regression checks ownership and descriptor cleanup; the

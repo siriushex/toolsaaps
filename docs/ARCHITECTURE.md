@@ -91,6 +91,10 @@ attested activation, signed jobs/history, encrypted per-device archive and typed
 supervisor client. Imports and the default backend app do not activate it. A
 protected descriptor supplies one owner, provisioned keys, dedicated storage,
 attestation trust and supervisor identity. The API never opens the login profile.
+The protected owner descriptor is version2 and requires a separate hash-pinned
+Google serial-number revocation snapshot. Every certificate in an enrollment
+chain is checked against it as well as the existing SHA256 denylist. Unknown,
+malformed, stale or changed trust input is not silently accepted.
 
 Android AppContainer injects `ServerAiHistoryClient.syncChatContext` into
 `ServerAiChatGateway`, then into the ordinary chat repository. Server routing is
