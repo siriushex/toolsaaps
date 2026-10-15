@@ -9,6 +9,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -44,8 +46,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import io.aaps.copilot.ui.motion.CopilotOwl
-import io.aaps.copilot.ui.motion.OwlGesture
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -2459,7 +2459,9 @@ private fun AiChatHeroCard(
             }
             Spacer(modifier = Modifier.weight(1f))
             if (state.chatInProgress || state.chatVoiceBusy) {
-                CopilotOwl(size = 24.dp, gesture = OwlGesture.WAITING, motionKey = "chat-wait")
+                Icon(Icons.Default.HourglassEmpty,
+                    contentDescription = stringResource(R.string.owl_ai_waiting),
+                    modifier = Modifier.size(24.dp).progressSemantics())
             }
             OutlinedButton(
                 onClick = onSend,

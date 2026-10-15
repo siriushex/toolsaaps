@@ -38,6 +38,14 @@ internal object NativeMotion {
     const val drawerStiffness = 600f
     const val scrimEnterMs = 180
     const val scrimExitMs = 120
+    const val routeEnterMs = 180
+    const val routeExitMs = 120
+
+    fun routeEnter(enabled: Boolean): EnterTransition =
+        if (enabled) fadeIn(tween(routeEnterMs)) else EnterTransition.None
+
+    fun routeExit(enabled: Boolean): ExitTransition =
+        if (enabled) fadeOut(tween(routeExitMs)) else ExitTransition.None
 
     // A quick accent followed by a longer settle, with zero endpoint velocity.
     fun accent(progress: Float): Float {

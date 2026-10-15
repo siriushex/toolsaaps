@@ -66,6 +66,11 @@
     <string name="local_ingest_notification_text">Copilot поддерживает каналы локальных данных AAPS/xDrip</string>
 
     <string name="menu_more">Еще</string>
+    <string name="menu_open">Открыть меню</string>
+    <string name="menu_close">Закрыть меню</string>
+    <string name="menu_state_expanded">Развёрнуто</string>
+    <string name="menu_state_collapsed">Свёрнуто</string>
+    <string name="owl_ai_waiting">Анализ выполняется</string>
     <string name="menu_audit_log">Журнал аудита</string>
     <string name="menu_ai_analysis">AI-анализ</string>
     <string name="menu_analytics">Аналитика</string>

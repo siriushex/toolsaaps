@@ -3,7 +3,7 @@ package io.aaps.copilot.ui.motion
 import androidx.compose.animation.core.FastOutSlowInEasing
 
 enum class OwlGesture(val durationMs: Long) {
-    STILL(0), LAUNCH(480), GAZE(900), LISTEN(960), GREET(840), NOD(720), WAITING(2_400)
+    STILL(0), LAUNCH(480), GAZE(900), LISTEN(960), GREET(840), NOD(720), WAITING(2_400), MENU(480)
 }
 
 data class OwlPose(
@@ -34,6 +34,7 @@ object OwlMotionPolicy {
             OwlGesture.WAITING -> wave(1_660f, 1_840f)
             OwlGesture.GREET -> wave(450f, 610f)
             OwlGesture.NOD -> wave(410f, 550f)
+            OwlGesture.MENU -> wave(250f, 390f)
             else -> wave(560f, 740f)
         }
         return when (gesture) {
@@ -44,6 +45,7 @@ object OwlMotionPolicy {
             OwlGesture.NOD -> OwlPose(blink = blink, headY = 3f * wave(0f, 580f), active = true)
             OwlGesture.WAITING -> OwlPose(blink = blink, gazeX = 1.8f * wave(80f, 1_440f),
                 headAngle = -.8f * wave(80f, 1_440f), active = true)
+            OwlGesture.MENU -> OwlPose(blink = blink, gazeX = -2.4f * wave(0f, 460f), active = true)
             OwlGesture.STILL -> OwlPose()
         }
     }

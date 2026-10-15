@@ -2,6 +2,12 @@
 
 Date: 2026-10-15. User-selected friendly feathered owl; presentation only.
 
+The approved2026-10-16 follow-up supersedes only the original title-slot placement:
+one38dp owl is now the48dp menu action, not an additional overview logo. Explicit
+route and AI busy gestures share the existing finite-clock/policy implementation.
+See superpowers/specs/2026-10-16-owl-navigation-native-design.md. Original stage
+evidence below is retained; new native/device evidence is recorded separately.
+
 ## Integration Boundary
 
 Before the presentation patch, the isolated main reconciliation's Android tree

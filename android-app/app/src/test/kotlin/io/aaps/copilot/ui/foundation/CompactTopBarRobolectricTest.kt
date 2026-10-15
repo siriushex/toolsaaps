@@ -40,8 +40,9 @@ class CompactTopBarRobolectricTest {
     @get:Rule val compose = createEmptyComposeRule()
     @Test fun ordinaryHeaderPreservesActionsAndDisabledRefresh() = verifyHeader(1f, false)
     @Test fun enlargedDarkHeaderPreservesActionsAndDisabledRefresh() = verifyHeader(2f, true)
+    @Test fun approvedOwlOwnsTheFixedMenuTarget() = verifyHeader(1f, false, approvedOwl = true)
 
-    private fun verifyHeader(fontScale: Float, dark: Boolean) {
+    private fun verifyHeader(fontScale: Float, dark: Boolean, approvedOwl: Boolean = false) {
         val app = RuntimeEnvironment.getApplication()
         val old = Configuration(app.resources.configuration)
         @Suppress("DEPRECATION")
@@ -64,6 +65,12 @@ class CompactTopBarRobolectricTest {
                 }
             }
             compose.onNodeWithTag("overviewTopRefresh").assertIsDisplayed().assertIsNotEnabled().performClick()
+            if (approvedOwl) {
+                val owlMenu = compose.onNodeWithTag("owlMenuAction").assertIsDisplayed()
+                val bounds = owlMenu.fetchSemanticsNode().boundsInRoot
+                assertTrue("fixed menu target: $bounds", bounds.width >= 48f && bounds.height >= 48f)
+                compose.onNodeWithTag("copilotBrand").assertDoesNotExist()
+            }
             assertEquals(0, cycles)
             compose.runOnIdle { canRun = true }
             compose.onNodeWithTag("overviewTopRefresh").assertIsEnabled().performClick()
@@ -99,7 +106,7 @@ class CompactTopBarRobolectricTest {
                     }
                 }
             }
-            compose.onNodeWithContentDescription(app.getString(R.string.menu_more)).performClick()
+            compose.onNodeWithContentDescription(app.getString(R.string.menu_open)).performClick()
             assertEquals(1, menu)
             compose.onNodeWithTag("glucoseAlertBellAction").performClick()
             compose.onNodeWithTag("glucoseAlertHistoryAction").performClick()

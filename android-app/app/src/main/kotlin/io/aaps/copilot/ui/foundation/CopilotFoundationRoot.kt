@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -68,6 +67,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import io.aaps.copilot.ui.motion.NativeDrawerMotion
 import io.aaps.copilot.ui.motion.NativeIconButton
+import io.aaps.copilot.ui.motion.NativeMotion
+import io.aaps.copilot.ui.motion.LocalCopilotMotionEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -86,10 +87,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import io.aaps.copilot.R
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.ui.MainViewModel
-import io.aaps.copilot.ui.motion.CopilotOwl
+import io.aaps.copilot.ui.motion.OwlMenuButton
 import io.aaps.copilot.ui.motion.OwlGesture
 import io.aaps.copilot.ui.motion.OwlColorBand
 import io.aaps.copilot.ui.motion.owlColorBand
@@ -100,6 +103,7 @@ import io.aaps.copilot.ui.foundation.design.Spacing
 import io.aaps.copilot.ui.foundation.screens.AnalyticsScreen
 import io.aaps.copilot.ui.foundation.screens.AlertsScreen
 import io.aaps.copilot.ui.foundation.screens.AiAnalysisScreen
+import io.aaps.copilot.ui.foundation.screens.ClinicalReportPhaseUi
 import io.aaps.copilot.ui.foundation.screens.AuditScreen
 import io.aaps.copilot.ui.foundation.screens.ForecastScreen
 import io.aaps.copilot.ui.foundation.screens.OverviewScreen
@@ -160,6 +164,17 @@ fun CopilotFoundationRoot(
     val appHealth by viewModel.appHealthUiState.collectAsStateWithLifecycle()
     val overview by viewModel.overviewUiState.collectAsStateWithLifecycle()
     val uiStyleRaw by viewModel.uiStyleState.collectAsStateWithLifecycle()
+    val headerAiWaiting = if (currentRoute == Destinations.AiAnalysis.route) {
+        val waitingFlow = remember(viewModel) {
+            viewModel.aiAnalysisUiState.map { state ->
+                state.chatInProgress || state.chatVoiceBusy ||
+                    state.clinicalReport.phase == ClinicalReportPhaseUi.BUILDING ||
+                    state.clinicalReport.phase == ClinicalReportPhaseUi.UPLOADING
+            }.distinctUntilChanged()
+        }
+        val waiting by waitingFlow.collectAsStateWithLifecycle(initialValue = false)
+        waiting
+    } else false
 
     val snackbarHostState = remember { SnackbarHostState() }
     var messageHelp by remember { mutableStateOf<String?>(null) }
@@ -282,6 +297,10 @@ fun CopilotFoundationRoot(
                         onOpenEvents = { showEventsDialog = true },
                         activeEventCount = overview.events.count { it.isActiveAt(overview.eventTimelineNowTs) },
                         owlBand = owlColorBand(overview.glucose, !overview.isStale && overview.sampleAgeMinutes?.let { it in 0L..5L } == true),
+                        menuExpanded = drawerOpen,
+                        owlNavigationKey = currentRoute.orEmpty(),
+                        owlGesture = headerOwlGesture(currentRoute),
+                        owlWaiting = headerAiWaiting,
                         onOpenHealth = {
                             navController.navigate(Destinations.Audit.route) {
                                 launchSingleTop = true
@@ -350,10 +369,15 @@ fun CopilotFoundationRoot(
                             )
                             Spacer(modifier = Modifier.height(Spacing.sm))
                         }
+                        val routeMotionEnabled = LocalCopilotMotionEnabled.current
                         NavHost(
                             navController = navController,
                             startDestination = Destinations.Overview.route,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            enterTransition = { NativeMotion.routeEnter(routeMotionEnabled) },
+                            exitTransition = { NativeMotion.routeExit(routeMotionEnabled) },
+                            popEnterTransition = { NativeMotion.routeEnter(routeMotionEnabled) },
+                            popExitTransition = { NativeMotion.routeExit(routeMotionEnabled) }
                         ) {
                             composable(Destinations.Overview.route) {
                                 OverviewScreen(
@@ -744,7 +768,11 @@ internal fun TopBar(
     onOpenEvents: () -> Unit,
     activeEventCount: Int,
     onOpenHealth: () -> Unit,
-    owlBand: OwlColorBand = OwlColorBand.BRAND
+    owlBand: OwlColorBand = OwlColorBand.UNKNOWN,
+    menuExpanded: Boolean = false,
+    owlNavigationKey: String = title,
+    owlGesture: OwlGesture = OwlGesture.STILL,
+    owlWaiting: Boolean = false
 ) {
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
@@ -780,18 +808,10 @@ internal fun TopBar(
             navigationIconContentColor = contentColor
         ),
         title = {
-            if (showOverviewActions) {
-                CopilotOwl(size = 32.dp, band = owlBand, gesture = OwlGesture.LAUNCH,
-                    motionKey = "root-brand", modifier = Modifier.testTag("copilotBrand"))
-            } else Text(text = title)
+            if (!showOverviewActions) Text(text = title)
         },
         navigationIcon = {
-            NativeIconButton(onClick = onMenuClick) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = stringResource(id = R.string.menu_more)
-                )
-            }
+            OwlMenuButton(owlBand, owlNavigationKey, owlGesture, menuExpanded, owlWaiting, onMenuClick)
         },
         actions = {
             if (showOverviewActions) {
@@ -826,6 +846,14 @@ internal fun TopBar(
             }
         }
     )
+}
+
+internal fun headerOwlGesture(route: String?): OwlGesture = when (route) {
+    Destinations.Overview.route -> OwlGesture.GREET
+    Destinations.Forecast.route -> OwlGesture.GAZE
+    Destinations.Analytics.route -> OwlGesture.NOD
+    Destinations.AiAnalysis.route -> OwlGesture.LISTEN
+    else -> OwlGesture.STILL
 }
 
 internal fun activeEventBadgeText(activeEventCount: Int): String? = when {

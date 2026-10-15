@@ -66,6 +66,11 @@
     <string name="local_ingest_notification_text">Copilot keeps local AAPS/xDrip data channels alive</string>
 
     <string name="menu_more">More</string>
+    <string name="menu_open">Open menu</string>
+    <string name="menu_close">Close menu</string>
+    <string name="menu_state_expanded">Expanded</string>
+    <string name="menu_state_collapsed">Collapsed</string>
+    <string name="owl_ai_waiting">Analysis in progress</string>
     <string name="menu_audit_log">Audit Log</string>
     <string name="menu_ai_analysis">AI Analysis</string>
     <string name="menu_analytics">Analytics</string>

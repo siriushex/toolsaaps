@@ -118,6 +118,16 @@ optimization and all therapy actions retain their existing paths and gates.
 
 ## Native Interaction Motion
 
+The persistent header now places one38dp owl in the existing48dp menu action.
+Explicit route/menu/busy transitions own a saved presentation-only request;
+palette/CGM emissions never create a visit. Suppression consumes that request,
+and the existing draw-only finite clock cannot signal AI completion. The actual
+AI busy projection is observed only on its route; it does not read another data
+source or call a model. Accessibility menu/busy state is independent of artwork.
+Root route fades use the same suppression gate with180ms enter/120ms exit.
+The chat row keeps a static accessible hourglass rather than a second owl/loop.
+See superpowers/specs/2026-10-16-owl-navigation-native-design.md.
+
 `ui/motion/NativeMotion.kt` shares presentation tokens, Material-owned icon
 interaction feedback and one coordinated drawer lifetime. Root policy includes
 foreground lifecycle, system settings, power save and urgency. Short owl/glyph

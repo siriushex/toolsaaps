@@ -120,6 +120,14 @@
   clock tolerance does not change event timestamps or clinical freshness checks.
 ## Native Artwork Isolation
 
+- The owl menu retains the existing click owner and a fixed48dp target. Only
+  explicit route/menu/busy edges create finite header gestures; palette updates,
+  recomposition and same-route events cannot replay them. Suppressed requests
+  remain consumed. Accessibility waiting ends only with the real busy state.
+- Color comes from existing fresh current CGM, not report/forecast values or
+  navigation time. One private notification owl never removes its required risk
+  smallIcon, public redaction, clinical text, delivery claims or actions. No
+  artwork-only notification scheduling, sound or vibration is introduced.
 - Icon feedback never scales touch targets or delays an existing action. Material
   retains gesture cancellation and disabled semantics. A disabled drawer exit
   cannot retain an invisible input-blocking overlay; visible content state stays.

@@ -1,11 +1,21 @@
 package io.aaps.copilot.ui.motion
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import org.junit.Assert.*
 import org.junit.Test
 import kotlin.math.abs
 import kotlin.math.hypot
 
 class OwlMotionPolicyTest {
+    @Test fun routeTransitionsAreShortAndShareTheSuppressionGate() {
+        assertEquals(180, NativeMotion.routeEnterMs)
+        assertEquals(120, NativeMotion.routeExitMs)
+        assertEquals(EnterTransition.None, NativeMotion.routeEnter(false))
+        assertEquals(ExitTransition.None, NativeMotion.routeExit(false))
+        assertNotEquals(EnterTransition.None, NativeMotion.routeEnter(true))
+        assertNotEquals(ExitTransition.None, NativeMotion.routeExit(true))
+    }
     @Test fun everyGestureIsBoundedAndFinite() {
         OwlGesture.entries.forEach { gesture ->
             assertTrue(gesture.durationMs in 0..8_000)

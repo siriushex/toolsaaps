@@ -1,5 +1,27 @@
 # PLAN
 
+## Approved Owl Navigation (2026-10-16)
+
+- [x] Owner approved the navigation/notification prototype independently of the
+  unselected AI-analysis layout variants. Native scope and privacy recorded.
+- [x] Red native regression for missing owl menu action (expected missing tag,
+  before production edits; original XML/log retained privately).
+- [x] Fixed48dp owl action, explicit route/menu/busy gestures and no replay after
+  suppression; preserve compact actions and return focus on drawer closure.
+- [x] Remove duplicate chat owl, retain real busy semantics; verify existing
+  single notification artwork/public redaction without changing delivery.
+- [x] Focused native raster/semantics/policy/notification tests:51 passed.
+- [x] Full final Android unit run:5682 tests,5676 passed,6 opt-in private-data
+  skips,zero failures/errors. Original focused fixture failures retained.
+- [x] Final lint/assemble/Kotlin gate passed in11m07s; debug v2 APK signature
+  verified. Reviewed source/tests/docs prepared for feature-branch publication.
+- [ ] Separate physical Redmi/notification/TalkBack/performance acceptance.
+
+See superpowers/specs/2026-10-16-owl-navigation-native-design.md. No app install,
+backend operation, medical payload or therapy change is part of this stage.
+Observe exact published SHA and Verify after push; an earlier green branch head
+does not verify this change. Retain its publication receipt in task evidence.
+
 ## Owner API Activation (2026-10-16)
 
 - [x] Fresh read-only host/API/profile metadata inspection; existing API remains

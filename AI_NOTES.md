@@ -1,3 +1,32 @@
+# Approved Owl Navigation Native Stage - 2026-10-16
+
+- Owner approved the owl-navigation prototype; the separate three AI-analysis
+  layout choices remain unselected. Native specification limits this stage to
+  presentation, existing palette/freshness, menu ownership and motion policies.
+- Added a native regression for the missing48dp owl menu before implementation.
+  Kept actual alert delivery, risk smallIcon, optional single colored large owl
+  and neutral public notification unchanged. Final checks are recorded below.
+- Observed the expected native failure: owlMenuAction is not displayed. Added
+  one menu owl and presentation-only route/menu/busy state, captured suppression,
+  finite720/480/2400ms limits and focus restoration. Removed duplicate title/chat
+  owl. Focused native raster/semantics/policy/notification gate passed51 tests,
+  zero skips. Native320dp light/font2-dark header and moving/settled owl PNGs
+  inspected. Three earlier failures were test assumptions: touch input cannot
+  assert keyboard focus, and Android scales96px large icons to48px. The keyboard
+  scenario and scaled expected pixels now pass; originals retained privately.
+- Final source uses the current tooltip positioning API, shared180/120ms route
+  fades and a static accessible chat hourglass, without a second indefinite
+  animation. Full final Android unit run:5682 tests across502 suites,5676 passed,
+  6 existing opt-in private-data skips,zero failures/errors. Final unit/lint/
+  assemble/Kotlin gate passed in11m07s. Lint:0errors,364warnings,8hints; no issue
+  in the new menu component. Relative to the retained earlier native report,
+  additional warning keys concern untouched photo code/dependency metadata.
+- APK debug v2 signature verified and SHA256 retained privately with the native
+  rasters/test reports. Source/tests/docs reviewed for feature-branch publication;
+  observe exact-head Verify after push, not from the earlier green branch head.
+  Physical Redmi/OEM notification/TalkBack/CPU-RAM acceptance is separate.
+- No app install, medical export, therapy/backend operation or test alert.
+
 # Owner Text API Operational Stage - 2026-10-16
 
 - Source3b81c2a5 published; both exact-head Verify runs/all six jobs succeeded.

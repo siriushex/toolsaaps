@@ -2,6 +2,15 @@
 
 Date: 2026-10-15. Presentation-only follow-up to Feather 01.
 
+The2026-10-16 approved navigation follow-up moves the owl into the existing48dp
+menu action. Route accents use720ms maximum, menu glance480ms and actual AI wait
+the existing2400ms maximum. A saved request captures explicit visits and consumes
+suppressed gestures; color changes never restart it. Keyboard focus returns on
+drawer closure. The compact overview no longer has a duplicate title owl; the
+AI chat's second decorative owl becomes a static accessible hourglass. Route
+fades use180ms enter/120ms exit, or none under the shared suppression gate. See the
+native navigation specification and AI_NOTES.md for final verification results.
+
 ## Motion Language
 
 - Existing Material IconButton still owns ripple, accessibility, enabled state,
