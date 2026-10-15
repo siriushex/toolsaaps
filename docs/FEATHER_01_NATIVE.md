@@ -15,9 +15,11 @@ work in another working tree is excluded. No phone/server update is performed.
 - Adaptive launcher with safe-zone padding and themed monochrome variant.
 - 32dp context owl occupies only the compact overview's empty title slot.
   Secondary headings retain their original space and actions.
-- 24dp waiting gaze follows the actual AI busy state; its cap freezes artwork,
+- 24dp waiting gaze follows the actual AI busy state; its finite cap settles artwork,
   never reports request success. Indeterminate accessibility semantics remain
   after the cap or reduced motion. Four other short gestures are available.
+  The native refinement uses a small parallel glance, not an orbit; see
+  `NATIVE_MOTION_REFINEMENT.md` for timings and interaction feedback.
 - Twelve existing untinted event images retain names, 128px lossless WebP and
   512px masters. First nonurgent selected event gets at most one finite accent.
 - 52 native glyph records: 40 reviewed notification scenarios plus 12 event types.

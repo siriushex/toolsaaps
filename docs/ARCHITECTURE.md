@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Native Interaction Motion
+
+`ui/motion/NativeMotion.kt` shares presentation tokens, Material-owned icon
+interaction feedback and one coordinated drawer lifetime. Root policy includes
+foreground lifecycle, system settings, power save and urgency. Short owl/glyph
+accents settle without loops. No navigation/action or clinical owner changes.
+See `NATIVE_MOTION_REFINEMENT.md` for connected surfaces and verification.
+
 ## Feather 01 Native Presentation
 
 `ui/motion` owns presentation-only owl paths, palettes and 52 finite glyph records

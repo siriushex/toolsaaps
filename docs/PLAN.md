@@ -1,5 +1,14 @@
 # PLAN
 
+## Native Motion Follow-Up (2026-10-15)
+
+- Refined icon press feedback, coordinated drawer motion and short owl/glyph
+  accents from main 7ca72a24. Clinical state and all original actions unchanged.
+- Local 23 motion tests and full 5,549-test suite passed (6 private-fixture skips),
+  Kotlin/lint/APK passed. Includes reduced-motion cancellation red/green evidence.
+- Source-only feature PR requires exact-head Verify. Main merge and physical
+  phone installation remain separate; see `NATIVE_MOTION_REFINEMENT.md`.
+
 ## Feather 01 Main Integration (2026-10-15)
 
 - User approved native artwork plus Git main. Isolated integration reconciles

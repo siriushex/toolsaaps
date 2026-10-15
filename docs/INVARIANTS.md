@@ -2,6 +2,9 @@
 
 ## Native Artwork Isolation
 
+- Icon feedback never scales touch targets or delays an existing action. Material
+  retains gesture cancellation and disabled semantics. A disabled drawer exit
+  cannot retain an invisible input-blocking overlay; visible content state stays.
 - No therapy, database, network, permission, acknowledgement or risk mutation
   callback belongs to artwork. Visual bands are not clinical thresholds.
 - Urgent LOW_NOW/CRITICAL_5 and native notifications stay static. No animation

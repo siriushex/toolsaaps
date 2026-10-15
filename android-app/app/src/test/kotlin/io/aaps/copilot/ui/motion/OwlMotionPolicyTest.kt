@@ -35,7 +35,7 @@ class OwlMotionPolicyTest {
         }
         val ended=OwlMotionPolicy.sample(OwlGesture.WAITING,8_000)
         assertEquals(ended,OwlMotionPolicy.sample(OwlGesture.WAITING,86_400_000))
-        assertNotNull(ended.orbitAngle);assertFalse(ended.active)
+        assertEquals(OwlPose(),ended)
     }
     @Test fun exactlyOneBlinkAndNoPermanentFacialOrWingMotion() {
         OwlGesture.entries.filter { it!=OwlGesture.STILL }.forEach { gesture ->
@@ -45,16 +45,29 @@ class OwlMotionPolicyTest {
             assertEquals(gesture.name,1,spans)
         }
     }
-    @Test fun bothPupilsPointFromTheirOwnCentersAtTheSameOrbitTarget() {
-        for(t in 0L..7_999L step 31) {
+    @Test fun waitingUsesOneSmallParallelGlanceThenReturnsToNeutral() {
+        for(t in 0L..2_399L step 13) {
             val p=OwlMotionPolicy.sample(OwlGesture.WAITING,t)
-            listOf(96f,184f).forEach { x ->
-                val target=OwlMotionPolicy.eyeTarget(p,x);assertEquals(4.2f,hypot(target.first,target.second),.001f)
-            }
+            assertTrue(p.gazeX in 0f..1.8f)
+            assertEquals(0f,p.gazeY)
+            assertTrue(p.headAngle in -.8f..0f)
+            if(t>=1_440)assertEquals(0f,p.gazeX)
         }
-        val p=OwlMotionPolicy.sample(OwlGesture.WAITING,0)
-        assertTrue(OwlMotionPolicy.eyeTarget(p,96f).first>0f)
-        assertTrue(OwlMotionPolicy.eyeTarget(p,184f).first<0f)
+        assertEquals(OwlPose(),OwlMotionPolicy.sample(OwlGesture.WAITING,2_400))
+    }
+    @Test fun accentsArriveQuicklyAndSettleWithoutOvershoot() {
+        assertEquals(0f,NativeMotion.accent(0f))
+        assertEquals(1f,NativeMotion.accent(.32f),.0001f)
+        assertEquals(0f,NativeMotion.accent(1f))
+        var previous=0f
+        for(i in 0..320) {
+            val next=NativeMotion.accent(i/1_000f)
+            assertTrue(next in previous..1f);previous=next
+        }
+        for(i in 321..1_000) {
+            val next=NativeMotion.accent(i/1_000f)
+            assertTrue(next in 0f..previous);previous=next
+        }
     }
     @Test fun exactVisualBandsNeverInventFreshness() {
         listOf(2.799 to OwlColorBand.WHITE,2.8 to OwlColorBand.YELLOW,3.599 to OwlColorBand.YELLOW,

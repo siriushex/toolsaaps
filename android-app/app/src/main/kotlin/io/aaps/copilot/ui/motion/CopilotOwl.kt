@@ -96,8 +96,7 @@ fun CopilotOwl(
                                 if (pose.blink < .94f) scale(1f,(1f-pose.blink).coerceAtLeast(.05f),Offset(x,151f)) {
                                     drawPath(paths.eyes[index],Color(0xFFF4F7F3))
                                     clipPath(paths.eyes[index]) {
-                                        val target = OwlMotionPolicy.eyeTarget(pose,x)
-                                        translate(x+target.first,151f+target.second) {
+                                        translate(x+pose.gazeX,151f+pose.gazeY) {
                                             drawCircle(iris,16.8f,Offset.Zero)
                                             if (band != OwlColorBand.BRAND) drawCircle(Color(0xFF0C1113),9.4f,Offset.Zero)
                                             drawCircle(Color.White.copy(alpha=.48f),1.6f,Offset(-3.2f,-3.8f))

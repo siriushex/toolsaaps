@@ -1,12 +1,6 @@
 package io.aaps.copilot.ui.foundation
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -47,7 +41,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -73,6 +66,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import io.aaps.copilot.ui.motion.NativeDrawerMotion
+import io.aaps.copilot.ui.motion.NativeIconButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -789,7 +784,7 @@ internal fun TopBar(
             } else Text(text = title)
         },
         navigationIcon = {
-            IconButton(onClick = onMenuClick) {
+            NativeIconButton(onClick = onMenuClick) {
                 Icon(
                     imageVector = Icons.Default.Menu,
                     contentDescription = stringResource(id = R.string.menu_more)
@@ -819,7 +814,7 @@ internal fun TopBar(
                         }
                     }
                 ) {
-                    IconButton(onClick = onOpenHealth) {
+                    NativeIconButton(onClick = onOpenHealth) {
                         Icon(
                             imageVector = Icons.Default.Notifications,
                             contentDescription = stringResource(id = R.string.app_health_title)
@@ -867,7 +862,7 @@ internal fun EventAlertActions(
             }
         }
     ) {
-        IconButton(onClick = onOpenEvents, modifier = Modifier.testTag("eventsNotebookAction")) {
+        NativeIconButton(onClick = onOpenEvents, modifier = Modifier.testTag("eventsNotebookAction")) {
             Icon(
                 imageVector = Icons.Default.MenuBook,
                 contentDescription = stringResource(R.string.events_notebook_description)
@@ -875,7 +870,7 @@ internal fun EventAlertActions(
         }
     }
     Box {
-        IconButton(
+        NativeIconButton(
             onClick = {
                 when (alertBellPressAction(alertsMuted)) {
                     AlertBellPressAction.OPEN_MENU -> alertMenuExpanded = true
@@ -984,38 +979,17 @@ private fun RootDrawerOverlay(
     onDismiss: () -> Unit,
     onNavigate: (MoreDestination) -> Unit
 ) {
-            AnimatedVisibility(
+            NativeDrawerMotion(
                 visible = visible,
-                enter = fadeIn(animationSpec = tween(durationMillis = 140)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 120))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(10f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(drawerScrimColor(uiStyle))
-                            .clickable(onClick = onDismiss)
-                    )
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideInHorizontally(
-                    initialOffsetX = { -it },
-                    animationSpec = tween(durationMillis = 240)
-                ) + fadeIn(animationSpec = tween(durationMillis = 180)),
-                exit = slideOutHorizontally(
-                    targetOffsetX = { -it },
-                    animationSpec = tween(durationMillis = 200)
-                ) + fadeOut(animationSpec = tween(durationMillis = 120))
-            ) {
+                scrimColor = drawerScrimColor(uiStyle),
+                onDismiss = onDismiss,
+                modifier = Modifier.fillMaxSize().zIndex(10f)
+            ) { motionModifier ->
                 Surface(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(288.dp)
-                        .align(Alignment.CenterStart),
+                        .then(motionModifier),
                     color = drawerSurfaceColor(uiStyle),
                     contentColor = shellChromeContentColor(uiStyle),
                     tonalElevation = 6.dp,
@@ -1097,8 +1071,6 @@ private fun RootDrawerOverlay(
                         }
                     }
                 }
-            }
-        }
     }
 }
 
