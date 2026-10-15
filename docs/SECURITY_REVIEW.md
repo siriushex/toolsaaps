@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Photo Integration And Context Cache (2026-10-15)
+
+- Fixed: same-ID concurrency, cached photo rebinding and cancellation authority
+  from uncorrelated receipt; closed task-specific signed routes/capabilities.
+- Bounded photo reads, EXIF orientation and fresh JPEG encoding remove source
+  metadata. A separate non-exported FileProvider exposes only camera cache.
+- No silent image upload, CHAT fallback, URL/file tool, private key fallback,
+  raw-image logging/history or therapy action. User confirms the food form.
+- Context cache hashes every eligible encrypted envelope and metadata; cold
+  context still verifies AEAD and digest, with unchanged budgets/retention.
+- MUST before real vision readiness: dedicated contained image transport,
+  isolated decoder, shared profile serialization and independently verified
+  cgroup/IO stop. Current typed adapter is inactive; thread decoding is not an
+  OS sandbox. Public provider schema/catalog and synthetic tests are not that
+  admission. See COMBINED_UI_PHOTO.md.
+
 ## Core Room Export (2026-10-15)
 
 - Closed table/column/unit allowlist and bounded indexed keysets replace raw
@@ -47,6 +63,20 @@
 - Still required: real deployment/network and peer admission, device enrollment,
   encrypted backup/restore/retention/load tests and complete structured-history
   adapter validation. Source tests cannot establish these operational properties.
+## Native Artwork (2026-10-15)
+
+- Static local assets and pure native recipes, no remote loading or medical
+  payload interpreter. No WebView, additional permission or new runtime library.
+- Urgent glyphs/notifications are static. Risk, channels, IDs, audio, actions
+  and acknowledgements remain outside the motion layer.
+- Public redaction uses app name and gray owl only. Optional decorative decode
+  is best effort. Cache keys are seven fixed bands, not readings/history.
+- Root observers dispose together; clocks stop in background, reduced motion
+  and system/app power save. Tiny marks omit texture decoding.
+- Native pixel/semantics regressions verify moving/frozen frames and preserve
+  indeterminate waiting semantics without deriving success from elapsed time.
+- Native raster tests do not establish physical delivery, measured phone
+  CPU/RAM/battery, phone TalkBack behavior or clinical correctness.
 
 ## Trusted Supervisor Host (2026-10-15)
 

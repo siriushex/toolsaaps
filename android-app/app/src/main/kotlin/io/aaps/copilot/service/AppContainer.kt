@@ -307,6 +307,8 @@ class AppContainer(context: Context) {
     val gson: Gson = Gson()
     val settingsStore = AppSettingsStore(context)
     val serverAiConnectionManager = ServerAiConnectionManager.create(appContext)
+    val mealPhotoGateway = io.aaps.copilot.data.repository.ServerMealPhotoGateway(serverAiConnectionManager)
+    val mealPhotoRepository = io.aaps.copilot.data.repository.MealPhotoAnalysisRepository(mealPhotoGateway)
     val serverAiHistoryClient = ServerAiHistoryClient(serverAiConnectionManager)
 
     val db: CopilotDatabase = Room.databaseBuilder(

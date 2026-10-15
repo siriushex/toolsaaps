@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,7 +37,9 @@ internal fun MealEntryDialog(
     settings: MealPortionSettings,
     maximumGrams: Double,
     onDismiss: () -> Unit,
-    onConfirm: (MealEntryConfirmation) -> Unit
+    onConfirm: (MealEntryConfirmation) -> Unit,
+    photoAvailability: (suspend () -> io.aaps.copilot.data.repository.MealPhotoAvailability)? = null,
+    analyzePhoto: (suspend (ByteArray) -> io.aaps.copilot.data.repository.MealPhotoAnalysisResult)? = null
 ) {
     var portion by rememberSaveable { mutableStateOf(MealPortion.MEDIUM) }
     var profile by rememberSaveable { mutableStateOf(MealAbsorptionProfile.MIXED) }
@@ -46,8 +49,19 @@ internal fun MealEntryDialog(
     var manualCarbs by rememberSaveable { mutableStateOf(false) }
     var correction by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf(false) }
+    var showPhoto by remember { mutableStateOf(false) }
     LaunchedEffect(settings.showCalories) { if (!settings.showCalories) energyRaw = "" }
     if (submitted) return
+    if (showPhoto && photoAvailability != null && analyzePhoto != null) {
+        MealPhotoFlowDialog(maximumGrams, photoAvailability, analyzePhoto,
+            onDismiss = { showPhoto = false }, onUse = {
+                manualCarbs = true
+                correction = it.grams.toString()
+                it.profile?.let { selected -> profile = selected }
+                showPhoto = false
+            })
+        return
+    }
     val proposedGrams = settings.range(portion).defaultGrams
     val finalMeal = confirmedMealFromInput(
         if (manualCarbs) correction else proposedGrams.toString(), portion, profile,
@@ -62,6 +76,11 @@ internal fun MealEntryDialog(
         title = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.meal_entry_title), modifier = Modifier.weight(1f))
+                if (photoAvailability != null && analyzePhoto != null) {
+                    IconButton(onClick = { showPhoto = true }, modifier = Modifier.testTag("mealPhotoOpen")) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = stringResource(R.string.meal_photo_title))
+                    }
+                }
                 IconButton(onClick = onDismiss, modifier = Modifier.testTag("mealEntryClose")) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel))
                 }

@@ -1,5 +1,22 @@
 # PLAN
 
+## Combined UI And Photo Integration (2026-10-15)
+
+- [x] Merge PR #6 with current owner/Room source, preserve both doc histories.
+- [x] Fix photo coordinator and implement signed task-specific client.
+- [x] Connect camera/gallery/review to existing meal form without auto-send.
+- [x] Review/integrate context capacity and inactive typed vision adapter.
+- [x] Full backend with decoder, independent synthetic capacity and Ruff.
+- [x] Frozen combined Android test/lint/APK (5667 tests, 6 private-fixture skips,
+  zero failures/errors); signed APK retained locally.
+- [ ] Source publication and exact-head CI.
+- [x] In-place update and main/food/photo-state/background smoke on the intended
+  device; installed APK hash and unchanged app/DB identities verified.
+- [ ] Separate contained image transport/decoder admission and real server
+  activation. This is NOT completed by the source adapter or client UI.
+
+Details and limits: [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md).
+
 ## Core Room Context (2026-10-15)
 
 - Previous fe4a546 checks are all successful, including both Android CI runs.
@@ -40,6 +57,31 @@
   IDs/revisions/timestamps, archive restoration UI, protected server provisioning,
   kernel/network/storage/purge/restore/load admission and actual Redmi checks.
   Multimodal support requires a separately verified server capability contract.
+## Native Motion Follow-Up (2026-10-15)
+
+- Refined icon press feedback, coordinated drawer motion and short owl/glyph
+  accents from main 7ca72a24. Clinical state and all original actions unchanged.
+- Local 23 motion tests and full 5,549-test suite passed (6 private-fixture skips),
+  Kotlin/lint/APK passed. Includes reduced-motion cancellation red/green evidence.
+- Source-only feature PR requires exact-head Verify. Main merge and physical
+  phone installation remain separate; see `NATIVE_MOTION_REFINEMENT.md`.
+
+## Feather 01 Main Integration (2026-10-15)
+
+- User approved native artwork plus Git main. Isolated integration reconciles
+  main 120e6309 with verified a74006dd, excluding unfinished owner-AI files.
+  Android matched a74006dd exactly before the presentation patch; both docs
+  histories remain. Duplicate sustained-rise behavior was not reimplemented.
+- Shared native owl/glyph drawing, optical sizes, launcher/event assets, finite
+  foreground motion, static notification risk icons and private owl artwork.
+- Local model/recipe, native raster/lifecycle/pixel/semantics, compact-header
+  regressions, notification privacy, event details, unit/lint/compile/APK and
+  source review passed. Full regression: 5,541 tests with 6 private-fixture skips;
+  after the last waiting-role fix, 35 targeted tests and 10 event tests passed.
+- Integration gate: require successful exact-head Verify and a fresh main
+  divergence check. Record publication/main evidence in the PR and task audit;
+  a local build is not deployment evidence.
+- No phone install, alarm test or new clinical activation is authorized here.
 
 ## Trusted Supervisor Entry Point (2026-10-15)
 

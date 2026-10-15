@@ -5770,6 +5770,14 @@ class MainViewModel(application: Application) :
         }
     }
 
+    suspend fun mealPhotoAvailability() = withContext(Dispatchers.IO) {
+        container.mealPhotoGateway.availability()
+    }
+
+    suspend fun analyzeMealPhoto(bytes: ByteArray) = withContext(Dispatchers.IO) {
+        container.mealPhotoRepository.analyze(bytes)
+    }
+
     fun loadServerAiConnection() {
         viewModelScope.launch {
             container.serverAiConnectionManager.load()

@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Food Photo And Context Cache
+
+- CHAT readiness never grants IMAGE authority; validate the selected route.
+- Freeze photo body and request identity; no parallel same-ID inference,
+  photo rebinding or ambiguous automatic resubmission.
+- Never use an uncorrelated receipt to poll/cancel another job.
+- Schema-v1 nutrients/energy are per 100 g, mass is selected explicitly,
+  missing facts are unknown, and the existing final meal confirmation remains.
+- No photo-derived GI, target/dose action, Room migration or history upload.
+- Full eligible encrypted-envelope fingerprints are mandatory for context
+  reuse; revisions, retention, AEAD/digests and resource budgets stay intact.
+- Injectable vision peers and declared model modality do not admit a real
+  contained server worker. Default image inference remains disabled.
+
 ## Core Room Export
 
 - The exporter never writes clinical tables or changes their schema/version.
@@ -49,6 +63,23 @@
   record/plan bounds; arbitrary oversized input fails before upload. Fragmentation
   is observational only, never authority to split or retry a model job. Response
   clock tolerance does not change event timestamps or clinical freshness checks.
+## Native Artwork Isolation
+
+- Icon feedback never scales touch targets or delays an existing action. Material
+  retains gesture cancellation and disabled semantics. A disabled drawer exit
+  cannot retain an invisible input-blocking overlay; visible content state stays.
+- No therapy, database, network, permission, acknowledgement or risk mutation
+  callback belongs to artwork. Visual bands are not clinical thresholds.
+- Urgent LOW_NOW/CRITICAL_5 and native notifications stay static. No animation
+  defers a message, infers resolution or completes an AI request by time.
+- Finite RESUMED-only clocks cancel in background and obey system/app power
+  save and reduced motion. Resume and CGM recomposition do not restart gestures.
+- Waiting remains indeterminate to accessibility after its visual cap and when
+  motion is disabled. Artwork timing never becomes request-completion evidence.
+- Public notifications reveal neither values nor glucose-band colors. Optional
+  image failure cannot discard the underlying alert. Clinical actions stay intact.
+- Main reconciliation retained exact verified Android source a74006dd before
+  this presentation patch. Phone installation remains a separate verification.
 
 ## Trusted Host Lifetime
 

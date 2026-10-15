@@ -588,6 +588,45 @@ class ServerAiJobClientTest {
     ): String =
         """{"access_token":"$access","refresh_token":"refresh.${"b".repeat(43)}","access_expires_ms":$accessExpiresMs,"refresh_expires_ms":${initialNow + 86_400_000L},"subscription_expires_ms":${initialNow + 86_400_000L}}"""
 
+    @Test
+    fun multiplexCapabilityRetainsExactChatContractAndReadiness() = runTest {
+        val photo = """{"revision":"${ServerMealPhotoProtocol.REVISION}","inference_enabled":false,"task_kinds":["MEAL_PHOTO"],"input_modalities":["IMAGE"],"output_modalities":["MEAL_ESTIMATE"]}"""
+        val envelope = """{"revision":"${ServerTaskCapabilities.ENVELOPE_REVISION}","inference_enabled":true,"task_kinds":["CHAT","MEAL_PHOTO"],"input_modalities":["TEXT","IMAGE"],"output_modalities":["TEXT","MEAL_ESTIMATE"],"routes":{"CHAT":${capabilities(true)},"MEAL_PHOTO":$photo}}"""
+        val client = ServerAiJobClient(manager { _, _, _, _, _ -> response(200, envelope) })
+        assertTrue(client.capabilities().inferenceEnabled)
+        val invalid = envelope.replace("\"max_text_bytes\":8192", "\"max_text_bytes\":8193")
+        val rejected = ServerAiJobClient(manager { _, _, _, _, _ -> response(200, invalid) })
+        assertEquals(ServerAiJobError.INVALID_RESPONSE, jobFailure { rejected.capabilities() }.reason)
+    }
+
+    @Test
+    fun signedPhotoRouteUsesPhotoBoundAndDoesNotWidenChatSubmission() = runTest {
+        val calls = mutableListOf<Call>()
+        val deadline = initialNow + 60_000
+        val image = ByteArray(20_000).apply {
+            this[0] = -1; this[1] = -40; this[2] = -1
+            this[lastIndex - 1] = -1; this[lastIndex] = -39
+        }
+        val connection = manager { method, path, body, headers, limit ->
+            calls += Call(method, path, body, headers, limit)
+            response(202, receipt(requestId, deadline).replace("\"CHAT\"", "\"MEAL_PHOTO\""))
+        }
+        val jobs = SignedMealPhotoJobs(connection)
+        val submission = jobs.prepare(MealPhotoGatewayRequest(requestId, image, "image/jpeg"), deadline)
+        assertTrue(submission.body.size > 16_384)
+        assertEquals(jobId, jobs.submit(submission).jobId)
+        assertEquals(1, calls.size)
+        assertEquals("/api/ai/v1/meal-photo/jobs", calls.single().path)
+        assertEquals(requestId, calls.single().headers["X-Copilot-Request-Id"])
+        assertEquals(deadline.toString(), calls.single().headers["X-Copilot-Deadline-Ms"])
+        assertEquals(65_536, calls.single().responseLimit)
+        try {
+            connection.exchangeJob("POST", "/api/ai/v1/jobs", submission.body, requestId, deadline)
+            fail("Photo-sized body must not use CHAT")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals(1, calls.size)
+    }
+
     private fun receipt(request: String, deadline: Long): String =
         """{"job_id":"$jobId","request_id":"$request","kind":"CHAT","state":"QUEUED","created_ms":$initialNow,"deadline_ms":$deadline,"started_ms":null,"finished_ms":null,"result_available":false}"""
 

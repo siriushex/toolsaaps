@@ -46,6 +46,7 @@ import io.aaps.copilot.domain.profile.GlycemicIndexSource
 import kotlinx.coroutines.CancellationException
 import io.aaps.copilot.domain.model.BloodGlucoseCheckStatus
 import io.aaps.copilot.ui.EventIconResources
+import io.aaps.copilot.ui.motion.ClinicalGlyph
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.screens.ChartEventDetailsUi
 import io.aaps.copilot.ui.foundation.screens.ChartEventHeading
@@ -91,9 +92,9 @@ internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Lon
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                         if (index > 0) HorizontalDivider()
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(painterResource(EventIconResources.byType.getValue(item.type).resourceId),
-                                contentDescription = null, tint = androidx.compose.ui.graphics.Color.Unspecified,
-                                modifier = Modifier.size(22.dp))
+                            ClinicalGlyph(id = EventIconResources.byType.getValue(item.type).resourceName,
+                                size = 22.dp, animate = index == 0 && events.firstOrNull()?.severity != EventSeverity.HIGH,
+                                motionKey = "event-detail:${item.id}")
                             Text(stringResource(headingRes(item)), style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f).testTag("eventDetailHeading:${item.id}"))
                         }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import heapq
+import json
 from collections import Counter
 
 from .history_contract import DAY_MS, KINDS, RETENTION_MS, encoded
@@ -28,35 +29,72 @@ class HistoryContext:
     def add(self, item):
         record = item["record"]
         kind, at = record["kind"], record["eventAtMs"]
-        self.counts[kind] += 1
-        self.qualities[record["quality"]] += 1
-        self.first_ms = at if self.first_ms is None else min(at, self.first_ms)
-        self.last_ms = at if self.last_ms is None else max(at, self.last_ms)
-        day = at // DAY_MS * DAY_MS
-        self.daily.setdefault(day, Counter())[kind] += 1
-        # Select by original event time, not upload/sequence order of a backfill.
-        heap = self.latest[kind]
-        heapq.heappush(heap, (at, item["sequence"], item))
-        if len(heap) > 12:
-            heapq.heappop(heap)
+        self._count(kind, record["quality"], at)
+        # Older backfill records cannot displace the event-time examples.
+        if self._wants_example(kind, at, item["sequence"]):
+            heap = self.latest[kind]
+            heapq.heappush(heap, (at, item["sequence"], item))
+            if len(heap) > 12:
+                heapq.heappop(heap)
         if kind == "GLUCOSE":
-            context = record.get("context") or {}
-            key = encoded([record["source"], record["quality"], context])
-            if key not in self.glucose:
-                if len(self.glucose) >= 512:
-                    self.glucose_omitted += 1
-                    return
-                self.glucose[key] = dict(source=record["source"], quality=record["quality"],
-                    context=context, count=0, total=0.0, minMmol=None, maxMmol=None,
-                    firstAtMs=at, lastAtMs=at)
-            group = self.glucose[key]
-            value = record["data"]["glucoseMmol"]
-            group["count"] += 1
-            group["total"] += value
-            group["minMmol"] = value if group["minMmol"] is None else min(value, group["minMmol"])
-            group["maxMmol"] = value if group["maxMmol"] is None else max(value, group["maxMmol"])
-            group["firstAtMs"] = min(at, group["firstAtMs"])
-            group["lastAtMs"] = max(at, group["lastAtMs"])
+            self._add_glucose(record)
+
+    def _count(self, kind, quality, at):
+        self.counts[kind] += 1
+        self.qualities[quality] += 1
+        if self.first_ms is None or at < self.first_ms:
+            self.first_ms = at
+        if self.last_ms is None or at > self.last_ms:
+            self.last_ms = at
+        day = at // DAY_MS * DAY_MS
+        counts = self.daily.get(day)
+        if counts is None:
+            counts = self.daily[day] = Counter()
+        counts[kind] += 1
+
+    def _wants_example(self, kind, at, sequence):
+        heap = self.latest[kind]
+        return len(heap) < 12 or (at, sequence) > heap[0][:2]
+
+    def add_authenticated(self, row, plain):
+        """The store already verified AEAD and digest, including these metadata.
+
+        Only glucose cohorts and selected examples need payload JSON. Every other
+        authenticated record still contributes to exact coverage and UTC counts.
+        """
+        kind, at = row["kind"], row["event_ms"]
+        if kind == "GLUCOSE" or self._wants_example(kind, at, row["sequence"]):
+            self.add(dict(sequence=row["sequence"], receivedAtMs=row["received_ms"],
+                          record=json.loads(plain)))
+        else:
+            self._count(kind, row["quality"], at)
+
+    def _add_glucose(self, record):
+        at = record["eventAtMs"]
+        context = record.get("context") or {}
+        # HistoricalContext has only optional scalar strings. Preserve missing
+        # versus explicit null and every declared field without serializing the
+        # same cohort key at every five-minute observation.
+        key = (record["source"], record["quality"], tuple(sorted(context.items())))
+        if key not in self.glucose:
+            if len(self.glucose) >= 512:
+                self.glucose_omitted += 1
+                return
+            self.glucose[key] = dict(source=record["source"], quality=record["quality"],
+                context=context, count=0, total=0.0, minMmol=None, maxMmol=None,
+                firstAtMs=at, lastAtMs=at)
+        group = self.glucose[key]
+        value = record["data"]["glucoseMmol"]
+        group["count"] += 1
+        group["total"] += value
+        if group["minMmol"] is None or value < group["minMmol"]:
+            group["minMmol"] = value
+        if group["maxMmol"] is None or value > group["maxMmol"]:
+            group["maxMmol"] = value
+        if at < group["firstAtMs"]:
+            group["firstAtMs"] = at
+        if at > group["lastAtMs"]:
+            group["lastAtMs"] = at
 
     def finish(self):
         result = dict(

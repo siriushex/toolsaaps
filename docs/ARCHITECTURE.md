@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Combined Photo Entry And Year Context
+
+See [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md). The signed photo client and
+foreground editor are connected to the existing meal dialog, separately from
+CHAT and clinical context. Explicit gram confirmation only populates the food
+form; its final command boundary remains unchanged. Server vision defaults
+inactive pending dedicated contained transport and decoder admission. Context
+aggregates are bounded in memory and reused only after complete encrypted
+evidence fingerprint verification in the current SQLite snapshot.
+
 ## Core Room History Adapter
 
 RoomAiHistorySource reads indexed original-time/rowid keyset pages from five
@@ -62,6 +72,34 @@ Chat accepts limited history; extended-analysis readiness remains separate.
 Text-only capabilities do not imply image, audio or speech support. Clinical AI
 optimization and all therapy actions retain their existing paths and gates.
 
+## Native Interaction Motion
+
+`ui/motion/NativeMotion.kt` shares presentation tokens, Material-owned icon
+interaction feedback and one coordinated drawer lifetime. Root policy includes
+foreground lifecycle, system settings, power save and urgency. Short owl/glyph
+accents settle without loops. No navigation/action or clinical owner changes.
+See `NATIVE_MOTION_REFINEMENT.md` for connected surfaces and verification.
+
+## Feather 01 Native Presentation
+
+`ui/motion` owns presentation-only owl paths, palettes and 52 finite glyph records
+from `design/owl01/source`. `tools/generate_feather_artwork.cjs` recreates the
+native data and assets without network, WebView, GIF playback or new dependencies.
+Draw-only clocks are finite and RESUMED-only. One root observer respects system
+animator scale, device/app power save and urgent presentation. Resume does not
+replay. Small marks skip texture decoding; optional gradient movement is bounded.
+Waiting preserves indeterminate accessibility semantics independently of its
+finite visual clock; only the existing request state can remove that indicator.
+Existing notifications retain static risk icons/channels/actions. Public artwork
+is neutral and contains no glucose data; optional bitmap failure is best effort.
+See `FEATHER_01_NATIVE.md`. No clinical state is owned by this layer.
+
+## Sustained-Rise Target
+
+The adaptive controller can issue a guarded 4.1 mmol/L, 30-minute proposal
+after a qualified ten-minute rise above 8.5. Target Manager owns delivery,
+fresh requalification and release; no additional writer or polling is added.
+See [conditions and release boundary](2026-09-27-sustained-rise-target.md).
 ## Trusted Supervisor Host
 
 The explicit text_supervisor_host CLI assembles TextSupervisor/SystemdTextProcess

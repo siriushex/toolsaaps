@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Combined UI And Photo Gate
+
+See [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md) for exact source scope,
+local synthetic capacity evidence, per-100g schema and inactive server boundary.
+Install pinned backend requirements (now including Pillow 12.3.0) for image
+decoder tests; missing optional decoder skips do not establish image readiness.
+Run full Android unit tests, lint and assemble before the in-place device gate.
+No service/profile activation or provider request is implied by source CI.
+
 ## Core Room Export
 
 The independent server_ai_export_index_v1.db is created lazily in Android's

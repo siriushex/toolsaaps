@@ -30,6 +30,7 @@ import io.aaps.copilot.data.repository.AlertEvidenceItem
 import io.aaps.copilot.data.repository.AlertEvidenceKind
 import io.aaps.copilot.domain.alerts.CauseConfidence
 import io.aaps.copilot.ui.foundation.design.Spacing
+import io.aaps.copilot.ui.motion.ClinicalGlyph
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.util.Date
@@ -147,6 +148,16 @@ private fun EpisodeRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val glyph = when (episode.stage) {
+            "LOW_NOW" -> "low-now"
+            "CRITICAL_5" -> "low-imminent"
+            "WARNING_30" -> "low-warning"
+            "SOFT_HIGH_RISK" -> "high-risk"
+            else -> "low-watch"
+        }
+        ClinicalGlyph(glyph, size = 24.dp, animate = active, motionKey = episode.episodeId,
+            tint = if (episode.stage in setOf("LOW_NOW","CRITICAL_5")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 8.dp))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = if (active) stringResource(R.string.alerts_active_episode, direction) else direction,

@@ -19,10 +19,50 @@ class MealPhotoAnalysisRepositoryTest {
         val id = UUID.randomUUID().toString()
 
         val first = repository.analyze(id, byteArrayOf(1, 2, 3))
-        val second = repository.analyze(id, byteArrayOf(9, 9, 9))
+        val second = repository.analyze(id, byteArrayOf(1, 2, 3))
 
         assertThat(first).isInstanceOf(MealPhotoAnalysisResult.Success::class.java)
         assertThat(second).isInstanceOf(MealPhotoAnalysisResult.Success::class.java)
+        assertThat(calls.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun cachedRequestIdCannotBeReboundToAnotherPhoto() = runTest {
+        val calls = AtomicInteger(0)
+        val repository = MealPhotoAnalysisRepository(MealPhotoGateway {
+            calls.incrementAndGet()
+            validJson()
+        })
+        val id = UUID.randomUUID().toString()
+        repository.analyze(id, byteArrayOf(1, 2, 3))
+        val changed = repository.analyze(id, byteArrayOf(9, 9, 9))
+        assertThat(changed).isEqualTo(
+            MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST)
+        )
+        assertThat(calls.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun concurrentSameRequestCannotStartAnotherInference() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val calls = AtomicInteger(0)
+        val repository = MealPhotoAnalysisRepository(MealPhotoGateway {
+            calls.incrementAndGet()
+            if (!started.isCompleted) started.complete(Unit)
+            release.await()
+            validJson()
+        })
+        val id = UUID.randomUUID().toString()
+        val first = async { repository.analyze(id, byteArrayOf(1)) }
+        started.await()
+        val duplicate = async { repository.analyze(id, byteArrayOf(1)) }
+        testScheduler.runCurrent()
+        release.complete(Unit)
+        assertThat(duplicate.await()).isEqualTo(
+            MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.BUSY)
+        )
+        first.await()
         assertThat(calls.get()).isEqualTo(1)
     }
 

@@ -1,3 +1,26 @@
+# Combined UI And Food Photo Source - 2026-10-15
+
+- Integrates native graphics/motion PR #6 with current owner AI/Room source,
+  preserving both documentation histories and schema 34.
+- Adds signed per-task photo client, capability selection and foreground
+  camera/gallery/review in the existing meal form. No implicit meal submission,
+  midpoint, inferred GI, image persistence, target or dose action.
+- Fixes same-ID parallel inference and cached-photo rebinding, untrusted-receipt
+  cancellation authority, EXIF orientation and PER_100G prompt consistency.
+- Integrates independently reviewed year-context optimization under unchanged
+  integrity/retention/time/instruction limits. Local 365-day synthetic gate:
+  210241 records, cold 4.02 s / verified cache 0.97 s; not Linux admission.
+- Adds inactive typed vision worker and independent pinned JPEG decoder.
+  Real contained image transport and server activation remain unimplemented;
+  no production readiness or provider inference is claimed.
+- Checks: 962 backend tests passed, 27 opt-in skips; separate capacity 2 passed;
+  frozen Android suite 5667 tests, zero failures/errors, 6 private-fixture skips.
+  Final lint/assemble passed (357 warnings, 8 hints, no suppressed new checks).
+  APK signature and installed hash verified after in-place update. App/DB
+  identities retained; main/curve/food/photo gating and background service
+  inspected. No therapy/provider test. Public API reports
+  `ai_service_not_deployed`. See COMBINED_UI_PHOTO.md.
+
 # Core Room History Source - 2026-10-15
 
 - Added indexed, bounded core Room export for glucose, recorded therapy,
@@ -80,6 +103,74 @@
   therapy change belongs to this source stage. Exact-head CI is checked separately
   after reviewed source publication; actual provider/device admission remains open.
 
+# Native Motion Refinement - 2026-10-15
+
+- Isolated follow-up from main 7ca72a24; no unfinished work from other trees.
+- Short asymmetric owl/glyph accents; waiting settles after one glance/blink,
+  preserving actual busy-state ownership and indeterminate semantics.
+- Shared native critically damped springs scale icon artwork only. Material
+  retains ripple, enabled semantics, cancellation and immediate action dispatch.
+- Coordinated drawer panel/scrim lifetime replaces nested visibility; logical
+  start supports RTL and rapid reversal. Root motion gate includes lifecycle.
+- Added native interaction/pixel, cancellation, fixed-hit-target, reduced-motion
+  and LTR/RTL drawer tests. A new mid-exit disable regression was reproduced
+  and fixed: disabled transitions remove their modifiers, closed overlays are
+  removed immediately and visible content state survives entry cancellation.
+- Final immutable local gates: 23 motion tests and the full 5,549-test Android
+  suite, zero failures/errors, 6 existing private-fixture skips. Kotlin compile,
+  lint and debug APK passed on the same unchanged source. Lint: 355 warnings,
+  8 hints, zero errors, unchanged from the prior main; no checks suppressed.
+- APK package/signature verified. Source-only publication receives independent
+  exact-head Verify; CI status belongs in the PR, not inferred from local tests.
+- No algorithms, models, target/pump actions, databases, notifications, server
+  or phone changes. No new animation library or asset regeneration.
+  See docs/NATIVE_MOTION_REFINEMENT.md. Main merge is not part of this follow-up.
+
+# Feather 01 Native Presentation - 2026-10-15
+
+- User selected the first feathered family and explicitly approved Git main
+  integration. Isolated reconciliation includes verified a74006dd, not the other
+  task's unfinished owner-AI changes. Android matched that incoming SHA exactly
+  before presentation edits; duplicate main behavior and both doc histories stay.
+- Added native owl/glyph models and cached Compose drawing, finite lifecycle
+  clocks, system/app motion gates, optical sizes, adaptive launcher, event assets
+  and static risk icons. Busy state and clinical actions remain authoritative.
+- Private notification artwork is redacted to a gray owl and app name publicly.
+  Decorative bitmap decode is best effort; channels/audio/actions are unchanged.
+- Portable artwork sources, generator, provenance and Lucide license included.
+  Native pixel tests verify actual movement followed by a finite freeze. Waiting
+  retains indeterminate accessibility semantics after the cap and reduced motion.
+  Compact-header tests include unclipped badges with enlarged system fonts.
+- Immutable full regression before the last waiting-semantics fix: 5,541 tests,
+  zero failures/errors, 6 existing private-fixture skips. Final code: 35 targeted
+  motion/header/artwork/notification tests plus 10 event-detail tests passed.
+  Both frozen source-hashed unit/lint/APK gates completed successfully; final
+  lint has 355 warnings, 8 hints, zero errors. 32 unused static catalog recipes are
+  intentional and do not activate unsupported detection scenarios.
+- Debug APK signature/package verified. Verify repeats the complete suite on
+  the final Git head before main integration. No APK release upload, phone
+  installation, server deployment or clinical activation is performed here.
+  See docs/FEATHER_01_NATIVE.md.
+
+# Sustained-Rise Target Integration - 2026-09-27
+
+- Transferred only the guarded sustained-rise rule, manager/factory integration
+  and 12 regression tests from the development worktree onto main.
+- Preserve all safety gates; 4.1 lasts 30 minutes and renewal requires fresh
+  evidence. Calculated-base and ownership-confirmed small upward release are
+  no longer discarded by ordinary no-op/cadence checks.
+- No unrelated meal-planner, UI, backend or database changes imported.
+- Main still uses Room v26. Do not install this APK on a v27 device. USB release
+  must use the separately verified compatible build and record its hash.
+- Main verification: 4377 tests, zero failures/errors, 3 skipped; APK assembled.
+  Serial lint completed successfully: 295 warnings, 4 hints, zero errors.
+  Initial combined run was interrupted during slow concurrent lint; the retry
+  used one worker and an ephemeral 6GB JVM heap, without project config edits.
+- USB installed the compatible development APK with schema 27, preserving data.
+  SHA-256: d6779da866f3bd05beed0518cc4afaf205a639549e0cf5e1cad68f3d5ea41277.
+  Signature matched and installed bytes were verified by read-back. ACTIVE
+  cycles and fresh forecasts continued; no forced therapy command was used.
+- Design: docs/2026-09-27-sustained-rise-target.md.
 # Trusted Text Supervisor Host - 2026-10-15
 
 - Added an explicit trusted Linux host CLI assembling the typed supervisor and

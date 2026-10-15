@@ -11,8 +11,11 @@ import secrets
 import shutil
 import sqlite3
 import stat
+import struct
 import time
+from collections import OrderedDict
 from contextlib import closing, contextmanager
+from copy import deepcopy
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -45,6 +48,18 @@ META_FIELDS = (
     "expires_ms",
     "received_ms",
     "digest",
+)
+# All record metadata are contract-bounded ASCII identifiers or integers. SQLite
+# json_array emits the same compact array used in record AAD, without a Python
+# JSON encoder and twelve named row lookups for every decrypted record.
+CONTEXT_META = "json_array(" + ",".join("r." + key for key in META_FIELDS) + ")"
+CONTEXT_ROWS = (
+    # Context covers the retained year. A sequence scan avoids sorting every
+    # ciphertext via the narrow-window index (including a large temp B-tree).
+    " FROM history_records r NOT INDEXED WHERE r.event_ms>? AND r.event_ms<=? "
+    "AND r.observed_ms<=? AND r.received_ms<=? AND r.deleted=0 AND NOT EXISTS "
+    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
+    "AND n.sequence>r.sequence) ORDER BY r.sequence"
 )
 SCHEMA = (
     "CREATE TABLE history_manifest(id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT NOT NULL, "
@@ -99,6 +114,9 @@ class HistoryStore:
             max_bytes,
         )
         self.max_receipts, self.min_free_bytes = max_receipts, min_free_bytes
+        # At most one bounded finished context per admitted device. Never durable
+        # plaintext, and never trusted by timestamps/high-water alone.
+        self._context_cache = OrderedDict()
 
     @staticmethod
     def _private(path, *, directory=False):
@@ -298,15 +316,33 @@ class HistoryStore:
         ):
             raise HistoryError(429, "history_capacity_reached")
 
-    def _read_record(self, owner, device, cipher, row):
+    def _read_plain(self, owner, device, cipher, row, *, aad=None):
         plain = cipher.decrypt(
             row["nonce"],
             row["ciphertext"],
-            self._aad(owner, device, "record", [row[key] for key in META_FIELDS]),
+            aad if aad is not None else self._aad(
+                owner, device, "record", [row[key] for key in META_FIELDS]),
         )
         if hashlib.sha256(plain).hexdigest() != row["digest"]:
             raise ValueError("history_digest_mismatch")
+        return plain
+
+    def _read_record(self, owner, device, cipher, row):
+        plain = self._read_plain(owner, device, cipher, row)
         return json.loads(plain)
+
+    @staticmethod
+    def _context_digest(digest, row):
+        metadata = row["aad_values"].encode("utf-8")
+        nonce, ciphertext = row["nonce"], row["ciphertext"]
+        if type(nonce) is not bytes or len(nonce) != 12 or type(ciphertext) is not bytes:
+            raise ValueError("invalid_history_ciphertext")
+        # Length-framed canonical metadata and exact binary blobs, without
+        # hex-encoding every ciphertext or keeping a second plaintext archive.
+        digest.update(struct.pack(">II", len(metadata), len(ciphertext)))
+        digest.update(metadata)
+        digest.update(nonce)
+        digest.update(ciphertext)
 
     def append(self, owner: str, device: str, body: bytes, *, now_ms: int):
         batch = decode_batch(body, now_ms=now_ms)
@@ -435,6 +471,7 @@ class HistoryStore:
                 )
                 self._check_quota(db)
                 db.commit()
+                self._context_cache.pop((owner, device), None)
                 return ack
             finally:
                 db.close()
@@ -536,6 +573,7 @@ class HistoryStore:
                     db.execute("BEGIN IMMEDIATE")
                     self._purge(db, now_ms)
                     db.commit()
+                    self._context_cache.pop((owner, device), None)
                 finally:
                     db.close()
 
@@ -561,19 +599,69 @@ class HistoryStore:
                     return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
 
                 db.set_progress_handler(budget, 1000)
-                rows = db.execute(
-                    "SELECT r.* FROM history_records r WHERE r.event_ms>? AND r.event_ms<=? "
-                    "AND r.observed_ms<=? AND r.received_ms<=? AND r.deleted=0 AND NOT EXISTS "
-                    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
-                    "AND n.sequence>r.sequence) ORDER BY r.sequence",
-                    (max(0, now_ms - RETENTION_MS), now_ms, now_ms, now_ms))
+                args = (max(0, now_ms - RETENTION_MS), now_ms, now_ms, now_ms)
+                identity = (owner, device)
+                cached = self._context_cache.get(identity)
+                if cached is not None:
+                    previous = cached[1]
+                    first = previous["coverage"]["firstAtMs"]
+                    if (previous["snapshotSequence"] != context.snapshot
+                            or now_ms < previous["generatedAtMs"]
+                            or first is not None and now_ms >= first + RETENTION_MS):
+                        # Known revision/retention changes need one cold pass,
+                        # rather than a fingerprint pass followed by a rebuild.
+                        cached = None
+                # Hash the complete eligible encrypted envelopes in this same
+                # SQLite read snapshot. Includes metadata/AAD and exact blobs:
+                # same sequence/count/mtime cannot conceal a corrupt ciphertext.
+                # Selection is rerun at now_ms, so expiry, future cutoffs, latest
+                # revisions and tombstones cannot use stale cached coverage.
+                fingerprint = None
+                if cached is not None:
+                    digest = hashlib.sha256()
+                    rows = db.execute("SELECT r.nonce,r.ciphertext," + CONTEXT_META
+                                      + " AS aad_values" + CONTEXT_ROWS, args)
+                    for count, row in enumerate(rows, 1):
+                        if count > self.max_rows or time.monotonic() >= stop_at:
+                            raise HistoryError(503, "history_context_unavailable")
+                        self._context_digest(digest, row)
+                    fingerprint = digest.digest()
+                if cached is not None and cached[0] == fingerprint:
+                    result = deepcopy(cached[1])
+                    result.update(generatedAtMs=now_ms, snapshotSequence=context.snapshot,
+                                  fromMs=max(1, now_ms - RETENTION_MS + 1), untilMs=now_ms + 1)
+                    for item in result["recentRecords"]:
+                        item["ageMs"] = now_ms - item["record"]["eventAtMs"]
+                    if time.monotonic() >= stop_at:
+                        raise HistoryError(503, "history_context_unavailable")
+                    self._context_cache.move_to_end(identity)
+                    return result
+                self._context_cache.pop(identity, None)
+                digest = hashlib.sha256()
+                rows = db.execute("SELECT r.sequence,r.event_ms,r.received_ms,r.kind,r.quality,"
+                                  "r.nonce,r.ciphertext,r.digest," + CONTEXT_META + " AS aad_values"
+                                  + CONTEXT_ROWS, args)
                 cipher = self._cipher(owner, device)
+                prefix = encoded([1, owner, device, "record"])[:-1] + b","
                 for count, row in enumerate(rows, 1):
                     if count > self.max_rows or time.monotonic() >= stop_at:
                         raise HistoryError(503, "history_context_unavailable")
-                    context.add(dict(sequence=row["sequence"], receivedAtMs=row["received_ms"],
-                        record=self._read_record(owner, device, cipher, row)))
-                return context.finish()
+                    plain = self._read_plain(owner, device, cipher, row,
+                        aad=prefix + row["aad_values"].encode("utf-8") + b"]")
+                    context.add_authenticated(row, plain)
+                    if fingerprint is None:
+                        self._context_digest(digest, row)
+                result = context.finish()
+                if time.monotonic() >= stop_at:
+                    raise HistoryError(503, "history_context_unavailable")
+                entry = (fingerprint if fingerprint is not None else digest.digest(), deepcopy(result))
+                if time.monotonic() >= stop_at:
+                    raise HistoryError(503, "history_context_unavailable")
+                self._context_cache[identity] = entry
+                self._context_cache.move_to_end(identity)
+                if len(self._context_cache) > self.max_devices:
+                    self._context_cache.popitem(last=False)
+                return result
             finally:
                 db.close()
 
