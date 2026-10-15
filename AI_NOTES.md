@@ -1,3 +1,28 @@
+# Native Navigation Follow-through - 2026-10-16
+
+- Owner requested completion. Added real NavHost integration checks beyond the
+  earlier component tests; the original two failures are retained privately.
+  A policy change during navigation did not stop the already-started page fade.
+- Resolved Compose animation1.10.0 and Navigation2.9.6 sources confirm retained
+  enter/exit specifications. Replacing disabled None with snap did not fix the
+  active fade; that failed hypothesis and native rasters are preserved.
+- Page transitions now use fixed None in both directions; finite owl/menu motion
+  remains. No graph/controller replacement, user draft reset, therapy change or
+  new frame clock. Native pixels are fully opaque and draft retention passes.
+- The initial rapid-pop raw tap ran before the new native frame committed:
+  diagnostics observed the old rendered page at32ms and the new page at64ms.
+  Final checks require actual native layout/draw within96ms before the raw tap,
+  and verify the fully opaque target, inactive-page removal and exactly-once
+  action. That fixture correction is not presented as a phone handler defect.
+- Focused native55 tests passed,zero skips; native target raster inspected.
+  Full final unit run:5686 tests across503 suites,5680 passed,6 existing private
+  opt-in skips,zero failures/errors. Complete unit/lint/assemble/Kotlin command
+  passed in10m38s. Lint:0errors,364warnings/8hints,zero new warning keys against
+  the retained f63db857 report. Corrected APK v2 debug signature verified;
+  hash retained privately. Exact-head Verify must be observed after publication.
+- ADB and macOS USB inventory were empty. No phone install, disable/backup,
+  medical export, server operation or real notification test performed.
+
 # Approved Owl Navigation Native Stage - 2026-10-16
 
 - Owner approved the owl-navigation prototype; the separate three AI-analysis

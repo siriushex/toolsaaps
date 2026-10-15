@@ -120,6 +120,8 @@
   clock tolerance does not change event timestamps or clinical freshness checks.
 ## Native Artwork Isolation
 
+- Interactive root destinations do not crossfade. Motion-policy changes must not
+  replace the NavHost/controller or reset route drafts to cancel an old effect.
 - The owl menu retains the existing click owner and a fixed48dp target. Only
   explicit route/menu/busy edges create finite header gestures; palette updates,
   recomposition and same-route events cannot replay them. Suppressed requests

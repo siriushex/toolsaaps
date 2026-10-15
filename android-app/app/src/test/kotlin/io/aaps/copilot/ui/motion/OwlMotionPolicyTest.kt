@@ -8,13 +8,9 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 class OwlMotionPolicyTest {
-    @Test fun routeTransitionsAreShortAndShareTheSuppressionGate() {
-        assertEquals(180, NativeMotion.routeEnterMs)
-        assertEquals(120, NativeMotion.routeExitMs)
-        assertEquals(EnterTransition.None, NativeMotion.routeEnter(false))
-        assertEquals(ExitTransition.None, NativeMotion.routeExit(false))
-        assertNotEquals(EnterTransition.None, NativeMotion.routeEnter(true))
-        assertNotEquals(ExitTransition.None, NativeMotion.routeExit(true))
+    @Test fun routeChangesNeverCrossfadeInteractiveScreenLayers() {
+        assertEquals(EnterTransition.None, NativeMotion.routeEnter)
+        assertEquals(ExitTransition.None, NativeMotion.routeExit)
     }
     @Test fun everyGestureIsBoundedAndFinite() {
         OwlGesture.entries.forEach { gesture ->

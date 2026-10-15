@@ -28,8 +28,10 @@ implements that presentation, not one of the separate AI-analysis layout choices
   the menu button. Clinical values remain separately accessible as before.
 - Remove the second chat waiting owl; keep a static hourglass with real busy
   semantics, without introducing another indefinite animation.
-- Root route fades use180ms enter/120ms exit, or no transition when the shared
-  motion policy suppresses decoration. Data arrival and actions are not delayed.
+- Root pages change immediately without crossfades. The follow-through removed
+  the original180/120ms fades after reproducing retained active specs in NavHost.
+  Owl/drawer motion remains finite/gated. Data and graph/controller ownership
+  stay unchanged; cancelling decoration must not recreate forms or their drafts.
 
 ## Notifications
 
@@ -71,10 +73,23 @@ Real Redmi visual/CPU/RAM/notification/TalkBack acceptance remains separate.
 
 ## Local Result
 
-Expected missing-menu regression was observed before source edits. Corrected
+The original sourcef63db857 stage observed a missing-menu regression before edits. Corrected
 focused native gate passed51 tests; final full Android run completed5682 tests:
 5676 passed,6 existing private-data opt-in skips,zero failures/errors. Complete
 unit/lint/assemble/Kotlin gate passed in11m07s. Lint retains364warnings/8hints,
 zero errors; no warning in the new menu component. Actual native320dp light/
 font2-dark header and moving/settled owl rasters were inspected. Debug APK v2
 signature verified. These are local synthetic/native results, not phone evidence.
+
+## Follow-through
+
+Real NavHost checks reproduced retained alpha during a policy change. Fixed
+page transitions supersede the original fade policy, without changing saved-state
+owners. Raw-pointer checks synchronize with the actual native commit within96ms
+and assert the target's opaque pixels before a tap; semantic presence alone can
+precede rendering. Focused55 tests passed with zero skips, including draft
+retention, rapid pop and accessibility-initiated navigation. Full final5686-test
+run:5680 passed,6 existing opt-in skips,zero failures/errors. Complete unit/lint/
+assemble/Kotlin gate passed in10m38s,0lint errors and unchanged364warning/8hint
+keys; corrected debug APK v2 signature verified. Exact-head publication and
+separate intended-phone acceptance remain their own gates.

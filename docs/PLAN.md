@@ -1,5 +1,20 @@
 # PLAN
 
+## Native Navigation Follow-through (2026-10-16)
+
+- [x] Reproduce retained page fade with real NavHost and inspect resolved sources.
+- [x] Reject snap-only replacement; use immediate page changes while retaining
+  the approved owl and drawer gestures. Opaque pixels and draft retention pass.
+- [x] Rapid-pop raw/accessibility/native-pixel and draft-retention checks pass;
+  wait for actual native commit within96ms,not only semantic-tree presence.
+- [x] Focused55 native tests passed,zero skips; raster inspected.
+- [x] Full5686-test run:5680 passed,6 existing opt-in skips,zero errors/failures.
+- [x] Final unit/lint/assemble/Kotlin gate passed in10m38s;0lint errors,unchanged
+  warning keys. Corrected debug APK signature/hash verified; source reviewed.
+- Observe exact published SHA/Verify and retain the publication receipt before
+  integrating this stage; an earlier green head is not evidence for this source.
+- [ ] Separate intended-phone acceptance; current USB/ADB inventories empty.
+
 ## Approved Owl Navigation (2026-10-16)
 
 - [x] Owner approved the navigation/notification prototype independently of the

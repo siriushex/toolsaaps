@@ -8,7 +8,9 @@ the existing2400ms maximum. A saved request captures explicit visits and consume
 suppressed gestures; color changes never restart it. Keyboard focus returns on
 drawer closure. The compact overview no longer has a duplicate title owl; the
 AI chat's second decorative owl becomes a static accessible hourglass. Route
-fades use180ms enter/120ms exit, or none under the shared suppression gate. See the
+changes are now immediate: the follow-through removed the original180/120ms page
+fades because NavHost retains active specs. Owl/drawer motion remains gated and
+finite; the graph/controller is not recreated. See the
 native navigation specification and AI_NOTES.md for final verification results.
 
 ## Motion Language

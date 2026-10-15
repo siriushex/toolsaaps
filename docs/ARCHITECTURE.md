@@ -124,7 +124,10 @@ palette/CGM emissions never create a visit. Suppression consumes that request,
 and the existing draw-only finite clock cannot signal AI completion. The actual
 AI busy projection is observed only on its route; it does not read another data
 source or call a model. Accessibility menu/busy state is independent of artwork.
-Root route fades use the same suppression gate with180ms enter/120ms exit.
+Root pages change without crossfades. NavHost retains active transition specs,
+so a later motion-policy update cannot reliably cancel a previously started
+page fade. Immediate pages preserve the same controller and saved state while
+finite owl/drawer gestures provide feedback under the shared suppression gate.
 The chat row keeps a static accessible hourglass rather than a second owl/loop.
 See superpowers/specs/2026-10-16-owl-navigation-native-design.md.
 

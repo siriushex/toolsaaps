@@ -68,7 +68,6 @@ import androidx.compose.runtime.withFrameNanos
 import io.aaps.copilot.ui.motion.NativeDrawerMotion
 import io.aaps.copilot.ui.motion.NativeIconButton
 import io.aaps.copilot.ui.motion.NativeMotion
-import io.aaps.copilot.ui.motion.LocalCopilotMotionEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -369,15 +368,14 @@ fun CopilotFoundationRoot(
                             )
                             Spacer(modifier = Modifier.height(Spacing.sm))
                         }
-                        val routeMotionEnabled = LocalCopilotMotionEnabled.current
                         NavHost(
                             navController = navController,
                             startDestination = Destinations.Overview.route,
                             modifier = Modifier.fillMaxSize(),
-                            enterTransition = { NativeMotion.routeEnter(routeMotionEnabled) },
-                            exitTransition = { NativeMotion.routeExit(routeMotionEnabled) },
-                            popEnterTransition = { NativeMotion.routeEnter(routeMotionEnabled) },
-                            popExitTransition = { NativeMotion.routeExit(routeMotionEnabled) }
+                            enterTransition = { NativeMotion.routeEnter },
+                            exitTransition = { NativeMotion.routeExit },
+                            popEnterTransition = { NativeMotion.routeEnter },
+                            popExitTransition = { NativeMotion.routeExit }
                         ) {
                             composable(Destinations.Overview.route) {
                                 OverviewScreen(
