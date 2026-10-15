@@ -11,6 +11,7 @@ import tomllib
 from urllib.request import Request, urlopen
 
 import session_patch_bundle as bundle
+from native_build import UPSTREAM_COMMIT
 
 
 def verify(root: Path) -> dict:
@@ -48,8 +49,8 @@ def verify(root: Path) -> dict:
 
 def fetch_source(root: Path) -> None:
     for relative in bundle.PINNED_FILES:
-        url = f"https://api.github.com/repos/openai/codex/contents/{relative}?ref={bundle.UPSTREAM_REF}"
-        request = Request(url, headers={"Accept": "application/vnd.github.raw+json"})
+        url = f"https://raw.githubusercontent.com/openai/codex/{UPSTREAM_COMMIT}/{relative}"
+        request = Request(url)
         with urlopen(request, timeout=20) as response:
             if response.geturl() != url:
                 raise ValueError("source redirect refused")

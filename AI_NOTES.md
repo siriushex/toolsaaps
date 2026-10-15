@@ -1,3 +1,16 @@
+# Public Source Fetch Reliability - 2026-10-15
+
+- Supervisor4329135 backend passed both Linux Verify jobs. One source-candidate
+  job failed fetching public files with GitHub API403 rate limit; the matching
+  push job passed. A targeted rerun was refused while the workflow was active.
+- Fetch the same files from the public raw host at native_build's existing pinned
+  peeled commit. Raw hosting cannot resolve the annotated-tag object SHA; the
+  original tag/ref and exact file-hash checks remain unchanged. No token, custom
+  user agent, moving branch/ref or relaxed redirect/size/hash gate was added.
+- All84 tooling tests and scoped lint pass. Actual anonymous public fetch plus
+  hash verification and three-path patch application pass. Backend source and
+  its707-test local result are unchanged; new exact-head Verify remains required.
+
 # Typed Text Supervisor Channel - 2026-10-15
 
 - Added a real Unix-socket typed text channel with kernel peer checks, fixed

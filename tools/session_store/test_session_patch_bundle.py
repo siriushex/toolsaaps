@@ -77,16 +77,17 @@ class PublicFetchTests(unittest.TestCase):
     def response(self, request, *, redirect=False, oversized=False):
         self.assertEqual(request.get_method(), "GET")
         self.assertFalse(request.has_header("Authorization"))
-        self.assertEqual(request.get_header("Accept"), "application/vnd.github.raw+json")
-        self.assertTrue(request.full_url.startswith("https://api.github.com/repos/openai/codex/contents/"))
-        self.assertTrue(request.full_url.endswith("?ref=" + verify_upstream.bundle.UPSTREAM_REF))
+        self.assertFalse(request.has_header("User-agent"))
+        self.assertTrue(request.full_url.startswith(
+            "https://raw.githubusercontent.com/openai/codex/" + verify_upstream.UPSTREAM_COMMIT + "/"))
+        self.assertNotIn("?", request.full_url)
         manager = MagicMock()
         result = manager.__enter__.return_value
         result.geturl.return_value = "https://example.invalid/changed" if redirect else request.full_url
         result.read.return_value = b"x" * (128 * 1024 + 1) if oversized else b"synthetic-source"
         return manager
 
-    def test_fixed_public_api_fetch_without_authorization(self):
+    def test_fixed_public_source_fetch_without_authorization(self):
         with patch.object(verify_upstream.bundle, "PINNED_FILES", self.inputs):
             with patch.object(verify_upstream, "urlopen", side_effect=lambda request, timeout: self.response(request)):
                 verify_upstream.fetch_source(self.root)

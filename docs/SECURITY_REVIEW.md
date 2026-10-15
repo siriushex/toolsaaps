@@ -1,5 +1,12 @@
 # SECURITY REVIEW
 
+## Public Source Fetch Reliability (2026-10-15)
+
+The compatibility fetch uses the existing pinned peeled commit on the public raw
+host, not a moving branch or a credentialed API fallback. Original file hashes,
+response size and redirect refusal remain mandatory. Actual fetch/patch verification
+and84 tooling tests pass; no provider/runtime/phone authority is added.
+
 ## Typed Local Supervisor (2026-10-15)
 
 - Kernel UID/GID checks precede text release on both sides. Fixed trusted policy

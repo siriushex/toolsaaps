@@ -86,6 +86,11 @@ transaction safety. Actual runtime/credential presentation/adoption is not impli
 
 ## Pinned Native Build Validation
 
+The small compatibility fetch uses the public raw host at native_build's pinned
+peeled commit, avoiding the unauthenticated API's shared runner rate limit. The
+annotated-tag identity and original file hashes remain pinned. It adds no token
+or custom User-Agent and does not change the native checkout/build workflow.
+
 Native Client Candidate is a disposable build workflow, separate from Verify.
 See tools/session_store/README.md. It fetches the fixed annotated tag and checks
 the peeled commit, all clean checkout state, exact native lock/toolchain and the
