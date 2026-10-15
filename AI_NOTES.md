@@ -1,3 +1,25 @@
+# Comparable Glucose History - 2026-10-16
+
+- Adds sparse hourly v2 facts, time-weighted 7/21-day compatible baselines and
+  bounded two-hour exposure observations/provisional recurrences. Original
+  quality/source/session/calibration/zone/model context and historical ranges
+  gate comparison; unknown metadata or missing windows are not normality.
+- Uses one authenticated 22-day read snapshot under existing time/SQL guards,
+  100000 selected-row and 50000 per-day limits. Revisions, retention, corruption,
+  concurrent writer isolation and post-calculation deadline failure are tested.
+- Focused 145 passed; scoped E/F lint and Python compilation passed. Synthetic
+  local macOS capacity: 31681 encrypted one-minute records, 3.919s read,
+  133.6MiB process peak RSS. This is not real host/phone admission.
+- Final full backend: 1130 passed, 27 existing opt-in skips, one dependency
+  deprecation warning. An earlier run hit a macOS PermissionError in unchanged
+  legacy process cleanup; isolated 30 tests and two full repeats passed. The
+  first failed run is retained, not treated as a fixed process-lifecycle defect.
+  Final focused checks also preserve absent-day labels when context is unknown.
+  Exact-head CI remains separate. Previous 4006e505's two workflows/all 6 jobs
+  are now successful. No model,
+  profile/service/proxy, medical upload, phone or therapy action. Report storage,
+  daily worker/schedule and authenticated admin are not implemented by this stage.
+
 # Daily Glucose Facts Foundation - 2026-10-15
 
 - Promotes the owner-approved daily review/admin direction and advisory prompt

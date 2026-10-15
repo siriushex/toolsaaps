@@ -1,5 +1,26 @@
 # PLAN
 
+## Comparable Glucose History (2026-10-16)
+
+- [x] Sparse hourly v2 facts preserve daily integration; DST clock matching is
+  explicitly unavailable without dropping correct daily totals.
+- [x] Same-context weighted 7/21-day baselines, separate range eligibility,
+  missing-day reasons and no sparse-current daily delta.
+- [x] Evidence-bound two-hour observations and provisional distinct-day
+  recurrences, explicit denominators/omissions and no cause/treatment inference.
+- [x] Protected single 22-day snapshot, revisions/deletions, corruption and
+  quota/deadline rejection, retention clipping and concurrent-writer tests.
+- [x] Focused 145 passed, scoped lint/compilation and local synthetic capacity.
+- [x] Final full backend 1130 passed/27 existing skips. An unchanged legacy
+  macOS runner cleanup failure in the initial run remains recorded; isolated
+  tests and two full repeats passed without a runner source change.
+- [ ] Source publication and exact-head CI evidence.
+- [ ] Other domain adapters, encrypted report lifecycle, bounded model review,
+  durable schedule and private admin implementation/admission.
+
+See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md). No model, phone, deployment
+or therapy operation. The admin artifact remains a synthetic offline mockup.
+
 ## Daily Review Foundation (2026-10-15)
 
 - [x] Owner approved deterministic facts, bounded advisory review and private
@@ -10,8 +31,8 @@
   integrity/budget failure and known sensor-change boundaries.
 - [x] Focused 72 tests, scoped E/F lint and Python compilation passed.
 - [x] Final full backend1086 passed/27 existing skips; scoped lint and compilation.
-- [ ] Source publication and exact-head CI evidence.
-- [ ] Comparable-day baselines, other domain adapters, encrypted report lifecycle,
+- [x] Source 4006e505 published; both exact-head workflows and all 6 jobs passed.
+- [ ] Other domain adapters, encrypted report lifecycle,
   model review worker/schedule and private admin implementation/admission.
 
 See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md). No public service, model or

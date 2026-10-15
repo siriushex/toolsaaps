@@ -333,3 +333,22 @@ def test_dense_full_day_coverage_does_not_accumulate_duration_roundoff():
     assert facts.coveredMinutes == facts.dayMinutes == 1440.0
     assert facts.coveragePct == 100.0 and facts.missingMinutes == 0.0
     assert facts.cohorts[0].metrics.rangeCoveredMinutes == 1440.0
+
+
+def test_hourly_metrics_are_sparse_and_split_crossings_without_changing_totals():
+    facts = build([point(55, 2), point(65, 10)])
+    cohort = facts.cohorts[0]
+    assert facts.hourlyStatus == "AVAILABLE"
+    assert [h.hour for h in cohort.hours] == [0, 1]
+    assert [h.metrics.coveredMinutes for h in cohort.hours] == [5.0, 5.0]
+    assert cohort.hours[0].metrics.belowMinutes == 2.5
+    assert cohort.hours[1].metrics.aboveMinutes == 2.5
+    assert cohort.metrics.coveredMinutes == sum(
+        h.metrics.coveredMinutes for h in cohort.hours
+    )
+
+
+def test_discontinuous_clock_keeps_daily_totals_but_withholds_hourly_claims():
+    facts = build([], report_date="2026-03-29", zone_id="Europe/Berlin")
+    assert facts.dayMinutes == 1380.0
+    assert facts.hourlyStatus == "UNAVAILABLE_CLOCK_DISCONTINUITY"

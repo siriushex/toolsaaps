@@ -15,6 +15,16 @@
   complete-source certificates or full out-of-window integrity scans.
 - No schema migration, clinical write, model request, scheduler/public route,
   therapy dispatch, prompt activation or deployment follows from this calculator.
+- Multi-day facts share owner/device, as-of cutoff and snapshot sequence. Only
+  prior 7/21-day compatible cohorts with known original context supply baselines;
+  current/future dates and unknown calibration/session cannot be pooled by default.
+- Pool moments and range minutes using their eligible covered-time denominators.
+  Sparse current days have no daily delta. Missing/changed range history cannot
+  supply comparable TIR even if glucose moments are otherwise usable.
+- Hourly recurrence requires a regular civil clock and adequate window coverage;
+  three distinct days is a provisional engineering label, not a diagnosis or
+  treatment rule. Truncated episodes cannot erase integrated hourly exposure.
+  Selected evidence and day-wide omissions stay explicit; missing is not normal.
 
 ## Photo API Composition
 

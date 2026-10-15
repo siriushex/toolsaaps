@@ -25,13 +25,14 @@ from .history_contract import (
 )
 
 MINUTE_MS = 60_000
+HOUR_MS = 60 * MINUTE_MS
 MAX_GAP_MS = 15 * MINUTE_MS
 MAX_INPUT_RECORDS = 50_000
 MAX_COHORTS = 128
 MAX_RANGES = 256
 MAX_EPISODES = 32
 MAX_EPISODE_REFERENCES = 16
-REVISION = "daily-glucose-linear-v1"
+REVISION = "daily-glucose-linear-v2"
 NonnegativeFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 Count = Annotated[int, Field(ge=0, le=2**63 - 1)]
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -79,6 +80,13 @@ class GlucoseMetrics(Closed):
     abovePct: NonnegativeFloat | None
 
 
+class HourGlucose(Closed):
+    hour: Annotated[int, Field(ge=0, le=23)]
+    startMs: Time
+    endMs: Time
+    metrics: GlucoseMetrics
+
+
 class GlucoseCohort(Closed):
     cohortId: str
     source: str
@@ -87,6 +95,7 @@ class GlucoseCohort(Closed):
     sensorChangeEpoch: Count
     inDayRecordCount: Count
     metrics: GlucoseMetrics
+    hours: tuple[HourGlucose, ...]
 
 
 class GlucoseEpisode(Closed):
@@ -113,7 +122,7 @@ class QualityCounts(Closed):
 
 
 class DailyGlucoseFacts(Closed):
-    revision: Literal["daily-glucose-linear-v1"] = REVISION
+    revision: Literal["daily-glucose-linear-v2"] = REVISION
     provenance: Literal["DEVICE_DECLARED"] = "DEVICE_DECLARED"
     dataCompleteness: Literal["UNKNOWN"] = "UNKNOWN"
     scope: Literal["GLUCOSE_ONLY"] = "GLUCOSE_ONLY"
@@ -126,6 +135,7 @@ class DailyGlucoseFacts(Closed):
     sourceDigest: Digest
     sourceBinding: Digest | None
     dayMinutes: NonnegativeFloat
+    hourlyStatus: Literal["AVAILABLE", "UNAVAILABLE_CLOCK_DISCONTINUITY"]
     inputRecordCount: Count
     inDayRecordCount: Count
     qualityCounts: QualityCounts
@@ -288,6 +298,44 @@ def _band_parts(start, end, left, right, target):
         yield start + (end - start) * a, start + (end - start) * b, band
 
 
+def _regular_clock(window):
+    if window.endMs - window.startMs != 24 * HOUR_MS:
+        return False
+    zone = ZoneInfo(window.zoneId)
+    offset = datetime.fromtimestamp(window.startMs / 1000, zone).utcoffset()
+    for hour in range(24):
+        first = datetime.fromtimestamp((window.startMs + hour * HOUR_MS) / 1000, zone)
+        last = datetime.fromtimestamp(
+            (window.startMs + (hour + 1) * HOUR_MS - 1) / 1000, zone
+        )
+        if (
+            first.hour != hour
+            or first.minute != 0
+            or first.second != 0
+            or last.hour != hour
+            or last.minute != 59
+            or first.fold
+            or last.fold
+            or first.utcoffset() != offset
+            or last.utcoffset() != offset
+        ):
+            return False
+    return True
+
+
+def _add_segment(accumulator, start, end, value_at, ranges, range_starts):
+    accumulator.add(end - start, value_at(start), value_at(end))
+    parts = []
+    for left, right, target in _range_parts(start, end, ranges, range_starts):
+        accumulator.knownMilliseconds += right - left
+        for a, b, band in _band_parts(
+            left, right, value_at(left), value_at(right), target
+        ):
+            setattr(accumulator, band, getattr(accumulator, band) + (b - a) / MINUTE_MS)
+            parts.append((a, b, band, target))
+    return parts
+
+
 def build_daily_glucose(
     records,
     *,
@@ -432,6 +480,8 @@ def build_daily_glucose(
         )
 
     starts = [r.startMs for r in settings]
+    hourly_enabled = _regular_clock(window)
+    hourly_accumulators = {}
     episodes, covered, gaps = [], [], []
     for first, second in zip(points, points[1:]):
         t0, key, y0, refs0 = first
@@ -447,32 +497,40 @@ def build_daily_glucose(
             return y0 + (y1 - y0) * (t - t0) / (t1 - t0)
 
         accumulator = groups[key][2]
-        accumulator.add(b - a, value_at(a), value_at(b))
         covered.append((a, b, key))
-        for left, right, target in _range_parts(a, b, settings, starts):
-            accumulator.knownMilliseconds += right - left
-            for p, q, band in _band_parts(
-                left, right, value_at(left), value_at(right), target
+        for p, q, band, target in _add_segment(
+            accumulator, a, b, value_at, settings, starts
+        ):
+            if band == "inside":
+                continue
+            label = "BELOW_RANGE" if band == "below" else "ABOVE_RANGE"
+            prior = episodes[-1] if episodes else None
+            if (
+                prior is None
+                or prior.cohort != key
+                or prior.band != label
+                or prior.end != p
+                or prior.target != target
             ):
-                setattr(
-                    accumulator, band, getattr(accumulator, band) + (q - p) / MINUTE_MS
-                )
-                if band == "inside":
-                    continue
-                label = "BELOW_RANGE" if band == "below" else "ABOVE_RANGE"
-                prior = episodes[-1] if episodes else None
-                if (
-                    prior is None
-                    or prior.cohort != key
-                    or prior.band != label
-                    or prior.end != p
-                    or prior.target != target
-                ):
-                    prior = _Episode(key, label, float(p), float(q), target)
-                    episodes.append(prior)
-                prior.end = float(q)
-                prior.references.update(
-                    ((r.recordId, r.revision), r) for r in refs0 + refs1
+                prior = _Episode(key, label, float(p), float(q), target)
+                episodes.append(prior)
+            prior.end = float(q)
+            prior.references.update(
+                ((r.recordId, r.revision), r) for r in refs0 + refs1
+            )
+        if hourly_enabled:
+            for hour in range(
+                (a - window.startMs) // HOUR_MS, (b - 1 - window.startMs) // HOUR_MS + 1
+            ):
+                hour_start = window.startMs + hour * HOUR_MS
+                hour_acc = hourly_accumulators.setdefault((key, hour), _Accumulator())
+                _add_segment(
+                    hour_acc,
+                    max(a, hour_start),
+                    min(b, hour_start + HOUR_MS),
+                    value_at,
+                    settings,
+                    starts,
                 )
 
     cohort_facts = tuple(
@@ -484,6 +542,16 @@ def build_daily_glucose(
             sensorChangeEpoch=epoch,
             inDayRecordCount=count,
             metrics=acc.finish(),
+            hours=tuple(
+                HourGlucose(
+                    hour=hour,
+                    startMs=window.startMs + hour * HOUR_MS,
+                    endMs=window.startMs + (hour + 1) * HOUR_MS,
+                    metrics=hour_acc.finish(),
+                )
+                for (cohort_key, hour), hour_acc in sorted(hourly_accumulators.items())
+                if cohort_key == key
+            ),
         )
         for key, (row, count, acc, epoch) in sorted(groups.items())
     )
@@ -513,6 +581,9 @@ def build_daily_glucose(
         sourceDigest=source_digest,
         sourceBinding=source_binding,
         dayMinutes=day_minutes,
+        hourlyStatus="AVAILABLE"
+        if hourly_enabled
+        else "UNAVAILABLE_CLOCK_DISCONTINUITY",
         inputRecordCount=len(records),
         inDayRecordCount=sum(counts.values()),
         qualityCounts=QualityCounts(**counts),

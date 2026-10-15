@@ -11,6 +11,14 @@ Missing/partial analytical range history remains explicit. Descriptive episodes
 retain source references and omission counts; no model, schedule or public
 endpoint is enabled. See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md).
 
+Hourly v2 facts and the pure glucose_comparison module add weighted 7/21-day
+baselines and bounded provisional two-hour exposure recurrences. One internal
+HistoryStore.daily_glucose_review read freezes the report day and previous 21
+days under the same protected snapshot and deadline. Comparable known context,
+coverage, historical ranges and omitted evidence remain explicit; unknown source
+metadata never becomes learned personalization. No model dispatch, report table,
+schedule, public route, clinical action or deployed admin follows from this stage.
+
 ## Optional Photo Service
 
 The protected owner descriptor can compose signed MEAL_PHOTO jobs through a
