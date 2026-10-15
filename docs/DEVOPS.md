@@ -1,5 +1,23 @@
 # DEVOPS
 
+## Inactive Profile Guard
+
+backend/app/ai/session_profile.py is not installed or injected anywhere. Local
+synthetic validation: PYTHONPATH=backend uv run --no-project --with-requirements
+backend/requirements.txt python -m pytest -q backend/tests/test_ai_session_profile.py,
+then the full backend/tests gate. Test children contain no credentials/medical
+data and never call host systemctl; trusted stop behavior is injected on temporary
+verifier objects. Existing stop-engine tests remain separate.
+
+Production admission must freshly pin one canonical profile/control mapping and
+immutable cgroup/slice scope. Never call capture to silently adopt drift. Keep
+control state outside worker mounts. Initialize only an empty profile/control
+root. Do not unlink lock/state to recover capacity. A reserved unbound crash,
+orphan or uncertain stop is a refusal requiring separate trusted reconciliation;
+only matching bound recovery uses the original stop verifier. No stale session
+backup or orphan promotion. Atomic file/directory sync is not provider refresh
+transaction safety. Actual runtime/credential presentation/adoption is not implied.
+
 ## Pinned Native Build Validation
 
 Native Client Candidate is a source-only CI workflow, separate from Verify.

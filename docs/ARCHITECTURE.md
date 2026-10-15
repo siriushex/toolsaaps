@@ -1,5 +1,17 @@
 # ARCHITECTURE
 
+## Inactive Session Profile Guard
+
+session_profile is a trusted-host local control component, not an API/launcher.
+One pinned profile/control mapping uses permanent flock plus durable reserved/
+bound state. Frozen cgroup/slice identity persists with the run; only the exact
+existing SystemdStopVerifier may close a bound lease/recovery after confirmed
+stop and fresh metadata checks. Unbound/ambiguous crashes retain admission refusal.
+No auth body/token is read or restored. Initialization requires an empty profile;
+top-level bounded metadata checks do not replace recursive native containment.
+Deployment, private owner code presentation and actual authenticated runtime
+integration remain independent gates. See the2026-10-15 session-profile spec.
+
 ## Offline Session Storage Candidate
 
 tools/session_store supplies a tested Rust helper and a source-hash-bound native

@@ -1,5 +1,17 @@
 # PLAN
 
+## Inactive Session Profile Guard (2026-10-15)
+
+- Added the source-only local serialization/admission component after synthetic
+  exchange passed at9291475d.38 focused synthetic file/process checks and the full
+  local backend536passed/26skipped/1warning pass. Exact-source publication/Verify
+  CI remains a gate; skipped checks were not executed.
+- Permanent lock, durable crash marker, pinned directory/journal/run/scope,
+  cancellation-drained exact stop and explicit bound recovery only. No existing
+  profile/auth, real stop/server/phone/model or therapy operation is connected.
+- Next: immutable runtime delivery/containment manifest, private owner challenge
+  presentation and admitted real provider/authenticated startup/model behavior.
+
 ## Synthetic Session Exchange (2026-10-15)
 
 - Previous six actual native protocol cases passed atb076302b; candidate remains

@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Inactive Session Profile Guard (2026-10-15)
+
+- Permanent private lock and durable marker prevent kernel-lock loss from being
+  treated as clean completion. Actual cross-process contention/forced death and
+  fork ownership are tested. Bound recovery remains tied to recorded directory,
+  run, native InvocationID and cgroup/slice; a different scope cannot release it.
+- Directory-component no-follow, pinned directory/lock/journal inode/owner/mode,
+  closed bounded journal and bounded metadata iteration refuse altered state.
+  auth.json is stat-only, never parsed/copied; only typed public UUID metadata
+  has a narrow0644 exception. No token/code/medical payload enters the journal.
+- Exact trusted stop-verifier identity is checked before/after await. Cancellation
+  drains the started stop and retains the marker; errors expose fixed codes.
+  File-sync/replace/directory-sync failures cannot restore older state. Orphans
+  and unbound crashes have no force-clear/auto-promotion path.
+- This is not an independent OS sandbox, distributed lease, recursive profile
+  scanner or same-UID/root compromise defense. One admitted mapping and worker
+  exclusion from the control root are deployment requirements. No live profile,
+  API, launcher, systemctl action, authorization or medical context is connected.
+
 ## Synthetic Session Exchange (2026-10-15)
 
 - Separate opt-in OAuth/synthetic-session admission does not relax the existing

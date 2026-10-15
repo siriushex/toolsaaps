@@ -1,3 +1,29 @@
+# Inactive Session Profile Guard - 2026-10-15
+
+- Added a separate trusted-host local guard, not wired to API, runner, profile,
+  server or real login. Pinned directory identities, permanent private flock,
+  durable reserved/bound marker and exact stop-verifier binding serialize one
+  admitted profile/control mapping. No auth-body/token/code reads or restores.
+- Nineteen failing-first cases exposed the missing component. Review then
+  reproduced four gaps: mutable run/scope, changed restart scope, identical
+  journal replacement and raw stop exceptions. Three more regressions exposed
+  loose integer types, unbounded directory listing and inconsistent IO errors.
+  All38 focused tests now pass, including actual competing/forced-killed Python
+  child processes, fork ownership, repeated cancellation, pre/post-replace
+  failures and metadata/links/orphan/privacy checks. The full local backend passes
+  536tests with26 existing skips and one existing warning. Exact-source CI remains
+  a publication gate; skipped tests were not executed.
+- Frozen guard settings and journal-bound cgroup/slice prevent scope drift;
+  lease run ID is read-only, journal inode pinned for the lease and metadata types
+  strict. Bounded scandir avoids loading an arbitrary directory listing. Native
+  top-level inventory is not a recursive filesystem/security proof. Only the
+  noncredential installation UUID may be read for its narrow0644 exception.
+- Cancellation drains an already-started trusted stop while leaving the marker.
+  Bound recovery requires the same recorded run/invocation and actual verifier;
+  unbound crashes stay refused. No force-clear, lock stealing, orphan promotion
+  or stale-token rollback. POSIX sync requests are not power-cut/provider-rotation
+  certification. No production stop command executes in these synthetic tests.
+
 # Synthetic Session Exchange - 2026-10-15
 
 - Extended only the ephemeral CI harness with successful synthetic device-code

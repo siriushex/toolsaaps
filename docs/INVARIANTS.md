@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Session Profile Serialization
+
+- One trusted manifest maps one profile to one permanent private control root.
+  Same-host flock is not a distributed lock or a same-UID/root compromise defense.
+- Directory/lock/journal identities and recorded cgroup/slice cannot drift during
+  a lease or across recovery. Closing/crashing never clears the durable run marker.
+- Only exact bound invocation stop plus fresh metadata permits idle. Cancellation
+  drains the stop task and retains the marker; unbound recovery is refused.
+- No force-reset, stale-token restore, orphan deletion/promotion or credential-body
+  reading. Initialization cannot adopt existing auth. Top-level metadata admission
+  does not attest recursive native state, valid auth or provider continuity.
+- The guard is inactive trusted-host source, never HTTP-selected paths/verifiers,
+  deployment, authorization, model execution or therapy authority.
+
 ## Session Candidate Isolation
 
 - Exact public source hashes and tested helper bytes bind the candidate patch;
