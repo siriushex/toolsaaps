@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Local Text Supervisor Channel
+
+ContextualChatWorker can use a typed Unix TextTurnRunner instead of owning native
+IO. The trusted TextSupervisor alone drives NativeTextSession with its fixed
+policy. Both peers check kernel UID/GID; only bounded text and a policy digest
+cross the boundary, never native RPC, executable settings or credentials.
+Answers follow independent stop/IO termination. Missing stop poisons admission;
+the API also disables new requests when the executor retains its durable lease.
+Actual contained-process/host assembly remains an explicit deployment dependency.
+See the2026-10-15 text-supervisor-channel spec; no default route or service starts.
+
 ## Signed Conversation Read
 
 The explicitly injected HistoryService also mounts POST history/conversations

@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives import serialization
 from fastapi.testclient import TestClient
 
 from app.ai_server import create_bound_ai_app
-from test_ai_activation import NOW, device, service, signed
+from test_ai_activation import NOW, device, service, signed  # noqa: F401 - shared synthetic attestation fixture
 
 
 class MutableClock:
@@ -344,7 +344,7 @@ def test_cancel_and_worker_failures_are_bounded_and_generic(transport, service):
 
 
 def test_unconfirmed_stop_stays_unknown_and_blocks_global_capacity(transport, service):
-    client, _, ledger, factory, _ = transport
+    client, jobs, ledger, factory, _ = transport
     _, key, tokens = activate(client, service)
     bound = service[1].authenticate_attested(tokens["access_token"],
         key_fingerprint=key_fingerprint(key), now_ms=NOW + 2)
@@ -359,18 +359,16 @@ def test_unconfirmed_stop_stays_unknown_and_blocks_global_capacity(transport, se
     assert cancelled.status_code == 200
     assert cancelled.json()["state"] == "UNKNOWN"
     assert ledger.get(bound.owner_id, job_id).state == "CANCEL_REQUESTED"
+    assert jobs.inference_ready is False
 
     _, next_key, next_tokens = activate(client, service)
     queued = submit(client, next_key, next_tokens, b'{"text":"synthetic queued"}',
                     request_id=str(uuid4()), deadline_ms=NOW + 120_000)
-    assert queued.status_code == 202
+    assert queued.status_code == 503
     time.sleep(0.05)
     assert "synthetic queued" not in factory.run_texts
     assert [work.job_id for work in factory.works] == [job_id]
-    assert ledger.get(service[1].authenticate_attested(
-        next_tokens["access_token"],
-        key_fingerprint=key_fingerprint(next_key),
-        now_ms=NOW + 2).owner_id, queued.json()["job_id"]).state == "QUEUED"
+    assert ledger.get(bound.owner_id, job_id).state == "CANCEL_REQUESTED"
 
 
 def test_cross_owner_key_scope_and_revoked_result_read_are_closed(transport, service):

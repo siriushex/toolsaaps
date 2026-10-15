@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Text Supervisor Isolation
+
+- Kernel-authenticated local peers, fixed policy and a closed text-only protocol;
+  no API-selected argv, paths, tools, models, instructions or native RPC relay.
+- One turn per connection, no automatic reconnect/replay. Connection UUID is
+  correlation only; existing signed job ledger remains the idempotency authority.
+- A result is not public until independent stop and native IO termination.
+  Ambiguous start/send/stop retains the durable claim and refuses new admission.
+- Controller shutdown drains teardown before waiting for connections. An ended
+  worker with RUNNING/CANCEL_REQUESTED makes API readiness false; no queue growth.
+- Protocol/local-socket tests do not attest the concrete process factory, kernel
+  isolation, account availability, deployment or clinical correctness.
+
 ## Signed Conversation Read
 
 - Full-text archive access requires current enrolled owner/device proof for each

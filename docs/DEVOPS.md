@@ -1,5 +1,21 @@
 # DEVOPS
 
+## Local Supervisor Channel
+
+Focused suites: test_ai_text_supervisor and test_ai_supervised_chat_transport.
+Tests create private temporary Unix sockets and synthetic native transports only.
+Full backend/Verify gates remain required. Use uv --offline when dependencies
+are already cached; no provider/model request is part of these tests.
+
+The host must supply the listener and independently admitted process factory.
+Keep its socket under a supervisor-owned, non-writable-by-API directory, with
+only the intended API group allowed to connect. Pin distinct numeric identities;
+do not grant the API profile access, root, sudo or systemctl. Startup/recovery must
+reconcile the existing durable ledger and SessionProfileGuard, not recreate them.
+No root launcher/systemd template is installed by this source change. An ambiguous
+stop disables new admission without deleting a claim, socket, profile or database.
+See the2026-10-15 text-supervisor-channel spec for protocol and operational gates.
+
 ## Conversation Query Verification
 
 Focused synthetic suites: test_ai_server_chat_query and test_ai_chat_query_transport.

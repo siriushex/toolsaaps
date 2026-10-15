@@ -1,3 +1,27 @@
+# Typed Text Supervisor Channel - 2026-10-15
+
+- Added a real Unix-socket typed text channel with kernel peer checks, fixed
+  trusted policy and single-use clients. Native protocol stays in the trusted
+  controller; no API-selected native methods, commands, settings or credentials.
+- ContextualChatWorker retains its existing local-process path and can inject
+  the supervised runner. Request/context/archive semantics stay unchanged.
+- Bounded cancellation, EOF, shutdown, stop/IO verification and quarantine are
+  tested. A Python3.13 shutdown deadlock was reproduced and fixed by draining
+  handlers before waiting for server socket closure. macOS tests use native
+  getpeereid; Linux uses SO_PEERCRED, with no identity bypass.
+- Signed integration reproduced false API readiness after unconfirmed stop.
+  Execution reconciliation now refuses new admission while retaining the lease,
+  UNKNOWN outcome and normal expiry of already queued payloads.
+- Full local backend707passed/26existing optional Nginx skips/1existing Starlette
+  warning, including49new checks. A cancelled stop is an unknown receipt, not
+  an abandoned open connection. Scoped E/F lint and whitespace checks passed;
+  imported pytest fixture F811 exemptions only. Previous28a2a6a CI is fully
+  successful; this source's Linux/Android Verify is an independent gate.
+  No provider/server/profile/phone/therapy action. Concrete
+  contained process, host assembly and Android integration remain outstanding.
+- Reproduce: PYTHONPATH=backend uv run --offline --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
 # Signed Conversation Read And Test Dependency - 2026-10-15
 
 - Added explicitly injected, owner/device-signed POST history/conversations for

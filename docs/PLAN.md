@@ -1,5 +1,17 @@
 # PLAN
 
+## Typed Supervisor Channel (2026-10-15)
+
+- Previous28a2a6a Verify is fully successful, including Android. Added typed Unix
+  API-to-supervisor text transport, fixed policy, kernel peer checks and bounded
+  single-turn teardown. Synthetic signed API/history/archive integration uses
+  real local sockets; no provider or host service is invoked.
+- Fixed false API readiness after an unconfirmed worker stop. Existing leases
+  remain held and queued payload expiry remains independent.
+- Still needed: concrete contained-process factory, nonroot host/bootstrap and
+  actual Linux/storage/load validation, then Android signed history/chat and
+  separately admitted rollout. This channel alone does not enable application AI.
+
 ## Signed Conversation Query (2026-10-15)
 
 - Added owner/device-signed full-text archive pages with bounded, identity/window-

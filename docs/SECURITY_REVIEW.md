@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Typed Local Supervisor (2026-10-15)
+
+- Kernel UID/GID checks precede text release on both sides. Fixed trusted policy
+  digest and closed bounded JSON prevent a general root command/native RPC broker.
+  No auth bodies, raw native errors or reasoning trace are copied or logged.
+- One active turn, bounded connections/time/bytes and no ambiguous retry. Stop
+  receipt plus terminated IO precedes answers; missing receipts quarantine the
+  supervisor and make the API refuse new work while retaining its durable lease.
+- Regression tests cover real local sockets and signed API/history/archive flow.
+  Tests do not prove different-UID deployment, actual Linux worker containment,
+  profile serialization, server shutdown recovery, or native provider execution.
+- MUST before rollout: protected fixed socket path, separate API identity and
+  profile access, admitted process factory and policy/runtime hashes, exact
+  invocation stop, durable startup reconciliation and existing storage gates.
+
 ## Signed Conversation Query (2026-10-15)
 
 - Existing preauthorization/exact proof/post-proof reauthorization gates protect

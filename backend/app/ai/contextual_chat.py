@@ -55,16 +55,41 @@ class ContainedTextProcess(Protocol):
     async def stop_and_confirm(self) -> bool: ...
 
 
+class TextTurnRunner(Protocol):
+    async def run(self, text: str, policy: TextSessionPolicy) -> dict[str, str]: ...
+
+    async def stop_and_confirm(self) -> bool: ...
+
+
+class NativeTextRunner:
+    def __init__(self, process: ContainedTextProcess):
+        self.process = process
+        self._attempted = False
+
+    async def run(self, text: str, policy: TextSessionPolicy):
+        if self._attempted:
+            raise ValueError("native_runner_already_used")
+        # Cancellation after OS creation must still require independent teardown.
+        self._attempted = True
+        transport = await self.process.start(policy)
+        return await NativeTextSession(transport, policy, containment_verified=True).run(text)
+
+    async def stop_and_confirm(self):
+        return not self._attempted or await self.process.stop_and_confirm() is True
+
+
 class ContextualChatWorker:
-    def __init__(self, work: JobWork, history: HistoryStore, process: ContainedTextProcess,
-                 *, clock_ms):
+    def __init__(self, work: JobWork, history: HistoryStore, process: ContainedTextProcess | None = None,
+                 *, clock_ms, runner: TextTurnRunner | None = None):
         if (not isinstance(work.request, ChatRequest)
                 or work.policy != contextual_chat_policy(work.policy.model)
-                or not isinstance(history, HistoryStore) or not callable(clock_ms)):
+                or not isinstance(history, HistoryStore) or not callable(clock_ms)
+                or (process is None) == (runner is None)):
             raise ValueError("invalid_contextual_chat_worker")
         self.work, self.history, self.process, self.clock_ms = work, history, process, clock_ms
+        self.runner = runner if runner is not None else NativeTextRunner(process)
         self.route_revision, self.request_digest = work.route_revision, work.request_digest
-        self._used = self._start_attempted = False
+        self._used = False
         self._context_task = None
 
     async def run(self):
@@ -87,11 +112,7 @@ class ContextualChatWorker:
         policy = TextSessionPolicy(self.work.policy.model, self.work.policy.system_prompt)
         if len(prompt.encode()) > policy.max_input_bytes:
             raise ValueError("contextual_chat_input_limit")
-        # Mark before awaiting: cancellation may arrive after the OS has started it.
-        self._start_attempted = True
-        transport = await self.process.start(policy)
-        session = NativeTextSession(transport, policy, containment_verified=True)
-        return await session.run(prompt)
+        return await self.runner.run(prompt, policy)
 
     async def stop_and_confirm(self):
         # Do not leave a context reader behind after cancellation. Its store work
@@ -103,6 +124,4 @@ class ContextualChatWorker:
                 raise
             except Exception:
                 pass
-        if not self._start_attempted:
-            return True
-        return await self.process.stop_and_confirm() is True
+        return await self.runner.stop_and_confirm() is True

@@ -559,11 +559,18 @@ class AiJobService:
             outcome = await self.executor.execute(payload.owner_id, payload.work.job_id, worker)
             return outcome
         finally:
-            if self.chat_archive is not None:
-                async def persist():
+            async def reconcile():
+                try:
                     job = outcome.job if outcome is not None else await asyncio.to_thread(
                         self.ledger.get, payload.owner_id, payload.work.job_id)
+                except Exception:
+                    self._failed = True
+                    raise
+                # An ended task with a live lease has no positive stop receipt.
+                if job is not None and job.state in {"RUNNING", "CANCEL_REQUESTED"}:
+                    self._failed = True
+                if self.chat_archive is not None:
                     await self._archive_final(job, outcome.result if outcome is not None else None)
-                _, cancelled = await _complete_critical(persist())
-                if cancelled:
-                    raise asyncio.CancelledError
+            _, cancelled = await _complete_critical(reconcile())
+            if cancelled:
+                raise asyncio.CancelledError
