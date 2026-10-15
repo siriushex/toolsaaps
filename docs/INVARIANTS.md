@@ -2,6 +2,19 @@
 
 ## Daily Glucose Facts
 
+- Daily facts archive writes require trusted owner/device-bound calculator
+  output and consistent date/window/as-of/snapshot/digest bindings. They are not
+  a client ingestion or public read contract, clinical validation or model result.
+- Report revisions are immutable and exact retries do not rewrite creation time
+  or retention. Expiry is civil-day end plus 365 days, including late generation.
+  A new revision cannot resurrect an expired date or roll back source chronology.
+- Authenticated archive metadata binds owner/device, purpose, sequence, logical
+  date/zone key, revision, creation/expiry and canonical full-facts digest.
+  Corrupt selected rows, quota or deadline failures yield no partial read/write.
+- Bounded report summaries expose NOT_CHECKED source state. Only an explicitly
+  supplied trusted current digest may mark MATCHED/STALE_SOURCE; it never changes
+  the original report. Retained membership is not complete/fresh source evidence.
+
 - Reporting range is explicit versioned analytical input, never a temporary
   target/default. Unknown range or uncovered time cannot become in-range time.
 - Only adjacent compatible observations within 15 minutes support linear

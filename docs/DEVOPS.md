@@ -1,5 +1,24 @@
 # DEVOPS
 
+## Daily Facts Archive Source Stage (2026-10-16)
+
+No deployment or operator invocation accompanies these internal methods. Only
+save_daily_glucose_report explicitly enables archive schema 3; it first preserves
+the additive chat schema 2 and adds the report table/index. Failed report writes
+roll back payloads; a successfully committed additive migration may remain.
+Old source accepting only schema 1/2 cannot reopen schema 3. Do not downgrade an
+enabled store, delete the report table or reset its version. A future operational
+rollout needs a protected consistent copy/restore gate and compatible source;
+retain original stores and uncertain work rather than attempting reverse SQL.
+
+Existing purge and shared row/byte quotas include reports. Reports expire at
+their original civil-day end plus 365 days, not the time of a refresh/retry.
+Logical date/zone has at most 32 revisions; maximum encoded report is 512 KiB;
+list reads return at most 20 authenticated summaries under SQL/wall-time bounds.
+Reads never migrate, dispatch a model or rescan source history. An explicit
+source check is a point-in-time comparison, not continuously monitored freshness.
+No public/signed/admin route or background caller is enabled by this stage.
+
 ## Owner Text API Rollout (2026-10-16)
 
 Source3b81c2a5 has passed both exact-head Verify runs (all six jobs). The

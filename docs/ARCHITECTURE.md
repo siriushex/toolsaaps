@@ -2,6 +2,15 @@
 
 ## Deterministic Daily Glucose Facts
 
+The opt-in internal daily_reports archive preserves a bounded complete
+DailyGlucoseReview in immutable per-device revisions. It reuses HistoryStore's
+private files/lock/key derivation and shared row/byte quotas, with distinct AEAD
+purpose and authenticated archive metadata. Only an explicit save adds schema 3;
+ordinary history/chat reads remain non-migrating. Bounded summary pages freeze
+retained membership, not source freshness. Explicit current source-digest checks
+produce MATCHED or STALE_SOURCE without changing the stored report. Model state
+is always NOT_REQUESTED. No route, worker, schedule or deployment is added.
+
 The internal daily_glucose calculator and HistoryStore.daily_glucose_facts
 reader form the first approved daily-review stage. They use a bounded private
 read snapshot, identity/version-bound input digest, civil-day bounds and
@@ -16,8 +25,9 @@ baselines and bounded provisional two-hour exposure recurrences. One internal
 HistoryStore.daily_glucose_review read freezes the report day and previous 21
 days under the same protected snapshot and deadline. Comparable known context,
 coverage, historical ranges and omitted evidence remain explicit; unknown source
-metadata never becomes learned personalization. No model dispatch, report table,
-schedule, public route, clinical action or deployed admin follows from this stage.
+metadata never becomes learned personalization. That calculator does not dispatch
+a model, persist a report, schedule work or expose a route/admin. Report persistence
+is a separate explicit internal call, not a side effect of the calculation.
 
 ## Optional Photo Service
 

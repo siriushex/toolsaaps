@@ -132,10 +132,53 @@ calculation as well as during selection; failure discards the entire review.
 All comparisons share snapshotSequence, asOfMs and sourceBinding. A separate
 versioned digest binds the daily input digests and comparison rules.
 
+## Explicit Report Archive
+
+```python
+report = history_store.save_daily_glucose_report(
+    owner_id, device_fingerprint, review, now_ms=now_ms,
+)
+saved = history_store.get_daily_glucose_report(
+    owner_id, device_fingerprint, report_date="2026-10-13", zone_id="Asia/Tbilisi",
+    now_ms=now_ms, report_revision=report.reportRevision,
+    source_digest=current_trusted_review.comparison.sourceDigest,
+)
+page = history_store.list_daily_glucose_reports(
+    owner_id, device_fingerprint, now_ms=now_ms, limit=10,
+)
+# If page.hasMore, use nextAfterSequence and the same snapshotSequence.
+```
+
+These are internal trusted-service methods, not signed/public/admin routes. The
+caller obtains review from the protected calculator and separately supplies a
+current digest only when it has actually calculated the matching device/day/zone.
+No source scan is hidden in navigation. Without that digest, sourceCheck is
+NOT_CHECKED. A differing digest produces a read-only STALE_SOURCE projection;
+the original facts and creation time remain unchanged. MATCHED is point-in-time
+source equality, not clinical/model validation. modelState is NOT_REQUESTED.
+Summaries preserve DEVICE_DECLARED/UNKNOWN completeness, separate quality-OK and
+unverified covered minutes, and missing time rather than showing coverage alone.
+
+Explicit save alone adds forward-only archive schema 3, preserving history and
+chat. Existing source/device bindings and full canonical facts digest are checked;
+the writer does not rederive every metric or certify its clinical accuracy.
+Per-device AEAD with a distinct purpose authenticates all archive metadata and
+payload. Exact retries return the original revision. Different facts append a
+revision; earlier as-of/snapshot/creation chronology cannot supersede later facts.
+
+Expiry is original civil-day end plus 365 days, a stricter bound than retention
+from late generation. No revision/refresh extends it. Maximum report is 512 KiB,
+32 revisions per logical date/zone and 20 summaries per page, plus existing shared
+row/byte/device/free-space quotas. Oversize input fails rather than truncates.
+Summary pages freeze retained archive sequence membership, not source freshness;
+expired records can disappear between pages. Full evidence is fetched only for a
+selected report. No automatic provider call, schedule or clinical action exists.
+See DEVOPS.md for the schema rollback boundary.
+
 ## Remaining Stages
 
 The wider candidate catalogue; bounded meal/GI/controller/notification/physiology
-adapters; encrypted report lifecycle;
+adapters; model-review report lifecycle beyond the facts-only archive;
 dedicated daily-model policy/result validation; durable schedule and private
 admin admission/UI. Approved prompt text is documentation, not an active prompt.
 The local synthetic admin mockup is not deployed or included in the app.

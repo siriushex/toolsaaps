@@ -1,5 +1,25 @@
 # SECURITY REVIEW
 
+## Daily Facts Archive (2026-10-16)
+
+- Internal trusted calculator output only; no new HTTP, SQL, path or model input.
+  Source/device/window/as-of/snapshot bindings are revalidated before storage.
+  A matching digest is reproducibility, not proof of clinical completeness.
+- Reuse private device files, manifest authentication and serialized transactions.
+  Distinct daily-facts-report-v1 AEAD purpose authenticates sequence, hashed
+  date/zone key, revision, clocks and full canonical facts digest. Report content
+  and metrics are encrypted; minimal sequence/key/digest/timing metadata remain
+  visible inside the protected private file. They are not anonymized data.
+- Exact retries, immutable revisions, retention independent of regeneration,
+  bounded payload/list/SQL/time and shared history/chat/report quotas fail closed.
+  Selected corruption is rejected without a partial report. This is not a full
+  forensic detection of deleted or unselected rows in an operator-writable file.
+- Read summaries cannot claim fresh/complete evidence. STALE_SOURCE is computed
+  from an explicitly supplied trusted current digest, not a timestamp/high-water
+  shortcut or automatic provider request. All reports remain facts-only.
+- Schema 3 is explicit and forward-only. No live migration/backup, web listener,
+  enrollment, medical upload, model/schedule/admin or therapy authority is added.
+
 ## Owner Enrollment Rollout Gate (2026-10-16)
 
 - Deployment inspection found the trust adapter accepted certificate SHA256

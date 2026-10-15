@@ -1,5 +1,23 @@
 # PLAN
 
+## Daily Facts Archive (2026-10-16)
+
+- [x] Audit discussed unfinished features; source/operational distinctions in
+  OPEN_FEATURES.md. Select protected daily facts storage, not phone-dependent work.
+- [x] Observe missing-archive RED; internal encrypted save/get/list, immutable
+  revisions, explicit source freshness projection and additive schema 3.
+- [x] 37 new synthetic checks and 145 relevant checks pass: isolation, corruption,
+  exact retry, revisions/deletion, retention, limits, concurrency, quality labels
+  and history/chat compatibility. A separate local 365-empty-report exercise
+  passes bounded 19-page reads; it is not host or medical-payload capacity proof.
+- [x] Full backend1186 passed/27 existing skips, scoped lint/compilation and
+  final source/security review. Missing optional Pillow in the first ambient
+  environment is recorded; final checks use the pinned complete requirements.
+- [ ] Reviewed source publication and exact-head CI evidence.
+
+No provider, host, public/admin route, schedule, phone or therapy operation.
+Missing domain adapters and the actual review worker/admin remain separate.
+
 ## Native Navigation Follow-through (2026-10-16)
 
 - [x] Reproduce retained page fade with real NavHost and inspect resolved sources.

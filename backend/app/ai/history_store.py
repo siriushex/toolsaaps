@@ -252,11 +252,13 @@ class HistoryStore:
                 "sqlite_sequence",
             }
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version == 2:
+            if version in (2, 3):
                 expected.add("server_chat")
+            if version == 3:
+                expected.add("daily_reports")
             if tables != expected:
                 raise ValueError("dedicated_history_database_required")
-            if version not in (1, 2):
+            if version not in (1, 2, 3):
                 raise ValueError("unsupported_history_schema")
             manifest = db.execute("SELECT * FROM history_manifest").fetchall()
             if (
@@ -286,8 +288,11 @@ class HistoryStore:
     def _purge(db, now_ms):
         db.execute("DELETE FROM history_records WHERE expires_ms<=?", (now_ms,))
         db.execute("DELETE FROM history_receipts WHERE expires_ms<=?", (now_ms,))
-        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version >= 2:
             db.execute("DELETE FROM server_chat WHERE expires_ms<=?", (now_ms,))
+        if version >= 3:
+            db.execute("DELETE FROM daily_reports WHERE expires_ms<=?", (now_ms,))
 
     @staticmethod
     def _highwater(db):
@@ -303,12 +308,19 @@ class HistoryStore:
         receipts, extra = db.execute(
             "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM history_receipts"
         ).fetchone()
-        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version >= 2:
             chats, reserved = db.execute(
                 "SELECT count(*),coalesce(sum(max(budget_bytes,length(ciphertext))),0) FROM server_chat"
             ).fetchone()
             count += chats
             extra += reserved
+        if version >= 3:
+            reports, report_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_reports"
+            ).fetchone()
+            count += reports
+            extra += report_bytes
         if (
             count > self.max_rows
             or size + extra > self.max_bytes
@@ -583,6 +595,32 @@ class HistoryStore:
                 now_ms=now_ms, row_limit=glucose_comparison.MAX_REVIEW_INPUT_RECORDS) as (records, changes, snapshot):
             return glucose_comparison.build_glucose_review(records, sensor_changes=changes,
                 snapshot_sequence=snapshot, **options)
+
+    def save_daily_glucose_report(self, owner, device, facts, *, now_ms):
+        from .daily_reports import save_report
+
+        return save_report(self, owner, device, facts, now_ms=now_ms)
+
+    def get_daily_glucose_report(self, owner, device, **options):
+        from .daily_reports import get_report
+
+        return get_report(self, owner, device, **options)
+
+    def list_daily_glucose_reports(self, owner, device, **options):
+        from .daily_reports import list_reports
+
+        return list_reports(self, owner, device, **options)
+
+    def _enable_daily_reports(self, db):
+        from .daily_reports import SCHEMA as REPORT_SCHEMA
+
+        self._enable_chat_archive(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+            db.execute("BEGIN IMMEDIATE")
+            for statement in REPORT_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=3")
+            db.commit()
 
     @contextmanager
     def _glucose_snapshot(self, owner, device, *, from_ms, until_ms, now_ms, row_limit):

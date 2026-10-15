@@ -1,3 +1,31 @@
+# Daily Facts Archive - 2026-10-16
+
+- Audits remaining discussed features in OPEN_FEATURES.md. Implements the next
+  approved source-only daily-review dependency rather than treating absent phone
+  acceptance as a reason to stop all remaining development.
+- Explicit internal save/get/list methods preserve full bounded calculator
+  output in per-device encrypted immutable revisions. Distinct AEAD purpose and
+  full metadata/facts bindings, exact retry, shared quotas and deadline bounds.
+- Retention is civil-day end plus 365 days, never refreshed by regeneration.
+  Summaries freeze retained membership; an optional trusted current digest marks
+  a stale read without changing original evidence or initiating an AI request.
+  Every report remains FACTS_ONLY/model NOT_REQUESTED, not clinical validation.
+- Only explicit save enables additive forward-only schema 3, retaining the chat
+  archive. No ordinary read migration or host/provider/public/admin/phone/therapy
+  activation. Rollback compatibility is documented in DEVOPS.md.
+- Missing-method RED observed; first focused run after implementation exposed
+  an incorrect cross-test clock fixture, corrected without changing chat logic.
+  First focused result:33 passed. Review RED exposed missing quality/completeness
+  labels in summaries; final summaries preserve them and missing-time measures.
+- Final37 new cases and145 relevant tests pass. Full pinned backend1186 passed,
+  27 existing opt-in skips, one dependency deprecation warning. Scoped E/F lint,
+  compilation and diff/source review pass. Initial ambient run skipped58 extra
+  cases because Pillow was absent; it is not used as the final full gate.
+- Separate synthetic empty-facts archive exercise:365 reports,19 bounded pages,
+  1.993s saves/0.087s list,1.59MiB file,59.4MiB process peak. This is local macOS
+  engineering evidence, not realistic medical-payload, host or phone admission.
+  Source publication/exact-head CI remain independent receipts.
+
 # Native Navigation Follow-through - 2026-10-16
 
 - Owner requested completion. Added real NavHost integration checks beyond the
