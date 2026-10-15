@@ -1,5 +1,21 @@
 # PLAN
 
+## Photo API And Decoder (2026-10-15)
+
+- [x] Dedicated raw-photo Unix protocol and immutable receipt binding; text's
+  closed contract unchanged through shared private lifecycle hooks.
+- [x] Separate offline decoder image/process/user, source pins, kernel gate,
+  original stop/IO and root host assembly; no default deployment.
+- [x] Optional protected owner API composition, signed synthetic photo path,
+  full two-service shutdown and independent normalizer-before-model gate.
+- [x] Focused175 tests passed using synthetic data and actual local sockets/pipes.
+- [x] Full backend1032 passed/27 existing opt-in skips; scoped lint and review.
+- [ ] Source publication and exact-head CI.
+- [ ] Operational public image/user/network/storage provisioning/admission,
+  scoped provider and signed-device proof before public activation.
+
+See [VISION_API_DECODER.md](VISION_API_DECODER.md).
+
 ## Contained Meal Vision (2026-10-15)
 
 - [x] Reproduce the missing native image path and locate the explicit public503.

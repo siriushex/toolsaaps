@@ -74,6 +74,34 @@ class TypedPeer:
         return self.stopped
 
 
+@pytest.mark.parametrize("stopped", [True, False])
+def test_isolated_normalizer_stop_precedes_any_native_image(stopped):
+    events = []
+    class Decoder:
+        async def normalize(self, raw):
+            events.append("decode")
+            return images.normalize_meal_jpeg(raw)
+        async def stop_and_confirm(self):
+            events.append("decode-stop")
+            return stopped
+    peer = TypedPeer()
+    class Native(TypedPeer):
+        async def estimate(self, turn):
+            assert events[-1] == "decode-stop"
+            return await super().estimate(turn)
+    peer = Native()
+    worker = MealVisionWorker(work(), clock_ms=lambda: 1000, transport=peer, normalizer=Decoder())
+    async def scenario():
+        if stopped:
+            assert await worker.run() == json.loads(estimate_bytes())
+            assert len(peer.calls) == 1
+        else:
+            with pytest.raises(MealVisionError, match="decoder_stop"):
+                await worker.run()
+            assert not peer.calls and not await worker.stop_and_confirm()
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["L", "RGB", "CMYK"])
 def test_normalizer_decodes_fresh_rgb_without_metadata(mode):
     Image = pytest.importorskip("PIL.Image")

@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Photo Supervisor And Decoder
+
+The source CLI is app.ai.vision_supervisor_host, with the closed protected
+configuration and separate public-image/user requirements documented in
+[VISION_API_DECODER.md](VISION_API_DECODER.md). The optional owner vision socket
+must not be configured until that host is independently admitted. No installer,
+root HTTP process, automatic credential copying or nginx change is included.
+Run the new decoder/supervisor/host and owner API suites, then the full backend
+gate with pinned Pillow. Synthetic privileged records are not production proof.
+
 ## Native Meal Vision Verification
 
 Focused gates: test_ai_native_vision, test_ai_contained_vision and the existing

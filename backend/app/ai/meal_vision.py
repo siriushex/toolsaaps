@@ -56,7 +56,7 @@ FOOD_ONLY_PROMPT = (
 NATIVE_VISION_BLOCKERS = (
     "pinned_image_schema_requires_runtime_admission",
     "exact_model_vision_capability_not_admitted",
-    "contained_vision_host_and_shared_profile_guard_not_connected",
+    "vision_host_and_shared_profile_guard_not_operationally_admitted",
     "decoder_os_isolation_not_admitted",
 )
 
@@ -121,11 +121,12 @@ class MealVisionWorker:
 
     Decoder work is joined on cancellation. It is bounded by image dimensions
     and bytes, not itself an OS sandbox. Deployment must admit decoder isolation
-    separately before API composition; this adapter supplies no launcher,
-    personal key or CHAT fallback.
+    separately before API composition. The trusted image host supplies an
+    explicit isolated normalizer with normalize/stop_and_confirm; its receipt
+    must precede any model input. No personal key or CHAT fallback.
     """
     def __init__(self, work: JobWork, *, clock_ms,
-                 transport: ContainedMealVisionTransport | None = None):
+                 transport: ContainedMealVisionTransport | None = None, normalizer=None):
         if (not isinstance(work, JobWork) or type(work.request) is not MealPhotoRequest
                 or not isinstance(work.identity, JobIdentity) or not callable(clock_ms)
                 or work.policy != meal_vision_policy(work.policy.model)
@@ -141,6 +142,7 @@ class MealVisionWorker:
                 or type(work.request.image_bytes) is not bytes):
             raise ValueError("invalid_meal_vision_work")
         self.work, self.clock_ms, self.transport = work, clock_ms, transport
+        self.normalizer = normalizer
         self.route_revision, self.request_digest = work.route_revision, work.request_digest
         self.binding = MealVisionBinding(work.job_id, work.request_digest, work.route_revision,
                                          work.identity, work.deadline_ms, work.policy.model)
@@ -162,10 +164,13 @@ class MealVisionWorker:
             if self.transport is None:
                 raise MealVisionError("vision_transport_unconnected")
             async with asyncio.timeout(self._remaining()):
-                self._normalizing = asyncio.create_task(asyncio.to_thread(
-                    normalize_meal_jpeg, self.work.request.image_bytes))
+                self._normalizing = asyncio.create_task(
+                    asyncio.to_thread(normalize_meal_jpeg, self.work.request.image_bytes) if self.normalizer is None
+                    else self.normalizer.normalize(self.work.request.image_bytes))
                 image = await asyncio.shield(self._normalizing)
                 self._remaining()
+                if self.normalizer is not None and await self.normalizer.stop_and_confirm() is not True:
+                    raise MealVisionError("vision_decoder_stop_unconfirmed")
                 if self._closing:
                     raise MealVisionError("vision_worker_stopping")
                 self._attempted = True  # Includes interrupted/ambiguous start/send.
@@ -204,7 +209,13 @@ class MealVisionWorker:
     async def _stop(self):
         try:
             async with asyncio.timeout(STOP_TIMEOUT_SECONDS):
+                decoded = True
                 if self._normalizing is not None:
+                    if self.normalizer is not None:
+                        try:
+                            decoded = await self.normalizer.stop_and_confirm() is True
+                        except (Exception, asyncio.CancelledError):
+                            decoded = False
                     # Cancelling a to_thread await does not stop its decoder.
                     await asyncio.shield(asyncio.gather(self._normalizing, return_exceptions=True))
                 if self._attempted:
@@ -217,7 +228,7 @@ class MealVisionWorker:
                         if not self._estimating.done():
                             self._estimating.cancel()
                         await asyncio.shield(asyncio.gather(self._estimating, return_exceptions=True))
-                    return stopped
-                return True
+                    return stopped and decoded
+                return decoded
         except (Exception, asyncio.CancelledError):
             return False

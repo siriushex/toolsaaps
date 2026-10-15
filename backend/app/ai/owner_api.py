@@ -6,6 +6,8 @@ owner_id, model, roots {identity, proofs, jobs, history}, receipt_key,
 history_key, supervisor {socket, uid, gid}, attestation {application_id,
 allowed_signer_sha256, trusted_root_sha256, revoked_certificate_sha256,
 revocation_checked_ms}. All fields are required; no other settings are accepted.
+The sole optional addition is vision {socket, uid, gid} for a separately admitted
+image supervisor. It never enables a decoder or profile inside the HTTP process.
 
 Provision four separate empty/private service-owned directories and two distinct
 raw 32-byte key files before startup. Existing dedicated databases are supported;
@@ -43,8 +45,10 @@ from .job_ledger import EXECUTING, JobLedger, jobs as job_rows
 from .job_policy import JobPolicy
 from .job_service import AiJobService
 from .native_text import TextSessionPolicy
+from .meal_vision import meal_vision_policy
 from .request_proof import RequestProofVerifier
 from .text_supervisor import PeerIdentity, SupervisorTextRunner
+from .vision_supervisor import SupervisorMealVisionWorker
 
 CONFIG_LIMIT = 32_768
 PURGE_SECONDS = 3600
@@ -160,6 +164,8 @@ class OwnerConfiguration:
     socket_path: Path
     supervisor_peer: PeerIdentity
     attestation: AttestationTrustPolicy
+    vision_socket_path: Path | None = None
+    vision_peer: PeerIdentity | None = None
 
     @classmethod
     def decode(cls, raw):
@@ -167,7 +173,8 @@ class OwnerConfiguration:
             raise ValueError()
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-        _fields(value, "version owner_id model roots receipt_key history_key supervisor attestation")
+        _fields(value, "version owner_id model roots receipt_key history_key supervisor attestation"
+                + (" vision" if "vision" in value else ""))
         if (type(value["version"]) is not int or value["version"] != 1
                 or type(value["owner_id"]) is not str
                 or str(UUID(value["owner_id"])) != value["owner_id"]):
@@ -198,8 +205,17 @@ class OwnerConfiguration:
             frozenset(attestation["allowed_signer_sha256"]),
             frozenset(attestation["trusted_root_sha256"]),
             frozenset(attestation["revoked_certificate_sha256"]), attestation["revocation_checked_ms"])
+        vision_path = vision_peer = None
+        if "vision" in value:
+            vision = _fields(value["vision"], "socket uid gid")
+            vision_path, vision_peer = _path(vision["socket"]), PeerIdentity(vision["uid"], vision["gid"])
+            if (len(str(vision_path).encode()) > 103 or vision_path == socket_path
+                    or vision_path in (receipt, history)
+                    or any(vision_path == root or root in vision_path.parents for root in paths)):
+                raise ValueError()
         return cls(value["owner_id"], contextual_chat_policy(value["model"]), roots,
-            receipt, history, socket_path, PeerIdentity(supervisor["uid"], supervisor["gid"]), trust)
+            receipt, history, socket_path, PeerIdentity(supervisor["uid"], supervisor["gid"]), trust,
+            vision_path, vision_peer)
 
 
 def read_configuration(path: Path):
@@ -351,15 +367,19 @@ def _database(cls, path, stack, **kwargs):
 
 
 def _check_supervisor(config):
-    parent = _directory(config.socket_path.parent)
-    try:
-        info = os.stat(config.socket_path.name, dir_fd=parent, follow_symlinks=False)
-        if (not stat.S_ISSOCK(info.st_mode) or info.st_uid != config.supervisor_peer.uid
-                or info.st_gid != os.getegid() or stat.S_IMODE(info.st_mode) != 0o660
-                or info.st_nlink != 1):
-            raise ValueError()
-    finally:
-        os.close(parent)
+    endpoints = [(config.socket_path, config.supervisor_peer)]
+    if config.vision_socket_path is not None:
+        endpoints.append((config.vision_socket_path, config.vision_peer))
+    for path, peer in endpoints:
+        parent = _directory(path.parent)
+        try:
+            info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            if (not stat.S_ISSOCK(info.st_mode) or info.st_uid != peer.uid
+                    or info.st_gid != os.getegid() or stat.S_IMODE(info.st_mode) != 0o660
+                    or info.st_nlink != 1):
+                raise ValueError()
+        finally:
+            os.close(parent)
 
 
 class _Resources:
@@ -409,12 +429,31 @@ class _Resources:
                     runner=SupervisorTextRunner(str(config.socket_path), config.supervisor_peer, policy))
             self.jobs = AiJobService(auth, proofs, ledger, factory, policy=config.policy,
                                       clock_ms=clock_ms, chat_archive=store)
-            self.bound = create_bound_ai_app(self.activation, jobs=self.jobs,
+            self.photo_jobs = None
+            if config.vision_socket_path is not None:
+                def photo_factory(work):
+                    self.check()
+                    return SupervisorMealVisionWorker(work, str(config.vision_socket_path),
+                                                      config.vision_peer, clock_ms=clock_ms)
+                self.photo_jobs = AiJobService(auth, proofs, ledger, photo_factory,
+                    policy=meal_vision_policy(config.policy.model), clock_ms=clock_ms)
+            self.services = tuple(item for item in (self.jobs, self.photo_jobs) if item is not None)
+            self.bound = create_bound_ai_app(self.activation, jobs=self.jobs, meal_photo_jobs=self.photo_jobs,
                 history=HistoryService(auth, proofs, store, owner_id=config.owner_id), clock_ms=clock_ms)
             self.check()
         except BaseException:
             self.stack.close()
             raise
+
+    async def close_services(self):
+        failed = False
+        for service in reversed(self.services):
+            try:
+                await service.close()
+            except (Exception, asyncio.CancelledError):
+                failed = True
+        if failed:
+            raise OwnerApiError("owner_api_workers_cleanup_unconfirmed")
 
     def check(self):
         _check_supervisor(self.config)
@@ -455,9 +494,10 @@ class _OwnerApi:
             if cancelled:
                 raise asyncio.CancelledError
             # Own start/close here so a failed/cancelled start also gets teardown.
-            _, cancelled = await _complete_critical(resources.jobs.start())
-            if cancelled:
-                raise asyncio.CancelledError
+            for service in resources.services:
+                _, cancelled = await _complete_critical(service.start())
+                if cancelled:
+                    raise asyncio.CancelledError
             self.resources = resources
             maintenance = asyncio.create_task(self._maintain(resources, stop))
             yield
@@ -473,7 +513,7 @@ class _OwnerApi:
                 finally:
                     if resources is not None:
                         try:
-                            await resources.jobs.close()
+                            await resources.close_services()
                         finally:
                             resources.stack.close()
             try:
@@ -494,7 +534,7 @@ class _OwnerApi:
                     await asyncio.to_thread(resources.store.purge, now_ms=self.clock_ms())
                 except Exception:
                     self._unavailable = True
-                    await resources.jobs.close()
+                    await resources.close_services()
                     return
 
     async def __call__(self, scope, receive, send):

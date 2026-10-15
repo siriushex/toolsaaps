@@ -1,5 +1,9 @@
 # Contained Meal Vision Source
 
+Follow-up source now connects the isolated decoder, typed supervisor and optional
+owner API path. See [VISION_API_DECODER.md](VISION_API_DECODER.md). Operational
+admission/deployment and real inference remain separate from both source stages.
+
 ## Scope
 
 This stage implements the pinned native image protocol and concrete trusted-host

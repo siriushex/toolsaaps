@@ -377,7 +377,7 @@ class ProfileLease:
                                       cgroup_root=guard.cgroup_root, slice_id=guard.slice_id)
         if (type(verifier) is not SystemdStopVerifier
                 or any(getattr(verifier, field, None) != getattr(expected, field)
-                       for field in ("unit", "invocation_id", "root", "parent_name", "group_path"))):
+                       for field in ("unit", "invocation_id", "root", "parent_name", "group_path", "worker_user"))):
             raise ProfileError("stop_identity_mismatch")
 
     async def finish(self, verifier, *, io_stopped=None):

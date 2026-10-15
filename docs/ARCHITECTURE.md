@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Optional Photo Service
+
+The protected owner descriptor can compose signed MEAL_PHOTO jobs through a
+dedicated peer-checked vision supervisor socket. The nonroot API forwards frozen
+work without pixel decoding or profile access. The explicit root image host
+constructs a separate-UID, offline/pinned SystemdMealDecoder and then the shared
+guarded native vision process. Both decoder stop and original native process/IO
+stop precede result publication. Text's public protocol/limits are unchanged;
+source composition is not deployment readiness. See
+[VISION_API_DECODER.md](VISION_API_DECODER.md).
+
 ## Dedicated Native Meal Vision
 
 NativeMealVisionSession and NativeMealVisionTransport implement one fixed inline

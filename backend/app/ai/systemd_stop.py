@@ -18,6 +18,8 @@ FIELDS = ("Id", "LoadState", "ActiveState", "SubState", "InvocationID", "User", 
 
 
 class SystemdStopVerifier:
+    worker_user = "copilot-ai"
+
     def __init__(self, job_id: str, invocation_id: str, *, cgroup_root: Path = Path("/sys/fs/cgroup"),
                  slice_id: str | None = None):
         if not isinstance(job_id, str) or str(UUID(job_id)) != job_id:
@@ -68,11 +70,11 @@ class SystemdStopVerifier:
         # Static units may stay loaded but clear InvocationID after stop. This
         # exact state is trusted only after the original invocation was bound.
         if allow_collected and result == dict(Id=self.unit, LoadState="loaded",
-                ActiveState="inactive", SubState="dead", InvocationID="", User="copilot-ai",
+                ActiveState="inactive", SubState="dead", InvocationID="", User=self.worker_user,
                 KillMode="control-group", ControlGroup=""):
             return result
         expected = {"Id": self.unit, "LoadState": "loaded", "InvocationID": self.invocation_id,
-                    "User": "copilot-ai", "KillMode": "control-group"}
+                    "User": self.worker_user, "KillMode": "control-group"}
         if any(result[key] != value for key, value in expected.items()):
             return None
         if result["ControlGroup"] not in ("", self.group_path):

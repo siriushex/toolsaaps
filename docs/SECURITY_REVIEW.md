@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Isolated Photo Pipeline (2026-10-15)
+
+- Nonroot API photo work is immutable and peer/policy/binding-correlated over a
+  distinct closed socket. Text's shape/budgets remain strict; no generic root RPC.
+- Decoder has its own UID/GID, public-only pinned root/Python/module sources,
+  private network namespace, no auth mount, fixed byte protocol and strict kernel
+  admission before releasing untrusted bytes. Profile verifier identity remains
+  pinned to the native user. Decoder stop precedes authenticated model input.
+- Cancellation/unknown stop preserves poisoning and signed claims; API shutdown
+  drains both services even if one cleanup is cancelled. No image/history/token
+  logging, photo persistence, provider fallback or clinical action is added.
+- MUST before rollout: provision/admit actual Linux images/users and active
+  network controls, protected nonroot storage/keys/retention/restore/load and
+  scoped synthetic provider/signed-client evidence. No deployment is performed
+  by source tests. See [VISION_API_DECODER.md](VISION_API_DECODER.md).
+
 ## Dedicated Native Vision (2026-10-15)
 
 - Dedicated fixed image schema/prompt/result validation, bounded inline input,

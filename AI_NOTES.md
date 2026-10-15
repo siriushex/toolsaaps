@@ -1,3 +1,21 @@
+# Photo API And Isolated Decoder - 2026-10-15
+
+- Connects a dedicated peer/policy/frozen-work-bound raw-image socket and optional
+  protected owner API photo service. Nonroot API does not decode or read tokens;
+  existing text contracts/limits stay strict through shared private lifecycle hooks.
+- Adds a fixed offline decoder entry and separately pinned public runtime/user,
+  kernel input barrier, bounded byte protocol and exact process/IO stop. The root
+  photo host injects this decoder before the shared guarded native vision process.
+  No authenticated input before decoder stop confirmation.
+- Fixes shutdown to drain both services even if one cleanup is cancelled; profile
+  stop verifier cannot substitute the decoder identity. Unknown claims are not
+  reset/replayed. Closed configuration and source/negative/kernel/socket/pipe tests.
+- Focused175 tests pass; full backend1032 passed with27 existing opt-in skips and
+  one dependency deprecation warning. Scoped lint/review pass; publication/CI
+  are separate. No provider/model, credential, service/proxy/profile,
+  phone, medical data or therapy operation. Actual Linux image/user/network/storage
+  admission remains required; public nginx503 is unchanged. See VISION_API_DECODER.md.
+
 # Dedicated Native Meal Vision - 2026-10-15
 
 - Implements the pinned v2 inline-image schema with fixed food-only prompt,

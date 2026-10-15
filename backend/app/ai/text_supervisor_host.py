@@ -108,7 +108,7 @@ class HostConfiguration:
             files.inventory()
 
 
-def read_configuration(path: Path):
+def read_configuration(path: Path, *, decode=HostConfiguration.decode):
     fd = parent = None
     try:
         _path(path)
@@ -132,7 +132,7 @@ def read_configuration(path: Path):
             return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
         if identity(before) != identity(after) or identity(after) != identity(current):
             raise HostError("host_configuration_changed")
-        return HostConfiguration.decode(bytes(raw))
+        return decode(bytes(raw))
     except Exception:
         raise HostError("host_configuration_unavailable") from None
     finally:

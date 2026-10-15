@@ -87,6 +87,71 @@ def test_configuration_derives_policy_without_opening_stores(provisioned):
     assert not list(Path(value["roots"]["jobs"]).iterdir())
 
 
+def test_optional_vision_descriptor_requires_separate_closed_socket(provisioned):
+    _, value = provisioned
+    value["vision"] = dict(socket="/run/personal-ai/image.sock", uid=0, gid=0)
+    config = owner.read_configuration(save(provisioned))
+    assert str(config.vision_socket_path) == value["vision"]["socket"]
+    assert config.vision_peer.uid == 0
+    value["vision"]["socket"] = value["supervisor"]["socket"]
+    with pytest.raises(owner.OwnerApiError):
+        owner.read_configuration(save(provisioned))
+
+
+def test_all_services_are_drained_even_if_one_stop_is_cancelled():
+    closed = []
+    class Service:
+        def __init__(self, name):
+            self.name = name
+        async def close(self):
+            closed.append(self.name)
+            if self.name == "photo":
+                raise asyncio.CancelledError()
+    resources = owner._Resources.__new__(owner._Resources)
+    resources.services = (Service("text"), Service("photo"))
+    with pytest.raises(owner.OwnerApiError):
+        asyncio.run(resources.close_services())
+    assert closed == ["photo", "text"]
+
+
+def test_opted_in_signed_photo_uses_supervisor_without_api_decoder(provisioned, service, monkeypatch):  # noqa: F811
+    from test_ai_meal_photo_transport import submit_photo, wait_for_photo
+    from test_meal_vision import estimate_bytes
+    path, value = provisioned
+    value["vision"] = dict(socket="/run/personal-ai/image.sock", uid=0, gid=0)
+    root = service[2].public_bytes(serialization.Encoding.DER)
+    value["attestation"]["trusted_root_sha256"] = [hashlib.sha256(root).hexdigest()]
+    save(provisioned)
+    created = []
+    class SyntheticWorker:
+        def __init__(self, work, endpoint, peer, *, clock_ms):
+            self.route_revision, self.request_digest = work.route_revision, work.request_digest
+            assert endpoint == value["vision"]["socket"] and peer.uid == 0
+            assert work.request.image_bytes == b"\xff\xd8\xffsample\xff\xd9"
+            created.append(self)
+        async def run(self):
+            return json.loads(estimate_bytes())
+        async def stop_and_confirm(self):
+            return True
+    monkeypatch.setattr(owner, "SupervisorMealVisionWorker", SyntheticWorker)
+    app = owner.create_owner_api(path, clock_ms=MutableClock())
+    with TestClient(app) as client:
+        resources = app.resources
+        synthetic = (resources.activation, resources.auth, service[2], service[3], None)
+        _, key, tokens = activate(client, synthetic, owner_id=value["owner_id"])
+        raw = b"\xff\xd8\xffsample\xff\xd9"
+        body = encoded(dict(schemaVersion=1, mimeType="image/jpeg", imageBase64=base64.b64encode(raw).decode()))
+        accepted = submit_photo(client, key, tokens, body, request_id=str(uuid4()), deadline_ms=NOW + 60_000)
+        assert accepted.status_code == 202
+        finished = wait_for_photo(client, key, tokens, accepted.json()["job_id"]).json()
+        assert finished["state"] == "SUCCEEDED" and len(created) == 1
+        assert finished["result"] == json.loads(estimate_bytes())
+        caps = signed_get(client, key, tokens, "/api/ai/v1/capabilities").json()
+        assert set(caps["task_kinds"]) == {"CHAT", "MEAL_PHOTO"}
+        assert resources.photo_jobs.inference_ready
+    assert not resources.photo_jobs.inference_ready
+
+
 @pytest.mark.parametrize("change", ["unknown", "version", "owner", "model", "relative",
     "traversal", "shared", "nested", "key-in-db", "peer", "socket", "attestation", "stale-shape"])
 def test_closed_configuration_rejects_unsafe_values(provisioned, change):

@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Photo API Composition
+
+- No decoder or login-profile access in the nonroot API. Its optional vision
+  endpoint is distinct, kernel-peer checked and operator-controlled.
+- Freeze and correlate the entire canonical work/image body. No task crossover,
+  model/argv/prompt selection, URL/file input or ambiguous automatic replay.
+- The root photo host must inject the isolated decoder; never use the development
+  thread. Decoder UID/GID, public image and namespace are separate from native/API.
+- No authenticated model image until decoder stop/IO is confirmed. No result or
+  idle release after unknown native stop. Drain both API services on any shutdown.
+- Public API activation requires actual admission, not synthetic readiness or a
+  capability-response edit. No phone, medical data or therapy authority is added.
+
 ## Native Image Isolation
 
 - Fixed inline JPEG and food prompt only; no paths, remote URLs, clinical history,

@@ -162,6 +162,10 @@ def test_other_invocation_or_scope_never_reaches_stop(tmp_path):
             with pytest.raises(module.ProfileError):
                 asyncio.run(lease.finish(other))
         other = verifier(guard, lease.run_id, calls=calls)
+        other.worker_user = "copilot-image"
+        with pytest.raises(module.ProfileError):
+            asyncio.run(lease.finish(other))
+        other = verifier(guard, lease.run_id, calls=calls)
         other.root = guard.cgroup_root / "other"
         with pytest.raises(module.ProfileError):
             asyncio.run(lease.finish(other))
