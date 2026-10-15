@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Daily Review Contract Source Stage (2026-10-16)
+
+Only internal preparation and reference checking are implemented. The exact
+source result schema and hash accompany canonical work input; result text stays
+NOT_ADMITTED. No server descriptor, capability, public enum, native policy,
+supervisor, source root, service, profile, timer or database schema is changed.
+No provider or real-device test is included. Pure helpers are not deployment.
+
+A future worker needs independent frozen-source freshness verification, a
+separate explicitly admitted DAILY_REVIEW policy, shared profile/ledger ownership,
+encrypted work/results and no-replay uncertain-state handling before opt-in
+scheduling. Matching supplied hashes, valid JSON or REFERENCES_ONLY cannot
+substitute for those gates. Keep the trusted model/reasoning choices unchanged.
+
 ## Daily Facts Archive Source Stage (2026-10-16)
 
 No deployment or operator invocation accompanies these internal methods. Only

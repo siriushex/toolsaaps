@@ -1,3 +1,32 @@
+# Grounded Daily Review Contract - 2026-10-16
+
+- Implements the next approved source-only daily-review dependency: trusted
+  read-only archive preparation, bounded canonical model input with exact closed
+  result schema/digest and evidence-linked answer checking. No real inference,
+  service/profile/policy/route, schedule, encrypted result table, phone or therapy.
+- Missing-module RED observed. Review REDs reproduce missing model-visible echo
+  digest/result schema, a136566-byte full21-day report exceeding input budget,
+  and the missing independent-freshness disclaimer. Corrections remain scoped.
+- Select at most six patterns/cohorts/current episodes and six recent eligible
+  windows per selected pattern, preserving original counts, denominators,
+  metrics, exclusions and explicit omissions. Full archive facts stay unchanged.
+- Fixed prompt does not choose a model or tools. Strict answer types reject
+  invented/duplicate/stale/expired bindings, action structures and syntactically
+  numerical/active text. Highest-ranked exposure and missing inputs cannot vanish.
+- Free prose is not medically validated. Every checked view is REFERENCES_ONLY /
+  NOT_ADMITTED. Supplied matching hashes are not independent source-freshness
+  evidence; input/view explicitly declare NOT_INDEPENDENTLY_VERIFIED. Actual
+  frozen-source evaluation remains a prerequisite for any future worker.
+- Final52 new cases/129 focused tests pass. Full pinned backend1238 passed,
+  27 existing opt-in skips, one dependency deprecation warning; scoped E/F lint,
+  compilation, diff/source/security and documentation review pass.
+- Synthetic21-day report136566 bytes becomes25591-byte model envelope including
+  exact output schema;36 selected/96 explicitly omitted evidence windows. Local
+  preparation/reference check9.1ms,51.5MiB process peak including fixture/imports.
+  This is not provider/token/cost, real medical accuracy or host capacity evidence.
+  Source publication/exact-head CI remain separate gates. See DAILY_REVIEW_CONTRACT.md for scope and
+  missing provider/ownership/quality/durable scheduling/publication work.
+
 # Daily Facts Archive - 2026-10-16
 
 - Audits remaining discussed features in OPEN_FEATURES.md. Implements the next

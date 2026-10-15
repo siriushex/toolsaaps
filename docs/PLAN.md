@@ -1,5 +1,25 @@
 # PLAN
 
+## Grounded Daily Review Contract (2026-10-16)
+
+- [x] Observe missing-module RED; add bounded trusted preparation and read-only
+  archive bridge, fixed prompt, exact result schema and grounded reference view.
+- [x] Review REDs: missing echo digest/schema, full21-day input overflow and missing
+  independent-freshness disclaimer. Explicit compact evidence/baseline projection
+  preserves original metrics and denominators, with complete omission labels.
+- [x] Final52 new synthetic cases and129 focused cases pass, including the21-day projection and
+  source/candidate/action/schema/type/quality/priority failures; source review adds
+  explicit NOT_INDEPENDENTLY_VERIFIED freshness and its regression check.
+- [x] Full pinned backend1238 passed/27 existing opt-in skips; scoped E/F lint,
+  compilation, diff/source/security and documentation review pass. Synthetic
+  complete21-day facts project from136566 archive bytes to25591 envelope bytes,
+  with36 selected/96 omitted selected-candidate windows explicitly disclosed.
+- [ ] Reviewed source publication and independent exact-head CI receipts.
+
+No real provider, daily policy/admission, encrypted result lifecycle, scheduler,
+server/phone/UI or therapy activation. See DAILY_REVIEW_CONTRACT.md. Actual
+frozen-source verification remains separate, not a supplied hash comparison.
+
 ## Daily Facts Archive (2026-10-16)
 
 - [x] Audit discussed unfinished features; source/operational distinctions in

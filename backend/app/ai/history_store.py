@@ -611,6 +611,14 @@ class HistoryStore:
 
         return list_reports(self, owner, device, **options)
 
+    def prepare_daily_glucose_review(self, owner, device, *, report_date, zone_id,
+                                     source_digest, now_ms, report_revision=None, language="ru-RU"):
+        from .daily_review import prepare_review
+
+        report = self.get_daily_glucose_report(owner, device, report_date=report_date,
+            zone_id=zone_id, source_digest=source_digest, now_ms=now_ms, report_revision=report_revision)
+        return prepare_review(report, now_ms=now_ms, language=language)
+
     def _enable_daily_reports(self, db):
         from .daily_reports import SCHEMA as REPORT_SCHEMA
 

@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Grounded Daily Review Source Contract (2026-10-16)
+
+- Trusted authenticated report selection only. No public method exposure, raw
+  notes/logs/profile export, credential handling, provider/policy registration,
+  listening service, scheduler, phone or therapy writer. Read-only bridge checked.
+- Exact canonical input/result-schema/prompt bindings and embedded digest/schema
+  prevent a model from selecting an unknown format or referencing another work
+  object. Strict duplicate-key/size/type/reference/action rejection; explicit
+  limited-data/omission labels and mandatory highest-ranked exposure review.
+- The source assertion is caller supplied, not an independent late-upload or
+  source-freshness check. Both input/view state this. Actual worker admission
+  requires a separate frozen-source evaluator; a stored hash echo is insufficient.
+- Free text checks are syntactic, not medical-semantic validation. A valid
+  unsupported conclusion can still be REFERENCES_ONLY and always NOT_ADMITTED.
+  No publication, success/stop proof or treatment authority follows from it.
+- Before live work: missing context, exact daily policy/native stop/ownership,
+  encrypted durable orchestration and independently evaluated advisory quality.
+  See DAILY_REVIEW_CONTRACT.md. Tests never send medical or synthetic model work.
+
 ## Daily Facts Archive (2026-10-16)
 
 - Internal trusted calculator output only; no new HTTP, SQL, path or model input.

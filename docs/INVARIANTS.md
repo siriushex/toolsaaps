@@ -1,5 +1,24 @@
 # INVARIANTS
 
+## Grounded Daily Review
+
+- Only authenticated archived calculator output enters trusted preparation. A
+  supplied matching digest is not independently verified currentness. No implicit
+  all-history scan, cache freshness certificate, model call or public DTO exists.
+- Canonical input includes exact closed result schema and its digest. The model
+  receives the packet hash it must echo; schema replacement, stale/expired
+  assertions and unknown/duplicate references cannot pass reference checking.
+- Bounded selection preserves original metrics/eligible denominators, explicitly
+  counts omissions and keeps source/data-quality limitations visible. Baseline day
+  reasons are aggregated, not clinical metrics re-estimated. Low exposure has
+  priority; absent data cannot become a reassuring normal-day finding.
+- No free numeric/action fields or unknown review action. Visible counts/times/
+  units come from frozen evidence, not model arithmetic. Free prose remains
+  unreviewed; syntactic/reference checking cannot establish medical correctness.
+- Returned view always remains REFERENCES_ONLY / NOT_ADMITTED with independently
+  unverified freshness. It cannot be promoted by a status string, reused as CHAT
+  admission, sent to therapy or treated as native process stop confirmation.
+
 ## Daily Glucose Facts
 
 - Daily facts archive writes require trusted owner/device-bound calculator

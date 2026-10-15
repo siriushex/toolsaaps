@@ -1,5 +1,20 @@
 # ARCHITECTURE
 
+## Grounded Daily Review Contract
+
+The internal daily_review module compiles an authenticated selected facts report
+into a bounded canonical envelope with its exact closed result schema, fixed
+prompt and digest bindings. Explicit candidate/cohort/episode/window omissions,
+compact baseline eligibility reasons and unknown domains preserve limitations.
+HistoryStore.prepare_daily_glucose_review is a read-only trusted-service bridge.
+
+Strict synthetic answer checking produces an evidence-linked REFERENCES_ONLY /
+NOT_ADMITTED view, not model dispatch or a publication/therapy authority. Matching
+caller-supplied digests do not independently establish source freshness; a real
+worker still needs frozen-source verification and separate policy/stop/quality
+admission. No generic CHAT widening, public route, scheduler or result table.
+See [DAILY_REVIEW_CONTRACT.md](DAILY_REVIEW_CONTRACT.md).
+
 ## Deterministic Daily Glucose Facts
 
 The opt-in internal daily_reports archive preserves a bounded complete

@@ -1,8 +1,18 @@
 # Daily Review Prompt Package
 
-Status: approved design text; not loaded into a server or evaluated by a model.
+Status: approved design. The first GLUCOSE_ONLY source contract is implemented in
+daily_review; not deployed/admitted to a provider or evaluated by an actual model.
 Prompt revision: advisory-daily-review-v1. Output language: ru-RU by default.
 Model and reasoning settings remain the existing trusted server choices.
+
+The source contract supplies the exact closed result schema and an echoable
+packet digest in the input envelope; its concrete result also requires
+packetDigest. All required missing-input codes stay visible, and known
+deterministic glucose observations cannot be erased by an empty model answer.
+The wider catalogue/rejection scenarios below remain planned outside that
+bounded subset. Reference checking always returns NOT_ADMITTED, not a medical
+or provider-success claim. See [DAILY_REVIEW_CONTRACT.md](../../DAILY_REVIEW_CONTRACT.md) for the exact
+projection, schema, freshness and remaining-admission boundaries.
 
 ## System Instructions
 
