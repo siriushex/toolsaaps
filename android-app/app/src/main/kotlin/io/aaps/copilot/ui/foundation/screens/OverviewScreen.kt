@@ -69,6 +69,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -146,6 +147,7 @@ internal enum class TargetManagerReasonUiKind {
     FORECAST,
     EXTERNAL_TARGET,
     EXTERNAL_WRITER_CONFLICT,
+    EATING_SOON_ACTIVE,
     THERAPY_WRITES_DISABLED,
     LEGACY_DRAIN,
     SAFETY_BOUNDS,
@@ -179,6 +181,7 @@ internal fun targetManagerReasonUiKind(reason: String?): TargetManagerReasonUiKi
     "forecast_unreliable" -> TargetManagerReasonUiKind.FORECAST
     "external_target_retained" -> TargetManagerReasonUiKind.EXTERNAL_TARGET
     "external_target_writer_conflict" -> TargetManagerReasonUiKind.EXTERNAL_WRITER_CONFLICT
+    "eating_soon_target_active" -> TargetManagerReasonUiKind.EATING_SOON_ACTIVE
     "therapy_writes_disabled" -> TargetManagerReasonUiKind.THERAPY_WRITES_DISABLED
     "legacy_target_drain" -> TargetManagerReasonUiKind.LEGACY_DRAIN
     "safety_bounds" -> TargetManagerReasonUiKind.SAFETY_BOUNDS
@@ -204,7 +207,7 @@ fun OverviewScreen(
     onOpenSensorLagAnalytics: (() -> Unit)? = null,
     onOpenClinicalReport: () -> Unit,
     onBaseTargetScheduleSave: (BaseTargetSchedule) -> Unit = {},
-    onManualCarbs: (String, String, MealAbsorptionProfile, Double?, Boolean, String) -> Unit = { _, _, _, _, _, _ -> },
+    onManualCarbs: (String, String, MealAbsorptionProfile, Double?, Boolean, String, io.aaps.copilot.domain.nutrition.MealPortionMetadata, io.aaps.copilot.domain.profile.MealGlycemicIndex?) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onOpenAapsBolus: () -> Unit = {},
     onUamExportUiModeChange: (String) -> Unit = {},
     onIsfRuntimeSourceChange: (String) -> Unit = {},
@@ -212,27 +215,24 @@ fun OverviewScreen(
     onOpenIsfCrAnalytics: () -> Unit = {},
     authoritativeEditorRequest: OverviewAuthoritativeEditor? = null,
     onAuthoritativeEditorRequestHandled: () -> Unit = {},
+    onEatingSoon: (String) -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() },
+    onLoadMealEstimateHistory: suspend (Long, String) -> io.aaps.copilot.domain.nutrition.LentaMealHistory = { cutoff, zone ->
+        io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone,
+            status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
+    },
     modifier: Modifier = Modifier
 ) {
     var showKillSwitchConfirm by remember { mutableStateOf(false) }
     var showBloodCheckDialog by rememberSaveable { mutableStateOf(false) }
     var showTargetDialog by remember { mutableStateOf(false) }
     var showCobDialog by remember { mutableStateOf(false) }
-    var showCobConfirmation by remember { mutableStateOf(false) }
     var showIobDialog by rememberSaveable { mutableStateOf(false) }
     var showUamDialog by rememberSaveable { mutableStateOf(false) }
-    var cobGramsRaw by rememberSaveable { mutableStateOf("10") }
-    var manualMealEnergyKcalRaw by remember { mutableStateOf("") }
-    var selectedFoodProfile by rememberSaveable { mutableStateOf(MealAbsorptionProfile.MIXED) }
-    var eatingSoon by rememberSaveable { mutableStateOf(true) }
-    var mealSubmissionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var sourceSheet by rememberSaveable { mutableStateOf<MetricSourceSheetKind?>(null) }
     var valueAnimationsReady by remember { mutableStateOf(false) }
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val openCobDialog = {
-        manualMealEnergyKcalRaw = ""
-        eatingSoon = true
-        mealSubmissionId = UUID.randomUUID().toString()
         showCobDialog = true
     }
 
@@ -336,133 +336,19 @@ fun OverviewScreen(
         )
     }
 
-    val pendingCobGrams = cobGramsRaw.replace(',', '.').toDoubleOrNull()
-    val cobIsValid = pendingCobGrams?.isFinite() == true &&
-        pendingCobGrams in 1.0..state.carbComputationMaxGrams.coerceIn(20.0, 60.0)
-    val pendingManualMealEnergyKcal = manualMealEnergyKcalRaw.replace(',', '.').toDoubleOrNull()
-    val manualMealEnergyIsValid = manualMealEnergyKcalRaw.isBlank() ||
-        pendingManualMealEnergyKcal?.isFinite() == true &&
-        pendingManualMealEnergyKcal in 1.0..10_000.0
-    val closeCobDialog = {
-        showCobConfirmation = false
-        showCobDialog = false
-        manualMealEnergyKcalRaw = ""
-    }
-
     if (showCobDialog) {
-        AlertDialog(
-            onDismissRequest = closeCobDialog,
-            title = { Text(stringResource(R.string.overview_cob_dialog_title)) },
-            text = {
-                Column(
-                    modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs)
-                ) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                        listOf(10, 20, 40).forEach { grams ->
-                            OutlinedButton(onClick = { cobGramsRaw = grams.toString() }) {
-                                Text(stringResource(R.string.overview_cob_preset, grams))
-                            }
-                        }
-                    }
-                    OutlinedTextField(
-                        value = cobGramsRaw,
-                        onValueChange = { cobGramsRaw = it },
-                        label = { Text(stringResource(R.string.overview_cob_custom)) },
-                        singleLine = true,
-                        isError = cobGramsRaw.isNotBlank() && !cobIsValid
-                    )
-                    OutlinedTextField(
-                        value = manualMealEnergyKcalRaw,
-                        onValueChange = { manualMealEnergyKcalRaw = it },
-                        label = { Text(stringResource(R.string.overview_cob_manual_energy_optional)) },
-                        supportingText = {
-                            if (!manualMealEnergyIsValid) {
-                                Text(stringResource(R.string.overview_cob_manual_energy_error))
-                            }
-                        },
-                        singleLine = true,
-                        isError = manualMealEnergyKcalRaw.isNotBlank() && !manualMealEnergyIsValid,
-                        modifier = Modifier.testTag("overviewManualMealEnergyKcal")
-                    )
-                    FoodProfileSelector(
-                        selected = selectedFoodProfile,
-                        onSelected = { selectedFoodProfile = it }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .testTag("overviewEatingSoon")
-                            .toggleable(value = eatingSoon, role = Role.Checkbox, onValueChange = { eatingSoon = it }),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(checked = eatingSoon, onCheckedChange = null)
-                        Column {
-                            Text(stringResource(R.string.overview_eating_soon))
-                            Text(
-                                stringResource(R.string.overview_eating_soon_target),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = cobIsValid && manualMealEnergyIsValid,
-                    modifier = Modifier.testTag("overviewPrepareMeal"),
-                    onClick = { showCobConfirmation = true }
-                ) {
-                    Text(
-                        stringResource(
-                            R.string.overview_add_carbs,
-                            UiFormatters.formatGrams(pendingCobGrams, 1)
-                        )
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = closeCobDialog) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            }
-        )
-    }
-
-    if (showCobConfirmation && cobIsValid) {
-        AlertDialog(
-            onDismissRequest = { showCobConfirmation = false },
-            title = { Text(stringResource(R.string.overview_confirm_carbs_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        if (eatingSoon) R.string.overview_confirm_carbs_eating_soon else R.string.overview_confirm_carbs_message,
-                        UiFormatters.formatGrams(pendingCobGrams, 1)
-                    )
+        io.aaps.copilot.ui.foundation.components.MealEntryDialog(
+            settings = state.mealPortions,
+            maximumGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
+            onDismiss = { showCobDialog = false },
+            onConfirm = { meal ->
+                showCobDialog = false
+                onManualCarbs(
+                    meal.grams.toString(), "overview_cob", meal.profile,
+                    meal.energyKcal, meal.eatingSoon, meal.submissionId,
+                    io.aaps.copilot.domain.nutrition.MealPortionMetadata(meal.portion, meal.provenance),
+                    meal.glycemicIndex
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    modifier = Modifier.testTag("overviewConfirmMeal"),
-                    onClick = {
-                        if (showCobConfirmation) {
-                            closeCobDialog()
-                            onManualCarbs(
-                                UiFormatters.formatGrams(pendingCobGrams, 1),
-                                "overview_cob",
-                                selectedFoodProfile,
-                                pendingManualMealEnergyKcal,
-                                eatingSoon,
-                                mealSubmissionId
-                            )
-                        }
-                    }
-                ) { Text(stringResource(R.string.action_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCobConfirmation = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
             }
         )
     }
@@ -601,6 +487,39 @@ fun OverviewScreen(
         errorText = state.errorText,
         emptyText = stringResource(id = R.string.overview_empty)
     ) {
+        if (LocalUiStyle.current == UiStyle.CLARITY) {
+            ClarityOverviewContent(
+                state = state,
+                onEatingSoon = onEatingSoon,
+                onLoadMealEstimateHistory = onLoadMealEstimateHistory,
+                onLoadEventContext = onLoadEventContext,
+                onMeal = openCobDialog,
+                onIob = { showIobDialog = true },
+                onIsf = { sourceSheet = MetricSourceSheetKind.ISF },
+                onCr = { sourceSheet = MetricSourceSheetKind.CR },
+                onUam = { showUamDialog = true },
+                onBaseTarget = { showTargetDialog = true },
+                onOpenClinicalReport = onOpenClinicalReport,
+                warningContent = {
+                    state.warning?.let { warning ->
+                        OverviewWarningBanner(warning, state, false, onDisablePowerSave, onOpenSensorLagAnalytics)
+                    }
+                },
+                profileContent = {
+                    state.energyActivityStatus?.let { EnergyActivityStatusRow(it, false) }
+                    if (state.pumpLinkStatus.episodeOpen ||
+                        state.pumpLinkStatus.condition !in setOf(PumpLinkCondition.HEALTHY, PumpLinkCondition.UNKNOWN)) {
+                        PumpLinkStatusRow(state.pumpLinkStatus, false)
+                    }
+                },
+                pumpStatusContent = {
+                    PumpLinkStatusIndicator(state.pumpLinkStatus)
+                    InfusionSetIndicator(state.infusionSetStatus, state.deliveryDiagnosticEvidence, state.foodDisplayNowTs)
+                },
+                modifier = modifier
+            )
+            return@ScreenStateLayout
+        }
         LazyColumn(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -625,6 +544,11 @@ fun OverviewScreen(
                 state.pumpLinkStatus.condition != PumpLinkCondition.INTENTIONALLY_DISCONNECTED) {
                 item {
                     PumpLinkStatusRow(state.pumpLinkStatus, midnightGlass)
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    InfusionSetIndicator(state.infusionSetStatus, state.deliveryDiagnosticEvidence, state.foodDisplayNowTs)
                 }
             }
             item {
@@ -658,7 +582,8 @@ fun OverviewScreen(
             item {
                 OverviewForecastSection(
                     state = state,
-                    midnightGlass = midnightGlass
+                    midnightGlass = midnightGlass,
+                    onLoadEventContext = onLoadEventContext
                 )
             }
             item {
@@ -679,11 +604,16 @@ internal fun TargetManagerLiveStatusSection(
     midnightGlass: Boolean,
     framed: Boolean = true
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
+    if (showIssueHelp) {
+        IssueHelpDialog(stringResource(R.string.overview_target_manager_status_title), listOf(targetManagerIssue(status))) { showIssueHelp = false }
+    }
     val secondaryColor = if (midnightGlass) Color(0xFFB8C5DC) else MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("overview_target_manager_live_status"),
+            .testTag("overview_target_manager_live_status")
+            .clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) { showIssueHelp = true },
         shape = RoundedCornerShape(8.dp),
         color = if (!framed) Color.Transparent else if (midnightGlass) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = if (midnightGlass) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -723,9 +653,11 @@ internal fun TargetManagerLiveStatusSection(
                     color = secondaryColor
                 )
                 TargetManagerLiveStatusAvailabilityUi.CURRENT -> {
-                    Row(
+                    androidx.compose.foundation.layout.FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        maxItemsInEachRow = if (LocalDensity.current.fontScale >= 1.3f) 1 else 2
                     ) {
                         TargetManagerTargetValue(
                             label = stringResource(id = R.string.overview_target_manager_current_target),
@@ -817,6 +749,7 @@ internal fun targetManagerReasonLabel(kind: TargetManagerReasonUiKind): String =
         TargetManagerReasonUiKind.FORECAST -> R.string.overview_target_manager_reason_forecast
         TargetManagerReasonUiKind.EXTERNAL_TARGET -> R.string.overview_target_manager_reason_external_target
         TargetManagerReasonUiKind.EXTERNAL_WRITER_CONFLICT -> R.string.overview_target_manager_reason_writer_conflict
+        TargetManagerReasonUiKind.EATING_SOON_ACTIVE -> R.string.overview_target_manager_reason_eating_soon
         TargetManagerReasonUiKind.THERAPY_WRITES_DISABLED -> R.string.overview_target_manager_reason_writes_disabled
         TargetManagerReasonUiKind.LEGACY_DRAIN -> R.string.overview_target_manager_reason_legacy_drain
         TargetManagerReasonUiKind.SAFETY_BOUNDS -> R.string.overview_target_manager_reason_safety_bounds
@@ -849,7 +782,8 @@ private fun PumpLinkStatusRow(status: PumpLinkUiStatus, midnightGlass: Boolean) 
     val foreground = if (midnightGlass) Color.White else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier.fillMaxWidth().testTag("pump_link_status")
-            .padding(horizontal = Spacing.sm),
+            .padding(horizontal = Spacing.sm)
+            .clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) { showInfo = true },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
@@ -861,11 +795,16 @@ private fun PumpLinkStatusRow(status: PumpLinkUiStatus, midnightGlass: Boolean) 
         }
     }
     if (showInfo) {
-        AlertDialog(onDismissRequest = { showInfo = false },
-            title = { Text(message) },
-            text = { Text(stringResource(R.string.pump_link_details)) },
-            confirmButton = { TextButton(onClick = { showInfo = false }) { Text(stringResource(R.string.action_close)) } })
+        IssueHelpDialog(message, listOf(UiIssueKind.PUMP_LINK)) { showInfo = false }
     }
+}
+
+@Composable
+private fun PumpLinkStatusIndicator(status: PumpLinkUiStatus) {
+    var showInfo by rememberSaveable { mutableStateOf(false) }
+    val message = stringResource(status.condition.pumpLinkMessageRes())
+    ClarityToolButton(Icons.Default.Bluetooth, message, "pump_link_indicator") { showInfo = true }
+    if (showInfo) IssueHelpDialog(message, listOf(UiIssueKind.PUMP_LINK)) { showInfo = false }
 }
 
 @Composable
@@ -873,6 +812,7 @@ private fun EnergyActivityStatusRow(
     status: EnergyActivityStatusUi,
     midnightGlass: Boolean
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
     val text = when (status.kind) {
         EnergyActivityStatusKind.PROFILE_ISSUE -> stringResource(R.string.overview_activity_profile_issue)
         EnergyActivityStatusKind.ACTIVE -> stringResource(
@@ -890,13 +830,23 @@ private fun EnergyActivityStatusRow(
     } else {
         MaterialTheme.colorScheme.primary
     }
+    val navigate = LocalIssueNavigator.current
+    if (showIssueHelp) {
+        IssueHelpDialog(text, status.issues) { showIssueHelp = false }
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("energy_activity_status")
+            .clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) {
+                if (status.kind == EnergyActivityStatusKind.PROFILE_ISSUE) showIssueHelp = true
+                else navigate?.invoke(IssueDestination.ACTIVITY_SCHEDULE)
+            }
             .semantics { contentDescription = text },
         shape = RoundedCornerShape(8.dp),
-        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f),
+        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f)
+            .compositeOver(MaterialTheme.colorScheme.surface),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, tone.copy(alpha = 0.34f))
     ) {
         Row(
@@ -923,6 +873,7 @@ private fun OverviewWarningBanner(
     onDisablePowerSave: () -> Unit,
     onOpenSensorLagAnalytics: (() -> Unit)?
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
     val displayedKind = resolveOverviewBannerKind(
         warningKind = warning.kind,
         powerSaveActive = state.powerSaveActive
@@ -950,20 +901,27 @@ private fun OverviewWarningBanner(
         OverviewWarningKind.KILL_SWITCH -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.tertiary
     }
-    val clickableModifier = if (
-        displayedKind == OverviewWarningKind.SENSOR_OR_STALE && onOpenSensorLagAnalytics != null
-    ) {
-        Modifier.clickable(onClick = onOpenSensorLagAnalytics)
-    } else {
-        Modifier
+    if (showIssueHelp) {
+        val issue = when (displayedKind) {
+            OverviewWarningKind.SENSOR_OR_STALE -> if (state.isStale) UiIssueKind.DATA_STALE else UiIssueKind.SENSOR
+            OverviewWarningKind.KILL_SWITCH -> UiIssueKind.KILL_SWITCH
+            OverviewWarningKind.POWER_SAVE -> UiIssueKind.POWER_SAVE
+            else -> UiIssueKind.GLUCOSE_ALERT
+        }
+        IssueHelpDialog(text, listOf(issue), navigateOverride = onOpenSensorLagAnalytics?.takeIf { issue == UiIssueKind.SENSOR }?.let { open ->
+            { destination -> if (destination == IssueDestination.SENSOR_ANALYTICS) open() }
+        }) { showIssueHelp = false }
     }
+    val clickableModifier = Modifier.clickable(onClickLabel = stringResource(R.string.issue_how_to_resolve)) { showIssueHelp = true }
 
     Surface(
         modifier = clickableModifier
             .fillMaxWidth()
             .semantics { contentDescription = text },
         shape = RoundedCornerShape(8.dp),
-        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f),
+        color = tone.copy(alpha = if (midnightGlass) 0.18f else 0.10f)
+            .compositeOver(MaterialTheme.colorScheme.surface),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, tone.copy(alpha = 0.34f))
     ) {
         Row(
@@ -1237,7 +1195,8 @@ private data class OverviewClinicalMetric(
     val valueColor: Color? = null,
     val onClick: (() -> Unit)? = null,
     val contentDescription: String? = null,
-    val testTag: String? = null
+    val testTag: String? = null,
+    val iobPair: OverviewIobPresentation? = null
 )
 
 @Composable
@@ -1259,16 +1218,20 @@ private fun OverviewClinicalMatrix(
         displayLowMmol = state.chart.displayRangeLowMmol,
         displayHighMmol = state.chart.displayRangeHighMmol
     )
+    val iob = overviewIobPresentation(state.currentIobUnits, state.iobDetails.signedNetIobUnits)
     val metrics = listOf(
         OverviewClinicalMetric(
             label = stringResource(id = R.string.metric_iob),
-            value = UiFormatters.formatUnits(state.currentIobUnits, 1),
+            value = iob.value,
             unit = stringResource(id = R.string.unit_u),
             onClick = onIob,
-            contentDescription = stringResource(R.string.overview_iob_action_description)
+            contentDescription = stringResource(R.string.overview_iob_pair_description,
+                iob.current, iob.signedNet, stringResource(R.string.unit_u)),
+            testTag = "overviewIobMetric",
+            iobPair = iob
         ),
         OverviewClinicalMetric(
-            label = stringResource(id = R.string.metric_cob),
+            label = stringResource(id = R.string.metric_cob_copilot),
             value = UiFormatters.formatGrams(state.currentCobGrams, 1),
             unit = stringResource(id = R.string.unit_g),
             onClick = onCob,
@@ -1351,33 +1314,26 @@ private fun OverviewClinicalMatrix(
                     }
                     OverviewClinicalMetricRow(metrics = rowMetrics, rowHeightDp = rowHeightDp)
                 }
-                val sensitivityStatus = when {
-                    state.sensitivitySourceApplying ->
-                        "${state.sensitivitySourcePendingMetric.orEmpty()}: applying " +
-                            state.sensitivitySourcePendingValue.orEmpty()
-                    !state.sensitivitySourceApplyError.isNullOrBlank() ->
-                        state.sensitivitySourceApplyError
-                    else -> null
-                }
-                sensitivityStatus?.let { status ->
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Text(
-                        text = status,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 5.dp)
-                            .testTag("overviewSensitivitySourceStatus"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (state.sensitivitySourceApplying) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
-                    )
-                }
+                OverviewSensitivitySourceStatus(state)
             }
         }
     }
+}
+
+@Composable
+internal fun OverviewSensitivitySourceStatus(state: OverviewUiState) {
+    val status = when {
+        state.sensitivitySourceApplying -> "${state.sensitivitySourcePendingMetric.orEmpty()}: applying " +
+            state.sensitivitySourcePendingValue.orEmpty()
+        !state.sensitivitySourceApplyError.isNullOrBlank() -> state.sensitivitySourceApplyError
+        else -> null
+    } ?: return
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    Text(status, modifier = Modifier.fillMaxWidth()
+        .then(if (state.sensitivitySourceApplying) Modifier else Modifier.issueHelp(status, UiIssueKind.GENERIC_ERROR))
+        .padding(horizontal = 8.dp, vertical = 5.dp).testTag("overviewSensitivitySourceStatus"),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (state.sensitivitySourceApplying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
 }
 
 internal fun metricSourceSelectionShortLabel(sourceRaw: String): String = when (sourceRaw.trim().uppercase()) {
@@ -1421,7 +1377,7 @@ internal fun metricActualSourceShortLabel(
 }
 
 @Composable
-private fun metricActualSourceLabel(runtime: MetricRuntimeSourceUi): String = when (
+internal fun metricActualSourceLabel(runtime: MetricRuntimeSourceUi): String = when (
     metricActualSourceLabelKind(runtime.actualResolvedSource, runtime.availability)
 ) {
     MetricActualSourceLabelKind.AAPS -> stringResource(R.string.overview_source_aaps)
@@ -1453,10 +1409,17 @@ private fun OverviewClinicalMetricRow(
     metrics: List<OverviewClinicalMetric>,
     rowHeightDp: Float
 ) {
+    val numericStyle = LocalNumericTypography.current.valueSmall
+    val labelStyle = MaterialTheme.typography.labelSmall
+    val pairedHeight = with(LocalDensity.current) {
+        val numericLine = if (numericStyle.lineHeight.isSp) numericStyle.lineHeight.toDp()
+            else numericStyle.fontSize.toDp() * 1.5f
+        12.dp + numericLine * 2 + labelStyle.lineHeight.toDp() * 2
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(rowHeightDp.dp)
+            .height(if (metrics.any { it.iobPair != null }) maxOf(rowHeightDp.dp, pairedHeight) else rowHeightDp.dp)
     ) {
         metrics.forEachIndexed { index, metric ->
             if (index > 0) {
@@ -1473,6 +1436,7 @@ private fun OverviewClinicalMetricRow(
                 onClick = metric.onClick,
                 contentDescription = metric.contentDescription,
                 testTag = metric.testTag,
+                iobPair = metric.iobPair,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1488,6 +1452,7 @@ private fun OverviewMetricCell(
     onClick: (() -> Unit)? = null,
     contentDescription: String? = null,
     testTag: String? = null,
+    iobPair: OverviewIobPresentation? = null,
     modifier: Modifier = Modifier
 ) {
     val taggedModifier = testTag?.let(modifier::testTag) ?: modifier
@@ -1507,12 +1472,16 @@ private fun OverviewMetricCell(
     ) {
         Text(
             text = label,
+            modifier = if (iobPair != null) Modifier.fillMaxWidth() else Modifier,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 2
         )
-        Text(
+        if (iobPair != null) OverviewIobValue(iobPair, "",
+            LocalNumericTypography.current.valueSmall.copy(fontWeight = FontWeight.SemiBold,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface),
+            MaterialTheme.typography.labelSmall, Modifier.fillMaxWidth(), centered = true) else Text(
             text = value,
             style = LocalNumericTypography.current.valueSmall.copy(letterSpacing = 0.sp),
             fontWeight = FontWeight.SemiBold,
@@ -1523,6 +1492,7 @@ private fun OverviewMetricCell(
         if (unit.isNotBlank()) {
             Text(
                 text = unit,
+                modifier = if (iobPair != null) Modifier.fillMaxWidth() else Modifier,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -1751,7 +1721,9 @@ private fun MetricCandidateDetails(
 @Composable
 private fun OverviewForecastSection(
     state: OverviewUiState,
-    midnightGlass: Boolean
+    midnightGlass: Boolean,
+    framed: Boolean = true,
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     val forecast30 = state.horizons.firstOrNull { it.horizonMinutes == 30 }
     val chartDescription = stringResource(
@@ -1770,7 +1742,7 @@ private fun OverviewForecastSection(
         shape = RoundedCornerShape(8.dp),
         color = if (midnightGlass) Color(0xF51D2D49) else MaterialTheme.colorScheme.surface,
         contentColor = if (midnightGlass) Color.White else MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = if (framed) BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Column(
             modifier = Modifier.padding(Spacing.xs),
@@ -1795,9 +1767,14 @@ private fun OverviewForecastSection(
                     }
                 }
             }
+            if (state.acceptedFoodDisplay != null && state.foodDisplayStatus in
+                setOf(FoodDisplayStatus.UPDATING, FoodDisplayStatus.OUTDATED)) {
+                FoodDisplayStatusLabel(state)
+            }
             if (interactionState == null) {
                 ClinicalForecastChart(
                     state = state.chart,
+                    onLoadEventContext = onLoadEventContext,
                     contentDescription = chartDescription,
                     emptyText = stringResource(id = R.string.overview_chart_empty),
                     nowLabel = stringResource(id = R.string.overview_chart_now),
@@ -1821,6 +1798,7 @@ private fun OverviewForecastSection(
                 )
                 InteractiveClinicalForecastChart(
                     state = state.chart,
+                    onLoadEventContext = onLoadEventContext,
                     interactionState = interactionState,
                     contentDescription = chartDescription,
                     viewportStateDescription = viewportText,
@@ -1834,6 +1812,23 @@ private fun OverviewForecastSection(
                     resetLabel = stringResource(id = R.string.overview_chart_reset_view)
                 )
             }
+            Text(
+                text = stringResource(when {
+                    state.chart.mealImpactPoints.isEmpty() -> R.string.meal_impact_unavailable
+                    state.chart.mealImpactGiAdjusted -> R.string.meal_impact_gi_legend
+                    state.chart.mealImpactComplete == null -> R.string.meal_impact_legacy_legend
+                    else -> R.string.meal_impact_legend
+                }),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            if (state.chart.mealImpactComplete == false && state.chart.mealImpactPoints.isNotEmpty()) Text(
+                text = stringResource(R.string.meal_impact_incomplete),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
         }
     }
 }
@@ -1930,7 +1925,7 @@ private fun OverviewHighlightsRow(state: OverviewUiState, midnightGlass: Boolean
             modifier = Modifier.width(168.dp)
         )
         OverviewHighlightCard(
-            label = stringResource(id = R.string.metric_cob),
+            label = stringResource(id = R.string.metric_cob_copilot),
             value = cobChip?.value ?: stringResource(id = R.string.placeholder_missing),
             unit = cobChip?.unit ?: stringResource(id = R.string.unit_g),
             icon = Icons.Default.CheckCircle,

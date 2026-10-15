@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="telegram_info">Telegram для доверенных людей</string>
+    <string name="telegram_configured">Токен настроен · @%1$s</string>
+    <string name="telegram_not_configured">Не настроен</string>
+    <string name="telegram_token">Токен бота</string>
+    <string name="telegram_verify_save">Проверить и сохранить токен</string>
+    <string name="telegram_enabled">Отправлять доверенным людям</string>
+    <string name="telegram_soft">Включить ранние предупреждения</string>
+    <string name="telegram_auto_reports">Отправлять новые готовые сводки</string>
+    <string name="telegram_recipients">Доверенные получатели</string>
+    <string name="telegram_alerts">Оповещения</string>
+    <string name="telegram_reports">Отчёты</string>
+    <string name="telegram_remove">Удалить получателя</string>
+    <string name="telegram_add">Создать приглашение</string>
+    <string name="telegram_username">@логин получателя</string>
+    <string name="telegram_pair_instruction">Передайте ссылку лично. Получатель открывает её и нажимает Start. Ссылка действует 15 минут.</string>
+    <string name="telegram_copy_link">Копировать приглашение</string>
+    <string name="telegram_check_pairing">Проверить подключение</string>
+    <string name="telegram_confirm">Доверять этому чату</string>
+    <string name="telegram_no_delivery">Отправок ещё не было</string>
+    <string name="telegram_delivery_unknown">Доставка неизвестна; автоматического повтора не будет</string>
+    <string name="telegram_delivered">Принято Telegram; прочтение не подтверждено</string>
+    <string name="telegram_send_summary">Отправить текущую сводку 7/30 дней</string>
+    <string name="telegram_disconnect">Отключить и удалить токен</string>
+    <string name="telegram_disconnect_confirm">Удалить токен и всех получателей? Отправка прекратится. Уже отправленные сообщения останутся в Telegram.</string>
+    <string name="telegram_working">Проверка…</string>
+    <string name="telegram_invalid_token">Некорректный токен бота.</string>
+    <string name="telegram_network_error">Telegram недоступен. Проверьте соединение.</string>
+    <string name="telegram_rejected">Telegram отклонил запрос. Проверьте права бота или наличие webhook.</string>
+    <string name="telegram_response_error">Не удалось проверить ответ Telegram.</string>
+    <string name="telegram_pair_expired">Приглашение истекло. Создайте новое.</string>
+    <string name="telegram_no_match">Личное сообщение Start от нужного пользователя пока не найдено.</string>
+    <string name="telegram_storage_error">Защищённое хранилище недоступно. Отправка отключена.</string>
+    <string name="telegram_not_ready">Проверьте логин и получателя, включите отправку. Перед отправкой сводки откройте свежий клинический отчёт.</string>
+    <string name="telegram_privacy">Используйте отдельного бота от @BotFather. Включайте отправку только людям, которым доверяете медицинские данные. Чаты с ботами не имеют сквозного шифрования. Получатели не могут менять терапию или выключать местные оповещения. OFF также приостанавливает оповещения Telegram. Для Telegram нужен интернет; он не заменяет местные оповещения. Доступ к отчётам включается отдельно для каждого человека. Для замены токена сначала отключите бота: список получателей будет очищен.</string>
+    <string name="telegram_delivery_risk">Возможна проблема с подачей инсулина</string>
+    <string name="telegram_contact_patient">Свяжитесь с человеком. Причина события не подтверждена.</string>
+    <string name="telegram_summary_title">AAPS Copilot · Сводка компенсации</string>
+    <string name="telegram_summary_body">Период: %1$d сут.\nСредняя глюкоза: %2$s ммоль/л\nНиже 4: %3$s%% · 4&#8211;10 ммоль/л: %4$s%% · Выше 10: %5$s%%\nПокрытие глюкозой: %6$s%%\nВсего зарегистрировано инсулина: %13$s ЕД\nСобытия инсулина: подтверждённые %7$s ЕД, оценочные %8$s ЕД\nВсего углеводов: %14$s г (введённые %9$s г, UAM %10$s г)\nШаги: %11$s · Активные затраты: %12$s ккал\nЭто зарегистрированные данные; учитывайте пробелы и оценочные значения.</string>
+</resources>

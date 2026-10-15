@@ -1,0 +1,10 @@
+[package]
+name = "session-store-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+rust-version = "1.85"
+
+[dependencies]
+tempfile = "=3.27.0"

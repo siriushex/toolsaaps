@@ -1,11 +1,18 @@
 package io.aaps.copilot.data.repository
 
+import com.google.gson.Gson
+import com.google.gson.JsonParser
 import io.aaps.copilot.data.local.dao.ActionCommandDao
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
+import io.aaps.copilot.data.local.entity.TargetManagerDecisionEntity
 import io.aaps.copilot.domain.target.LastSentTempTarget
 import io.aaps.copilot.domain.target.TargetCadencePolicy
 import io.aaps.copilot.domain.target.TargetCadenceRequest
 import io.aaps.copilot.domain.target.TargetIntent
+import io.aaps.copilot.domain.target.TargetCommandCandidate
+import io.aaps.copilot.domain.target.ActiveTargetOwnership
+import io.aaps.copilot.domain.rules.AdaptiveTargetControllerRule
+import io.aaps.copilot.util.UnitConverter
 import kotlin.math.ceil
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -15,8 +22,14 @@ class TempTargetSendThrottle(
     private val cadencePolicy: TargetCadencePolicy = TargetCadencePolicy(),
     private val causalClockReader: CausalSafetyClockReader = CausalSafetyClockReader { nowTs ->
         CausalSafetyClock(throughTs = nowTs, evidenceResolved = true)
-    }
+    },
+    private val managedReleaseReader: suspend (String) -> ManagedRelease? = { null }
 ) {
+    data class ManagedRelease(
+        val targetMmol: Double,
+        val previous: LastSentTempTarget,
+        val generatedAt: Long
+    )
     private val mutex = Mutex()
 
     suspend fun evaluate(
@@ -24,7 +37,8 @@ class TempTargetSendThrottle(
         idempotencyKey: String? = null,
         targetMmol: Double? = null,
         actionReason: String? = null,
-        targetIntent: TargetIntent? = null
+        targetIntent: TargetIntent? = null,
+        managedDeliveryGuardPresent: Boolean = false
     ): Decision = mutex.withLock {
         val manual = idempotencyKey
             ?.startsWith(NightscoutActionRepository.MANUAL_IDEMPOTENCY_PREFIX) == true
@@ -74,6 +88,17 @@ class TempTargetSendThrottle(
             )
         }
         val effectiveIntent = targetIntent ?: legacyIntent(idempotencyKey, actionReason)
+        val release = if (managedDeliveryGuardPresent &&
+            idempotencyKey?.startsWith(NightscoutActionRepository.TARGET_MANAGER_IDEMPOTENCY_PREFIX) == true
+        ) managedReleaseReader(idempotencyKey) else null
+        if (release != null && lastSent != null && lastTargetMmol != null &&
+            release.targetMmol.isFinite() && release.targetMmol.toRawBits() == targetMmol?.toRawBits() &&
+            release.previous.idempotencyKey == lastSent.idempotencyKey &&
+            release.previous.timestamp == lastSent.timestamp &&
+            release.previous.targetMmol.toRawBits() == lastTargetMmol.toRawBits() &&
+            release.generatedAt > lastSent.timestamp &&
+            nowMs - release.generatedAt in 0L..5 * 60_000L
+        ) return@withLock Decision(true, 0L, 0, lastSent.timestamp, lastTargetMmol, "managed_episode_release")
         val cadence = cadencePolicy.decide(
             TargetCadenceRequest(
                 nowTs = nowMs,
@@ -139,6 +164,39 @@ class TempTargetSendThrottle(
     )
 
     companion object {
+        internal fun managedReleaseFromJournal(
+            entity: TargetManagerDecisionEntity?,
+            idempotencyKey: String,
+            gson: Gson
+        ): ManagedRelease? {
+            if (entity == null || entity.mode != "ACTIVE" || entity.outcome != "SEND" ||
+                entity.deliveryStatus != "pending" || entity.cadenceOutcome != "ALLOW_EPISODE_RELEASE" ||
+                entity.cadenceReason !in setOf("forecast_confirmed_trend_release", "sustained_rise_upward_release")
+            ) return null
+            return try {
+                val command = gson.fromJson(
+                    JsonParser.parseString(entity.commandJson).asJsonObject.get("command"),
+                    TargetCommandCandidate::class.java
+                ) ?: return null
+                val active = command.targetObservation?.activeAapsTarget ?: return null
+                val previousTarget = entity.lastSentTargetMmol ?: return null
+                val previousTs = entity.lastSentTimestamp ?: return null
+                val previousId = active.idempotencyKey ?: return null
+                if (command.idempotencyKey != idempotencyKey ||
+                    idempotencyKey != "TargetManager.v1:${entity.semanticFingerprint}" ||
+                    command.semanticFingerprint != entity.semanticFingerprint ||
+                    command.ownerRuleId != AdaptiveTargetControllerRule.RULE_ID ||
+                    command.generatedAt != entity.timestamp || !command.targetMmol.isFinite() ||
+                    !previousTarget.isFinite() || previousTs <= 0L || previousTs >= command.generatedAt ||
+                    active.ownership != ActiveTargetOwnership.TARGET_MANAGER || !active.evidenceResolved ||
+                    !UnitConverter.matchesTempTargetObservation(previousTarget, active.targetMmol)
+                ) return null
+                ManagedRelease(command.targetMmol, LastSentTempTarget(previousTs, previousTarget, previousId), command.generatedAt)
+            } catch (_: RuntimeException) {
+                null
+            }
+        }
+
         const val HARD_LIMIT_INTERVAL_MS = TargetCadencePolicy.REPEAT_WINDOW_MS
         const val ACTION_TYPE_TEMP_TARGET = "temp_target"
         const val SIGNIFICANT_TARGET_DELTA_MMOL = TargetCadencePolicy.MATERIAL_CHANGE_MMOL

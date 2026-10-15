@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -31,7 +32,7 @@ class SensorLagUiFlowTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun overviewScreen_sensorWarningClickInvokesAnalyticsCallback() {
+    fun overviewScreen_sensorWarningExplainsBeforeInvokingAnalyticsCallback() {
         var clicked = false
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val warningText = context.getString(R.string.overview_warning_sensor)
@@ -51,6 +52,9 @@ class SensorLagUiFlowTest {
         }
 
         composeRule.onNodeWithContentDescription(warningText).assertIsDisplayed().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.issue_sensor)).assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(false, clicked) }
+        composeRule.onNodeWithTag("issue_open_SENSOR_ANALYTICS").performClick()
         composeRule.runOnIdle {
             assertTrue(clicked)
         }
@@ -99,6 +103,7 @@ class SensorLagUiFlowTest {
         }
 
         composeRule.onNodeWithContentDescription(warningText).assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("issue_open_SENSOR_ANALYTICS").performClick()
         composeRule.onNodeWithText(
             context.getString(R.string.analytics_sensor_lag_detail_title)
         ).assertIsDisplayed()

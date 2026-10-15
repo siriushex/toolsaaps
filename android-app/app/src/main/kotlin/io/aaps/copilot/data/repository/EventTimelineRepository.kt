@@ -1,5 +1,7 @@
 package io.aaps.copilot.data.repository
 
+import io.aaps.copilot.domain.events.eventDisplayQuantities
+
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.data.local.entity.PlannedActivityEventEntity
@@ -17,6 +19,8 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.model.TherapyCarbComponentKind
 import io.aaps.copilot.domain.model.resolveTherapyComponents
 import io.aaps.copilot.domain.profile.ActivityScheduleEngine
+import io.aaps.copilot.domain.profile.toMealTherapyReference
+import io.aaps.copilot.domain.profile.MealTherapyReferenceTrust
 import io.aaps.copilot.domain.profile.PlannedActivityIntensity
 import io.aaps.copilot.domain.profile.PlannedActivitySchedule
 import io.aaps.copilot.domain.profile.PlannedActivityType
@@ -221,10 +225,20 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
             explicitEnd != null && explicitEnd >= event.ts -> safeEnd(event.ts, explicitEnd - event.ts)
             else -> safeEnd(event.ts, duration * 60_000L)
         }
-        val attributes = boundedAttributes(event.payload).toMutableMap().apply {
+        val display = eventDisplayQuantities(event.type, event.payload, event.componentTrust)
+        val mealReference = event.toMealTherapyReference().takeIf {
+            type == CompensationEventType.MEAL && it.trust == MealTherapyReferenceTrust.TRUSTED &&
+                !event.componentTrust.legacyValidityConflict
+        }
+        val attributes = boundedAttributes(event.payload).filterKeys {
+            it != "displayCarbsG" && it != "displayInsulinU"
+        }.toMutableMap().apply {
             if (normalizedType in SENSOR_FAILURE_TYPES && this["trustPenalty"].isNullOrBlank()) {
                 this["trustPenalty"] = DEFAULT_SENSOR_FAILURE_TRUST_PENALTY.toString()
             }
+            // Optional display values never displace clinical attributes at the cap.
+            display.carbsGrams?.takeIf { size < 24 }?.let { this["displayCarbsG"] = it.toString() }
+            display.insulinUnits?.takeIf { size < 24 }?.let { this["displayInsulinU"] = it.toString() }
         }
         val authoritativeNote = authoritativeNote(event)?.take(MAX_NOTE_CHARS)
         val noteTitle = authoritativeNote
@@ -252,7 +266,11 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
             },
             attributes = attributes,
             note = authoritativeNote,
-            provenance = "therapy_events"
+            provenance = "therapy_events",
+            displayCarbsGrams = display.carbsGrams,
+            displayRecordedInsulinUnits = display.insulinUnits,
+            displayMealIdentity = mealReference?.identity,
+            displayMealRevision = mealReference?.revision
         )
     }
 
@@ -394,10 +412,16 @@ class EventTimelineRepository(private val gson: Gson = Gson()) {
                 },
                 source = if (check.source.equals("MANUAL", true)) EventSource.USER else EventSource.AAPS,
                 title = "Blood glucose check",
-                attributes = mapOf(
+                attributes = buildMap {
+                    putAll(mapOf(
                     "status" to check.status.name,
                     "trustPenalty" to trustPenalty.toString()
-                ),
+                    ))
+                    check.mmol.takeIf { it.isFinite() && it in 0.1..100.0 }?.let { put("bloodMmol", it.toString()) }
+                    check.matchedRawGlucose?.takeIf { it.isFinite() && it in 0.1..100.0 }
+                        ?.let { put("matchedCgmMmol", it.toString()) }
+                    check.lagAlignedTs?.takeIf { it > 0 }?.let { put("matchedCgmTs", it.toString()) }
+                },
                 note = check.note?.take(500),
                 status = CompensationEventStatus.CLOSED,
                 provenance = "blood_glucose_checks"

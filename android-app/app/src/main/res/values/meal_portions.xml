@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="meal_entry_title">Food</string>
+    <string name="meal_glycemic_index_optional">GI (optional)</string>
+    <string name="meal_glycemic_index_invalid">GI must be a number from 0 to 200</string>
+    <string name="meal_prepare_amount">Send %1$s g</string>
+    <string name="meal_manual_carbs">Manual carbs</string>
+    <string name="meal_amount_limit">Enter 1–%1$s g. The manual limit is unchanged.</string>
+    <string name="meal_confirm_energy">Energy: %1$s kcal</string>
+    <string name="meal_portions_title">Meal portions</string>
+    <string name="meal_portion_small">Small</string>
+    <string name="meal_portion_medium">Medium</string>
+    <string name="meal_portion_large">Large</string>
+    <string name="meal_portion_min">Min, g</string>
+    <string name="meal_portion_max">Max, g</string>
+    <string name="meal_portion_default">Default, g</string>
+    <string name="meal_portion_error">Use positive numbers, increasing non-overlapping ranges and a default within each range.</string>
+    <string name="meal_portion_calories">Show calories when entering food</string>
+    <string name="meal_portions_save">Save portions</string>
+    <string name="meal_portions_saved">Saved</string>
+    <string name="meal_portions_save_failed">Could not save portions</string>
+</resources>

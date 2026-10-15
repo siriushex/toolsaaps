@@ -28,6 +28,7 @@ internal class DeletionDurabilityCoordinatorRegistry {
     private val openAiCompatibleCoordinator = DeletionDurabilityCoordinator()
     private val localNightscoutTlsCoordinator = DeletionDurabilityCoordinator()
     private val serverAiConnectionCoordinator = DeletionDurabilityCoordinator()
+    private val telegramCoordinator = DeletionDurabilityCoordinator()
 
     fun coordinatorFor(
         namespace: SecretStorageNamespace
@@ -40,6 +41,7 @@ internal class DeletionDurabilityCoordinatorRegistry {
         RuntimeSecretStorageNamespaces.LOCAL_NIGHTSCOUT_TLS ->
             localNightscoutTlsCoordinator
         RuntimeSecretStorageNamespaces.SERVER_AI_CONNECTION -> serverAiConnectionCoordinator
+        RuntimeSecretStorageNamespaces.TELEGRAM -> telegramCoordinator
         else -> error("Unsupported encrypted secret namespace")
     }
 }
@@ -78,6 +80,10 @@ internal class DeletionDurabilityCoordinator {
 }
 
 internal object RuntimeSecretStorageNamespaces {
+    val TELEGRAM = SecretStorageNamespace(
+        preferencesFile = "telegram_trusted_delivery",
+        keyAlias = "io.aaps.predictivecopilot.telegram.aes_gcm.v1"
+    )
     val SERVER_AI_CONNECTION = SecretStorageNamespace(
         preferencesFile = "server_ai_connection",
         keyAlias = "io.aaps.predictivecopilot.server_ai.connection.aes_gcm.v1"

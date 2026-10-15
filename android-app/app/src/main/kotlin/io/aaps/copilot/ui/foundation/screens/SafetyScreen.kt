@@ -1,6 +1,7 @@
 package io.aaps.copilot.ui.foundation.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -168,6 +170,7 @@ private fun AiTuningStatusCard(status: AiTuningStatusUi) {
             infoText = stringResource(id = R.string.ai_tuning_status_info)
         )
         Surface(
+            modifier = if (normalizedState == "ACTIVE") Modifier else Modifier.issueHelp(stateLabel, UiIssueKind.AI_TUNING),
             shape = SafetyInfoShape,
             color = statusColor,
             border = BorderStroke(1.dp, if (midnightGlass) Color(0x1FFFFFFF) else MaterialTheme.colorScheme.outlineVariant)
@@ -473,7 +476,8 @@ private fun GlucoseAlertsDiagnosticsCard(state: SafetyUiState) {
                     stringResource(id = R.string.settings_glucose_alerts_audio_valid)
                 } else {
                     stringResource(id = R.string.settings_glucose_alerts_audio_fallback)
-                }
+                },
+                issue = if (state.glucoseAlertSoftClipValid) null else UiIssueKind.ALERT_AUDIO
             )
             SafetyInfoLine(
                 stringResource(id = R.string.glucose_alert_summary_critical_clip_1),
@@ -481,7 +485,8 @@ private fun GlucoseAlertsDiagnosticsCard(state: SafetyUiState) {
                     stringResource(id = R.string.settings_glucose_alerts_audio_valid)
                 } else {
                     stringResource(id = R.string.settings_glucose_alerts_audio_fallback)
-                }
+                },
+                issue = if (state.glucoseAlertCriticalClip1Valid) null else UiIssueKind.ALERT_AUDIO
             )
             SafetyInfoLine(
                 stringResource(id = R.string.glucose_alert_summary_critical_clip_2),
@@ -489,7 +494,8 @@ private fun GlucoseAlertsDiagnosticsCard(state: SafetyUiState) {
                     stringResource(id = R.string.settings_glucose_alerts_audio_valid)
                 } else {
                     stringResource(id = R.string.settings_glucose_alerts_audio_fallback)
-                }
+                },
+                issue = if (state.glucoseAlertCriticalClip2Valid) null else UiIssueKind.ALERT_AUDIO
             )
             SafetyInfoLine(stringResource(id = R.string.glucose_alert_summary_disable_reason), disableReasonText)
         }
@@ -708,20 +714,23 @@ private fun SafetyInfoCard(
 @Composable
 private fun SafetyInfoLine(
     label: String,
-    value: String
+    value: String,
+    issue: UiIssueKind? = null
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(if (issue == null) Modifier else Modifier.issueHelp(label, issue)),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall,
             color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = value,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.labelMedium,
             color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
         )
@@ -755,6 +764,10 @@ private fun CooldownCard(lines: List<String>) {
 
 @Composable
 private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
+    var selectedIssue by remember { mutableStateOf<SafetyChecklistItemUi?>(null) }
+    selectedIssue?.let { selected ->
+        IssueHelpDialog(selected.title, listOf(selected.issue)) { selectedIssue = null }
+    }
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     SafetySectionCard {
         SafetySectionLabel(
@@ -763,6 +776,9 @@ private fun ChecklistSection(items: List<SafetyChecklistItemUi>) {
         )
         items.forEach { item ->
             Surface(
+                modifier = if (item.ok) Modifier else Modifier.clickable(
+                    onClickLabel = stringResource(R.string.issue_how_to_resolve)
+                ) { selectedIssue = item },
                 shape = SafetyInfoShape,
                 color = if (midnightGlass) {
                     if (item.ok) Color(0x55103A35) else Color(0x665A1E25)

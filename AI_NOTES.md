@@ -1,3 +1,3205 @@
+# Feather 01 Native Presentation - 2026-10-15
+
+- User selected the first feathered family and explicitly approved Git main
+  integration. Isolated reconciliation includes verified a74006dd, not the other
+  task's unfinished owner-AI changes. Android matched that incoming SHA exactly
+  before presentation edits; duplicate main behavior and both doc histories stay.
+- Added native owl/glyph models and cached Compose drawing, finite lifecycle
+  clocks, system/app motion gates, optical sizes, adaptive launcher, event assets
+  and static risk icons. Busy state and clinical actions remain authoritative.
+- Private notification artwork is redacted to a gray owl and app name publicly.
+  Decorative bitmap decode is best effort; channels/audio/actions are unchanged.
+- Portable artwork sources, generator, provenance and Lucide license included.
+  Native pixel tests verify actual movement followed by a finite freeze. Waiting
+  retains indeterminate accessibility semantics after the cap and reduced motion.
+  Compact-header tests include unclipped badges with enlarged system fonts.
+- Immutable full regression before the last waiting-semantics fix: 5,541 tests,
+  zero failures/errors, 6 existing private-fixture skips. Final code: 35 targeted
+  motion/header/artwork/notification tests plus 10 event-detail tests passed.
+  Both frozen source-hashed unit/lint/APK gates completed successfully; final
+  lint has 355 warnings, 8 hints, zero errors. 32 unused static catalog recipes are
+  intentional and do not activate unsupported detection scenarios.
+- Debug APK signature/package verified. Verify repeats the complete suite on
+  the final Git head before main integration. No APK release upload, phone
+  installation, server deployment or clinical activation is performed here.
+  See docs/FEATHER_01_NATIVE.md.
+
+# Sustained-Rise Target Integration - 2026-09-27
+
+- Transferred only the guarded sustained-rise rule, manager/factory integration
+  and 12 regression tests from the development worktree onto main.
+- Preserve all safety gates; 4.1 lasts 30 minutes and renewal requires fresh
+  evidence. Calculated-base and ownership-confirmed small upward release are
+  no longer discarded by ordinary no-op/cadence checks.
+- No unrelated meal-planner, UI, backend or database changes imported.
+- Main still uses Room v26. Do not install this APK on a v27 device. USB release
+  must use the separately verified compatible build and record its hash.
+- Main verification: 4377 tests, zero failures/errors, 3 skipped; APK assembled.
+  Serial lint completed successfully: 295 warnings, 4 hints, zero errors.
+  Initial combined run was interrupted during slow concurrent lint; the retry
+  used one worker and an ephemeral 6GB JVM heap, without project config edits.
+- USB installed the compatible development APK with schema 27, preserving data.
+  SHA-256: d6779da866f3bd05beed0518cc4afaf205a639549e0cf5e1cad68f3d5ea41277.
+  Signature matched and installed bytes were verified by read-back. ACTIVE
+  cycles and fresh forecasts continued; no forced therapy command was used.
+- Design: docs/2026-09-27-sustained-rise-target.md.
+# Trusted Text Supervisor Host - 2026-10-15
+
+- Added an explicit trusted Linux host CLI assembling the typed supervisor and
+  guarded concrete process. Strict root-owned128KiB descriptor; no arbitrary
+  client instructions/argv, silent metadata capture or profile initialization.
+- Fixed contextual policy, distinct API/worker identities, pre-listen image/
+  egress/idle-guard checks and owned0660 local socket. Pre-existing/replaced
+  paths are preserved. Signal shutdown drains active work before socket removal.
+- Explicit operator image/egress reload preserves peer/policy/private bindings.
+  No runtime image/service installation, provider request or phone mutation.
+- Focused tests use real local sockets and synthetic workers/host admissions;
+  cover strict/racing configuration, permissions/path ownership, active shutdown,
+  identity drift and fixed errors. Full local backend:800passed,26existing
+  optional Nginx skips,1existing Starlette warning, including28new host checks.
+- Read-only target inspection found Python3.12 without no-follow chmod support.
+  Socket permission setup now uses ordinary chmod inside the protected root-only
+  writable parent; a Linux-capability regression test covers this path. CLI help
+  and scoped E4/E7/E9/F lint pass. No remote filesystem/service changes.
+- Spec: docs/superpowers/specs/2026-10-15-text-supervisor-host.md. Reproduce with
+  PYTHONPATH=backend uv run --offline --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
+# Concrete Contained Text Process - 2026-10-15
+
+- Added explicit RuntimeImage/OfficialEgress admission and SystemdTextProcess
+  for TextSupervisor. Fixed systemd argv/environment, nonroot512MiB/swap0/25%CPU
+  worker, READY/START barrier, durable guard and original InvocationID binding.
+- Public-image hashes/layout/ownership, official hosts/direct model policy and
+  actual kernel limits/mounts/environment precede input. Native settings fix the
+  official provider/base URL. Custom profile instructions/config refuse startup.
+- Cancellation preserves partial OS creation and independent cleanup. Positive
+  native cgroup stop plus bounded pipe/helper termination precede the receipt;
+  unknown/unbound state remains unavailable for automatic reuse.
+- Synthetic tests use real local subprocess pipes and the Unix supervisor,
+  temporary public images/proc records and substituted privileged host operations.
+  No provider request, auth body read, clinical payload, server or phone action.
+- Previous2f61b68 CI fully passed including native candidate, both backend and
+  Android Verify jobs. Host/API assembly, active network controls, storage
+  operations and Android context/chat are still required for real activation.
+- A repeated full gate exposed an existing archive/status race for failed and
+  malformed turns: terminal ledger state could precede the durable conversation
+  write. Status now keeps the active outcome pending until reconciliation ends,
+  as already done for successful answers. Two deterministic blocked-write tests
+  cover it. Focused runtime/archive suites:81passed; final full backend gate:
+  772passed,26existing optional Nginx skips,1existing Starlette warning. This
+  includes65new checks. No raw authorization/native output entered the test log.
+- Scoped E4/E7/E9/F lint passes; imported pytest fixtures have the same narrowly
+  scoped F811 exemptions as prior tests. Existing optional Nginx skips and the
+  Starlette deprecation are reported separately by the full gate.
+- Spec and reproduction: docs/superpowers/specs/2026-10-15-contained-text-process.md;
+  PYTHONPATH=backend uv run --offline --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
+# Public Source Fetch Reliability - 2026-10-15
+
+- Supervisor4329135 backend passed both Linux Verify jobs. One source-candidate
+  job failed fetching public files with GitHub API403 rate limit; the matching
+  push job passed. A targeted rerun was refused while the workflow was active.
+- Fetch the same files from the public raw host at native_build's existing pinned
+  peeled commit. Raw hosting cannot resolve the annotated-tag object SHA; the
+  original tag/ref and exact file-hash checks remain unchanged. No token, custom
+  user agent, moving branch/ref or relaxed redirect/size/hash gate was added.
+- All84 tooling tests and scoped lint pass. Actual anonymous public fetch plus
+  hash verification and three-path patch application pass. Backend source and
+  its707-test local result are unchanged; new exact-head Verify remains required.
+
+# Typed Text Supervisor Channel - 2026-10-15
+
+- Added a real Unix-socket typed text channel with kernel peer checks, fixed
+  trusted policy and single-use clients. Native protocol stays in the trusted
+  controller; no API-selected native methods, commands, settings or credentials.
+- ContextualChatWorker retains its existing local-process path and can inject
+  the supervised runner. Request/context/archive semantics stay unchanged.
+- Bounded cancellation, EOF, shutdown, stop/IO verification and quarantine are
+  tested. A Python3.13 shutdown deadlock was reproduced and fixed by draining
+  handlers before waiting for server socket closure. macOS tests use native
+  getpeereid; Linux uses SO_PEERCRED, with no identity bypass.
+- Signed integration reproduced false API readiness after unconfirmed stop.
+  Execution reconciliation now refuses new admission while retaining the lease,
+  UNKNOWN outcome and normal expiry of already queued payloads.
+- Full local backend707passed/26existing optional Nginx skips/1existing Starlette
+  warning, including49new checks. A cancelled stop is an unknown receipt, not
+  an abandoned open connection. Scoped E/F lint and whitespace checks passed;
+  imported pytest fixture F811 exemptions only. Previous28a2a6a CI is fully
+  successful; this source's Linux/Android Verify is an independent gate.
+  No provider/server/profile/phone/therapy action. Concrete
+  contained process, host assembly and Android integration remain outstanding.
+- Reproduce: PYTHONPATH=backend uv run --offline --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
+# Signed Conversation Read And Test Dependency - 2026-10-15
+
+- Added explicitly injected, owner/device-signed POST history/conversations for
+  complete server chat text after volatile result-cache expiry. Reuses current
+  access, exact-body/path proof and revocation gates; no default route or inference.
+- Closed4KiB queries and separately bounded128KiB pages retain full messages.
+  Encrypted15-minute cursors bind device/window/membership. Original row/job
+  anchor refuses stale rowid reuse; later inserts do not join the current scan.
+  Outcomes are current per page, explicitly not a historical state snapshot.
+- No schema mutation, old-database restore or real data access. Existing job and
+  observation limits are unchanged; storage/cursor errors disclose no raw payload.
+- Updated pytest8.4.2 to9.0.3 for moderate GHSA-6w46-j5rx-g56g. The actual test
+  runtime reports9.0.3. This is not a claim that the main-branch alert is closed.
+- Local full backend658passed/26existing Nginx skips/1existing Starlette warning;
+  37new cases. Scoped E/F lint passed with existing ai_server E731 and imported
+  fixture F811 exemptions; new code has no exemptions. Whitespace check passed.
+  Exact-head CI is independent. No Android, server/profile, provider or therapy
+  action. Constrained process/API composition and Android integration remain.
+- Reproduce: PYTHONPATH=backend uv run --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
+# Persistent Server Conversation - 2026-10-15
+
+- Added optional CHAT request/result archival in the existing private encrypted
+  owner/device store. Internal SERVER_ARCHIVE cannot be supplied by device
+  ingestion. Full text, immutable job/policy binding, original365-day expiry,
+  shared quotas and reserved answer capacity survive process restarts.
+- Additive schema1-to2 migration authenticates the manifest, commits separately
+  and preserves observation rows/receipts. Reads do not migrate. Rollback requires
+  compatible code, not an old database/key or destructive schema downgrade.
+- Requests persist before dispatch; validated answers persist only after executor
+  stop/settlement and before publication. Disconnects drain acceptance, archive
+  failures disable admission without blocking active teardown, and late cancels
+  cannot erase settled results. Crash gaps remain OUTCOME_NOT_RECORDED without
+  fabricated answers or automatic model replay. Ledger remains metadata-only.
+- Follow-up model input now includes bounded recent server exchanges, distinct
+  from device-declared observations. Full archived text is not truncated; context
+  excerpts/omissions are explicit. Combined input is checked before process start.
+  Prompt revision v2 changes only contextual instructions, not model/reasoning.
+- Final local backend:621passed/26existing Nginx-engine skips/1existing Starlette
+  warning,40new tests; scoped E/F lint and whitespace checks passed. Tests include
+  signed API/context integration, isolation, migration, retention, quotas, restart,
+  cancellation/shutdown/write failures and commit-before-publication races.
+- Previous9fcf0982 Verify is now fully green, including Android. This stage's
+  exact-head CI is a separate publication gate. No server/provider/phone/therapy
+  action; production supervisor, operational storage validation, signed archive
+  retrieval and Android sync/chat remain. Full app AI is not yet enabled.
+- Reproduce: PYTHONPATH=backend uv run --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
+# Contextual Text Adapter - 2026-10-15
+
+- Moved the proven native text protocol shape into a bounded single-use adapter
+  with correlation, effective-settings, unknown-event/tool and final-answer checks.
+  Added exact direct/no-tools catalog transformation without changing model or
+  reasoning settings. Its injected IO is not an independent OS sandbox.
+- Signed JobWork now carries authenticated owner/device scope and acceptance time.
+  Added a read-only encrypted-history context scan with latest versions, original
+  expiry, clock/quality/context separation, bounded recent examples and explicit
+  omissions. Backfill arrival cannot displace newer events. No schema/data writes.
+- Connected these through ContextualChatWorker and existing executor settlement;
+  cancellation joins context reading and requires stop even after interrupted
+  process start. An injected signed API test covers device isolation through the
+  completed answer. No model/provider/network/phone/therapy calls in these tests.
+- All45 new focused cases and the full local backend581passed/26skipped/1warning
+  passed. Skips require an explicit Nginx engine binary; the existing Starlette
+  deprecation warning is unchanged. Scoped E/F lint and diff whitespace checks
+  passed. Exact-SHA CI remains separate. Production supervisor/bootstrap, server chat persistence and
+  Android upload/chat are still missing. Do not describe the app as AI-enabled.
+- Reproduce: PYTHONPATH=backend uv run --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
+# Runtime Candidate Package - 2026-10-15
+
+- First actual Linux run at2437c062 passed169 native tests/full CLI/provenance,
+  then packaging correctly stopped before protocol/upload because the input
+  executable had Cargo build hardlinks. The new regression reproduces that
+  refusal. Admit one/two links only for this trusted read-only build input and
+  copy bytes into a new single-link destination. Candidate/notice links remain
+  refused; do not unlink Cargo outputs or relax artifact validation. Record
+  input link count; retry the entire exact-source native/Verify gate.
+
+- Owner explicitly approved retaining the checked Linux runtime in GitHub CI
+  for seven days. Retention is manual-dispatch opt-in only, not a release or
+  deployment. No auth, profiles, logs, caches, medical data or databases enter
+  the allowlisted candidate. Source/provenance/licenses only accompany the ELF.
+- Added a source-receipt-gated builder and bounded directory/ZIP verifier using
+  an external expected manifest digest, streamed hashes, no-follow file opens,
+  path/type/count/size guards and exact member coverage. Verifier never extracts,
+  installs or executes. Cargo notices are a public dependency inventory with
+  explicit declared-only gaps, not a legal/supply-chain/reproducibility claim.
+- Native CI now runs existing offline and ten synthetic protocol cases against
+  packaged bytes, then reverifies before optional upload. Unit and exact-source
+  native/Verify CI results remain publication/retention gates. Actual host ABI,
+  immutable installation/rollback, controller/launcher admission and private
+  owner challenge presentation remain separate. No runtime/provider/phone or
+  therapy action is connected by this stage.
+- Local resolved public metadata:1222packages/1814notice files,85declared-only
+  entries. One upstream git dependency's shared LICENSE is a source symlink;
+  resolve only within admitted public roots and copy regular content. Escaping
+  source links and all candidate links remain refused. No licensing completeness
+  is claimed. New tests also refuse unknown build-receipt payload fields.
+
+# Inactive Session Profile Guard - 2026-10-15
+
+- First Linux CI run failed two child-process fixtures (534other tests passed):
+  CI pytest's sys.path was not inherited by direct child scripts. Reproduced
+  locally from backend without PYTHONPATH. Explicitly bind the child's import
+  root to the checked-out backend; both regressions now remove the parent's
+  PYTHONPATH before launching. Guard source/permissions/state checks are unchanged;
+  local retry without parent PYTHONPATH passes38focused and536full backend tests
+  (26existing skips/one warning). Exact-source CI retry remains required.
+
+- Added a separate trusted-host local guard, not wired to API, runner, profile,
+  server or real login. Pinned directory identities, permanent private flock,
+  durable reserved/bound marker and exact stop-verifier binding serialize one
+  admitted profile/control mapping. No auth-body/token/code reads or restores.
+- Nineteen failing-first cases exposed the missing component. Review then
+  reproduced four gaps: mutable run/scope, changed restart scope, identical
+  journal replacement and raw stop exceptions. Three more regressions exposed
+  loose integer types, unbounded directory listing and inconsistent IO errors.
+  All38 focused tests now pass, including actual competing/forced-killed Python
+  child processes, fork ownership, repeated cancellation, pre/post-replace
+  failures and metadata/links/orphan/privacy checks. The full local backend passes
+  536tests with26 existing skips and one existing warning. Exact-source CI remains
+  a publication gate; skipped tests were not executed.
+- Frozen guard settings and journal-bound cgroup/slice prevent scope drift;
+  lease run ID is read-only, journal inode pinned for the lease and metadata types
+  strict. Bounded scandir avoids loading an arbitrary directory listing. Native
+  top-level inventory is not a recursive filesystem/security proof. Only the
+  noncredential installation UUID may be read for its narrow0644 exception.
+- Cancellation drains an already-started trusted stop while leaving the marker.
+  Bound recovery requires the same recorded run/invocation and actual verifier;
+  unbound crashes stay refused. No force-clear, lock stealing, orphan promotion
+  or stale-token rollback. POSIX sync requests are not power-cut/provider-rotation
+  certification. No production stop command executes in these synthetic tests.
+
+# Synthetic Session Exchange - 2026-10-15
+
+- Extended only the ephemeral CI harness with successful synthetic device-code
+  grant/OAuth exchange, exact private session content, account notification/read
+  and a second native process using login status. Three additional cases refuse
+  OAuth403, malformed token JSON and invalid identity claims without auth state.
+  Nine admission regressions failed before implementation; all66 tooling cases
+  now pass locally. Actual compiled-client exchange remains an exact-source CI
+  gate, not inferred from these unit tests.
+- OAuth form/header and synthetic auth-file admission are explicit opt-ins. The
+  existing six cases still forbid OAuth and auth.json. Success admits only fixed
+  unsigned synthetic claims, no API key, a fresh timestamp and0600/single-link/
+  owned exact auth path; duplicate fields and writer orphans are refused. No
+  fixture/token/code bodies are printed. Private CA/loopback/trace limits remain.
+- Pinned app-server starts a model-catalog refresh worker for existing ChatGPT
+  auth. Use the separate native login status process for persisted readback,
+  requiring exact ChatGPT status and zero connection attempts. This does not
+  attest authenticated app-server startup, provider signatures or model access.
+  Both issuer and ChatGPT base URL point to the local peer; plus-plan fixtures
+  are not eligible for native workspace cloud-config retrieval. No model,
+  reasoning, permission mode, storage schema or upstream patch is changed.
+- Local E/F checks use the existing long-line convention (ignore E501); the first
+  broader invocation reported line-length findings, not runtime failures. No
+  unrelated formatting was applied. No server, real login, device, medical data,
+  inference or therapy operation is connected. Profile serialization/orphans,
+  private owner code presentation and runtime admission remain later gates.
+
+# Synthetic Native Login Protocol - 2026-10-14
+
+- Moved the final no-client process inventory into early preflight as well.
+  Distinguish the trusted root PID1 bwrap reaper (private PID namespace) from
+  UID65534 children; do not require ptrace access to the former, but fail on any
+  uninspectable owned process, foreign identity or surviving mounted client.
+  Root-owned PID1 is not mistaken for proof that other processes are gone;
+  post-exit host namespace-reference verification remains independent. New
+  regression failed first; all57 local tooling cases pass. Actual retry pending.
+
+- Latest cancel case passed its syscall audit (plugin git attempts absent), then
+  refused native installation_id mode0644. Pinned core/installation_id.rs
+  explicitly chmods this noncredential UUID on every read, so pre-seeding0600
+  cannot fix compatibility. Admit only that exact owned regular/single-link,
+  36-byte canonical v4 UUID file with every enclosing directory0700; all other
+  regular files remain0600 and auth.json stays forbidden. New regression failed
+  first; all56 tooling cases pass locally. Full native suite still pending.
+
+- Per-process audit identified blocked automatic git plugin-catalog sync and
+  pinned os_info bitness getconf lookups, not a proven trace interleaving bug.
+  Disable plugins with the supported features.plugins=false setting: pinned
+  Config maps it to plugins_enabled, which guards startup sync/marketplace tasks.
+  Keep git attempts refused; no new network/tool execution is allowed. Admit
+  only exact failed ENOENT getconf LONG_BIT OS lookups, at most16 per OS helper.
+  Two regressions failed first; all55 tooling tests pass locally. Actual retry
+  still pending; no production configuration/profile or model/permission change.
+
+- Separate-trace no-client preflight refused trace metadata before compilation.
+  Set077 explicitly in the trusted namespace setup before the tracer starts,
+  rather than relying on the host wrapper mask or the later Python setup.
+  Retained0600 admission and added bounded mode/owner/link diagnostics; the
+  diagnostic regression failed first. All53 local tooling cases pass; actual
+  retry pending, not an authorization/runtime readiness claim.
+
+- The constrained native process reached the final syscall audit after the
+  cancel scenario's initialize/code/poll/wrong-ID/correct-ID/repeat/silence checks.
+  The final audit refused an execution record; protocol suite not passed. Split
+  tracing per process to avoid cross-thread unfinished/resumed interleaving,
+  with private typed/bounded trace-file admission and bounded rejected-command
+  context. Added a zero core-size limit after the earlier synthetic abort.
+  Two new regressions failed first; all53 tooling cases pass locally. Actual
+  full-suite retry remains pending; no real login or runtime change occurred.
+
+- Pinned app-server source unconditionally emits a remote-control status
+  snapshot after initialization. Admit only a notification with disabled status
+  and no environment; every server request, connected status or unknown method
+  still fails. A regression failed before implementation; all51 tooling cases
+  now pass. No remote-control API is invoked or enabled.
+
+- The new traced no-client preflight caught libc's absent nscd Unix-socket lookup
+  before another native compile. Added an exact-path ENOENT-only, at-most8
+  compatibility allowance. A successful socket connection, different service or
+  extra attempts still fail; /var and /run remain absent/unmounted. The new
+  regression failed first; all50 tooling cases then passed locally.
+
+- Bounded retry diagnostics confirmed native SIGABRT/failed allocation under the
+  unchanged1GiB address-space ceiling, plus automatic OS/platform helper execs.
+  Test the glibc arena-limit hypothesis with MALLOC_ARENA_MAX=2, not a larger
+  address-space allowance. Supply public read-only OS metadata and a nonwritable
+  empty native command search path; platform warnings remain visible. The pinned
+  os_info3.14 source/checksum confirms it tries lsb_release before file fallback.
+  Only bounded failed ENOENT lookups for that exact command/path are admissible,
+  never successful extra tool execution. Actual retry remains pending.
+- Added a separate fixed Python tracer entrypoint for no-client TLS preflight,
+  so libc name-resolution connection behavior is audited before the full build,
+  not only when the native client finally starts. All49 local tooling cases,
+  Ruff and shell/whitespace checks pass after the new failing-first regressions.
+
+- Linux TLS/offline preflights,169 native component tests, full CLI build and
+  version/private scratch/provenance passed atc3f7496b (same ELF digest). Actual
+  protocol stopped awaiting initialize; discarded stderr hid early-process versus
+  timeout diagnosis. Added bounded synthetic-only failure diagnostics and an
+  early-exit regression, reproduced before implementation. All46 local tooling
+  cases pass. This is not a login or protocol success claim; retry is pending.
+
+- First Linux preflight stopped before native execution: the process-local077
+  creation mask also made the new public hosts/nsswitch files unreadable after
+  UID drop. Set0644 only on these fresh nonsecret read-only mounts; peer private
+  keys remain0600. Added exact file-only content/mode admission and a regression
+  that failed before implementation. All45 tooling cases now pass locally.
+
+- Added a CI-only harness for the pinned actual stdio app-server, fresh private
+  CA/local TLS peer and supported development issuer override. No real provider,
+  installed binary/profile, phone, medical data, model or therapy path is used.
+- Six bounded cases cover initialize, pending device-code polling, wrong/correct/
+  repeated cancellation, process termination, independent trust/name failures,
+  server refusal and malformed response. Strict request/header, syscall, private
+  file budget and namespace/process/listener teardown guards fail closed.
+- Nine initial guard tests failed before implementation; all44 tooling tests,
+  Ruff E/F and shell syntax now pass locally. A no-client TLS/network preflight
+  precedes compilation. Actual Linux protocol and exact-source Verify results
+  remain pending; publication is not deployment or real authentication.
+
+# Pinned Native Build Validation - 2026-10-14
+
+- Completed the exact-source native workflow at11e03445:169 native library tests,
+  full CLI build, strict offline version/private-scratch and provenance gates
+  passed. The single ignored outer entrypoint is parent-invoked. All35 Python
+  cases passed. Both push/PR Verify workflows passed backend/storage/Android.
+  Observed ELF digest was fa9607f213e252d25f01d2df2aa8ff42f3ab68ed3a9d4b27073dd2c083a4fc0f.
+  These results do not establish authenticated access or production readiness.
+
+- The corrected tmpfs run built the identical ELF digest again and successfully
+  executed the exact quiet native --version offline. The strict scratch gate
+  then refused the native temporary directory mode. Pinned tempfile3.27.0's Unix
+  implementation/documentation confirms directories use0777 filtered by umask,
+  unlike its0600 temporary files. Added process-local umask077 before any native
+  startup and a default-directory permission witness in no-client preflight.
+  Retained0700 directory checks and strengthened the empty lock to0600 rather
+  than admitting weaker modes. Two new regressions failed before implementation.
+  All35 Python tests, Ruff and whitespace checks passed. No profile data, real
+  login or server change; final exact-SHA CI still pending.
+
+- Complete native Linux compilation passed:169 login library tests, zero failures
+  and one child-process entrypoint ignored by the outer harness; the parent
+  scenarios invoke that entrypoint themselves. Full actual CLI build and source/
+  binary provenance check passed. Offline smoke stopped before client execution:
+  the fresh root-owned tmpfs default mode prevented UID65534 creating its home.
+  Set1777 only on that new namespace's private tmpfs; no host /tmp changes. Moved
+  private-home creation/permission verification into the early no-client preflight
+  so this failure cannot wait until after another full build. Retry still pending.
+
+- Auditing native startup showed that --version still creates helper aliases
+  before argument parsing. Replaced the invalid zero-scratch assumption with a
+  strict filesystem contract: only the native four-directory alias tree, one
+  empty lock and four exact links to the mounted client; no auth/config/history
+  files, other link target, nonprivate alias group or extra state. Six initial
+  guard regressions failed before implementation. All fixtures use neutral names;
+  production literals only reference the pinned native filesystem protocol.
+  All33 Python tests and local Ruff/whitespace checks passed with the bounded
+  scratch contract. The Linux build/protocol result is not inferred from them.
+
+- Early namespace preflight refused the initial Bubblewrap invocation: its
+  --uid option requires a user namespace. Kept the planned minimal mount and
+  private PID/network/IPC/UTS namespaces; a narrowly privileged setup process now
+  retains only UID/GID and capability-bound transition permissions, then setpriv drops real UID/GID,
+  supplementary groups and every capability set before Python/client execution.
+  The checker requires real/effective UID/GID65534, no supplementary groups,
+  all five capability sets zero, no-new-privileges and
+  a distinct network namespace. No uncontained client fallback was introduced.
+  Four capability-set regressions initially failed; all27 Python tests and
+  local Ruff/YAML/shell checks passed after strengthening the checker.
+
+- First complete Linux attempt failed before compilation because the official
+  release tag's149 internal lock entries retain0.0.0 while the manifests inherit
+  0.153.4. Native Cargo metadata on the clean unpatched checkout confirmed all149
+  mismatches. This is unrelated to moving the already locked tempfile dependency.
+- Cargo's workspace-only update on the local disposable full checkout changed
+  exactly149 version fields. Added strict parsed lock equality allowing only
+  those fields, recording both digests; external versions, sources, checksums
+  and dependency lists are unchanged. All builds/tests remain --locked. Initial
+  guard regressions failed; all26 Python tests now pass. Linux retry remains
+  pending. Added an isolation-only preflight before expensive compilation.
+
+- Retrieved the complete official source for the fixed reference. It is an
+  annotated tag pointing to commit3d2ee51ca2d5db578f328aa75e20aa22c0197c9a,
+  not itself a commit. Git object validation and the existing source-bound
+  patch check passed. Native lock/toolchain hashes are fixed in the new helper.
+- Added tested clean-checkout admission and pre/post-build digest receipts,
+  plus a version-only Linux isolation checker. Eleven initial tests failed for
+  missing helpers; all20 Python cases then passed. The checkout check resolves
+  macOS canonical temporary paths before comparing the Git root. Actual complete
+  source preparation/application/verification passed locally with exactly the
+  reviewed three paths and unchanged native lock/toolchain.
+- Added a separate ephemeral Ubuntu build workflow using native Rust1.95.0,
+  locked dependencies, two jobs and upstream dev-small profile. It tests the
+  login library, builds the actual CLI and checks version in a fresh offline,
+  minimal-root, nonroot namespace without credentials or profile. Full Linux
+  compilation and smoke results remain pending until exact-SHA CI is inspected.
+- No binary upload/release or server runtime replacement, real authorization,
+  model request, medical data transfer, phone operation or therapy changes.
+  Build receipts are observed digests, not independent signed attestations;
+  offline version does not certify authenticated protocol or refresh safety.
+
+# Atomic Session Storage Candidate - 2026-10-14
+
+- Investigated native file persistence and auto/keyring fallback at the fixed
+  official source reference. Auto can fall back to the same truncate/write path;
+  no host keyring or credential/billing alternative was selected.
+- A Rust regression using the original storage operations failed with an empty
+  live file after interruption. Added a narrow source-level candidate: private
+  sibling tempfile, complete write, file sync, atomic persist, Unix directory
+  sync. Native serialization/schema remain unchanged in the integration patch.
+- Actual helper tests passed10 parent scenarios, including pre/post-replacement
+  child termination, error cleanup, permissions, open-reader snapshots and10000
+  concurrent reads. One ignored child entry point is invoked by those scenarios.
+  Nine source-pin/fetch unit cases and clean application to the two exact public input
+  files passed. All48 standalone lock dependencies match the native lock file;
+  tempfile3.27.0 moves from dev to runtime use without a native lock update.
+- tools/session_store contains the tested helper, hash-bound patch builder,
+  source compatibility check and provenance/limits. Added an independent Linux
+  CI job; final exact-source publication/CI remains a gate. Local format, Clippy
+  with warnings denied and isolated Python E/F checks passed.
+- Candidate only: no client compiled/replaced on the server, login, profile
+  mount, credentials, provider/model request, medical data or phone/therapy change.
+  Atomic file replacement is not a transaction with provider token rotation.
+  A private orphan can remain after forced termination; never auto-promote it,
+  restore an old token or claim guaranteed login continuity/power-cut durability.
+  Full upstream compilation, binary provenance, bounded serialized controller
+  and actual contained client/protocol tests remain runtime admission gates.
+- Raw source download returned404; unauthenticated fixed Contents API returned
+  the exact expected hash. Compatibility now uses that one explicit public API,
+  with no credentials, redirect/domain fallback or version/hash substitution.
+
+# Independent Login Profile - 2026-10-14
+
+- Owner selected a separate ChatGPT account login, not an API key, and approved
+  one new private service profile. Created only the initially empty directory;
+  no old authorization/profile was read, copied, mounted or replaced.
+- Sixteen private filesystem checks passed before mutation: existing directory,
+  file, symlink and dangling link refusals, parent metadata/permission drift,
+  private ownership/mode and conservative failure cleanup. Fresh remote parent
+  admission preceded exclusive creation; independent stat and entry count then
+  confirmed the original receipt identity, service ownership, mode0700 and empty
+  contents. No existing service or configuration changed.
+- Read-only official pinned-source inspection identifies a candidate app-server
+  device-code login path and neutral client initialization. Source inspection is
+  not installed-client or outgoing-header verification. A contained synthetic
+  protocol/TLS/state test remains required before real owner authorization.
+- No real login, model request, medical data transfer, phone operation or therapy
+  change. The new persistent directory is retained; never remove nonempty login
+  state as routine temporary-test cleanup. Operational evidence stays private.
+- Previous public-transport source commit completed both exact-SHA Verify events:
+  backend498 passed/26 optional engine skips and Android tests/lint/build passed.
+  All26 engine cases ran locally within524 passing tests. No release or merge.
+
+# Public Transport Validation - 2026-10-14
+
+- Continued the approved anonymous HEAD-only gateway stage, with no login,
+  prompt, model request, medical data, phone change or API deployment.
+- Added pure ObservedProbeProfile and strict three-field status receipt. The
+  gateway hides upstream-supplied status copies while preserving the inherited
+  cookie/Location/authentication-header hides. A numeric gateway-owned upstream
+  status distinguishes public origin responses from local denials. Failed exit,
+  failed local TLS, missing/mismatched/interim/5xx status never proves transport.
+  The original TransportProbeProfile and receipt behavior remain unchanged.
+- Missing implementation reproduced31 failures. Unit contracts passed31; four
+  actual Nginx/curl TLS checks passed after correcting a test-fixture CA path.
+  Engine checks include spoofed upstream headers, local403 and wrong upstream
+  name/issuer yielding502 despite successful local TLS. Full local backend524
+  passed, zero failures/errors/skips, one existing warning in116.93s. Private14
+  DNS/manifest/admission checks and isolated E/F/whitespace checks passed.
+- Fresh host-only fixed-name DNS/public CA/binary/library inputs were pinned.
+  Desktop DNS lookup timed out and was not represented as corroboration. Before
+  any public HTTP, separate same-address host-network cgroup deny/allow controls
+  yielded connection timeout versus expected private-CA TLS refusal; no HTTP can
+  pass that private-CA control. Only then was the public-CA gateway started.
+- Two anonymous HEAD requests produced matching local/upstream403 over verified
+  TLS for both fixed provider names.403 proves transport here, not login, model
+  API availability, bot-challenge bypass or an authenticated response. Remaining
+  local route/method/header/CA/name/filesystem/network controls also passed.
+  All13 checks and16 invocation-bound stops passed under the existing aggregate
+  512MiB/swap0/25%-one-core/64-task limits. No existing services/firewall changed.
+- Independent postflight confirmed own roots/files/processes/cgroups absent,
+  all units inactive and original binary/library/public CA identities unchanged.
+  Inactive cached definitions are not claimed collected. Private manifests,
+  ephemeral keys, host addresses and evidence remain outside Git. Exact-source
+  publication/CI remains a separate gate; minimal login, captured real-client
+  protocol, inference and contextual device chat remain unimplemented gates.
+
+# Synthetic Host Isolation - 2026-10-14
+
+- Continued the owner-approved temporary credential-free check. Extended the
+  trusted stop verifier with one generated-v4 shared slice; arbitrary unit/user
+  selection remains forbidden and the default parent remains system.slice.
+- Host checks exposed two real integration differences: proc-root links may spell
+  the prepared root as `/`, and static units may clear InvocationID after stop
+  while staying loaded. Administration now compares root device/inode; the
+  verifier accepts only the exact inactive/dead/blank-ID state after positively
+  binding and stopping the original invocation, never on entry or with populated
+  descendants. Added20 stop regressions;36 stop tests pass.
+- Actual minimal-root Nginx failed on a compiled-in temporary path outside /work.
+  Made all five HTTP temporary paths explicit under the existing bounded mount.
+  Reproduced missing-path regression before the fix. An unsupported curl test
+  option was separately corrected; parser errors were never accepted as denial.
+- Final private host run passed13 synthetic cases: two fixed TLS names, header
+  stripping, route/auth-header/method denial, wrong CA/name rejection, no external
+  route, unreadable host marker/socket and deny-all versus loopback-allow cgroup
+  controls. Kernel root identities, private namespaces, nonroot/no-capability/
+  no-new-privilege/seccomp state and aggregate512MiB/swap0/25%-one-core/64-task
+  limits were inspected. No real provider/model/auth request was made.
+- All17 service invocations received bound stop confirmation. Independent
+  postflight found no own directories, unit files, processes or cgroups and
+  verified original binary/library identities, hashes, modes and link counts.
+  Inactive cached unit definitions are explicitly not claimed collected; no
+  global daemon reload, existing service/config/firewall/rootfs or auth change.
+- Full final local backend:489 passed, zero failures/errors/skips, one existing
+  deprecation warning in81.96s; focused122 including22 real Nginx tests passed.
+  Private harness23 checks passed; later harness-only command changes passed18
+  affected checks. Isolated E/F and whitespace checks passed. Publication/CI is
+  an independent gate; private manifests, synthetic keys and host evidence stay
+  outside Git. This proves only synthetic isolation, not online inference,
+  authenticated model responses, contextual device chat or clinical readiness.
+
+# Credential-Free Transport Profile - 2026-10-14
+
+- Owner approved the isolated gateway proposal. Added an inactive pure profile
+  builder, not a launcher: validated immutable v4/nonroot/public-IPv4 inputs,
+  separate Unix-synthetic/public-numeric upstreams, Nginx HEAD-only TLS policy,
+  bounded curl arguments and strict HTTP/TLS status-only receipt validation.
+- Missing-profile assertion reproduced before implementation; initial55 unit
+  contracts passed. Additional8 failures reproduced missing exit-status/final-
+  response admission and handshake limits. Real Nginx caught an unsupported HTTP
+  timeout directive; corrected against1.24 source to client_header_timeout.
+- Final focused85 checks passed, including22 real Nginx1.24/curl tests over Unix
+  TLS sockets only. No Docker daemon or system service was started; the local
+  engine was built in private scratch. Full local backend passed468 cases with
+  zero failures/errors/skips and one existing deprecation warning in82.50s.
+  All three Python input hashes stayed unchanged. Isolated E/F and whitespace
+  checks passed. Exact-source publication/CI remains an independent gate.
+- No existing service, host configuration, credential/profile, phone, medical
+  upload, API route, inference worker or therapy behavior changed. Actual prepared
+  roots/relay/network/cgroup/environment and all-role stop/cleanup remain separate
+  gates. HTTP transport, source tests and CLI version are not AI readiness.
+
+# Offline Runtime Boundary Check - 2026-10-14
+
+- An explicitly approved one-off version-only check ran the pinned runtime under
+  the existing offline root and separate nonroot service identity. No model
+  inference, authorization material, medical input, model setting, public API,
+  phone package or therapy command was involved.
+- Reviewed actual unit properties matched the offline network/filesystem and
+  CPU/memory/PID/time limits. The existing SystemdStopVerifier bound the original
+  invocation and independently confirmed stop; a separate later host inspection
+  confirmed absence of the disposable unit, descendant cgroup and own directory.
+- A neutral temporary hardlink was mounted over an already-existing empty file
+  only inside the unit namespace. The source binary identity and original mount
+  target were preserved; no new file was created in the existing rootfs.
+- Four private diagnostic contract tests passed after missing-helper and
+  mount-target/cleanup guard failures were reproduced. Diagnostic/verifier input
+  hashes stayed unchanged during the live check. Operational evidence remains
+  private and is not included in the repository.
+- This proves only this bounded offline version invocation and its teardown.
+  Online egress containment, hostile/timeout descendant tests, real inference,
+  retained context, device synchronization and contextual chat remain separate
+  gates. No production launcher or inference readiness is claimed.
+
+# Personal Device History API - 2026-10-14
+
+- User approved own-device contextual server architecture and365-day retention,
+  beginning with local storage and protected API. No production operation belongs
+  to this source stage.
+- Added strict observational schemas and optional historical context, per-key
+  private SQLite files with derived AES-GCM payload/receipt encryption, atomic
+  batches/revisions/tombstones, fixed expiry and bounded stable pages/quotas.
+- Optional signed append/query routes are independent of inference and preserve
+  default route absence plus existing multi-owner job admission. Current access
+  is rechecked after exact-body proof; errors expose stable codes only.
+- Missing implementation RED reproduced27 contract failures and route/storage
+  absence. Extra regressions reproduced corrupt-duplicate acknowledgment and a
+  metadata-query connection leak; corrected. Focused54 checks passed, including
+  real synthetic attestation/proof HTTP exchange, refresh/revocation, coexistence,
+  encrypted restart/closed-file restore and concurrent conflict/rollback.
+- Encryption is payload-only; metadata, production key custody, encrypted volume,
+  idle purge/backup expiry, full Android export/adapters, actual contextual model
+  responses, deployment/load checks and GI control admission remain explicit gates.
+  No medical data, device files, credentials, phone or server changes.
+- Expanded on-disk nonce corruption regression also reproduced an unwrapped type
+  failure and now returns the stable storage error. Added explicit expired-retry
+  and receipt-purge coverage. Final backend passed383 cases, including56 new cases,
+  with one existing deprecation warning in33.91s. All seven
+  Python input hashes stayed unchanged. Isolated E/F checks passed with explicit
+  pytest imported-fixture exemptions. Publication/privacy review and exact-SHA CI
+  remain gates; no real inference or server/deployment evidence is implied.
+
+# Explicit Eating Soon Meal Intent - 2026-10-14
+
+- User reported differing positive/net IOB, a raised target despite rising
+  forecast and lost Eating Soon when entering food. Source trace separates signed forecast residual from
+  positive safety IOB; screenshot cannot identify actual live block reason.
+- Four new tests failed before implementation:wrong target order, NOT_REQUESTED
+  after carb block, BLOCKED after profile failure, and false UI non-send claim.
+- Explicit target now uses the same guarded callback before carb/profile work;
+  independent outcomes survive failures and cancellation. Existing durable
+  idempotency, mode-independent manual path,30-minute priority and protections
+  retained. No new IOB/target tuning, physiology or GI clinical activation.
+- Added food-profile/GI, mode/HTTP refusal, cancellation/duplicate, signed-vs-
+  positive IOB and lower-target/CI/reliability regressions. First focused run
+  identified one obsolete no-target-after-carb-failure expectation. The expanded
+  HTTP fixture then exposed reused target/carb row IDs; corrected the fixture to
+  match the distinct production IDs. Final focused run:208 passed, zero skips/
+  failures/errors across9 suites. First full local unit/lint/compile/assemble passed
+  in12m58s:5520 passed,6 optional private-input skips, zero failures/errors across
+  484 suites. Lint:zero errors,311 warnings,8 hints. All12 reviewed Android
+  Kotlin/XML hashes unchanged and existing APK v2 signer verified. Public fixture
+  values subsequently replaced with synthetic quantities. Final exact-source
+  full gate passed in4m51s with the same5520 passes/6 skips and zero failures/
+  errors/lint errors; all12 final Android hashes unchanged. Publication/CI remains
+  a separate gate.
+- Redmi briefly appeared in ADB, then disconnected before version/diagnostic
+  reads. No phone stops, updates, therapy commands, recovered medical history
+  or actual refusal-cause claim.
+
+# Meal Input Observations And Basis Correction - 2026-10-14
+
+- Source inspection found that prepareCalibrationRuntimeContext feeds resolved
+  calibrated CGM to the local engine, while the preceding research candidate
+  required a raw label unbound to its frozen inputs. Explicit measurement basis
+  and calibration identity now travel with the simulation; false raw retagging
+  rejects. Source measurement metadata and comparison/digest v2 are mandatory.
+- Added Room34 selected input observations after clinical fan-out within the
+  existing one-second nonfatal journal budget. Raw/resolved CGM, original insulin
+  vs aligned timestamp, accepted sensitivity and local kernel identity retained.
+  No second prediction/fit, new timer, training producer or clinical writer.
+- First-write/post-commit semantics, isolated21-day retention, bounded review and
+  same-sample deduplication/conflict rejection. Independent modeled AAPS activity
+  samples are NOT full insulin interval or physical delivery verification.
+- Added source/basis, candidate-binding, observation, native migration/restart
+  checks and advanced older supported tails to34. Strengthened focused checks:
+  83 passed and1 optional external-copy skip. The first full run found one
+  obsolete alert architecture schema-version expectation; updated33 to34 while
+  retaining alert read-path isolation assertions. Corrected full local unit/
+  lint/compile/assemble passed in11m38s:5510 passed,6 optional private-input skips,
+  zero failures/errors across484 suites. Lint:zero errors,311 warnings,8 hints.
+  All29 reviewed Android hashes stayed unchanged; existing APK v2 signer verified.
+  Exact-source publication/CI remains a separate gate.
+- No phone operation, observed patient accuracy, model admission or target change.
+
+# Personal Meal Forecast Candidate - 2026-10-14
+
+- Continued qualified absorption research with an immutable timing/optional-GI
+  artifact and LOCAL_ENGINE prospective candidate, not an active-target change.
+- A separate disposable calculation applies one meal curve to historical known
+  inputs and future food/COB/UAM consistently. Existing hypothetical future meal
+  timing intentionally retains old history and is not changed. Changed known
+  inputs trigger the existing Kalman replay and residual AR invalidation.
+- Effective insulin kernel joins exact sensor/calibration cohorts. Shared meal
+  comparison selection retains the previous GI analysis semantics. Independent
+  known GI needs all-horizon held-out improvement, no boundary/extrapolation;
+  unavailable current GI cannot silently switch an accepted GI model to timing.
+- Candidate model/input clocks and runtime/meal/raw-local identities are checked
+  before the first outcome. Candidate intervals stay null; source metadata alone
+  is not trusted capture. No AppContainer/worker/journal/clinical writer change.
+- Initial focused87 synthetic tests passed; strengthened88 checks also passed,
+  including populated AR, unchanged held-out fit parameters, training mass
+  support and future model/clock guards. Full local unit/lint/compile/assemble
+  passed in11m31s:5492 passed,6 optional private-input skips, zero failures/errors
+  across481 suites. Lint:zero errors,311 warnings,8 hints. All9 reviewed Android
+  source/test hashes remained unchanged; APK v2 signer matches the existing
+  certificate. Exact-source publication/CI is a separate gate. No observed
+  patient accuracy, phone update, CPU/RAM measurement or target activation.
+
+# Prospective Forecast Journal - 2026-10-14
+
+- Continued observational validation: independent Room33 accepted-cycle journal,
+  post-commit finalization, unknown/late/interrupted states, no engine rerun or
+  old-history backfill. No personalized candidate or new clinical input.
+- Outcomes are contemporaneous calibrated accepted-cycle CGM. Their clocks
+  establish journal availability, not original transport arrival or blood truth.
+- Baseline-only errors reuse the strict matcher, separate from personal pairs;
+  baseline versions also separate cohorts. Passive Analytics checks on demand.
+- Synthetic evaluation/Room/native migration/restart/compact/large-font tests
+  added. First compile found a callback wired to the neighboring Analysis screen;
+  corrected to Analytics before tests. Focused96 cases passed with1 optional
+  external phone-copy skip. Inspected320x640 and1.8font native screenshots.
+- Full local unit/lint/compile gates passed:5479 tests passed,6 optional
+  external-input skips, zero failures/errors across479 suites; lint zero errors,
+  311 warnings and8 hints. The combined terminal session became unavailable
+  after lint during APK packaging; no final combined success is claimed.
+  Resumed only assembleDebug, which passed in46s. All25 reviewed Android file
+  hashes remained unchanged; existing APK v2 signer verified. Exact-source CI
+  is a separate publication gate. No patient accuracy or CPU/RAM measurement.
+- Schema32 APK rollback is incompatible after33; reviewed forward repair with
+  fresh coherent backup only. No destructive fallback or phone operation.
+
+# Prospective Meal Forecast Contract - 2026-10-13
+
+- Following the user's acceptance of forecast-validation prerequisites, added
+  paired pre-outcome research receipts and an on-demand adapter for the existing
+  authenticated accepted runtime capture. No applied-target, phone or clinical
+  input changes. This is one source prerequisite, not clinical activation.
+- Freeze3 horizons, model/evidence cutoff and timing, source/cycle/revision,
+  sensor/calibration/glucose basis and zone. Candidate/source mismatch, late
+  registration and future evidence reject. Missing candidate/intervals are
+  explicit; accepted control and local engine comparisons stay distinct.
+- Score exact same-series outcomes with availability/quality checks. No nearest
+  point substitution or low-value exclusion. Separate cohorts, equal day weights,
+  no repeat voting or favorable conflict selection; aggregate mean/lower-bound
+  missed lows, interval support/coverage, max overprediction and missingness.
+- First focused run:35 cases,2 reproduced failures. Fixed unknown availability
+  being lumped into missingness and unordered identical predictions conflicting.
+  Corrected run:35 passed plus1 optional file-tool skip. Import review reproduced
+  a third defect: missing JSON comparison-basis enum could bypass the typed
+  identity contract. Added explicit enum membership rejection. Final focused
+  checks passed36 cases with1 optional file-tool skip. Separate synthetic tool
+  execution verified rejection counts, paired metrics and no activation flags.
+- The initial full Android run used compilation preceding the import guard,
+  reproduced that failure and was deliberately interrupted; it is not final
+  verification evidence. The corrected combined gate runs with one Gradle worker.
+- Private tool revalidates supplied receipts and exports aggregates. It does not
+  authenticate historical capture. Final combined local unit/lint/compile/APK
+  passed in30m03s:5462 passed,6 optional external-input skips, zero failures or
+  errors across476 suites. Lint:zero errors,310 warnings,7 hints. APK v2 signature
+  matches the existing signer; five changed source/test hashes stayed unchanged
+  throughout the final gate. Exact-source publication/CI remains separate.
+  No real prospective accuracy or CPU/RAM claim.
+- Trusted durable collection, a qualified causal personalized forecast and
+  independent control assessment remain later work. Receipt/score code has no
+  controller, therapy DAO, dispatcher, app registration or background scanning.
+
+# GI Contribution Analysis - 2026-10-13
+
+- User requested comprehensive GI analysis and its influence on Target Manager.
+  Implemented the research-analysis prerequisite, not clinical activation.
+- Qualified same-revision GI, explicit sensor/calibration/insulin-model cohorts,
+  fixed pre-missingness chronological split, existing timing fit plus bounded
+  empirical GI contribution, same-window5/30/60 response errors and fixed-model
+  declared-mass stress. No guessed laboratory GI or percentage target adjustment.
+- Repository reads known GI from the same bounded canonical snapshot. Optional
+  private tool exports aggregates with explicit prospective/control-safety
+  blockers. No new clinical source, writer, subscription, schema or phone action.
+- First direct Kotlin/JUnit/Room run passed72 tests. Expanded verification passed
+  74 checks with the private-input tool skipped; that tool separately passed an
+  explicit synthetic-bundle/report contract check. Full local unit/lint/compile/
+  assemble succeeded in13m55s:5440 passed,5 opt-in external-input skips, zero
+  failures/errors across474 suites. Lint:zero errors,326 warnings,7 hints.
+  Existing APK v2 signer verified. Exact-source CI remains a publication gate.
+  No personal accuracy is established: metrics condition on recorded insulin
+  and reviewed history, not causal future inputs or changed-target outcomes.
+
+# Primary Mixed COB Display - 2026-10-13
+
+- User selected the existing mixed Copilot estimate as the primary display.
+  Dedicated effective value/time fields replace the external-only presentation;
+  external AAPS remains a separately labeled reference with its own freshness.
+- No absorption/GI calculation, meal edits, limits, forecast/controller changes,
+  targets or doses. The UI neither hardcodes a value nor validates physiological
+  accuracy. Existing accepted food-curve points and origin remain intact.
+- Newest exact-source OK gram sample is required; invalid/future/conflicting
+  results do not resurrect older estimates. Missing effective data cannot fall
+  back to external COB. Both sources expire through one-shot UI clock boundaries.
+- Synthetic selector/mapper/expiry/retained-curve/native UI regressions added.
+  All146 cases in the affected suites passed. Inspected compact320x640 and
+  dark/large-font native screenshots, including unavailable Copilot vs fresh AAPS.
+- Full local unit/lint/compile/assemble succeeded in28m49s:5422 cases across472
+  suites,5418 passed,4 existing opt-in private-data skips, zero failures/errors.
+  Lint has zero errors,326 warnings and7 hints. Existing APK v2 signer verified.
+  Exact-source CI remains a separate gate. No device changes or installation.
+
+# Event Compensation Context - 2026-10-13
+
+- User requested GI, shorter quantity labels and useful compensation remarks.
+  Added source-backed saved GI and read-only historical context on meal selection.
+  Existing clinical calculation, GI model, targets, doses and meal writes unchanged.
+- Exact canonical selection binding, same-source/explicit-unit comparisons,
+  bounded Room reads, quality/gap/overflow guards and visible unknown states.
+  CGM range/peak timing and ISF changes are observations, not causal conclusions.
+  No universal sensor wear limit or unvalidated meal-delay minutes are guessed.
+- Final focused Kotlin/Compose/Room/native verification passed48 cases; synthetic
+  narrow and large-font screenshots were inspected. The first direct harness
+  compile used shadowed resource classes, fixed by prioritizing the updated R
+  jar; this environment failure is not a product regression.
+- Initial full unit run passed5409 cases with4 existing skips before source
+  review refinements; its obsolete lint was deliberately stopped. The final
+  combined local unit/lint/compile/assemble gate succeeded in12m19s:5412 cases,
+  5408 passed,4 opt-in private-data skips, zero failures/errors. Lint has zero
+  errors,326 warnings and7 hints. APK v2 signature verified with the existing
+  signer. No backend files changed; exact-source CI remains a separate gate.
+- Archive CGM is explicitly labeled without Copilot correction. Low baseline
+  takes precedence over subsequent high readings. The redundant modeled meal
+  graph-window text is removed; non-meal lifecycle information is retained.
+- Publication, source CI, phone recovery and installation are separate gates.
+  No device installation or restoration is claimed for this source stage.
+
+# Chart Event Details Device Follow-Up - 2026-10-13
+
+- Passive device inspection exposed two presentation defects: source payloads
+  filling all24 clinical attributes lost optional detail amounts; a transport
+  correlation note could appear as human text. Private device records and
+  screenshots remain outside Git. Regression fixtures are synthetic.
+- Reproduced3 assertion failures in26 focused/native checks before the fix.
+  Source-resolved quantities now also travel in two transient typed fields;
+  existing clinical attributes, parsing, storage and impact stay unchanged.
+  Presentation strips command correlation markers without inferring source or
+  delivery. Finite/range/provenance checks and missing-data semantics remain.
+- Fixed focused/native run passed27 cases, including full-payload grams and
+  recorded insulin, marker removal, preserved impact and Gson exclusion.
+  The compact synthetic screenshot was inspected. Full local unit/lint/compile/
+  assemble succeeded in18m22s:5391 cases/470 suites,5387 passed,4 opt-in private-data
+  skips, zero failures/errors. Lint has0 errors,326 warnings and7 hints. The new
+  APK verifies with the existing v2 signer. Publication/exact-source CI and
+  corrective device installation are separate gates, recorded privately.
+- User separately authorized a fresh coherent backup and corrective in-place
+  update after checks, with only Copilot briefly interrupted. No test therapy
+  or sound commands are part of device verification.
+
+# Chart Event Details - 2026-10-13
+
+- Reviewed source commit30f7c94bd9fda4aa8e0cc25433612af683c46913 is published.
+  Exact-source Verify passed for both push38368380803 and PR38368388884;
+  Android and backend jobs succeeded. Completion documentation changes no code.
+  Evidence: https://github.com/siriushex/toolsaaps/actions/runs/38368380803.
+- Final combined local gate completed successfully in24m5s: unit tests, lint,
+  Kotlin compilation and debug assembly. Inspected XML:5388 cases/470 suites,
+  5384 passed,4 existing opt-in private-phone-data skips, zero failures/errors.
+  Lint has zero errors,326 warnings and7 hints; this is not a warning-free claim.
+  The popup's bounded Configuration height has an SDK-insets advisory; native
+  narrow, landscape and large-font layout tests passed without clipped text.
+  APK signature v2 verifies. Synthetic native screenshots were inspected.
+  Source publication/CI then passed as recorded above. APK remains private; no phone
+  installation, therapy action or clinical model activation was performed.
+- User selected and authorized an expanded existing popup. Added typed detail
+  projection and compact read-only sections with date/time, source, recorded
+  quantities, reference-check status, explicit activity facts and human notes.
+- Source-resolved meal quantities preserve canonical precedence and refuse
+  ambiguous display aliases. Reserved display values cannot be injected through
+  incoming attributes; optional additions do not evict clinical keys at the cap.
+- Existing blood-check projection now preserves canonical blood and matched-CGM
+  values. LocalEventImpactAnalyzer inputs/clinical thresholds remain unchanged.
+- Point measurements do not become six-hour procedures. Modeled envelopes are
+  explicitly graph windows; accepted blood references do not imply calibration
+  application. Removing a selected event clears its selection permanently.
+- The actual missing-blood-value regression failed before enrichment (3 tests,
+  1 assertion failure). Typed projection passed9 isolated JVM tests. Two later
+  assertion regressions exposed multiline-JSON leakage and conflicting validity
+  still showing insulin; both were fixed. A missing existing intensity resource
+  name was corrected during compilation. Private harness resource-cache failures
+  were environment failures, not behavioral REDs.
+- Direct Kotlin2.2.21/Compose verification passed23 tests, including native
+  Robolectric single/cluster taps, update/delete/re-add, Close/back and layout
+  checks. Synthetic320px light, large-font dark and landscape images were
+  inspected. Final full local Android gates are running; no APK/publication claim.
+- Full unit tests then passed5387 cases with4 private-data skips. Review found
+  a further cap-order regression: removing reserved display keys before bounding
+  could expose a previously clipped clinical profile. A real1-test assertion RED
+  reproduced it. Bounding now precedes display-key removal; the fixed source
+  passed24 focused/native cases. The running lint was stopped before the fix;
+  a fresh full local gate is required. Matching time is labeled as alignment,
+  not an asserted physical CGM sample timestamp.
+- The earlier personal-source full run completed5364 tests, zero failures/errors,
+  4 existing skips, then was stopped deliberately during lint to verify the final
+  combined source once. It is not full-gate acceptance. All local gates remain
+  required before either source stage is published.
+
+# Qualified Personal Meal Source - 2026-10-13
+
+- Final combined Android unit/lint/compile/assemble gates passed locally; see
+  the chart-event entry above for the inspected totals. This verifies source
+  behavior, not personal-model accuracy or eligibility for clinical control.
+  Reviewed source30f7c94b was published and exact-source push/PR Verify passed.
+- User approved the written specification and starting the first evidence stage.
+  Scoped plan: superpowers/plans/2026-10-13-personal-meal-evidence-producer.md.
+- Added on-demand bounded canonical join and pure prepared-episode qualification,
+  exact meal binding, missing-source reasons, conflict/overlap rejection, immutable
+  outcomes and preparation-aware chronology/digest. Legacy metadata is not guessed.
+- A real invalid historical-timezone test failed with an incorrectly prepared
+  episode before the adapter guard was added. New producer contract tests also
+  demonstrated missing types before implementation; this compile failure is not
+  claimed as a behavioral assertion RED. Focused domain/Room validation passed.
+- Existing eligibility/fit thresholds and clinical controls are unchanged. No
+  clinical forecast, COB/gram write, target/dose/priority, schema, worker or phone
+  change. Source-provided research attestations are not physical delivery proof.
+- First Gradle-focused run passed79 cases/6 suites, zero failures/errors/skips.
+  Direct Kotlin2.2.21 verification then reproduced2 assertion failures in81 cases:
+  source mutation across the actual Room query and unknown/retrospective CGM basis.
+  Added pre-query freezing and explicit basis qualification; all81 cases passed.
+  Initial private harness path/SDK/resource errors were not behavioral REDs and
+  are retained separately. Full local gates are required before publication,
+  following the user's latest choice; no early CI source publication.
+
+# Meal Response Target Integration Design - 2026-10-13
+
+- User requested actual GI-informed target influence and approved the route
+  through a validated personal absorption model and existing forecast/controller,
+  instead of a direct target percentage. Written specification now approved:
+  superpowers/specs/2026-10-13-meal-response-target-integration-design.md.
+- Current GI exponent is display-only and uncalibrated. Personal prepared-input
+  source is incomplete; research EVALUATED cannot enable clinical control.
+  First implementation scope is a bounded qualified evidence producer, rejecting
+  unknown inputs rather than fabricating insulin/context or weakening eligibility.
+- Prediction evaluation and independent control-safety assessment are separate
+  gates. Existing Eating Soon, hypo/sensor/delivery protection, ownership,
+  freshness, bounds, arming and single-writer dispatch remain authoritative.
+- Documentation only: no clinical forecast/COB/gram/target/dose/priority changes,
+  build or device actions. Private audit details stay outside the repository.
+
+# Lenta Personal History Connection - 2026-10-13
+
+- Focused Android run passed76 cases in6 suites, zero failures/errors/skips,
+  including real Room and native Compose tests. Inspecting the native320px
+  dark/1.3-font screenshot exposed a readout below the viewport and awkward
+  portion wrapping. A strengthened native test reproduced the invisible readout
+  (one expected assertion failure, no compile error). Added adaptive portion
+  menu and font-aware chart space; fresh native verification is running.
+  The started full local gate was intentionally stopped before source edits;
+  its partial output is not acceptance. Exact-source CI for bb73dd62 is running.
+
+- Source-only CI publication was explicitly authorized by the user. Source,
+  synthetic tests and documentation may go to the existing feature branch;
+  medical records, logs, private screenshots, keys and APKs stay local.
+- The runtime-only workaround completed resource linking, Room generation and
+  app Kotlin/Java compilation. Unit-test compilation then exposed three test
+  EnergyProfileDao implementations missing the new read method. Their in-memory
+  implementations are now updated; focused Android verification is rerunning.
+  This is not a passed unit/lint/APK gate or a release.
+
+- Resume: added regression for pending-history inspection, and keyed selected
+  chart point to the frozen request rather than result metadata. History reload
+  refreshes values at the selected time; changing type/portion/settings resets it.
+  Native execution is still pending; this is not a claimed rendered validation.
+- Build diagnosis: installed Gradle9's Kotlin DSL classpath snapshotter was
+  observed before any task. Runtime-only scriptCompilationAvoidance=false with
+  SDK36 AAPT2 passed resource linking and Room KSP generation and reached app
+  Kotlin compilation on the original build scripts. No Groovy substitute,
+  project build setting, dependency upgrade or quality-check suppression was used.
+  Terminal focused/full/CI/APK acceptance still remains pending.
+
+- User requested immediate history connection instead of the earlier type-only
+  UI stage. Added separate Estimate mode, full gram/minute chart, type/portion
+  controls and passive point inspection, keeping Current and Food actions intact.
+- Read-only bounded Room source accepts canonical locally confirmed independent
+  meals; batched override lookup avoids one query per meal. No schema/worker or
+  per-CGM history subscription. Source is requested only on first Estimate open.
+- Shared comparability rules select type, portion and circular ±2-hour neighborhood.
+  Approximate declared quantity influence starts at one meal, shrunk to presets
+  and capped. Valid saved GI context adjusts only model shape with the existing
+  display heuristic; unknown GI is explicitly unavailable, not inferred from BMI.
+- Old CGM audit lacks qualified insulin/sensor/timezone context. No fabricated
+  prepared episodes, CGM-trained GI accuracy or actual-mass precision is claimed.
+  Clinical COB, forecasts, grams writes, targets, doses and priorities are unchanged.
+- Added domain/Room/native regressions. Direct Kotlin2.2.21 compilation and JUnit
+  passed6 focused model cases against existing debug dependencies. Room/native
+  and complete Android validation remain pending. First Gradle attempt exited
+  before tests: Maven AAPT2 daemon startup failed at resource linking. SDK36 AAPT2
+  itself starts successfully. Its command-only override retry stayed in project
+  configuration for more than20 minutes and was intentionally cancelled by
+  terminating only the owned Gradle daemon. No Room/native result or new APK.
+  Existing infusion edits are preserved; previous stage test results do not prove
+  this new source. No new APK publication, installation or therapy action yet.
+
+# Infusion Set Indicator Implementation - 2026-10-13
+
+- Implemented the approved first stage: bounded qualified original change records,
+  pure72h timing, independent reminder generation/attempt/watermark DataStore,
+  startup/source/resume reconciliation and one best-effort silent WorkManager slot.
+- Worker final source/deadline check and synchronous post share a brief Room read
+  transaction; stale workers cannot post after a committed replacement/deletion.
+  Missing date/unit aliases, receipt fallback, tombstones, conflicts, echoes,
+  nonfinite/future/overflow and unrelated maintenance fail closed for timing.
+- Durable claim precedes post; unknown/interrupted outcomes are terminal, known
+  capability restoration gets at most one retry. Existing global OFF is respected;
+  source history, deadline, clinical arming and glucose/delivery priority are not changed.
+- Passive primary indicator and details separate recorded wear from existing
+  policy-authorized diagnostic evidence. Startup/invalid/basis-changed/stale data
+  remains history, duplicates do not renew freshness, replacement cannot resolve
+  an independent diagnostic. No new insulin-consumption/ISF thresholds or therapy.
+- 26 core/platform/store cases passed. Initial80 combined cases caught landscape
+  test framing; corrected native80 passed with fresh screenshots. A further real
+  RED caught storage-failure help incorrectly asking to rewrite a date; separated
+  storage guidance without clearing history. A real RED also caught KEEP swallowing
+  a bounded capability-restoration retry; that case uses REPLACE without extending
+  the attempt budget. Final full gate/CI recorded below.
+- Final source unit run passed5320 cases/462 suites, zero failures/errors and4
+  private opt-in skips. Private verification harness used one fork/1g test heap;
+  no production Gradle setting changed. Fresh native screens and diff checked.
+- Local lint did not finish in the combined run or a fresh standalone2g JVM.
+  Thread snapshots show active Kotlin/Compose analysis; cause remains unconfirmed.
+  Both owned runs were stopped and audit output retained, not called success.
+  Infusion source is not committed/pushed/released; explicit authorization was
+  requested to finish static verification on CI. No new infusion APK acceptance.
+- Native/synthetic evidence is private, not phone acceptance or audible-delivery
+  proof. No phone install, medical data publication, test therapy or sounds.
+
+# Dashboard IOB And Direct Schedule Implementation - 2026-10-13
+
+- Human approved both written specifications. Shared presentation displays
+  current IOB / signed net IOB in Clarity and Classic; it preserves negative signs,
+  missing sides and existing Details. Atomic FlowRow number items prevent splitting
+  digits on compact layouts. No IOB source/calculation/controller changes.
+- Interval target steppers are always visible; Edit shows only time. Default and
+  interval limits/step, draft validation, explicit Save/Cancel and therapy gates
+  remain unchanged. 48dp controls and system-font-aware value widths are tested.
+- Pure IOB tests and native synthetic UI tests cover values, passive actions,
+  stable bounds, independent interval drafts, limits, overnight times, invalid
+  overlap, Cancel, large fonts and dark/light themes. Screenshots are private.
+- Classic IOB bounds are scoped to the changed metric; unrelated pre-existing
+  hero delta text overflow is not a whole-Classic-page layout pass. Clarity tests
+  retain whole-screen bounds checks. No device installation/settings writes.
+- Full Android gate passed: 5282 cases/456 suites, zero failures/errors, 4 private
+  opt-in fixtures skipped; lint zero errors/fatal and 322 warnings. Kotlin compile
+  and assembleDebug passed. Existing v2 debug signature and package verified;
+  private APK checksum retained. Exact-source Verify push38310293860 and
+  PR38310300722 passed on be9cc67bb9436ed5bbb218c9d4dc49693d6863ff.
+  Infusion work remains separate.
+
+# Base Target Direct Controls Design Review - 2026-10-13
+
+- User approved visible minus/value/plus for every interval, retaining the default
+  step0.1 and existing limits. The current interval stepper is hidden under Edit;
+  proposed Edit expands time only, with one always-visible target control.
+- Written specification awaits review before this UI change:
+  superpowers/specs/2026-10-13-base-target-direct-controls-design.md.
+- Preserve local draft and explicit validated Save/Cancel, interval IDs/time,
+  overnight/overlap rules and all clinical/circadian/Target Manager protections.
+  No schedule UI, persisted setting or therapy changes in this design stage.
+- IOB/infusion written specs are independently approved; their implementation
+  proceeds separately and this pending design does not hold up those stages.
+
+# Dashboard IOB And Infusion Indicator Design Review - 2026-10-13
+
+- User requested current IOB / signed net IOB on the primary panel. Both existing
+  Overview UI values are already available; proposed display preserves signs,
+  independent missing values, original Details and all calculation/action routes.
+- User approved the first infusion-indicator concept and specified three days:
+  reminder at72 elapsed hours from verified occurrence, independently of delivery
+  suspicion. Existing accepted diagnostic evidence is reused without new thresholds.
+- Two written specifications await review before implementation:
+  superpowers/specs/2026-10-13-dashboard-iob-pair-design.md and
+  superpowers/specs/2026-10-13-infusion-set-indicator-design.md.
+- Proposed reader rejects unknown units, receipt-time fallback, stale/echo evidence
+  and model-neutral age0. Reminder source/generation is independent of clinical
+  arming/network; no new audio escalation or ISF/usage failure model is enabled.
+- Documentation only. No UI/code/tests, build/APK, phone, schema, sound or therapy
+  changes. Pending Lenta Estimate written review remains a separate unchanged stage.
+
+# Lenta Estimate UI Design Review - 2026-10-12
+
+- User selected a separate Estimate mode inside the existing Lenta dialog instead
+  of changing the Food form. Written spec awaits review before implementation:
+  superpowers/specs/2026-10-12-lenta-meal-estimate-design.md.
+- Preserve accepted Current COB/mmol-L display and its viewport; the independent
+  type/portion preview uses modeled grams and elapsed minutes through its full
+  endpoint. Existing Food/Eating Soon action routes and payloads stay unchanged.
+- First UI connection uses honest type-default presets only. The current history
+  audit cannot supply prepared personal episodes; no invented history count,
+  numerical GI, body-profile error, learned accuracy or therapy authority.
+- Documentation only, locally reviewed for scope/source privacy. No UI/code,
+  tests, APK, phone, schema, workers or clinical actions changed. Previous stage
+  verification is not evidence that this proposed UI has been implemented.
+
+# Hybrid Minimal-Data Advisory Preview - 2026-10-12
+
+- User approved the combined model and asked for minimum-data availability.
+  Added a pure hybrid estimator: existing type/portion defaults need no history
+  or complete body profile; a single qualified episode yields signed observations.
+- Shared canonical cohort preparation preserves original personal timing checks,
+  chronology and fit thresholds. Existing EVALUATED status may supply only the
+  separate diagnostic curve with an explicitly selected type. No-gain/ambiguous/
+  bounded/insufficient/overflow states retain an available default.
+- Entered grams are preserved. Quantity-prior lookup supports an explicit meal
+  hour without shifting the real clock/cutoff; omitted arguments preserve legacy
+  callers. Current unfinished local-day declarations cannot bias hybrid priors.
+- Median/IQR describe normalized per-meal residuals, not GI or actual mass.
+  Missing points stay absent, singleton spread is null, nonfinite normalization
+  drops a whole descriptive episode and output point lists are immutable.
+- Missing-feature RED preceded implementation. Additional functional REDs caught
+  unfinished-day prior contamination and rejection-order digest instability;
+  both fixed. Focused65 unit cases pass, including existing GI/food/prior/timing
+  regressions. Full Android gate passed in6m3s:5267 cases,zero failures/errors,
+  four optional external-input skips; lint zero errors,320 warnings,4 hints.
+  Kotlin compile and APK pass; existing debug certificate verified. Backend source
+  is unchanged. Reviewed source publication and exact-source CI remain final gates.
+- No live UI/food graph, clinical COB, gram write, targets, doses, Eating Soon/hypo
+  policy, background work, backend/schema/settings or phone changes. No trained
+  real-user model, numerical laboratory GI or therapeutic accuracy is claimed.
+
+# Hybrid Meal Response Design Review - 2026-10-12
+
+- User requested combining an always-available type/portion curve with personal
+  CGM/insulin reaction history in comparable time-of-day windows.
+- Proposed a separate advisory hybrid estimate using existing cold-start defaults,
+  qualified descriptive response summaries and the existing chronological timing
+  evaluator. Sparse history does not bypass its evidence/validation requirements.
+- Written spec awaits review: superpowers/specs/2026-10-12-hybrid-meal-response-design.md.
+  It does not manufacture numeric GI from body size, duration or raw glucose.
+- Documentation only; no estimator, UI, runtime, worker, schema, phone, targets,
+  insulin, clinical COB or carbohydrate writes changed. No new tests or therapeutic
+  effect are claimed for this pending design. Prior implementation checks remain
+  evidence for their own exact source, not a verification of this future feature.
+
+# Approximate Meal Estimation Diagnostics - 2026-10-12
+
+- User clarified historical gram entries are approximate and requested proceeding
+  after uncertainty/provenance requirements. Actual-therapy integration remains
+  a separate unvalidated scope, not enabled by this diagnostic implementation.
+- Added MealPortionEstimator.describePrior using the existing fourteen-day
+  selection and unchanged suggestion. P10/P90 describe entered quantities,
+  not confidence bounds on actual eaten mass. No range without support/overflow.
+- Added a pure CGM evidence adapter and bounded apparent-response timing search.
+  Declared grams and sensitivity stay fixed; negative residuals remain. Whole
+  chronological days split training/validation and source digests include the
+  historical model context. Limits and ambiguity never become measured GI.
+- All result statuses retain false clinical/actual-mass qualification and no
+  prospective forecast score, laboratory GI or target percentage. No runtime,
+  forecast, UI, worker, schema, settings, AAPS, network or therapy registration.
+- Added read-only Room audit and a private JVM JSON/saved-copy tool. Reports
+  require a new path outside source; no real patient input/report is published.
+- Missing-feature RED and additional mutability/overflow/source-digest REDs
+  preceded fixes. Focused38 cases pass with configured private-copy audit.
+  Synthetic JSON-to-result path also passes; numerical improvement in that
+  fixture is not clinical accuracy. Real history remains insufficiently qualified.
+- The saved-copy audit preserves its database checksum. Full Android unit/lint/
+  Kotlin/APK command passed:5247 cases,zero failures/errors,4 optional-input skips;
+  lint zero errors,320 warnings,4 hints. Backend unchanged:327 passed,one existing
+  dependency deprecation warning. APK signature verified with existing debug key.
+  Exact-source publication/CI is a separate final gate; no phone installation,
+  personal-model calibration or therapeutic effect is claimed.
+
+# Compact Clarity And Lenta UI - 2026-10-12
+
+- Approved UI/build-only stage supersedes the earlier COB-editor route after
+  explicit selection of full Lenta on COB. Plus retains the familiar form.
+- Refresh and blood entry reuse original root callbacks. More/lower duplicate
+  tools are removed; power save moves to the scrollable drawer, Safety and
+  compensation report remain reachable, and source errors remain visible.
+- Food view opens its complete accepted domain and records real entered meals,
+  never per-meal remaining COB or physiological event ends. It preserves stale/
+  updating status and origin; live external COB cannot rescale accepted points.
+- Removes manual GI input only. Portion/type, manual grams, optional calories,
+  Eating Soon defaults and explicit preparation remain. No new GI estimator,
+  clinical thresholds, target priorities, database, workers or AAPS/backend edits.
+- Six new behavior assertions failed before production changes. Native follow-up
+  found insufficient explicit icon size and root-chrome overflow; corrected UI
+  has explicit48dp controls, a font-sized event badge and a140dp chart minimum.
+- Focused subset33 cases passes with no failures/errors/skips. Synthetic native
+  320x640/360x800, light/dark and enlarged-Russian renders inspected privately.
+  Ordinary root-chrome view fits without scrolling; extra warnings/large fonts
+  retain scrolling instead of hiding data. Pump attention/open episodes retain
+  text, while healthy/unknown channel help uses the header indicator.
+- Full Android gate passes:5220 cases,zero failures/errors,3 optional phone-copy
+  skips. Lint zero errors,320 warnings,4 hints. Five added unused-resource warnings
+  are retained labels for removed controls; no check is disabled. Kotlin compile
+  and signed APK pass. Backend unchanged,327 tests pass with one dependency warning.
+- APK signer matches the previous local debug certificate. The reviewed source
+  publication and exact-source CI are separate final gates. No device update,
+  medical validation, GI calibration or CPU/RAM improvement is claimed.
+
+# Familiar Carbohydrate Entry Route - 2026-10-12
+
+- User reported the COB menu regression after the Balance update. A native
+  regression failed before correction: tapping COB did not display the existing
+  meal-entry form. COB now shares the existing add-meal callback instead of
+  opening the food-only graph. The separate food-influence row keeps that graph.
+- No meal-editor, fields, portion, GI, validation, confirmation, writer, therapy
+  policy, forecast, settings default, alarm, schema or background work changes.
+- Native tests cover both meal-entry routes and the separate curve, plus retained
+  IOB, ISF/CR, UAM and base-target menus. Opening/cancelling cannot call mutation
+  callbacks. Focused16 cases pass without failures/errors/skips. Full Android
+  gate passes:5203 cases,zero failures/errors,3 optional phone-copy skips;
+  lint zero errors,315 warnings,4 hints; Kotlin compile and signed APK pass.
+  Exact-source CI and corrected device acceptance remain separate gates.
+
+# Native Balance Presentation - 2026-10-11
+
+- Implements approved Balance in the existing Clarity style: open six-metric
+  grid, compact glucose/observed target,190dp chart and small passive5/30/60 marks.
+  Large forecast row removed; full food-tail dialog and clinical actions retained.
+- Exact accepted path/point match and stale/missing guards prevent invented marks.
+  48dp targets fan apart with leaders; responsive controls/grid support enlarged
+  Russian text without shrinking fonts. No timer or heavy analytics observer added.
+- Secondary navigation returns to an existing primary entry, or avoids saving/
+  restoring secondary content as a tab. Normal primary state restoration remains.
+- Two native layout/marker regressions failed before edits. Native/light/dark/
+  large-text, food, explicit confirmation and navigation checks are separate from
+  the mandatory full quality and exact-source CI gates; record final results only
+  after completion. Test-fixture enum correction was not an app runtime defect.
+- Focused native/math/navigation acceptance:13 cases,zero failures/errors/skips.
+  Synthetic light/expanded/dark-large images inspected privately. Full Android
+  gate:5201 cases,zero failures/errors,3 optional phone-copy skips; lint zero
+  errors,315 warnings,4 hints; Kotlin compile and signed APK build passed.
+  Initial full run timed out in one unchanged report test; isolation and the
+  final full run passed without code or timeout changes. Exact-source CI remains
+  a separate publication gate.
+- No clinical algorithm, forecast clock, target policy, alert, settings default,
+  schema or backend change. Phone installation and CPU/RAM savings are not claimed.
+- Scope/verification: docs/2026-10-11-native-balance.md. Private synthetic renders
+  and execution evidence remain outside source publication.
+
+# Food-Profile Diagnostic Calculation - 2026-10-11
+
+- Two source-wiring regressions failed before the correction: inference loaded
+  unrestricted telemetry history and lacked an initial missing-snapshot route.
+- Inference now selects only sensor-block evidence inside the completed-day
+  window. Legacy key casing and text flags remain; existing key/time indexes
+  avoid unrelated payload reads. No migration or clinical coefficient change.
+- An enabled profile without a saved snapshot requests unique initial work via
+  the existing daily diagnostic worker. Disabled profiles, existing snapshots
+  and power save suppress it; no new periodic poller or clinical cycle is added.
+- Saved/reused diagnostic completion gains an audit marker. Enqueue does not
+  mean calculation completed; insufficient evidence remains insufficient.
+- Existing inference replay/clinical influence gates, live COB/food projection,
+  display-only GI and therapy safeguards stay unchanged. Actual phone causality
+  is not established from a historical local copy or synthetic tests.
+- Initial focused verification:87 tests, zero failures/errors/skips. Final
+  indexed-query/full Android gate passed:5193 cases, zero failures/errors,
+  3 optional phone-copy skips; lint no errors,315 warnings,4 hints. Kotlin and
+  APK build passed. A test-source nullable-property warning was corrected;
+  the final source recheck passed in1m39s with the same5193 results and no new
+  compiler warning. Publication/CI and device checks remain separate evidence.
+- Scope and acceptance matrix: docs/2026-10-11-food-absorption.md. Private data
+  and execution evidence are excluded from source publication.
+
+# Profile Save Completion - 2026-10-11
+
+- Reproduced two native UI failures before edits: premature dismissal during a
+  pending write and lost height/weight edits after rejected persistence.
+- Profile, joint correction, food, activity and calorie editors now wait for an
+  explicit durable-write completion. Busy state blocks duplicates; errors retain
+  the draft and allow retry. Disposed forms ignore late callbacks. Button geometry
+  remains stable during progress, including enlarged localized text.
+- The ViewModel revalidates its field-specific transform inside DataStore's
+  transaction, preserving independent concurrent settings. Physiological sex
+  remains on the existing leased accepted-cycle path; no guard, clinical bound,
+  coefficient, therapy transport, schema or alert setting changed.
+- Added real preferences-file close/reopen and failure/concurrency regressions.
+  Intermediate focused gate:98 tests, zero failures/errors/skips. The final
+  Android gate, source publication/CI and phone acceptance are separate checks.
+- Intermediate full profile gate:5183 tests, zero failures/errors,3 optional
+  phone-copy skips; unit/lint/compile/APK passed. Lint:315 warnings,4 hints, no
+  errors. The source-wiring assertion remained unchanged after making the private
+  completion callback explicit rather than a default lambda.
+- A separate native test reproduced premature dismissal of the planned-activity
+  editor. Its save now waits for the existing persistence result, retains the
+  draft on failure and supports retry. Schedule/clinical invalidation policies
+  remain unchanged; final combined verification follows this additional fix.
+- Final combined Android gate passed in3m23s:5185 tests, zero failures/errors,
+  3 optional fresh-phone-copy skips; lint/compile/APK and isolated UI-test Kotlin
+  compilation passed. Lint retains315 warnings and4 hints, with no errors.
+  After a test-only capture correction, all23 native diagnostic/editor cases
+  passed; enlarged Russian error and saved-list images were inspected.
+- APK signature matches the previous signer. No phone was visible to ADB at
+  the final local device check, so installation, actual profile restart and
+  hardware delivery are not claimed. Exact-source CI is a separate publication
+  gate, recorded privately after its actual completion.
+- Scope and acceptance matrix: docs/2026-10-11-profile-save.md. Private phone
+  material and execution evidence remain outside the public source tree.
+
+# Accepted Forecast Publication Clock - 2026-10-11
+
+- A coherent current-device copy passed schema/integrity, migration and copied
+  TLS/history checks, but its latest historical accepted tuple failed freshness:
+  the forecast origin was later than the producer's earlier input-cut marker.
+  This rejected record is retained as evidence, not rewritten to pass a test.
+- Publication now allocates the acceptance marker from the completion clock.
+  Generation freshness is checked before allocation and after its bounded wait;
+  rollback fails before persistence. Sequence markers are not freshness clocks.
+- Runtime telemetry, maintenance and therapy history bounds retain the frozen
+  input cut. Exact Room authority checks, the existing freshness limit, clinical
+  coefficients, dispatch guards and arming settings are unchanged.
+- Added five clock regressions; the exact fanout integration test now checks
+  runtime timestamps separately from the later publication marker. Focused
+  verification: 106 tests, zero failures/errors/skips. Final Android unit/lint/
+  compile/APK gate: 5163 tests, zero failures/errors, 3 optional phone-copy skips;
+  BUILD SUCCESSFUL in 13m44s. Lint: no errors, 315 warnings and 4 hints.
+- New APK signature matches the previous installed signer. Exact-source CI,
+  in-place installation and passive device verification remain separate gates;
+  their results are recorded privately only when observed. No test therapy,
+  alarm-volume change or claimed phone resource reduction.
+
+# Native Clarity And Accepted Food Display - 2026-10-11
+
+- Implemented the selected native Clarity Overview with compact glucose/Target
+  Manager, separate observed/proposed targets, current prediction details and
+  fixed Eating Soon/meal actions. Light/dark and enlarged Russian text use
+  responsive stacking. Existing warning correction routes remain reachable.
+- A once-only visual migration selects Clarity without changing clinical
+  settings or sensitivity revisions; subsequent style choices are preserved.
+- Eating Soon uses the existing canonical submission path and confirmation
+  guards. Queue, sent-awaiting-observation, confirmed, blocked and unknown are
+  distinct. Readback is bounded and read-only; unknown delivery cannot replay
+  automatically. Expiry adds a one-shot boundary, not a polling loop.
+- The accepted full food curve retains its original historical origin while
+  a new cycle runs. One bounded display snapshot is separate from therapy
+  authority; scope changes invalidate it. Full-period/start/end views preserve
+  the existing display-only GI estimate and never invent remaining grams.
+- New CGM samples cannot re-anchor old accepted clinical forecasts or intervals
+  in Overview or Forecast. Clinical algorithms, coefficients and target policy
+  are unchanged by this presentation stage. No database/backend migration.
+- Native synthetic light/dark screenshots, 320-pixel width and doubled font
+  scale were checked. Full food-only 12-hour viewport and passive dialogs are
+  covered without therapy commands. Details: docs/2026-10-11-native-clarity.md.
+- Final Android unit/lint/compile/APK gate passed in 10 minutes: 5158 cases,
+  zero failures/errors, 3 optional phone-copy skips. Lint has no errors,
+  315 warnings and 4 hints; warnings are not presented as a clean lint report.
+- APK signature verified against the previous debug signer. Device installation,
+  real UI/background checks and measured phone CPU/RAM remain separate gates:
+  no device was visible to ADB at the final local check. Publication and
+  exact-commit CI evidence are recorded privately when completed.
+
+# Prediction Time Integrity And Algorithm Audit - 2026-10-11
+
+- Audited the live V3 pipeline, scheduling, known-input filter, residual AR,
+  meal/UAM fusion, post-processing and evaluation. Detailed source findings and
+  a chronological paired-validation design are in docs/2026-10-11-prediction-audit.md.
+  Real history and individual metrics remain private, outside publication.
+- Reproduced11 failures in26 focused cases: residual learning bridged absent
+  buckets, reconstructed30m used a90m target clock, and UI scoring substituted
+  nearby CGM for unobserved outcomes. Preserved original failing reports.
+- Residual training now starts anew after a missing five-minute bucket; stale
+  or non-finite updates cannot corrupt it. Continuous coefficients, bounds and
+  UAM constraints remain. Simulation copies retain independent chronology.
+- Missing30m fallback requires a common checked origin. UI evaluation now has
+  an explicit clock and observed-window bound, with binary-search matching.
+- Enhanced model label is local-hybrid-v3.1, so reliability must collect its own
+  matured evidence. No old result is relabelled as new-model accuracy.
+- Expanded315-case suite passed after correcting a legacy persistent-drift test
+  that used ten-minute updates for a five-minute model; sparse-input behavior
+  is covered separately. Explicit-clock and endpoint follow-up30 cases passed.
+- Full Android unit/lint/compile/APK gates passed in4m32s: 5137 cases across437
+  suites, zero failures/errors and3 optional skips. Lint has zero errors,
+  313 warnings and4 hints. Exact-commit publication/CI evidence is retained
+  privately after completion. No database schema, setting, therapy transport
+  or phone installation changes.
+
+# Actionable Errors - 2026-10-10
+
+- User requested tappable errors with explanation and a route to the actual
+  correction, starting with the activity-profile warning.
+- Added typed localized issue help and passive root navigation. Specific profile
+  causes reuse the existing policy; editable fields are separate from absent or
+  stale computed snapshots. Shared errors and primary status warnings gain help.
+- Settings requests open the appropriate tab/section and existing user/calorie
+  editor. Each field has live validation; height/weight accept comma decimals.
+  Invalid saved calories remain editable even when the goal mode is OFF.
+- Self-review found simultaneous invalid personal fields and calories could
+  reject both separate saves. Added a joint explicit correction through the same
+  validated settings path, preserving current modes/sharing and existing bounds.
+  Long unknown messages use a scrollable body so close/navigation stay reachable.
+- Planned-activity entry uses the same consumed typed settings request at the
+  root, instead of retaining a separate old counter that could intercept help.
+- Added pure cause/routing tests and isolated Robolectric click/form tests,
+  including enlarged Russian text and explicit no-command assertions. The first
+  compile found a missing UI import; corrected before the second focused run.
+- Intermediate full unit5117 cases/435 suites passed with zero failures/errors
+  and3 optional phone-copy skips. Lint then caught suspicious indentation in the
+  long-message body; fixed with an explicit braced conditional.
+- Final targeted129 cases/4 suites passed with zero failures/errors/skips,
+  including consumed activity-to-data navigation. The first navigation assertion
+  used the wrong title case; a native image proved the correct destination and
+  the matcher was corrected, without retaining the speculative scroll change.
+- Final unit/lint/compile/APK/isolated UI-test compile gates passed16m19s.
+  Lint has zero errors,313 warnings and4 hints. Final-source hashes were checked;
+  exact-commit publication/Verify evidence is retained privately after completion.
+  No schema, therapy guard, default or working phone update.
+
+# Eating Soon Queue Priority - 2026-10-10
+
+- User reported another Eating Soon failure and requested priority over automatic
+  targets. The selected target reportedly never appeared. Read-only device APK
+  hashing matched the previous checked source, but USB disconnected before a
+  coherent current history capture. The real failure cause is not established.
+- Three real REDs reproduced: manual reservation hidden behind the global target
+  mutex, missing pre-admission cancellation evidence and noncanonical payload
+  accepted by the manual Eating Soon entry point.
+- Canonical frozen intent is now reserved before mutex waiting, enabling existing
+  manager pending-manual preflight. Only its first owner cancelled before admission
+  records known non-delivery. Duplicates cannot clear it; admitted cancellation
+  retains uncertainty. No priority setting, clinical bound or transport change.
+- Initial focused52 cases/4 suites pass; expanded332 cases/18 suites pass with zero
+  failures/errors/skips. Duplicate cancellation, borrowed parameters and HTTP-start
+  cancellation are covered. Initial full5081 cases/433 suites pass, zero failures/
+  errors,3 optional phone-copy skips; lint/compile/build passed9m14s.
+- Late inline review reproduced a fourth real RED: generic manager retry replayed
+  an unknown Eating Soon. These keys now delegate to ordinary idempotent submission.
+  Final focused372 cases/18 suites pass with zero failures/errors and1 optional
+  phone-copy skip. Final full5082 cases/433 suites pass with zero failures/errors
+  and3 optional phone-copy skips. Unit/lint/compile/APK gates passed11m6s;
+  lint has zero errors,305 existing warnings and4 hints. Inline review completed;
+  exact-source publication/CI evidence is recorded privately after completion.
+- User approved an in-place phone update after checks and a brief Copilot-only
+  pause for a coherent private backup. At17:13 UTC ADB was empty: no pause,
+  capture or install was performed. Reconnect and verify before device actions.
+- Request remains4.1 mmol/L/30 minutes; arming, kill/sensor/forecast/freshness and
+  qualified protective replacement guards stay. No synthetic therapy or AAPS edit.
+
+# Eating Soon Target Manager Handoff - 2026-10-10
+
+- Continued from d3398169 in the existing feature worktree for the user's
+  Eating Soon / Target Manager fix. Three real REDs reproduced ordinary overwrite,
+  protective external-writer delay and missing durable Room intent propagation.
+- Confirmed context now requires a unique canonical SENT manual command and
+  matching current resolved AAPS target, including wire rounding, key, window
+  and causal timestamps. Imported notes/selection alone do not establish it.
+- Ordinary control/recovery retains the observed Eating Soon window. Existing
+  qualified protective increases are not delayed as an unrelated manual writer,
+  under unchanged priority opt-in and every existing manager/transport guard.
+- Dispatch identity includes confirmation. A checked newer manager observation
+  and its unique SENT record can release the older SENT Eating Soon hold; pending,
+  failed/unknown and unrelated manual holds are unchanged. No resend/keepalive.
+  Absent/false context preserves the old semantic fingerprint encoding.
+- Late self-review reproduced another RED: overlapping confirmed Eating Soon
+  requests left an obsolete SENT hold blocking protective takeover. The checked
+  supersession proof now also accepts a newer independently confirmed Eating
+  Soon, retaining its own current request and all pending/unknown/manual guards.
+  Final focused/full verification includes this production boundary change.
+- Added a distinct retained Eating Soon status in English/Russian. Existing
+  4.1 mmol/L / 30-minute request, 5/30/60 forecast eligibility, clinical limits,
+  cadence, schema, settings, arming and backend remain unchanged.
+- Final focused GREEN:230 cases/13 executed suites, zero failures/errors/skips.
+  Full unit tests:5075 cases/433 suites, zero failures/errors,2 optional phone-copy
+  skips. Official31-to32 migrations passed on a disposable coherent phone copy
+  with protected table counts/integrity/FK checks. Full Android unit/lint/compile/
+  debug-build passed in18m3s; fresh lint has zero errors and305 warnings. Slow
+  Kotlin lint resolution was inspected; it completed before attempted stop.
+  Separate remaining-gate recheck passed17s; project JVM defaults are unchanged.
+- Inline self-review only. Pinned scanner checksum verified; five whole-source
+  findings are unchanged non-secret symbols/test strings, with no suppression.
+  Exact reviewed-diff scan and new-SHA Verify are recorded privately after
+  completion, never inferred from local tests or publication alone.
+- Read-only phone history informed the diagnosis; raw private data stays local.
+  ADB list is empty at11:39:47 UTC after earlier successful connection. No APK
+  installation, synthetic therapy, audio/volume/DND or new alarm activation.
+  Local tests/CI/installation cannot prove real clinical Eating Soon delivery.
+- Plan:docs/superpowers/plans/2026-10-10-eating-soon-target-handoff.md.
+
+# Checked pump-link source publication - 2026-10-10
+
+- Continued from02668312 in the existing worktree. Successful read-only ADB
+  remains empty; no installation/activation/sound/volume/DND/therapy action,
+  phone CPU/RAM evidence or completed original-night audit is claimed.
+- Bounded first source stage: PumpLinkHealthMonitor publishes immutable exact
+  saved snapshot/episode and checked current technical condition after durable
+  writes. Current reads recheck boot/elapsed/condition/deadline and publication
+  identity. Cached flow is a wake/provenance feed, not hardware admission.
+- Accepted superseding transitions revoke before writes; failure/cancellation,
+  unknown/unpaired/unsupported data, recovery and intentional disconnect cannot
+  retain a source. Duplicates do not renew evaluation or episode origin. Existing
+  timer, detector, packet admission, receipt and legacy notification behavior stay.
+- Existing committed global OFF/resume/overview cleanup withdraws source before
+  legacy cleanup without Room/monitor locking. Expiry alone cannot republish.
+  This is not pre-lock OFF-intent cancellation; no coordinator consumer is added.
+- Missing-API RED inspected. Initial integration needed an explicit monitor type
+  for Kotlin's cyclic property inference, not a changed runtime lifecycle.
+  Focused93 tests/7 suites pass,18 new cases, zero failures/errors/skips. A regular
+  immutable class avoids exposing a data-class copy of checked provenance.
+  Full Android unit/lint/compile/debug-build passed in4m42s:5057 cases/432
+  suites, zero failures/errors,3 optional phone-copy skips. Fresh lint has zero
+  errors,305 existing warnings,4 hints and no new source issues. Local APK is
+  prepublication, not installed. Exact-source Verify is recorded privately
+  only after actual completion; local checks cannot establish device delivery.
+- Inline self-review only. Remaining: glucose/diagnostic producers, stable
+  alarm identity/age and complete OFF/capability/opt-in context; service/channels/
+  async failure/fallback/ACK and separately authorized real-device acceptance.
+  Technical connection does not prove a worn pump or insulin delivery. No
+  clinical/forecast/target/schema/settings change or measured resource benefit.
+- Plan: docs/superpowers/plans/2026-10-10-pump-link-source.md. Private evidence
+  and native execution checkpoint remain outside source publication.
+
+## Reboot Boundary Follow-Up
+
+- Late self-review reproduced a real RED: a fresh valid new-boot fault packet
+  was accepted by the monitor, but its source was discarded because the retained
+  legacy episode belonged to the previous boot. The episode can span reboot;
+  its elapsed origin must not be compared with a different boot's clock.
+- Source admission now uses the checked current-boot packet and current policy,
+  retaining the exact old episode only as historical provenance. Old persisted
+  packets alone still cannot authorize after reboot. No legacy episode rewrite,
+  detector, receipt or clinical change.
+- A slow synchronous source subscriber also reproduced RED: proposed reuse of
+  the publication clock capture slid the existing heartbeat timer. Restored the
+  original scheduling-time capture after publication and retained a deterministic
+  deadline regression. No timer-policy or polling change is introduced.
+- Reboot-focused94 cases/7 suites passed before the new deadline regression.
+  Final95 cases/7 suites pass,20 new cases, zero failures/errors/skips.
+  Full Android unit/lint/compile/debug-build recheck passed in4m24s:5059 cases/
+ 432 suites, zero failures/errors,3 optional phone-copy skips. Fresh lint retains
+  zero errors,305 warnings,4 hints and no source issues. Final exact-source CI
+  is recorded privately only after completion. No device/runtime activation.
+
+# Inactive serialized local alarm coordinator - 2026-10-10
+
+- Continued from a1fb8065 in the existing feature worktree. Successful read-only
+  ADB inventory remains empty. No installation/activation/sound/forced-volume/
+  DND/therapy action, phone CPU/RAM measurement or full-night acceptance.
+- Added one explicitly run coordinator combining existing preview and executor,
+  mandatory current accepted context, conflated wakes and one nearest timer.
+  Exact authority revocation/cancel/join precedes replacement claims; changed
+  current snapshots discard suspended old selections. No production constructor.
+- Executor callbacks expose committed ownership before hardware and outcome after
+  independent cleanup even on cancellation. Metadata-only interrupted recovery
+  preserves due/ordinal/reached/ACK without speculative START. Separate lifetime
+  and global-OFF locks avoid revocation waiting for journal cleanup. Unavailable
+  cleanup/storage latches the database-instance runtime closed in process.
+- Missing API REDs were reproduced. One cancellation assertion needed the original
+  throwable cause chain because coroutine stacktrace recovery copies exceptions;
+  this was a fixture correction, not a production defect. First integration49
+  cases/3 suites passed; expanded215 cases/15 suites passed before final review
+  additions. Final relevant216 cases/14 suites pass, including27 new tests.
+  Full Android unit/lint/compile/debug-build passed in4m38s:5039 cases/431 suites,
+  zero failures/errors,3 optional phone-copy skips. Fresh lint: zero errors,
+ 305 existing warnings,4 hints, no new coordinator/ownership issues. Local APK
+  is a prepublication candidate, not installed or an exact-source device release.
+  Reviewed publication/exact-source Verify is recorded in the private native
+  checkpoint only after actual completion.
+- Inline self-review only, not an independent reviewer. New actor remains inactive;
+  source/OFF production, service/foreground capabilities, async errors/native
+  fallback, notification/vibration/wake ownership, opt-in/ACK UI and real-device
+  migration/install/night acceptance remain. No clinical/target/legacy change.
+- Plan: docs/superpowers/plans/2026-10-10-local-alarm-coordinator.md. Private
+  checkpoint and test/build evidence stay outside source publication.
+
+## CI Fixture Follow-Up
+
+- Original9f14b549 push Verify passed Android/Backend; separate PR Verify failed
+  one coordinator duplicate-update test. Failed synthetic XML timed out at the
+  second audio step, not compilation, lint or a phone/clinical operation.
+- Audio-start observation preceded asynchronous Room/relative-wait registration.
+  A controlled suspended registration reproduced RED: advancing fake time first
+  removed the expected16000ms wait. Registration handshakes now precede clock
+  advancement; equal-priority steps use absolute wait boundaries and stop checks
+  await committed terminal rows. The five-second timeout/assertions are retained.
+- Coordinator17-case GREEN passes. Production code is unchanged in this follow-up.
+  Full Android unit/lint/compile/debug-build recheck passed in2m51s:5039 cases/
+ 431 suites, zero failures/errors,3 optional phone-copy skips. Fresh lint retains
+  zero errors,305 warnings,4 hints and no coordinator/ownership issues. New
+  exact-source Verify is recorded privately only after actual completion.
+
+# Read-only local alarm arbitration - 2026-10-09
+
+- Continued the existing feature worktree from612c0f56. Current successful
+  read-only ADB inventory has no phone. No installation, activation, sound,
+  forced volume/DND, therapy mutation or phone CPU/RAM measurement occurred.
+- Added LocalAlarmArbitrationPolicy and RoomLocalAlarmStore.previewArbitration.
+  Reuses source admission, priority and saved timing; equal-priority owner is
+  retained, higher eligible source requests exact preemption, then oldest due
+  and stable key select fairly. Queue age is metadata, not accepted authority.
+- Read-only preview uses actual Room OFF and existing state/claim/result checks.
+  <=64 unique keys including owner, no hypothetical START persistence, ordinal,
+  repeat, pause, progress or journal mutation. Abandoned/conflicting active
+  claims require explicit recovery, never adoption. Nearest future deadlines
+  use checked wall-to-elapsed conversion; no backlog/polling/forecast/AI work.
+- Missing-API REDs reproduced for policy and Room entry point. Inline review
+  then reproduced a real RED: mutation of a borrowed request list during an
+  indexed read switched selection to an unchecked corrupt saved source. The
+  bounded input batch is now frozen before suspending reads. Final focused112
+  tests/5 suites pass,27 new cases, no failures/errors/skips. Full Android unit/
+  lint/compile/debug-build passed in6m25s:5012 cases/429 suites, zero failures/
+  errors,3 optional phone-copy skips. Fresh lint has zero errors,305 existing
+  warnings,4 hints and no arbitration issues. Prepublication candidate built
+  locally, not installed or an exact-source device release. Reviewed publication/
+  exact-source Verify are recorded externally only after actual completion.
+- Plan: docs/superpowers/plans/2026-10-09-local-alarm-arbitration.md. Private
+  native checkpoint/test logs remain outside source publication. Inline
+  self-review only, not an independent reviewer.
+- No runtime source/actor/service/setting/permission/schema change. Future owner
+  must cancel/join old execution before claiming a replacement and revalidate
+  fresh source/OFF/capabilities. Visual/vibration/wake/native fallback/async media
+  failures, opt-in/ACK UI and device/night acceptance remain. No clinical/target/
+  therapy/Telegram/legacy behavior changes or measured resource benefit claimed.
+
+# Inactive local alarm cycle executor - 2026-10-09
+
+- Human requested work on unfinished functions/algorithms. Prioritized alarm
+  integration over display-only COB and resource candidates per existing PLAN.
+  Fresh successful ADB inventory remains empty; no phone install/sound/volume/
+  DND/therapy change, new CPU/RAM measurement or full-night validation occurred.
+- Added LocalAlarmCycleExecutor, LocalAlarmAudioPort and read-only Room admits.
+  Existing GlucoseAlertAudioController implements the port, retaining one player
+  and unchanged legacy behavior. No runtime constructs the executor.
+- Only START from this invocation executes; ACTIVE is not adopted. Try-lock
+  prevents competing claims, fresh guards surround hardware/callbacks, step
+  windows and expiry bound waits, missed steps do not replay. Confirmed volume
+  precedes audio and later cycles retain confirmed maximum. No risk detection,
+  forecast/target/therapy/Telegram, settings/schema or service change.
+- Required-settings fixture corrected before missing-API RED. First integration
+  run passed. Three actual review REDs reproduced: cancellation left CLAIMED
+  ownership, failed audio stop became FINISHED, and a slow volume read admitted
+  a missed step. Independent noncancellable cleanup/always-unlock, unavailable
+  cleanup status and synchronous step-window admission fixed these failures.
+- Final focused143 tests/6 suites pass:23 new cases, no failures/errors/skips.
+  Final full Android unit/lint/compile/debug-build gate passed in8m10s:4985 cases/
+  427 suites, zero failures/errors,3 optional phone-copy skips. Fresh lint XML
+  has zero errors,305 existing warnings,4 hints and no executor issues. Initial
+  full run failed only an obsolete no-volume-consumer architecture guard;
+  narrowed it to the inactive executor and retained the no-runtime-construction
+  assertion, then reran the full gate. Candidate APK contains the executor/port;
+  SHA256:1251c9ac647cd151481045e7da5d69ef44ddf2d8a9276dd0d91766ce62d50f1f.
+  This is a local prepublication build, not an installed exact-source release.
+  Reviewed publication/exact-source Verify is recorded externally in the private
+  native checkpoint only after actual completion. Plan:
+  docs/superpowers/plans/2026-10-09-local-alarm-cycle-executor.md.
+- Current accepted source/OFF/capabilities must be supplied and invalidated by
+  future runtime integration. This runner has no arbitration, arming, service,
+  wake/vibration/notification/native fallback or asynchronous media-failure
+  integration. Start/stop API requests do not prove completion or hearing.
+  Phone migration/installation/night acceptance remain mandatory release gates.
+- Inline source/self-review only, not an independent reviewer. Private native
+  checkpoint, failure XML and test logs remain outside source publication.
+
+# Guarded local alarm playback - 2026-10-09
+
+- Continued the existing isolated feature branch at0d183ea8. Current successful
+  read-only ADB inventories are empty; no APK installation, live sound, forced
+  volume/DND, therapy write or phone CPU/RAM measurement occurred.
+- Added LocalAlarmPlaybackWindow and explicit guarded play/stop APIs inside the
+  existing audio controller, with no production callers. Canonical start windows,
+  fresh admission around side effects/callbacks, preparing-player timeout,
+  absolute elapsed cycle bound and exact player/focus/session cleanup.
+- Reuses selected resolver/preflight fallback/gains and one player. Alarm
+  attributes apply only to the new explicit API; it never writes stream volume.
+  Future coordinator owns confirmed urgent floor, OFF/source cancellation,
+  durable claims, foreground/wake/vibration/notification and UI activation.
+- TDD missing-API RED inspected after fixing a test-only listener signature;
+  first focused25 cases passed. Actual review REDs demonstrated leaked player
+  on clock jump at timer capture and clip extension on duplicate preparation.
+  The first two fixes passed focused79 cases. Late prepublication RED also
+  demonstrated stop-delay extension during post-start admission. The timer
+  now uses the captured absolute end; final focused80 cases across7 suites pass,
+  zero failures/errors/skips, including30 new cases. Fallback testing timed out because
+  its paused Robolectric seek callback was not dispatched; corrected the
+  fixture without changing production.
+- Final Android unit/lint/compile/debug-build gate passed in9m15s:4962 cases/
+  426 suites, zero failures/errors,3 optional phone-copy skips. Explicitly
+  refreshed lint XML:zero errors,305 warnings,4 hints; the two controller
+  SDK-guard warnings match unchanged baseline guards. No new window/test issues.
+  Candidate APK contains window/session classes and guarded play/stop APIs;
+  SHA256:46e8a917410b319a62a52d53122f3178958b281cf5c1b61d7ad85d2e7dd8ae9e.
+  Built locally before publication, not a deployed exact-source device release.
+  Earlier4961-case quality and82ce78a7 APK evidence remain historical only.
+- No clinical threshold, therapy/forecast/target, backend, settings, Room,
+  permission, service or default alert behavior change. Not an enabled ramp.
+- Platform URI/timer behavior is not hard real-time or Doze proof. Async custom
+  failure/native fallback, full runtime integration and device acceptance remain.
+- Plan: docs/superpowers/plans/2026-10-09-guarded-alarm-playback.md. Private native
+  checkpoint and synthetic logs remain outside source publication.
+- Inline self-review completed; not an independent subagent review. Reviewed
+  source publication/exact-source Verify are the external gate, recorded after
+  real completion in the private native checkpoint. No main merge.
+
+# Guarded alarm volume ownership - 2026-10-08
+
+- Human asked to check and continue. Fresh read-only ADB inventory is empty;
+  no phone update, sound/volume/DND test or CPU/RAM measurement was performed.
+  Reused the clean existing feature worktree atba93e758.
+- Added LocalAlarmVolumeLease plus AndroidAlarmVolumePort. Single exact cycle,
+  current injected admission and elapsed bounds, existing rounded profile
+  targets, no downward raise, readback confirmation and sticky override/unknown
+  ownership. Guarded baseline restoration permits OFF/expiry cleanup without
+  overwriting a differing index. Cancellation propagates; release never retries.
+- TDD: lease absent-API RED,24 initial GREEN; adapter absent-API RED,4 GREEN.
+  Three real regressions then failed: write after admission-callback release,
+  replacement during pending acquisition, and new owner during restoration.
+  Fixed with exact owner revalidation and acquisition/restoration markers.
+  Initial focused91 /7 suites passed,31 new cases, zero failures/errors/skips.
+- A late pre-completion review demonstrated that a caller's25% request could
+  weaken LOW_NOW: actual RED expected5/actual2 on the7-step fake port. The helper
+  now enforces the canonical first-target floor as well as current volume.
+  Final focused92 /7 suites pass,32 new cases, zero failures/errors/skips.
+- Volume-only prerequisite, no production consumers/service/player/vibrator/
+  source/UI/timer/settings/Room/network/therapy/target/forecast change. Legacy
+  default sound and urgent-low floor remain unchanged. This is not an enabled
+  escalation feature or a real-phone delivery/resource-savings result.
+- Admission authority belongs to the future serialized coordinator. Observed
+  index comparison is not atomic against Android or proof of perceived sound;
+  hidden change-and-return and identical-index route changes remain limitations.
+- Full Android unit/lint/compile/assemble passed after the floor fix in9m41s:
+  4932 cases across424
+  suites, zero failures/errors,3 optional phone-copy skips. Lint report was
+  explicitly refreshed after cached reuse:0 errors,305 existing warnings,
+  4 hints and no new volume-file issues. APK contains both classes; not installed.
+- Plan: docs/superpowers/plans/2026-10-08-alarm-volume-lease.md. Reviewed source
+  publication/exact-source Verify is a separate external gate, recorded only
+  after real completion in the private native checkpoint.
+
+# Durable local alarm storage - 2026-10-08
+
+- Human asked to check the phone and continue development. Reused the existing
+  feature worktree at964f5f2b; fresh ADB and USB checks found no phone, including
+  the repeat ADB check after the focused stage. No device writes occurred.
+- Added Room32 state/cycle journal, explicit31->32 migration and strict bounded
+  codecs. Atomic claims reuse the existing database-scoped mute mutex; clocks
+  are read after locking inside the transaction and actual Room OFF overrides
+  caller hints. Checked revision CAS and unique claims roll back together.
+- ACK/results require exact identity and fresh policy evidence. Confirmed
+  progress is distinct from channel calls. Recovery records interrupted attempts
+  UNCERTAIN without replay; ordinal/due persist. Indexed scheduling is capped64,
+  terminal30d pruning capped100 and source state is never pruned by that method.
+- TDD: actual migration RED32-vs31, absent API RED, migration8 GREEN. First
+  focused91 GREEN; self-review actual REDs exposed earlier-step idempotence,
+  future elapsed journal progress and later timing-setting dependence. Fixes
+  pass final focused94 /12 suites, zero failures/errors, one optional phone-copy
+  skip. New25 cases: migration1, codec4, store20. Full suite found one obsolete
+  architecture expectation for31; updated it to32 and strengthened the no-journal
+  writer guards without changing production AlertsRepository. Its5 cases GREEN.
+- Final full Android unit/lint/compile/debug-build gate passed:4900 cases across
+  422 suites, zero failures/errors,3 optional phone-copy skips. Lint's initially
+  reused report was explicitly regenerated using the task's --rerun option;
+  fresh XML has0 errors,305 existing warnings,4 hints and no alarm-file issues.
+  Candidate APK is built and contains the new journal code; it is not installed.
+- Storage-only scope, no runtime/foreground/player/notification/vibration/UI/
+  source/housekeeping consumer, settings, clinical/therapy/target/forecast/backend
+  or Telegram change. No claim that phone alarms are fixed or enabled, or that
+  CPU/RAM is reduced. A fresh backup, disposable32 migration, authorized update
+  and actual device/audio acceptance remain separate release gates.
+- Plan: docs/superpowers/plans/2026-10-08-local-alarm-storage.md.
+
+# Local alarm policy kernel - 2026-10-08
+
+- Human asked to continue app/algorithm development after the written proposal.
+  Reused the isolated feature worktree and confirmed both baseline Verify runs
+  passed. Fresh read-only ADB inventory has no phone; no activation consent is
+  inferred from repository implementation.
+- Added pure LocalAlarmModels/Profiles/Policy: bounded four-step profiles,
+  immediate LOW_NOW70% floor, safe upward hardware rounding, per-source stable
+  repeat deadlines, exact OFF expiry admission and ordinal-bound acknowledgement.
+  Invalid/future/expired evidence, old boots, reordered generations/observations,
+  corrupt state and arithmetic overflow cannot claim a new local cycle.
+- Progress requires a matching still-active confirmed step; creating a timeline
+  never means playback success. Lower severity keeps an existing acknowledgement
+  deadline, while higher severity invalidates it. No repeat backlog is replayed.
+- TDD: new-API RED inspected, profiles10 GREEN; policy/legacy focused147 GREEN.
+  Self-review found the paused lower-level state lost its original claim; added
+  a real failing regression (INVALID_STATE vs ACKNOWLEDGED), fixed keeper/expiry
+  identity. A second real failing regression exposed missing cancellation when
+  corrupt state had an active flag without a claim; cancellation now follows
+  that flag. Final focused 148 tests and all 52 new tests pass.
+  Full Android unit/lint/compile/debug-build gate passed: 4875 unit cases,
+  zero failures/errors, 3 optional real-phone-copy tests skipped. Fresh Lint:
+  zero errors, 305 warnings and 4 hints outside the new alarm files; no new
+  LocalAlarm issues. No unrelated warning cleanup is included.
+- Kernel stage only, not runtime alarm integration. No foreground service,
+  settings, Room migration, audio/vibration owner, receiver/UI, source adapter,
+  therapy/target/forecast/Telegram writer or phone change. Clinical guards and
+  default legacy delivery are untouched. CPU/RAM/Doze and original missing-night
+  evidence remain unverified; no device-success or resource-savings claim.
+- Verification plan and tracked steps: docs/superpowers/plans/2026-10-08-local-alarm-policy.md.
+
+# Local alarm escalation proposal - 2026-10-07
+
+- Resumed the alarm audit from its matching native checkpoint; source HEAD is
+  unchanged. ADB was checked outside the local socket restriction and has no
+  connected device. The original historical window is not shifted to today.
+- Wrote a concrete opt-in local ramp/repeat/acknowledgement proposal in
+  docs/superpowers/specs/2026-10-07-local-alarm-escalation-design.md and PLAN.
+  Keep exact global OFF and urgent-low protection; expiry reassesses current
+  accepted evidence without a therapy/forecasting cycle or old-event replay.
+- Propose bounded audio ownership, durable independent local-cycle state,
+  explicit per-channel outcomes and guarded volume restoration. Keep original
+  clinical receipts and Telegram initial-delivery semantics intact.
+- Checked current Android primary documentation for foreground admission,
+  specialUse declaration, dataSync timeout, audio focus, channel control and
+  timed wake-lock/Doze limits. Active-cycle ownership is bounded to55s;
+  no idle wake lock or automatic battery exemption is proposed.
+  A dedicated user-started alarm lifecycle is proposed, not a device-proven fix.
+- Documentation only. Written human review, fresh phone history, implementation
+  tests, full Android quality and separately authorized device/audio acceptance
+  remain pending. No new Kotlin/Room/manifest/config/APK or therapy mutation.
+- Memory CLI is unavailable due to a missing local module; resumed from the
+  matching verified checkpoint and project files without installing a runtime.
+
+# Alarm delivery investigation in progress - 2026-10-05
+
+- Human requested a recent-history alarm audit and gradual audible/vibration
+  escalation. This takes priority over the pending display-only COB design.
+- Source trace confirms one INITIAL delivery and one optional LOW_NOW escalation
+  per glucose episode. SUPPRESSED_SNOOZE remains terminal after global OFF expires;
+  the existing regression suite explicitly asserts that behavior. Saved repeat
+  settings do not schedule periodic delivery in the current episode coordinator.
+- Alarm-stream minimum70% is limited to fresh LOW_NOW below4.0. Pump-link health
+  describes technical connectivity, not body attachment or confirmed insulin
+  delivery. Android notify/player-start success is not human acknowledgement.
+- Five selected existing alarm/pump suites passed:90 tests,0 failures/errors/skips.
+  This verifies existing behavior, not a fix or a complete real-night replay.
+- Full current device evidence is unavailable. Private audit artifacts remain
+  outside the repository. No clinical payloads, phone settings, credentials,
+  APK deployment, therapy change or live alarm test are included in this stage.
+- Recommended next design preserves urgent-low protection and exact OFF, then
+  freshly reassesses risk after expiry and adds bounded acknowledgement-aware
+  escalation. Human design approval, fresh history, written specification and
+  implementation/device verification remain pending. No runtime changes made.
+
+# Persistent food curve during COB design - 2026-10-05
+
+- Human requested a full scrollable carbohydrate-work curve that stays available
+  during positive COB and follows its dynamics, then acknowledged the proposed
+  approach. The recommended working selection is the existing yellow influence
+  line; no separate grams-axis chart or raw-COB rescaling is selected.
+- Source inspection found newest-history anchoring conflicts with the accepted
+  payload's prediction clock during new CGM arrivals. Keep the clock check and
+  preserve the accepted origin/full tail instead of erasing or reanchoring it.
+- Wrote/self-reviewed the display-only lifetime and COB provenance contract in
+  docs/superpowers/specs/2026-10-05-persistent-cob-food-curve-design.md.
+  It specifies one immutable presentation snapshot, atomic accepted replacement,
+  explicit updating/outdated/unknown states and full-tail viewport continuity.
+- External/AAPS reference COB is not effective clinical COB or announced-food
+  remainder. No direct scaling, guessed GI/end time, new worker, clinical cadence
+  change, therapy authority or physiological completion claim. Missing data keeps
+  a visible data state, not a fabricated curve or verified zero absorption.
+- Written human review is pending. This stage changes documentation only:
+  no Kotlin/Room/backend, APK, power policy, target or therapy changes. Existing
+  baseline711db16b push/PR CI passed; no new runtime verification is claimed.
+- Verification: exact relevant source/clock/domain contracts inspected; design
+  self-review/diff checks. Implementation plan/TDD and any device update follow
+  separate written approval and fresh verification gates. Evidence stays private.
+
+# Working APK acceptance and resource review - 2026-10-05
+
+- Runtime revision88b14bc7 is published; both exact-source push/PR Verify runs
+  passed Android/backend checks. Fresh coherent private backup, disposable-copy
+  Room30->31 migration and matching-signature in-place working APK update passed.
+  Independently pulled APK hash matches; protected settings are byte-identical.
+- Read-only runtime checks passed. Recent history timestamps are retained;
+  older aging is explained by the existing retention audit, not this migration.
+  No data clear, old snapshot restore, synthetic therapy, forced clinical cycle
+  or AAPS update. Awake Overview/full-tail visual acceptance still awaits human
+  unlock; missing natural confirmed GI remains a device-test limitation.
+- Passive resource series and read-only source/query review are retained only
+  as private evidence. Foreground, restart and real workload differ, so no CPU,
+  RAM, battery or clinical-response improvement is established.
+- Candidate work: coalesce immutable UI inputs before expensive mapping; bound
+  daily diagnostic telemetry reads to their exact sensor-block/time requirements;
+  profile bounded maintenance batches. Do not change current-CGM recalculation,
+  target authority, clinical safety gates or history retention to save resources.
+  No optimization code or power-policy change was deployed in this review.
+- Verification: existing exact-runtime Android quality/CI, inspected disposable
+  migration JUnit (2 passes), installed hash/settings/schema and passive series.
+  This status update changes documentation only; private device artifacts and
+  medical payloads are not published. Manual SENT correction stays excluded.
+
+# Full food display implementation - 2026-10-04
+
+- Human approved the written bounded GI display-shape design. Implemented the
+  full remaining food-only tail from accepted events/profiles/CSF, not a longer
+  net glucose forecast. GI provenance is manual USER or referenced CATALOG;
+  unknown remains unadjusted, with no AI/name/photo guess or mixed-meal average.
+- Room30->31 adds nullable GI fields to canonical overrides/pending intents.
+  Exact promotion/revision checks and restart preserve metadata. Optional read
+  exceptions fall back without GI and cancellation still propagates. Invalid
+  optional editor input shows an error but does not block valid real carbs.
+- GI shape is a separate uncalibrated `food_gi_shape_v1` estimate. Current
+  remainder, finish time, clinical forecasts/pressure/insulin/UAM and target
+  inputs stay unchanged. No clinical accuracy or dosing claim is justified.
+- Existing accepted `forecast_meal_steps` now carries schemaVersion2 full tail,
+  completion and GI-shaped status, bounded to720m/145 points/16 KiB. The parser
+  checks accepted identity and clock; chart follow-live/reset includes the tail.
+  Legacy30m and unavailable/incomplete states remain explicitly distinguishable.
+- TDD evidence: original chart assertion RED; pure/profile GREEN24 tests;
+  real migration31 and optional-read-failure assertion RED; metadata GREEN63
+  tests/one phone-copy skip; real engine GREEN76 tests. Combined runtime/chart
+  run had364 passes and2 normal-font label-overflow failures; fixed the field
+  label and all6 light/dark/large-font UI cases passed, with real rendered images.
+- First full unit run found3 display-value comparison failures in engine-copy
+  tests and1 stale schema30 assertion (4821 tests,3 existing skips). Two further
+  RED regressions confirmed missing value equality and GI copy context; both
+  contracts were repaired without changing clinical math or weakening assertions.
+- Full Android assemble/unit/compile/lint passed:4823 tests in417 suites,
+  no failures/errors,3 existing skips; lint0 errors,305 warnings,4 hints.
+  Display equality and GI-fork regressions passed without changing clinical math.
+  Debug APK signature verifies. Five outdated instrumental UI callbacks found
+  during final review were compile RED, repaired only for the appended optional
+  argument, then isolated UI/Android-test APK assembly passed. No test APK was
+  installed and instrumentation execution is not claimed.
+- Reviewed source is published at88b14bc7; push37226372000 and PR37226375104
+  both passed exact-source Verify checks. Fresh backup, disposable migration and
+  authorized working APK installation passed. Awake device graph acceptance is
+  still pending; local tests and runtime protocol checks do not replace it.
+  No therapy settings or test therapy actions changed. Manual SENT ownership
+  correction remains outside the approved scope.
+
+# GI-dependent display shape design revision - 2026-10-04
+
+- Written review clarified that GI must change the curve's shape, not merely
+  appear as an annotation. Supersedes the metadata-only decision below.
+- Revised the spec to a bounded, explicitly heuristic redistribution of each
+  meal's current modeled remainder. High GI shifts influence earlier, low GI
+  later; current remaining mass, finish time, clinical COB, profile precedence,
+  forecast decomposition, clinical5/30/60 and target inputs stay unchanged.
+- Defined the versioned normalized-fraction exponent rule and separate display
+  provenance. Reference60 and strength0.25 are engineering display parameters,
+  not calibrated physiological evidence. Unknown GI preserves baseline exactly.
+- Revised-spec review is pending. No implementation plan, Kotlin, migration,
+  therapy setting/action or APK change in this stage. No benefit/accuracy claim.
+- Checked primary GI sources for the qualitative direction; they do not validate
+  the chosen numerical display rule. Diff/contract review is documentation only.
+
+# Full carbohydrate display design - 2026-10-04
+
+- User requested the full carbohydrate absorption curve with GI and approved
+  proceeding with confirmed/manual provenance and unknown-data fallback.
+- Read-only inspection confirmed the current cumulative food layer ends at30m,
+  telemetry is limited to13 five-minute steps, and chart domain excludes food
+  points. Existing timing functions and bounded component projection can support
+  a longer display without extending clinical glucose forecasts.
+- Wrote and self-reviewed the display/GI provenance contract in
+  docs/superpowers/specs/2026-10-04-full-carbohydrate-curve-design.md.
+  Written review is still pending. GI context is not a validated GI-to-hours
+  model; the spec explicitly requires confirmation of this distinction.
+- No Kotlin, Room, backend, therapy inputs/settings, targets or APK changes in
+  this documentation stage. No phone data or test therapy actions used.
+- Verification for this stage is documentation/diff review. Android behavior
+  remains at the previously verified revision; no new runtime test result is
+  claimed. Implementation and real-device verification are not complete.
+
+# Current-CGM forecast recalculation - 2026-10-04
+
+- The user approved full5/30/60-minute forecast recalculation for each new current
+  CGM observation, including rising onset and reversal. Reuse the existing
+  clinical pipeline and durable coordinator rather than another trend detector.
+- Broadcast's four-minute moderate-glucose scheduling interval suppressed fresh
+  observations. Two real Room regressions failed on unchanged source. Current
+  valid/distinct input comparison and outbox persistence now share one Room
+  transaction and ingest clock; row IDs, duplicates, historical, lower-priority
+  relays and future-only samples cannot masquerade as new current input.
+- Reactive work previously used an idle-only cycle entrypoint; a route-binding
+  regression failed on unchanged source. It now waits cancellably for the existing
+  lease under the worker deadline/evidence boundary, reads current settings and
+  inputs after acquisition and keeps normal periodic/manual idle-only behavior.
+- Focused498 tests in26 suites passed with0 failures/errors/skips, including
+  Room correction/duplicate/causal/rollback, real mutex wait/cancellation and
+  related coordinator/evidence/target safety cases. Invalid CGM is not promoted
+  to current input; its separately persisted valid status telemetry retains the
+  existing invalidation policy. Full Android build/unit/compile/lint passed in
+  10m08s:4787 tests in412 suites,0 failures/errors,3 existing skips; lint0 errors,
+  305 warnings and4 hints. APK signature verifies against the installed debug
+  certificate. Full main/test source and private results were inspected.
+- Reviewed implementation `37d184c3631613587d9794b5257c17425a67be89` was published
+  on the existing feature branch and both exact-source Verify runs passed:
+  push 37190910470 and PR 37190913056, with each Android/backend job inspected.
+  A matching-signature in-place working APK update followed a verified coherent
+  private backup. Installed hash, settings, retained history and the ordinary
+  UI were checked; natural accepted 5/30/60 cohorts and an independent AAPS
+  protective-target receipt were verified. Private phone evidence remains
+  unpublished. Sample/cycle clocks are not ingestion instrumentation; human
+  inputs prevent treating the receipt as an isolated trend experiment.
+- Prediction gains, calibration, canonical five-minute trend logic, numeric
+  target limits, protective ownership, cadence and sensor/reliability/arm/freshness
+  gates are unchanged. No schema/backend change, learner activation, forced
+  phone cycle or synthetic therapy send. Normal-control accelerated trend-release
+  latency remains unobserved; device checks do not establish clinical benefit.
+- Approved design and execution plan: docs/superpowers/specs and
+  docs/superpowers/plans/2026-10-04-fresh-glucose-recalculation.md.
+
+# Frozen-cycle therapy history cutoff - 2026-10-04
+
+- Private read-only follow-up found accepted local maintenance failures before
+  Target Manager evaluation. The cycle freezes its clock before calibration,
+  but recent therapy was loaded afterward using a later wall clock and an
+  unbounded-upper history query. A concurrent real arrival could therefore
+  violate the existing accepted-maintenance causal assertion and abort the cycle.
+- Require the caller's frozen timestamp in SyncRepository.recentTherapyEvents
+  and reuse TherapyDao.between for both 24-hour and sensor-lag histories.
+  Preserve sanitization and the maintenance assertion. Excluded future rows
+  remain in Room and become available to subsequent cycles; no deletion,
+  swallowing of safety failures, new retry or therapy threshold adjustment.
+- A real Room regression first failed because the future row was returned.
+  Five regression tests cover future exclusion, concurrent arrivals after the
+  frozen clock, inclusive lookback boundaries, unchanged sanitization and both
+  runtime caller bindings. Related focused suites passed 182 tests with 0 errors.
+- Full Android build/unit/compile/lint passed: 4772 tests, 0 failures/errors,
+  3 existing skips; lint 0 errors, 305 warnings and 4 hints. Both production
+  files and the test match the verified build copy byte-for-byte. Candidate
+  signature verifies and matches the existing debug package certificate.
+- Working-device installation remains pending an available authorized transport.
+  No device or clinical efficacy acceptance is implied by local checks or the
+  signed APK. Private graphs/logs/backups/APKs remain unpublished.
+
+# Forecast-confirmed target release latency - 2026-10-02
+
+- Recent private read-only evidence separated proposal latency, duplicate cadence
+  holds, forecast reliability refusals and delivery. Calibrated cycle glucose,
+  not the uncalibrated sensor trace, was compared with forecasts at issuance.
+  Stored forecasts are not substituted for accepted same-cycle authority.
+- Small already-computed adaptive releases toward effective base could be
+  blocked by the30-minute near-duplicate policy. Permit a single existing0.05
+  controller step only for exactly confirmed ordinary adaptive ownership, a
+  newer fresh glucose point, non-flat observed trend and concordant5m forecast.
+  Do not change controller gains, numeric safety bounds, ordinary repeat window,
+  urgent hypo rules, protective ownership, forecast reliability or low-risk gates.
+- The delivery throttle independently applies the same repeat window. It now
+  recognizes only an exact pending ACTIVE manager release journal with a managed
+  delivery guard, unchanged previous sent command and exact payload binding.
+  Arbitrary labels, reason strings, absent/shadow/old/malformed journals and
+  changed history cannot bypass it. Existing sustained-rise release delivery
+  uses this same durable authorization; no new therapy transport or retry path.
+- Exact mg/dL round-trip recognition fixes the owned observation comparison;
+  arbitrary nearby values still fail. Unchanged command identity remains mandatory,
+  and the new ordinary release must also change the integer wire target.
+- TDD reproduced2 manager SEND expectations as BLOCK_CADENCE,1 guarded
+  transport refusal and2 rounded-observation failures. Final focused185 tests
+  passed with0 failures/errors. Full Android build/unit/compile/lint passed in
+  7m38s:4767 tests,0 failures/errors,3 existing skips; lint0 errors,
+  305 warnings and4 hints. The tested Android source exactly matches the primary
+  source diff. Working-device installation then passed in place with matching
+  debug certificate, installed APK SHA256 prefix36dda4e607c8 and unchanged
+  settings hash. Schema30 and the oldest glucose timestamp are retained;
+  existing audited duplicate cleanup explains the changing glucose row count.
+- Coherent private backup passed integrity_check and foreign-key validation;
+  old APK and settings were retained. The actual dashboard rendered fresh data
+  and forecast, and natural post-install cycles completed without a forced cycle.
+  Natural target deliveries were confirmed in the AndroidAPS target table, not
+  just a sender status. A qualifying small trend-release event has not yet been
+  observed on-device; neither its real reaction latency nor clinical benefit is
+  established by installation, tests or ordinary delivery alone.
+- No clinical efficacy claim, synthetic real-device therapy command, numerical
+  therapy setting change, backend change or learner activation. Private phone
+  data, graphs, backups and APKs must remain outside publication.
+
+# Compact meal portions isolated phone acceptance - 2026-10-01
+
+- Actual phone run passed11 UI cases in34.243s, followed by1 isolation case
+  in0.017s. Russian light/dark captions assert actual TextLayoutResult font
+  scales1.0/1.8, no overflow and no split words; choices remain scroll-reachable.
+  Eight fresh synthetic dialog images were pulled and visually inspected.
+  Manual80.001g is blocked; exact80g produces one in-memory callback, closes
+  the dialog, preserves USER_CORRECTED provenance, Eating soon=false and no
+  hidden energy. Selection/cancel, frozen settings and settings validation pass.
+- Android background-start restrictions required a per-test outer host rule,
+  restricted to the exact isolated package. It opens only its inert existing
+  ComponentActivity and preserves AndroidX cleanup/accessibility services.
+  A read-only interactive/keyguard precondition rejects sleeping/locked phones;
+  it does not wake/unlock them, adopt shell permissions or change system settings.
+- Outer LocalDensity alone does not reach the native Dialog: the first real
+  run passed7 cases but4 actual-density assertions returned system scale0.81.
+  The test-only scope snapshots isolated Activity/application resources before
+  overriding font scale and restores/checks them in finally on the main thread.
+  Exact font assertions are retained and added to manual80g cases, not weakened.
+- Instrumentation APK built and v2 signature verified; only approved isolated
+  test packages were installed. Globalfont0.81 and the working APK SHA256 are
+  unchanged. No production source/manifest, therapy data, backend or schema edit.
+- Debug unit/build/compile checks reused the prior verified4757-test result
+  (0 failures/errors,3 skips); debug lint passed with0 errors/305 warnings/4 hints.
+  Extra lintUiTest remains failed with6 errors/306 warnings/4 hints in unchanged
+  files: one removed receiver reference, four notification calls and one removed
+  foreground-service call conflict with deliberately stripped isolated permissions
+  and components. No production permission was restored or production lint muted.
+- Phone UI/font acceptance is now verified for the isolated build, not a working
+  app deployment or clinical readiness claim. Independent real held-out labels
+  are still inadequate; learner activation remains forbidden by that open gate.
+  Private evidence: /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/.
+
+# Outbox retry test startup barrier - 2026-10-01
+
+- Push Verify on51f080a failed an existing explicit retry assertion while PR
+  Verify on the same SHA passed. The preserved synthetic XML confirms failure
+  at the expected reactive acknowledgement, not in a compact-portions test.
+- Constructor startup recovery can acknowledge the pending outbox between
+  changing callback acceptance and the explicit duplicate ingest. Seed a pending
+  outbox and await its rejected startup callback in both retry tests, before the
+  first explicit ingest. The existing mutex serializes callback completion.
+- Retain exact callback counts, false/failed outbox retention, explicit retry
+  acknowledgement and duplicate suppression. No production code, runtime
+  dispatching, timeout, therapy or phone APK change.
+- Focused5 tests passed25s; a temporary100-invocation probe passed15s and was
+  removed. Full Android unit/lint/build passed6m13s:4757 tests,0 failures/errors,
+  3 existing skips; lint0 errors,305 warnings,4 hints. No APK was updated on the
+  phone. Remote publication and the next Verify run remain separate checks.
+
+# Compact meal portions completion follow-up - 2026-10-01
+
+- Reviewed the named compact-portions plan against current source. Direct Send
+  and canonical provenance already existed; the plan's status was historical.
+- Separated exact manual1..80g meals from configured automatic/UAM20..60g caps.
+  Trusted valid canonical real food may retain80g in V3 announced-food/causal
+  recent COB modelling. Unknown and synthetic inputs retain existing constraints.
+  No arm/throttle/target gate, UAM generation or legacy engine flag was changed.
+- ManualMealSubmission copies immutable input before observer/transport; local
+  profile, portion/provenance, energy and Eating soon intent are persisted before
+  POST, not included in the outbound treatment body. Changed input under one ID
+  is blocked, including quantity/origin changes after restart; exact SENT requests
+  remain read-only acknowledgements. Exact localized Send/receipt grams no longer
+  round to one decimal. Focused154 tests passed,0 failures/errors/skips.
+- Actual Russian1.0/1.8 font-scale light/dark Robolectric draws are nonblank and
+  visually inspected. Stable64dp images and enlarged horizontal choice/checkbox
+  rows prevent word splitting/overflow. Six UI cases cover scrolling, hidden
+  calories,80.001g rejection and exact80g callback once without a therapy call.
+- Added an inactive canonical read-only history factory, atomic exact override
+  matching, independent-origin checks, conflict/tombstone exclusion and a bounded
+  revision/settings/zone/minute cache. Existing timeline/parser are reused; stale
+  evidence is not deleted and legacy unknown rows are not backfilled.
+- Confirmation availability is now distinct from meal time. Walk-forward research
+  scores only explicit independent targets against fixed presets and excludes
+  labels unavailable before prediction. MAE and mean positive overestimation are
+  grouped by portion/local six-hour block. Missing labels produce absent scores.
+- Missing reader/evaluator API RED and assertion-level future-confirmation,
+  missing-availability, learning-suppression and pre-cache-conflict RED observed.
+  Final full run includes39 feature tests with0 failures/errors/skips. No adequate
+  independent real labels are available for held-out accuracy; no learner is wired
+  into UI/runtime, saved settings, therapy or background work.
+- Final full Android unit/lint/debug/isolated target/test APK run passed7m16s:
+  4757 total tests,0 failures/errors,3 existing skips; lint0 errors,305 warnings,
+  4 hints. Final named feature suites contain39 tests with no failures or skips.
+  Debug, isolated target and instrumentation APK signatures were verified.
+  The user approved only isolated target/test APK updates on the reconnected phone.
+  Isolation passed1 test (no INTERNET/runtime/production components). Meal UI
+  execution was stopped because keyguard/NotificationShade prevented focus;
+  no device/font acceptance is claimed. The working APK baseline is unchanged.
+  Publication verification remains separate from local checks.
+  Local evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/.
+  No working-phone update, test carb/target/calibration write,
+  clinical readiness claim, backend change or Room schema migration in this stage.
+
+# PDF lease test completion barrier - 2026-10-01
+
+- Push CI on fb1630c passed all32 new meal/Room cases but an existing PDF lease
+  test saw FAILED instead of its assumed intermediate PREPARING state. Independent
+  PR Verify on the same SHA passed. The source builder/stage can complete quickly;
+  the assertion must not depend on Dispatchers.Default delaying completion.
+- A forced immediate dispatcher reproduced exactly that assertion. Add an explicit
+  staging barrier before terminal completion; retain real lease/release assertions,
+  Default dispatcher and existing timeout. No production export/UI change.
+- Forced-fast RED/GREEN observed. Temporary100-repetition probe passed13s and was
+  removed before final checks. Final focused107 tests passed17s,0 failures/skips.
+  Full Android unit/lint/APK passed3m33s:4717 tests,0 failures/errors,3 existing
+  skips; lint305 warnings/4 hints,0 errors. APK unchanged; source matches the
+  tested copy. Remote publication results remain a separate verification gate.
+
+# Accepted meal research runtime capture - 2026-10-01
+
+- Added a bounded, replay-free research stream to AutomationRepository. Invalidate
+  at cycle entry; capture under the existing exclusive lease only after exact
+  accepted Room readback/finalization. No subscriber means no clock/engine copy.
+- Revalidate snapshot/entity, accepted forecasts/digest, generation, freshness and
+  calibration model/session. Freeze local engine input/output separately from
+  accepted adjusted control output. Require exact baseline reproduction.
+- Capture rejection is typed and cannot abort existing clinical writers;
+  coroutine cancellation still propagates. No timer, worker, therapy call,
+  observation consumer, UI or meal notification was enabled.
+- Seven capture tests and two real-cycle Room cases added. Missing API/hook RED
+  observed; focused32 tests passed,0 failures/errors/skips,45s. Full unit/lint/APK
+  checks passed8m14s:4717 tests,0 failures/errors,3 existing skips; lint305 warnings,
+  4 hints,0 errors. Four source/test files match the tested copy byte-for-byte.
+  APK contains the capture classes; no phone update. Gitleaks found no secrets in
+  this stage or the previous expiry-test commit. CI is a separate publication gate.
+- Priors, duration transitions, calibrated observation error and future-controller
+  uncertainty remain pending. Accepted control CI is not scenario calibration.
+
+# Deterministic backend expiry tests - 2026-10-01
+
+- Linux push verification exposed a race in the active-worker expiry test:
+  it mixed a50ms real-time TTL with an unguarded cache-publication assumption.
+  Expiry versus late publication was not independently distinguished. The PR
+  run on the same SHA passed. Production retention was not changed.
+- Both idle/active drain tests now use the existing injected MutableClock.
+  Wait for cache publication, advance exactly to expiry/deadline, then wait
+  for actual background removal. No expiry-triggering status read or drain call.
+- Backend full suite:327 passed,1 upstream warning,32.54s. Python3.12 stability
+  check:20 repetitions of each changed test,40 passed,13.87s. No runtime changes.
+
+# Host TLS integration test provider - 2026-10-01
+
+- Make the real-socket HTTPS suite use JVM TLS on every host, via the scoped
+  Robolectric ConscryptMode.OFF annotation. The framework default is OFF on
+  ARM macOS and ON on Linux; tests must not silently change their TLS provider.
+- No production TLS code, certificate trust, request authorization or therapy
+  logic changed. All45 integration cases remain registered, including negative access
+  cases; the optional private phone-copy case remains locally gated.
+- Local Android verification:4708 tests,0 failures/errors,3 existing skips;
+  HTTPS suite45 tests,0 failures,1 existing skip; lint and APK build passed2m41s.
+- Linux verification on8b93534d:4708 tests,0 failures/errors,3 existing skips;
+  lint/APK succeeded. PR36826868808 passed both jobs. Push36826866087 passed
+  Android but exposed the independent backend expiry-test race described above.
+
+# Linux HTTPS CI diagnostics - 2026-09-30
+
+- Remote Android verification failed38 HTTPS integration tests with EOF;
+  the same source passed on macOS. Root cause is not established yet.
+- Preserve only synthetic JUnit XML reports after every Android CI outcome,
+  with a pinned upload action and three-day retention. No private phone logs,
+  databases or APKs are included. Test gates remain unchanged.
+
+# GitHub publication workflow - 2026-09-30
+
+- First remote CI exposed missing sdkmanager on PATH before compilation.
+  Added pinned Android SDK setup instead of relying on runner image defaults.
+- User selected publication after each verified stage, not background sync.
+  Added persistent AGENTS guidance, DEVOPS procedure and read-only Verify CI
+  for Android unit/lint/build and backend tests. No automatic merge/deployment.
+- Added credential, signing-key and private-artifact ignore rules. Publication
+  excludes phone databases, dumps, logs and APKs. Removed a device identifier
+  from the new log entry; no history rewrite is performed.
+- Android source matches the previously tested/installed copy byte-for-byte:
+  4708 tests,0 failures/errors,3 skips; build/lint passed. Today's real-phone
+  database migration check passed2 tests. Backend rerun:327 passed,1 upstream
+  deprecation warning,37.14s. Workflow structure validated locally.
+- Gitleaks8.30.1 checked14 unpublished commits: no findings. Full source scan
+  produced6 reviewed false positives: telemetry keys, SQL/test strings and
+  an existing Figma file identifier. No credential values are published here.
+- Push/remote workflow results must be checked separately. Meal-start alerts
+  remain disabled; research kernels are not a finished clinical release.
+
+# USB update and real database migration - 2026-09-30
+
+- Updated io.aaps.predictivecopilot in place on connected23090RA98G. Certificates
+  matched; installed APK SHA-256 matches tested artifact9f1d459b...51fd1a3a.
+  No uninstall/data clearing/AAPS update or test therapy commands.
+- First long USB database copy was inconsistent and rejected. Repeated using
+  an on-device archive while package launch was temporarily disabled; restored
+  original default enabled state and restarted before transfer. Stable archive
+  checksums match and quick_check=ok. Original archive/APK retained privately.
+- Migrated disposable live-phone copy27->30 with official migrations:2 tests,
+  0 failures/errors/skips,1m48s. Existing table counts preserved, integrity_check
+  ok and no foreign-key violations. Phone main database header now reports30.
+- Cold start succeeded; Overview data refreshed, Forecast chart rendered, Food
+  dialog opened and cancelled without Submit. Foreground service running; scoped
+  startup error log empty. Existing activity-profile warning retained. Target
+  frequency limit observed, not bypassed; no therapy settings edited.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-phone-check-20260930-PlGVx5/REPORT.md.
+  Meal-start notifications remain disabled; live scenario orchestration and
+  calibrated uncertainty still pending. No new clinical-readiness claim.
+
+# Passive next-sample meal prediction - 2026-09-29
+
+- Added MealObservationForecast/ErrorModel: passive next5m conditional prediction
+  from frozen V3, preserving hypothetical onset instead of planner interventions.
+  Complete explicit prior error scales, completion deadline, runtime/revision
+  checks, immutable output, work budget, cancellation and clipping rejection.
+  No default noise, no empirical-calibration or clinical-safety claim.
+-11 producer tests and1 additional real-engine-to-Room test. Missing-API RED
+  observed; one test initially rejected incomplete scales at constructor instead
+  of its intended prepare check. Fixture corrected and constructor tested apart.
+  Expanded focused22 tests passed12s. Full unit/APK/lint succeeded3m29s:
+  4708 tests,0 failures/errors,3 skipped; lint305 warnings/4 hints,0 errors.
+  Lint analysis ran, unchanged report reused. Three source/test files match the
+  tested copy; APK class markers and diffcheck verified.
+- Evidence/hash: /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/MEAL_PASSIVE_OBSERVATION.md.
+  Source inspection and tests only; no independent subagent review available.
+- No live runtime callback or learned noise model yet. Initial priors, transitions,
+  future-controller/nuisance uncertainty and replay/release remain. Exact next
+  grid sample required; no rounding or backdating. No therapy/phone/settings
+  changes, new worker, polling or commits; meal-start notifications disabled.
+
+# Guarded meal observation persistence - 2026-09-29
+
+- Added MealStateRepository.observe and typed persistence results. One Room
+  transaction checks storage CAS, exact applied AAPS receipt, pending correction,
+  quarantine and causal estimator evidence before writing all posterior rows.
+  saveBelief also honors known receipts. No invented prior or changed source input.
+- Added10 real-Room tests: correction/deletion, duplicate/concurrent samples,
+  missing state, trust/time/model/revision rejection and SQL rollback/retry.
+  Three initial test assertions wrongly used domain object reference equality;
+  corrected to compare persisted parent/child rows. Initial missing-API RED and
+  first focused GREEN were observed before the added assertions.
+- Full unit/APK/lint succeeded6m46s:4696 tests,0 failures/errors,3 skipped.
+  Observation10/10, repository13/13, inbox10/10. Lint305 warnings/4 hints,0 errors;
+  report reused unchanged after analysis. Four source/test files match tested copy.
+  APK markers and diffcheck verified. Evidence and APK hash:
+  /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/MEAL_OBSERVATION_PERSISTENCE.md.
+- Runtime inspection confirms the current accepted forecast already uses the new
+  CGM sample. It cannot be independent likelihood evidence for that same sample.
+  A trusted prior scenario producer/capture and explicit priors are still needed;
+  observe is not wired to a live callback. No new worker/polling/therapy commands,
+  no phone update or commit. Meal-start notifications remain disabled.
+
+# Durable meal receipts and restart recovery - 2026-09-29
+
+- Added MealStateInbox/MealReceiptEntity/Dao and additive Room29->30 migration.
+  Original input persists before existing manual send. AAPS receipts stage inside
+  the source import transaction and signal only after commit. No therapy command
+  or posterior calculation is introduced by recovery.
+- Replaced volatile event queue with conflated wakeups over durable storage;
+  startup/event drain,64 rows per transaction, cooperative yield, no polling.
+  Unknown input waits. Latest note-free revision/tombstone can inherit exact
+  identity from an older acknowledgement without replacing its newer values.
+- Sticky conflict quarantine, state plus applied-marker atomicity, idempotent
+  duplicate import. RED real-Room regression caught nested-transaction rollback
+  of quarantine; pure conflict precheck fixes it. SQL failure remains retryable
+  on next event/startup. Duplicate100-row page uses1 receipt read instead of100,
+  no INSERT/UPDATE (query-trace regression). This is not a CPU measurement.
+- Full initial run exposed stale schema29 assertion in AlertsArchitectureTest;
+  updated to30. Final unit/APK/lint success5m54s:4686 tests,0 failures/errors,
+  3 skipped. Lint305 warnings/4 hints,0 errors; lint report reused unchanged.
+  Room migration/restart/import transaction tests passed. Phone-copy migration
+  target updated to30, but no actual phone-copy migration was run this turn.
+- All18 changed source/test files match verification copy; diffcheck passed.
+  New classes/table strings verified in built APK. Hash and detailed evidence:
+  /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/MEAL_DURABLE_INGESTION.md.
+- Boundaries: pre-commit input persistence failure still does not block the user
+  send, so that loss is not recovered. No legacy input reconstruction, invalid
+  negative-page recovery, source-instance reset, quarantine resolution, merge/
+  split or retention policy. Runtime must honor quarantine before any clinical
+  release. Accepted-runtime posterior, controller uncertainty and replay pending.
+  No notifications enabled, phone update, therapy settings change or commits.
+
+# Meal state shadow ingestion - 2026-09-29
+
+- Added bounded event-driven MealStateIngestion queue/processor. Manual input
+  enqueues once per reservation, AAPS pages only after successful import commit.
+  Observer exceptions do not block existing therapy sends; cancellation propagates.
+- Exact manual acknowledgement IDs, minimal immutable fields without free notes,
+  numeric AAPS record versions and batched canonical owner lookup. No fuzzy time
+  linkage or invented prior. Note-free revisions/tombstones update known links.
+- AppContainer owns worker and throttled diagnostic counts. No timer, polling or
+  wake lock. Worker closes queue even for already-cancelled scope. RED regression
+  observed and fixed. Processing errors do not silently kill the worker.
+- Full unit/APK/lint success7m51s:4673 tests,0 failures/errors,3 skipped.
+  Ingestion6, Room3, manual submission12 and importer32 passed. Lint305 warnings,
+  4 hints,0 errors. All11 changed source/test files match verification copy;
+  git diff --check passed. Evidence with APK hash:
+  /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/MEAL_INGESTION.md.
+- Best-effort shadow ingestion only: memory queue can lose work on restart or
+  overflow; counters are not durable completeness evidence. Unknown inputs skip,
+  conflicting links reject, negative current carb rows reject the page. Reconcile
+  is per-row atomic, not page-atomic. Durable recovery, accepted-runtime belief
+  updates, merge/split lineage and clinical validation remain pending. No meal
+  start alerts, phone installation, therapy settings change or commits this batch.
+
+# Meal state persistence and reconciliation - 2026-09-28
+
+- Added MealStateRepository, normalized states/scenarios/absorption DAO/entities
+  and additive Room28->29 migration. Original intent and AAPS record are separate;
+  canonical ownership is unique, timestamps/grams from input are never rewritten.
+- Reconciliation reuses MealEpisodeIdentity: repeated/older callbacks do not
+  mutate state, equal conflicting revision rejects. New revision/tombstone clears
+  posterior. CAS spans posterior and AAPS revisions; no stale calculation overwrite.
+- Bounded validated reads reject corrupt distributions/unknown model versions.
+  Pending inputs need no invented prior. All multi-table operations atomic.
+- RED missing API, focused7 GREEN. Expanded tests exposed duplicate-CGM acceptance;
+  fixed timestamp/ID guard, focused14 GREEN. Full unit:4661,0 failures/errors,
+  3 skipped; repository13 and migration1 passed. APK/lint passed11m8s, exit0;
+  lint305 warnings/4 hints,0 errors. Evidence:
+  /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/STATE_REPOSITORY.md.
+- No runtime callers, therapy writes, phone installation or commits. Full event
+  ingestion, merge/split lineage, shadow orchestration, empirical calibration and
+  clinical release remain separate unfinished work.
+
+# Meal planner and durable quota - 2026-09-28
+
+- Planner now preserves declared insulin worlds in every trajectory key, checks
+  complete matrices/joint budgets and rejects malformed beliefs. Aggregated stage
+  plausibility keeps boundary splitting from hiding conflicting preferences.
+- Room27->28 adds quota claims/explicit aliases. One transaction checks global
+  cooldown/episode/mute/clock and reserves before potential delivery; no retry or
+  release of committed claims. No sender or production call site yet.
+- RED missing APIs then focused GREEN. Full isolated unit/APK/lint passed6m13s:
+  4647 tests,0 failures/errors,3 skipped. Planner25/25; ledger4/4 including race,
+  reopen, exact120min, alias identity and storage-failure rollback. Room migration
+  retained legacy food row, integrity_check ok.12 edited files match tested copy.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/PLANNER_LEDGER.md.
+  No phone changes, therapy writes, commits or independent-agent review. Full plan
+  remains unfinished: belief/linkage ingestion, runtime/UI, live coordinator,
+  controller generation/calibration/replay and device validation still pending.
+
+# Meal/insulin scenario matrix integration - 2026-09-27
+
+- Optional explicit insulin scenarios added to simulate/simulateUncertain.
+  Immutable batch schedules and per-trajectory insulinScenarioId retain lineage.
+  No world probabilities invented; null means old known-insulin-only projection,
+  not evidence the pump pauses. Explicit empty lists/duplicate IDs reject.
+- Cache key includes immutable actual deliveries; identical schedules can share
+  calculations without losing scenario identity. Maximum4 schedules and24 joint
+  meal/insulin cases; CPU admission includes convolution work. Wrong anchors or
+  out-of-horizon deliveries reject before matrix execution. No partial result.
+- RED missing API observed; first5 new integration tests plus existing focused
+  tests passed. Joint-budget and CPU-admission regressions passed too. Full
+  isolated unit/APK/lint SUCCESS10m12s:4636 tests,0 failures/errors,3 skipped;
+  simulator15/15 at2026-09-27T19:59:07Z (7 new). Edited source/test hashes match
+  verification copy. Evidence: /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/
+  INSULIN_MATRIX.md. No runtime hook, therapy write or phone installation.
+- This does not generate future controller schedules or claim calibrated
+  uncertainty. Notification and future-control authorization flags unchanged.
+
+# Meal hypothetical future insulin - 2026-09-27
+
+- Added bounded immutable MealFutureInsulinPlan of delivered impulses, separate
+  from therapy events and action repositories. Existing kernel projects future
+  effect and residual units; forward V3 adds only future insulin steps, retaining
+  historical known inputs, filter/AR and baseline cold-start trend. Frozen context
+  passes optional plan; defaults preserve ordinary runtime behavior.
+- Output reports hypotheticalFutureInsulinUnits; remainingInsulinUnits includes
+  known plus hypothetical residual. Future control/uncertainty flags stay false.
+  No generated controller policy, pump command, live caller or phone deployment.
+- RED missing API; first8 tests plus forward/extended tests GREEN. Added early
+  onset regression: shifted kernel produced pre-delivery effect, now nonempty
+  plans with nonzero CDF(0) reject. Eleven focused tests GREEN plus existing
+  forward/extended coverage. All-profile parity added; full isolated unit/APK/lint
+  passed6m14s:4629 tests,0 failures/errors,3 skipped; new12/12 passed at
+  2026-09-27T19:15:21Z. Lint305 warnings/4 hints,0 errors. Five source/test hashes
+  match the frozen verification copy. Evidence: /Users/mac/Andoidaps/artifacts/
+  meal-grid-check-D4FrDH/FUTURE_INSULIN.md. No unrelated dirty changes reverted.
+- Wrong anchor, duplicate offsets, >145 impulses, invalid units, overflow and
+  delivery beyond requested horizon reject. No truncation or fallback schedule.
+
+# Meal uncertain-simulation integration - 2026-09-27
+
+- Added research-only simulateUncertain to MealScenarioSimulator. Returns the
+  full expanded belief/parent linkage and conditional trajectory batch together.
+  Preserves weights without assigning extra probability to candidate times or
+  reaction delays. Uses existing expansion and simulator, no duplicate engine.
+- Hard maximum24 expanded cases; cancellation before expansion and after the
+  complete batch; unresolved future onset, short tail and overflow reject.
+  Past onset boundaries retain their inferred historical times across candidates.
+- RED missing entry point confirmed; initial five integration tests plus existing
+  expansion/simulator tests passed. Added sixth budget/tail test and stronger
+  in-body cancellation/immutability/distinct-forecast assertions. First full run
+  exposed a JUnit non-void return in the augmented test; fixed explicit Unit.
+  Retry full unit/APK/lint passed6m52s:4617 tests,0 failures/errors,3 skipped;
+  new6/6 passed, XML2026-09-27T18:50:31Z; lint305 warnings/4 hints,0 errors.
+  Snapshot: artifacts/meal-grid-check-D4FrDH/repository
+  under /Users/mac/Andoidaps. No therapy commands, phone install or runtime hook.
+  Evidence: artifacts/meal-grid-check-D4FrDH/UNCERTAIN_SIMULATION.md under that
+  same artifact parent. Results certify the frozen source, not later parallel edits.
+- Future AAPS control, complete intervention semantics, calibrated trajectory
+  uncertainty and real input ingestion remain pending; no meal-start alerts.
+
+# Sustained-rise target, separate scoped task - 2026-09-27
+
+- Added guarded 4.1 mmol/L x 30-minute proposal for glucose >8.5 with a
+  complete 10-minute rising CGM window and fresh same-cycle safe forecasts.
+  Ordinary controller protections and Target Manager safety gates remain.
+- Same-target holds must requalify; no blind keepalive. Restore calculated
+  target when evidence ends. Small upward release bypasses duplicate cadence
+  only when accepted/active/last-command ownership matches exactly.
+- Fixed calculated-base restoration previously discarded as target_equals_base.
+- USB diagnosis was read-only. No therapy commands or phone installation.
+- RED/GREEN then full unit/APK/lint passed at 2026-09-27T18:14:13Z:
+  4604 tests, 0 failures/errors, 3 skipped; 12 new tests passed. Lint: 305
+  warnings, 4 hints, no errors. Parent meal-simulation files not edited.
+- Specification and evidence references:
+  docs/superpowers/specs/2026-09-27-sustained-rise-target.md.
+
+# Meal timing scenario boundary expansion - 2026-09-27
+
+- Added MealScenarioExpansion: explicit grams/onset endpoints times supplied
+  profile alternatives, preserving parent/stage weights and source input/revision
+  and observation metadata. Immutable parent map, deterministic case IDs/order.
+  No midpoint substitution, silent truncation or probability-underflow removal.
+- Equal endpoint weights are versioned research support, not learned probability
+  or coverage of interior extrema. No automatic simulator/runtime/alert wiring.
+- Isolated allowlisted Android source snapshot avoids competing build outputs:
+  /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/repository/android-app.
+  No local settings, databases, signing keys or caches were copied. Required
+  documentation/icon fixtures accompany the snapshot; no installation planned.
+- RED missing API; four initial tests green. Expanded-grid idempotence RED
+  exposed ordering change on a second expansion; fixed final canonical ordering.
+  Seven expansion tests passed, XML timestamp 2026-09-27T18:30:21Z.
+- Isolated full unit/assemble/lint passed: 4611 tests, zero failures/errors,
+  three skipped; lint 305 warnings, four hints, no errors. First run failed
+  solely on missing copied icon SHA256SUMS fixture; retry after copying fixture
+  passed in 2m9s. New source/test match the frozen snapshot. These results do
+  not certify later parallel edits in the original worktree. Evidence:
+  /Users/mac/Andoidaps/artifacts/meal-grid-check-D4FrDH/REPORT.md.
+
+# Meal timing conditional scenario matrix - 2026-09-27
+
+- Added MealScenarioSimulator with immutable batch/trajectory output. Six
+  explicit discrete hypothesis kinds, single reconciled canonical meal, shared
+  planner start/delay grid, deterministic ordering, per-batch equivalent-path
+  cache, work admission before prediction and cancellation between predictions.
+- Upcoming onset follows candidate+reaction delay; past onset remains fixed;
+  NOT_HAPPENING/NO_NEW_MEAL use zero new food. No historical record is rewritten.
+  Intervals/profile mixtures, cross-record links and insufficient tails reject;
+  this does not generate uncertain cases, refit history or model nuisance causes.
+- Output is conditional means with source cycle/settings/belief revision, not
+  calibrated CI or an actionable planner envelope. No production/device wiring.
+- RED missing simulator observed; first five focused tests passed. Added budget,
+  linkage/tail and future-input checks. New class8/8 passed, XML18:06:11Z.
+- Full command FAILED in6m20s:4602 tests,4 failures,3 skips. Four failures are in
+  concurrently added SustainedRiseTargetManagerTest (not edited in this batch).
+  Gradle additionally failed to write six XML reports. Other Java processes
+  had cwd in this same android-app/app build tree (pids31303/31422); disk had
+  363GiB free. Full integration/build/lint is NOT verified; no install/commit.
+  Preserve other work, avoid competing build writers. Saved XML evidence in
+  /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/scenario-matrix-checks/.
+
+# Meal timing conditional extended tail - 2026-09-27
+
+- Extended isolated forwardForecast to an explicit 60..720-minute horizon on
+  the same V3 math; ordinary production prediction still defaults to 12 steps.
+  First-hour AR scaling/path/pointwise forecasts do not depend on tail length.
+- Result reports remaining modeled food/insulin, modeledTailsComplete and
+  numericLimitsReached. Numerical clamps remain unchanged; clipped plateaus
+  must not be interpreted as stable glucose. Known active insulin beyond the
+  existing lookback rejects via the insulin adapter. Nonzero modeled UAM rejects
+  extended requests: its missing tail is not silently padded with zeros.
+- Conditional research extrapolation holds fitted AR/sensitivity/known therapy
+  fixed, does not simulate future AAPS delivery or generate calibrated long CI.
+  Future-control and trajectory-uncertainty flags remain false. Component-tail
+  completion is not physiological validation. No live wiring or phone changes.
+- RED missing horizon/result fields observed; corrected nullable primitive-array
+  handling; focused Meal/Hybrid suites passed. Added ten extended-tail tests,
+  including prefix parity, late food, cold start, missing UAM tail, limits,
+  incomplete insulin at720min and candidate order. Full unit/assemble/lint
+  passed in5m33s:4584 tests, zero failures/errors, three skipped. New class10/10,
+  XML2026-09-27T17:55:27Z under android-app/app/build/test-results/testDebugUnitTest.
+  git diff --check passed. No phone deployment or therapeutic setting change.
+
+# Meal timing conditional forward glucose - 2026-09-27
+
+- Added MealForwardForecast and frozen-context forwardForecast. Uses disposable
+  V3 engine with canonical announced-food replacement, shared ISF/CR, insulin,
+  meal-pressure reconciliation, Kalman and AR. Historical inputs/trend remain
+  fixed when future food changes, including the cold-start residual correction.
+- Baseline parity, candidate order/state isolation, cold start, retained meals
+  and insulin, active-UAM baseline parity, immutable output, invalid anchors,
+  identities/revisions and insufficient COB horizon covered by seven tests.
+- This is only a conditional 60-minute path, not the complete simulator. No
+  future AAPS control, simultaneous calibrated uncertainty, past-onset inference
+  or residual-UAM identity reconciliation is supplied. Ordinary live prediction
+  does not run the new adapter; no runtime caller, notifications or phone update.
+- RED missing API observed; corrected a JUnit runBlocking return-type fixture.
+  Focused checks passed. Full unit XML:4574 tests, zero failures/errors, three
+  skipped; new class7/7 at2026-09-27T17:37:29Z. Full unit/assemble/lint command
+  passed in6m35s. Results:android-app/app/build/test-results/testDebugUnitTest.
+
+# Meal timing announced-food adapter - 2026-09-27
+
+- Frozen context exposes projectMealTimingAnnouncedFood using the current engine
+  profile selection/CDF, canonicalization and synthetic-UAM exclusion. Requires
+  trusted canonical references/nonblank revisions, rejects duplicate canonical
+  records, invalid/future inputs and oversized evidence. Output is immutable.
+- Added monotone CDF projection factory shared by hypothetical and engine food
+  components. Past absorption stays separate; legacy/new curves and per-meal
+  overrides retain existing semantics. Live prediction algorithm unchanged.
+- Only existing announced-food/lookback is represented, not residual UAM or
+  proof of full history coverage. No production hook or phone/therapy changes.
+- RED missing API observed, initial focused tests passed (live component parity
+  for legacy/new curves, trust/revision rejection, overrides, immutability).
+  Full unit/build/lint passed (6m52s):4567 tests, zero failures/errors, three
+  skipped. Adapter7/7; XML timestamp2026-09-27T17:00:42Z in
+  android-app/app/build/test-results/testDebugUnitTest. No device update.
+
+# Meal timing food replacement - 2026-09-27
+
+- Added MealScenarioFoodProjection: replaces explicitly linked canonical meal
+  components (announcement/UAM) rather than adding the hypothetical meal twice.
+  Other reconciled meals remain. Unresolved linkage, duplicate component IDs,
+  overlapping retained meals, mismatched anchors/grids and budget excess reject.
+- Preserves absorbed-past versus future carbohydrate effects, incomplete tails,
+  immutable output and stable summation order. Added common insulin-overlay path
+  using the same CSF, with unchanged modeled insulin steps.
+- Link discovery/reconciliation is a required caller responsibility, not inferred
+  from timestamps. No production caller, absolute glucose forecast, uncertainty
+  model, notification activation, therapy mutation or phone update introduced.
+- Integration follow-up: HybridPredictionEngine excludes synthetic UAM from
+  extractCarbsGramsForPrediction. Its private eventKey hashes timestamp/type/
+  payload and is not stable canonical linkage. Reuse trusted MealTherapyReference
+  identity/revision at ingestion; do not derive ownership from the hash key.
+- RED missing APIs observed; initial focused tests passed. Full unit/build/lint
+  passed (7m29s): 4560 tests, zero failures/errors, three skipped. New food tests
+  8/8 and overlay tests 6/6; XML timestamps 2026-09-27T16:46:36Z under
+  android-app/app/build/test-results/testDebugUnitTest. No phone installation.
+
+# Meal timing uncertainty admission - 2026-09-27
+
+- Audited AutomationRepository.collectForecastCalibrationErrors and
+  applyRecentForecastCalibrationBiasStatic: existing residual calibration is
+  per horizon, not simultaneous coverage of a long meal-timing trajectory.
+- Added explicit uncertainty provenance to the research envelope. Missing,
+  pointwise-only, short, noncausal or different-cycle/runtime support abstains
+  with UNCERTAINTY_UNSUPPORTED. Required support includes delayed absorption,
+  not just the nominal requested horizon. No interval extrapolation introduced.
+- This is an admission contract, not an empirical model or proof of coverage.
+  Synthetic test metadata cannot enable notificationAllowed; it remains false.
+  No production producer, runtime connection, therapy action or phone update.
+- RED missing APIs observed; 19 planner tests passed. Full unit/build/lint passed
+  (6m31s): 4551 tests, zero failures/errors, three skipped. XML evidence under
+  android-app/app/build/test-results/testDebugUnitTest, planner timestamp
+  2026-09-27T16:24:47Z. Architecture and implementation plan updated.
+
+# Meal timing insulin component and overlay - 2026-09-27
+
+- Added read-only insulin projection via frozen MealSimulationContext using
+  existing canonical input processing, event eligibility, sensitivity factors,
+  insulin profile, duration scaling and onset shift. Exact first-60-minute
+  V3 insulin-step parity covered; longer component tails report remaining units.
+  Inferred records remain explicitly counted, not called confirmed delivery.
+- Added MealComponentProjection: aligns one hypothetical food curve with the
+  modeled insulin component using the same CSF. Mismatched anchors/horizons
+  rejected; component steps and cumulative delta are immutable. No absolute
+  glucose, CI or future AAPS delivery is fabricated from this overlay.
+- Known active insulin outside the existing 8-hour event lookback rejects the
+  new projection (configured DIA can reach 12h). This does not detect missing
+  older records or change the existing production forecast; history coverage
+  remains a required independent admission check. Work budget bounded explicitly.
+- RED missing APIs observed. Final full run: 4547 tests, zero failures/errors,
+  three skipped; 11 insulin and 5 overlay tests pass. assembleDebug/lintDebug
+  passed (5m12s); git diff --check clean. Context test verifies frozen insulin
+  input despite caller payload mutation.
+- No live orchestration, notification activation, therapy commands or phone
+  update. Scenario/uncertainty/controller composition and replay remain pending.
+
+# Meal timing frozen inputs and food absorption projection - 2026-09-27
+
+- Added MealSimulationContext: immutable input collections including nested
+  therapy payload maps; isolated engine seed; exact accepted LOCAL forecast
+  reproduction before capture succeeds. Rejects inconsistent/future/stale input,
+  malformed revision labels and allocation-budget excess. Cancellation checked.
+  Caller must own the cycle lock and supply the correct accepted cycle labels;
+  no production capture or orchestration call site is connected yet.
+- Added MealAbsorptionProjection using the existing MealAbsorptionCurve.
+  Hypothetical future/past onset is separate from source therapy timestamps;
+  already-absorbed grams are not counted again. Reports remaining tail rather
+  than treating 60 minutes as complete for a slow meal or delayed start.
+  The 720-minute component budget is not a validated net glucose horizon.
+- Initial RED missing types observed; corrected one JUnit test's inferred
+  non-void return before GREEN. Final full run: 4531 tests, zero failures/errors,
+  three skipped; both new classes 7/7 passed. assembleDebug/lintDebug passed
+  (7m58s). Source diff whitespace check clean.
+- Engine still ignores future therapy events by design: hypothetical food must
+  be projected separately, never inserted as real future history. Extended
+  insulin/controller/uncertainty composition and scenario generator remain
+  unimplemented. No notification permission, live therapy change or phone update.
+
+# Meal timing isolated engine copy - 2026-09-27
+
+- Added forkForMealSimulation without changing the legacy dry-run factory.
+  Copies insulin profile points/DIA/onset, sensitivity and carb limits,
+  meal/UAM contexts, full Kalman covariance and revision/source history,
+  and residual AR buckets. Stateless estimator preserves captured timezone.
+  Fresh diagnostics and no live logger; caller must have exclusive engine access.
+- Added 10 copy tests: warm continuation and accepted-cycle parity, candidate
+  permutation, no mutation of live filter/history, later setting isolation,
+  UAM sensitivity identity, legacy mode and cold filter state.
+  Initial RED: missing copy APIs. A later assertion incorrectly expected the
+  original cycle's applied-update count on repeat; corrected to zero. Actual
+  forecasts and remaining diagnostics match exactly, no physiology change.
+- Final full run: 4517 tests, zero failures/errors, three skipped;
+  assembleDebug and lintDebug passed (7m15s); git diff --check clean.
+- This is a copying primitive, not the complete scenario simulator. No production
+  caller, frozen therapy input context, extended horizon, notification or phone
+  deployment yet. Runtime integration must capture under the cycle lock and
+  use a fresh copy per candidate. No therapy/settings changes or bulk commit.
+
+# Meal timing conditional risk and earliest window - 2026-09-27
+
+- Replaced the blanket NOT_HAPPENING veto with a separate noFoodRisk result.
+  Imminent low-CI risk within the maximum modeled reaction delay returns
+  NO_FOOD_URGENCY, no routine advice. Waiting cannot consume that margin.
+  Every eating/previous-meal/non-meal-change path still passes low-CI checks,
+  including low-weight paths. Missing or malformed paths remain blocking.
+- Select the earliest mutually near-optimal feasible start, not a later start
+  for a tiny weighted cost improvement. Research thresholds remain uncalibrated.
+- RED reproduced distant-no-food veto and unnecessary 30-minute wait; GREEN
+  passed. Final full run: 4507 tests, zero failures/errors, three skipped;
+  15 planner tests passed. assembleDebug and lintDebug passed (6m29s).
+- No runtime callers, notification permission, Room changes, therapeutic
+  actions or phone install. Hypo routing is not implemented by this kernel.
+  Next dependency: isolated full engine state and baseline-parity tests;
+  existing newSimulationEngine disables absorption and omits filter/AR state.
+- Architecture, detailed plan and task checkpoint updated. Pre-existing
+  worktree changes preserved; no bulk stage/commit.
+
+# Meal timing research kernel, first batch - 2026-09-27
+
+- Added isolated domain/meal models, causal posterior update, conservative
+  scenario-matrix evaluator, canonical identity reducer and monotonic quota
+  eligibility. Experimental thresholds; positive result remains SHADOW_READY
+  with no notification permission. No existing production code invokes it.
+- Focused 29 tests passed; final full suite 4500 tests, zero failures/errors,
+  three skipped; assembleDebug and lintDebug passed. Missing types reproduced
+  RED; estimator correlation test exposed an
+  invalid test prediction timestamp, corrected without weakening causal checks.
+- No Room migration, live inference, sender, UI or phone update in this batch.
+  Those, the full frozen engine clone, stage transitions, replay and independent
+  safety validation remain unimplemented. This is not complete feature delivery.
+- Existing dirty changes preserved. No therapy records/actions/settings changed.
+  Task checkpoint: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/meal-timing-implementation-checkpoint.md
+- User clarified meal timing as the primary need. Plan now separates safety of
+  eating, waiting and no-food risk. Current research evaluator's blanket no-food
+  veto is explicitly pending revision, not claimed as the final timing policy.
+
+# Cumulative food projection correction - 2026-09-27
+
+- Supersedes the rolling-delta display below: yellow now starts at the latest
+  displayed glucose sample and adds cumulative announced food steps through
+  +30 minutes. Same glucose axis as history/forecast; no right delta scale.
+  It is food-only, not a net forecast. Russian/English legend says without insulin.
+- Kept accepted-cycle identity and unavailable-data gates. No therapy engine,
+  actions, settings, background jobs or schema changes in this correction.
+- Cumulative regression failed before fix; initial six focused tests passed.
+  Final full unit suite: 4471 tests, zero failures/errors, three skipped.
+  assembleDebug and lintDebug passed; git diff --check clean.
+- Updated phone in place with matching signing certificate. Real Overview
+  shows the common current-glucose origin and rising yellow +30-minute line.
+  Screenshot: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/food-cumulative.png
+  No fake meal or therapeutic command used for verification; filtered recent
+  AndroidRuntime/SQLiteLog output empty. Dark theme inspected.
+- Installed APK SHA256:
+  cdd79564c01f57c1601929ae1f62fbaa130a209073fe5441228da1caba3d1f8e.
+
+# Rolling food impact graph - 2026-09-27
+
+- Added Overview yellow food-only rolling next-30-minute delta curve. Reuses
+  accepted engine announced steps, separate right delta axis, localized legend.
+  No therapy algorithm, target, UAM or dispatch change; no extra polling.
+- Accepted-cycle ID binds the telemetry payload to current sensitivity/forecast;
+  missing or mismatched payload stays unavailable. Device verification caught a
+  missing primary-telemetry subscription key; fixed and regression-tested.
+- Full4466 tests passed (0 failures/errors,3 skipped) before final subscription
+  fix; focused tests and final assembleDebug passed after fix. Lint not rerun.
+- Updated in place on the connected phone. Signing cert unchanged.
+  APK SHA256 a92a08fb48d2165a66e674d8d5181eb9f5e5ecd03b98676f2884dc40df911004.
+- Real Overview screenshot at17:55 shows yellow curve, delta axis and readable
+  legend after natural accepted cycle. No fake meal, manual cycle or test target.
+  Evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/meal-impact-final.png
+  and meal-impact-checkpoint.md. Dark theme inspected; light theme not device-tested.
+
+# Manual meal delivery diagnostics - 2026-09-27
+
+- Live audit and AAPS persistence confirm 10 g delivered at 15:02:55; Eating
+  soon was separately blocked by glucose_stale. Repeated carb attempts were
+  blocked by carbs_rate_limit_30m, not uncertain network delivery.
+- ManualMealSubmission now reads persisted BLOCKED status/reason after false
+  submission and preserves it in the immutable result. PENDING/unknown remains
+  unknown, without retry. New manual-carb block codes are allowlisted in payload;
+  legacy blocked rows use a generic blocked explanation. Other writers unchanged.
+- UI distinguishes rate limit, disarmed and generic blocked from unknown in
+  Russian/English. Added coordinator, Room/transport and localized-message tests.
+- Eating soon still reads latest valid DB glucose and committed forecast. Added
+  bounded preflight age diagnostics; 14:57 to 15:02 sample gap observed, but
+  arrival time at the failed preflight is unknown. No freshness relaxation.
+- Final focused44 tests pass (0 failures/errors); final debug APK builds.
+  lintDebug passed before the last preflight-age diagnostic addition; not rerun
+  on that diagnostic-only delta. Full unit/device UI suites not rerun.
+- Installed update with adb -r at 15:30:28, signatures match, MainActivity starts,
+  filtered AndroidRuntime/SQLiteLog has no errors. No production Send test.
+  APK SHA256: 8730e88b979b07ac80c946613340d63bfe45bd0ad51ba9e80c6c748fe7350606.
+  Evidence: artifacts/meal-portions-stage2-20260927/delivery-log-review.md
+  under /Users/mac/Andoidaps. No real therapy commands submitted in testing.
+
+# Production update - 2026-09-27
+
+- Installed with adb install -r, preserving application data. Confirmed
+  lastUpdateTime 2026-09-27 14:47:57 and populated Overview after startup.
+- APK SHA256: 58b8a34abf68d16e4d13a0fc9ed71ee1651e0815305c04b02e04e8555cf6f6c2.
+  Old/new signing certificate matched: bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db.
+- First long USB database copy was inconsistent and rejected, not evidence that
+  the live database is corrupt. A second device-local staged copy passed the
+  official CopilotPhoneDatabaseMigrationTest, integrity and row preservation.
+  Immutable staged-databases.tar retained under direct-send-backup in artifacts.
+- Restored isolated test appop10021 to ignore and stopped isolated test app.
+- Production UI verification not complete: after a single tap at the previously
+  observed COB bounds, captured Overview showed an unconfirmed-carb-delivery
+  message and Eating soon not sent. Next snapshot showed AAPS foreground.
+  Possible concurrent user interaction; cause and receipt not established.
+  No deliberate Send action or retry was performed. Asked user whether they
+  submitted a meal and how many grams; reconcile before any repeat submission.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/
+  installed-food.xml, installed-current.xml, installed-overview.xml,
+  before-direct-send.apk and direct-send-backup/staged-databases.tar.
+
+# Direct Food submission - 2026-09-27
+
+- User requested removing the second confirmation dialog. Food now sends the
+  displayed exact grams immediately through the existing manual submission path.
+  Eating soon remains an explicit option. Added unchecked-by-default Manual carbs
+  beside it, exposing inline grams only when enabled. Hidden manual text is ignored.
+- Preserved validation, caps, idempotency and existing carb-then-profile-then-target
+  handling. No new therapy writer or weakening of target preflight.
+- Full4460 unit tests: failures0/errors0/skipped3. lintDebug and assembleDebug pass.
+  Isolated UI target/test APKs build. Light/dark screenshots visually checked.
+- First34 device run exposed two outdated secondary-confirmation expectations;
+  corrected those tests. Second run passed through23 tests then USB disconnected
+  during test24. Not a complete34-test pass. No production APK update or therapy write.
+- IMPORTANT: test-only MIUIOP10021 was set allow for that run; restore to ignore
+  on reconnection (restore attempted but adb reported no devices). Stop any remaining
+  instrumentation only in io.aaps.predictivecopilot.uitest if needed.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/direct-send-light.png
+  and direct-send-dark.png. Fresh phone DB/migration acceptance remains pending.
+
+# Meal confirmation USB verification - 2026-09-27
+
+- Updated only isolated UI packages. Final device run passes6 tests including
+  isolation, cancellation, exact correction, immutable confirmation/provenance,
+  and light/dark choice/action reachability. No therapy writes or production update.
+- Added two theme tests and screenshots to MealEntryDialogTest. Test APK builds,
+  diff --check passes. Temporary test-only MIUI background permission restored.
+- Large-font overrides did not actually change dialog rendering. Misleading
+  font tests removed, not counted as acceptance; this remains an open device gate.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/device-provenance-verification.md.
+- Remaining: fresh consistent phone-copy verification, enlarged-font test,
+  canonical evidence reader, held-out learning and full-suite timing regression.
+
+# Portion provenance and migration verification - 2026-09-27
+
+- Confirmation now carries accepted-suggestion versus user-corrected provenance
+  through Overview, MainViewModel and ManualMealSubmission into existing pending
+  reconciliation. Repeated operation IDs cannot relabel or resend a meal.
+- Room v27 adds nullable metadata; no legacy data receives invented training labels.
+  The inactive pure estimator only accepts independent canonical evidence.
+- Updated the phone-copy migration test's obsolete v26 endpoint to v27. Added
+  native-SQLite Room schema validation and UI assertions for provenance.
+- 41 focused migration tests pass, including a disposable archived phone snapshot
+  from September1. Counts, integrity and foreign keys preserved. UI tests compile.
+- Full4460 run: one real-clock wait assertion failed by92ms, three tests skipped.
+  The failing test passes separately; this is not a clean full-suite result.
+  Debug APK builds; lintDebug passes without errors and diff --check passes.
+  No production install, therapy write or learner activation.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/migration-verification.md.
+- Remaining: fresh device-copy validation, new device assertions, contrast/font
+  matrix, canonical evidence reader, held-out validation and manual-cap review.
+
+# Compact meal portions, stage 2 local implementation - 2026-09-27
+
+- Added a compact six-image MealEntryDialog connected to saved portion settings.
+  Calories are hidden by default; selection and dismissal have no send callback.
+  Secondary confirmation freezes the draft and submission identity, shows exact
+  grams and permits correction. Hidden calorie text is ignored. Existing manual
+  cap (at most60g), therapy writer, Eating soon policy and Auto UAM are unchanged.
+- Six generated flat pictograms follow selected variant2; large porridge includes
+  two bread slices. Transparent192px assets, source sheet, hash and reproducible
+  Swift extraction saved under specs/assets/2026-09-27-meal-portions.
+- Focused unit test and UI test compilation passed. First full run found an old
+  source-location assertion after dialog extraction; updated the wiring check.
+  Final full4440 tests: failures0/errors0/skipped3. Lint errors0/warnings301/hints5.
+  Debug, uiTest and uiTestAndroidTest APKs build; git diff --check passes.
+- Instrumented tests cover draft cancellation, selected states, hidden calories,
+  frozen confirmation and explicit over-cap correction, but have NOT executed.
+  Prior USB test target install rejected; requested user permission. No emulator
+  binary at the configured SDK path. Main apps were not updated or restarted.
+  No test therapy commands. Device light/dark/large-font acceptance remains open.
+- Manual80g/provenance/retry integration and history suggestions remain separate
+  unfinished stages. No learner activated. Evidence and APK hashes:
+  /Users/mac/Andoidaps/artifacts/meal-portions-stage2-20260927/RESULTS.md.
+
+# Compact meal portions, stage 1 - 2026-09-27
+
+- Added MealPortion/MealPortionRange/MealPortionSettings, positive finite ordered
+  range/default validation and shared-boundary historical classification.
+  Defaults: ranges7-15/15-40/40-80g, amounts10/25/60g, showCalories=false.
+- AppSettingsStore persists all ranges and rejects invalid updates atomically.
+  Advanced settings editor is connected through SettingsUiState/MainViewModel;
+  invalid drafts disable saving and show an error. No new timer/service/worker.
+- Focused58 tests pass. Full4438 tests: failures0/errors0/skipped3. Lint errors0,
+  warnings296/hints4. Debug, uiTest and uiTestAndroidTest APKs build successfully.
+  Initial RED was expected missing-new-API compilation, not assertion failures.
+- Instrumented interaction test compiled but could not execute: isolated
+  .uitest target installation returned INSTALL_FAILED_USER_RESTRICTED. Companion
+  test APK updated; production Copilot/AAPS were not replaced or restarted.
+- Stage boundary: existing meal entry still uses old presets/energy input.
+  New calorie preference is persisted, not yet applied there. Six icons,
+  immutable confirmation, manual80g path and history learner remain pending.
+  Existing therapy writer, manual cap and automated UAM caps are unchanged.
+- Evidence: /Users/mac/Andoidaps/artifacts/meal-portions-stage1-20260927/.
+
+# Contrast update and Target Manager USB audit - 2026-09-27
+
+- Contrast-only update installed in place; installed APK read-back SHA256
+  b17547b782636212389170394a6dd7f3a92a6791df219bd5483659eaa63c7755.
+  Signing certificate matches previous APK. AAPS PID remained 4397.
+- Six focused contrast tests pass. Full suite: 4433 tests, zero failures/errors,
+  three skipped. Lint: zero errors, 296 warnings and four hints. Build succeeded.
+- Midnight background/content pairing, settings content, warning surfaces and
+  chart history/forecast contrast corrected. Overview warning and Forecast
+  visually inspected on the phone. No therapy parameters changed.
+- Read-only Target Manager audit at 01:40-01:47 local: ACTIVE, fresh 5/30/60
+  forecasts; AAPS persisted 144 mg/dL (8 mmol/L), 30-minute target at 01:27:20.
+  Decrease candidates were blocked by forecast reliability; identical target
+  suppressed at 01:45:58. After update evaluation continued at 01:46:26.
+- UI diagnostic gap confirmed: at 01:46:49 semantic-duplicate status replaced
+  the underlying forecast-reliability reason. Individual horizon reliability
+  metrics were not captured, so the specific failing horizon is unconfirmed.
+  No evidence of a transport failure in this sample; not full algorithm validation.
+- Evidence: /Users/mac/Andoidaps/artifacts/copilot-contrast-fix-20260927/.
+
+# Meal portions: visual choice recorded - 2026-09-27
+
+- User selected variant 2, clear food pictograms; large portion has additional
+  porridge and two bread slices. Preserved the revised board in the spec assets.
+- Spec: docs/superpowers/specs/2026-09-27-compact-meal-portions.md.
+  Staged plan: docs/superpowers/plans/2026-09-27-compact-meal-portions.md.
+- Documentation only. No implementation, APK update, therapy settings or UAM
+  limits changed. Current manual cap of at most 60g and unvalidated history
+  learner are explicitly tracked rather than represented as completed features.
+- Verification: checked referenced current dialog/settings/submission files and
+  test locations; reviewed documentation diff. Build not run for docs-only work.
+
+# Background runtime and bounded maintenance - 2026-09-27
+
+- AAPS follow-up update explicitly authorized: installed commit 0bd2639 in place
+  at 00:59:39 local, matching read-back SHA256
+  53d284d26eb60a9782f2ad7d4632439d54054c62072cdee8eec6d90e89dd199e.
+  Copilot did not need another restart. Existing history/target persisted.
+  ComboV2 RFCOMM failures already existed before updating. After restart, Ready
+  and successful ordinary READSTATUS were confirmed at 01:01:13-16, followed by
+  another successful connected command cycle at 01:03:14-23. This verifies
+  communication, not physical insulin delivery or permanent connectivity.
+- AAPS target graph worker measured 0.385/0.103/0.100 seconds after deployment.
+  Other graph layers still take 15-18 seconds and suffer repeated cancellation.
+  The first post-update CPU capture mixed screen states and is excluded from
+  background comparisons. User confirmed a fresh screen-off measurement.
+  Detailed deployment evidence is in AAPS_DEPLOYMENT.md in the task artifacts.
+- Confirmed screen-off follow-up (18x10s, unchanged last-wake timestamp): AAPS
+  104.2% and Copilot37.0% mean CPU on a one-core scale. No overall reduction is
+  established. PSS snapshots were 253/192MiB respectively. Remaining repeated
+  basal/IOB graph work and cancellations need optimization; do not reduce
+  therapy update cadence or disable safety/transport to lower these numbers.
+
+- Follow-up USB deployment: Copilot updated in place at 00:47:28 local. Read-back
+  APK hash matches `96df1647834305c08690af5f95524013ec86906cebf06c392f6d88e000f486c4`.
+  AAPS was not restarted or updated. Room v26/history and ACTIVE were preserved;
+  fresh glucose and forecasts observed. Foreground service recovered from the
+  background while locked via SYSTEM_ALLOW_LISTED around 00:49; local TLS API
+  responds 401 to unauthenticated reads. No artificial therapy test was sent.
+  After duplicate-target cadence expired, an ordinary automatic target was
+  confirmed in AAPS at 00:55:12 and Copilot SENT at 00:55:13. Evidence:
+  artifacts/runtime-performance-fix-20260927/post-update-target-delivery.txt.
+- Follow-up 180-second screen-off sample: Copilot 26.3% of one core versus
+  31.5% in the prior short sample; AAPS unchanged binary 98.5% versus 103.7%.
+  Workloads differ and PSS after cold start was about 235 MiB: no proven CPU
+  percentage reduction, RAM improvement or battery saving. Details and pending
+  checks: artifacts/runtime-performance-fix-20260927/COPILOT_DEPLOYMENT.md under
+  /Users/mac/Andoidaps. The pre-deployment checks below are retained as history.
+
+- USB audit found the configured localhost transport absent despite successful
+  worker completion. Added only Copilot to the Android device-idle exemption
+  and opened the existing activity. Foreground service and port 17580 recovered;
+  a normal controller target was present in AAPS at 00:24:53 local and marked
+  SENT by Copilot at 00:24:55. No test therapy command or configuration change.
+- Removed the full-history forecast dedup query from accepted-cycle maintenance.
+  Accepted publication already replaces timestamp/horizon rows inside the same
+  Room transaction as accepted runtime publication. Retention now removes at
+  most 256 oldest expired rows per pass, preserving the cutoff and recent rows.
+- New Room test reproduced the unbounded deletion (600 instead of 256), then
+  passed with the bounded query. Full Android unit run: 4427 tests, no failures
+  or errors, three conditional skips. Lint: no errors, 296 warnings, four hints.
+  Debug APK assembled. Source changes have not been installed on the phone.
+- Separate AndroidAPS worktree commit 0bd2639 batches the temporary-target graph
+  range read. Workflow and database module tests passed (7 and 359 tests).
+  Actual new/old DAO SQL matched at 1200 synthetic sample times, including
+  overlapping, expired, invalid and historical rows. Full APK build passed.
+- No claim of measured CPU reduction yet: restored transport changes workload,
+  and both source candidates need separate installation and before/after checks.
+  Basal/IOB graph work, graph/loop separation and Nightscout socket wake-lock
+  redesign remain pending. Other applications were not restricted.
+- Evidence: /Users/mac/Andoidaps/artifacts/runtime-performance-fix-20260927
+  and /Users/mac/Andoidaps/artifacts/background-runtime-audit-20260927.
+
+# Photo meal nutrition and bounded photo input - 2026-09-19
+
+- Added the first local nutrition contract under `domain/nutrition`: explicit
+  nutrient provenance, nullable unknowns versus known zero, raw/cooked state,
+  total/available/unknown carbohydrate basis, per-100-g/per-serving references,
+  source energy in kcal/kJ, immutable AI estimate and revisioned confirmation.
+- Added deterministic calculation and validation with partial coverage, ranges,
+  physical-mass checks, no double fiber deduction and no therapy/action access.
+  Explicit therapy carbohydrate grams remain separate from the food estimate.
+- Added strict `MealPhotoEstimateParser`: max 64 KiB UTF-8 JSON, exact closed
+  food-only schema, bounded 20 ingredients, mass ranges requiring later user
+  selection, AI provenance only, explicit preparation/carbohydrate basis and
+  optional profile/duration. Target, insulin, calibration and command fields are
+  rejected; catalog authority is not promoted by AI output.
+- Added `MealPhotoPreparation`: bounds decode dimensions, resizes to a 1280 px
+  longest edge, re-encodes to metadata-free JPEG at <=1 MiB and exposes defensive
+  byte copies. It does not call AI, persist a meal or send therapy.
+- Added a foreground-only `MealPhotoAnalysisRepository` with an injected gateway,
+  stable request-ID deduplication, one-active-request policy, defensive request
+  bytes and typed-response rejection. It never stores the photo or calls AAPS.
+- Added a pure `MealPhotoDraftEditor` that requires explicit mass confirmation,
+  validates eaten fraction/profile duration and keeps edits in a revisioned draft.
+- Added an immutable `MealEffectTimelineBuilder` that consumes accepted
+  `announcedCarbStep` values with runtime/ISF/CR/curve provenance; unknown
+  coverage or invalid steps are rejected instead of rendered as zero.
+- Added a separate backend `MEAL_PHOTO` policy and signed route at
+  `/api/ai/v1/meal-photo/jobs`. The request is one canonical JPEG bounded to
+  1 MiB image / 3 MiB JSON; the worker output is strictly the food-only meal
+  estimate schema. Synthetic transport verification passes; no real vision
+  worker, photo upload, or therapy action is connected.
+- Focused Android verification: nutrition domain, photo parser, preparation and
+  coordinator, draft editor and food-effect timeline tests pass (`34` tests in
+  the selected run, zero failures). A transient parser
+  test failure caused by enum token consumption and a Robolectric test setup
+  issue were fixed; no debug logging remains.
+- Backend full verification at this stage: `327` tests passed with zero
+  failures/errors (one existing Starlette deprecation warning). Remaining:
+  camera/picker and lifecycle wiring, contained server vision normalizer/worker
+  or explicit personal vision adapter, editable confirmation UI, Room migration,
+  canonical reconciliation, shared yellow food-effect timeline, reports,
+  independent reviews, full build/lint and device verification.
+
+# R1b Android Signed AI Client and USB Preflight - 2026-09-13
+
+- Added the minimal signed CHAT client on top of the existing connection
+  manager. No new secret store, host setting, provider fallback or worker.
+- Request bytes, UUID and deadline remain stable across an explicit retry;
+  fresh proofs use the current session. Expired refresh recovery is rejected
+  before signing. Bounded strict parsing preserves lifecycle/result distinction.
+- Candidate `877df0ad`: 17 new client and nine existing connection tests passed;
+  full unit/lint/debug/uiTest/instrumentation assembly passed in 13m 7s. There
+  were 4382 tests, zero failures/errors, three conditional phone-copy skips;
+  lint had zero errors, 295 warnings and four hints.
+- Spec review found two backend-authoritative wall-clock cases rejected by the
+  Android decoder. Both reproduced RED; narrow fix `29379708` passed 19 client
+  and nine connection tests. Independent spec recheck accepted the correction;
+  full verification at that revision passed 4384 tests with zero failures/errors
+  and three conditional skips.
+- Quality review found native OkHttp 503 follow-up retries and an input encoding
+  allocation before length validation. Four tests reproduced the defects RED.
+  Fix `e5432c52` adds a pre-encoding bound, reuses one-shot JSON bodies and
+  suppresses 503 retry hints for signed GET/DELETE as well as POST.
+  All 36 focused tests pass, including seven real-OkHttp tests for one wire
+  attempt, stream limits, cancellation and redirects.
+- Final full verification at `e5432c52` passed in 6m 4s: 4392 tests in 359
+  suites, zero failures/errors, three conditional phone-copy skips. Lint:
+  zero errors, 295 warnings, four hints, no new findings versus `29379708`.
+  Debug, isolated UI-test and instrumentation APKs all assembled and verified.
+  Independent quality recheck accepted both fixes with no concrete blockers.
+  Implementer and both independent reviewers used `gpt-5.6-sol` / `xhigh`.
+- Final debug APK SHA-256:
+  `d95da44c114786960854684b02e03a41b4b72852528a6b4cc297614b481fbfa8`.
+  Isolated target SHA-256:
+  `10a6fd1cbc9903cd72df6e057fd90e01f66e45aafd4278caa726f845dc16b286`.
+  Instrumentation SHA-256:
+  `36b28b2d2634f4237d4c47c2b070b610ad81b53bcf93dc69b58239fc44f45627`.
+  All use signer SHA-256
+  `bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db`.
+  The isolated APK declares only its own dynamic-receiver permission, not
+  Internet or AAPS access. No credential containers in the three APKs; bounded
+  added-line scanning found no provider/Telegram/private-key literals.
+- USB phone baseline: production last updated September 6; installed APK backed
+  up privately and signer matched the isolated test candidate. Overview opened
+  with current data and a forecast; this is not proof of clinical accuracy.
+- Isolated target installation returned `INSTALL_FAILED_USER_RESTRICTED`.
+  No bypass/retry after denial, production update or instrumentation performed.
+- During verification the USB target changed. The replacement device has AAPS
+  but no Copilot package; no installation attempted, user target confirmation
+  requested. Earlier baseline evidence is not attributed to that phone.
+- User then reconnected the original Copilot phone `J7EYCEEE7TK74XAQ` and
+  authorized the update. Installed the debug APK over the existing package with
+  `adb install -r`; no uninstall or data reset. Read-back APK SHA-256 matches
+  the candidate: `d95da44c114786960854684b02e03a41b4b72852528a6b4cc297614b481fbfa8`.
+  Package dataDir remained `/data/user/0/io.aaps.predictivecopilot`, signature
+  remained `bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db`,
+  and `MainActivity` cold-started successfully in 2031 ms. The Overview had no
+  local glucose data on this device; no therapy controls were used. Foreground
+  service was present and no FATAL/AndroidRuntime entries appeared in the
+  bounded post-launch log. Evidence: private `device-install-20260913/`.
+- Bounded resource samples and system cleanup exit records retained privately.
+  Different foreground/background states are not an optimization comparison.
+- No server mutation, medical upload, real authorization code or AI call.
+  Unauthenticated server status returned 503 with valid TLS.
+- Contract, missing caller/online gates: `docs/2026-09-13-android-ai-jobs.md`.
+- Private evidence: `/Users/mac/Andoidaps/artifacts/server-ai-usb-r1b-20260913-9a1jYB`.
+  Baseline screenshots and diagnostics stay outside Git. Feature commits remain
+  on `codex/server-ai-jobs-20260913`; no main merge or remote push in this stage.
+
+# R1a Signed Server AI Job Transport - 2026-09-13
+
+- Added optional signed `CHAT`/`TEXT` capabilities, submit, status and cancel
+  routes to the bound app factory. Without an injected `AiJobService`, the
+  existing activation/status-only surface remains closed.
+- Reused app attestation, session credentials and exact P-256 request proofs.
+  Dispatch rechecks the stable session/key subscription grant independently of
+  access-token rotation; result/cancel access is owner plus session/key scoped.
+- Added strict DTO/policy limits, deterministic exact-body plus trusted-policy
+  digest, durable idempotency, owner-wide quota across sessions, FIFO draining,
+  one global worker, five waiting, confirmed-stop capacity release and truthful
+  restart/unknown behavior.
+- Raw text/results are bounded volatile memory only. One event-driven expiry
+  wakeup purges waiting payloads at deadline and results within 15 minutes;
+  metadata remains content-free and terminal jobs never rerun.
+- RED/GREEN used synthetic activation, P-256 proofs and injected synthetic
+  contained workers. No Codex call, external server/phone action, secret,
+  medical payload or therapy command was used.
+- Independent spec review found constructor-before-claim, unconsumed GET/DELETE
+  body bytes, encoded-path aliases and omitted policy digest fields. All were
+  reproduced RED and corrected with eight GREEN checks, including constructor
+  failure retaining capacity without a fabricated stop receipt.
+- Quality hardening rejects unsupported policy/queue limits, supervises drain
+  failure with admission disabled and volatile content cleared, and protects
+  claim completion plus bounded stop receipts against repeated cancellation.
+- A deterministic publication barrier reproduced terminal success before result
+  availability. GET and POST recovery now retain RUNNING until cache publication;
+  session readiness also follows the actual optional job service.
+- An expiry test now waits for both the DB commit and event-loop RAM cleanup,
+  rather than mistaking the intermediate commit for completed cleanup.
+- Reverse publication interleaving also reproduced an old RUNNING DB snapshot
+  paired with a newer cache. Completed metadata/result are now one immutable
+  tuple; a bounded reread handles retirement or eviction. Both regressions pass.
+- Final backend verification after quality fixes: `313 passed` in `27.79s`;
+  the focused feature suite passed `141` tests. The only warning is the
+  existing Starlette test-client AnyIO alias deprecation.
+- Independent spec and quality reviews are complete for this transport scope.
+  The final quality recheck at `2e3525a2149332146915f9d49d2794b0bda5f84b`
+  passed six checks, including the reviewer's unchanged race reproduction;
+  no remaining blocking findings. All delegated reviews used `gpt-5.6-sol`
+  with `xhigh` effort. Evidence is retained in the private artifact directory
+  `/Users/mac/Andoidaps/artifacts/server-ai-jobs-20260913-TF40xo`.
+- These feature commits remain on `codex/server-ai-jobs-20260913`. No main
+  integration, remote push, deployment or phone update occurred in this stage.
+- Earlier unsuccessful runs are retained in private artifacts. They exposed the
+  publication/cleanup races and unchanged CLI subprocess timeouts during host
+  load near 100. No CLI timeout was increased; the final complete rerun passed.
+- Exact contract and pending R1b/production gates are documented in
+  `docs/2026-09-13-signed-ai-jobs.md`. Online launcher, independent OS stop
+  receipt, authority/attestation/device/routing setup, staging and deployment
+  remain pending; R1a is not a production inference release.
+
+# Gentle Alerts and Trusted Telegram Integration - 2026-09-13
+
+- Integrated the isolated soft-alert/Telegram feature onto September main source
+  b1cda13e, without copying unrelated private development history or medical data.
+- Soft audio defaults to 2 seconds (1-5 adjustable); WATCH is silent. Soft-risk
+  confirmation uses distinct CGM timestamps and crossing-time estimation includes
+  the +10-minute forecast. Urgent thresholds, exact local OFF and therapy actions
+  are unchanged.
+- Added optional encrypted bot configuration, expiring private recipient pairing,
+  per-recipient alerts/reports, fresh episode forwarding and canonical 7/30-day
+  text summaries. No live token, recipient, message or phone operation was used.
+- Merged secret-storage, Settings navigation and backup conflicts while preserving
+  server-AI activation and identity. Added deletion-quarantine isolation and backup
+  exclusion coverage for both namespaces. No permanent polling or worker added.
+- Final integration verification passed with JDK 17:
+  `cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --console=plain --max-workers=2`.
+  Result: BUILD SUCCESSFUL in 5m 45s; 4365 tests in 357 suites, zero failures/errors,
+  three conditional phone-database checks skipped. Lint: zero errors, 295 warnings,
+  four hints, with no added findings against the main-release lint report.
+- The first full run exposed the architecture test's old two-store assumption.
+  Updated it for the independent Telegram store while retaining all clinical-provider
+  checks. The full rerun passed. Three new summary-text lint warnings were then fixed
+  without suppressions; the final full test/lint/build rerun also passed.
+- Phone-copy skips cover real TLS history, accepted runtime tuple read-back and
+  a disposable phone DB migration. Synthetic regression tests still run normally.
+- Debug APK SHA-256:
+  `1f0241f1a13e1524046aa6703589e608d624b6adbb58d7f14a1c46e7d10175e6`.
+  Signature verification passed; signer SHA-256:
+  `bb7d00bd8fef9e1464f70b294a2d7b8f1dd671e5fcd7236acc7d5360d15730db`.
+- Staged changes contain no APK/database/key containers. A bounded literal scan
+  found no OpenAI tokens, Telegram tokens or private-key delimiters in additions.
+  No remote push or phone operation is part of this local-main integration.
+- Live Telegram delivery, UI/device checks and resource measurements remain unverified.
+  Telegram is supplemental, not guaranteed delivery; uncertain sends are not retried.
+
 # Source Publication and Phone Verification - 2026-09-13
 
 - Prepared an isolated software snapshot for main without merging private

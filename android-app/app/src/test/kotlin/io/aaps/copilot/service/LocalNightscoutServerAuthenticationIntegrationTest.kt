@@ -52,9 +52,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
+// Host socket TLS must not change with Robolectric's platform-dependent provider default.
+@ConscryptMode(ConscryptMode.Mode.OFF)
 class LocalNightscoutServerAuthenticationIntegrationTest {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()

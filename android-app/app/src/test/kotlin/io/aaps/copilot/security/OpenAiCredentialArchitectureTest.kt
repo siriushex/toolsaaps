@@ -179,7 +179,10 @@ class OpenAiCredentialArchitectureTest {
             "io/aaps/copilot/data/repository/AiChatRepository.kt"
         ).readText()
 
-        assertThat(container.windowedCount("KeystoreSecretStorage(")).isEqualTo(2)
+        // Two clinical credential graphs plus the independent Telegram delivery store.
+        assertThat(container.windowedCount("KeystoreSecretStorage(")).isEqualTo(3)
+        assertThat(container.windowedCount("EncryptedTelegramPersistence(")).isEqualTo(1)
+        assertThat(container).contains("RuntimeSecretStorageNamespaces.TELEGRAM")
         assertThat(container.windowedCount("OpenAiCredentialStore(")).isEqualTo(1)
         assertThat(container.windowedCount("OpenAiCredentialProvider(")).isEqualTo(1)
         assertThat(container.windowedCount("ClinicalAiCredentialProvider(")).isEqualTo(1)

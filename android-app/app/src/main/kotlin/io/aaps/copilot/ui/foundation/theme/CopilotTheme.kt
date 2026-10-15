@@ -1,12 +1,6 @@
 package io.aaps.copilot.ui.foundation.theme
 
 import android.os.Build
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -33,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.ui.motion.rememberFiniteMotionClock
 import kotlin.math.max
 
 private val LightColors = lightColorScheme(
@@ -89,6 +84,32 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
 )
 
+private val ClarityLightColors = LightColors.copy(
+    primary = Color(0xFF006E5C), onPrimary = Color.White,
+    primaryContainer = Color(0xFFD5F2E9), onPrimaryContainer = Color(0xFF00382E),
+    secondary = Color(0xFF3464D8), secondaryContainer = Color(0xFFE9EFFF),
+    onSecondaryContainer = Color(0xFF173775),
+    background = Color.White, surface = Color.White,
+    surfaceVariant = Color(0xFFF0F4F5), onSurface = Color(0xFF1D2B31),
+    onBackground = Color(0xFF1D2B31), onSurfaceVariant = Color(0xFF435761),
+    outlineVariant = Color(0xFFDCE3E7),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF8FAFA),
+    surfaceContainer = Color(0xFFF4F7F7), surfaceContainerHigh = Color(0xFFF0F4F5),
+    surfaceContainerHighest = Color(0xFFE8EEF0), surfaceDim = Color(0xFFE8EEF0), surfaceBright = Color.White
+)
+
+private val ClarityDarkColors = DarkColors.copy(
+    primary = Color(0xFF79D7BE), onPrimary = Color(0xFF00382E),
+    primaryContainer = Color(0xFF005345), onPrimaryContainer = Color(0xFFD5F2E9),
+    secondary = Color(0xFFB5C8FF), secondaryContainer = Color(0xFF173775),
+    onSecondaryContainer = Color(0xFFE9EFFF),
+    background = Color(0xFF14191A), surface = Color(0xFF14191A),
+    surfaceVariant = Color(0xFF222B2D), onSurfaceVariant = Color(0xFFC0CCCF),
+    surfaceContainerLowest = Color(0xFF101516), surfaceContainerLow = Color(0xFF192022),
+    surfaceContainer = Color(0xFF20282A), surfaceContainerHigh = Color(0xFF273134),
+    surfaceContainerHighest = Color(0xFF303C40), surfaceDim = Color(0xFF14191A), surfaceBright = Color(0xFF303C40)
+)
+
 private val MidnightGlassLightColors = lightColorScheme(
     primary = Color(0xFF2563EB),
     onPrimary = Color.White,
@@ -138,7 +159,7 @@ private val MidnightGlassDarkColors = darkColorScheme(
     outline = Color(0x26FFFFFF),
     outlineVariant = Color(0x1AFFFFFF),
     error = Color(0xFFFF6B74),
-    onError = Color(0xFFF8FAFC),
+    onError = Color(0xFF350C12),
     errorContainer = Color(0xFF5A1E25),
     onErrorContainer = Color(0xFFFFD0D3)
 )
@@ -208,6 +229,7 @@ fun AapsCopilotTheme(
 ) {
     val context = LocalContext.current
     val colorScheme = when {
+        uiStyle == UiStyle.CLARITY -> if (darkTheme) ClarityDarkColors else ClarityLightColors
         uiStyle == UiStyle.MIDNIGHT_GLASS -> {
             MidnightGlassDarkColors
         }
@@ -231,7 +253,11 @@ fun AapsCopilotTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = AppTypography,
-            shapes = AppShapes,
+            shapes = if (uiStyle == UiStyle.CLARITY) Shapes(
+                small = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                medium = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                large = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+            ) else AppShapes,
             content = content
         )
     }
@@ -245,7 +271,7 @@ fun CopilotStyledBackground(
 ) {
     val darkTheme = isSystemInDarkTheme()
     when (uiStyle) {
-        UiStyle.CLASSIC -> {
+        UiStyle.CLASSIC, UiStyle.CLARITY -> {
             val backgroundColor = MaterialTheme.colorScheme.background
             Box(
                 modifier = modifier
@@ -259,16 +285,7 @@ fun CopilotStyledBackground(
         }
 
         UiStyle.DYNAMIC_GRADIENT -> {
-            val transition = rememberInfiniteTransition(label = "copilot-gradient")
-            val phase = transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 13_000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "phase"
-            )
+            val phase = rememberFiniteMotionClock(8_000L, "background-material", true)
             val primary = if (darkTheme) {
                 listOf(
                     Color(0xFF0B132B),
@@ -306,7 +323,7 @@ fun CopilotStyledBackground(
                     .drawBehind {
                         val w = size.width
                         val h = size.height
-                        val shift = phase.value
+                        val shift = (phase.value / 8_000f).coerceIn(0f, 1f)
                         drawRect(
                             brush = Brush.linearGradient(
                                 colors = primary,
@@ -331,24 +348,12 @@ fun CopilotStyledBackground(
         }
 
         UiStyle.MIDNIGHT_GLASS -> {
-            val base = listOf(
-                Color(0xFFF4F8FC),
-                Color(0xFFEAF2F7),
-                Color(0xFFE7EEF6)
-            )
+            val backgroundColor = MaterialTheme.colorScheme.background
             Box(
                 modifier = modifier
                     .fillMaxSize()
                     .drawBehind {
-                        val w = size.width
-                        val h = size.height
-                        drawRect(
-                            brush = Brush.linearGradient(
-                                colors = base,
-                                start = Offset(0f, 0f),
-                                end = Offset(w, h)
-                            )
-                        )
+                        drawRect(color = backgroundColor)
                     }
             ) {
                 content()

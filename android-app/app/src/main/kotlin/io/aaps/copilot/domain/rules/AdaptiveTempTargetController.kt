@@ -793,7 +793,7 @@ class AdaptiveTempTargetController {
         private const val HIGH_GLUCOSE_FULL_SCALE_MMOL = 1.80
         private const val HIGH_GLUCOSE_KP_BOOST = 0.16
         private const val HIGH_GLUCOSE_KI_BOOST = 0.02
-        private const val TREND_STOP_THRESHOLD_MMOL5 = 0.10
+        internal const val TREND_STOP_THRESHOLD_MMOL5 = 0.10
         private const val RELAXATION_MIDTERM_PRED30_WEIGHT = 0.55
         private const val RELAXATION_MIDTERM_PRED60_WEIGHT = 0.45
         private const val RELAXATION_MIDTERM_FULL_SCALE_MMOL = 1.20

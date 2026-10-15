@@ -355,7 +355,7 @@ class LocalNightscoutForegroundService : Service() {
         val runtime = LocalNightscoutRuntimeState.value
         val reasonSuffix = runtime.reason?.let { " (reason=$it)" }.orEmpty()
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(io.aaps.copilot.R.drawable.ic_copilot_notification)
             .setContentTitle(
                 if (localNightscoutEnabled) {
                     getString(R.string.local_nightscout_notification_title)

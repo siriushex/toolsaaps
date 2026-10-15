@@ -9,13 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,17 +30,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import io.aaps.copilot.ui.foundation.screens.ChartCiPointUi
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
-import io.aaps.copilot.ui.foundation.screens.eventSourceLabelRes
 import io.aaps.copilot.ui.foundation.screens.eventTypeLabelRes
 import io.aaps.copilot.ui.foundation.screens.toChartMarkerUi
 import io.aaps.copilot.R
@@ -147,9 +145,20 @@ internal fun ClinicalForecastChart(
     plus30Label: String,
     modifier: Modifier = Modifier,
     components: List<ClinicalForecastComponent> = emptyList(),
-    viewport: ClinicalChartViewport? = null
+    viewport: ClinicalChartViewport? = null,
+    chartHeight: Dp = 280.dp,
+    showDisplayRange: Boolean = true,
+    forecastMarkers: List<ClinicalForecastMarker> = emptyList(),
+    onForecastMarkerClick: (Int) -> Unit = {},
+    onLoadEventContext: io.aaps.copilot.domain.events.EventContextLoader = { io.aaps.copilot.domain.events.EventCompensationContext() }
 ) {
     var selectedEventIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(selectedEventIds, state.events, state.showEvents) {
+        val retained = if (state.showEvents) selectedEventIds.filter { id ->
+            state.events.any { it.localId == id }
+        } else emptyList()
+        if (retained != selectedEventIds) selectedEventIds = retained
+    }
     val visibleHistory = remember(state.historyPoints, viewport) {
         viewport?.let { selectClinicalChartPoints(state.historyPoints, it.startTs, it.endTs) }
             ?: state.historyPoints
@@ -162,9 +171,14 @@ internal fun ClinicalForecastChart(
         viewport?.let { selectClinicalChartCiPoints(state.futureCi, it.startTs, it.endTs) }
             ?: state.futureCi
     }
+    val foodPoints = remember(state.mealImpactPoints, viewport) {
+        val points = state.mealImpactPoints.filter { it.value.isFinite() && it.value > 0.0 }
+        viewport?.let { selectClinicalChartPoints(points, it.startTs, it.endTs) } ?: points
+    }
     val bounds = remember(
         visibleHistory,
         visibleFuture,
+        foodPoints,
         visibleCi,
         state.displayRangeLowMmol,
         state.displayRangeHighMmol,
@@ -172,7 +186,7 @@ internal fun ClinicalForecastChart(
     ) {
         clinicalChartBounds(
             history = visibleHistory.filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
-            future = visibleFuture.filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
+            future = (visibleFuture + foodPoints).filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
             ci = visibleCi.filter { viewport == null || it.ts in viewport.startTs..viewport.endTs },
             displayLow = state.displayRangeLowMmol,
             displayHigh = state.displayRangeHighMmol
@@ -182,7 +196,7 @@ internal fun ClinicalForecastChart(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(280.dp),
+                .height(chartHeight),
             contentAlignment = Alignment.Center
         ) {
             Text(text = emptyText, style = MaterialTheme.typography.bodyMedium)
@@ -191,19 +205,22 @@ internal fun ClinicalForecastChart(
     }
 
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
-    val displayBandColor = Color(0xFFE8F5E9).copy(alpha = 0.82f)
+    val chartColors = clinicalChartColors(MaterialTheme.colorScheme.surface)
+    val displayBandColor = chartColors.displayBand
     val targetLineColor = Color(0xFF55B66D)
     val ciColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     val historyColor = MaterialTheme.colorScheme.onSurface
-    val futureColor = Color(0xFF536B91)
+    val futureColor = chartColors.future
     val markerColor = Color(0xFF2F9E55)
     val markerLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
     val axisColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val foodColor = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f)
+        Color(0xFFA97900) else Color(0xFFFFD54F)
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     val axisPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     axisPaint.color = axisColor.toArgb()
     axisPaint.textSize = with(LocalDensity.current) { 10.sp.toPx() }
-    val series = visibleHistory + visibleFuture
+    val series = visibleHistory + visibleFuture + foodPoints
     val minTs = viewport?.startTs ?: series.minOf { it.ts }
     val maxTs = viewport?.endTs ?: series.maxOf { it.ts }
     val eventTypeLabels = mutableListOf<String>()
@@ -220,7 +237,7 @@ internal fun ClinicalForecastChart(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(280.dp)
+            .height(chartHeight)
     ) {
         Canvas(
             modifier = Modifier
@@ -232,7 +249,7 @@ internal fun ClinicalForecastChart(
         val horizontalBounds = clinicalChartPlotHorizontalBounds(
             totalWidthPx = size.width,
             leftInsetPx = 34.dp.toPx(),
-            rightInsetPx = 4.dp.toPx()
+            rightInsetPx = 40.dp.toPx()
         )
         val plotLeft = horizontalBounds.leftPx
         val plotTop = 44.dp.toPx()
@@ -284,6 +301,7 @@ internal fun ClinicalForecastChart(
         val bandTop = yOf(state.displayRangeHighMmol)
         val bandBottom = yOf(state.displayRangeLowMmol)
         clipRect(left = plotLeft, top = plotTop, right = plotRight, bottom = plotBottom) {
+            if (showDisplayRange) {
             drawRect(
                 color = displayBandColor,
                 topLeft = Offset(plotLeft, bandTop),
@@ -302,6 +320,7 @@ internal fun ClinicalForecastChart(
                 end = Offset(plotRight, bandBottom),
                 pathEffect = targetDash
             )
+            }
 
             if (visibleCi.size >= 2) {
                 val area = Path()
@@ -329,6 +348,12 @@ internal fun ClinicalForecastChart(
                 yOf = ::yOf,
                 color = futureColor,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
+            )
+            drawClinicalPolyline(
+                points = foodPoints,
+                xOf = ::xOf,
+                yOf = ::yOf,
+                color = foodColor
             )
 
             nowVisible?.let { current ->
@@ -386,12 +411,10 @@ internal fun ClinicalForecastChart(
             }
         }
 
-        val yLabels = listOf(
-            bounds.max to yOf(bounds.max),
-            state.displayRangeHighMmol to bandTop,
-            state.displayRangeLowMmol to bandBottom,
-            bounds.min to yOf(bounds.min)
-        ).distinctBy { (value, _) -> String.format("%.1f", value) }
+        val rangeLabels = if (showDisplayRange) listOf(state.displayRangeHighMmol to bandTop,
+            state.displayRangeLowMmol to bandBottom) else emptyList()
+        val yLabels = (listOf(bounds.max to yOf(bounds.max), bounds.min to yOf(bounds.min)) + rangeLabels)
+            .sortedByDescending { it.first }.distinctBy { (value, _) -> String.format("%.1f", value) }
         yLabels.forEach { (value, y) ->
             drawContext.canvas.nativeCanvas.drawText(
                 String.format("%.1f", value),
@@ -458,6 +481,9 @@ internal fun ClinicalForecastChart(
             }
         }
         }
+        if (forecastMarkers.isNotEmpty()) {
+            ClinicalForecastMarkers(forecastMarkers, minTs, maxTs, bounds, onForecastMarkerClick)
+        }
         if (state.showEvents) {
             EventTimelineRail(
                 markers = state.events
@@ -477,32 +503,7 @@ internal fun ClinicalForecastChart(
         state.events.firstOrNull { it.localId == selectedId }
     }
     if (selectedEvents.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { selectedEventIds = emptyList() },
-            title = { Text(stringResource(R.string.events_details_title)) },
-            text = {
-                LazyColumn(
-                    modifier = Modifier
-                        .heightIn(max = 320.dp)
-                        .testTag("eventClusterDetails"),
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-                ) {
-                    items(selectedEvents, key = { it.localId }) { selected ->
-                        Column {
-                            val typeLabel = stringResource(eventTypeLabelRes(selected.type))
-                            Text(selected.title.ifBlank { typeLabel })
-                            Text(typeLabel)
-                            Text(stringResource(eventSourceLabelRes(selected.source)))
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedEventIds = emptyList() }) {
-                    Text(stringResource(R.string.events_close))
-                }
-            }
-        )
+        ChartEventDetailsDialog(selectedEvents, state.eventTimelineNowTs, onLoadEventContext) { selectedEventIds = emptyList() }
     }
 }
 

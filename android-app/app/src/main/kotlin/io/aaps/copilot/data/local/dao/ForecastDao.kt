@@ -33,7 +33,12 @@ interface ForecastDao {
     )
     suspend fun deleteDuplicateByTimestampAndHorizon(): Int
 
-    @Query("DELETE FROM forecasts WHERE timestamp < :olderThan")
+    // Bound maintenance write locks; subsequent accepted cycles drain the backlog.
+    @Query(
+        "DELETE FROM forecasts WHERE id IN (" +
+            "SELECT id FROM forecasts WHERE timestamp < :olderThan " +
+            "ORDER BY timestamp ASC, id ASC LIMIT 256)"
+    )
     suspend fun deleteOlderThan(olderThan: Long): Int
 
     @Query("SELECT * FROM forecasts ORDER BY timestamp DESC LIMIT :limit")

@@ -44,6 +44,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import io.aaps.copilot.ui.motion.CopilotOwl
+import io.aaps.copilot.ui.motion.OwlGesture
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -2459,10 +2461,7 @@ private fun AiChatHeroCard(
             }
             Spacer(modifier = Modifier.weight(1f))
             if (state.chatInProgress || state.chatVoiceBusy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.height(18.dp),
-                    strokeWidth = 2.dp
-                )
+                CopilotOwl(size = 24.dp, gesture = OwlGesture.WAITING, motionKey = "chat-wait")
             }
             OutlinedButton(
                 onClick = onSend,

@@ -127,6 +127,26 @@ class KeystoreDeletionDurabilityCoordinatorTest {
         assertThat(runCatching { anthropic.withGuard {} }.exceptionOrNull()).isNull()
     }
 
+    @Test
+    fun telegramQuarantineDoesNotBlockServerAiOrLocalTransport() {
+        val registry = DeletionDurabilityCoordinatorRegistry()
+        val telegram = registry.coordinatorFor(RuntimeSecretStorageNamespaces.TELEGRAM)
+        val sameTelegram = registry.coordinatorFor(RuntimeSecretStorageNamespaces.TELEGRAM.copy())
+        val serverAi = registry.coordinatorFor(RuntimeSecretStorageNamespaces.SERVER_AI_CONNECTION)
+        val localTransport = registry.coordinatorFor(RuntimeSecretStorageNamespaces.LOCAL_NIGHTSCOUT_TLS)
+
+        telegram.withGuard { telegram.quarantine() }
+
+        assertThat(runCatching { sameTelegram.withGuard {} }.exceptionOrNull())
+            .isInstanceOf(IllegalStateException::class.java)
+        assertThat(runCatching { serverAi.withGuard {} }.exceptionOrNull()).isNull()
+        assertThat(runCatching { localTransport.withGuard {} }.exceptionOrNull()).isNull()
+        val namespaces = listOf(RuntimeSecretStorageNamespaces.TELEGRAM,
+            RuntimeSecretStorageNamespaces.SERVER_AI_CONNECTION, RuntimeSecretStorageNamespaces.LOCAL_NIGHTSCOUT_TLS)
+        assertThat(namespaces.map { it.preferencesFile }).containsNoDuplicates()
+        assertThat(namespaces.map { it.keyAlias }).containsNoDuplicates()
+    }
+
     private companion object {
         const val TEST_TIMEOUT_MS = 5_000L
     }

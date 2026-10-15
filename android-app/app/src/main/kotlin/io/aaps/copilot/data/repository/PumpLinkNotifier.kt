@@ -40,7 +40,7 @@ class PumpLinkNotifier(private val context: Context) {
             setOnClickPendingIntent(R.id.glucose_alert_compact_off_60, mutePendingIntent(GlucoseAlertMuteOption.MINUTES_60))
         }
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setSmallIcon(io.aaps.copilot.R.drawable.copilot_glyph_pump_disconnected)
             .setContentTitle(context.getString(R.string.pump_link_channel))
             .setContentText(message)
             .setCategory(NotificationCompat.CATEGORY_STATUS)

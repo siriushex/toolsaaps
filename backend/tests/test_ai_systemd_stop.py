@@ -105,3 +105,92 @@ def test_collected_transient_unit_requires_absent_not_only_empty_cgroup(tmp_path
     group.rmdir()
     install_commands(monkeypatch, verifier, show(verifier), collected)
     assert asyncio.run(verifier.stop_and_confirm()) is True
+
+
+def bundle_setup(tmp_path, *, populated="0"):
+    job_id, slice_id = str(uuid4()), str(uuid4())
+    root = tmp_path / "cgroup"
+    parent = root / ("personalai" + slice_id.replace("-", "") + ".slice")
+    unit = "copilot-ai-job-" + job_id.replace("-", "") + ".service"
+    group = parent / unit
+    group.mkdir(parents=True)
+    (root / "cgroup.controllers").write_text("cpu memory pids")
+    (group / "cgroup.events").write_text(f"populated {populated}\n")
+    verifier = SystemdStopVerifier(job_id, "a" * 32, cgroup_root=root, slice_id=slice_id)
+    return verifier, group
+
+
+def test_shared_slice_receipt_requires_exact_parent(tmp_path, monkeypatch):
+    verifier, group = bundle_setup(tmp_path)
+    expected = "/" + group.parent.name + "/" + verifier.unit
+    assert verifier.group_path == expected
+    install_commands(monkeypatch, verifier, show(verifier, ControlGroup=expected), show(verifier))
+    assert asyncio.run(verifier.stop_and_confirm()) is True
+    commands = install_commands(monkeypatch, verifier,
+        show(verifier, ControlGroup="/system.slice/" + verifier.unit), show(verifier))
+    assert asyncio.run(verifier.stop_and_confirm()) is False
+    assert len(commands) == 1
+
+
+@pytest.mark.parametrize("slice_id", ["system.slice", "../other", True, "",
+    "00000000-0000-0000-0000-000000000000", "00000000-0000-1000-8000-000000000000"])
+def test_untrusted_slice_identity_rejected(slice_id):
+    with pytest.raises(ValueError, match="invalid_slice_identity"):
+        SystemdStopVerifier(str(uuid4()), "a" * 32, slice_id=slice_id)
+
+
+def test_shared_slice_populated_descendants_block_receipt(tmp_path, monkeypatch):
+    verifier, _ = bundle_setup(tmp_path, populated="1")
+    install_commands(monkeypatch, verifier, show(verifier), show(verifier))
+    assert asyncio.run(verifier.stop_and_confirm()) is False
+
+
+def test_shared_slice_parent_symlink_blocks_receipt(tmp_path, monkeypatch):
+    verifier, group = bundle_setup(tmp_path)
+    (group / "cgroup.events").unlink()
+    group.rmdir()
+    parent = group.parent
+    parent.rmdir()
+    parent.symlink_to(tmp_path)
+    install_commands(monkeypatch, verifier, show(verifier), show(verifier))
+    assert asyncio.run(verifier.stop_and_confirm()) is False
+
+
+def test_collected_shared_slice_may_disappear_only_after_bound_stop(tmp_path, monkeypatch):
+    verifier, group = bundle_setup(tmp_path)
+    (group / "cgroup.events").unlink()
+    group.rmdir()
+    group.parent.rmdir()
+    collected = show(verifier, LoadState="not-found", InvocationID="", User="")
+    commands = install_commands(monkeypatch, verifier, show(verifier), collected)
+    assert asyncio.run(verifier.stop_and_confirm()) is True
+    assert [command[0] for command in commands] == ["show", "stop", "show"]
+    commands = install_commands(monkeypatch, verifier, collected, collected)
+    assert asyncio.run(verifier.stop_and_confirm()) is False
+    assert len(commands) == 1
+
+
+@pytest.mark.parametrize("factory", [setup, bundle_setup])
+def test_loaded_inactive_unit_may_clear_invocation_after_bound_stop(tmp_path, monkeypatch, factory):
+    verifier, _ = factory(tmp_path)
+    cleared = show(verifier, InvocationID="")
+    install_commands(monkeypatch, verifier, show(verifier, ActiveState="active", SubState="running"), cleared)
+    assert asyncio.run(verifier.stop_and_confirm()) is True
+    commands = install_commands(monkeypatch, verifier, cleared, cleared)
+    assert asyncio.run(verifier.stop_and_confirm()) is False
+    assert len(commands) == 1
+
+
+@pytest.mark.parametrize("changes", [{"User": "root"}, {"Id": "other.service"},
+    {"KillMode": "process"}, {"ControlGroup": "/other"}, {"ActiveState": "active"},
+    {"SubState": "failed"}, {"LoadState": "masked"}])
+def test_cleared_invocation_still_requires_exact_inactive_identity(tmp_path, monkeypatch, changes):
+    verifier, _ = setup(tmp_path)
+    install_commands(monkeypatch, verifier, show(verifier), show(verifier, InvocationID="", **changes))
+    assert asyncio.run(verifier.stop_and_confirm()) is False
+
+
+def test_cleared_invocation_cannot_hide_populated_descendants(tmp_path, monkeypatch):
+    verifier, _ = setup(tmp_path, populated="1")
+    install_commands(monkeypatch, verifier, show(verifier), show(verifier, InvocationID=""))
+    assert asyncio.run(verifier.stop_and_confirm()) is False

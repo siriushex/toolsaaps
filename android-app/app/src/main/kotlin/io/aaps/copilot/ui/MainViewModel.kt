@@ -223,6 +223,7 @@ import io.aaps.copilot.ui.foundation.screens.SettingsUiState
 import io.aaps.copilot.ui.foundation.screens.UamUiState
 import io.aaps.copilot.ui.foundation.screens.UamExportControlUi
 import io.aaps.copilot.ui.foundation.screens.toAnalyticsUiState
+import io.aaps.copilot.ui.foundation.screens.toReviewUi
 import io.aaps.copilot.ui.IsfCrOverlayPointUi
 import io.aaps.copilot.ui.foundation.screens.mapClinicalReportState
 import io.aaps.copilot.ui.foundation.screens.toAiAnalysisUiState
@@ -235,6 +236,8 @@ import io.aaps.copilot.ui.foundation.screens.withSensitivityApplyPresentation
 import io.aaps.copilot.ui.foundation.screens.toSafetyUiState
 import io.aaps.copilot.ui.foundation.screens.toSettingsUiState
 import io.aaps.copilot.ui.foundation.screens.energyProfileSettingsUiState
+import io.aaps.copilot.ui.foundation.screens.EnergyProfileSaveCompletion
+import io.aaps.copilot.ui.foundation.screens.EnergyProfileSaveResult
 import io.aaps.copilot.ui.foundation.screens.toUamUiState
 import io.aaps.copilot.ui.foundation.screens.toUamExportControlUi
 import io.aaps.copilot.ui.foundation.screens.toClinicalReportDisclosureUi
@@ -361,12 +364,14 @@ internal fun acceptedSensitivityTupleUiClock(
     generationTimestamps: Flow<Long?>,
     targetManagerStatusTimestamps: Flow<Long?> = flowOf(null),
     cobEvidence: Flow<Pair<Long?, Long>> = flowOf(null to 600_000L),
+    eatingSoonTimestamps: Flow<Long?> = flowOf(null),
+    externalCobEvidence: Flow<Pair<Long?, Long>> = flowOf(null to 600_000L),
     clock: () -> Long
-): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence) { generationTs, statusTs, cob ->
-    Triple(generationTs, statusTs, cob)
+): Flow<Long> = combine(generationTimestamps, targetManagerStatusTimestamps, cobEvidence, eatingSoonTimestamps, externalCobEvidence) { generationTs, statusTs, cob, eating, externalCob ->
+    UiExpiryInputs(generationTs, statusTs, cob, eating, externalCob)
 }
     .distinctUntilChanged()
-    .flatMapLatest { (generationTs, statusTs, cob) ->
+    .flatMapLatest { (generationTs, statusTs, cob, eating, externalCob) ->
         flow {
             var authoritativeNowTs = clock()
             emit(authoritativeNowTs)
@@ -374,7 +379,9 @@ internal fun acceptedSensitivityTupleUiClock(
                 nowTs = authoritativeNowTs,
                 generationTs = generationTs,
                 targetManagerStatusTs = statusTs,
-                cobEvidence = cob
+                cobEvidence = cob,
+                externalCobEvidence = externalCob,
+                eatingSoonTs = eating
             ).forEach { boundaryTs ->
                 delay((boundaryTs - authoritativeNowTs).coerceAtLeast(1L))
                 authoritativeNowTs = max(clock(), boundaryTs)
@@ -384,11 +391,16 @@ internal fun acceptedSensitivityTupleUiClock(
     }
     .distinctUntilChanged()
 
+private data class UiExpiryInputs(val generationTs: Long?, val statusTs: Long?, val cob: Pair<Long?, Long>, val eating: Long?,
+    val externalCob: Pair<Long?, Long>)
+
 private fun uiExpiryBoundaries(
     nowTs: Long,
     generationTs: Long?,
     targetManagerStatusTs: Long?,
-    cobEvidence: Pair<Long?, Long>
+    cobEvidence: Pair<Long?, Long>,
+    externalCobEvidence: Pair<Long?, Long>,
+    eatingSoonTs: Long?
 ): List<Long> = listOfNotNull(
     uiExpiryBoundary(
         timestamp = generationTs,
@@ -404,7 +416,9 @@ private fun uiExpiryBoundaries(
         timestamp = cobEvidence.first,
         maxAgeMs = cobEvidence.second,
         nowTs = nowTs
-    )
+    ),
+    uiExpiryBoundary(eatingSoonTs, io.aaps.copilot.domain.target.EatingSoonPolicy.DURATION_MINUTES * 60_000L, nowTs),
+    uiExpiryBoundary(externalCobEvidence.first, externalCobEvidence.second, nowTs)
 ).distinct().sorted()
 
 private fun uiExpiryBoundary(timestamp: Long?, maxAgeMs: Long, nowTs: Long): Long? {
@@ -1809,10 +1823,14 @@ class MainViewModel(application: Application) :
             container.energyProfileRepository.stageSelectionAfterSubmittedCarbAction(
                 command = command,
                 selection = selection,
-                manualMealEnergyKcal = manualMealEnergyKcal
+                manualMealEnergyKcal = manualMealEnergyKcal,
+                portion = selection.portionMetadata?.portion,
+                portionProvenance = selection.portionMetadata?.provenance
             )
         },
-        sendEatingSoon = container::submitManualEatingSoon
+        sendEatingSoon = container::submitManualEatingSoon,
+        readCarbBlockReason = container.actionRepository::manualCarbBlockReason,
+        onMealInput = { container.mealStateIngestion.offerInput(it) }
     )
     private val clinicalReportCommands = ClinicalReportUiCommands(
         state = container.clinicalReportRepository.state,
@@ -2351,7 +2369,7 @@ class MainViewModel(application: Application) :
         val currentGlucose = selectOverviewCurrentGlucoseForUi(rawGlucose, now)
         val latest = currentGlucose.latest
         val prev = currentGlucose.previous
-        val quality = qualityEvaluator.evaluate(forecasts, glucose)
+        val quality = qualityEvaluator.evaluate(forecasts, glucose, evaluatedAt = now)
         val baselineDeltas = baselineComparator.compare(
             forecasts = forecasts.map { it.toDomainForecast() },
             baseline = baseline
@@ -2656,7 +2674,7 @@ class MainViewModel(application: Application) :
             preferred = telemetryByKey["cob_effective_grams"],
             fallback = telemetryByKey["cob_grams"]
         )
-            ?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
+            ?.coerceIn(0.0, io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS)
         val insulinRealOnsetMinutes = telemetryByKey["insulin_real_onset_min"].toNumericValue()
         val insulinRealProfileCurveCompact = telemetryByKey["insulin_profile_real_curve_compact"]
             ?.valueText
@@ -3296,6 +3314,11 @@ class MainViewModel(application: Application) :
             this.latestIobTherapyCoverage = latestIobTherapyCoverage
             this.latestIobRuntimeFallbackReason = latestIobRuntimeFallbackReason
             this.latestCobGrams = latestCobGrams
+            val effectiveCob = selectEffectiveCobForUi(
+                telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+            )
+            this.latestEffectiveCobGrams = effectiveCob?.valueDouble
+            this.latestEffectiveCobTimestamp = effectiveCob?.timestamp
             val externalCob = selectExternalCobForUi(
                 telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
             )
@@ -3325,6 +3348,7 @@ class MainViewModel(application: Application) :
             this.forecastAcceptedGenerationTs = acceptedForecastTuple.generationTimestamp
             this.acceptedSensitivityRuntimeSnapshot = acceptedForecastTuple.sensitivity
             this.trend60ComponentMmol = acceptedForecastTuple.decomposition?.trend60Mmol
+            this.mealImpactStepsJson = telemetryByKey["forecast_meal_steps"]?.valueText
             this.therapy60ComponentMmol = acceptedForecastTuple.decomposition?.therapy60Mmol
             this.uam60ComponentMmol = acceptedForecastTuple.decomposition?.uam60Mmol
             this.residualRoc0Mmol5m = acceptedForecastTuple.decomposition?.residualRoc0Mmol5
@@ -3509,6 +3533,7 @@ class MainViewModel(application: Application) :
             this.safetyMaxTargetMmol = settings.safetyMaxTargetMmol
             this.carbAbsorptionMaxAgeMinutes = settings.carbAbsorptionMaxAgeMinutes
             this.carbComputationMaxGrams = settings.carbComputationMaxGrams
+            this.mealPortions = settings.mealPortions
             this.weekdayHotHours = patterns
                 .filter { it.dayType == DayType.WEEKDAY.name && it.isRiskWindow }
                 .sortedBy { it.hour }
@@ -3685,7 +3710,7 @@ class MainViewModel(application: Application) :
         val latestCobGrams = resolveMetricByRecency(
             preferred = telemetryByKey["cob_effective_grams"],
             fallback = telemetryByKey["cob_grams"]
-        )?.coerceIn(0.0, settings.carbComputationMaxGrams.coerceIn(20.0, 60.0))
+        )?.coerceIn(0.0, io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS)
         val correctedGlucoseMmol = telemetryByKey["sensor_lag_corrected_glucose_mmol"].toNumericValue()
         val rawGlucoseMmol = latest?.mmol
         val currentCalibrationAuthorityForUi = loadUiCalibrationAuthority(
@@ -3851,6 +3876,7 @@ class MainViewModel(application: Application) :
             this.safetyMaxTargetMmol = settings.safetyMaxTargetMmol
             this.staleDataMaxMinutes = settings.staleDataMaxMinutes
             this.carbComputationMaxGrams = settings.carbComputationMaxGrams
+            this.mealPortions = settings.mealPortions
             this.isfRuntimeSourcePreference = publishedSensitivity?.isf?.requested?.name ?: "UNAVAILABLE"
             this.crRuntimeSourcePreference = publishedSensitivity?.cr?.requested?.name ?: "UNAVAILABLE"
             this.latestDataAgeMinutes = latestDataAgeMinutes
@@ -3894,6 +3920,11 @@ class MainViewModel(application: Application) :
             this.latestIobTherapyCoverage = latestIobTherapyCoverage
             this.latestIobRuntimeFallbackReason = latestIobRuntimeFallbackReason
             this.latestCobGrams = latestCobGrams
+            val effectiveCob = selectEffectiveCobForUi(
+                telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+            )
+            this.latestEffectiveCobGrams = effectiveCob?.valueDouble
+            this.latestEffectiveCobTimestamp = effectiveCob?.timestamp
             val externalCob = selectExternalCobForUi(
                 telemetry, now, settings.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
             )
@@ -3915,6 +3946,7 @@ class MainViewModel(application: Application) :
             this.forecastAcceptedGenerationTs = acceptedForecastTuple.generationTimestamp
             this.acceptedSensitivityRuntimeSnapshot = acceptedForecastTuple.sensitivity
             this.trend60ComponentMmol = acceptedForecastTuple.decomposition?.trend60Mmol
+            this.mealImpactStepsJson = telemetryByKey["forecast_meal_steps"]?.valueText
             this.therapy60ComponentMmol = acceptedForecastTuple.decomposition?.therapy60Mmol
             this.uam60ComponentMmol = acceptedForecastTuple.decomposition?.uam60Mmol
             this.residualRoc0Mmol5m = acceptedForecastTuple.decomposition?.residualRoc0Mmol5
@@ -3976,6 +4008,15 @@ class MainViewModel(application: Application) :
             this.lastAction = lastAction
             this.syncStatusLines = syncStatusLines
             this.glucoseHistoryPoints = glucoseHistoryPoints
+            this.mealDisplayCalibrationIdentity = if (currentCalibrationAuthorityForUi.contextValid) {
+                listOf(calibrationAuthorityTokenRow?.valueText ?: ACCEPTED_CALIBRATION_NONE,
+                    currentCalibrationAuthorityForUi.currentSessionKey.orEmpty(),
+                    currentCalibrationModelForUi?.id?.toString().orEmpty()).joinToString("\u0000")
+                    .takeIf { it.length <= 2048 }
+            } else null
+            this.eatingSoonReceipt = actionCommands.firstOrNull {
+                io.aaps.copilot.data.repository.isCanonicalEatingSoonCommand(it, container.gson)
+            }
         }
     }
 
@@ -4045,8 +4086,12 @@ class MainViewModel(application: Application) :
         generationTimestamps = primaryUiState.map { it.forecastAcceptedGenerationTs },
         targetManagerStatusTimestamps = primaryUiState.map { it.targetManagerLiveStatus?.timestamp },
         cobEvidence = primaryUiState.map {
+            it.latestEffectiveCobTimestamp to it.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
+        },
+        externalCobEvidence = primaryUiState.map {
             it.latestExternalCobTimestamp to it.staleDataMaxMinutes.coerceIn(5, 60) * 60_000L
         },
+        eatingSoonTimestamps = primaryUiState.map { it.eatingSoonReceipt?.timestamp },
         clock = System::currentTimeMillis
     )
 
@@ -4060,6 +4105,9 @@ class MainViewModel(application: Application) :
     private val authoritativeGlucoseAlertMuteUntil = container.episodeAlertDelivery.mutedUntil
         .shareAuthoritativeAlertMuteUntil(viewModelScope)
 
+    private val standaloneEatingSoonState = MutableStateFlow<io.aaps.copilot.ui.foundation.screens.EatingSoonUiState?>(null)
+    private var acceptedFoodDisplayForOverview: io.aaps.copilot.ui.foundation.screens.AcceptedFoodDisplaySnapshot? = null
+
     val overviewUiState: StateFlow<OverviewUiState> = combine(
         timedOverviewRuntime,
         proModeState,
@@ -4070,6 +4118,15 @@ class MainViewModel(application: Application) :
         val runtime = timedRuntime.runtime
         val state = runtime.state
         val settings = runtime.settings
+        val observedEatingTarget = if (state.eatingSoonReceipt?.let {
+            it.status == io.aaps.copilot.data.repository.NightscoutActionRepository.STATUS_SENT &&
+                timedRuntime.authoritativeNowTs - it.timestamp in 0L until
+                io.aaps.copilot.domain.target.EatingSoonPolicy.DURATION_MINUTES * 60_000L
+            } == true) {
+            io.aaps.copilot.data.repository.AutomationRepository.observedAapsTargetForUiStatic(
+                db, container.gson, timedRuntime.authoritativeNowTs
+            )
+        } else null
         state.toOverviewUiState(
             isProMode = isProMode,
             baseTargetPresentation = targetPresentation,
@@ -4087,9 +4144,24 @@ class MainViewModel(application: Application) :
             showEventsOnGraph = settings.showEventsOnGraph
         ).copy(
             glucoseAlertMutedUntilTs = mutedUntilTs,
-            energyActivityStatus = energyActivityStatus
+            energyActivityStatus = energyActivityStatus,
+            eatingSoon = io.aaps.copilot.ui.foundation.screens.eatingSoonPresentation(
+                state.eatingSoonReceipt, observedEatingTarget, timedRuntime.authoritativeNowTs, container.gson
+            ),
+            observedAapsTargetMmol = observedEatingTarget?.takeIf {
+                it.evidenceResolved && it.startedAt in 1L..timedRuntime.authoritativeNowTs &&
+                    it.expiresAt > timedRuntime.authoritativeNowTs
+            }?.targetMmol
         )
     }
+        .map { current ->
+            io.aaps.copilot.ui.foundation.screens.retainAcceptedFoodDisplay(acceptedFoodDisplayForOverview, current).also {
+                acceptedFoodDisplayForOverview = it.acceptedFoodDisplay
+            }
+        }
+        .combine(standaloneEatingSoonState) { state, local ->
+            state.copy(eatingSoon = io.aaps.copilot.ui.foundation.screens.mergeEatingSoonPresentation(state.eatingSoon, local, state.foodDisplayNowTs))
+        }
         .combine(sensitivitySourceApplyState) { state, apply ->
             val presentation = sensitivitySourceApplyCoordinator.presentationStateForOverview(state, apply)
             state.withSensitivityApplyPresentation(
@@ -4100,6 +4172,8 @@ class MainViewModel(application: Application) :
             )
         }
         .combine(container.pumpLinkMonitor.state) { state, pumpLink -> state.copy(pumpLinkStatus = pumpLink) }
+        .combine(container.infusionSetReminder.state) { state, infusion -> state.copy(infusionSetStatus = infusion) }
+        .combine(container.deliveryDiagnosticDisplay) { state, delivery -> state.copy(deliveryDiagnosticEvidence = delivery) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -4583,6 +4657,7 @@ class MainViewModel(application: Application) :
                 legacyCleanupPending = credentialStatus.legacyCleanupPending
             ),
             energyProfile = energyProfile,
+            mealPortions = settings.mealPortions,
             clinicalAi = clinicalAi,
             uiStyle = settings.uiStyle.name,
             resolvedNightscoutUrl = settings.resolvedNightscoutUrl(),
@@ -4741,7 +4816,7 @@ class MainViewModel(application: Application) :
                 criticalAlertClip1Label = "Night Waltz.mp3",
                 criticalAlertClip2Label = "Snowbirds.mp3",
                 softAlertAudioStartSeconds = 32,
-                softAlertAudioDurationSeconds = 18,
+                softAlertAudioDurationSeconds = 2,
                 criticalAlertAudio1StartSeconds = 42,
                 criticalAlertAudio1DurationSeconds = 20,
                 criticalAlertAudio2StartSeconds = 36,
@@ -4894,6 +4969,10 @@ class MainViewModel(application: Application) :
 
     fun claimClinicalReportPdfExportTicket(ticketId: Long): Boolean =
         clinicalReportPdfExportCoordinator.claimReadyTicket(ticketId)
+
+    val telegramRepository get() = container.telegramRepository
+
+    suspend fun sendTelegramSummary() = container.telegramDeliveryController.sendCurrentSummary()
 
     fun shareClinicalReportPdf() {
         clinicalReportPdfExportCoordinator.beginShare { payload ->
@@ -5462,7 +5541,7 @@ class MainViewModel(application: Application) :
         viewModelScope.launch {
             val nextSettings = container.settingsStore.settings.first().copy(
                 softAlertAudioStartMs = (startSeconds.coerceIn(0, 180) * 1_000),
-                softAlertAudioDurationMs = (durationSeconds.coerceIn(15, 30) * 1_000)
+                softAlertAudioDurationMs = (durationSeconds.coerceIn(1, 5) * 1_000)
             )
             container.settingsStore.update { current ->
                 nextSettings
@@ -6164,22 +6243,63 @@ class MainViewModel(application: Application) :
     }
 
     fun setEnergyProfileEnabled(enabled: Boolean) {
-        updateEnergyProfileSettings { current -> current.copy(enabled = enabled) }
+        updateEnergyProfileSettings(onComplete = {}) { current -> current.copy(enabled = enabled) }
     }
 
-    fun saveEnergyProfileUserProfile(draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi) {
-        updateEnergyProfileSettings { current ->
-            current.copy(
-                birthDateEpochDay = draft.birthDateEpochDay,
-                physiologicalSex = draft.physiologicalSex,
-                heightCm = draft.heightCm,
-                weightKg = draft.weightKg
-            )
+    suspend fun loadEventCompensationContext(event: CompensationEvent): io.aaps.copilot.domain.events.EventCompensationContext =
+        io.aaps.copilot.data.repository.EventCompensationContextRepository(db, container.gson)
+            .load(event, System.currentTimeMillis())
+
+    suspend fun loadProspectiveForecastReview(): io.aaps.copilot.ui.foundation.screens.ProspectiveForecastReviewUi =
+        io.aaps.copilot.data.repository.MealForecastJournalRepository(db, container.gson)
+            .review(System.currentTimeMillis()).toReviewUi()
+
+    suspend fun loadLentaMealHistory(cutoffMs: Long, zoneId: String): io.aaps.copilot.domain.nutrition.LentaMealHistory =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                container.lentaMealHistory.load(cutoffMs, java.time.ZoneId.of(zoneId))
+            } catch (_: android.database.sqlite.SQLiteException) {
+                io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoffMs, zoneId,
+                    status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
+            }
+        }
+
+    fun saveMealPortionSettings(value: io.aaps.copilot.domain.nutrition.MealPortionSettings) {
+        viewModelScope.launch {
+            try {
+                container.settingsStore.setMealPortionSettings(value)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(R.string.meal_portions_save_failed)
+            }
         }
     }
 
-    fun saveEnergyProfileFoodSettings(draft: io.aaps.copilot.ui.foundation.screens.FoodProfileSettingsUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyProfileUserProfile(
+        draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
+            applyEnergyProfileUserDraft(current, draft)
+        }
+    }
+
+    fun saveEnergyProfileCorrection(
+        draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
+        calories: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
+            applyEnergyProfileUserDraft(current, draft, calories)
+        }
+    }
+
+    fun saveEnergyProfileFoodSettings(
+        draft: io.aaps.copilot.ui.foundation.screens.FoodProfileSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             current.copy(
                 foodProfileMode = draft.mode,
                 manualFoodProfile = draft.manualProfile
@@ -6187,8 +6307,11 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun saveEnergyProfileActivitySettings(draft: io.aaps.copilot.ui.foundation.screens.ActivityProfileSettingsUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyProfileActivitySettings(
+        draft: io.aaps.copilot.ui.foundation.screens.ActivityProfileSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             current.copy(
                 activityProfileMode = draft.mode,
                 manualActivityProfile = draft.manualProfile,
@@ -6197,8 +6320,11 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun saveEnergyGoalSettings(draft: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi) {
-        updateEnergyProfileSettings { current ->
+    fun saveEnergyGoalSettings(
+        draft: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi,
+        onComplete: EnergyProfileSaveCompletion = {}
+    ) {
+        updateEnergyProfileSettings(onComplete) { current ->
             current.copy(
                 calorieGoalMode = draft.mode,
                 manualCalorieTargetKcal = draft.manualTargetKcal,
@@ -6207,41 +6333,50 @@ class MainViewModel(application: Application) :
         }
     }
 
-    fun savePlannedActivity(event: io.aaps.copilot.ui.foundation.screens.PlannedActivityEventUi) {
+    fun savePlannedActivity(
+        event: io.aaps.copilot.ui.foundation.screens.PlannedActivityEventUi,
+        onComplete: EnergyProfileSaveCompletion
+    ) {
         viewModelScope.launch {
-            val current = energyProfileSettingsState.value.plannedEvents
-            if (!PlannedActivityInvalidationPolicy.saveChangesDurableState(current, event)) {
+            val result = try {
+                val current = energyProfileSettingsState.value.plannedEvents
+                if (!PlannedActivityInvalidationPolicy.saveChangesDurableState(current, event)) {
+                    EnergyProfileSaveResult.Saved
+                } else {
+                    val proposed = (current.filterNot { it.eventId == event.eventId } + event)
+                        .mapNotNull { it.toPlannedActivityScheduleOrNull() }
+                    if (proposed.size != current.filterNot { it.eventId == event.eventId }.size + 1) {
+                        EnergyProfileSaveResult.Failed(getApplication<Application>().getString(R.string.energy_activity_event_validation))
+                    } else {
+                        when (val saved = persistPlannedActivityClinicalInput(
+                            persistence = { container.energyProfileRepository.savePlannedActivitySchedule(proposed) },
+                            onClinicalInputPersisted = {
+                                container.clinicalInputInvalidationCoordinator.invalidatePersistedInput(
+                                    ClinicalInputInvalidationSource.PLANNED_ACTIVITY
+                                )
+                            }
+                        )) {
+                            is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Saved -> EnergyProfileSaveResult.Saved
+                            is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Invalid ->
+                                EnergyProfileSaveResult.Failed(getApplication<Application>().getString(
+                                    if (saved.validation is io.aaps.copilot.domain.profile.ScheduleValidation.Overlap)
+                                        R.string.energy_activity_events_overlap else R.string.energy_activity_event_validation
+                                ))
+                        }
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                EnergyProfileSaveResult.Failed(getApplication<Application>().getString(R.string.energy_activity_save_failed))
+            }
+            if (result == EnergyProfileSaveResult.Saved) {
                 energyProfileValidationMessage.value = null
                 messageState.value = "Activity schedule saved"
-                return@launch
+            } else if (result is EnergyProfileSaveResult.Failed) {
+                energyProfileValidationMessage.value = result.message
             }
-            val proposed = (current.filterNot { it.eventId == event.eventId } + event)
-                .mapNotNull { it.toPlannedActivityScheduleOrNull() }
-            if (proposed.size != current.filterNot { it.eventId == event.eventId }.size + 1) {
-                energyProfileValidationMessage.value = "Invalid activity schedule"
-                return@launch
-            }
-            when (val result = persistPlannedActivityClinicalInput(
-                persistence = { container.energyProfileRepository.savePlannedActivitySchedule(proposed) },
-                onClinicalInputPersisted = {
-                    container.clinicalInputInvalidationCoordinator.invalidatePersistedInput(
-                        ClinicalInputInvalidationSource.PLANNED_ACTIVITY
-                    )
-                }
-            )) {
-                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Saved -> {
-                    energyProfileValidationMessage.value = null
-                    messageState.value = "Activity schedule saved"
-                }
-                is io.aaps.copilot.domain.profile.PlannedActivityScheduleSaveResult.Invalid -> {
-                    energyProfileValidationMessage.value = when (result.validation) {
-                        is io.aaps.copilot.domain.profile.ScheduleValidation.Overlap -> "Events overlap"
-                        is io.aaps.copilot.domain.profile.ScheduleValidation.Invalid -> "Invalid activity schedule"
-                        io.aaps.copilot.domain.profile.ScheduleValidation.Valid -> "Invalid activity schedule"
-                    }
-                    messageState.value = energyProfileValidationMessage.value
-                }
-            }
+            onComplete(result)
         }
     }
 
@@ -6320,56 +6455,53 @@ class MainViewModel(application: Application) :
     }
 
     private fun updateEnergyProfileSettings(
+        onComplete: EnergyProfileSaveCompletion,
         transform: (EnergyProfileSettings) -> EnergyProfileSettings
     ) {
         viewModelScope.launch {
-            val current = container.settingsStore.settings.first().energyProfile
-            when (
-                val decision = evaluateEnergyProfileSettingsUpdate(
-                    current = current,
-                    candidate = transform(current),
-                    today = LocalDate.now()
-                )
-            ) {
-                is EnergyProfileSettingsUpdate.Persist -> {
-                    try {
-                        if (current.physiologicalSex != decision.settings.physiologicalSex) {
-                            sensitivitySourceApplyCoordinator.run(
-                                metricLabel = "PHYSIOLOGICAL_SEX",
-                                requestedSource = decision.settings.physiologicalSex.name
-                            ) {
-                                container.automationRepository.applySensitivitySettings { settings ->
-                                    settings.copy(
-                                        energyProfile = settings.energyProfile.copy(
-                                            physiologicalSex = decision.settings.physiologicalSex
-                                        )
-                                    )
-                                }
+            val result = try {
+                val decision = persistEnergyProfileSettingsUpdate(
+                    readSettings = { container.settingsStore.settings.first() },
+                    transform = transform,
+                    applyPhysiologicalSex = { sex ->
+                        sensitivitySourceApplyCoordinator.run("PHYSIOLOGICAL_SEX", sex.name) {
+                            container.automationRepository.applySensitivitySettings { settings ->
+                                settings.copy(energyProfile = settings.energyProfile.copy(physiologicalSex = sex))
                             }
                         }
-                        container.settingsStore.setEnergyProfileSettings(decision.settings)
-                        if (decision.pediatricGoalReset) {
-                            messageState.value = getApplication<Application>().getString(
-                                R.string.energy_activity_pediatric_goal_reset
-                            )
-                        }
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (error: Throwable) {
-                        messageState.value = "Energy profile update failed: " +
-                            (error.message ?: "runtime unavailable")
-                    }
+                    },
+                    updateSettings = { update -> container.settingsStore.update(update) }
+                )
+                energyProfileValidationMessage.value = null
+                if (decision.pediatricGoalReset) {
+                    messageState.value = getApplication<Application>().getString(
+                        R.string.energy_activity_pediatric_goal_reset
+                    )
                 }
-                is EnergyProfileSettingsUpdate.Reject -> {
-                    messageState.value = decision.violations
+                EnergyProfileSaveResult.Saved
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: EnergyProfileSettingsRejected) {
+                EnergyProfileSaveResult.Failed(
+                    error.violations
                         .sortedBy(ProfileViolation::name)
                         .joinToString(separator = " ") { violation ->
-                            getApplication<Application>().getString(
-                                energyProfilePolicyErrorRes(violation)
-                            )
+                            getApplication<Application>().getString(energyProfilePolicyErrorRes(violation))
                         }
-                }
+                )
+            } catch (_: EnergyProfileSensitivityChangeRejected) {
+                EnergyProfileSaveResult.Failed(
+                    getApplication<Application>().getString(R.string.energy_activity_sensitivity_save_failed)
+                )
+            } catch (_: Exception) {
+                EnergyProfileSaveResult.Failed(
+                    getApplication<Application>().getString(R.string.energy_activity_save_failed)
+                )
             }
+            if (result is EnergyProfileSaveResult.Failed) {
+                energyProfileValidationMessage.value = result.message
+            }
+            onComplete(result)
         }
     }
 
@@ -7654,6 +7786,36 @@ class MainViewModel(application: Application) :
         }
     }
 
+    fun sendStandaloneEatingSoon(submissionId: String) {
+        if (!submissionId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) return
+        val current = overviewUiState.value.eatingSoon
+        if (current.status in setOf(
+                io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.QUEUED,
+                io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.AWAITING_AAPS,
+                io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.UNKNOWN
+            ) || standaloneEatingSoonState.value?.status == io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.QUEUED) return
+        val requested = io.aaps.copilot.ui.foundation.screens.EatingSoonUiState(
+            io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.QUEUED,
+            "manual:meal:$submissionId:eating-soon", System.currentTimeMillis()
+        )
+        standaloneEatingSoonState.value = requested
+        viewModelScope.launch {
+            val result = try {
+                container.submitManualEatingSoon("manual:meal:$submissionId")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                standaloneEatingSoonState.value = requested.copy(status = io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.UNKNOWN)
+                throw cancelled
+            } catch (_: Exception) {
+                io.aaps.copilot.data.repository.EatingSoonResult(io.aaps.copilot.data.repository.MealDeliveryStatus.UNKNOWN)
+            }
+            standaloneEatingSoonState.value = requested.copy(status = when (result.status) {
+                io.aaps.copilot.data.repository.MealDeliveryStatus.SENT -> io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.AWAITING_AAPS
+                io.aaps.copilot.data.repository.MealDeliveryStatus.BLOCKED -> io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.BLOCKED
+                else -> io.aaps.copilot.ui.foundation.screens.EatingSoonUiStatus.UNKNOWN
+            }, reason = result.reason)
+        }
+    }
+
     fun sendManualTempTarget(targetRaw: String, durationRaw: String, reasonRaw: String) {
         viewModelScope.launch {
             val targetMmol = parseFlexibleDouble(targetRaw)?.takeIf { it in 4.0..10.0 }
@@ -7690,12 +7852,13 @@ class MainViewModel(application: Application) :
         foodProfile: io.aaps.copilot.domain.profile.MealAbsorptionProfile,
         manualMealEnergyKcal: Double? = null,
         eatingSoon: Boolean = false,
-        submissionId: String = UUID.randomUUID().toString()
+        submissionId: String = UUID.randomUUID().toString(),
+        portionMetadata: io.aaps.copilot.domain.nutrition.MealPortionMetadata? = null,
+        glycemicIndex: io.aaps.copilot.domain.profile.MealGlycemicIndex? = null
     ) {
         viewModelScope.launch {
-            val settings = container.settingsStore.settings.first()
-            val safetyCapGrams = settings.carbComputationMaxGrams.coerceIn(20.0, 60.0)
-            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it in 1.0..safetyCapGrams }
+            val safetyCapGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS
+            val carbsGrams = parseFlexibleDouble(carbsRaw)?.takeIf { it.isFinite() && it in 1.0..safetyCapGrams }
             if (carbsGrams == null) {
                 messageState.value = "Manual carbs failed: invalid grams value (allowed 1..${String.format(Locale.US, "%.0f", safetyCapGrams)} g)"
                 return@launch
@@ -7714,13 +7877,15 @@ class MainViewModel(application: Application) :
                 val command = buildManualCommand(
                     type = "carbs",
                     params = mapOf(
-                        "carbsGrams" to String.format(Locale.US, "%.1f", carbsGrams),
+                        "carbsGrams" to serializeConfirmedMealGrams(carbsGrams),
                         "reason" to reason
                     )
                 ).copy(idempotencyKey = "manual:meal:$submissionId")
                 manualCarbSubmission.submit(
                     command = command,
-                    selection = io.aaps.copilot.domain.profile.MealAbsorptionSelection(foodProfile),
+                    selection = io.aaps.copilot.domain.profile.MealAbsorptionSelection(
+                        foodProfile, portionMetadata = portionMetadata, glycemicIndex = glycemicIndex
+                    ),
                     mealEnergyKcal = manualMealEnergyKcal,
                     eatingSoon = eatingSoon
                 )
@@ -11579,6 +11744,11 @@ class MainViewModel(application: Application) :
         internal fun isManualMealEnergyInputValid(value: Double?): Boolean =
             value == null || value.isFinite() && value in 1.0..10_000.0
 
+        internal fun serializeConfirmedMealGrams(value: Double): String {
+            require(value.isFinite() && value > 0.0)
+            return value.toString()
+        }
+
         internal fun shouldPrepareClinicalReportOnRouteTransition(
             currentRoute: String,
             nextRoute: String
@@ -11864,6 +12034,7 @@ internal fun resolveTargetManagerLiveStatusForUi(
     .let(TargetManagerLiveStatusCodec::decodeTelemetryRow)
 
 internal fun buildPrimaryTelemetryKeysForUi(): List<String> = listOf(
+    "forecast_meal_steps",
     SENSITIVITY_ACCEPTED_CYCLE_ID_KEY,
     SENSITIVITY_ACCEPTED_SETTINGS_REVISION_KEY,
     SENSITIVITY_ACCEPTED_FORECAST_TIMESTAMP_KEY,
@@ -12827,7 +12998,7 @@ class MainUiState {
     var softAlertAudioUri: String? = null
     var softAlertAudioDisplayName: String? = null
     var softAlertAudioStartMs: Int = 32_000
-    var softAlertAudioDurationMs: Int = 18_000
+    var softAlertAudioDurationMs: Int = 2_000
     var criticalAlertAudio1Uri: String? = null
     var criticalAlertAudio1DisplayName: String? = null
     var criticalAlertAudio1StartMs: Int = 42_000
@@ -12957,6 +13128,8 @@ class MainUiState {
     var latestCobGrams: Double? = null
     var latestExternalCobGrams: Double? = null
     var latestExternalCobTimestamp: Long? = null
+    var latestEffectiveCobGrams: Double? = null
+    var latestEffectiveCobTimestamp: Long? = null
     var insulinRealOnsetMinutes: Double? = null
     var insulinRealProfileCurveCompact: String? = null
     var insulinRealProfileUpdatedTs: Long? = null
@@ -13152,6 +13325,8 @@ class MainUiState {
     var safetyMaxTargetMmol: Double = 10.0
     var carbAbsorptionMaxAgeMinutes: Int = 180
     var carbComputationMaxGrams: Double = 60.0
+    var mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
+        io.aaps.copilot.domain.nutrition.MealPortionSettings()
     var weekdayHotHours: List<PatternWindow> = emptyList()
     var weekendHotHours: List<PatternWindow> = emptyList()
     var qualityMetrics: List<QualityMetricUi> = emptyList()
@@ -13198,7 +13373,11 @@ class MainUiState {
     var adaptiveAuditLines: List<String> = emptyList()
     var glucoseHistoryPoints: List<GlucoseHistoryRowUi> = emptyList()
     var lastAction: LastActionRowUi? = null
+    var eatingSoonReceipt: ActionCommandEntity? = null
+    var eatingSoonObservedTarget: io.aaps.copilot.domain.target.ActiveAapsTarget? = null
+    var mealDisplayCalibrationIdentity: String? = null
     var trend60ComponentMmol: Double? = null
+    var mealImpactStepsJson: String? = null
     var therapy60ComponentMmol: Double? = null
     var uam60ComponentMmol: Double? = null
     var residualRoc0Mmol5m: Double? = null
@@ -13240,6 +13419,18 @@ internal sealed interface EnergyProfileSettingsUpdate {
 
     data class Reject(val violations: Set<ProfileViolation>) : EnergyProfileSettingsUpdate
 }
+
+internal fun applyEnergyProfileUserDraft(
+    current: EnergyProfileSettings,
+    draft: io.aaps.copilot.ui.foundation.screens.UserProfileDraftUi,
+    calories: io.aaps.copilot.ui.foundation.screens.EnergyGoalSettingsUi? = null
+): EnergyProfileSettings = current.copy(
+    birthDateEpochDay = draft.birthDateEpochDay,
+    physiologicalSex = draft.physiologicalSex,
+    heightCm = draft.heightCm,
+    weightKg = draft.weightKg,
+    manualCalorieTargetKcal = if (calories == null) current.manualCalorieTargetKcal else calories.manualTargetKcal
+)
 
 internal fun evaluateEnergyProfileSettingsUpdate(
     current: EnergyProfileSettings,

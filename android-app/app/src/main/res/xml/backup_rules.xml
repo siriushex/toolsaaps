@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <exclude domain="sharedpref" path="telegram_trusted_delivery.xml" />
     <exclude domain="sharedpref" path="server_ai_connection.xml" />
     <exclude
         domain="database"

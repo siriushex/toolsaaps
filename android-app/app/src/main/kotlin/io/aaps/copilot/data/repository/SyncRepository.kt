@@ -935,9 +935,9 @@ class SyncRepository(
     suspend fun recentGlucose(limit: Int): List<GlucosePoint> =
         GlucoseSanitizer.filterEntities(db.glucoseDao().latest(limit)).map { it.toDomain() }
 
-    suspend fun recentTherapyEvents(hoursBack: Int): List<TherapyEvent> {
-        val since = System.currentTimeMillis() - hoursBack * 60 * 60 * 1000L
-        return TherapySanitizer.filterEntities(db.therapyDao().since(since)).map { it.toDomain(gson) }
+    suspend fun recentTherapyEvents(hoursBack: Int, nowTs: Long): List<TherapyEvent> {
+        val since = nowTs - hoursBack * 60 * 60 * 1000L
+        return TherapySanitizer.filterEntities(db.therapyDao().between(since, nowTs)).map { it.toDomain(gson) }
     }
 
     private fun isWithinThrottleWindow(

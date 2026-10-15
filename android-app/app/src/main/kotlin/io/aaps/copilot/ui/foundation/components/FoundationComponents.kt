@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,14 +37,21 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
+import io.aaps.copilot.ui.foundation.screens.IssueHelpDialog
+import io.aaps.copilot.ui.foundation.screens.UiIssueKind
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.ui.foundation.format.UiFormatters
 import io.aaps.copilot.ui.foundation.design.AppElevation
@@ -187,8 +195,16 @@ fun SafetyBanner(
     text: String,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    issue: UiIssueKind? = when (type) {
+        SafetyBannerType.WARNING, SafetyBannerType.ERROR -> UiIssueKind.GENERIC_ERROR
+        else -> null
+    }
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
+    if (showIssueHelp && issue != null) {
+        IssueHelpDialog(text, listOf(issue)) { showIssueHelp = false }
+    }
     val (icon, tone) = when (type) {
         SafetyBannerType.INFO -> Icons.Default.Info to MaterialTheme.colorScheme.primary
         SafetyBannerType.WARNING -> Icons.Default.Warning to MaterialTheme.colorScheme.tertiary
@@ -196,8 +212,13 @@ fun SafetyBanner(
         SafetyBannerType.SUCCESS -> Icons.Default.CheckCircle to MaterialTheme.colorScheme.secondary
     }
     Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = tone.copy(alpha = 0.12f)),
+        modifier = if (issue == null) modifier else modifier.clickable(
+            onClickLabel = stringResource(R.string.issue_how_to_resolve)
+        ) { showIssueHelp = true },
+        colors = CardDefaults.cardColors(
+            containerColor = tone.copy(alpha = 0.12f).compositeOver(MaterialTheme.colorScheme.surface),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = AppElevation.level1)
     ) {
         Row(
@@ -243,6 +264,14 @@ fun AppHealthBanner(
     lastSyncText: String,
     modifier: Modifier = Modifier
 ) {
+    var showIssueHelp by remember { mutableStateOf(false) }
+    val issues = buildList {
+        if (killSwitchEnabled) add(UiIssueKind.KILL_SWITCH)
+        if (staleData) add(UiIssueKind.DATA_STALE)
+    }
+    if (showIssueHelp) {
+        IssueHelpDialog(stringResource(R.string.issue_how_to_resolve), issues) { showIssueHelp = false }
+    }
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val issueIcon = when {
         killSwitchEnabled -> Icons.Default.Error
@@ -260,7 +289,9 @@ fun AppHealthBanner(
         else -> if (midnightGlass) androidx.compose.ui.graphics.Color(0xFF8DB6FF) else MaterialTheme.colorScheme.primary
     }
     Card(
-        modifier = modifier,
+        modifier = if (issues.isEmpty()) modifier else modifier.clickable(
+            onClickLabel = stringResource(R.string.issue_how_to_resolve)
+        ) { showIssueHelp = true },
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, issueTone.copy(alpha = if (midnightGlass) 0.38f else 0.24f)),
         colors = CardDefaults.cardColors(
@@ -323,24 +354,24 @@ fun OverviewBaseTargetBanner(
     val cardColor = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0xCC0C1830)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surface
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surface
     }
     val titleTone = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFF6FAFF) else MaterialTheme.colorScheme.onSurface
     val secondaryTone = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFB5C0D8) else MaterialTheme.colorScheme.onSurfaceVariant
     val heroColor = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0xE0122545)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
     }
     val heroBorder = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0x24FFFFFF)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.outlineVariant
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.outlineVariant
     }
     val buttonContainer = when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> androidx.compose.ui.graphics.Color(0xFF17335F)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.secondaryContainer
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.secondaryContainer
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.secondaryContainer
     }
     val buttonContent = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFF6FAFF) else MaterialTheme.colorScheme.onSecondaryContainer
     val heroValue = UiFormatters.formatMmol(baseTargetMmol, 1)

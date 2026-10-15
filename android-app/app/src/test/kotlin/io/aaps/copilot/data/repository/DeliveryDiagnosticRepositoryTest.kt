@@ -50,6 +50,50 @@ class DeliveryDiagnosticRepositoryTest {
     private suspend fun episodes() = db.alertEventDao().between(BASE - MINUTE, now)
         .filter { it.eventType == DeliveryDiagnosticRepository.EVENT_TYPE }
 
+    @Test fun passiveDisplayRequiresAcceptedCurrentEvidenceAndExpiresWithoutRenewal() = runBlocking {
+        val repo = repository()
+        (0..45 step 5).forEach { feed(it, repo) }
+        val display = repo.display.value
+        assertThat(display.isCurrent(now)).isTrue()
+        repo.accept(now + MINUTE, sample(45).copy(observedAt = now + MINUTE), true, false)
+        assertThat(repo.display.value.acceptedAt).isEqualTo(display.acceptedAt)
+        assertThat(repo.display.value.isCurrent(now + 7 * MINUTE)).isFalse()
+    }
+
+    @Test fun invalidOrChangedBasisShowsRetainedEpisodeNotFreshFault() = runBlocking {
+        val repo = repository()
+        (0..45 step 5).forEach { feed(it, repo) }
+        val id = repo.display.value.episodeId
+        now += 5 * MINUTE
+        repo.accept(now, sample(50, basis = "changed-basis"), true, false)
+        assertThat(repo.display.value.episodeId).isEqualTo(id)
+        assertThat(repo.display.value.isCurrent(now)).isFalse()
+        now += 5 * MINUTE; repo.accept(now, null, true, false)
+        assertThat(repo.display.value.isCurrent(now)).isFalse()
+        assertThat(episodes().single().status).isEqualTo("OPEN")
+    }
+
+    @Test fun startupReadbackIsHistoryOnlyUntilFreshAcceptance() = runBlocking {
+        (0..45 step 5).forEach { feed(it) }
+        val restarted = repository()
+        restarted.refreshRetainedDisplay(now)
+        assertThat(restarted.display.value.episodeId).isNotEmpty()
+        assertThat(restarted.display.value.isCurrent(now)).isFalse()
+        assertThat(posts).isEqualTo(1)
+    }
+
+    @Test fun replacementRecordDoesNotResolveIndependentDeliveryEpisode() = runBlocking {
+        val repo = repository()
+        (0..45 step 5).forEach { feed(it, repo) }
+        val id = episodes().single().episodeId
+        db.therapyDao().upsertAll(listOf(io.aaps.copilot.data.local.entity.TherapyEventEntity(
+            "site-entry", now, "infusion_set_change", "{\"date\":$now,\"source\":\"nightscout_treatment\"}")))
+        repo.refreshRetainedDisplay(now)
+        assertThat(episodes().single().episodeId).isEqualTo(id)
+        assertThat(episodes().single().status).isEqualTo("OPEN")
+        assertThat(posts).isEqualTo(1)
+    }
+
     @Test fun foodAndUamCanOpenOneIndependentEpisodeAcrossRecreation() = runBlocking {
         (0..45 step 5).forEach { feed(it) }
         assertThat(posts).isEqualTo(1)
