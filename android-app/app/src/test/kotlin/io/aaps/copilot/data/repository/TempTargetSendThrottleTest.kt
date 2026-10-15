@@ -1,10 +1,13 @@
 package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
+import com.google.gson.Gson
 import io.aaps.copilot.data.local.dao.ActionCommandDao
 import io.aaps.copilot.data.local.dao.AutomaticSentCommandEvidence
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
+import io.aaps.copilot.data.local.entity.TargetManagerDecisionEntity
 import io.aaps.copilot.domain.target.TargetIntent
+import io.aaps.copilot.domain.target.LastSentTempTarget
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -12,6 +15,92 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class TempTargetSendThrottleTest {
+
+    @Test
+    fun guardedPersistedReleasePassesTransportRepeatGate() = runBlocking {
+        val now = 1_800_000_000_000L
+        val previous = LastSentTempTarget(now - 5 * 60_000L, 5.0, "TargetManager.v1:previous")
+        val throttle = TempTargetSendThrottle(
+            actionCommandDao = FakeActionCommandDao(lastSent = actionEntity(
+                timestamp = previous.timestamp, idempotencyKey = previous.idempotencyKey,
+                payloadJson = """{"targetMmol":"5.0"}"""
+            )),
+            managedReleaseReader = { managedReleaseFixture(now, previous) }
+        )
+        val decision = throttle.evaluate(now, "TargetManager.v1:release", 5.05,
+            managedDeliveryGuardPresent = true)
+
+        assertThat(decision.allowed).isTrue()
+        assertThat(decision.reason).isEqualTo("managed_episode_release")
+    }
+
+    @Test
+    fun releasePermissionCannotBypassGuardOrNewerHistoryOrPayloadBinding() = runBlocking {
+        val now = 1_800_000_000_000L
+        val previous = LastSentTempTarget(now - 5 * 60_000L, 5.0, "TargetManager.v1:previous")
+        for (release in listOf(
+            managedReleaseFixture(now, previous),
+            managedReleaseFixture(now - 6 * 60_000L, previous),
+            managedReleaseFixture(now + 1, previous),
+            managedReleaseFixture(now, previous.copy(idempotencyKey = "other")),
+            managedReleaseFixture(now, previous.copy(targetMmol = 5.01)),
+            managedReleaseFixture(now, previous.copy(timestamp = previous.timestamp - 1))
+        )) {
+            val throttle = TempTargetSendThrottle(
+                actionCommandDao = FakeActionCommandDao(lastSent = actionEntity(
+                    timestamp = previous.timestamp, idempotencyKey = previous.idempotencyKey,
+                    payloadJson = """{"targetMmol":"5.0"}"""
+                )), managedReleaseReader = { release }
+            )
+            assertThat(throttle.evaluate(now, "TargetManager.v1:release", 5.05).allowed).isFalse()
+            assertThat(throttle.evaluate(now, "legacy-release", 5.05, managedDeliveryGuardPresent = true).allowed).isFalse()
+            assertThat(throttle.evaluate(now, "TargetManager.v1:release", 5.10, managedDeliveryGuardPresent = true).allowed).isFalse()
+            if (release != managedReleaseFixture(now, previous)) {
+                assertThat(throttle.evaluate(now, "TargetManager.v1:release", 5.05,
+                    managedDeliveryGuardPresent = true).allowed).isFalse()
+            }
+        }
+    }
+
+    private fun managedReleaseFixture(now: Long, previous: LastSentTempTarget) =
+        TempTargetSendThrottle.ManagedRelease(5.05, previous, now)
+
+    @Test
+    fun onlyExactPendingManagerReleaseJournalCanAuthorizeTransport() {
+        val now = 1_800_000_000_000L
+        val key = "TargetManager.v1:release"
+        val command = """{"command":{"targetMmol":5.05,"durationMinutes":30,
+            "ownerRuleId":"AdaptiveTargetController.v1","intent":"NORMAL_CONTROL",
+            "idempotencyKey":"$key","semanticFingerprint":"release","generatedAt":$now,
+            "targetObservation":{"activeAapsTarget":{"targetMmol":5.0,
+                "ownership":"TARGET_MANAGER","idempotencyKey":"previous","evidenceResolved":true}}}}"""
+        val entity = TargetManagerDecisionEntity(
+            id = "ACTIVE:release", timestamp = now, mode = "ACTIVE", semanticFingerprint = "release",
+            outcome = "SEND", winnerJson = null, commandJson = command,
+            cadenceOutcome = "ALLOW_EPISODE_RELEASE", cadenceReason = "forecast_confirmed_trend_release",
+            lastSentTargetMmol = 5.0, lastSentTimestamp = now - 5 * 60_000L,
+            deliveryStatus = "pending", reasonCodesJson = "[]", rejectedProposalReasonsJson = "{}"
+        )
+        assertThat(TempTargetSendThrottle.managedReleaseFromJournal(entity, key, Gson()))
+            .isEqualTo(managedReleaseFixture(now, LastSentTempTarget(now - 5 * 60_000L, 5.0, "previous")))
+        val rounded = com.google.gson.JsonParser.parseString(command).asJsonObject
+        rounded.getAsJsonObject("command").getAsJsonObject("targetObservation")
+            .getAsJsonObject("activeAapsTarget").addProperty("targetMmol",
+                io.aaps.copilot.util.UnitConverter.mgdlToMmol(
+                    io.aaps.copilot.util.UnitConverter.mmolToMgdl(5.0).toDouble()
+                ))
+        assertThat(TempTargetSendThrottle.managedReleaseFromJournal(entity.copy(commandJson = rounded.toString()), key, Gson()))
+            .isNotNull()
+        for (invalid in listOf(
+            entity.copy(mode = "SHADOW"), entity.copy(outcome = "BLOCK_CADENCE"),
+            entity.copy(deliveryStatus = "sent"), entity.copy(cadenceOutcome = "ALLOW_MATERIAL_CHANGE"),
+            entity.copy(cadenceReason = "unapproved"), entity.copy(commandJson = "{}"),
+            entity.copy(commandJson = "invalid"), entity.copy(lastSentTargetMmol = 5.1),
+            entity.copy(lastSentTimestamp = now), entity.copy(timestamp = now + 1),
+            entity.copy(semanticFingerprint = "other"), entity.copy(commandJson = null)
+        )) assertThat(TempTargetSendThrottle.managedReleaseFromJournal(invalid, key, Gson())).isNull()
+        assertThat(TempTargetSendThrottle.managedReleaseFromJournal(entity, "TargetManager.v1:other", Gson())).isNull()
+    }
 
     @Test
     fun blocksAutomaticTempTargetInsideThirtyMinuteWindow() = runBlocking {
@@ -277,6 +366,9 @@ class TempTargetSendThrottleTest {
         override suspend fun upsert(command: ActionCommandEntity) = Unit
 
         override suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity? = null
+
+        override suspend fun forTargetObservationProof(idempotencyKey: String): List<ActionCommandEntity> =
+            listOfNotNull(lastSent?.takeIf { it.idempotencyKey == idempotencyKey })
 
         override suspend fun deleteByIdempotencyKeyTypeAndStatus(
             idempotencyKey: String,

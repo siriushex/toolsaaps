@@ -27,6 +27,13 @@ import org.junit.Test
 class MainViewModelManualMealEnergyTest {
 
     @Test
+    fun confirmedGramsAreNotRoundedBeforeSubmission() {
+        listOf(59.25, 10.125, 25.0, 60.0).forEach { grams ->
+            assertThat(MainViewModel.serializeConfirmedMealGrams(grams).toDouble()).isEqualTo(grams)
+        }
+    }
+
+    @Test
     fun manualMealEnergyValidationAcceptsAnAbsentValueAndRejectsInvalidValues() {
         assertThat(MainViewModel.isManualMealEnergyInputValid(null)).isEqualTo(true)
         assertThat(MainViewModel.isManualMealEnergyInputValid(540.0)).isEqualTo(true)
@@ -63,7 +70,7 @@ class MainViewModelManualMealEnergyTest {
                     manualMealEnergyKcal = manualMealEnergyKcal
                 )
             },
-            sendEatingSoon = { error("failed carbs must not request target") }
+            sendEatingSoon = { io.aaps.copilot.data.repository.EatingSoonResult(MealDeliveryStatus.SENT) }
         )
         val command = ActionCommand(
             id = "manual-carb-command",
@@ -86,6 +93,7 @@ class MainViewModelManualMealEnergyTest {
         )
 
         assertThat(delivered.carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
+        assertThat(delivered.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
         assertThat(submitCalls).isEqualTo(1)
         assertThat(dao.pendingIntents).isEmpty()
 
@@ -145,6 +153,10 @@ class MainViewModelManualMealEnergyTest {
             expectedTherapyRevisionHash: String
         ): MealProfileOverrideEntity? = mealOverrides[canonicalTherapyIdentity]
             ?.takeIf { it.therapyRevisionHash == expectedTherapyRevisionHash }
+
+        override suspend fun mealOverridesForIdentities(
+            identities: List<String>
+        ): List<MealProfileOverrideEntity> = identities.mapNotNull(mealOverrides::get)
 
         override suspend fun upsertMealOverride(override: MealProfileOverrideEntity) {
             mealOverrides[override.canonicalTherapyIdentity] = override

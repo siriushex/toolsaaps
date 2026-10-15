@@ -14,6 +14,7 @@ import io.aaps.copilot.data.local.entity.IsfCrSnapshotEntity
 import io.aaps.copilot.data.local.entity.ProfileEstimateEntity
 import io.aaps.copilot.data.local.entity.SensitivityRuntimeSnapshotEntity
 import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
+import io.aaps.copilot.domain.predict.AcceptedSensitivityTupleFreshness
 import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_CYCLE_ID_KEY
 import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_DIGEST_KEY
 import io.aaps.copilot.domain.predict.SENSITIVITY_ACCEPTED_FORECAST_DECOMPOSITION_KEY
@@ -1828,6 +1829,81 @@ class SensitivityRuntimeSnapshotDaoRoomTest {
             ?.snapshot?.forecastCycleId).isEqualTo("next-cycle")
         assertThat(db.forecastDao().atGenerationTimestamp(oldGenerationTs).map { it.valueMmol })
             .containsExactlyElementsIn(oldForecasts.map { it.valueMmol }).inOrder()
+    }
+
+    @Test
+    fun freshPublicationMarkerUsesCompletionClockNotEarlierInputCut() = runBlocking {
+        val publicationNow = 2_000_000L
+        val earlierInputCut = publicationNow - 10_000L
+        val generation = earlierInputCut + 8_375L
+        val marker = AutomationRepository.allocateFreshAcceptedSensitivityMarkerStatic(
+            db.telemetryDao(), generation, authoritativeNow = { publicationNow },
+            suspendForMs = { error("no marker collision") }
+        )
+        assertThat(marker).isEqualTo(publicationNow)
+        assertThat(marker).isAtLeast(generation)
+    }
+
+    @Test
+    fun freshPublicationMarkerRejectsFutureStaleAndInvalidOrigins() = runBlocking {
+        val now = 2_000_000L
+        for (generation in listOf(now + 1L, now - AcceptedSensitivityTupleFreshness.MAX_AGE_MS - 1L, 0L, Long.MIN_VALUE)) {
+            val failure = runCatching {
+                AutomationRepository.allocateFreshAcceptedSensitivityMarkerStatic(
+                    db.telemetryDao(), generation, authoritativeNow = { now },
+                    suspendForMs = { error("invalid generation must not wait") }
+                )
+            }.exceptionOrNull()
+            assertThat(failure).isInstanceOf(IllegalStateException::class.java)
+            assertThat(failure).hasMessageThat().contains("forecast generation is not fresh")
+        }
+        assertThat(db.telemetryDao().latestTimestampBySourceAndKey(
+            SENSITIVITY_ACCEPTED_SOURCE, SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY
+        )).isNull()
+    }
+
+    @Test
+    fun freshPublicationMarkerRechecksInclusiveExpiryAfterCollisionWait() = runBlocking {
+        var now = 2_000_000L
+        val generation = now - AcceptedSensitivityTupleFreshness.MAX_AGE_MS
+        db.telemetryDao().upsertAll(listOf(acceptedTelemetry(
+            id = "publication-boundary-marker", timestamp = now,
+            key = SENSITIVITY_ACCEPTED_PUBLICATION_STATE_KEY,
+            valueText = SENSITIVITY_ACCEPTED_PUBLICATION_PENDING
+        )))
+        val failure = runCatching {
+            AutomationRepository.allocateFreshAcceptedSensitivityMarkerStatic(
+                db.telemetryDao(), generation, authoritativeNow = { now },
+                suspendForMs = { now += it }
+            )
+        }.exceptionOrNull()
+        assertThat(now).isEqualTo(2_000_001L)
+        assertThat(failure).hasMessageThat().contains("forecast generation is not fresh")
+    }
+
+    @Test
+    fun freshPublicationMarkerRejectsRollbackAfterAllocation() = runBlocking {
+        val clocks = ArrayDeque(listOf(2_000_000L, 2_000_000L, 1_999_999L))
+        val failure = runCatching {
+            AutomationRepository.allocateFreshAcceptedSensitivityMarkerStatic(
+                db.telemetryDao(), 1_999_000L, authoritativeNow = { clocks.removeFirst() },
+                suspendForMs = { error("no marker collision") }
+            )
+        }.exceptionOrNull()
+        assertThat(failure).hasMessageThat().contains("publication clock moved backwards")
+    }
+
+    @Test
+    fun freshPublicationMarkerCannotUseSequenceMarkerAsFreshnessClock() = runBlocking {
+        val later = 2_000_000L + AcceptedSensitivityTupleFreshness.MAX_AGE_MS + 1L
+        val clocks = ArrayDeque(listOf(2_000_000L, later, later))
+        val failure = runCatching {
+            AutomationRepository.allocateFreshAcceptedSensitivityMarkerStatic(
+                db.telemetryDao(), 2_000_000L, authoritativeNow = { clocks.removeFirst() },
+                suspendForMs = { error("no marker collision") }
+            )
+        }.exceptionOrNull()
+        assertThat(failure).hasMessageThat().contains("forecast generation is not fresh")
     }
 
     @Test

@@ -10,8 +10,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +29,6 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -54,16 +56,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -101,6 +107,12 @@ import io.aaps.copilot.ui.foundation.screens.EventsDialog
 import io.aaps.copilot.ui.foundation.screens.remainingGlucoseAlertMuteMinutes
 import io.aaps.copilot.ui.foundation.screens.SafetyScreen
 import io.aaps.copilot.ui.foundation.screens.SettingsScreen
+import io.aaps.copilot.ui.foundation.screens.IssueDestination
+import io.aaps.copilot.ui.foundation.screens.IssueHelpDialog
+import io.aaps.copilot.ui.foundation.screens.UiIssueKind
+import io.aaps.copilot.ui.foundation.screens.IssueSettingsRequest
+import io.aaps.copilot.ui.foundation.screens.LocalIssueNavigator
+import io.aaps.copilot.ui.foundation.screens.issueSettingsLocation
 import io.aaps.copilot.ui.foundation.screens.UamScreen
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import io.aaps.copilot.ui.foundation.theme.CopilotStyledBackground
@@ -149,6 +161,8 @@ fun CopilotFoundationRoot(
     val uiStyleRaw by viewModel.uiStyleState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    var messageHelp by remember { mutableStateOf<String?>(null) }
+    val messageDetailsLabel = stringResource(R.string.issue_details)
     val selectedUiStyle = UiStyle.fromRaw(uiStyleRaw)
     var drawerOpen by remember { mutableStateOf(false) }
     var chromeDetailsReady by remember { mutableStateOf(false) }
@@ -157,7 +171,8 @@ fun CopilotFoundationRoot(
     var showPowerSaveDialog by remember { mutableStateOf(false) }
     var showEventsDialog by remember { mutableStateOf(false) }
     var overviewAuthoritativeEditor by remember { mutableStateOf<OverviewAuthoritativeEditor?>(null) }
-    var openPlannedActivityRequest by remember { mutableStateOf(0) }
+    var issueSettingsDestination by rememberSaveable { mutableStateOf<IssueDestination?>(null) }
+    var issueRequestToken by rememberSaveable { mutableStateOf(0) }
     val clinicalAiSettingsCallbacks = remember(viewModel) {
         clinicalAiSettingsRootCallbacks(viewModel)
     }
@@ -180,7 +195,8 @@ fun CopilotFoundationRoot(
             },
             onOpenPlannedActivity = {
                 showEventsDialog = false
-                openPlannedActivityRequest += 1
+                issueRequestToken += 1
+                issueSettingsDestination = IssueDestination.ACTIVITY_SCHEDULE
                 navController.navigate(Destinations.Settings.route) { launchSingleTop = true }
             },
             onOpenBloodCheck = {
@@ -198,7 +214,9 @@ fun CopilotFoundationRoot(
     LaunchedEffect(message) {
         val text = message
         if (!text.isNullOrBlank()) {
-            snackbarHostState.showSnackbar(text)
+            if (snackbarHostState.showSnackbar(text, actionLabel = messageDetailsLabel, duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) {
+                messageHelp = text
+            }
             viewModel.clearMessage()
         }
     }
@@ -232,8 +250,12 @@ fun CopilotFoundationRoot(
     }
 
     val scaffoldContent: @Composable () -> Unit = {
+        messageHelp?.let { text ->
+            IssueHelpDialog(text, listOf(UiIssueKind.OPERATION_MESSAGE)) { messageHelp = null }
+        }
             Scaffold(
                 containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
                 topBar = {
                     TopBar(
                         title = screenTitle(currentRoute),
@@ -243,7 +265,10 @@ fun CopilotFoundationRoot(
                         showStatusIndicators = chromeDetailsReady,
                         showGlucoseAlertToggle = currentRoute == Destinations.Overview.route,
                         glucoseAlertMutedUntilTs = overview.glucoseAlertMutedUntilTs,
-                        showPowerSaveAction = currentRoute == Destinations.Overview.route,
+                        showOverviewActions = currentRoute == Destinations.Overview.route && selectedUiStyle == UiStyle.CLARITY,
+                        canRunCycle = overview.canRunCycleNow,
+                        onOverviewRunCycle = viewModel::runCycleNow,
+                        onOverviewBloodCheck = { overviewAuthoritativeEditor = OverviewAuthoritativeEditor.BLOOD_CHECK },
                         onMenuClick = { drawerOpen = !drawerOpen },
                         onMuteGlucoseAlerts30m = viewModel::muteGlucoseAlerts30m,
                         onMuteGlucoseAlerts60m = viewModel::muteGlucoseAlerts60m,
@@ -255,14 +280,8 @@ fun CopilotFoundationRoot(
                         },
                         onOpenEvents = { showEventsDialog = true },
                         activeEventCount = overview.events.count { it.isActiveAt(overview.eventTimelineNowTs) },
-                        onPowerSaveClick = { showPowerSaveDialog = true },
                         onOpenHealth = {
                             navController.navigate(Destinations.Audit.route) {
-                                launchSingleTop = true
-                            }
-                        },
-                        onNavigateMore = { destination ->
-                            navController.navigate(destination.route) {
                                 launchSingleTop = true
                             }
                         }
@@ -277,13 +296,8 @@ fun CopilotFoundationRoot(
                             NavigationBarItem(
                                 selected = currentRoute == destination.route,
                                 onClick = {
-                                    navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                                    navController.navigateToPrimary(destination.route,
+                                        fromPrimary = Destinations.bottom.any { it.route == currentRoute })
                                 },
                                 icon = {
                                     Icon(
@@ -320,7 +334,8 @@ fun CopilotFoundationRoot(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+                        .padding(horizontal = Spacing.md,
+                            vertical = if (currentRoute == Destinations.Overview.route && selectedUiStyle == UiStyle.CLARITY) 4.dp else Spacing.sm)
                 ) {
                     if (routeShellReady) {
                         val showHealthWarning = appHealth.staleData || appHealth.killSwitchEnabled
@@ -347,13 +362,16 @@ fun CopilotFoundationRoot(
                                     onAddBloodCheck = viewModel::addManualBloodGlucoseCheck,
                                     onResetBloodCalibration = viewModel::resetManualGlucoseCalibration,
                                     onBaseTargetScheduleSave = viewModel::saveBaseTargetSchedule,
-                                    onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId ->
+                                    onEatingSoon = viewModel::sendStandaloneEatingSoon,
+                                    onLoadMealEstimateHistory = viewModel::loadLentaMealHistory,
+                                    onLoadEventContext = viewModel::loadEventCompensationContext,
+                                    onManualCarbs = { carbs, reason, profile, manualMealEnergyKcal, eatingSoon, submissionId, portionMetadata, glycemicIndex ->
                                         viewModel.sendManualCarbs(
                                             carbs,
                                             reason,
                                             profile,
                                             manualMealEnergyKcal,
-                                            eatingSoon, submissionId
+                                            eatingSoon, submissionId, portionMetadata, glycemicIndex
                                         )
                                     },
                                     onOpenAapsBolus = viewModel::openAapsBolusDialog,
@@ -488,6 +506,7 @@ fun CopilotFoundationRoot(
                                 val analytics by viewModel.analyticsUiState.collectAsStateWithLifecycle()
                                 AnalyticsScreen(
                                     state = analytics,
+                                    onLoadProspectiveReview = viewModel::loadProspectiveForecastReview,
                                     onRunDailyAnalysis = viewModel::runDailyAnalysisNow,
                                     onInsulinProfileActivate = viewModel::setInsulinProfile,
                                     onSensorLagCorrectionModeChange = viewModel::setSensorLagCorrectionMode,
@@ -616,12 +635,21 @@ fun CopilotFoundationRoot(
                                     onRetentionDaysChange = viewModel::setRetentionDays,
                                     onEnergyProfileEnabledChange = viewModel::setEnergyProfileEnabled,
                                     onEnergyProfileUserProfileSave = viewModel::saveEnergyProfileUserProfile,
+                                    onEnergyProfileCorrectionSave = viewModel::saveEnergyProfileCorrection,
                                     onEnergyProfileFoodSettingsSave = viewModel::saveEnergyProfileFoodSettings,
+                                    onMealPortionsSave = viewModel::saveMealPortionSettings,
                                     onEnergyProfileActivitySettingsSave = viewModel::saveEnergyProfileActivitySettings,
                                     onPlannedActivitySave = viewModel::savePlannedActivity,
                                     onPlannedActivityDelete = viewModel::deletePlannedActivity,
                                     onEnergyGoalSettingsSave = viewModel::saveEnergyGoalSettings,
-                                    openPlannedActivityRequest = openPlannedActivityRequest
+                                    issueRequest = issueSettingsDestination?.let {
+                                        IssueSettingsRequest(issueRequestToken, it)
+                                    },
+                                    onIssueRequestHandled = { handled ->
+                                        if (handled.token == issueRequestToken && handled.destination == issueSettingsDestination) {
+                                            issueSettingsDestination = null
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -632,13 +660,34 @@ fun CopilotFoundationRoot(
             }
     }
 
+    val issueNavigator: (IssueDestination) -> Unit = remember(navController) {
+        { destination ->
+            if (issueSettingsLocation(destination) != null) {
+                issueRequestToken += 1
+                issueSettingsDestination = destination
+                navController.navigate(Destinations.Settings.route) { launchSingleTop = true }
+            } else {
+                when (destination) {
+                    IssueDestination.POWER_SAVE -> showPowerSaveDialog = true
+                    IssueDestination.SENSOR_ANALYTICS -> {
+                        openSensorLagTrendDetailRequest = true
+                        navController.navigate(Destinations.Analytics.route) { launchSingleTop = true }
+                    }
+                    IssueDestination.ANALYTICS -> navController.navigate(Destinations.Analytics.route) { launchSingleTop = true }
+                    IssueDestination.SAFETY -> navController.navigate(Destinations.Safety.route) { launchSingleTop = true }
+                    IssueDestination.ALERTS -> navController.navigate(Destinations.Alerts.route) { launchSingleTop = true }
+                    else -> navController.navigate(Destinations.Audit.route) { launchSingleTop = true }
+                }
+            }
+        }
+    }
     AapsCopilotTheme(uiStyle = selectedUiStyle) {
         CopilotStyledBackground(
             uiStyle = selectedUiStyle,
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                scaffoldContent()
+                CompositionLocalProvider(LocalIssueNavigator provides issueNavigator) { scaffoldContent() }
                 if (showPowerSaveDialog) {
                     RootPowerSaveDialog(
                         onDismiss = { showPowerSaveDialog = false },
@@ -652,6 +701,8 @@ fun CopilotFoundationRoot(
                     visible = drawerOpen,
                     currentRoute = currentRoute,
                     uiStyle = selectedUiStyle,
+                    showPowerSaveAction = currentRoute == Destinations.Overview.route,
+                    onPowerSaveClick = { drawerOpen = false; showPowerSaveDialog = true },
                     onDismiss = { drawerOpen = false },
                     onNavigate = { destination ->
                         drawerOpen = false
@@ -666,7 +717,7 @@ fun CopilotFoundationRoot(
 }
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun TopBar(
+internal fun TopBar(
     title: String,
     uiStyle: UiStyle,
     staleData: Boolean,
@@ -674,7 +725,10 @@ private fun TopBar(
     showStatusIndicators: Boolean,
     showGlucoseAlertToggle: Boolean,
     glucoseAlertMutedUntilTs: Long,
-    showPowerSaveAction: Boolean,
+    showOverviewActions: Boolean,
+    canRunCycle: Boolean,
+    onOverviewRunCycle: () -> Unit,
+    onOverviewBloodCheck: () -> Unit,
     onMenuClick: () -> Unit,
     onMuteGlucoseAlerts30m: () -> Unit,
     onMuteGlucoseAlerts60m: () -> Unit,
@@ -682,11 +736,8 @@ private fun TopBar(
     onOpenAlertHistory: () -> Unit,
     onOpenEvents: () -> Unit,
     activeEventCount: Int,
-    onPowerSaveClick: () -> Unit,
-    onOpenHealth: () -> Unit,
-    onNavigateMore: (MoreDestination) -> Unit
+    onOpenHealth: () -> Unit
 ) {
-    var moreExpanded by remember { mutableStateOf(false) }
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
         glucoseAlertMutedUntilTs
@@ -719,7 +770,11 @@ private fun TopBar(
             actionIconContentColor = contentColor,
             navigationIconContentColor = contentColor
         ),
-        title = { Text(text = title) },
+        title = {
+            if (!showOverviewActions) {
+                Text(text = title)
+            }
+        },
         navigationIcon = {
             IconButton(onClick = onMenuClick) {
                 Icon(
@@ -729,6 +784,9 @@ private fun TopBar(
             }
         },
         actions = {
+            if (showOverviewActions) {
+                ClarityOverviewActions(canRunCycle, onOverviewRunCycle, onOverviewBloodCheck)
+            }
             if (showGlucoseAlertToggle) {
                 EventAlertActions(
                     activeEventCount = activeEventCount,
@@ -756,49 +814,6 @@ private fun TopBar(
                     }
                 }
             }
-            IconButton(onClick = { moreExpanded = true }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = stringResource(id = R.string.menu_more)
-                )
-            }
-            if (moreExpanded) {
-                DropdownMenu(
-                    expanded = true,
-                    onDismissRequest = { moreExpanded = false }
-                ) {
-                    if (showPowerSaveAction) {
-                        DropdownMenuItem(
-                            text = { Text(text = stringResource(id = R.string.overview_power_save_title)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.PowerSettingsNew,
-                                    contentDescription = stringResource(id = R.string.overview_power_save_title)
-                                )
-                            },
-                            onClick = {
-                                moreExpanded = false
-                                onPowerSaveClick()
-                            }
-                        )
-                    }
-                    Destinations.more.forEach { destination ->
-                        DropdownMenuItem(
-                            text = { Text(text = stringResource(id = destination.titleRes)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = destination.icon,
-                                    contentDescription = stringResource(id = destination.titleRes)
-                                )
-                            },
-                            onClick = {
-                                moreExpanded = false
-                                onNavigateMore(destination)
-                            }
-                        )
-                    }
-                }
-            }
         }
     )
 }
@@ -822,12 +837,14 @@ internal fun EventAlertActions(
 ) {
     var alertMenuExpanded by remember { mutableStateOf(false) }
     val badgeText = activeEventBadgeText(activeEventCount)
+    val badgeHeight = (16f * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
     BadgedBox(
         badge = {
             badgeText?.let { text ->
                 val description = stringResource(R.string.events_active_badge_description, text)
                 Badge(
                     modifier = Modifier
+                        .heightIn(min = badgeHeight)
                         .testTag("eventsActiveBadge")
                         .semantics { contentDescription = description }
                 ) {
@@ -948,6 +965,8 @@ private fun RootDrawerOverlay(
     visible: Boolean,
     currentRoute: String?,
     uiStyle: UiStyle,
+    showPowerSaveAction: Boolean,
+    onPowerSaveClick: () -> Unit,
     onDismiss: () -> Unit,
     onNavigate: (MoreDestination) -> Unit
 ) {
@@ -988,7 +1007,7 @@ private fun RootDrawerOverlay(
                     tonalElevation = 6.dp,
                     shadowElevation = 16.dp
                 ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                         Text(
                             text = stringResource(id = R.string.app_name),
                             modifier = Modifier.padding(start = 16.dp, top = 20.dp),
@@ -1032,6 +1051,15 @@ private fun RootDrawerOverlay(
                             style = MaterialTheme.typography.titleSmall,
                             color = if (uiStyle == UiStyle.MIDNIGHT_GLASS) Color(0xFF93A5C3) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (showPowerSaveAction) {
+                            NavigationDrawerItem(
+                                label = { Text(stringResource(R.string.overview_power_save_title)) },
+                                selected = false,
+                                onClick = onPowerSaveClick,
+                                icon = { Icon(Icons.Default.PowerSettingsNew, null) },
+                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding).testTag("drawerPowerSave")
+                            )
+                        }
                         Destinations.more.forEach { destination ->
                             NavigationDrawerItem(
                                 label = { Text(text = stringResource(id = destination.titleRes)) },
@@ -1065,7 +1093,7 @@ private fun shellChromeColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color(0xFF10213F)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surfaceVariant
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surfaceVariant
     }
 }
 
@@ -1074,7 +1102,7 @@ private fun drawerSurfaceColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color(0xFF0B1831)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.surface
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.surface
     }
 }
 
@@ -1083,7 +1111,7 @@ private fun shellChromeContentColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color(0xFFF6FAFF)
         UiStyle.DYNAMIC_GRADIENT -> MaterialTheme.colorScheme.onSurfaceVariant
-        UiStyle.CLASSIC -> MaterialTheme.colorScheme.onSurfaceVariant
+        UiStyle.CLASSIC, UiStyle.CLARITY -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 
@@ -1091,7 +1119,7 @@ private fun drawerScrimColor(uiStyle: UiStyle): Color {
     return when (uiStyle) {
         UiStyle.MIDNIGHT_GLASS -> Color.Black.copy(alpha = 0.56f)
         UiStyle.DYNAMIC_GRADIENT -> Color.Black.copy(alpha = 0.48f)
-        UiStyle.CLASSIC -> Color.Black.copy(alpha = 0.38f)
+        UiStyle.CLASSIC, UiStyle.CLARITY -> Color.Black.copy(alpha = 0.38f)
     }
 }
 

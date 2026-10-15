@@ -18,6 +18,13 @@ enum class TargetIntent {
 
 enum class TargetManagerMode { OFF, SHADOW, ACTIVE }
 
+internal fun TargetIntent.isProtective(): Boolean = when (this) {
+    TargetIntent.SENSOR_SAFETY_RELEASE, TargetIntent.HYPO_PROTECTION,
+    TargetIntent.ACTIVITY_PROTECTION, TargetIntent.POST_HYPO_PROTECTION -> true
+    TargetIntent.PLANNED_ACTIVITY_ADAPTATION, TargetIntent.NORMAL_CONTROL,
+    TargetIntent.RECOVERY_TO_BASE -> false
+}
+
 enum class SensorTrustState { TRUSTED, WARN, RESTRICTED, BLOCKED }
 
 enum class DeliveryTrustState { NORMAL, WATCH, SUSPECTED_NONRESPONSE, UNKNOWN }
@@ -62,7 +69,8 @@ data class ActiveAapsTarget(
     val source: String,
     val ownership: ActiveTargetOwnership,
     val idempotencyKey: String?,
-    val evidenceResolved: Boolean = true
+    val evidenceResolved: Boolean = true,
+    val eatingSoonConfirmed: Boolean = false
 )
 
 data class AcceptedTargetState(

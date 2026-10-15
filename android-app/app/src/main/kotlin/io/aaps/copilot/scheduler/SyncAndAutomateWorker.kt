@@ -791,14 +791,7 @@ class SyncAndAutomateWorker(
                         runReactiveWorkerCycle(
                             policy = executionPolicy,
                             runAutomationCycle = { intent ->
-                                when (intent) {
-                                    AutomationRepository.AutomationCycleIntent.NORMAL ->
-                                        container.automationRepository.runAutomationCycle() != null
-                                    AutomationRepository.AutomationCycleIntent.LOCAL_READ_ONLY ->
-                                        container.automationRepository.runLocalReadOnlyCycle() != null
-                                    AutomationRepository.AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE ->
-                                        error("worker cannot start a sensitivity source-change cycle")
-                                }
+                                container.automationRepository.runReactiveCycle(intent) != null
                             },
                             cancelFutureRuntimeWork = {
                                 WorkScheduler.cancelRuntimeWork(applicationContext)

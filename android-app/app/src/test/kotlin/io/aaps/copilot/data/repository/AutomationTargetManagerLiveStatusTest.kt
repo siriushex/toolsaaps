@@ -81,6 +81,10 @@ class AutomationTargetManagerLiveStatusTest {
             .isEqualTo(conflict)
         assertThat(status("manual_or_foreign_target_active").reason)
             .isEqualTo("external_target_retained")
+        val eating = status("eating_soon_target_active")
+        assertThat(eating.reason).isEqualTo("eating_soon_target_active")
+        assertThat(TargetManagerLiveStatusCodec.decode(TargetManagerLiveStatusCodec.encode(eating)))
+            .isEqualTo(eating)
         assertThat(status("private-detail=id-123").reason).isEqualTo("external_target_retained")
     }
 

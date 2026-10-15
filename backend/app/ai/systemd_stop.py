@@ -1,8 +1,9 @@
 """Narrow trusted-host stop verifier, not a public privileged command runner.
 
-The trusted launcher must pin the original InvocationID,
-use system.slice and never reuse job UUIDs. Deploy outside the unprivileged HTTP
-process; do not grant that process unrestricted systemctl or sudo permissions.
+The trusted launcher must pin the original InvocationID and never reuse job UUIDs.
+Use system.slice by default or one explicitly bound generated bundle slice.
+Deploy outside the unprivileged HTTP process; do not grant that process
+unrestricted systemctl or sudo permissions.
 """
 from __future__ import annotations
 
@@ -17,7 +18,8 @@ FIELDS = ("Id", "LoadState", "ActiveState", "SubState", "InvocationID", "User", 
 
 
 class SystemdStopVerifier:
-    def __init__(self, job_id: str, invocation_id: str, *, cgroup_root: Path = Path("/sys/fs/cgroup")):
+    def __init__(self, job_id: str, invocation_id: str, *, cgroup_root: Path = Path("/sys/fs/cgroup"),
+                 slice_id: str | None = None):
         if not isinstance(job_id, str) or str(UUID(job_id)) != job_id:
             raise ValueError("canonical_uuid_required")
         if not isinstance(invocation_id, str) or not re.fullmatch(r"[a-f0-9]{32}", invocation_id):
@@ -25,7 +27,16 @@ class SystemdStopVerifier:
         self.unit = "copilot-ai-job-" + UUID(job_id).hex + ".service"
         self.invocation_id = invocation_id
         self.root = cgroup_root
-        self.group_path = "/system.slice/" + self.unit
+        self.parent_name = "system.slice"
+        if slice_id is not None:
+            try:
+                parsed = UUID(slice_id) if type(slice_id) is str else None
+                if parsed is None or str(parsed) != slice_id or parsed.version != 4:
+                    raise ValueError
+            except (ValueError, AttributeError):
+                raise ValueError("invalid_slice_identity") from None
+            self.parent_name = "personalai" + parsed.hex + ".slice"
+        self.group_path = "/" + self.parent_name + "/" + self.unit
 
     def _command(self, args):
         try:
@@ -54,6 +65,12 @@ class SystemdStopVerifier:
                 ActiveState="inactive", SubState="dead", InvocationID="", User="",
                 KillMode="control-group", ControlGroup=""):
             return result
+        # Static units may stay loaded but clear InvocationID after stop. This
+        # exact state is trusted only after the original invocation was bound.
+        if allow_collected and result == dict(Id=self.unit, LoadState="loaded",
+                ActiveState="inactive", SubState="dead", InvocationID="", User="copilot-ai",
+                KillMode="control-group", ControlGroup=""):
+            return result
         expected = {"Id": self.unit, "LoadState": "loaded", "InvocationID": self.invocation_id,
                     "User": "copilot-ai", "KillMode": "control-group"}
         if any(result[key] != value for key, value in expected.items()):
@@ -66,8 +83,12 @@ class SystemdStopVerifier:
         try:
             if not (self.root / "cgroup.controllers").is_file():
                 return False
-            parent = self.root / "system.slice"
-            if not parent.is_dir() or parent.is_symlink():
+            parent = self.root / self.parent_name
+            if parent.is_symlink():
+                return False
+            if not parent.exists():
+                return self.parent_name != "system.slice"
+            if not parent.is_dir():
                 return False
             group = parent / self.unit
             if group.is_symlink():
@@ -101,7 +122,7 @@ class SystemdStopVerifier:
         if after is not None and after["LoadState"] == "not-found":
             # Only accept GC after positively identifying and stopping this
             # invocation; an absent unit on entry is never a stop receipt.
-            group = self.root / "system.slice" / self.unit
+            group = self.root / self.parent_name / self.unit
             return self._empty_cgroup() and not group.exists() and not group.is_symlink()
         return (after is not None
                 and (after["ActiveState"], after["SubState"]) in (("inactive", "dead"), ("failed", "failed"))

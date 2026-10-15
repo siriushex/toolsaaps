@@ -70,6 +70,54 @@ class EpisodeAlertDeliveryRoomTest {
     }
 
     @Test
+    fun committedOffAndResumeWithdrawPumpSourceBeforeLegacyCleanup() = runBlocking {
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+        var now = 3_000_000L
+        lateinit var monitor: PumpLinkHealthMonitor
+        val owner = EpisodeAlertDeliveryStateMachine(RoomEpisodeAlertReceiptStore(db), clock = { now },
+            clearRiskSideEffects = {
+                monitor.invalidateAlarmSource()
+                assertThat(monitor.currentAlarmSource()).isNull()
+                val shared = EpisodeAlertOperationLocks.forIdentity(db)
+                val acquired = shared.tryLock()
+                if (acquired) shared.unlock()
+                assertThat(acquired).isFalse()
+            })
+        val store = object : PumpLinkRecordStore {
+            var record = PumpLinkRecord()
+            override suspend fun load() = record
+            override suspend fun save(record: PumpLinkRecord) { this.record = record }
+        }
+        monitor = PumpLinkHealthMonitor(scope, store, { now }, { 12 }, { PumpLinkNotice.DELIVERED }, {},
+            PumpLinkMuteCoordinator(owner::coordinateMutedSideEffect))
+        val packet = io.aaps.copilot.domain.pump.PumpLinkSnapshot(12, 1_000, 1, now, true,
+            io.aaps.copilot.domain.pump.PumpLinkAdapterState.ON,
+            io.aaps.copilot.domain.pump.PumpLinkDriverState.ERROR, false, now - 60_000)
+        try {
+            monitor.accept(packet)
+            assertThat(monitor.currentAlarmSource()).isNotNull()
+            owner.muteFromNotification(now, GlucoseAlertMuteOption.MINUTES_30.durationMs)
+            assertThat(monitor.currentAlarmSource()).isNull()
+            monitor.refresh()
+            assertThat(monitor.alarmSource.value).isNull()
+            owner.resume(now)
+            assertThat(monitor.alarmSource.value).isNull()
+            monitor.refresh()
+            assertThat(monitor.currentAlarmSource()).isNotNull()
+            owner.toggleFromOverview(now)
+            assertThat(monitor.currentAlarmSource()).isNull()
+            owner.toggleFromOverview(now)
+            assertThat(monitor.currentAlarmSource()).isNull()
+            now += GlucoseAlertMuteOption.MINUTES_30.durationMs
+            assertThat(monitor.alarmSource.value).isNull()
+        } finally {
+            val job = requireNotNull(scope.coroutineContext[kotlinx.coroutines.Job])
+            job.cancel()
+            job.join()
+        }
+    }
+
+    @Test
     fun technicalSideEffectAndMuteShareTheSameOperationLock() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()

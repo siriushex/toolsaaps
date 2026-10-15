@@ -17,11 +17,13 @@ class ForecastQualityEvaluator {
 
     fun evaluate(
         forecasts: List<ForecastEntity>,
-        glucose: List<GlucoseSampleEntity>
+        glucose: List<GlucoseSampleEntity>,
+        evaluatedAt: Long
     ): List<ForecastQualityMetrics> {
         if (forecasts.isEmpty() || glucose.isEmpty()) return emptyList()
 
-        val sortedGlucose = glucose.sortedBy { it.timestamp }
+        val sortedGlucose = glucose.filter { it.timestamp <= evaluatedAt }.sortedBy { it.timestamp }
+        if (sortedGlucose.isEmpty()) return emptyList()
         val byHorizon = forecasts.groupBy { it.horizonMinutes }
         return byHorizon.mapNotNull { (horizon, rows) ->
             val toleranceMs = if (horizon <= 10) 5 * 60 * 1000L else 15 * 60 * 1000L
@@ -55,11 +57,17 @@ class ForecastQualityEvaluator {
         targetTs: Long,
         toleranceMs: Long
     ): Double? {
-        val exact = samples.firstOrNull { it.timestamp == targetTs }
-        if (exact != null) return exact.mmol
-
-        val before = samples.lastOrNull { it.timestamp < targetTs }
-        val after = samples.firstOrNull { it.timestamp > targetTs }
+        // Nearest-neighbour tolerance must not turn an unobserved future into an outcome.
+        if (targetTs < samples.first().timestamp || targetTs > samples.last().timestamp) return null
+        var lo = 0
+        var hi = samples.size
+        while (lo < hi) {
+            val mid = (lo + hi).ushr(1)
+            if (samples[mid].timestamp < targetTs) lo = mid + 1 else hi = mid
+        }
+        val after = samples.getOrNull(lo)
+        if (after?.timestamp == targetTs) return after.mmol
+        val before = samples.getOrNull(lo - 1)
         if (before != null && after != null) {
             val beforeDelta = targetTs - before.timestamp
             val afterDelta = after.timestamp - targetTs
@@ -70,7 +78,12 @@ class ForecastQualityEvaluator {
             }
         }
 
-        val candidate = samples.minByOrNull { abs(it.timestamp - targetTs) } ?: return null
+        val candidate = when {
+            before == null -> after
+            after == null -> before
+            targetTs - before.timestamp <= after.timestamp - targetTs -> before
+            else -> after
+        } ?: return null
         return candidate.mmol.takeIf { abs(candidate.timestamp - targetTs) <= toleranceMs }
     }
 }

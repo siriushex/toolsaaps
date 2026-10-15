@@ -9,7 +9,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.domain.alerts.LocalAlarmCycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,8 +22,9 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 class GlucoseAlertAudioController(
-    context: Context
-) {
+    context: Context,
+    private val nowElapsedMs: () -> Long = SystemClock::elapsedRealtime
+) : LocalAlarmAudioPort {
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -33,6 +36,10 @@ class GlucoseAlertAudioController(
     private var activeFocusRequest: AudioFocusRequest? = null
     private var activeFocusListener: AudioManager.OnAudioFocusChangeListener? = null
     private var activeAlarmVolumeBeforeBoost: Int? = null
+    private var activeFocusToken: Any? = null
+    private var pendingLocalSession: LocalPlaybackSession? = null
+    private var activeLocalSession: LocalPlaybackSession? = null
+    private var lastLocalWindow: LocalAlarmPlaybackWindow? = null
     private var nextCriticalSecondary = false
     private val _playbackState = MutableStateFlow(GlucoseAlertAudioPlaybackState())
 
@@ -82,6 +89,38 @@ class GlucoseAlertAudioController(
         settings: AppSettings
     ): GlucoseAlertAudioPlaybackResult = play(slot, settings, isPreview = true, ensureAudible = false)
 
+    override suspend fun playLocalAlarm(
+        cycle: LocalAlarmCycle,
+        stepIndex: Int,
+        settings: AppSettings,
+        admitted: (LocalAlarmCycle) -> Boolean
+    ): GlucoseAlertAudioPlaybackResult = withContext(Dispatchers.Main.immediate) {
+        val allowed = try {
+            admitted(cycle)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            false
+        }
+        if (!allowed) return@withContext GlucoseAlertAudioPlaybackResult(failureReason = "local_alarm_denied")
+        val slot = if (!cycle.level.strong) GlucoseAlertAudioSlot.SOFT
+            else if (cycle.ordinal % 2L == 1L) GlucoseAlertAudioSlot.CRITICAL_PRIMARY
+            else GlucoseAlertAudioSlot.CRITICAL_SECONDARY
+        val spec = resolvePlaybackSpec(settings, slot)
+        val window = LocalAlarmPlaybackWindow.create(cycle, stepIndex, spec.durationMs)
+            ?: return@withContext GlucoseAlertAudioPlaybackResult(failureReason = "local_alarm_invalid_step")
+        startPlaybackOnMain(slot, spec, isPreview = false, ensureAudible = false,
+            localSession = LocalPlaybackSession(window, admitted))
+    }
+
+    override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
+        val stop = Runnable {
+            if (pendingLocalSession?.window?.cycle == cycle) pendingLocalSession = null
+            if (activeLocalSession?.window?.cycle == cycle) stopActivePlayback("local_alarm_stopped")
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) stop.run() else mainHandler.post(stop)
+    }
+
     fun stopPreview() {
         mainHandler.post {
             if (_playbackState.value.isPreview) {
@@ -110,10 +149,13 @@ class GlucoseAlertAudioController(
         slot: GlucoseAlertAudioSlot,
         spec: GlucoseAlertAudioClipSpec,
         isPreview: Boolean,
-        ensureAudible: Boolean
+        ensureAudible: Boolean,
+        localSession: LocalPlaybackSession? = null
     ): GlucoseAlertAudioPlaybackResult = try {
         suspendCancellableCoroutine { continuation ->
             var startEnqueued = false
+            var playbackStarted = false
+            var playedDurationMs = spec.durationMs
             fun result(played: Boolean, failureReason: String? = null) = GlucoseAlertAudioPlaybackResult(
                 played = played,
                 startEnqueued = startEnqueued,
@@ -121,21 +163,60 @@ class GlucoseAlertAudioController(
                 clipLabel = spec.label,
                 fallbackUsed = spec.fallbackUsed,
                 startMs = spec.startMs,
-                durationMs = spec.durationMs
+                durationMs = playedDurationMs
             )
             fun resumeFailure(reason: String) {
                 if (continuation.isActive) continuation.resume(result(played = false, failureReason = reason))
             }
 
+            fun localAllowed(): Boolean {
+                val session = localSession ?: return true
+                if (pendingLocalSession !== session && activeLocalSession !== session) return false
+                return try {
+                    session.admitted(session.window.cycle) &&
+                        (pendingLocalSession === session || activeLocalSession === session) &&
+                        session.window.remainingStartMs(nowElapsedMs()) != null
+                } catch (cancellation: CancellationException) {
+                    continuation.cancel(cancellation)
+                    false
+                } catch (_: Throwable) {
+                    false
+                }
+            }
+
+            fun requireLocal(): Boolean {
+                if (localAllowed()) return true
+                if (activeLocalSession === localSession) stopActivePlayback("local_alarm_denied")
+                if (pendingLocalSession === localSession) pendingLocalSession = null
+                resumeFailure("local_alarm_denied")
+                return false
+            }
+
             try {
+                if (localSession != null) {
+                    val window = localSession.window
+                    if (pendingLocalSession != null ||
+                        (lastLocalWindow?.cycle == window.cycle && lastLocalWindow!!.stepIndex >= window.stepIndex)) {
+                        resumeFailure("local_alarm_duplicate_or_busy")
+                        return@suspendCancellableCoroutine
+                    }
+                    pendingLocalSession = localSession
+                    if (!requireLocal()) return@suspendCancellableCoroutine
+                }
                 stopActivePlayback()
-                if (!retainAudioFocusOrCleanup(requestAudioFocus(slot), ::abandonAudioFocus)) {
+                if (!requireLocal()) return@suspendCancellableCoroutine
+                activeLocalSession = localSession
+                pendingLocalSession = null
+                if (localSession != null) lastLocalWindow = localSession.window
+                if (!retainAudioFocusOrCleanup(requestAudioFocus(slot, localSession != null), ::abandonAudioFocus)) {
+                    stopActivePlayback("audio_focus_denied")
                     resumeFailure("audio_focus_denied")
                     return@suspendCancellableCoroutine
                 }
-                val player = createUnpreparedPlayer(spec, slot)
+                if (!requireLocal()) return@suspendCancellableCoroutine
+                val player = createUnpreparedPlayer(spec, slot, localSession != null)
                 if (player == null) {
-                    abandonAudioFocus()
+                    stopActivePlayback("audio_player_create_failed")
                     resumeFailure("audio_player_create_failed")
                     return@suspendCancellableCoroutine
                 }
@@ -143,6 +224,7 @@ class GlucoseAlertAudioController(
                 player.setVolume(volume, volume)
                 activePlayer = player
                 activeStartFailure = ::resumeFailure
+                if (!requireLocal()) return@suspendCancellableCoroutine
                 continuation.invokeOnCancellation {
                     mainHandler.post {
                         if (activePlayer === player) stopActivePlayback("audio_start_cancelled")
@@ -157,9 +239,32 @@ class GlucoseAlertAudioController(
                     if (activePlayer === current) stopActivePlayback("audio_player_error")
                     true
                 }
-                val startPlayback: () -> Unit = {
+                val startPlayback: () -> Unit = startPlayback@{
                     try {
+                        if (localSession != null && playbackStarted) return@startPlayback
+                        if (activePlayer !== player || !requireLocal()) return@startPlayback
+                        val startedAt = if (localSession != null) nowElapsedMs() else null
+                        if (localSession != null) {
+                            val remaining = localSession.window.playDurationMs(requireNotNull(startedAt))
+                            if (remaining == null) {
+                                stopActivePlayback("local_alarm_expired")
+                                return@startPlayback
+                            }
+                            playedDurationMs = remaining
+                        }
+                        playbackStarted = true
                         player.start()
+                        if (!requireLocal()) return@startPlayback
+                        val stopDelay = if (startedAt != null) {
+                            val now = nowElapsedMs()
+                            val end = startedAt + playedDurationMs
+                            if (now < startedAt || now >= end) {
+                                stopActivePlayback("local_alarm_expired")
+                                return@startPlayback
+                            }
+                            end - now
+                        } else playedDurationMs.toLong()
+                        activeStopRunnable?.let(mainHandler::removeCallbacks)
                         activeStartFailure = null
                         if (ensureAudible) raiseAlarmVolumeIfNeeded()
                         _playbackState.value = GlucoseAlertAudioPlaybackState(
@@ -173,7 +278,7 @@ class GlucoseAlertAudioController(
                             }
                         }
                         activeStopRunnable = stopRunnable
-                        mainHandler.postDelayed(stopRunnable, spec.durationMs.toLong())
+                        mainHandler.postDelayed(stopRunnable, stopDelay)
                         if (continuation.isActive) continuation.resume(result(played = true))
                     } catch (_: Throwable) {
                         stopActivePlayback("audio_start_failed")
@@ -181,6 +286,8 @@ class GlucoseAlertAudioController(
                 }
                 player.setOnPreparedListener { prepared ->
                     if (activePlayer !== prepared) return@setOnPreparedListener
+                    if (localSession != null && playbackStarted) return@setOnPreparedListener
+                    if (!requireLocal()) return@setOnPreparedListener
                     if (spec.startMs > 0) {
                         prepared.setOnSeekCompleteListener {
                             if (activePlayer === it) startPlayback()
@@ -194,9 +301,23 @@ class GlucoseAlertAudioController(
                         startPlayback()
                     }
                 }
+                if (localSession != null) {
+                    if (!requireLocal()) return@suspendCancellableCoroutine
+                    val remaining = localSession.window.remainingStartMs(nowElapsedMs())
+                    if (remaining == null) {
+                        stopActivePlayback("local_alarm_expired")
+                        return@suspendCancellableCoroutine
+                    }
+                    val timeout = Runnable {
+                        if (activePlayer === player) stopActivePlayback("local_alarm_prepare_timeout")
+                    }
+                    activeStopRunnable = timeout
+                    mainHandler.postDelayed(timeout, remaining)
+                }
                 startEnqueued = true
                 player.prepareAsync()
             } catch (_: Throwable) {
+                if (pendingLocalSession === localSession) pendingLocalSession = null
                 stopActivePlayback("audio_prepare_failed")
                 resumeFailure("audio_prepare_failed")
             }
@@ -204,7 +325,8 @@ class GlucoseAlertAudioController(
     } catch (cancellation: CancellationException) {
         // This function runs on Dispatchers.Main. Cleanup therefore completes
         // before the bounded caller can release the alert coordinator mutex.
-        stopActivePlayback("audio_start_cancelled")
+        if (localSession == null || activeLocalSession === localSession) stopActivePlayback("audio_start_cancelled")
+        if (pendingLocalSession === localSession) pendingLocalSession = null
         throw cancellation
     }
 
@@ -229,10 +351,11 @@ class GlucoseAlertAudioController(
 
     private fun createUnpreparedPlayer(
         spec: GlucoseAlertAudioClipSpec,
-        slot: GlucoseAlertAudioSlot
+        slot: GlucoseAlertAudioSlot,
+        alarmMode: Boolean = false
     ): MediaPlayer? {
         val uri = spec.sourceUri
-        val attributes = audioAttributes(slot)
+        val attributes = audioAttributes(slot, alarmMode)
         val player = MediaPlayer()
         return try {
             player.apply {
@@ -257,6 +380,7 @@ class GlucoseAlertAudioController(
     }
 
     private fun stopActivePlayback(failureReason: String = "audio_stopped") {
+        activeLocalSession = null
         val pendingFailure = activeStartFailure
         activeStartFailure = null
         _playbackState.value = GlucoseAlertAudioPlaybackState()
@@ -285,22 +409,26 @@ class GlucoseAlertAudioController(
         pendingFailure?.invoke(failureReason)
     }
 
-    private fun requestAudioFocus(slot: GlucoseAlertAudioSlot): Boolean {
+    private fun requestAudioFocus(slot: GlucoseAlertAudioSlot, alarmMode: Boolean = false): Boolean {
         val focusGain = when (slot) {
             GlucoseAlertAudioSlot.SOFT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             GlucoseAlertAudioSlot.CRITICAL_PRIMARY,
             GlucoseAlertAudioSlot.CRITICAL_SECONDARY -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
         }
+        val token = Any()
+        activeFocusToken = token
         val listener = AudioManager.OnAudioFocusChangeListener { change ->
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> stop()
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> mainHandler.post {
+                    if (activeFocusToken === token) stopActivePlayback("audio_focus_lost")
+                }
             }
         }
         activeFocusListener = listener
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(focusGain)
-                .setAudioAttributes(audioAttributes(slot))
+                .setAudioAttributes(audioAttributes(slot, alarmMode))
                 .setWillPauseWhenDucked(false)
                 .setOnAudioFocusChangeListener(listener)
                 .build()
@@ -310,16 +438,16 @@ class GlucoseAlertAudioController(
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(
                 listener,
-                if (slot.isCritical()) AudioManager.STREAM_ALARM else AudioManager.STREAM_MUSIC,
+                if (alarmMode || slot.isCritical()) AudioManager.STREAM_ALARM else AudioManager.STREAM_MUSIC,
                 focusGain
             ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
     }
 
-    private fun audioAttributes(slot: GlucoseAlertAudioSlot): AudioAttributes {
+    private fun audioAttributes(slot: GlucoseAlertAudioSlot, alarmMode: Boolean = false): AudioAttributes {
         return AudioAttributes.Builder()
             .setUsage(
-                if (slot.isCritical()) {
+                if (alarmMode || slot.isCritical()) {
                     AudioAttributes.USAGE_ALARM
                 } else {
                     AudioAttributes.USAGE_NOTIFICATION_EVENT
@@ -352,6 +480,7 @@ class GlucoseAlertAudioController(
     }
 
     private fun abandonAudioFocus() {
+        activeFocusToken = null
         val listener = activeFocusListener
         activeFocusListener = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -370,6 +499,11 @@ class GlucoseAlertAudioController(
         GlucoseAlertAudioSlot.CRITICAL_PRIMARY,
         GlucoseAlertAudioSlot.CRITICAL_SECONDARY -> 0.92f
     }
+
+    private class LocalPlaybackSession(
+        val window: LocalAlarmPlaybackWindow,
+        val admitted: (LocalAlarmCycle) -> Boolean
+    )
 }
 
 private fun GlucoseAlertAudioSlot.isCritical(): Boolean = this in setOf(

@@ -78,6 +78,9 @@ interface EnergyProfileDao {
         expectedTherapyRevisionHash: String
     ): MealProfileOverrideEntity?
 
+    @Query("SELECT * FROM meal_profile_overrides WHERE canonicalTherapyIdentity IN (:identities)")
+    suspend fun mealOverridesForIdentities(identities: List<String>): List<MealProfileOverrideEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMealOverride(override: MealProfileOverrideEntity)
 

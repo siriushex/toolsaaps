@@ -140,10 +140,8 @@ private fun exactBroadcastValue(
 
 internal class BroadcastReactiveInvalidationPolicy(
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
-    private val glucoseIntervalMs: Long = 4 * 60_000L,
     private val telemetryIntervalMs: Long = 5 * 60_000L
 ) {
-    private val lastGlucoseReactiveAtMs = AtomicLong(UNCLAIMED)
     private val lastTelemetryOnlyReactiveAtMs = AtomicLong(UNCLAIMED)
 
     fun shouldInvalidate(
@@ -160,11 +158,7 @@ internal class BroadcastReactiveInvalidationPolicy(
         telemetryOnlyCoalescedAction: Boolean
     ): Boolean {
         if (result.therapyImported > 0) return true
-        if (result.glucoseImported > 0) {
-            val glucose = result.latestGlucoseMmol
-            if (glucose != null && (glucose <= 4.0 || glucose >= 13.0)) return true
-            return slotAvailable(lastGlucoseReactiveAtMs, glucoseIntervalMs)
-        }
+        if (result.glucoseImported > 0) return result.currentGlucoseChanged
         if (result.telemetryImported <= 0) return false
         if (!telemetryOnlyCoalescedAction) return true
         return slotAvailable(lastTelemetryOnlyReactiveAtMs, telemetryIntervalMs)
@@ -174,14 +168,7 @@ internal class BroadcastReactiveInvalidationPolicy(
         result: BroadcastIngestRepository.IngestResult,
         telemetryOnlyCoalescedAction: Boolean
     ) {
-        if (result.therapyImported > 0) return
-        if (result.glucoseImported > 0) {
-            val glucose = result.latestGlucoseMmol
-            if (glucose == null || (glucose > 4.0 && glucose < 13.0)) {
-                lastGlucoseReactiveAtMs.set(nowMs())
-            }
-            return
-        }
+        if (result.therapyImported > 0 || result.currentGlucoseChanged) return
         if (result.telemetryImported > 0 && telemetryOnlyCoalescedAction) {
             lastTelemetryOnlyReactiveAtMs.set(nowMs())
         }
@@ -230,7 +217,8 @@ class BroadcastIngestRepository internal constructor(
     private val auditLogger: AuditLogger,
     private val aapsCarbHistorySyncRepository: AapsCarbHistorySyncRepository? = null,
     private val onClinicalInputPersisted: suspend (ClinicalInputInvalidationSource) -> Boolean = { true },
-    private val beforeOutboxPersist: suspend () -> Unit = {}
+    private val beforeOutboxPersist: suspend () -> Unit = {},
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val logTag = "BroadcastIngestDb"
     private val ingestScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -312,6 +300,12 @@ class BroadcastIngestRepository internal constructor(
         val glucoseInputTelemetry = mutableListOf<TelemetrySampleEntity>()
 
         val result = db.withTransaction {
+            val ingestNow = clock()
+            val currentGlucoseBefore = if (glucose != null) {
+                db.glucoseDao().latestValidDistinctAtOrBefore(ingestNow, 1).firstOrNull()
+            } else {
+                null
+            }
             var importedGlucose = 0
             var importedGlucoseMmol: Double? = null
             var importedTherapy = 0
@@ -377,6 +371,13 @@ class BroadcastIngestRepository internal constructor(
                 }
             }
 
+            val currentGlucoseAfter = if (importedGlucose > 0) {
+                db.glucoseDao().latestValidDistinctAtOrBefore(ingestNow, 1).firstOrNull()
+            } else {
+                null
+            }
+            val currentGlucoseChanged = currentGlucoseAfter != null &&
+                currentGlucoseAfter.copy(id = 0L) != currentGlucoseBefore?.copy(id = 0L)
             val persisted = if (
                 importedGlucose == 0 && importedTherapy == 0 && importedTelemetry == 0
             ) {
@@ -387,7 +388,8 @@ class BroadcastIngestRepository internal constructor(
                     importedTherapy,
                     importedTelemetry,
                     null,
-                    importedGlucoseMmol
+                    importedGlucoseMmol,
+                    currentGlucoseChanged = currentGlucoseChanged
                 )
             }
             if (importedGlucose > 0 || importedTherapy > 0 || importedTelemetry > 0) {
@@ -1282,7 +1284,8 @@ class BroadcastIngestRepository internal constructor(
         val telemetryImported: Int,
         val warning: String?,
         val latestGlucoseMmol: Double? = null,
-        val reactiveInvalidationRequested: Boolean = false
+        val reactiveInvalidationRequested: Boolean = false,
+        val currentGlucoseChanged: Boolean = false
     )
 
     companion object {

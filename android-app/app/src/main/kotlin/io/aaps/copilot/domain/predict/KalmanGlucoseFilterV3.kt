@@ -31,6 +31,21 @@ internal class KalmanGlucoseFilterV3 {
     private var sigmaZ = 0.18
     private var sigmaA = 0.02
 
+    internal fun copyForSimulation(): KalmanGlucoseFilterV3 = KalmanGlucoseFilterV3().also {
+        it.inited = inited
+        it.lastTs = lastTs
+        it.updatesCount = updatesCount
+        it.g = g
+        it.v = v
+        it.p00 = p00
+        it.p01 = p01
+        it.p10 = p10
+        it.p11 = p11
+        it.ewmaNis = ewmaNis
+        it.sigmaZ = sigmaZ
+        it.sigmaA = sigmaA
+    }
+
     fun update(zMmol: Double, ts: Long, volNorm: Double, uRocPerMin: Double = 0.0): KalmanSnapshotV3 {
         if (!inited) {
             reset(zMmol, ts)

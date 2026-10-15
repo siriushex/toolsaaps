@@ -543,7 +543,7 @@ class AdaptiveTargetControllerRule : TargetRule {
 
         private const val MIN_TARGET_MMOL = 4.0
         private const val MAX_TARGET_MMOL = 10.0
-        private const val TARGET_STEP_MMOL = 0.05
+        internal const val TARGET_STEP_MMOL = 0.05
         private const val EPS_EQ = 1e-6
         private const val ACTIVITY_TARGET_MIN_MMOL = 7.7
         private const val ACTIVITY_TARGET_MAX_MMOL = 8.7

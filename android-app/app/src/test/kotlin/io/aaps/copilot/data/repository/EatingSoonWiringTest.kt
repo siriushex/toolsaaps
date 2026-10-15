@@ -14,11 +14,16 @@ class EatingSoonWiringTest {
             .isEqualTo(NightscoutActionRepository.TempTargetFailurePolicy.LEGACY_FALLBACK_ALLOWED)
     }
 
-    @Test fun uiRequiresConfirmationAndForwardsExplicitMealOption() {
+    @Test fun uiSendsOnceFromMealDialogAndForwardsExplicitMealOption() {
         val overview = source("ui/foundation/screens/OverviewScreen.kt")
-        assertThat(overview).contains("overviewEatingSoon")
-        assertThat(overview).contains("var eatingSoon by rememberSaveable { mutableStateOf(true) }")
-        assertThat(overview).contains("overview_confirm_carbs_eating_soon")
+        val dialog = source("ui/foundation/components/MealEntryDialog.kt")
+        assertThat(overview).contains("MealEntryDialog(")
+        assertThat(overview).contains("meal.energyKcal, meal.eatingSoon, meal.submissionId")
+        assertThat(dialog).contains("overviewEatingSoon")
+        assertThat(dialog).contains("var eatingSoon by rememberSaveable { mutableStateOf(true) }")
+        assertThat(dialog).doesNotContain("overviewConfirmMeal")
+        assertThat(dialog).contains("var manualCarbs by rememberSaveable { mutableStateOf(false) }")
+        assertThat(dialog).contains("onConfirm(finalMeal)")
         assertThat(source("ui/foundation/CopilotFoundationRoot.kt")).contains("eatingSoon, submissionId")
     }
 

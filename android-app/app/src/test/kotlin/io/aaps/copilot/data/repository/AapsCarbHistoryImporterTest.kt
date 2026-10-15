@@ -12,6 +12,53 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class AapsCarbHistoryImporterTest {
+    @Test fun durableStageRunsInsideTransactionAndFailedStageRollsBackImport() = runTest {
+        val dao = RecordingTherapyDao()
+        val transaction = RecordingTransactionRunner()
+        var staged = false
+        val importer = AapsCarbHistoryImporter(dao.proxy, transaction.runner, persistMealPage = {
+            assertThat(transaction.active).isTrue()
+            staged = true
+        })
+        importer.importPage(page(row(id = 1L, amount = 20.0)))
+        assertThat(staged).isTrue()
+        val rollback = RollbackTransactionRunner(dao)
+        val failing = AapsCarbHistoryImporter(dao.proxy, rollback.runner, persistMealPage = {
+            error("receipt storage failed")
+        })
+        try {
+            failing.importPage(page(row(id = 2L, amount = 30.0)))
+            throw AssertionError("Must roll back incomplete import")
+        } catch (_: IllegalStateException) { }
+        assertThat(rollback.rollbacks).isEqualTo(1)
+        assertThat(dao.stored.containsKey("aaps-carb-2")).isFalse()
+    }
+    @Test fun observerRunsOnlyAfterSuccessfulCommitAndFailureCannotUndoImport() = runTest {
+        val dao = RecordingTherapyDao()
+        val transaction = RecordingTransactionRunner()
+        var observations = 0
+        val importer = AapsCarbHistoryImporter(dao.proxy, transaction.runner, onCommittedPage = {
+            assertThat(transaction.active).isFalse()
+            observations++
+            error("research unavailable")
+        })
+        importer.importPage(page(row(id = 1L, amount = 20.0)))
+        assertThat(observations).isEqualTo(1)
+    }
+
+    @Test fun supersededImportCannotPublishObservation() = runTest {
+        val dao = RecordingTherapyDao()
+        val transaction = RollbackTransactionRunner(dao)
+        var observations = 0
+        val importer = AapsCarbHistoryImporter(dao.proxy, transaction.runner,
+            onCommittedPage = { observations++ })
+        try {
+            importer.importPage(page(row(id = 1L, amount = 20.0)), commitGuard = { false })
+            throw AssertionError("Expected superseded import")
+        } catch (_: AapsCarbImportSupersededException) { }
+        assertThat(observations).isEqualTo(0)
+        assertThat(transaction.rollbacks).isEqualTo(1)
+    }
 
     @Test
     fun classifiesRealUamAndSignedCorrectionRows() = runTest {

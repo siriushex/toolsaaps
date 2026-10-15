@@ -92,6 +92,10 @@ class EnergyProfileDaoTest {
         ): MealProfileOverrideEntity? = mealOverrides[canonicalTherapyIdentity]
             ?.takeIf { it.therapyRevisionHash == expectedTherapyRevisionHash }
 
+        override suspend fun mealOverridesForIdentities(
+            identities: List<String>
+        ): List<MealProfileOverrideEntity> = identities.mapNotNull(mealOverrides::get)
+
         override suspend fun upsertMealOverride(override: MealProfileOverrideEntity) {
             mealOverrides[override.canonicalTherapyIdentity] = override
         }

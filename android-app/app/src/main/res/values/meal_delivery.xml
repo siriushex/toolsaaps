@@ -1,0 +1,6 @@
+<resources>
+    <string name="meal_carbs_rate_limited">Carbs not sent: 30 minutes must pass after the previous carb submission.</string>
+    <string name="meal_carbs_disarmed">Carbs not sent: therapy actions are disabled.</string>
+    <string name="meal_carbs_blocked">Carb submission blocked.</string>
+    <string name="meal_carbs_not_attempted">Carbs were not sent.</string>
+</resources>

@@ -112,10 +112,12 @@ enum class EnergyActivityStatusKind {
 data class EnergyActivityStatusUi(
     val kind: EnergyActivityStatusKind,
     val title: String? = null,
-    val minutesUntilStart: Long? = null
+    val minutesUntilStart: Long? = null,
+    val issues: List<UiIssueKind> = emptyList()
 )
 
 data class ClinicalForecastChartUiState(
+    val mealImpactPoints: List<ChartPointUi> = emptyList(),
     val historyPoints: List<ChartPointUi> = emptyList(),
     val futurePath: List<ChartPointUi> = emptyList(),
     val futureCi: List<ChartCiPointUi> = emptyList(),
@@ -123,7 +125,9 @@ data class ClinicalForecastChartUiState(
     val displayRangeHighMmol: Double = 6.7,
     val events: List<CompensationEvent> = emptyList(),
     val eventTimelineNowTs: Long = 0L,
-    val showEvents: Boolean = true
+    val showEvents: Boolean = true,
+    val mealImpactGiAdjusted: Boolean = false,
+    val mealImpactComplete: Boolean? = null
 )
 
 data class HorizonPredictionUi(
@@ -278,6 +282,16 @@ data class OverviewUiState(
     val correctedGlucose: Double? = null,
     val delta: Double? = null,
     val sampleAgeMinutes: Long? = null,
+    val syncAgeMinutes: Long? = null,
+    val forecastsCurrent: Boolean = false,
+    val foodDisplayScope: FoodDisplayScope? = null,
+    val acceptedFoodDisplay: AcceptedFoodDisplaySnapshot? = null,
+    val foodDisplayScopeReset: Boolean = false,
+    val foodDisplayStatus: FoodDisplayStatus = FoodDisplayStatus.UNAVAILABLE,
+    val foodDisplayNowTs: Long = 0L,
+    val foodCobTimestamp: Long? = null,
+    val eatingSoon: EatingSoonUiState = EatingSoonUiState(),
+    val observedAapsTargetMmol: Double? = null,
     val calibrationGain: Double? = null,
     val calibrationOffsetMmol: Double? = null,
     val calibrationConfidence: Double? = null,
@@ -310,6 +324,8 @@ data class OverviewUiState(
     val currentIobUnits: Double? = null,
     val iobDetails: IobRuntimeDetailsUi = IobRuntimeDetailsUi(),
     val currentCobGrams: Double? = null,
+    val externalCobGrams: Double? = null,
+    val externalCobTimestamp: Long? = null,
     val currentIsfMmolPerUnit: Double? = null,
     val currentCrGramsPerUnit: Double? = null,
     val sensitivitySourceApplying: Boolean = false,
@@ -317,6 +333,8 @@ data class OverviewUiState(
     val sensitivitySourcePendingValue: String? = null,
     val sensitivitySourceApplyError: String? = null,
     val carbComputationMaxGrams: Double = 60.0,
+    val mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
+        io.aaps.copilot.domain.nutrition.MealPortionSettings(),
     val isfRuntime: MetricRuntimeSourceUi = MetricRuntimeSourceUi(),
     val crRuntime: MetricRuntimeSourceUi = MetricRuntimeSourceUi(),
     val calculatedUamCarbsGrams: Double? = null,
@@ -325,6 +343,8 @@ data class OverviewUiState(
     val warning: OverviewWarningUi? = null,
     val energyActivityStatus: EnergyActivityStatusUi? = null,
     val pumpLinkStatus: io.aaps.copilot.data.repository.PumpLinkUiStatus = io.aaps.copilot.data.repository.PumpLinkUiStatus(),
+    val infusionSetStatus: io.aaps.copilot.data.repository.InfusionSetUiStatus = io.aaps.copilot.data.repository.InfusionSetUiStatus(),
+    val deliveryDiagnosticEvidence: io.aaps.copilot.data.repository.DeliveryDiagnosticUiEvidence = io.aaps.copilot.data.repository.DeliveryDiagnosticUiEvidence(),
     val horizons: List<HorizonPredictionUi> = emptyList(),
     val uamActive: Boolean? = null,
     val uci0Mmol5m: Double? = null,
@@ -338,6 +358,15 @@ data class OverviewUiState(
     val powerSaveIndefinite: Boolean = false,
     val powerSaveRemainingText: String = "",
     val killSwitchEnabled: Boolean = false
+)
+
+enum class EatingSoonUiStatus { IDLE, QUEUED, AWAITING_AAPS, CONFIRMED, BLOCKED, UNKNOWN }
+
+data class EatingSoonUiState(
+    val status: EatingSoonUiStatus = EatingSoonUiStatus.IDLE,
+    val requestKey: String? = null,
+    val timestamp: Long? = null,
+    val reason: String? = null
 )
 
 data class ForecastDecompositionUi(
@@ -398,7 +427,8 @@ data class UamUiState(
 data class SafetyChecklistItemUi(
     val title: String,
     val ok: Boolean,
-    val details: String
+    val details: String,
+    val issue: UiIssueKind = UiIssueKind.GENERIC_ERROR
 )
 
 data class AiTuningStatusUi(
@@ -1563,6 +1593,8 @@ data class SettingsUiState(
     val aiApiUrl: String,
     val aiCredential: AiCredentialUiState = AiCredentialUiState(),
     val energyProfile: EnergyProfileSettingsUiState = EnergyProfileSettingsUiState(),
+    val mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
+        io.aaps.copilot.domain.nutrition.MealPortionSettings(),
     val clinicalAi: ClinicalAiSettingsUiState =
         ClinicalAiSettingsUiState.defaultOpenAi(aiCredential),
     val uiStyle: String,
@@ -1709,6 +1741,13 @@ data class UserProfileDraftUi(
     val heightCm: Double? = null,
     val weightKg: Double? = null
 )
+
+sealed interface EnergyProfileSaveResult {
+    data object Saved : EnergyProfileSaveResult
+    data class Failed(val message: String? = null) : EnergyProfileSaveResult
+}
+
+typealias EnergyProfileSaveCompletion = (EnergyProfileSaveResult) -> Unit
 
 data class FoodProfileSettingsUi(
     val mode: FoodProfileMode = FoodProfileMode.AUTO,

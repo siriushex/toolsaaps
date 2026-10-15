@@ -27,6 +27,12 @@ interface TherapyDao {
     @Query("SELECT * FROM therapy_events WHERE id IN (:ids)")
     suspend fun byIds(ids: List<String>): List<TherapyEventEntity>
 
+    @Query("SELECT * FROM therapy_events WHERE type IN (:types) ORDER BY timestamp DESC, id DESC LIMIT :limit")
+    suspend fun latestInfusionChangeCandidates(types: List<String>, limit: Int): List<TherapyEventEntity>
+
+    @Query("SELECT * FROM therapy_events WHERE type IN (:types) ORDER BY timestamp DESC, id DESC LIMIT :limit")
+    fun observeInfusionChangeCandidates(types: List<String>, limit: Int): Flow<List<TherapyEventEntity>>
+
     @Query("SELECT * FROM therapy_events WHERE timestamp >= :since ORDER BY timestamp ASC")
     suspend fun since(since: Long): List<TherapyEventEntity>
 
