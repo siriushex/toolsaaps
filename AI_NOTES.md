@@ -1,3 +1,22 @@
+# Daily Glucose Facts Foundation - 2026-10-15
+
+- Promotes the owner-approved daily review/admin direction and advisory prompt
+  text; implements only the deterministic glucose foundation, not model dispatch.
+- Adds closed typed facts, actual local-day bounds, piecewise-linear exposure/
+  moments, explicit missing-range/time semantics and separate source/quality/
+  context cohorts. Known recorded sensor changes split unknown sessions.
+- Descriptive out-of-range episodes retain bounded evidence and omissions;
+  source digest binds device identity, revisions, range and snapshot/as-of cuts.
+  Integer time accumulation fixes dense-series duration drift.
+- Adds one bounded authenticated history read with no clinical write/migration,
+  cache, public route, prompt activation, model call or scheduler. Unknown
+  source coverage/quality is not promoted to verified medical truth.
+- TDD/focused72 tests, scoped E/F lint and compilation passed. Final full backend:
+  1086 passed/27 existing skips, one dependency deprecation warning. Local synthetic
+  capacity:50000 points,2.629s,226.1MiB process peak; this is not host admission.
+  Source publication/CI remain separate. See DAILY_GLUCOSE_FACTS.md.
+  No server/profile/proxy, phone or therapy operation.
+
 # Photo API And Isolated Decoder - 2026-10-15
 
 - Connects a dedicated peer/policy/frozen-work-bound raw-image socket and optional

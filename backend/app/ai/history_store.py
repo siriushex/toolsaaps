@@ -552,6 +552,63 @@ class HistoryStore:
             finally:
                 db.close()
 
+    def daily_glucose_facts(self, owner: str, device: str, *, report_date: str,
+                            zone_id: str, ranges, now_ms: int):
+        """Internal bounded read only; no public route, cache or clinical writer."""
+        from . import daily_glucose
+        from .history_contract import HistoryRecord
+
+        options = dict(report_date=report_date, zone_id=zone_id, ranges=ranges, now_ms=now_ms,
+                       source_binding=self._identity(owner, device))
+        empty = daily_glucose.build_daily_glucose([], snapshot_sequence=0, **options)
+        window = empty.window
+        if window.startMs <= now_ms - RETENTION_MS:
+            raise ValueError("invalid_daily_glucose_input")
+        with self._locked():
+            db = self._open(owner, device, create=False)
+            if db is None:
+                return empty
+            try:
+                db.execute("BEGIN")
+                snapshot = self._highwater(db)
+                stop_at = time.monotonic() + 5
+                instructions = 0
+
+                def budget():
+                    nonlocal instructions
+                    instructions += 1000
+                    return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
+
+                db.set_progress_handler(budget, 1000)
+                limit = min(self.max_rows, daily_glucose.MAX_INPUT_RECORDS)
+                rows = db.execute(
+                    "SELECT r.* FROM history_records r WHERE r.event_ms>=? AND r.event_ms<=? "
+                    "AND r.observed_ms<=? AND r.received_ms<=? AND r.expires_ms>? "
+                    "AND r.kind IN ('GLUCOSE','THERAPY') AND r.deleted=0 AND r.sequence<=? AND NOT EXISTS "
+                    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
+                    "AND n.sequence>r.sequence AND n.sequence<=?) "
+                    "ORDER BY r.event_ms,r.record_id LIMIT ?",
+                    (max(1, window.startMs - daily_glucose.MAX_GAP_MS),
+                     min(now_ms, window.endMs + daily_glucose.MAX_GAP_MS),
+                     now_ms, now_ms, now_ms, snapshot, snapshot, limit + 1),
+                )
+                cipher, records, sensor_changes = self._cipher(owner, device), [], []
+                for count, row in enumerate(rows, 1):
+                    if count > limit or time.monotonic() >= stop_at:
+                        raise HistoryError(503, "daily_glucose_unavailable")
+                    record = HistoryRecord.model_validate(self._read_record(owner, device, cipher, row))
+                    if record.kind == "GLUCOSE":
+                        records.append(record)
+                    elif record.data == {"eventType": "SENSOR_CHANGE"}:
+                        sensor_changes.append(record)
+                result = daily_glucose.build_daily_glucose(records, snapshot_sequence=snapshot,
+                    sensor_changes=sensor_changes, **options)
+                if time.monotonic() >= stop_at:
+                    raise HistoryError(503, "daily_glucose_unavailable")
+                return result
+            finally:
+                db.close()
+
     def purge(self, *, now_ms: int):
         valid_time(now_ms)
         with self._locked():

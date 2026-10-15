@@ -1,5 +1,22 @@
 # PLAN
 
+## Daily Review Foundation (2026-10-15)
+
+- [x] Owner approved deterministic facts, bounded advisory review and private
+  admin direction; approved design/prompt text promoted to specs.
+- [x] Closed daily window/range/facts/evidence contracts, linear metrics,
+  cohorts, missing-time semantics and bounded descriptive episodes.
+- [x] Protected read snapshot, source binding, latest revisions/deletions,
+  integrity/budget failure and known sensor-change boundaries.
+- [x] Focused 72 tests, scoped E/F lint and Python compilation passed.
+- [x] Final full backend1086 passed/27 existing skips; scoped lint and compilation.
+- [ ] Source publication and exact-head CI evidence.
+- [ ] Comparable-day baselines, other domain adapters, encrypted report lifecycle,
+  model review worker/schedule and private admin implementation/admission.
+
+See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md). No public service, model or
+phone activation is part of this source stage. Admin mockup uses synthetic data.
+
 ## Photo API And Decoder (2026-10-15)
 
 - [x] Dedicated raw-photo Unix protocol and immutable receipt binding; text's

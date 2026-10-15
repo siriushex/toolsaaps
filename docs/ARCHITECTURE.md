@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Deterministic Daily Glucose Facts
+
+The internal daily_glucose calculator and HistoryStore.daily_glucose_facts
+reader form the first approved daily-review stage. They use a bounded private
+read snapshot, identity/version-bound input digest, civil-day bounds and
+piecewise-linear time metrics, with separate quality/source/session cohorts.
+Recorded sensor changes split unknown sessions without inventing their IDs.
+Missing/partial analytical range history remains explicit. Descriptive episodes
+retain source references and omission counts; no model, schedule or public
+endpoint is enabled. See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md).
+
 ## Optional Photo Service
 
 The protected owner descriptor can compose signed MEAL_PHOTO jobs through a

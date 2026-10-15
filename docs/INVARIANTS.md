@@ -1,5 +1,21 @@
 # INVARIANTS
 
+## Daily Glucose Facts
+
+- Reporting range is explicit versioned analytical input, never a temporary
+  target/default. Unknown range or uncovered time cannot become in-range time.
+- Only adjacent compatible observations within 15 minutes support linear
+  segments. Suspect/conflicting samples and known sensor changes break them.
+  Quality OK is device-declared; UNKNOWN contexts are not calibrated by default.
+- Keep cohort statistics separate. Integer duration totals, exact range crossings,
+  original-time guards and civil-day/DST bounds are required. A state/record
+  count is not time-in-range and a single episode is not a learned pattern.
+- Internal history reads authenticate selected records in one bounded snapshot,
+  bind owner/device/version/range and fail without partial totals. They are not
+  complete-source certificates or full out-of-window integrity scans.
+- No schema migration, clinical write, model request, scheduler/public route,
+  therapy dispatch, prompt activation or deployment follows from this calculator.
+
 ## Photo API Composition
 
 - No decoder or login-profile access in the nonroot API. Its optional vision
