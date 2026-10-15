@@ -1,5 +1,24 @@
 # PLAN
 
+## Core Room Context (2026-10-15)
+
+- Previous fe4a546 checks are all successful, including both Android CI runs.
+- Implement bounded read-only core source pages, separate durable metadata and
+  encrypted frozen-page recovery, revisions/deletions and signed upload before
+  observational chat context. No clinical schema migration or therapy change.
+- Admission-aware maintenance: recent six hours first, then365days; recent scans
+  every15minutes and daily full reconciliation. Scope and omissions remain visible
+  to the model; unlisted domains/GI overlays remain outside this core adapter.
+- Native Room tests cover time keysets, aliases, revisions/tombstones, exact retry,
+  failed storage/clear, binding refusal and lifecycle cancellation/backoff.
+  Full execution (5625 tests) found one incorrect fixture (REAL instead of AAPS_REAL);
+  after correcting only the fixture, 150 affected tests passed without failures
+  or skips. Full lint/APK gates passed with unchanged executable source. Three
+  relevant backend contract tests passed. Preserve full-run/scoped evidence
+  separately; source publication/exact-head CI remain independent checks.
+- Actual enrollment, server/phone activation, full archive UI and remaining domain
+  adapters continue as separate work. Source checks do not establish deployment.
+
 ## Parallel Owner Chat Integration (2026-10-15)
 
 - CI follow-up: isolate inventory directory cursors after an intermittent signed

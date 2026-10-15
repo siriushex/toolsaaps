@@ -22,7 +22,8 @@ class ServerAiHistoryClientTest {
     private class Pending : ServerAiHistoryPersistence {
         var value: String? = null
         var failWrites = false
-        override suspend fun read() = value
+        var onRead: (() -> Unit)? = null
+        override suspend fun read(): String? { onRead?.invoke(); return value }
         override suspend fun write(value: String) { if (failWrites) throw IOException("synthetic storage failure"); this.value = value }
     }
 
@@ -30,6 +31,9 @@ class ServerAiHistoryClientTest {
 
     private fun manager(pending: Pending, calls: MutableList<Call>, proofs: MutableList<ByteArray> = mutableListOf(),
         accessExpiry: Long = now + 600_000,
+        clock: () -> Long = { now },
+        fingerprintProvider: () -> String = { "c".repeat(64) },
+        onSign: () -> Unit = { },
         respond: (Call) -> ServerAiConnectionResponse): ServerAiConnectionManager {
         var session = """{"session":{"access_token":"access.${"a".repeat(43)}","refresh_token":"refresh.${"b".repeat(43)}","access_expires_ms":$accessExpiry,"refresh_expires_ms":${now + 86_400_000},"subscription_expires_ms":${now + 2 * 86_400_000}}}"""
         return ServerAiConnectionManager(object : ServerAiConnectionPersistence {
@@ -38,14 +42,14 @@ class ServerAiHistoryClientTest {
         }, object : ServerAiConnectionIdentity {
             override fun existingChain() = listOf("synthetic-certificate")
             override fun create(challenge: ByteArray): List<String> = error("unexpected_key_creation")
-            override fun sign(message: ByteArray): String { proofs += message.copyOf(); return "synthetic-signature" }
-            override fun fingerprint() = "c".repeat(64)
+            override fun sign(message: ByteArray): String { proofs += message.copyOf(); onSign(); return "synthetic-signature" }
+            override fun fingerprint() = fingerprintProvider()
         }, ServerAiConnectionTransport { method, path, body, headers, limit ->
             assertEquals("POST", method)
             val call = Call(path, body.copyOf(), headers.toMap(), limit)
             synchronized(calls) { calls += call }
             respond(call)
-        }, clock = { now }, historyPersistence = pending)
+        }, clock = clock, historyPersistence = pending)
     }
 
     private fun ok(body: String) = ServerAiConnectionResponse(200, body.toByteArray())
@@ -406,5 +410,88 @@ class ServerAiHistoryClientTest {
         // Recovering an older receipt must not lower the separately remembered highwater.
         observed = 99
         failure(ServerAiHistoryError.INVALID_RESPONSE) { client.status() }
+    }
+    @Test fun expiredMixedBatchIsRetiredWithExactRemainingRecordAndAuditDigest() = runTest {
+        val pending = Pending()
+        val calls = mutableListOf<Call>()
+        var time = now
+        var offline = true
+        val client = ServerAiHistoryClient(manager(pending, calls, clock = { time }) { call ->
+            if (call.path.endsWith("/query")) emptyPage()
+            else if (offline) throw IOException("offline") else receipt(call)
+        })
+        fun row(uuid: String, event: Long) = ServerAiHistoryRecord(uuid, 1, event, now,
+            ServerAiHistoryKind.GLUCOSE, ServerAiHistorySource.CGM, ServerAiHistoryQuality.UNKNOWN,
+            data = ServerAiHistoryData.Glucose(6.0))
+        failure(ServerAiHistoryError.NETWORK) {
+            client.uploadRecords(listOf(row(id, now - HistoryJson.retentionMs + 60_000),
+                row("a58d6578-94b1-4c27-957f-32286b93261e", now - 1000)))
+        }
+        val originalBytes = calls.last().body.copyOf()
+        val old = Json.parseToJsonElement(originalBytes.toString(Charsets.UTF_8)).jsonObject
+        val valid = old.getValue("records").jsonArray.last()
+        time += 120_000
+        offline = false
+        client.retryPending()
+        val replacement = Json.parseToJsonElement(calls.last().body.toString(Charsets.UTF_8)).jsonObject
+        assertNotEquals(old.getValue("batchId"), replacement.getValue("batchId"))
+        assertEquals(listOf(valid), replacement.getValue("records").jsonArray.toList())
+        val state = Json.parseToJsonElement(pending.value!!).jsonObject
+        assertEquals(JsonNull, state.getValue("pending"))
+        val audit = state.getValue("retired").jsonArray.single().jsonObject
+        assertEquals(old.getValue("batchId"), audit.getValue("batchId"))
+        assertEquals(time, audit.getValue("retiredAtMs").jsonPrimitive.long)
+        assertEquals(MessageDigest.getInstance("SHA-256").digest(originalBytes).joinToString("") { "%02x".format(it) },
+            audit.getValue("bodySha256").jsonPrimitive.content)
+    }
+
+    @Test fun expiredAttemptCannotBeReplacedBeforeDurableRetirement() = runTest {
+        val pending = Pending()
+        val calls = mutableListOf<Call>()
+        var time = now
+        val client = ServerAiHistoryClient(manager(pending, calls, clock = { time }) { call ->
+            if (call.path.endsWith("/query")) emptyPage() else throw IOException("offline")
+        })
+        failure(ServerAiHistoryError.NETWORK) { client.uploadRecords(listOf(ServerAiHistoryRecord(id, 1,
+            now - HistoryJson.retentionMs + 60_000, now, ServerAiHistoryKind.GLUCOSE,
+            ServerAiHistorySource.CGM, ServerAiHistoryQuality.UNKNOWN, data = ServerAiHistoryData.Glucose(6.0)))) }
+        val prior = pending.value
+        val requests = calls.size
+        time += 120_000
+        pending.failWrites = true
+        failure(ServerAiHistoryError.STORAGE) { client.retryPending() }
+        assertEquals(prior, pending.value)
+        assertEquals(requests, calls.size)
+        pending.failWrites = false
+        assertTrue(client.retryPending().isEmpty())
+        assertEquals(requests, calls.size)
+    }
+
+    @Test fun deviceChangeDuringCheckpointReadCannotSendUnderNewIdentity() = runTest {
+        val pending = Pending()
+        val calls = mutableListOf<Call>()
+        var fingerprint = "c".repeat(64)
+        val client = ServerAiHistoryClient(manager(pending, calls, fingerprintProvider = { fingerprint }) { emptyPage() })
+        pending.onRead = { fingerprint = "d".repeat(64) }
+        failure(ServerAiHistoryError.DEVICE_MISMATCH) {
+            client.uploadRecords(listOf(ServerAiHistoryRecord(id, 1, now - 1000, now,
+                ServerAiHistoryKind.GLUCOSE, ServerAiHistorySource.CGM, ServerAiHistoryQuality.UNKNOWN,
+                data = ServerAiHistoryData.Glucose(6.0))), expectedDeviceBinding = "c".repeat(64))
+        }
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test fun deviceChangeDuringSigningCannotReachTransport() = runTest {
+        val pending = Pending()
+        val calls = mutableListOf<Call>()
+        var fingerprint = "c".repeat(64)
+        val client = ServerAiHistoryClient(manager(pending, calls, fingerprintProvider = { fingerprint },
+            onSign = { fingerprint = "d".repeat(64) }) { emptyPage() })
+        failure(ServerAiHistoryError.DEVICE_MISMATCH) {
+            client.uploadRecords(listOf(ServerAiHistoryRecord(id, 1, now - 1000, now,
+                ServerAiHistoryKind.GLUCOSE, ServerAiHistorySource.CGM, ServerAiHistoryQuality.UNKNOWN,
+                data = ServerAiHistoryData.Glucose(6.0))))
+        }
+        assertTrue(calls.isEmpty())
     }
 }

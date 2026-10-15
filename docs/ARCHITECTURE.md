@@ -1,5 +1,34 @@
 # ARCHITECTURE
 
+## Core Room History Adapter
+
+RoomAiHistorySource reads indexed original-time/rowid keyset pages from five
+allowlisted core sources. It preserves known units and unknown context, uses
+existing therapy component/artifact semantics, excludes canonical carb aliases
+and synthetic UAM, and never claims recorded insulin was delivered. Unlisted raw
+JSON/text and GI overlays are not exported. Each page has at most32 source rows.
+
+ServerAiRoomHistorySync maintains a separate no-backup Room metadata index, not
+a migration of the clinical database. A separate AES-GCM atomic page journal
+freezes records and index deltas before the existing signed history client sends
+them. Exact retry and idempotent index/progress commit survive process/storage
+failure. Changed records retain UUID/time and increase export revision; finished
+scans tombstone missing records. Recreated tombstones use new UUIDs.
+
+Device identity is carried into the connection's signing lock. SQL projects only
+consumed bounded columns; deletion pages use a time/key index and durable cursor.
+Expired observational attempts are retired with encrypted UUID/digest/time audit
+before new attempts carry exactly unchanged unexpired JSON. Fully valid batch
+bodies remain immutable, and this path never retries model jobs.
+
+An initial six-hour scan precedes365-day backfill. Recent reconciliation runs
+every15minutes; a full scan is due daily. Older corrections may wait for it.
+Maintenance is app-lifecycle-owned, enabled only with ACTIVE server access and
+power saving off, bounded to16pages per call. Explicit chat syncs four pages and
+adds scope/omissions to its observational context. No global snapshot, full
+database coverage, stopped-app execution guarantee or therapeutic authority is
+claimed. See superpowers/specs/2026-10-15-room-history-export.md.
+
 ## Owner API And Application Chat
 
 Every private inventory scan owns an independently opened, no-follow-checked
@@ -19,8 +48,9 @@ decided before personal credentials; unloaded or configured/error states cannot
 silently use the legacy API. One immutable model submission follows successful
 context upload; correlation, bounded polling and cancellation remain explicit.
 
-The first adapter uploads a labelled current display snapshot and timestamp-free
-local chat observations, not a complete Room export. Typed structured upload and
+The display adapter uploads a labelled current snapshot and timestamp-free
+local chat observations, alongside the bounded core Room adapter above, not a
+complete database export. Typed structured upload and
 signed conversation reads are available independently. Display context preserves
 source/timestamp differences, unknowns, positive/net IOB and insulin onset units.
 Full supported text replies are retained as numbered observational fragments,

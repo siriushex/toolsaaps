@@ -34,8 +34,15 @@ internal object UnavailableHistoryPersistence : ServerAiHistoryPersistence {
 }
 
 /** Atomic encrypted checkpoint, separate from credential storage and its unchanged limits. */
-internal class EncryptedServerAiHistoryPersistence(context: Context) : ServerAiHistoryPersistence {
-    private val file by lazy { AtomicFile(File(context.noBackupFilesDir, "server_ai_history_pending_v1.bin")) }
+internal enum class ServerAiHistoryStorageSlot(val fileName: String, val alias: String, val aad: String) {
+    TRANSPORT("server_ai_history_pending_v1.bin", "io.aaps.predictivecopilot.server_ai.history_pending.aes_gcm.v1", "server-ai-history-pending-v1"),
+    ROOM_EXPORT("server_ai_room_export_pending_v1.bin", "io.aaps.predictivecopilot.server_ai.room_export.aes_gcm.v1", "server-ai-room-export-pending-v1")
+}
+
+internal class EncryptedServerAiHistoryPersistence(context: Context,
+    private val slot: ServerAiHistoryStorageSlot = ServerAiHistoryStorageSlot.TRANSPORT
+) : ServerAiHistoryPersistence {
+    private val file by lazy { AtomicFile(File(context.noBackupFilesDir, slot.fileName)) }
 
     override suspend fun read(): String? = guarded {
         val raw = readSealed() ?: return@guarded null
@@ -43,7 +50,7 @@ internal class EncryptedServerAiHistoryPersistence(context: Context) : ServerAiH
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         // Never generate a replacement key to read existing pending observations.
         cipher.init(Cipher.DECRYPT_MODE, key(create = false), GCMParameterSpec(128, raw.copyOfRange(0, 12)))
-        cipher.updateAAD(AAD)
+        cipher.updateAAD(slot.aad.toByteArray(Charsets.US_ASCII))
         val plain = cipher.doFinal(raw.copyOfRange(12, raw.size))
         check(plain.size <= MAX_PLAIN_BYTES)
         io.aaps.copilot.data.repository.HistoryJson.decodeUtf8(plain)
@@ -55,7 +62,7 @@ internal class EncryptedServerAiHistoryPersistence(context: Context) : ServerAiH
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(create = true))
         check(cipher.iv.size == 12)
-        cipher.updateAAD(AAD)
+        cipher.updateAAD(slot.aad.toByteArray(Charsets.US_ASCII))
         val sealed = cipher.iv + cipher.doFinal(plain)
         val stream = file.startWrite()
         try {
@@ -89,10 +96,10 @@ internal class EncryptedServerAiHistoryPersistence(context: Context) : ServerAiH
 
     private fun key(create: Boolean): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        if (store.containsAlias(ALIAS)) return store.getKey(ALIAS, null) as SecretKey
+        if (store.containsAlias(slot.alias)) return store.getKey(slot.alias, null) as SecretKey
         check(create)
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder(slot.alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setRandomizedEncryptionRequired(true).setKeySize(256).build())
@@ -108,9 +115,7 @@ internal class EncryptedServerAiHistoryPersistence(context: Context) : ServerAiH
     override fun toString() = "EncryptedServerAiHistoryPersistence(redacted)"
 
     private companion object {
-        const val ALIAS = "io.aaps.predictivecopilot.server_ai.history_pending.aes_gcm.v1"
         const val MAX_PLAIN_BYTES = 1_048_576
         const val MAX_SEALED_BYTES = MAX_PLAIN_BYTES + 28
-        val AAD = "server-ai-history-pending-v1".toByteArray(Charsets.US_ASCII)
     }
 }

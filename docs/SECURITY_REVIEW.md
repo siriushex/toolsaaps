@@ -1,5 +1,32 @@
 # SECURITY REVIEW
 
+## Core Room Export (2026-10-15)
+
+- Closed table/column/unit allowlist and bounded indexed keysets replace raw
+  database or arbitrary JSON uploads. Sensitive prose, audit bodies and unlisted
+  telemetry remain local. Reused clinical component policies suppress UAM,
+  invalid/superseded carbs and broadcast artifacts; canonical aliases do not
+  duplicate the authoritative importer row. Delivery is never inferred.
+- A separate no-backup metadata database avoids clinical schema changes. It is
+  private plaintext metadata, not a claim of encrypted timestamps/identities.
+  Frozen page content is encrypted with its own key/AAD, bounded and validated
+  before upload; unavailable/corrupt/mismatched state fails closed.
+- Source changes during an ambiguous upload cannot alter frozen records. Index
+  and cursor commit together only after upload; failed clear is idempotent.
+  Model jobs still use their existing no-automatic-replay path.
+- Independent review found binding TOCTOU, expired-page liveness, oversized unused
+  columns and quadratic deletion scans. Fixes carry expected identity into the
+  locked signing path, durably retire expired observational attempts with exact
+  surviving JSON, project/bound SQL columns and use an indexed deletion keyset.
+  Retirement never mutates an old batch or repeats a model job. New regressions
+  cover all four findings. Full execution found one invalid classification in
+  a synthetic fixture, corrected to AAPS_REAL; 150 affected tests then passed.
+  Lint had zero errors and APK signature/package checks passed. Native Room
+  tests are not real device Keystore/load/operational evidence.
+- App-lifecycle/power admission limits maintenance, not access-control authority.
+  Signed owner/device server proof remains mandatory. Clinical actions are not
+  exposed. Actual device Keystore/load/network/retention checks remain required.
+
 ## Owner Chat Integration (2026-10-15)
 
 - CI concurrency follow-up: separate directory descriptions prevent overlapping

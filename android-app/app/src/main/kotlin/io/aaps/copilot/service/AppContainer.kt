@@ -321,6 +321,20 @@ class AppContainer(context: Context) {
         )
         .build()
 
+    internal val serverAiRoomHistorySync by lazy {
+        io.aaps.copilot.data.repository.ServerAiRoomHistorySync(
+            io.aaps.copilot.data.repository.RoomAiHistorySource(db),
+            io.aaps.copilot.data.repository.RoomAiExportIndex(
+                io.aaps.copilot.data.repository.RoomAiExportDatabase.create(appContext)),
+            io.aaps.copilot.security.EncryptedServerAiHistoryPersistence(appContext,
+                io.aaps.copilot.security.ServerAiHistoryStorageSlot.ROOM_EXPORT),
+            serverAiConnectionManager::historyDeviceBinding,
+            serverAiConnectionManager::currentServerTimeMs,
+            { serverAiHistoryClient.retryPending(); Unit },
+            { records, device -> serverAiHistoryClient.uploadRecords(records, expectedDeviceBinding = device); Unit }
+        )
+    }
+
     val apiFactory = ApiFactory { LocalNightscoutTls.loadClientIdentity(appContext) }
     internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
@@ -1496,7 +1510,10 @@ class AppContainer(context: Context) {
         auditLogger = auditLogger,
         serverGateway = ServerAiChatGateway(
             serverAiConnectionManager,
-            serverAiHistoryClient::syncChatContext
+            { summary, history ->
+                val coverage = serverAiRoomHistorySync.sync(maxPages = 4)
+                serverAiHistoryClient.syncChatContext(summary + "\n" + coverage.contextSummary(), history)
+            }
         )
     )
 
@@ -1512,6 +1529,16 @@ class AppContainer(context: Context) {
 
     init {
         appScope.launch { serverAiConnectionManager.load() }
+        appScope.launch {
+            io.aaps.copilot.data.repository.maintainRoomAiHistory(
+                enabled = combine(serverAiConnectionManager.state, settingsStore.settings) { connection, settings ->
+                    connection.phase == io.aaps.copilot.security.ServerAiConnectionPhase.ACTIVE &&
+                        !PowerSaveController.isActive(settings)
+                },
+                synchronize = { serverAiRoomHistorySync.sync(maxPages = 16) },
+                onFailure = { android.util.Log.w("ServerAiHistory", "History synchronization unavailable") }
+            )
+        }
         clinicalReportRepository.initialize()
         telegramDeliveryController.start(appScope)
 

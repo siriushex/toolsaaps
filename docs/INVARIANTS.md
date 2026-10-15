@@ -1,5 +1,28 @@
 # INVARIANTS
 
+## Core Room Export
+
+- The exporter never writes clinical tables or changes their schema/version.
+  Only its independent no-backup metadata index and encrypted page journal change.
+- Source SQL/columns/units are allowlisted; original time is not observation time.
+  Unknown calibration/session/timezone/GI are not borrowed from current settings.
+  A stored dose is not delivered insulin; UAM is not confirmed real food.
+- Index UUID/revision and frozen page records commit only after signed upload.
+  Clear/ack failure cannot rebuild the page or replay a model request. Device
+  mismatch refuses reuse; there is no automatic reset of uncertain state.
+- Original-time retention can retire an unacceptably expired observational
+  batch, never change its body. Its UUID/digest/time are durable before new
+  attempts for unchanged still-valid record JSON. No model job is replayed.
+  Expected device identity is checked inside the signing/transport mutex.
+- Page budgets, indexed keysets and explicit partial coverage bound work. Completed
+  core scans are neither database-wide snapshots nor proof of full history.
+  Old corrections/deletions may await daily full reconciliation.
+- Full-scan absence permits tombstones only inside that scan's original-time
+  window. Tombstoned identity is never resurrected; expired server records cannot
+  acquire a later lifetime from a sync timestamp. Missing sources stay omissions.
+- Maintenance requires ACTIVE server access and power saving off; cancellation
+  preserves pending recovery. App-lifecycle work is not an OS execution guarantee.
+
 ## Owner Application Chat
 
 - Explicit owner API requires a nonroot service, protected configuration and
@@ -17,7 +40,7 @@
   optimization is not rerouted.
 - Model jobs follow successful signed context sync; ambiguous submission is
   UNKNOWN, never an automatic new request. Only correlated jobs can be cancelled.
-- Upload retries retain exact batch bytes/identity and persisted device binding.
+- Nonexpired upload retries retain exact batch bytes/identity and persisted device binding.
   Server high-water sequence is not proof of completeness or delivery.
 - Snapshots without original timestamps remain observations, not historical
   measurements. Missing values are unknown; onset is not action duration, net

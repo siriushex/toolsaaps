@@ -1,5 +1,28 @@
 # DEVOPS
 
+## Core Room Export
+
+The independent server_ai_export_index_v1.db is created lazily in Android's
+noBackupFilesDir; it contains hashed keys, fingerprints, times and progress, not
+medical payloads. server_ai_room_export_pending_v1.bin holds an AES-GCM atomic
+page with a separate Keystore alias/AAD from the existing signed transport plan.
+Never clear either pending journal to unblock an uncertain send, regenerate a
+decryption key, or move an index between device bindings. Clinical copilot.db
+schema/version remain unchanged. Downgrading the app does not delete journals.
+
+Local source checks: ServerAiRoomHistoryTest and RoomAiHistoryMaintenanceTest,
+then existing ServerAi* tests plus the common testDebugUnitTest/lintDebug/
+assembleDebug gate. Synthetic native SQLite checks are not actual Keystore,
+power-loss or phone/server evidence. Inspect coverage and fresh signed requests
+on the admitted device before considering the path operational.
+
+For a fixture-data-only correction after a full run, keep the original suite
+report and unchanged production lint/APK evidence; rerun the affected tests:
+`./gradlew :app:testDebugUnitTest --tests '*ServerAi*Test' --tests '*RoomAiHistoryMaintenanceTest' --tests '*AiChatRepository*Test' --tests '*AiChatContextSummaryTest'`.
+The core-history stage's full 5625-test execution found one invalid classification
+fixture; after AAPS_REAL correction, 150 affected tests passed. Do not describe
+that scoped rerun as a second complete-suite execution.
+
 ## Owner API Source Entry
 
 Storage validation runs concurrently with signed requests and worker admission.

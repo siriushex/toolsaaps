@@ -55,8 +55,8 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
             val device = connection.historyDeviceBinding()
             val prior = readState(device)
             val recoveredSame = prior.pending?.intent == intent
-            if (prior.pending != null) drain(prior)
-            if (!recoveredSame) {
+            val recovered = if (prior.pending != null) drain(prior) else emptyList()
+            if (!recoveredSame || recovered.isEmpty()) {
                 val records = input { snapshot(contextSummary, turns, connection.currentServerTimeMs()) }
                 uploadLocked(records, intent, device)
             }
@@ -71,7 +71,7 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
      * Each call is limited to 256 records and a 1 MiB durable plan, including receipts.
      * A failed plan remains pending and blocks replacement until its exact retry settles.
      */
-    suspend fun uploadRecords(records: List<ServerAiHistoryRecord>): List<ServerAiHistoryReceipt> = guarded {
+    suspend fun uploadRecords(records: List<ServerAiHistoryRecord>, expectedDeviceBinding: String? = null): List<ServerAiHistoryReceipt> = guarded {
         val frozen = input {
             check(records.size in 1..MAX_RECORDS)
             check(records.map { it.recordId }.distinct().size == records.size)
@@ -79,6 +79,8 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
         }
         locked {
             val device = connection.historyDeviceBinding()
+            if (expectedDeviceBinding != null && device != expectedDeviceBinding)
+                throw ServerAiHistoryFailure(ServerAiHistoryError.DEVICE_MISMATCH)
             val intent = input { digest(HistoryJson.bytes(JsonArray(frozen.map { it.toWire(connection.currentServerTimeMs()) }))) }
             val prior = readState(device)
             val same = prior.pending?.intent == intent
@@ -96,37 +98,37 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
     suspend fun status(): ServerAiHistoryStatus = guarded {
         locked {
             val state = readState(connection.historyDeviceBinding())
-            val sequence = statusPage().snapshotSequence
+            val sequence = statusPage(state.device).snapshotSequence
             if (sequence < state.sequence) throw ServerAiHistoryFailure(ServerAiHistoryError.INVALID_RESPONSE)
             // Never raise the pending receipt floor from a later read: an exact
             // ambiguous retry may legitimately recover its earlier committed ack.
-            if (sequence != state.sequence) writeState(State(state.device, sequence, state.pending))
+            if (sequence != state.sequence) writeState(State(state.device, sequence, state.pending, state.retired))
             ServerAiHistoryStatus(sequence)
         }
     }
 
     suspend fun query(query: ServerAiHistoryQuery): ServerAiHistoryPage = guarded {
         val frozen = input { check(query.kinds.size <= 10); query.copy(kinds = query.kinds.toList()) }
-        connection.historyDeviceBinding()
+        val device = connection.historyDeviceBinding()
         val body = input { HistoryJson.bytes(HistoryCodec.query(frozen, connection.currentServerTimeMs())) }
-        val result = exchange(ServerAiHistoryRoute.QUERY, body)
+        val result = exchange(ServerAiHistoryRoute.QUERY, body, device)
         response { HistoryCodec.page(result, frozen, connection.currentServerTimeMs()) }
     }
 
     /** Membership-only continuation. Expired/stale cursors fail; the caller chooses a fresh scan. */
     suspend fun readConversations(query: ServerAiConversationQuery): ServerAiConversationPage = guarded {
-        connection.historyDeviceBinding()
+        val device = connection.historyDeviceBinding()
         val body = input { HistoryJson.bytes(HistoryCodec.conversationQuery(query, connection.currentServerTimeMs())) }
-        val result = exchange(ServerAiHistoryRoute.CONVERSATIONS, body)
+        val result = exchange(ServerAiHistoryRoute.CONVERSATIONS, body, device)
         response { HistoryCodec.conversationPage(result, query, connection.currentServerTimeMs()) }
     }
 
-    private suspend fun statusPage(): ServerAiHistoryPage {
+    private suspend fun statusPage(device: String): ServerAiHistoryPage {
         val now = connection.currentServerTimeMs()
         // Highwater is global regardless of the selected event window. A short
         // window avoids a 365-day lower bound expiring while the request is in flight.
         val query = ServerAiHistoryQuery(maxOf(1, now - 60_000), now + 1, limit = 1)
-        val result = exchange(ServerAiHistoryRoute.QUERY, input { HistoryJson.bytes(HistoryCodec.query(query, now)) })
+        val result = exchange(ServerAiHistoryRoute.QUERY, input { HistoryJson.bytes(HistoryCodec.query(query, now)) }, device)
         return response { HistoryCodec.page(result, query, connection.currentServerTimeMs()) }
     }
 
@@ -138,42 +140,81 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
         input {
             // Reserve checkpoint bytes for every eventual receipt before sending any batch.
             val largestReceipts = batches.map { ServerAiHistoryReceipt(it.id, Long.MAX_VALUE, it.count) }
-            encodeState(State(device, Long.MAX_VALUE, Plan(intent, batches, batches.size, largestReceipts, Long.MAX_VALUE)))
+            encodeState(State(device, Long.MAX_VALUE, Plan(intent, batches, batches.size, largestReceipts, Long.MAX_VALUE), state.retired))
         }
-        val sequence = statusPage().snapshotSequence
+        val sequence = statusPage(device).snapshotSequence
         if (sequence < state.sequence) throw ServerAiHistoryFailure(ServerAiHistoryError.INVALID_RESPONSE)
-        val prepared = State(device, sequence, Plan(intent, batches, 0, emptyList(), sequence))
+        val prepared = State(device, sequence, Plan(intent, batches, 0, emptyList(), sequence), state.retired)
         writeState(prepared) // Must be durable before the first send.
         return drain(prepared)
     }
 
     private suspend fun drain(initial: State): List<ServerAiHistoryReceipt> {
-        var state = initial
+        var state = retireExpired(initial)
         var plan = state.pending ?: return emptyList()
         while (plan.next < plan.batches.size) {
             val batch = plan.batches[plan.next]
             // A proof may be regenerated/refreshed. The UTF-8 body and batchId never change.
             val wire = HistoryJson.encodeUtf8(batch.body)
-            val value = try { exchange(ServerAiHistoryRoute.BATCHES, wire) }
+            val value = try { exchange(ServerAiHistoryRoute.BATCHES, wire, state.device) }
             catch (failure: ServerAiHistoryFailure) {
                 if (failure.reason == ServerAiHistoryError.CONFLICT) {
                     // Existing API has no expectedSequence field.409 is batch/revision conflict,
                     // never permission to renumber/rebuild an ambiguous request. Read fresh
                     // high-water deliberately, retain the exact rejected plan, fail closed.
-                    val current = statusPage().snapshotSequence
+                    val current = statusPage(state.device).snapshotSequence
                     if (current < state.sequence) throw ServerAiHistoryFailure(ServerAiHistoryError.INVALID_RESPONSE)
-                    if (current != state.sequence) writeState(State(state.device, current, plan))
+                    if (current != state.sequence) writeState(State(state.device, current, plan, state.retired))
                 }
                 throw failure
             }
             val receipt = response { HistoryCodec.receipt(value, batch.id, batch.count, plan.floor) }
             plan = Plan(plan.intent, plan.batches, plan.next + 1, plan.receipts + receipt, receipt.sequence)
-            state = State(state.device, maxOf(state.sequence, receipt.sequence), plan)
+            state = State(state.device, maxOf(state.sequence, receipt.sequence), plan, state.retired)
             writeState(state)
         }
         val result = plan.receipts
-        writeState(State(state.device, state.sequence, null))
+        writeState(State(state.device, state.sequence, null, state.retired))
         return result
+    }
+
+    /** Expired observational attempts cannot be accepted again. Retire, never mutate, their bodies. */
+    private suspend fun retireExpired(state: State): State {
+        val plan = state.pending ?: return state
+        val now = connection.currentServerTimeMs()
+        val retired = state.retired.filter { it.atMs > now - HistoryJson.retentionMs }.toMutableList()
+        val remaining = mutableListOf<Batch>()
+        var changed = false
+        plan.batches.drop(plan.next).forEach { batch ->
+            val body = HistoryJson.parse(HistoryJson.encodeUtf8(batch.body), ServerAiHistoryRoute.BATCHES.requestLimit)
+            val original = HistoryJson.array(body.getValue("records"))
+            val retained = original.filter { HistoryJson.long(HistoryJson.obj(it).getValue("eventAtMs")) > now - HistoryJson.retentionMs }
+            if (retained.size == original.size) remaining += batch else {
+                changed = true
+                retired += RetiredBatch(batch.id, digest(HistoryJson.encodeUtf8(batch.body)), now)
+                if (retained.isNotEmpty()) {
+                    retained.forEach { HistoryCodec.record(it, now) }
+                    val id = UUID.randomUUID().toString()
+                    val replacement = HistoryJson.bytes(buildJsonObject { put("batchId", id); put("records", JsonArray(retained)) })
+                    check(replacement.size <= ServerAiHistoryRoute.BATCHES.requestLimit)
+                    remaining += Batch(id, HistoryJson.decodeUtf8(replacement), retained.size)
+                }
+            }
+        }
+        if (!changed) return state
+        check(retired.size <= MAX_RETIREMENTS)
+        val next = if (remaining.isEmpty()) null else {
+            val records = remaining.flatMap { HistoryJson.array(HistoryJson.parse(HistoryJson.encodeUtf8(it.body),
+                ServerAiHistoryRoute.BATCHES.requestLimit).getValue("records")) }
+            Plan(digest(HistoryJson.bytes(JsonArray(records))), remaining, 0, emptyList(), plan.floor)
+        }
+        if (next != null) storage {
+            val largestReceipts = remaining.map { ServerAiHistoryReceipt(it.id, Long.MAX_VALUE, it.count) }
+            encodeState(State(state.device, Long.MAX_VALUE,
+                Plan(next.intent, remaining, remaining.size, largestReceipts, Long.MAX_VALUE), retired))
+        }
+        // Durable retirement precedes any replacement request. Unexpired per-record bytes/IDs/times stay exact.
+        return State(state.device, state.sequence, next, retired).also { writeState(it) }
     }
 
     private fun snapshot(summary: String, history: List<AiChatTurn>, now: Long): List<ServerAiHistoryRecord> {
@@ -256,9 +297,9 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
         return result
     }
 
-    private suspend fun exchange(route: ServerAiHistoryRoute, body: ByteArray): JsonObject {
+    private suspend fun exchange(route: ServerAiHistoryRoute, body: ByteArray, device: String): JsonObject {
         input { check(body.size in 1..route.requestLimit) }
-        val result: ServerAiConnectionResponse = connection.exchangeHistory(route, body)
+        val result: ServerAiConnectionResponse = connection.exchangeHistory(route, body, device)
         if (result.statusCode != 200) throw ServerAiHistoryFailure(when (result.statusCode) {
             400 -> ServerAiHistoryError.INVALID_REQUEST
             401 -> ServerAiHistoryError.UNAUTHORIZED
@@ -278,11 +319,19 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
         val receipts: List<ServerAiHistoryReceipt>, val floor: Long) {
         override fun toString() = "HistoryPlan(redacted)"
     }
-    private class State(val device: String, val sequence: Long, val pending: Plan?) { override fun toString() = "HistoryState(redacted)" }
+    private data class RetiredBatch(val id: String, val digest: String, val atMs: Long) {
+        override fun toString() = "RetiredHistoryBatch(redacted)"
+    }
+    private class State(val device: String, val sequence: Long, val pending: Plan?, val retired: List<RetiredBatch> = emptyList()) {
+        override fun toString() = "HistoryState(redacted)"
+    }
 
     private fun encodeState(state: State): String {
         val wire = buildJsonObject {
             put("version", 1); put("device", state.device); put("sequence", state.sequence)
+            put("retired", JsonArray(state.retired.map { row -> buildJsonObject {
+                put("batchId", row.id); put("bodySha256", row.digest); put("retiredAtMs", row.atMs)
+            } }))
             put("pending", state.pending?.let { plan -> buildJsonObject {
                 put("intent", plan.intent); put("next", plan.next); put("floor", plan.floor)
                 put("batches", JsonArray(plan.batches.map { batch -> buildJsonObject {
@@ -302,10 +351,20 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
         val encoded = connection.historyPersistence.read() ?: return@storage State(device, 0, null)
         check(encoded.length <= MAX_STATE_BYTES)
         val value = HistoryJson.parse(HistoryJson.encodeUtf8(encoded), MAX_STATE_BYTES)
-        HistoryJson.fields(value, setOf("version", "device", "sequence", "pending"))
+        HistoryJson.fields(value, setOf("version", "device", "sequence", "pending"), setOf("retired"))
         check(HistoryJson.long(value.getValue("version")) == 1L)
         if (HistoryJson.string(value.getValue("device")) != device) throw ServerAiHistoryFailure(ServerAiHistoryError.DEVICE_MISMATCH)
         val sequence = HistoryJson.long(value.getValue("sequence"))
+        val retired = value["retired"]?.let { raw ->
+            HistoryJson.array(raw).also { check(it.size <= MAX_RETIREMENTS) }.map { item ->
+                val row = HistoryJson.obj(item)
+                HistoryJson.fields(row, setOf("batchId", "bodySha256", "retiredAtMs"))
+                val id = HistoryJson.string(row.getValue("batchId")).also(HistoryJson::uuid)
+                val hash = HistoryJson.string(row.getValue("bodySha256")).also { check(Regex("[0-9a-f]{64}").matches(it)) }
+                val at = HistoryJson.long(row.getValue("retiredAtMs")).also(HistoryJson::time)
+                RetiredBatch(id, hash, at)
+            }.also { rows -> check(rows.map { it.id }.distinct().size == rows.size) }
+        } ?: emptyList()
         val pending = value.getValue("pending").takeUnless { it == JsonNull }?.let {
             val plan = HistoryJson.obj(it)
             HistoryJson.fields(plan, setOf("intent", "next", "floor", "batches", "receipts"))
@@ -343,7 +402,7 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
             if (acks.isNotEmpty()) check(acks.last().sequence == floor)
             Plan(intent, batches, next, acks, floor)
         }
-        State(device, sequence, pending)
+        State(device, sequence, pending, retired)
     }
 
     private suspend fun writeState(state: State) = storage { connection.historyPersistence.write(encodeState(state)) }
@@ -377,6 +436,7 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
 
     private companion object {
         const val MAX_RECORDS = 256
+        const val MAX_RETIREMENTS = 1024
         const val MAX_STATE_BYTES = 1_048_576
     }
 }

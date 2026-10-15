@@ -1,3 +1,41 @@
+# Core Room History Source - 2026-10-15
+
+- Added indexed, bounded core Room export for glucose, recorded therapy,
+  forecasts, effective sensitivity and allowlisted numeric telemetry. Original
+  times/units and unknown provenance are retained. Synthetic UAM/broadcast
+  artifacts/canonical carb aliases cannot become extra real meals. No record
+  grants confirmed insulin delivery, measured grams or inferred historical GI.
+- Separate no-backup metadata Room database tracks local export UUID/revision,
+  fingerprints and progress without changing clinical database version34.
+  Independent encrypted page state freezes records/index deltas before the
+  existing signed client sends them; recovery and index commit are idempotent.
+  Finished sweeps tombstone missing records; recreation gets a new identity.
+- App-owned maintenance is gated by ACTIVE server access and power saving;
+  initial six-hour context precedes365-day backfill. Recent scans run every15min,
+  full reconciliation daily. Explicit chat adds limited page sync and truthful
+  partial-scope/omission context. This is not full domain coverage or an OS
+  guarantee while the app is stopped. GI overlays and other domains remain.
+- Local full suite executed 5625 tests: 5618 passed, 6 existing skips and one new
+  fixture failure. Corrected its classification from REAL to the actual
+  AAPS_REAL contract without changing production validation. Then all 150 affected
+  AI/client/connection/proof/context/maintenance tests passed with no skips or
+  errors. This is a scoped retest, not a second zero-failure full-suite run.
+- Full lint and APK tasks passed in the 37m08s common gate; lint has zero errors,
+  321 warnings and 8 hints, none in the new history/security scope. No executable
+  code changed after that gate; the focused retest took 1m44s. APK signature,
+  package and source checksums verified. Three relevant existing backend
+  deduplication/expiry/tombstone tests passed. Both static reviewers finished;
+  final tuple-seek EXPLAIN confirms the equal-time deletion lower bound.
+- Previous fe4a546 has all six CI checks successful. Publish this source stage
+  separately and inspect its exact new head. No provider turn, server change,
+  phone update or therapy change in this stage; this is not operational activation.
+- Independent read-only reviewer identified four issues: device-binding TOCTOU,
+  expired queue liveness, unbounded unused cursor columns and deletion scan cost.
+  Added locked transport identity, explicit durable expiry retirement retaining
+  exact surviving records, bounded SQL projection and indexed deletion keysets.
+  Dedicated regressions passed. Future receipt bytes are reserved before expiry
+  retirement; unchanged pages avoid redundant transport-state decryption.
+
 # Owner Inventory Concurrency - 2026-10-15
 
 - Exact-head CI exposed an intermittent503 on the signed job path: one backend

@@ -239,9 +239,9 @@ class ServerAiConnectionManager internal constructor(
     }
 
     /** Closed routes only. Credentials and proof fields are always connection-owned. */
-    internal suspend fun exchangeHistory(route: ServerAiHistoryRoute, body: ByteArray): ServerAiConnectionResponse {
+    internal suspend fun exchangeHistory(route: ServerAiHistoryRoute, body: ByteArray, expectedDevice: String? = null): ServerAiConnectionResponse {
         require(body.size in 1..route.requestLimit) { "invalid_request" }
-        return exchangeSigned("POST", route.path, body.copyOf(), null, null, route.responseLimit)
+        return exchangeSigned("POST", route.path, body.copyOf(), null, null, route.responseLimit, expectedDevice)
     }
 
     private suspend fun exchangeSigned(
@@ -250,12 +250,18 @@ class ServerAiConnectionManager internal constructor(
         body: ByteArray,
         requestId: String?,
         deadlineMs: Long?,
-        responseLimit: Int
+        responseLimit: Int,
+        expectedHistoryDevice: String? = null
     ): ServerAiConnectionResponse {
         mutex.lock()
         try {
             return withContext(Dispatchers.IO) {
                 record = read()
+                fun verifyHistoryDevice() {
+                    if (expectedHistoryDevice != null && keyCall { identity.fingerprint() } != expectedHistoryDevice)
+                        throw ServerAiConnectionFailure(ServerAiConnectionError.DEVICE_KEY)
+                }
+                verifyHistoryDevice()
                 var refreshed = false
                 record.pending?.let { pending ->
                     if (pending.refresh == null) {
@@ -293,6 +299,7 @@ class ServerAiConnectionManager internal constructor(
                         put("X-Copilot-Deadline-Ms", deadlineMs.toString())
                     }
                 }
+                verifyHistoryDevice()
                 transport.exchange(method, path, body, headers, responseLimit)
             }
         } finally {
