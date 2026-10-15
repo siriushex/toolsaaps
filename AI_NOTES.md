@@ -1,3 +1,26 @@
+# Native Motion Refinement - 2026-10-15
+
+- Isolated follow-up from main 7ca72a24; no unfinished work from other trees.
+- Short asymmetric owl/glyph accents; waiting settles after one glance/blink,
+  preserving actual busy-state ownership and indeterminate semantics.
+- Shared native critically damped springs scale icon artwork only. Material
+  retains ripple, enabled semantics, cancellation and immediate action dispatch.
+- Coordinated drawer panel/scrim lifetime replaces nested visibility; logical
+  start supports RTL and rapid reversal. Root motion gate includes lifecycle.
+- Added native interaction/pixel, cancellation, fixed-hit-target, reduced-motion
+  and LTR/RTL drawer tests. A new mid-exit disable regression was reproduced
+  and fixed: disabled transitions remove their modifiers, closed overlays are
+  removed immediately and visible content state survives entry cancellation.
+- Final immutable local gates: 23 motion tests and the full 5,549-test Android
+  suite, zero failures/errors, 6 existing private-fixture skips. Kotlin compile,
+  lint and debug APK passed on the same unchanged source. Lint: 355 warnings,
+  8 hints, zero errors, unchanged from the prior main; no checks suppressed.
+- APK package/signature verified. Source-only publication receives independent
+  exact-head Verify; CI status belongs in the PR, not inferred from local tests.
+- No algorithms, models, target/pump actions, databases, notifications, server
+  or phone changes. No new animation library or asset regeneration.
+  See docs/NATIVE_MOTION_REFINEMENT.md. Main merge is not part of this follow-up.
+
 # Feather 01 Native Presentation - 2026-10-15
 
 - User selected the first feathered family and explicitly approved Git main
