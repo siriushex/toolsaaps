@@ -240,12 +240,14 @@ def test_stop_cancellation_is_drained_and_retains_active_marker(tmp_path):
     assert state(control)["phase"] == "bound"
 
 
-def test_other_process_cannot_reserve_held_profile(tmp_path):
+def test_other_process_cannot_reserve_held_profile(tmp_path, monkeypatch):
     module, guard, _, _ = setup(tmp_path)
     guard.initialize()
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     with guard.reserve():
         result = subprocess.run([sys.executable, str(Path(__file__)), "contend", str(tmp_path)],
-                                capture_output=True, timeout=10, close_fds=True)
+                                capture_output=True, timeout=10, close_fds=True,
+                                env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
     assert result.returncode == 0, result.stderr.decode()
     assert result.stdout == b"profile_busy\n"
 
@@ -303,11 +305,13 @@ def test_raw_stop_exception_is_hidden_and_marker_remains(tmp_path):
     assert state(control)["phase"] == "bound"
 
 
-def test_forced_controller_death_leaves_bound_marker_for_explicit_recovery(tmp_path):
+def test_forced_controller_death_leaves_bound_marker_for_explicit_recovery(tmp_path, monkeypatch):
     module, guard, _, control = setup(tmp_path)
     guard.initialize()
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     process = subprocess.Popen([sys.executable, str(Path(__file__)), "hold", str(tmp_path), guard.slice_id],
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True,
+                               env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
     try:
         assert select.select([process.stdout], [], [], 10)[0], "child did not reserve profile"
         assert process.stdout.readline() == b"ready\n"

@@ -1,5 +1,13 @@
 # Inactive Session Profile Guard - 2026-10-15
 
+- First Linux CI run failed two child-process fixtures (534other tests passed):
+  CI pytest's sys.path was not inherited by direct child scripts. Reproduced
+  locally from backend without PYTHONPATH. Explicitly bind the child's import
+  root to the checked-out backend; both regressions now remove the parent's
+  PYTHONPATH before launching. Guard source/permissions/state checks are unchanged;
+  local retry without parent PYTHONPATH passes38focused and536full backend tests
+  (26existing skips/one warning). Exact-source CI retry remains required.
+
 - Added a separate trusted-host local guard, not wired to API, runner, profile,
   server or real login. Pinned directory identities, permanent private flock,
   durable reserved/bound marker and exact stop-verifier binding serialize one
