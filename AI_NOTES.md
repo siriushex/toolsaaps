@@ -1,3 +1,26 @@
+# Runtime Candidate Package - 2026-10-15
+
+- Owner explicitly approved retaining the checked Linux runtime in GitHub CI
+  for seven days. Retention is manual-dispatch opt-in only, not a release or
+  deployment. No auth, profiles, logs, caches, medical data or databases enter
+  the allowlisted candidate. Source/provenance/licenses only accompany the ELF.
+- Added a source-receipt-gated builder and bounded directory/ZIP verifier using
+  an external expected manifest digest, streamed hashes, no-follow file opens,
+  path/type/count/size guards and exact member coverage. Verifier never extracts,
+  installs or executes. Cargo notices are a public dependency inventory with
+  explicit declared-only gaps, not a legal/supply-chain/reproducibility claim.
+- Native CI now runs existing offline and ten synthetic protocol cases against
+  packaged bytes, then reverifies before optional upload. Unit and exact-source
+  native/Verify CI results remain publication/retention gates. Actual host ABI,
+  immutable installation/rollback, controller/launcher admission and private
+  owner challenge presentation remain separate. No runtime/provider/phone or
+  therapy action is connected by this stage.
+- Local resolved public metadata:1222packages/1814notice files,85declared-only
+  entries. One upstream git dependency's shared LICENSE is a source symlink;
+  resolve only within admitted public roots and copy regular content. Escaping
+  source links and all candidate links remain refused. No licensing completeness
+  is claimed. New tests also refuse unknown build-receipt payload fields.
+
 # Inactive Session Profile Guard - 2026-10-15
 
 - First Linux CI run failed two child-process fixtures (534other tests passed):

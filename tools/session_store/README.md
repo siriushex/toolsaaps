@@ -55,7 +55,8 @@ adds the lockfile as the fourth changed path in the full-build checkout.
 Native Rust1.95.0 builds the login library tests and actual CLI with `--locked`
 and the upstream `dev-small` profile, two compile jobs and a90-minute job limit.
 This is a development validation build, not a release or reproducibility claim.
-No binary is uploaded or deployed. CI records source/patch/toolchain/binary
+Push builds upload no binary; explicit retention is described below. Nothing is
+deployed. CI records source/patch/toolchain/binary
 digests; these bind the observed build, not an independently signed attestation.
 
 An isolation-only preflight precedes compilation, creates/verifies the private
@@ -109,7 +110,8 @@ An independent host-side kernel namespace-reference check follows Bubblewrap's
 PID-namespace teardown. Passing runs print only count/status receipts. Failure
 diagnostics bound synthetic-only stderr/syscall tails and selected process
 status; never reuse this reporter with real credentials/profiles. Generated peer
-keys are removed by the wrapper; no binary or test-state artifact is uploaded.
+keys are removed by the wrapper; no test-state artifact is uploaded. Binary
+retention is a separate explicit opt-in below.
 
 Actual native protocol results remain pending until the exact-source workflow
 finishes. Synthetic codes are not credentials, successful cancellation is not
@@ -180,8 +182,47 @@ pinned app-server starts a model-catalog refresh worker when auth already exists
 Do not broaden this test to real model/provider routes or disable TLS as fallback.
 Trace/private-state/process/namespace checks apply to both native processes;
 receipts print only counts and booleans, not session contents. The same disposable
-tmpfs is destroyed afterward. No persistent credential/binary artifact is uploaded.
+tmpfs is destroyed afterward. No credential/test-state artifact is uploaded.
 Actual exchange results require the exact-source native workflow to finish.
+
+## Retained Runtime Candidate
+
+`runtime_bundle.py create` first rechecks the locked native source receipt and
+packages the actual Linux ELF as `bin/client`, that receipt, the integration
+patch, upstream/patch licenses and a resolved Cargo dependency notice inventory.
+No profile, authorization, build cache, diagnostic log or database is included.
+The same packaged bytes run the offline version and all ten synthetic protocol/
+exchange cases. A final directory verification precedes any upload.
+
+Normal push builds retain nothing. An owner-approved manual workflow dispatch
+with `retain_candidate=true` uploads only the allowlisted candidate for seven
+days. It is not a GitHub Release, deployment or production-runtime admission.
+The public repository's artifact can be downloaded by signed-in GitHub users.
+The manifest SHA256 and separate count/hash receipt are in the CI job summary;
+retain the trusted exact-run receipt separately from any downloaded archive.
+
+`runtime_bundle.py verify --zip candidate.zip --manifest-sha256 <trusted-digest>`
+checks the archive without extraction or execution. `--root` checks a directory.
+Both require the external manifest digest, exact closed file set, streamed content
+hashes, canonical paths, fixed ELF architecture/interpreter and bounded JSON,
+member counts and bytes. Links, duplicates, extra files/directories, traversal,
+special/encrypted members and unbounded expansion are refused. Legacy single-disk
+ZIP only; ZIP64/multipart archives are outside this narrow verifier's contract.
+The directory verifier pins a root descriptor and traverses with no-follow opens;
+it does not isolate a hostile same-UID/root process that can modify regular bytes.
+Archive permissions are not installation permissions or executable admission.
+
+Dependency metadata comes from locked Cargo resolution, filtered for Linux, not
+from a user profile. Only regular public-source-root license targets are read;
+source notice links may resolve within those public roots, never outside them,
+and are copied as regular bytes, not retained as links. Candidate links are refused;
+local build paths are omitted from the index. Workspace crates inherit the pinned
+upstream license. Packages without a discoverable top-level/explicit notice are
+reported as `declared-only`, not certified complete. This inventory is not a legal
+compliance audit, a minimal linked-dependency set, a signed attestation or proof
+against malicious build inputs. Host ABI/library closure, licensing review,
+immutable installation/rollback, launcher containment and profile-controller
+integration remain separate gates before real authorization or model use.
 
 ## Limits
 

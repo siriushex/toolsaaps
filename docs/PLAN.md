@@ -1,5 +1,18 @@
 # PLAN
 
+## Runtime Candidate Delivery (2026-10-15)
+
+- Owner approved seven-day CI retention of the verified Linux candidate, not
+  release/deployment/authorization. Add bounded source-bound package creation,
+  external-manifest directory/ZIP verification and resolved dependency notices.
+- Test the packaged bytes in existing offline and ten synthetic protocol cases;
+  retain only on explicit manual dispatch. Default push uploads no binary or
+  session/test-state. Exact-source native/Verify CI and downloaded-archive checks
+  remain gates; do not infer runtime adoption from successful unit tests.
+- Next: host ABI/library/licensing review, immutable installation/rollback,
+  launcher/profile-controller integration and private owner code presentation.
+  Existing server, phone, authorization and therapy paths remain unchanged.
+
 ## Inactive Session Profile Guard (2026-10-15)
 
 - Added the source-only local serialization/admission component after synthetic

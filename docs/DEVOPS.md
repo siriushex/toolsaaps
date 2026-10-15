@@ -20,7 +20,7 @@ transaction safety. Actual runtime/credential presentation/adoption is not impli
 
 ## Pinned Native Build Validation
 
-Native Client Candidate is a source-only CI workflow, separate from Verify.
+Native Client Candidate is a disposable build workflow, separate from Verify.
 See tools/session_store/README.md. It fetches the fixed annotated tag and checks
 the peeled commit, all clean checkout state, exact native lock/toolchain and the
 three-path patch receipt before/after compilation. The upstream dev-small
@@ -35,8 +35,11 @@ production hosts and existing login roots are not build workers.
 
 Isolation preflight executes no client. Native login library tests and the actual CLI build precede the no-network,
 minimal-root, nonroot version smoke. A success is build/provenance evidence only,
-not authenticated model access or production containment. No binary artifact,
-release, deployment, keyring/profile mount or real login is part of this workflow.
+not authenticated model access or production containment. Push builds upload no
+binary. Owner-approved manual dispatch with retain_candidate=true retains only
+the verified runtime candidate for seven days; see the tooling README for the
+exact archive/digest contract. No release, deployment, keyring/profile mount or
+real login is part of this workflow.
 The same workflow now includes a separate synthetic native protocol harness;
 see tools/session_store/README.md. It uses only a disposable private CA/loopback
 peer, the development build's supported issuer override, six bounded negative/
@@ -53,7 +56,12 @@ account completion/readback and a separate native login status process with no
 connection attempts. This is not authenticated app-server restart: pinned native
 startup automatically fetches model metadata when already authenticated. Both
 auth issuer and ChatGPT base URL stay local; no real provider/credential/signature
-validation or model availability is claimed. CI retains no session/binary artifact.
+validation or model availability is claimed. CI retains no session/test-state
+artifact; explicitly retained binaries contain only the bounded public build
+candidate, provenance and notices. Never install from an archive's own digest:
+independently pin the exact successful CI run/source and job-summary manifest
+digest, verify the downloaded ZIP without extraction, then obtain separate
+host/runtime-change admission. Production hosts are not build workers.
 
 ## Atomic Session Candidate
 
