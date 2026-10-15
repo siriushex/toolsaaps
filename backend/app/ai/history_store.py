@@ -1,4 +1,4 @@
-"""Private per-device observational history. Keys and deployment remain external."""
+"""Private per-device history and chat archive. Keys and deployment remain external."""
 
 from __future__ import annotations
 
@@ -227,14 +227,18 @@ class HistoryStore:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            if tables != {
+            expected = {
                 "history_manifest",
                 "history_records",
                 "history_receipts",
                 "sqlite_sequence",
-            }:
+            }
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version == 2:
+                expected.add("server_chat")
+            if tables != expected:
                 raise ValueError("dedicated_history_database_required")
-            if db.execute("PRAGMA user_version").fetchone()[0] != 1:
+            if version not in (1, 2):
                 raise ValueError("unsupported_history_schema")
             manifest = db.execute("SELECT * FROM history_manifest").fetchall()
             if (
@@ -264,6 +268,8 @@ class HistoryStore:
     def _purge(db, now_ms):
         db.execute("DELETE FROM history_records WHERE expires_ms<=?", (now_ms,))
         db.execute("DELETE FROM history_receipts WHERE expires_ms<=?", (now_ms,))
+        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+            db.execute("DELETE FROM server_chat WHERE expires_ms<=?", (now_ms,))
 
     @staticmethod
     def _highwater(db):
@@ -279,6 +285,12 @@ class HistoryStore:
         receipts, extra = db.execute(
             "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM history_receipts"
         ).fetchone()
+        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+            chats, reserved = db.execute(
+                "SELECT count(*),coalesce(sum(max(budget_bytes,length(ciphertext))),0) FROM server_chat"
+            ).fetchone()
+            count += chats
+            extra += reserved
         if (
             count > self.max_rows
             or size + extra > self.max_bytes
@@ -562,5 +574,126 @@ class HistoryStore:
                     context.add(dict(sequence=row["sequence"], receivedAtMs=row["received_ms"],
                         record=self._read_record(owner, device, cipher, row)))
                 return context.finish()
+            finally:
+                db.close()
+
+    @staticmethod
+    def _enable_chat_archive(db):
+        from .server_chat import SCHEMA as CHAT_SCHEMA
+
+        if db.execute("PRAGMA user_version").fetchone()[0] == 1:
+            # Additive migration, separately committed before any archive data.
+            # Reads and ordinary history ingestion never trigger this migration.
+            db.execute("BEGIN IMMEDIATE")
+            for statement in CHAT_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=2")
+            db.commit()
+
+    def accept_chat(self, job, request, policy, *, now_ms: int):
+        """Trusted service-only write, before dispatch. Not a client history DTO."""
+        from .server_chat import accepted_entry, decrypt_entry, encrypt_entry
+
+        valid_time(now_ms)
+        entry = accepted_entry(job, request, policy)
+        if not job.created_ms <= now_ms < job.created_ms + RETENTION_MS:
+            raise ValueError("chat_archive_clock_regression")
+        owner, device = job.owner_id, job.key_hash
+        with self._locked():
+            if shutil.disk_usage(self.root).free < self.min_free_bytes:
+                raise HistoryError(503, "history_storage_unavailable")
+            db = self._open(owner, device, create=True)
+            try:
+                self._enable_chat_archive(db)
+                db.execute("BEGIN IMMEDIATE")
+                self._purge(db, now_ms)
+                old = db.execute("SELECT * FROM server_chat WHERE job_id=?", (job.id,)).fetchone()
+                if old is not None:
+                    previous = decrypt_entry(self, owner, device, old)
+                    mutable = {"state", "answer", "startedAtMs", "finishedAtMs"}
+                    if any(previous[key] != value for key, value in entry.items() if key not in mutable):
+                        raise HistoryError(409, "chat_archive_conflict")
+                else:
+                    values = encrypt_entry(self, owner, device, entry, updated_ms=now_ms, pending=True)
+                    db.execute("INSERT INTO server_chat(" + ",".join(values) + ") VALUES("
+                               + ",".join("?" for _ in values) + ")", tuple(values.values()))
+                self._check_quota(db)
+                db.commit()
+            finally:
+                db.close()
+
+    def finish_chat(self, job, result, *, now_ms: int):
+        """Record only the executor's settled outcome. Never reconstruct an answer."""
+        from .server_chat import binding, decrypt_entry, encrypt_entry, final_entry
+
+        valid_time(now_ms)
+        binding(job)
+        owner, device = job.owner_id, job.key_hash
+        with self._locked():
+            db = self._open(owner, device, create=False)
+            if db is None:
+                raise HistoryError(503, "chat_archive_missing")
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                old = db.execute("SELECT * FROM server_chat WHERE job_id=?", (job.id,)).fetchone()
+                if old is None:
+                    raise HistoryError(503, "chat_archive_missing")
+                if now_ms < old["updated_ms"] or now_ms >= old["expires_ms"]:
+                    raise ValueError("chat_archive_clock_regression")
+                previous = decrypt_entry(self, owner, device, old)
+                final = final_entry(previous, job, result)
+                if now_ms < job.finished_ms:
+                    raise ValueError("chat_archive_clock_regression")
+                if previous["state"] != "OUTCOME_NOT_RECORDED":
+                    if previous != final:
+                        raise HistoryError(409, "chat_archive_conflict")
+                else:
+                    values = encrypt_entry(self, owner, device, final, updated_ms=now_ms, pending=False)
+                    db.execute("UPDATE server_chat SET " + ",".join(key + "=?" for key in values)
+                               + " WHERE job_id=?", (*values.values(), job.id))
+                self._check_quota(db)
+                db.commit()
+            finally:
+                db.close()
+
+    def chat_context(self, owner: str, device: str, *, now_ms: int, exclude_job_id=None):
+        """Bounded recent server exchanges; missing outcomes remain explicitly unknown."""
+        from .server_chat import MAX_CONTEXT_BYTES, context_entry, decrypt_entry
+
+        valid_time(now_ms)
+        if exclude_job_id is not None:
+            canonical_uuid(exclude_job_id)
+        result = dict(origin="SERVER_ARCHIVE", generatedAtMs=now_ms, exchanges=[],
+                      hasMore=False, outcomeMeaning="Recorded server outcome, not clinical validation")
+        with self._locked():
+            db = self._open(owner, device, create=False)
+            if db is None:
+                return result
+            try:
+                db.execute("BEGIN")
+                if db.execute("PRAGMA user_version").fetchone()[0] == 1:
+                    return result
+                # Bounded SQL work, including scans over expired idle files.
+                remaining = 2000
+
+                def budget():
+                    nonlocal remaining
+                    remaining -= 1
+                    return int(remaining <= 0)
+
+                db.set_progress_handler(budget, 1000)
+                rows = db.execute(
+                    "SELECT * FROM server_chat WHERE created_ms<=? AND updated_ms<=? "
+                    "AND expires_ms>? AND job_id!=? ORDER BY created_ms DESC,job_id DESC LIMIT 13",
+                    (now_ms, now_ms, now_ms, exclude_job_id or "")).fetchall()
+                for row in rows:
+                    item = context_entry(decrypt_entry(self, owner, device, row))
+                    if (len(result["exchanges"]) >= 12
+                            or len(encoded(result)) + len(encoded(item)) + 64 > MAX_CONTEXT_BYTES):
+                        result["hasMore"] = True
+                        break
+                    result["exchanges"].append(item)
+                result["exchanges"].reverse()
+                return result
             finally:
                 db.close()

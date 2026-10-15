@@ -1,5 +1,15 @@
 # PLAN
 
+## Server Conversation Archive (2026-10-15)
+
+- Previous9fcf0982 exact-head Verify passed all backend, Android and session jobs.
+- Implemented optional encrypted365-day server request/outcome persistence,
+  additive schema2 migration, bounded follow-up context and failure/cancellation
+  handling. Full synthetic verification and exact-head CI are tracked in AI_NOTES.
+- Still required: public signed archive retrieval/export, concrete constrained
+  supervisor/nonroot API composition, Android history/chat wiring and measured
+  storage/runtime/device rollout gates. No server/model/phone action in this stage.
+
 ## Contextual Text Integration (2026-10-15)
 
 - Independent owner login and one admitted direct/text-only synthetic native
@@ -10,8 +20,8 @@
 - Local backend581passed/26existing Nginx skips/1existing warning,45new focused
   cases and scoped lint passed before source publication. Exact-source Verify
   is still an independent gate.
-- Next: narrow trusted supervisor plus unprivileged API bootstrap, persistent
-  server request/result archive, Android signed history/current-state export and
+- Next: narrow trusted supervisor plus unprivileged API bootstrap, operational
+  archive validation, Android signed history/current-state export and
   server-chat adapter. Then actual runtime/load/storage/phone checks. The adapter
   alone is not full AI activation. See the2026-10-15 contextual-text spec.
 

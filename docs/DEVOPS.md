@@ -1,5 +1,24 @@
 # DEVOPS
 
+## Server Conversation Storage
+
+The optional CHAT service accepts chat_archive=HistoryStore. No default route,
+process or deployment is enabled. Focused synthetic suites: test_ai_server_chat
+and test_ai_chat_archive_transport, plus existing contextual/job/history tests.
+Run the full backend gate before publishing. No real payloads enter tests or Git.
+
+First archive acceptance verifies the private key manifest and separately commits
+additive schema1-to2 before storing data. Reads and observation writes do not
+migrate schema1. Schema2 requires a compatible binary: disable archive admission
+for rollback, retain the database/current key, do not restore an old snapshot or
+drop the new table. The spec documents crash gaps and UNKNOWN completion.
+
+Existing purge covers expired archive rows; production must schedule it for idle
+devices and enforce backup retention too. Pending entries reserve128KiB in shared
+quotas. Synthetic tests are not volume/load, power-loss or key-custody evidence.
+Protected master-key provisioning, volume/backups encryption, restore and real
+storage failure checks remain required before medical ingestion.
+
 ## Contextual Text Source Stage
 
 Run PYTHONPATH=backend uv run --no-project --with-requirements

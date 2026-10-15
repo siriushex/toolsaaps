@@ -1,4 +1,4 @@
-"""Bounded volatile orchestration for the optional signed CHAT transport.
+"""Bounded job orchestration with an optional encrypted CHAT archive.
 
 This module owns no launcher. A trusted factory must return a ContainedWorker
 whose stop receipt is independently verified by that worker implementation.
@@ -14,7 +14,8 @@ from typing import Callable
 from uuid import UUID
 
 from .client_auth import AttestedDevice, AuthError, ClientAuth
-from .job_executor import ContainedWorker, JobExecutor
+from .job_executor import ContainedWorker, JobExecutor, _complete_critical
+from .history_store import HistoryStore
 from .job_ledger import Job, JobLedger, LedgerError
 from .job_policy import CHAT_POLICY, MEAL_PHOTO_POLICY, JobPolicy, request_digest
 from .request_proof import RequestProofVerifier
@@ -106,7 +107,8 @@ class AiJobService:
 
     def __init__(self, auth: ClientAuth, proofs: RequestProofVerifier, ledger: JobLedger,
                  worker_factory: Callable[[JobWork], ContainedWorker], *,
-                 policy: JobPolicy = CHAT_POLICY, clock_ms=None):
+                 policy: JobPolicy = CHAT_POLICY, clock_ms=None,
+                 chat_archive: HistoryStore | None = None):
         expected_policy = {
             "CHAT": CHAT_POLICY,
             "MEAL_PHOTO": MEAL_PHOTO_POLICY,
@@ -126,11 +128,15 @@ class AiJobService:
                                     "max_result_bytes", "max_response_bytes", "max_deadline_ms",
                                     "max_request_body_bytes"))):
             raise ValueError("invalid_job_service")
+        if chat_archive is not None and (
+                not isinstance(chat_archive, HistoryStore) or policy.kind != "CHAT"):
+            raise ValueError("invalid_chat_archive")
         self.auth = auth
         self.proofs = proofs
         self.ledger = ledger
         self.worker_factory = worker_factory
         self.policy = policy
+        self.chat_archive = chat_archive
         self.max_http_body_bytes = policy.max_request_body_bytes
         self.clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self.executor = JobExecutor(ledger, clock_ms=self.clock_ms)
@@ -184,20 +190,33 @@ class AiJobService:
         self._drain_task = asyncio.create_task(self._drain())
 
     async def close(self) -> None:
+        if self.chat_archive is None:
+            return await self._close()
+        _, cancelled = await _complete_critical(self._close())
+        if cancelled:
+            raise asyncio.CancelledError
+
+    async def _close(self) -> None:
         if self._drain_task is None:
             return
         self._closing = True
         async with self._lock:
             queued = list(self._payloads.items())
             active = self._active_task
-        for job_id, payload in queued:
-            await asyncio.to_thread(self.ledger.cancel, payload.owner_id, job_id,
-                                    now_ms=self.clock_ms())
         if active is not None and not active.done():
             active.cancel()
+        for job_id, payload in queued:
+            job = await asyncio.to_thread(self.ledger.cancel, payload.owner_id, job_id,
+                                          now_ms=self.clock_ms())
+            try:
+                await self._archive_final(job)
+            except JobServiceError:
+                # Storage failure must not prevent the active process teardown.
+                pass
+        if active is not None:
             try:
                 await active
-            except asyncio.CancelledError:
+            except (Exception, asyncio.CancelledError):
                 pass
         self._event.set()
         await self._drain_task
@@ -233,6 +252,18 @@ class AiJobService:
 
     async def submit(self, device: AttestedDevice, *, request_id: str,
                      deadline_ms: int, body: bytes, now_ms: int) -> dict[str, object]:
+        operation = self._submit(device, request_id=request_id, deadline_ms=deadline_ms,
+                                 body=body, now_ms=now_ms)
+        if self.chat_archive is None:
+            return await operation
+        # A disconnected HTTP caller must not leave a reserved but unarchived
+        # request dispatchable, or cancel a storage thread after it has committed.
+        receipt, cancelled = await _complete_critical(operation)
+        if cancelled:
+            raise asyncio.CancelledError
+        return receipt
+
+    async def _submit(self, device, *, request_id, deadline_ms, body, now_ms):
         if not self.inference_ready:
             raise JobServiceError(503, "service_unavailable")
         try:
@@ -261,6 +292,15 @@ class AiJobService:
                 raise JobServiceError(429, str(exc)) from None
             raise
         if created:
+            if self.chat_archive is not None:
+                try:
+                    await asyncio.to_thread(self.chat_archive.accept_chat, job, request,
+                                            self.policy, now_ms=self.clock_ms())
+                except Exception:
+                    self._failed = True
+                    await asyncio.to_thread(self.ledger.cancel, device.owner_id, job.id,
+                                            now_ms=self.clock_ms())
+                    raise JobServiceError(503, "chat_archive_unavailable") from None
             work = JobWork(job_id=job.id, request=request, request_digest=digest,
                            route_revision=self.policy.route_revision,
                            deadline_ms=deadline_ms, policy=self.policy,
@@ -277,8 +317,9 @@ class AiJobService:
                                                      device.key_fingerprint, work)
             if rejection is not None:
                 try:
-                    await asyncio.to_thread(self.ledger.cancel, device.owner_id,
-                                            job.id, now_ms=now_ms)
+                    rejected = await asyncio.to_thread(self.ledger.cancel, device.owner_id,
+                                                       job.id, now_ms=self.clock_ms())
+                    await self._archive_final(rejected)
                 except Exception:
                     pass
                 raise rejection
@@ -312,17 +353,27 @@ class AiJobService:
 
     async def cancel(self, device: AttestedDevice, job_id: str,
                      *, now_ms: int) -> dict[str, object]:
+        operation = self._cancel(device, job_id, now_ms=now_ms)
+        if self.chat_archive is None:
+            return await operation
+        receipt, cancelled = await _complete_critical(operation)
+        if cancelled:
+            raise asyncio.CancelledError
+        return receipt
+
+    async def _cancel(self, device, job_id, *, now_ms):
         self._canonical_job_id(job_id)
         job = await asyncio.to_thread(self.ledger.cancel, device.owner_id,
             job_id, now_ms=now_ms, session_id=device.session_id,
             key_hash=device.key_fingerprint)
         if job is None:
             raise JobServiceError(404, "not_found")
+        await self._archive_final(job)
         async with self._lock:
             if job.state == "CANCELLED":
                 self._payloads.pop(job_id, None)
             active = self._active_task if job_id == self._active_job_id else None
-        if active is not None and not active.done():
+        if active is not None and not active.done() and job.state in {"CANCELLED", "CANCEL_REQUESTED"}:
             active.cancel()
             try:
                 await active
@@ -437,7 +488,7 @@ class AiJobService:
         return True
 
     async def _dispatch_next(self) -> None:
-        while not self._closing:
+        while not self._closing and not self._failed:
             async with self._lock:
                 if self._active_task is not None:
                     return
@@ -451,17 +502,17 @@ class AiJobService:
                     key_fingerprint=payload.key_fingerprint,
                     now_ms=self.clock_ms())
             except AuthError:
-                await asyncio.to_thread(self.ledger.cancel, payload.owner_id,
-                                        job_id, now_ms=self.clock_ms())
+                rejected = await asyncio.to_thread(self.ledger.cancel, payload.owner_id,
+                                                  job_id, now_ms=self.clock_ms())
+                await self._archive_final(rejected)
                 async with self._lock:
                     self._payloads.pop(job_id, None)
                 continue
             worker = _ValidatingWorker(payload.work, self.worker_factory)
             async with self._lock:
-                if self._closing:
+                if self._closing or self._failed:
                     return
-                active = asyncio.create_task(self.executor.execute(
-                    payload.owner_id, job_id, worker))
+                active = asyncio.create_task(self._execute(payload, worker))
                 self._active_task = active
                 self._active_job_id = job_id
             active.add_done_callback(self._active_finished)
@@ -482,7 +533,37 @@ class AiJobService:
         async with self._lock:
             for job_id, payload in list(self._payloads.items()):
                 if job_id != self._active_job_id and payload.work.deadline_ms <= now_ms:
+                    job = await asyncio.to_thread(self.ledger.get, payload.owner_id, job_id)
+                    await self._archive_final(job)
                     self._payloads.pop(job_id, None)
             for job_id, cached in list(self._results.items()):
                 if cached.expires_ms <= now_ms:
                     self._results.pop(job_id, None)
+
+    async def _archive_final(self, job, result=None):
+        from .server_chat import FINAL_STATES
+
+        if (self.chat_archive is None or job is None or job.state not in FINAL_STATES
+                or job.state == "SUCCEEDED" and result is None):
+            return
+        try:
+            await asyncio.to_thread(self.chat_archive.finish_chat, job, result,
+                                    now_ms=self.clock_ms())
+        except Exception:
+            self._failed = True
+            raise JobServiceError(503, "chat_archive_unavailable") from None
+
+    async def _execute(self, payload, worker):
+        outcome = None
+        try:
+            outcome = await self.executor.execute(payload.owner_id, payload.work.job_id, worker)
+            return outcome
+        finally:
+            if self.chat_archive is not None:
+                async def persist():
+                    job = outcome.job if outcome is not None else await asyncio.to_thread(
+                        self.ledger.get, payload.owner_id, payload.work.job_id)
+                    await self._archive_final(job, outcome.result if outcome is not None else None)
+                _, cancelled = await _complete_critical(persist())
+                if cancelled:
+                    raise asyncio.CancelledError

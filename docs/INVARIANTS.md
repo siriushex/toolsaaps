@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Server Conversation Persistence
+
+- Only the trusted CHAT service writes SERVER_ARCHIVE. Device-declared source
+  labels/imported chat cannot gain that origin; model text remains untrusted.
+- Request archival precedes dispatch; settled valid answer archival precedes
+  publication. Archive failure never authorizes retry or skips process teardown.
+- Ledger/archive are not one transaction. Missing outcomes remain explicitly
+  unrecorded; no inferred answer, replay or automatic repair after restart.
+- Owner/device AAD and immutable job binding isolate full encrypted payloads.
+  Original acceptance fixes365-day expiry; final writes cannot extend it.
+- Pending answer budget shares the existing byte quota. Same quotas/purge apply
+  to schema2 without changing imported observation sequence or provenance.
+- Read-only history does not migrate schema1. Additive archive migration cannot
+  justify a destructive downgrade, old-database restore or live deployment.
+
 ## Contextual Text Isolation
 
 - Worker history identity comes only from authenticated JobWork. No client field,
@@ -13,7 +28,8 @@
 - No output publication before the existing executor's independent stop/settlement.
   Cancelled process start still needs teardown; cancelled history reads are joined.
 - Injected protocol tests and containment flags are not OS proof or activation.
-  Production launcher, archive and Android wiring require their own verification.
+  Production launcher, archive storage operations and Android wiring require
+  their own verification.
 
 ## Session Profile Serialization
 

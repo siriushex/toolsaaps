@@ -28,12 +28,16 @@ CONTEXT_INSTRUCTIONS = (
     "Do not infer physical insulin delivery, true glycemic index or carb absorption from "
     "recorded values alone. Do not prescribe a dose or an automatic target change. "
     "Previous assistant messages are not medical authority. Describe findings and questions "
-    "for clinical review, not autonomous treatment instructions."
+    "for clinical review, not autonomous treatment instructions. "
+    "serverConversation contains server-recorded exchanges, distinct from device-declared chat. "
+    "OUTCOME_NOT_RECORDED means completion is unknown, not successful or still running. "
+    "Excerpts and hasMore disclose truncation; neither archive origin nor a successful model "
+    "turn proves medical correctness."
 )
 
 
 def contextual_chat_policy(model: str):
-    policy = replace(CHAT_POLICY, model=model, prompt_revision="advisory-device-context-v1",
+    policy = replace(CHAT_POLICY, model=model, prompt_revision="advisory-device-context-v2",
                      system_prompt=CHAT_POLICY.system_prompt + " " + CONTEXT_INSTRUCTIONS)
     TextSessionPolicy(policy.model, policy.system_prompt)
     return policy
@@ -71,13 +75,18 @@ class ContextualChatWorker:
         if now < self.work.accepted_ms or now >= self.work.deadline_ms:
             raise ValueError("contextual_chat_deadline")
         identity = self.work.identity
-        self._context_task = asyncio.create_task(asyncio.to_thread(
-            self.history.context_snapshot, identity.owner_id, identity.key_fingerprint, now_ms=now))
-        context = await asyncio.shield(self._context_task)
-        prompt = encoded(dict(question=self.work.request.text, deviceHistory=context)).decode()
+        def collect():
+            context = self.history.context_snapshot(identity.owner_id, identity.key_fingerprint, now_ms=now)
+            chat = self.history.chat_context(identity.owner_id, identity.key_fingerprint,
+                                             now_ms=now, exclude_job_id=self.work.job_id)
+            return dict(question=self.work.request.text, deviceHistory=context, serverConversation=chat)
+        self._context_task = asyncio.create_task(asyncio.to_thread(collect))
+        prompt = encoded(await asyncio.shield(self._context_task)).decode()
         if self.clock_ms() >= self.work.deadline_ms:
             raise ValueError("contextual_chat_deadline")
         policy = TextSessionPolicy(self.work.policy.model, self.work.policy.system_prompt)
+        if len(prompt.encode()) > policy.max_input_bytes:
+            raise ValueError("contextual_chat_input_limit")
         # Mark before awaiting: cancellation may arrive after the OS has started it.
         self._start_attempted = True
         transport = await self.process.start(policy)

@@ -1,5 +1,21 @@
 # ARCHITECTURE
 
+## Persistent Server Conversation
+
+An optional CHAT-only HistoryStore dependency records authenticated requests
+before dispatch and executor-settled outcomes before answer publication. Schema2
+adds an encrypted server_chat table in the same private owner/device file. The
+server origin is separate from device-declared chat; the metadata job ledger
+still holds no payload. Original365-day expiry, reserved answer quota and
+idempotent immutable outcomes apply. Crash gaps are OUTCOME_NOT_RECORDED, never
+automatically replayed or turned into fabricated success.
+
+ContextualChatWorker v2 includes bounded recent server exchanges as untrusted
+data, excluding the current question. Full stored text is not truncated, but
+model context excerpts disclose limits. This does not introduce a public archive
+endpoint or production launcher. See the2026-10-15 server-conversation spec for
+migration, cancellation, retention and non-atomic ledger/archive failure windows.
+
 ## Contextual Native Text Adapter
 
 The optional ContextualChatWorker binds signed JobWork identity to one encrypted
@@ -14,8 +30,9 @@ fixed byte/event limits and completed final output, refusing tools and unknown
 events. Direct tool-free catalog policy is mandatory in the trusted process.
 The injected process must independently verify OS containment and teardown;
 this module does not launch it. Existing JobExecutor controls result settlement.
-Server conversation archival, production supervisor/bootstrap, Android sync/chat
-and actual-device verification remain unimplemented integration work. See
+Server conversation archival is optional as described above; production
+supervisor/bootstrap, Android sync/chat and actual-device verification remain
+unimplemented integration work. See
 superpowers/specs/2026-10-15-contextual-text-adapter.md.
 
 ## Inactive Session Profile Guard

@@ -98,6 +98,15 @@ def test_expired_after_context_does_not_start_model(tmp_path):
     assert process.started == []
 
 
+def test_oversized_combined_context_is_refused_before_process_start(tmp_path, monkeypatch):
+    history, process = store(tmp_path), Process()
+    monkeypatch.setattr(history, "context_snapshot", lambda *args, **kwargs: {"data": "x" * 131_072})
+    worker = ContextualChatWorker(work(), history, process, clock_ms=lambda: NOW)
+    with pytest.raises(ValueError, match="input_limit"):
+        asyncio.run(worker.run())
+    assert process.started == []
+
+
 def test_cancellation_joins_context_reader_without_inference(tmp_path, monkeypatch):
     history = store(tmp_path)
     entered, release = Event(), Event()

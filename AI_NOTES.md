@@ -1,3 +1,32 @@
+# Persistent Server Conversation - 2026-10-15
+
+- Added optional CHAT request/result archival in the existing private encrypted
+  owner/device store. Internal SERVER_ARCHIVE cannot be supplied by device
+  ingestion. Full text, immutable job/policy binding, original365-day expiry,
+  shared quotas and reserved answer capacity survive process restarts.
+- Additive schema1-to2 migration authenticates the manifest, commits separately
+  and preserves observation rows/receipts. Reads do not migrate. Rollback requires
+  compatible code, not an old database/key or destructive schema downgrade.
+- Requests persist before dispatch; validated answers persist only after executor
+  stop/settlement and before publication. Disconnects drain acceptance, archive
+  failures disable admission without blocking active teardown, and late cancels
+  cannot erase settled results. Crash gaps remain OUTCOME_NOT_RECORDED without
+  fabricated answers or automatic model replay. Ledger remains metadata-only.
+- Follow-up model input now includes bounded recent server exchanges, distinct
+  from device-declared observations. Full archived text is not truncated; context
+  excerpts/omissions are explicit. Combined input is checked before process start.
+  Prompt revision v2 changes only contextual instructions, not model/reasoning.
+- Final local backend:621passed/26existing Nginx-engine skips/1existing Starlette
+  warning,40new tests; scoped E/F lint and whitespace checks passed. Tests include
+  signed API/context integration, isolation, migration, retention, quotas, restart,
+  cancellation/shutdown/write failures and commit-before-publication races.
+- Previous9fcf0982 Verify is now fully green, including Android. This stage's
+  exact-head CI is a separate publication gate. No server/provider/phone/therapy
+  action; production supervisor, operational storage validation, signed archive
+  retrieval and Android sync/chat remain. Full app AI is not yet enabled.
+- Reproduce: PYTHONPATH=backend uv run --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
 # Contextual Text Adapter - 2026-10-15
 
 - Moved the proven native text protocol shape into a bounded single-use adapter

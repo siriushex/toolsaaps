@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Server Conversation Archive (2026-10-15)
+
+- Internal SERVER_ARCHIVE is not accepted by client history ingestion. Verified
+  owner/device chooses the existing private encrypted file; job/time/quota
+  metadata are bound by purpose-separated AAD. No auth or raw exceptions stored.
+- Requests precede dispatch, successful answers follow positive stop and ledger
+  settlement and are saved before publication. Storage failure refuses readiness;
+  cancellation drains owned writes and cannot prevent active process shutdown.
+- Non-atomic ledger/archive crash windows remain explicit unrecorded outcomes,
+  not replayed tasks. Exact writes are idempotent; conflicting finals fail closed.
+- Original365-day retention, shared row/byte quotas, reserved answer capacity,
+  bounded excerpts/SQL work and additive migration have synthetic coverage.
+- MUST before rollout: encrypted volume/backups and key custody, idle purge,
+  restore/load/cancellation tests on the actual host, constrained supervisor and
+  signed device archive retrieval. Local ciphertext tests are not full-disk
+  encryption, prompt-injection resistance or clinical correctness certification.
+
 ## Contextual Text Adapter (2026-10-15)
 
 - Bound owner/device identity is carried from verified authentication to worker
