@@ -1,5 +1,15 @@
 # PLAN
 
+## Trusted Supervisor Entry Point (2026-10-15)
+
+- Added explicit Linux root host CLI, protected closed configuration, fixed
+  derived contextual policy, idle-guard startup and exact owned-socket lifetime.
+- Explicit image/egress admission reload preserves identities/policy/private
+  bindings; signal shutdown drains active work. Synthetic real socket tests
+  cover full host lifecycle and rejection cases. No service/model/phone operation.
+- Nonroot public API bootstrap, real image/network/storage provisioning and
+  Android context/chat remain the next integration work. See the host spec.
+
 ## Concrete Contained Process (2026-10-15)
 
 - Implemented RuntimeImage/OfficialEgress admission and SystemdTextProcess for

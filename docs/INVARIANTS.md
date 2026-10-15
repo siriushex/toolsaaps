@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Trusted Host Lifetime
+
+- Root CLI configuration is bounded, closed, root-owned/no-follow and stable
+  across its read. No client payload can choose a model, path or native command.
+- API and worker identities are distinct and nonroot. Kernel peer checks remain
+  mandatory; socket filesystem permissions alone grant no protocol authority.
+- Never unlink a pre-existing/replaced socket or clear a non-idle profile journal.
+  SIGTERM/SIGINT drain active work before socket cleanup and exit.
+- Descriptor reload cannot change peer/policy/private bindings. Public admission
+  updates require explicit protected operator state and the same runtime checks.
+
 ## Contained Runtime Admission
 
 - The API never supplies executable/image/profile/address settings or launches

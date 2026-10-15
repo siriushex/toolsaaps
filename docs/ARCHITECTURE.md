@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Trusted Supervisor Host
+
+The explicit text_supervisor_host CLI assembles TextSupervisor/SystemdTextProcess
+from a closed protected operator descriptor. It derives the fixed contextual
+policy, verifies image/egress/idle guard before listening, creates only its new
+restricted Unix socket and drains work before removing that exact socket.
+Only explicit new public image/address admissions may reload; peer/policy/private
+bindings stay fixed for the host lifetime. No default app/service installation,
+image provisioning or nonroot API bootstrap. See the2026-10-15 host spec.
+
 ## Contained Text Process
 
 SystemdTextProcess is the trusted Linux implementation injected into TextSupervisor.

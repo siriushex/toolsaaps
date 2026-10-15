@@ -1,3 +1,25 @@
+# Trusted Text Supervisor Host - 2026-10-15
+
+- Added an explicit trusted Linux host CLI assembling the typed supervisor and
+  guarded concrete process. Strict root-owned128KiB descriptor; no arbitrary
+  client instructions/argv, silent metadata capture or profile initialization.
+- Fixed contextual policy, distinct API/worker identities, pre-listen image/
+  egress/idle-guard checks and owned0660 local socket. Pre-existing/replaced
+  paths are preserved. Signal shutdown drains active work before socket removal.
+- Explicit operator image/egress reload preserves peer/policy/private bindings.
+  No runtime image/service installation, provider request or phone mutation.
+- Focused tests use real local sockets and synthetic workers/host admissions;
+  cover strict/racing configuration, permissions/path ownership, active shutdown,
+  identity drift and fixed errors. Full local backend:800passed,26existing
+  optional Nginx skips,1existing Starlette warning, including28new host checks.
+- Read-only target inspection found Python3.12 without no-follow chmod support.
+  Socket permission setup now uses ordinary chmod inside the protected root-only
+  writable parent; a Linux-capability regression test covers this path. CLI help
+  and scoped E4/E7/E9/F lint pass. No remote filesystem/service changes.
+- Spec: docs/superpowers/specs/2026-10-15-text-supervisor-host.md. Reproduce with
+  PYTHONPATH=backend uv run --offline --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
 # Concrete Contained Text Process - 2026-10-15
 
 - Added explicit RuntimeImage/OfficialEgress admission and SystemdTextProcess

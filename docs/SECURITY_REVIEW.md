@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Trusted Supervisor Host (2026-10-15)
+
+- Closed protected128KiB descriptor, duplicate/NaN/path/type/root-peer refusal,
+  fixed derived context policy and stable private bindings. CLI errors are fixed
+  codes, never configuration/authorization/native/medical content.
+- Image/egress/idle-guard admission precedes listening. New0660 socket only,
+  protected root parent, separate API/worker identity and kernel peer checks.
+  Pre-existing/replaced paths are preserved; active work drains before unlink.
+- Explicit public admission reload cannot alter identity/policy/private scope.
+  No DNS capture, journal reset, credential restoration or model request at startup.
+- Synthetic tests prove assembly/lifetime, not actual root/systemd/BPF deployment.
+  MUST before activation: independent immutable-image/network admission, nonroot
+  public API/storage operations and Android current/history/chat verification.
+
 ## Concrete Native Process (2026-10-15)
 
 - Trusted local configuration only. No user-selected shell/argv/environment,

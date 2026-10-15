@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Trusted Supervisor Entry Point
+
+PYTHONPATH=backend python -m app.ai.text_supervisor_host --help describes the
+explicit root host entry point. The operator configuration schema, protected
+socket directory, reload and rollback rules are in
+superpowers/specs/2026-10-15-text-supervisor-host.md. No root service is installed
+automatically; do not run the HTTP API under this identity. Never point it at
+an unverified image/descriptor or initialize over the existing owner profile.
+Focused suite: test_ai_text_supervisor_host, then full backend gate. All lifecycle
+tests are synthetic; active BPF/TLS and actual root/systemd evidence remain required.
+
 ## Concrete Runtime Verification
 
 Focused suites: test_ai_runtime_admission and test_ai_contained_text_process,
