@@ -1,5 +1,19 @@
 # ARCHITECTURE
 
+## Contained Text Process
+
+SystemdTextProcess is the trusted Linux implementation injected into TextSupervisor.
+It verifies an explicitly pinned public RuntimeImage and expiring OfficialEgress,
+reserves SessionProfileGuard, launches a fixed nonroot systemd command behind an
+input barrier, then verifies actual kernel limits/mappings before native input.
+Cancellation retains OS-creation identity; original-invocation stop and terminated
+bounded pipes precede the receipt. Native provider/base URL are explicit and tools
+remain disabled. Host assembly, network enforcement probes and Android deployment
+are still separate work; this module starts no service at import or construction.
+Active terminal outcomes remain pending in job status until durable archive
+reconciliation finishes, including failed/malformed turns as well as answers.
+See superpowers/specs/2026-10-15-contained-text-process.md.
+
 ## Local Text Supervisor Channel
 
 ContextualChatWorker can use a typed Unix TextTurnRunner instead of owning native
@@ -8,7 +22,7 @@ policy. Both peers check kernel UID/GID; only bounded text and a policy digest
 cross the boundary, never native RPC, executable settings or credentials.
 Answers follow independent stop/IO termination. Missing stop poisons admission;
 the API also disables new requests when the executor retains its durable lease.
-Actual contained-process/host assembly remains an explicit deployment dependency.
+The concrete process above is injectable; host assembly remains a deployment dependency.
 See the2026-10-15 text-supervisor-channel spec; no default route or service starts.
 
 ## Signed Conversation Read

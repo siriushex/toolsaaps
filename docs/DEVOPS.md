@@ -1,5 +1,27 @@
 # DEVOPS
 
+## Concrete Runtime Verification
+
+Focused suites: test_ai_runtime_admission and test_ai_contained_text_process,
+followed by the full backend/tests gate. Synthetic tests use temporary public
+images, proc records and actual local child pipes; privileged systemd/guard
+operations are substituted. No provider, login, medical payload or host mutation.
+
+Instantiate SystemdTextProcess only in the trusted supervisor with operator-pinned
+RuntimeImage, initialized SessionProfileGuard, OfficialEgress and fixed policy.
+The image layout/ownership, exact argv/resources, expiry and rollback rules are
+in superpowers/specs/2026-10-15-contained-text-process.md. The source has no
+automatic installer, root socket binding or default API activation. Never reuse
+the old offline auth mount or silently capture current metadata as new authority.
+Expired address admission requires fresh host validation and an admitted image;
+it cannot keep serving indefinitely from the one-time model-test receipt.
+
+Production still needs active deny/TLS/BPF controls, separate API UID/socket
+permissions and startup reconciliation. Verify stop under disconnect/restart,
+protected storage/key/purge/restore/load and Android before claiming activation.
+Rollback disables admission, stops positively bound own invocations and preserves
+profile/control/database state. Never clear an unbound/unknown marker to resume.
+
 ## Local Supervisor Channel
 
 Focused suites: test_ai_text_supervisor and test_ai_supervised_chat_transport.

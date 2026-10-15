@@ -1,5 +1,20 @@
 # PLAN
 
+## Concrete Contained Process (2026-10-15)
+
+- Implemented RuntimeImage/OfficialEgress admission and SystemdTextProcess for
+  the existing typed supervisor. Fixed command, input barrier, durable profile
+  lease, kernel/resource/mount checks and independent exact teardown.
+- Synthetic validation includes real child pipes and Unix transport, malformed
+  image/egress/kernel state, creation/stop cancellation and output backpressure.
+  Full backend gate and source review/publication are required for this stage.
+- Previous2f61b68 CI is fully successful: native candidate, session checks and
+  both backend/Android jobs. It did not install a runtime or application.
+- Next: actual immutable image/expiring egress admission and narrow supervisor/
+  nonroot API composition, storage operations, Android signed context/chat and
+  actual host/device verification. Keep the existing guarded owner login.
+- Spec: superpowers/specs/2026-10-15-contained-text-process.md.
+
 ## Typed Supervisor Channel (2026-10-15)
 
 - Previous28a2a6a Verify is fully successful, including Android. Added typed Unix

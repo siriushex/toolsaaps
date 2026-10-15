@@ -18,7 +18,7 @@ from test_ai_activation import service  # noqa: F401 - shared attestation fixtur
 from test_ai_contextual_chat import Process
 from test_ai_history_store import KEY, OWNER, store
 from test_ai_job_transport import (NOW, MutableClock, SyntheticFactory, activate,
-                                   key_fingerprint, signed_delete, submit, wait_for_terminal)
+                                   key_fingerprint, signed_delete, signed_get, submit, wait_for_terminal)
 from test_ai_native_text import MODEL
 
 
@@ -81,6 +81,32 @@ def test_failed_or_unconfirmed_execution_never_archives_answer(archived, service
     wait_for_terminal(client, key, tokens, reply.json()["job_id"])
     saved = exchanges(history, owner, key, clock)
     assert saved[0]["state"] == state and saved[0]["answer"] is None
+
+
+@pytest.mark.parametrize("behavior", [{"fail": True}, {"malformed": True}])
+def test_terminal_failure_waits_for_durable_archive_before_status_publication(archived, service, monkeypatch, behavior):
+    client, _, history, clock, factory = archived
+    owner, key, tokens = activate(client, service)
+    entered, release = Event(), Event()
+    original = history.finish_chat
+    def delayed(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(history, "finish_chat", delayed)
+    factory.configure("Synthetic delayed failure", **behavior)
+    reply = request(client, key, tokens, "Synthetic delayed failure")
+    try:
+        assert entered.wait(3)
+        pending = signed_get(client, key, tokens, "/api/ai/v1/jobs/" + reply.json()["job_id"])
+        assert pending.json()["state"] == "RUNNING"
+        assert pending.json()["finished_ms"] is None
+        assert pending.json()["result_available"] is False
+    finally:
+        release.set()
+    done = wait_for_terminal(client, key, tokens, reply.json()["job_id"])
+    assert done.json()["state"] == "FAILED"
+    assert exchanges(history, owner, key, clock)[0]["state"] == "FAILED"
 
 
 def test_cancelled_running_request_preserves_question_but_not_answer(archived, service):

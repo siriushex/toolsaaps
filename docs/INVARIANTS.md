@@ -1,5 +1,23 @@
 # INVARIANTS
 
+## Contained Runtime Admission
+
+- The API never supplies executable/image/profile/address settings or launches
+  root commands. Only the trusted supervisor constructs the concrete process.
+- Explicit immutable pins, no-follow public-image validation, private guard and
+  actual kernel checks precede START/context; no automatic drift adoption.
+- Fixed official provider/hosts, empty tools and exact model/reasoning policy.
+  Expired egress admission fails; no DNS/proxy/fallback in the process adapter.
+- A cancelled start retains creation identity. Only the original owned invocation
+  and empty descendant cgroup authorize profile release. Unbound/unknown state
+  requires trusted reconciliation; no marker deletion or credential restoration.
+- Native and helper IO must terminate before a successful stop receipt. No raw
+  stderr, environment, authorization or clinical context enters operational logs.
+- Active terminal job outcomes remain pending until archive reconciliation ends;
+  public failure status must not race the durable conversation outcome.
+- Synthetic process/kernel records are not actual systemd/BPF/TLS enforcement
+  evidence. Fresh host admission and operational storage/Android checks remain.
+
 ## Text Supervisor Isolation
 
 - Kernel-authenticated local peers, fixed policy and a closed text-only protocol;

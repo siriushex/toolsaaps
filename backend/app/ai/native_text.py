@@ -29,6 +29,7 @@ DISABLED_FEATURES = (
 NATIVE_SETTINGS = tuple(f"features.{key}=false" for key in DISABLED_FEATURES) + (
     "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false",
     "agents.enabled=false", 'web_search="disabled"', "mcp_servers={}",
+    'model_provider="openai"', 'chatgpt_base_url="https://chatgpt.com/backend-api"',
     'cli_auth_credentials_store="file"', "analytics.enabled=false",
     "check_for_update_on_startup=false", 'sqlite_home="/tmp/state"',
     'model_catalog_json="/work/text-model.json"',

@@ -328,6 +328,8 @@ class AiJobService:
 
     async def get(self, device: AttestedDevice, job_id: str,
                   *, now_ms: int) -> dict[str, object]:
+        from .server_chat import FINAL_STATES
+
         self._canonical_job_id(job_id)
         job = await asyncio.to_thread(self.ledger.get, device.owner_id, job_id,
             session_id=device.session_id, key_hash=device.key_fingerprint)
@@ -348,8 +350,14 @@ class AiJobService:
                     session_id=device.session_id, key_hash=device.key_fingerprint)
                 if job is None:
                     raise JobServiceError(404, "not_found")
+            # Final ledger state can precede the active task's durable archive
+            # write. Publish failures/cancellation coherently too, not only answers.
+            archiving = (self.chat_archive is not None and job_id == self._active_job_id
+                and self._active_task is not None and not self._active_task.done()
+                and job.state in FINAL_STATES)
+            pending = available and cached is None and (job.state == "SUCCEEDED" or archiving)
         return self._receipt(job, cached=cached, unavailable=not available,
-                             pending_result=available and cached is None and job.state == "SUCCEEDED")
+                             pending_result=pending)
 
     async def cancel(self, device: AttestedDevice, job_id: str,
                      *, now_ms: int) -> dict[str, object]:

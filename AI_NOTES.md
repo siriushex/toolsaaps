@@ -1,3 +1,34 @@
+# Concrete Contained Text Process - 2026-10-15
+
+- Added explicit RuntimeImage/OfficialEgress admission and SystemdTextProcess
+  for TextSupervisor. Fixed systemd argv/environment, nonroot512MiB/swap0/25%CPU
+  worker, READY/START barrier, durable guard and original InvocationID binding.
+- Public-image hashes/layout/ownership, official hosts/direct model policy and
+  actual kernel limits/mounts/environment precede input. Native settings fix the
+  official provider/base URL. Custom profile instructions/config refuse startup.
+- Cancellation preserves partial OS creation and independent cleanup. Positive
+  native cgroup stop plus bounded pipe/helper termination precede the receipt;
+  unknown/unbound state remains unavailable for automatic reuse.
+- Synthetic tests use real local subprocess pipes and the Unix supervisor,
+  temporary public images/proc records and substituted privileged host operations.
+  No provider request, auth body read, clinical payload, server or phone action.
+- Previous2f61b68 CI fully passed including native candidate, both backend and
+  Android Verify jobs. Host/API assembly, active network controls, storage
+  operations and Android context/chat are still required for real activation.
+- A repeated full gate exposed an existing archive/status race for failed and
+  malformed turns: terminal ledger state could precede the durable conversation
+  write. Status now keeps the active outcome pending until reconciliation ends,
+  as already done for successful answers. Two deterministic blocked-write tests
+  cover it. Focused runtime/archive suites:81passed; final full backend gate:
+  772passed,26existing optional Nginx skips,1existing Starlette warning. This
+  includes65new checks. No raw authorization/native output entered the test log.
+- Scoped E4/E7/E9/F lint passes; imported pytest fixtures have the same narrowly
+  scoped F811 exemptions as prior tests. Existing optional Nginx skips and the
+  Starlette deprecation are reported separately by the full gate.
+- Spec and reproduction: docs/superpowers/specs/2026-10-15-contained-text-process.md;
+  PYTHONPATH=backend uv run --offline --no-project --with-requirements
+  backend/requirements.txt python -m pytest -q -rs backend/tests.
+
 # Public Source Fetch Reliability - 2026-10-15
 
 - Supervisor4329135 backend passed both Linux Verify jobs. One source-candidate

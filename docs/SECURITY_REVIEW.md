@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Concrete Native Process (2026-10-15)
+
+- Trusted local configuration only. No user-selected shell/argv/environment,
+  image/profile/address adoption, credential parsing, provider retry or fallback.
+- Complete bounded root-owned public-image pins and official host/catalog policy
+  precede start. Private directories are disjoint and the control journal is not
+  mounted. Input waits for positive kernel/resource/mount/environment checks.
+- Fixed nonroot unit, caps0/NNP/seccomp/read-only runtime and existing exact
+  InvocationID/cgroup stop. Partial creation and cancelled cleanup are retained;
+  no optimistic profile reset or success after unknown teardown.
+- Bounded actual pipe tests cover backpressure, JSON escaping and rejected stderr
+  without logging content. Existing native protocol refuses tool/action events.
+- MUST for rollout: fresh independent domain/TLS/active BPF tests, immutable image
+  provisioning/address refresh, protected local socket and distinct API identity,
+  startup reconciliation, encrypted storage operations and actual Android checks.
+  Unit property readback and synthetic proc fixtures do not attest host filtering.
+- This source stage makes no provider request or server/profile/phone change.
+
 ## Public Source Fetch Reliability (2026-10-15)
 
 The compatibility fetch uses the existing pinned peeled commit on the public raw
