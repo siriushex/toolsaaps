@@ -1,5 +1,29 @@
 # INVARIANTS
 
+## Owner Application Chat
+
+- Explicit owner API requires a nonroot service, protected configuration and
+  keys, distinct private storage, current attestation policy and a fixed trusted
+  supervisor peer. No default activation, root API or bearer-only shortcut.
+- A lifetime lock prevents concurrent API owners. Unresolved executing claims
+  block startup; unknown execution is never replay authority.
+- Configured or not-yet-loaded server routing precedes personal-key reads and
+  has no failure fallback. The repository rejects unsupported modalities before
+  reading their files or personal credentials; this does not claim that the UI
+  picker/recorder has already been capability-gated. Existing clinical
+  optimization is not rerouted.
+- Model jobs follow successful signed context sync; ambiguous submission is
+  UNKNOWN, never an automatic new request. Only correlated jobs can be cancelled.
+- Upload retries retain exact batch bytes/identity and persisted device binding.
+  Server high-water sequence is not proof of completeness or delivery.
+- Snapshots without original timestamps remain observations, not historical
+  measurements. Missing values are unknown; onset is not action duration, net
+  IOB is not interchangeable with positive IOB. No chat result changes therapy.
+- Numbered archive fragments preserve complete supported reply text within
+  record/plan bounds; arbitrary oversized input fails before upload. Fragmentation
+  is observational only, never authority to split or retry a model job. Response
+  clock tolerance does not change event timestamps or clinical freshness checks.
+
 ## Trusted Host Lifetime
 
 - Root CLI configuration is bounded, closed, root-owned/no-follow and stable

@@ -1,5 +1,29 @@
 # DEVOPS
 
+## Owner API Source Entry
+
+`COPILOT_AI_OWNER_CONFIG` selects the mandatory protected descriptor documented
+in `backend/app/ai/owner_api.py`. Run `uvicorn app.ai.owner_api:create_app --factory`
+as the dedicated nonroot API user, one worker, ASGI lifespan enabled, behind the
+separately admitted TLS/proof boundary. Provision private storage and independent
+keys; never copy login credentials into API configuration. No startup is performed
+by imports or the normal backend app. Unresolved executing ledger claims require
+trusted reconciliation, not database deletion or automatic replay.
+
+Focused source gates: `backend/tests/test_ai_owner_api.py`, Android
+ServerAiChatGateway/ServerAiHistoryClient/repository tests and AiChatContextSummary
+tests, followed by the full backend suite and one shared Android unit/lint/build.
+Worker source tests are not deployment or actual device evidence. Rollback of an
+admitted deployment must drain only its owned service before releasing storage;
+retain encrypted state, uncertain claims and the independent owner profile.
+
+For narrow client corrections after a complete suite has identified an issue,
+retain the unchanged suite evidence and run the affected client/legacy tests:
+`./gradlew :app:testDebugUnitTest --tests '*ServerAi*Test' --tests '*AiChatRepository*Test' --tests '*AiChatContextSummaryTest' :app:lintDebug :app:assembleDebug`.
+Record the full-run and focused-retest results separately, including skips;
+do not label a scoped rerun as a zero-failure complete-suite run. Published CI
+still runs the full suite on the exact new commit.
+
 ## Trusted Supervisor Entry Point
 
 PYTHONPATH=backend python -m app.ai.text_supervisor_host --help describes the

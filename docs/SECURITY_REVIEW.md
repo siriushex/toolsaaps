@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Owner Chat Integration (2026-10-15)
+
+- Owner API composes attestation/proofs and device-bound archive under a mandatory
+  nonroot/private-storage descriptor. The narrow privileged supervisor remains
+  separate; the API receives no profile tokens, shell or runtime command surface.
+- Android routing is fail-closed before personal-key/file reads. Uploads have
+  separate route limits and encrypted pending state; ambiguous jobs never auto
+  resubmit, and mismatched receipts never grant cancellation authority.
+- Historical context and assistant archives remain untrusted data. Snapshot time
+  is not original message time, high-water is not completeness, and recorded
+  insulin/carbohydrates do not prove delivery/absorption. Chat is advisory only.
+- Still required: real deployment/network and peer admission, device enrollment,
+  encrypted backup/restore/retention/load tests and complete structured-history
+  adapter validation. Source tests cannot establish these operational properties.
+
 ## Trusted Supervisor Host (2026-10-15)
 
 - Closed protected128KiB descriptor, duplicate/NaN/path/type/root-peer refusal,

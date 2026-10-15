@@ -357,8 +357,8 @@
     <string name="clinical_text_question_high_pattern_context">Какой контекст сопровождает картину высокой глюкозы?</string>
     <string name="clinical_text_question_data_completeness_context">Нужны ли более полные данные перед интерпретацией?</string>
     <string name="section_ai_chat">AI-чат (с учетом контекста)</string>
-    <string name="ai_analysis_chat_info">Чат использует локальный контекст: сахар, прогнозы, IOB/COB, ISF/CR, DIA, UAM, активность, шаги и replay-метрики качества. Ответы только рекомендательные.</string>
-    <string name="ai_analysis_chat_requires_data">AI-чат заблокирован до накопления минимального окна данных (%1$.1fч/%2$dч).</string>
+    <string name="ai_analysis_chat_info">Чат учитывает доступные данные: сахар, прогнозы, IOB/COB, ISF/CR, начало действия инсулина, UAM, активность и показатели качества. Пропуски и устаревшие данные ограничивают выводы. Советы не меняют терапию.</string>
+    <string name="ai_analysis_chat_requires_data">Короткая история: %1$.1f / %2$d ч для расширенного анализа.</string>
     <string name="ai_analysis_chat_empty">Сообщений пока нет. Спросите про тренды, риски или причины ошибок прогнозов.</string>
     <string name="ai_analysis_chat_role_user">Вы</string>
     <string name="ai_analysis_chat_role_ai">AI</string>

@@ -35,6 +35,8 @@ import io.aaps.copilot.data.repository.AlertAiProductionFactory
 import io.aaps.copilot.data.repository.AlertAiReportDatasetSource
 import io.aaps.copilot.data.repository.AndroidValidatedNetworkGate
 import io.aaps.copilot.data.repository.AiChatRepository
+import io.aaps.copilot.data.repository.ServerAiChatGateway
+import io.aaps.copilot.data.repository.ServerAiHistoryClient
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.BroadcastIngestRepository
@@ -305,6 +307,7 @@ class AppContainer(context: Context) {
     val gson: Gson = Gson()
     val settingsStore = AppSettingsStore(context)
     val serverAiConnectionManager = ServerAiConnectionManager.create(appContext)
+    val serverAiHistoryClient = ServerAiHistoryClient(serverAiConnectionManager)
 
     val db: CopilotDatabase = Room.databaseBuilder(
         context,
@@ -1490,7 +1493,11 @@ class AppContainer(context: Context) {
     val aiChatRepository = AiChatRepository(
         settingsStore = settingsStore,
         credentialProvider = openAiCredentialProvider,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        serverGateway = ServerAiChatGateway(
+            serverAiConnectionManager,
+            serverAiHistoryClient::syncChatContext
+        )
     )
 
     val insightsRepository = InsightsRepository(
@@ -1504,6 +1511,7 @@ class AppContainer(context: Context) {
     )
 
     init {
+        appScope.launch { serverAiConnectionManager.load() }
         clinicalReportRepository.initialize()
         telegramDeliveryController.start(appScope)
 

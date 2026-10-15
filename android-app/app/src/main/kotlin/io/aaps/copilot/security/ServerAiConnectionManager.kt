@@ -99,7 +99,8 @@ class ServerAiConnectionManager internal constructor(
     private val persistence: ServerAiConnectionPersistence,
     private val identity: ServerAiConnectionIdentity,
     private val transport: ServerAiConnectionTransport,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    internal val historyPersistence: ServerAiHistoryPersistence = UnavailableHistoryPersistence
 ) {
     companion object {
         private const val BASE = "/api/ai/v1"
@@ -108,10 +109,13 @@ class ServerAiConnectionManager internal constructor(
         fun create(context: Context): ServerAiConnectionManager = ServerAiConnectionManager(
             EncryptedConnectionPersistence(KeystoreSecretStorage(context.applicationContext,
                 RuntimeSecretStorageNamespaces.SERVER_AI_CONNECTION)),
-            HardwareConnectionIdentity(), HttpsConnectionTransport()
+            HardwareConnectionIdentity(), HttpsConnectionTransport(),
+            historyPersistence = EncryptedServerAiHistoryPersistence(context.applicationContext)
         )
     }
     private val mutex = Mutex()
+    // All history clients sharing this connection serialize durable upload plans.
+    internal val historyMutex = Mutex()
     private val json = Json { encodeDefaults = true }
     private val mutableState = MutableStateFlow(ServerAiConnectionState())
     val state = mutableState.asStateFlow()
@@ -220,6 +224,34 @@ class ServerAiConnectionManager internal constructor(
         deadlineMs: Long? = null
     ): ServerAiConnectionResponse {
         require(isJobRequest(method, path, body, requestId, deadlineMs)) { "invalid_request" }
+        return exchangeSigned(method, path, body, requestId, deadlineMs, JOB_RESPONSE_LIMIT)
+    }
+
+    internal suspend fun historyDeviceBinding(): String {
+        mutex.lock()
+        try {
+            record = read()
+            if (record.session == null) throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            return keyCall { identity.fingerprint().also { check(Regex("[0-9a-f]{64}").matches(it)) } }
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    /** Closed routes only. Credentials and proof fields are always connection-owned. */
+    internal suspend fun exchangeHistory(route: ServerAiHistoryRoute, body: ByteArray): ServerAiConnectionResponse {
+        require(body.size in 1..route.requestLimit) { "invalid_request" }
+        return exchangeSigned("POST", route.path, body.copyOf(), null, null, route.responseLimit)
+    }
+
+    private suspend fun exchangeSigned(
+        method: String,
+        path: String,
+        body: ByteArray,
+        requestId: String?,
+        deadlineMs: Long?,
+        responseLimit: Int
+    ): ServerAiConnectionResponse {
         mutex.lock()
         try {
             return withContext(Dispatchers.IO) {
@@ -261,7 +293,7 @@ class ServerAiConnectionManager internal constructor(
                         put("X-Copilot-Deadline-Ms", deadlineMs.toString())
                     }
                 }
-                transport.exchange(method, path, body, headers, JOB_RESPONSE_LIMIT)
+                transport.exchange(method, path, body, headers, responseLimit)
             }
         } finally {
             mutex.unlock()
@@ -406,8 +438,14 @@ private class HttpsConnectionTransport : ServerAiConnectionTransport {
         responseLimit: Int
     ): ServerAiConnectionResponse {
         require(isAllowed(method, path, body)) { "invalid_request" }
-        require(body.size <= 96_000)
-        require(responseLimit in 1..65_536)
+        val historyRoute = ServerAiHistoryRoute.entries.singleOrNull { it.path == path }
+        if (historyRoute != null) {
+            require(body.size in 1..historyRoute.requestLimit)
+            require(responseLimit == historyRoute.responseLimit)
+        } else {
+            require(body.size <= 96_000)
+            require(responseLimit in 1..65_536)
+        }
         val request = Request.Builder().url("https://diai.centv.ru$path").apply {
             headers.forEach { (name, value) -> header(name, value) }
             when (method) {
@@ -450,6 +488,9 @@ private class HttpsConnectionTransport : ServerAiConnectionTransport {
     }
 
     private fun isAllowed(method: String, path: String, body: ByteArray): Boolean {
+        ServerAiHistoryRoute.entries.singleOrNull { it.path == path }?.let {
+            return method == "POST" && body.size in 1..it.requestLimit
+        }
         val activationPost = path in setOf(
             "/api/ai/v1/activation/start",
             "/api/ai/v1/activation/complete",

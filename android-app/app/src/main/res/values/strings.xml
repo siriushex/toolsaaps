@@ -356,8 +356,8 @@
     <string name="clinical_text_question_high_pattern_context">What context accompanies the high-glucose pattern?</string>
     <string name="clinical_text_question_data_completeness_context">Is more complete data needed before interpretation?</string>
     <string name="section_ai_chat">AI chat (context-aware)</string>
-    <string name="ai_analysis_chat_info">Chat uses local context: glucose, predictions, IOB/COB, ISF/CR, DIA, UAM, activity, steps, and replay quality metrics. It is advisory only.</string>
-    <string name="ai_analysis_chat_requires_data">AI chat is locked until minimum data window is collected (%1$.1fh/%2$dh).</string>
+    <string name="ai_analysis_chat_info">Chat uses the available glucose, forecasts, IOB/COB, ISF/CR, insulin onset, UAM, activity and quality metrics. Missing and stale data limit its conclusions. Advice never changes therapy.</string>
+    <string name="ai_analysis_chat_requires_data">Short history: %1$.1f / %2$d h for extended analysis.</string>
     <string name="ai_analysis_chat_empty">No chat messages yet. Ask about trends, risks, or what drives forecast errors.</string>
     <string name="ai_analysis_chat_role_user">You</string>
     <string name="ai_analysis_chat_role_ai">AI</string>

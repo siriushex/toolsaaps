@@ -8121,26 +8121,10 @@ class MainViewModel(application: Application) :
 
     fun sendAiChatPrompt(prompt: String = aiChatDraftState.value, fromVoiceTranscript: Boolean = false) {
         val question = prompt.trim()
-        if (question.isBlank()) return
+        if (question.isBlank() || aiChatInProgressState.value) return
 
         viewModelScope.launch {
             val snapshot = uiState.value
-            if (!snapshot.aiAnalysisReady) {
-                val waiting = String.format(
-                    Locale.US,
-                    "%.1f/%dh",
-                    snapshot.aiDataCoverageHours,
-                    snapshot.aiMinDataHours
-                )
-                aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "assistant-wait-${System.currentTimeMillis()}",
-                    role = "assistant",
-                    text = "Нужно накопить минимум 24ч данных для AI-чата. Сейчас: $waiting",
-                    ts = System.currentTimeMillis()
-                )
-                return@launch
-            }
-
             val now = System.currentTimeMillis()
             val pendingAttachments = aiChatPendingAttachmentsState.value
             val historyBeforeSend = aiChatMessagesState.value
@@ -8194,6 +8178,10 @@ class MainViewModel(application: Application) :
                     playAiVoiceReply(response)
                 }
             }.onFailure { error ->
+                if (error is CancellationException) {
+                    aiChatInProgressState.value = false
+                    throw error
+                }
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
                     id = "assistant-err-${System.currentTimeMillis()}",
                     role = "assistant",
@@ -8564,62 +8552,7 @@ class MainViewModel(application: Application) :
     }
 
     private fun buildAiChatContextSummary(state: MainUiState): String {
-        val reportMetrics = if (state.dailyReportMetrics.isEmpty()) {
-            "daily_report_metrics: none"
-        } else {
-            state.dailyReportMetrics.joinToString(separator = "\n") { metric ->
-                "${metric.horizonMinutes}m -> " +
-                    "MAE=${formatNullable(metric.mae)}, " +
-                    "RMSE=${formatNullable(metric.rmse)}, " +
-                    "MARD=${formatNullable(metric.mardPct)}%, " +
-                    "BIAS=${formatNullable(metric.bias)}, " +
-                    "n=${metric.sampleCount ?: 0}"
-            }
-        }
-
-        val topFactors = state.dailyReportReplayFactors
-            .sortedByDescending { it.contributionScore }
-            .take(6)
-            .joinToString(separator = "; ") { factor ->
-                "${factor.horizonMinutes}m:${factor.factor} score=${formatNullable(factor.contributionScore)} uplift=${formatNullable(factor.upliftPct)}%"
-            }
-            .ifBlank { "none" }
-
-        val hotspots = state.dailyReportReplayHotspots
-            .sortedByDescending { it.mae }
-            .take(6)
-            .joinToString(separator = "; ") { hotspot ->
-                "${hotspot.horizonMinutes}m H${hotspot.hour}: MAE=${formatNullable(hotspot.mae)} MARD=${formatNullable(hotspot.mardPct)}%"
-            }
-            .ifBlank { "none" }
-
-        val recommendations = state.dailyReportRecommendations
-            .take(6)
-            .joinToString(separator = "; ")
-            .ifBlank { "none" }
-
-        return buildString {
-            appendLine("coverage_hours=${String.format(Locale.US, "%.1f", state.aiDataCoverageHours)}")
-            appendLine("glucose_current=${formatNullable(state.latestGlucoseMmol)} mmol/L")
-            appendLine("delta=${formatNullable(state.glucoseDelta)} mmol/L")
-            appendLine("forecast_5=${formatNullable(state.forecast5m)} ci=[${formatNullable(state.forecast5mCiLow)}..${formatNullable(state.forecast5mCiHigh)}]")
-            appendLine("forecast_30=${formatNullable(state.forecast30m)} ci=[${formatNullable(state.forecast30mCiLow)}..${formatNullable(state.forecast30mCiHigh)}]")
-            appendLine("forecast_60=${formatNullable(state.forecast60m)} ci=[${formatNullable(state.forecast60mCiLow)}..${formatNullable(state.forecast60mCiHigh)}]")
-            appendLine("iob=${formatNullable(state.latestIobUnits)}U iob_real=${formatNullable(state.latestIobRealUnits)}U cob=${formatNullable(state.latestCobGrams)}g dia_h=${formatNullable(state.insulinRealOnsetMinutes?.div(60.0))}")
-            appendLine("isf_real=${formatNullable(state.isfCrRealtimeIsfEff)} isf_base=${formatNullable(state.isfCrRealtimeIsfBase)}")
-            appendLine("cr_real=${formatNullable(state.isfCrRealtimeCrEff)} cr_base=${formatNullable(state.isfCrRealtimeCrBase)}")
-            appendLine("isfcr_conf=${formatNullable(state.isfCrRealtimeConfidence)} quality=${formatNullable(state.isfCrRealtimeQualityScore)} mode=${state.isfCrRealtimeMode ?: "--"}")
-            appendLine("activity_ratio=${formatNullable(state.latestActivityRatio)} steps=${formatNullable(state.latestStepsCount)}")
-            appendLine("uam_calc_active=${state.calculatedUamActive ?: false} uci0=${formatNullable(state.calculatedUci0Mmol5m)} uam_carbs=${formatNullable(state.calculatedUamCarbsGrams)}")
-            appendLine("sensor_quality_score=${formatNullable(state.sensorQualityScore)} sensor_blocked=${state.sensorQualityBlocked ?: false}")
-            appendLine("adaptive_state=${state.controllerState ?: "--"} next_target=${formatNullable(state.controllerNextTarget)} confidence=${formatNullable(state.controllerConfidence)}")
-            appendLine("daily_report_generated_ts=${state.dailyReportGeneratedAtTs ?: 0}")
-            appendLine("daily_report_metrics:")
-            appendLine(reportMetrics)
-            appendLine("daily_replay_top_factors=$topFactors")
-            appendLine("daily_replay_hotspots=$hotspots")
-            appendLine("daily_recommendations=$recommendations")
-        }
+        return buildAiChatContextSummary(state, System.currentTimeMillis())
     }
 
     private fun formatNullable(value: Double?, decimals: Int = 2): String {

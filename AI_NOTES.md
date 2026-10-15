@@ -1,3 +1,31 @@
+# Parallel Owner AI Integration - 2026-10-15
+
+- User-requested parallel implementation uses three isolated source worktrees:
+  owner API composition, main Android server chat and signed history client.
+  Controller alone integrates DI/docs, runs common gates and publishes reviewed
+  paths. Workers have no production, phone, credential or medical-data access.
+- Main chat no longer requires24hours before asking a question. Context explicitly
+  separates missing/stale evidence, positive/net IOB, external/effective COB and
+  onset versus duration. Existing analytics/clinical safety gates remain intact.
+- Server context synchronization precedes one model job; configured server errors
+  cannot fall back to a personal key. Snapshot upload is not full Room-history
+  backfill, and text capabilities do not enable attachments/audio/speech.
+- Controller integration added long-analysis wait coverage, bounded-lossless
+  history fragments for full-length replies and clock-skew regression tests.
+  Fixed nullable-enum inference and test-fixture compilation/byte-boundary issues.
+- Main backend gate:879passed,26existing optional Nginx skips,1known warning;
+  scoped Ruff passed. Initial full Android run:5597tests,5590passed,6skipped,
+  one history-length issue. After fixing that private input check,123affected
+  AI/repository/connection/proof/context tests passed with zero failures or skips.
+  Unchanged clinical-test results are retained; this is not described as a second
+  zero-failure full-suite run. Final affected-test/lint/APK command succeeded in
+  29m28s; lint reports zero errors,321warnings and8hints(no findings in new
+  ServerAi/context-summary files). APK signature and package were independently
+  checked. This remains a development build, not an installed or deployed release.
+- No deployment, real provider turn, device update or
+  therapy change belongs to this source stage. Exact-head CI is checked separately
+  after reviewed source publication; actual provider/device admission remains open.
+
 # Trusted Text Supervisor Host - 2026-10-15
 
 - Added an explicit trusted Linux host CLI assembling the typed supervisor and

@@ -1,5 +1,22 @@
 # PLAN
 
+## Parallel Owner Chat Integration (2026-10-15)
+
+- Three isolated source workers: nonroot API composition, Android chat routing,
+  signed history transport/client. Controller owns DI, shared docs and one common
+  Android/backend gate. See the parallel-ai-integration plan for exact ownership.
+- Current controller changes remove the24hour chat lock and correct observational
+  context labels. Extended analytics/clinical thresholds remain unchanged.
+- Verification: backend879passed/26existing optional skips; initial Android
+  full5597tests found one history-length defect(5590passed/6skipped). The fix and
+  boundary cases passed123affected tests with no failures/skips. Final lint/APK
+  gates passed(zero lint errors); source publication/CI follow independently.
+  No service/device deployment is implied.
+- Remaining after source verification: real structured Room backfill with stable
+  IDs/revisions/timestamps, archive restoration UI, protected server provisioning,
+  kernel/network/storage/purge/restore/load admission and actual Redmi checks.
+  Multimodal support requires a separately verified server capability contract.
+
 ## Trusted Supervisor Entry Point (2026-10-15)
 
 - Added explicit Linux root host CLI, protected closed configuration, fixed

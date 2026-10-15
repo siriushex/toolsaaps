@@ -1,5 +1,32 @@
 # ARCHITECTURE
 
+## Owner API And Application Chat
+
+The explicit nonroot `app.ai.owner_api:create_app` factory composes the existing
+attested activation, signed jobs/history, encrypted per-device archive and typed
+supervisor client. Imports and the default backend app do not activate it. A
+protected descriptor supplies one owner, provisioned keys, dedicated storage,
+attestation trust and supervisor identity. The API never opens the login profile.
+
+Android AppContainer injects `ServerAiHistoryClient.syncChatContext` into
+`ServerAiChatGateway`, then into the ordinary chat repository. Server routing is
+decided before personal credentials; unloaded or configured/error states cannot
+silently use the legacy API. One immutable model submission follows successful
+context upload; correlation, bounded polling and cancellation remain explicit.
+
+The first adapter uploads a labelled current display snapshot and timestamp-free
+local chat observations, not a complete Room export. Typed structured upload and
+signed conversation reads are available independently. Display context preserves
+source/timestamp differences, unknowns, positive/net IOB and insulin onset units.
+Full supported text replies are retained as numbered observational fragments,
+bounded by actual encoded JSON size and Unicode code points; this never splits
+or repeats a model request. Current display context follows imported messages so
+the server's bounded latest-record selection retains it. Omitted older examples
+remain explicitly counted rather than represented as complete detailed context.
+Chat accepts limited history; extended-analysis readiness remains separate.
+Text-only capabilities do not imply image, audio or speech support. Clinical AI
+optimization and all therapy actions retain their existing paths and gates.
+
 ## Trusted Supervisor Host
 
 The explicit text_supervisor_host CLI assembles TextSupervisor/SystemdTextProcess

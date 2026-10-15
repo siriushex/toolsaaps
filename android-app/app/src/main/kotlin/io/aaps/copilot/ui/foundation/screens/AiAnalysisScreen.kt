@@ -2340,24 +2340,22 @@ private fun AiChatHeroCard(
                 onCheckedChange = onVoiceRepliesToggle
             )
         }
-        if (state.analysisReady) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
-            ) {
-                quickPrompts.forEach { prompt ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { onDraftChange(prompt) },
-                        label = {
-                            Text(
-                                text = prompt,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors()
-                    )
-                }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            quickPrompts.forEach { prompt ->
+                FilterChip(
+                    selected = false,
+                    onClick = { onDraftChange(prompt) },
+                    label = {
+                        Text(
+                            text = prompt,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    },
+                    colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors()
+                )
             }
         }
         if (state.chatMessages.isEmpty()) {
@@ -2442,7 +2440,7 @@ private fun AiChatHeroCard(
             }
             OutlinedButton(
                 onClick = if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy && state.analysisReady
+                enabled = !state.chatInProgress && !state.chatVoiceBusy
             ) {
                 Icon(
                     imageVector = if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
@@ -2466,8 +2464,7 @@ private fun AiChatHeroCard(
             }
             OutlinedButton(
                 onClick = onSend,
-                enabled = state.analysisReady &&
-                    !state.chatInProgress &&
+                enabled = !state.chatInProgress &&
                     !state.chatVoiceBusy &&
                     (state.chatDraft.isNotBlank() || state.chatPendingAttachments.isNotEmpty())
             ) {
