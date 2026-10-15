@@ -2,6 +2,12 @@
 
 ## Owner Chat Integration (2026-10-15)
 
+- CI concurrency follow-up: separate directory descriptions prevent overlapping
+  inventory cursors from interfering. Each descriptor is no-follow-checked,
+  identity-pinned and closed. Permanent inode/mode/owner/link and unknown-file
+  checks remain strict. Journal-race coverage now invokes storage directly and
+  asserts its fault hook ran; unauthenticated requests still stop before storage.
+
 - Owner API composes attestation/proofs and device-bound archive under a mandatory
   nonroot/private-storage descriptor. The narrow privileged supervisor remains
   separate; the API receives no profile tokens, shell or runtime command surface.

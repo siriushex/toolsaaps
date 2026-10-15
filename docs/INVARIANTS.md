@@ -7,6 +7,9 @@
   supervisor peer. No default activation, root API or bearer-only shortcut.
 - A lifetime lock prevents concurrent API owners. Unresolved executing claims
   block startup; unknown execution is never replay authority.
+- Concurrent inventories never share a lifetime directory cursor. Each owns a
+  fresh checked/pinned descriptor and closes it on success or failure. A storage
+  rejection is not permission to bypass guards or retry model submission.
 - Configured or not-yet-loaded server routing precedes personal-key reads and
   has no failure fallback. The repository rejects unsupported modalities before
   reading their files or personal credentials; this does not claim that the UI

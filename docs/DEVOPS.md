@@ -2,6 +2,12 @@
 
 ## Owner API Source Entry
 
+Storage validation runs concurrently with signed requests and worker admission.
+Inventory must use independent checked descriptors, not a shared lifetime cursor.
+The owner-api overlap regression checks ownership and descriptor cleanup; the
+journal fault test must assert its injection actually ran after authentication
+gates. Do not replace a503 assertion with retries that hide storage drift.
+
 `COPILOT_AI_OWNER_CONFIG` selects the mandatory protected descriptor documented
 in `backend/app/ai/owner_api.py`. Run `uvicorn app.ai.owner_api:create_app --factory`
 as the dedicated nonroot API user, one worker, ASGI lifespan enabled, behind the

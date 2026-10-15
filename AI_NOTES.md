@@ -1,3 +1,19 @@
+# Owner Inventory Concurrency - 2026-10-15
+
+- Exact-head CI exposed an intermittent503 on the signed job path: one backend
+  run failed while another passed. Reviewed overlapping storage checks sharing
+  the lifetime directory cursor; inventory now owns a separately opened,
+  no-follow-checked and identity-pinned descriptor and closes it on every exit.
+  Permanent file/lock identity, permissions, link and cardinality checks remain.
+- Added a deterministic overlapping-scan/descriptor-cleanup regression. Fixed
+  the journal-removal fault test to invoke inventory and assert its hook ran;
+  the previous unauthenticated request correctly stopped before storage work.
+- Full backend880passed,26existing optional Nginx skips,1known warning. Scoped
+  Ruff and whitespace checks passed. Android source/APK unchanged from the
+  verified123test/lint/build stage. No provider, server or phone action.
+- Publish this follow-up separately and verify both exact-head backend CI runs;
+  one successful run alone is not a substitute for addressing the failed check.
+
 # Parallel Owner AI Integration - 2026-10-15
 
 - User-requested parallel implementation uses three isolated source worktrees:

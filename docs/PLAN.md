@@ -2,6 +2,11 @@
 
 ## Parallel Owner Chat Integration (2026-10-15)
 
+- CI follow-up: isolate inventory directory cursors after an intermittent signed
+  status503. Deterministic overlap and real journal-fault coverage added; backend
+  880passed/26existing skips. Android remains unchanged. Verify the follow-up's
+  exact CI head, not a single passing run at the earlier commit.
+
 - Three isolated source workers: nonroot API composition, Android chat routing,
   signed history transport/client. Controller owns DI, shared docs and one common
   Android/backend gate. See the parallel-ai-integration plan for exact ownership.

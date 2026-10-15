@@ -1,5 +1,6 @@
 import asyncio
 import base64
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 import hashlib
 import json
@@ -9,6 +10,7 @@ import sqlite3
 import stat
 import struct
 from threading import Event
+import traceback
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -35,7 +37,7 @@ CHECK_SUPERVISOR = owner._check_supervisor
 
 @pytest.fixture(autouse=True)
 def protected_test_anchor(tmp_path, monkeypatch):
-    # The developer home has mode 0777. Keep production's full ancestor refusal;
+    # Development ancestors may be writable. Keep production's full refusal;
     # synthetic tests start their no-follow walk at their private fixture only.
     # Our focused run places these fixtures inside the assigned worktree.
     anchor = tmp_path.resolve()
@@ -291,8 +293,22 @@ def refresh_http(run, key, tokens):
                              now=run.clock()), key))
 
 
-def test_signed_history_context_job_and_archive_keep_existing_contracts(running):
+def test_signed_history_context_job_and_archive_keep_existing_contracts(running, monkeypatch):
     run = running
+    rejected_checks = []
+    original_check = run.resources.check
+
+    def checked_storage():
+        try:
+            return original_check()
+        except Exception as error:
+            frames = traceback.extract_tb(error.__traceback__)
+            rejected_checks.append((type(error).__name__, [
+                f"{frame.name}:{frame.lineno}" for frame in frames if frame.filename == owner.__file__
+            ]))
+            raise
+
+    monkeypatch.setattr(run.resources, "check", checked_storage)
     assert signed_post(run.client, run.key, run.tokens, "batches", batch()).status_code == 200
     path = "/api/ai/v1/capabilities"
     capabilities = signed_get(run.client, run.key, run.tokens, path).json()
@@ -303,7 +319,12 @@ def test_signed_history_context_job_and_archive_keep_existing_contracts(running)
     response = submit(run.client, run.key, run.tokens, body, request_id=request_id, deadline_ms=deadline)
     assert response.status_code == 202
     job_id = response.json()["job_id"]
-    final = wait_for_terminal(run.client, run.key, run.tokens, job_id).json()
+    try:
+        final = wait_for_terminal(run.client, run.key, run.tokens, job_id).json()
+    except AssertionError:
+        if rejected_checks:
+            pytest.fail(f"protected storage rejected: {rejected_checks}", pytrace=False)
+        raise
     assert final["state"] == "SUCCEEDED" and final["result"] == {"text": "Synthetic answer"}
     assert submit(run.client, run.key, run.tokens, body, request_id=request_id,
                   deadline_ms=deadline).json()["job_id"] == job_id
@@ -739,13 +760,15 @@ def test_resources_are_not_used_without_lifespan(provisioned):
 def test_sqlite_journal_removal_during_inventory_is_normal_not_storage_drift(provisioned, monkeypatch):
     path, _ = provisioned
     app = owner.create_owner_api(path, clock_ms=lambda: NOW + 2)
-    with TestClient(app) as client:
+    with TestClient(app):
         root = app.resources.roots["proofs"]
         original = owner.os.scandir
+        inspected = []
         class RemovedJournal:
             name = "proofs.sqlite-journal"
             def stat(self, *, follow_symlinks):
                 assert follow_symlinks is False
+                inspected.append(True)
                 raise FileNotFoundError()
         class Scan:
             def __enter__(self):
@@ -753,10 +776,47 @@ def test_sqlite_journal_removal_during_inventory_is_normal_not_storage_drift(pro
             def __exit__(self, *args):
                 pass
         def racing_scan(path):
-            return Scan() if path == root.fd else original(path)
+            target = type(path) is int and owner._identity(os.fstat(path))[:2] == root.identity[:2]
+            return Scan() if target else original(path)
         monkeypatch.setattr(owner.os, "scandir", racing_scan)
-        assert client.get("/api/ai/v1/session/status").status_code == 401
+        root.inventory({"proofs.sqlite", "proofs.sqlite-journal"})
+        assert inspected == [True]
         assert not app._unavailable
+
+
+def test_overlapping_inventories_own_independent_directory_descriptions(provisioned, monkeypatch):
+    _, value = provisioned
+    with ExitStack() as stack:
+        root = owner._Root(Path(value["roots"]["proofs"]), stack)
+        root.database("proofs.sqlite")
+        original = owner.os.scandir
+        active, scanned = set(), []
+        nested = False
+
+        @contextmanager
+        def overlapping_scan(fd):
+            nonlocal nested
+            assert fd != root.fd
+            assert fd not in active
+            assert owner._identity(os.fstat(fd))[:5] == root.identity
+            scanned.append(fd)
+            active.add(fd)
+            try:
+                with original(fd) as entries:
+                    if not nested:
+                        nested = True
+                        root.inventory({"proofs.sqlite"})
+                    yield entries
+            finally:
+                active.remove(fd)
+
+        monkeypatch.setattr(owner.os, "scandir", overlapping_scan)
+        root.inventory({"proofs.sqlite"})
+        assert len(scanned) == 2 and not active
+        assert os.fstat(root.fd).st_ino == root.identity[1]
+        for fd in scanned:
+            with pytest.raises(OSError):
+                os.fstat(fd)
 
 
 def test_startup_purges_expired_archive_without_reconstructing_outcomes(provisioned):

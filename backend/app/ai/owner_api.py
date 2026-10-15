@@ -302,20 +302,26 @@ class _Root:
             os.close(fd)
 
     def inventory(self, allowed):
-        self.check()
-        with os.scandir(self.fd) as entries:
-            for index, entry in enumerate(entries):
-                if index >= len(allowed) or entry.name not in allowed:
-                    raise ValueError()
-                try:
-                    info = entry.stat(follow_symlinks=False)
-                except FileNotFoundError:
-                    # SQLite deletes rollback journals after commit. Permanent
-                    # database and lock identities must still remain present.
-                    if entry.name.endswith("-journal"):
-                        continue
-                    raise
-                _file(info, private_owner=True)
+        # Concurrent scans must not share a directory cursor or rewind each other.
+        fd = _directory(self.path)
+        try:
+            if _identity(os.fstat(fd))[:5] != self.identity:
+                raise ValueError()
+            with os.scandir(fd) as entries:
+                for index, entry in enumerate(entries):
+                    if index >= len(allowed) or entry.name not in allowed:
+                        raise ValueError()
+                    try:
+                        info = entry.stat(follow_symlinks=False)
+                    except FileNotFoundError:
+                        # SQLite deletes rollback journals after commit. Permanent
+                        # database and lock identities must still remain present.
+                        if entry.name.endswith("-journal"):
+                            continue
+                        raise
+                    _file(info, private_owner=True)
+        finally:
+            os.close(fd)
 
     def database(self, name):
         try:

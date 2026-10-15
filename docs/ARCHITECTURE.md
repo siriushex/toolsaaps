@@ -2,6 +2,11 @@
 
 ## Owner API And Application Chat
 
+Every private inventory scan owns an independently opened, no-follow-checked
+directory descriptor pinned to its expected identity. Lifetime database/root
+descriptors are not reused for concurrent iteration; scans close their own
+descriptors without weakening file/lock identity or permission checks.
+
 The explicit nonroot `app.ai.owner_api:create_app` factory composes the existing
 attested activation, signed jobs/history, encrypted per-device archive and typed
 supervisor client. Imports and the default backend app do not activate it. A

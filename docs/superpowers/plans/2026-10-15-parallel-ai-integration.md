@@ -64,3 +64,10 @@ are fixed before publication; results do not establish actual host/device rollou
   retest does not represent a second zero-failure complete-suite run.
 - Pending: publish exact reviewed source and inspect its CI. Actual operational
   admission, full structured history and capability-aware UI remain later work.
+
+Source04f2842was published and exact-head checks inspected. One push backend job
+returned503 in signed integration while the PR job passed. Follow-up isolates
+directory scan descriptors, retains all permanent metadata guards and corrects
+the journal fault test's storage entry point. Backend880passed locally; no
+Android change or extra real model turn. Publish the reviewed follow-up and
+verify both backend CI jobs; Android CI remains independent.
