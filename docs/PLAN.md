@@ -1,5 +1,24 @@
 # PLAN
 
+## Full-Context AI Framing (2026-10-17)
+
+- [x] Trace the 128 KiB context/64 KiB native-line mismatch; four new synthetic
+  regressions fail at parser/pipe limits before the production fix.
+- [x] Share the bounded JSON-escape-aware native line cap, preserving aggregate
+  stream/event/answer and source/tool/cancellation/stop controls.
+- [x] Final focused 238 tests pass, including max-input ASCII/UTF-8 and escaped
+  controls through real child pipes, supervisor, two echoes and positive stop.
+- [x] Full backend: 1553 passed/27 existing opt-in skips, zero failures/errors.
+  Scoped E/F lint and Python compilation pass. Three pre-existing imported
+  pytest-fixture F811 findings are verified against HEAD and excluded only in
+  that test file. Diff/source/security/docs reviewed; no new blocking finding.
+- [ ] Reviewed source publication and exact-head Verify inspection.
+- [ ] Separately authorized target-host rollout and actual model/device outcome.
+
+No real model request, server deployment, Android change or nightly scheduler
+activation is part of this source stage. A reproducible synthetic defect does
+not establish the cause of an individual operational failure.
+
 ## Food Eating Soon Follow-through (2026-10-17)
 
 - [x] Trace plus/Food through the same manual target channel and current safety

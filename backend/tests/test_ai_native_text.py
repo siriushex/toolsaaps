@@ -4,7 +4,9 @@ import json
 
 import pytest
 
-from app.ai.native_text import NativeTextError, NativeTextSession, TextSessionPolicy, restricted_catalog
+from app.ai.native_text import (
+    NATIVE_LINE_LIMIT, NativeTextError, NativeTextSession, TextSessionPolicy, restricted_catalog,
+)
 
 
 MODEL = "sample-model"
@@ -59,6 +61,51 @@ def test_completed_text_uses_one_ephemeral_turn_and_preserves_model_settings():
     assert params["ephemeral"] is True
     assert "reasoningEffort" not in params
     assert transport.sent[3]["params"]["environments"] == []
+
+
+@pytest.mark.parametrize("text", ["x" * 70_000, "\u0430" * 20_000, "\0" * 12_000],
+                         ids=["ascii", "unicode-json", "escaped-control"])
+def test_full_context_user_echo_fits_the_admitted_input_without_a_second_turn(text):
+    frames = transcript()
+    echo = {"method": "item/completed", "params": {
+        "threadId": "sample-thread", "turnId": "sample-turn",
+        "item": {"id": "sample-user", "type": "userMessage", "content": [
+            {"type": "text", "text": text, "textElements": []}]}}}
+    raw = json.dumps(echo).encode()
+    assert len(raw) > 65_536
+    assert len(text.encode()) <= POLICY.max_input_bytes
+    frames.insert(6, raw)
+    started = copy.deepcopy(echo)
+    started["method"] = "item/started"
+    frames.insert(6, json.dumps(started).encode())
+    result, transport = run(frames, text=text)
+    assert result == {"text": "Synthetic answer"}
+    assert sum(value["method"] == "turn/start" for value in transport.sent) == 1
+
+
+def test_native_frame_cap_remains_bounded_inside_the_unchanged_session_budget():
+    assert NATIVE_LINE_LIMIT == 6 * POLICY.max_input_bytes + 1024
+    assert NATIVE_LINE_LIMIT < POLICY.max_stream_bytes == 1_048_576
+    assert POLICY.max_events == 2048
+    with pytest.raises(NativeTextError, match="text_line_limit"):
+        run([b"x" * (NATIVE_LINE_LIMIT + 1)])
+
+
+@pytest.mark.parametrize("change,code", [
+    (lambda value: value["params"].update(turnId="foreign-turn"), "correlation"),
+    (lambda value: value["params"]["item"].update(type="commandExecution"), "tool_rejected"),
+    (lambda value: value.update(method="unrecognized"), "notification_rejected"),
+], ids=["foreign-turn", "tool", "unknown-event"])
+def test_large_frames_do_not_bypass_correlation_or_event_permissions(change, code):
+    frames = transcript()
+    value = {"method": "item/completed", "params": {
+        "threadId": "sample-thread", "turnId": "sample-turn",
+        "item": {"type": "userMessage", "content": "sample-private" * 6000}}}
+    change(value)
+    frames.insert(6, value)
+    with pytest.raises(NativeTextError, match=code) as error:
+        run(frames)
+    assert "sample-private" not in str(error.value)
 
 
 def test_completion_before_rpc_ack_is_correlated_to_the_acknowledged_turn():

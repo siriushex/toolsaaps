@@ -15,16 +15,16 @@ import subprocess
 import sys
 from uuid import UUID
 
-from .native_text import NATIVE_SETTINGS, TextSessionPolicy
+from .native_text import NATIVE_LINE_LIMIT, NATIVE_SETTINGS, TextSessionPolicy
 from .runtime_admission import OfficialEgress, RuntimeImage, _parents, _path
 from .session_profile import ProfileError, SessionProfileGuard
 from .systemd_stop import FIELDS, SystemdStopVerifier
 
 START_SECONDS = 12
 PIPE_SECONDS = 2
-LINE_LIMIT = 65536
+LINE_LIMIT = NATIVE_LINE_LIMIT
 STDERR_LIMIT = 32768
-SEND_LIMIT = 6 * 131072 + 1024
+SEND_LIMIT = NATIVE_LINE_LIMIT
 GATE = 'printf "READY\\n"; IFS= read -r gate; [ "$gate" = START ] || exit 70; exec "$@"'
 # These native compatibility keys are fixed upstream API names, not identifiers.
 NATIVE_ENV = {

@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Bounded Native Context Echoes
+
+- Native pipe and parser share the finite 6*131072+1024-byte line bound so an
+  already admitted full context can return as an escaped user-message event.
+- This does not raise the 128 KiB input, 1 MiB aggregate stream, 2048-event or typed
+  answer limit. Oversized, malformed, foreign, tool and unknown frames still
+  fail closed with fixed codes; no raw content enters errors or metadata.
+- Two full-size echo notifications must cross actual child pipes and the Unix
+  supervisor path without a second turn. Stop/IO confirmation remains required.
+- This source fix alone grants no deployment, provider call, daily schedule,
+  medical-data transfer, clinical validity or therapy authority.
+
 ## Independent Observation Authority
 
 - Observation is explicit, defaults off and is bound to the no-backup install

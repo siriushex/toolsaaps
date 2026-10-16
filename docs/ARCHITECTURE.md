@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Full-Context Native Framing
+
+Native user-message notifications can echo an admitted 128 KiB text input. The
+shared pipe/parser line cap is now 6*131072+1024 bytes, covering JSON escaping
+and bounded envelope overhead. A fixed 64 KiB pipe could otherwise reject valid
+context before the answer. The same constant bounds outgoing native messages;
+the independent 1 MiB aggregate session, 2048-event and typed answer limits remain.
+No model, prompt, tool, provider, ownership, retry or daily activation changes.
+
 ## Independent Local Observation
 
 An explicit install-bound localObservationEnabled preference permits the local

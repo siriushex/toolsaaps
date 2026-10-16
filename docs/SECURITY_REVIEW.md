@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Bounded Full-Context Frames (2026-10-17)
+
+- Full admitted text can be echoed by native item events. Pipe/parser now share
+  a finite 6*131072+1024-byte line cap instead of rejecting valid data at 64 KiB.
+  This increases the maximum single buffered line, not the accepted user input
+  or total 1 MiB native stream. No unbounded read or raw-output logging is added.
+- Existing strict JSON, correlation, tool denial, typed answer and event-count
+  checks remain. New large-frame tests reject foreign turns, tools, unknown
+  events and over-cap data without disclosing their content. Actual local child
+  pipes cover full ASCII/UTF-8 inputs, escaping and stop-confirmed results.
+- Runtime memory/CPU/network/profile admission and cleanup identity are unchanged.
+  Synthetic host tests are not a target-host resource measurement or evidence of
+  clinical correctness. No provider/deployment/nightly/therapy authority added.
+
 ## Glucose Alarm Runtime Integration (2026-10-16)
 
 - Private specialUse service and private ACK receiver; immutable PendingIntents,

@@ -1,5 +1,21 @@
 # DEVOPS
 
+## Full-Context Native Frame Correction (2026-10-17)
+
+Source-only correction: the shared bounded native pipe/parser line cap covers
+the existing 128 KiB input with worst-case JSON escaping. No runtime binary,
+network admission, service, schema, model or profile change is performed here.
+The original contained-text design's 64 KiB line assumption is superseded by
+6*131072+1024 bytes; its 1 MiB session and other independent limits remain.
+
+Before any rollout, run the full backend suite and the native text/process,
+supervisor/host, contextual-chat, vision and daily-worker checks. Publish only
+reviewed source/tests/docs. Stage a new immutable server image under an explicit
+operational plan; do not edit an active pinned image, copy login credentials,
+reset uncertain claims or automatically replay failed/unknown model jobs.
+An actual bounded provider test and intended-device result remain separate
+acceptance gates. This repair does not enable the 05:00 daily review pipeline.
+
 ## Foreground Glucose Alarms
 
 The new local runtime is off by default; source publication does not enable it

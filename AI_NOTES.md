@@ -1,3 +1,26 @@
+# Full-Context AI Framing - 2026-10-17
+
+- Found a source-level mismatch: text input accepts 128 KiB but native parser and
+  child pipe each accepted only 64 KiB per line. Native user-message events may
+  echo the full input, including JSON escaping. Four synthetic tests failed at
+  these two boundaries before the fix; compact test IDs avoid payload-like logs.
+- Both transports now share 6*131072+1024 bytes per native line, matching the
+  existing worst-case outgoing JSON bound. Independent 1 MiB aggregate stream,
+  2048-event, input/typed-answer caps, model/settings/correlation/tool checks and
+  independent stop requirements remain unchanged. No retry or fallback added.
+- Focused 238 cases pass across native text/vision, contextual chat, dedicated
+  daily worker, trusted host and supervisor. New real-child tests carry maximum
+  ASCII/UTF-8 inputs and escaped controls through two echoed events, returning
+  only after cleanup. Over-limit flooding still stops without hanging pipes.
+- Full backend: 1553 passed/27 existing opt-in skips, zero failures/errors and one
+  existing dependency deprecation warning. Scoped E/F lint, compile and source/
+  security/docs review pass. Three fixture-import F811 findings were reproduced
+  on HEAD and excluded only for that test file; no unrelated fixture rewrite.
+  Source publication and exact-head CI are separate receipts. No real model
+  request, server/credential/profile change, phone/APK or therapy operation.
+- This repair does not activate the protected daily dispatcher/schedule/read
+  pipeline. Synthetic reproduction is not proof of a live failure's cause.
+
 # Food Eating Soon Follow-through - 2026-10-17
 
 - Source trace found optional research persistence preceding the manual target

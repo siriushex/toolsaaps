@@ -152,6 +152,47 @@ def test_supervisor_channel_with_actual_child_pipes_completes_after_stop(host):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("text", ["x" * 131_072, "\u0430" * 65_536, "\0" * 32_768],
+                         ids=["max-ascii", "max-utf8", "json-controls"])
+def test_full_context_crosses_supervisor_and_real_child_pipes(host, monkeypatch, text):
+    process, events, children, calls, original_spawn = host
+    source = (
+        "import json,sys\n"
+        "print('READY',flush=True)\n"
+        "if sys.stdin.readline()!='START\\n':sys.exit(70)\n"
+        "frames=json.loads(sys.argv[1])\n"
+        "for line in sys.stdin:\n"
+        " value=json.loads(line)\n"
+        " if value.get('id')==1: print(json.dumps(frames[0]),flush=True)\n"
+        " if value.get('id')==2:\n"
+        "  for frame in frames[1:4]: print(json.dumps(frame),flush=True)\n"
+        " if value.get('id')==3:\n"
+        "  for frame in frames[4:6]: print(json.dumps(frame),flush=True)\n"
+        "  for method in ('item/started','item/completed'):\n"
+        "   print(json.dumps({'method':method,'params':{'threadId':'sample-thread',"
+        "'turnId':'sample-turn','item':{'id':'sample-user','type':'userMessage',"
+        "'content':value['params']['input']}}}),flush=True)\n"
+        "  for frame in frames[6:]: print(json.dumps(frame),flush=True)\n"
+    )
+    async def spawn(*args, **kwargs):
+        calls.append((args, kwargs))
+        child = await original_spawn(sys.executable, "-u", "-c", source,
+                                     json.dumps(transcript()), **kwargs)
+        children.append(child)
+        events.append("spawned")
+        return child
+    monkeypatch.setattr(native.asyncio, "create_subprocess_exec", spawn)
+    async def scenario():
+        async with serving(lambda: process) as (_, path):
+            runner = SupervisorTextRunner(path, PEER, POLICY)
+            assert await runner.run(text, POLICY) == {"text": "Synthetic answer"}
+            assert await runner.stop_and_confirm()
+            assert events[-3:] == ["stopped", "idle", "unlocked"]
+            assert all(child.returncode is not None for child in children)
+    asyncio.run(scenario())
+    assert len(calls) == 1
+
+
 def test_kernel_failure_keeps_gate_closed_and_stops_exact_invocation(host, monkeypatch):
     process, events, _, _, _ = host
     def refuse(*args):
@@ -210,10 +251,11 @@ def test_unknown_stop_withholds_result_and_supervisor_capacity(host, monkeypatch
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("raw", [b"unterminated", b"x" * 65537 + b"\n", b""])
+@pytest.mark.parametrize("raw", [b"unterminated", b"x" * (native.LINE_LIMIT + 1) + b"\n", b""],
+                         ids=["unterminated", "over-limit", "eof"])
 def test_pipe_transport_rejects_eof_and_oversized_or_unterminated_lines(raw):
     async def scenario():
-        process = type("Pipes", (), {"stdout": asyncio.StreamReader(limit=65536),
+        process = type("Pipes", (), {"stdout": asyncio.StreamReader(limit=native.LINE_LIMIT),
             "stderr": asyncio.StreamReader()})()
         process.stdout.feed_data(raw)
         process.stdout.feed_eof()
@@ -222,6 +264,26 @@ def test_pipe_transport_rejects_eof_and_oversized_or_unterminated_lines(raw):
         with pytest.raises(native.ProcessError):
             await transport.receive()
         await transport.error_reader
+    asyncio.run(scenario())
+
+
+def test_pipe_budget_carries_full_admitted_context_echo():
+    async def scenario():
+        raw = json.dumps({"method": "item/completed", "params": {
+            "threadId": "sample-thread", "turnId": "sample-turn",
+            "item": {"type": "userMessage", "content": [
+                {"type": "text", "text": "x" * 98_304, "textElements": []}]}}}).encode() + b"\n"
+        assert len(raw) > 65_536
+        process = SimpleNamespace(stdout=asyncio.StreamReader(limit=native.PipeTextTransport.line_limit),
+                                  stderr=asyncio.StreamReader())
+        process.stdout.feed_data(raw)
+        process.stdout.feed_eof()
+        process.stderr.feed_eof()
+        transport = native.PipeTextTransport(process)
+        try:
+            assert await transport.receive() == raw
+        finally:
+            await transport.error_reader
     asyncio.run(scenario())
 
 
@@ -383,7 +445,8 @@ def test_gate_timeout_is_reconciled_without_releasing_native_input(host, monkeyp
 def test_large_native_line_is_discarded_after_stop_without_hanging_pipe_wait(host, monkeypatch):
     process, events, children, _, original_spawn = host
     async def flooding(*args, **kwargs):
-        source = "import sys; print('READY',flush=True); sys.stdin.readline(); print('x'*180000,flush=True); sys.stdin.read()"
+        source = ("import sys; print('READY',flush=True); sys.stdin.readline(); "
+                  f"print('x'*{native.LINE_LIMIT + 1},flush=True); sys.stdin.read()")
         child = await original_spawn(sys.executable, "-u", "-c", source, **kwargs)
         children.append(child)
         events.append("spawned")

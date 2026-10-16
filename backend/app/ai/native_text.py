@@ -35,6 +35,8 @@ NATIVE_SETTINGS = tuple(f"features.{key}=false" for key in DISABLED_FEATURES) + 
     'model_catalog_json="/work/text-model.json"',
 )
 STARTUP_NOTICE_SHA256 = "0423500be79523998b914735593b9d7a2a3bde53601c0f60bd51ae9bac1a6ba1"
+# Native user-message events can echo the full input with JSON escaping.
+NATIVE_LINE_LIMIT = 6 * 131_072 + 1024
 
 
 def restricted_catalog(catalog: dict, model: str) -> dict:
@@ -80,7 +82,7 @@ def _unique(pairs):
 class _NativeSession:
     """Shared correlation/notification checks, not a public input interface."""
 
-    line_limit = 65_536
+    line_limit = NATIVE_LINE_LIMIT
 
     def __init__(self, transport, policy):
         self.transport, self.policy = transport, policy
