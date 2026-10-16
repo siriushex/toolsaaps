@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Daily Idle Capacity (2026-10-16)
+
+- DAILY_REVIEW-only metadata method, shared strict request validation and exact
+  conflict binding. No selectable kind, provider capability, payload or new public
+  caller. Atomic idle check/reservation/claim prevents check-then-act races.
+- Busy creates no phantom owner/waiting reservation. Existing requests in any
+  state return audit Job without token recovery. Failed commit rolls back;
+  lost acknowledgement/restart cannot reissue the original claim. Unknown stop
+  keeps running capacity held, independent of deadline. Wrong tokens fail.
+- Normal legacy daily claim checks pending non-daily priority in the same
+  serialized transaction; otherwise the new path could be bypassed. Non-daily
+  claims/normal reservations unchanged; all affected shared regressions required.
+- Metadata priority is not model/OS admission or preemption. New interactive
+  arrivals may wait after daily admission; no starvation/latency guarantee. No
+  stale-file restoration, arbitrary claim API, process/profile/model, source
+  scan, queue handoff/result, provider/scheduler/therapy or host activation.
+- Tests use synthetic metadata and multiple SQLite connections/controlled races,
+  not actual native processes, medical data, host capacity or phone acceptance.
+
 ## Daily Result Archive (2026-10-16)
 
 - Private sink reached only by exact worker/executor composition after confirmed

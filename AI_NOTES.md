@@ -1,3 +1,24 @@
+# Atomic Daily Idle Capacity - 2026-10-16
+
+- Adds internal DAILY_REVIEW-only reserve-and-claim under one metadata transaction.
+  All active work defers a fresh daily job without creating an owner/waiting row.
+  Existing requests return audit metadata, never reissued claim tokens. Shared
+  request validation/conflict binding retains normal reservation semantics.
+- Initial3-case missing-method RED observed. Expanded review exposed the legacy
+  daily claim path bypassing an already waiting chat; separate RED fixed through
+  a shared-transaction pending non-daily gate, without changing non-daily claims.
+- Final76 new synthetic cases/230 focused checks pass, including all active kinds/
+  states, terminal/legacy duplicates, expiry/cancellation, scoped/malformed input,
+  ordered concurrent races, restart and before/after commit uncertainty. Complete
+  backend1542 passed/27 existing opt-in skips, no failures/errors; one existing
+  dependency deprecation. Scoped E/F lint, new-test format, compile, diff/source/
+  security/docs review pass. Publication/exact-head CI remain separate gates.
+- No operational caller, schema, dispatcher/native supervisor/provider/profile/
+  model, queue handoff/result, schedule, host, real data, phone/APK or therapy
+  operation. This is prior-waiter priority, not preemption/zero latency. A RUNNING
+  claim needs a separately owned trusted lifecycle, not the old QUEUED-only
+  execute entrypoint or a caller receipt. See DAILY_IDLE_CAPACITY.md.
+
 # Durable Daily Review Results - 2026-10-16
 
 - Adds internal exact worker/executor composition and private encrypted result

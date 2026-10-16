@@ -10,6 +10,7 @@ import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (Column, Index, Integer, MetaData, String, Table,
@@ -71,6 +72,13 @@ class Claim:
     token: str
 
 
+@dataclass(frozen=True)
+class DailyAdmission:
+    disposition: Literal["ADMITTED", "DEFERRED", "RECORDED"]
+    job: Job | None
+    claim: Claim | None
+
+
 def _uuid(value):
     if not isinstance(value, str) or str(UUID(value)) != value:
         raise ValueError("canonical_uuid_required")
@@ -79,6 +87,39 @@ def _uuid(value):
 def _time(value):
     if type(value) is not int or not 0 < value < 2**63:
         raise ValueError("invalid_timestamp")
+
+
+def _request_values(*, owner_id, request_id, kind, digest, route_revision,
+                    deadline_ms, now_ms, session_id, key_hash, max_deadline_ms):
+    _uuid(owner_id)
+    _uuid(request_id)
+    _time(now_ms)
+    _time(deadline_ms)
+    if (session_id is None) != (key_hash is None):
+        raise ValueError("invalid_request_binding")
+    if session_id is not None:
+        _uuid(session_id)
+        if not isinstance(key_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", key_hash):
+            raise ValueError("invalid_request_binding")
+    if (not isinstance(kind, str) or kind not in KINDS
+            or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest)):
+        raise ValueError("invalid_request_metadata")
+    if type(max_deadline_ms) is not int or not 0 < max_deadline_ms <= 900_000:
+        raise ValueError("invalid_deadline")
+    if (not isinstance(route_revision, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", route_revision)):
+        raise ValueError("invalid_route_revision")
+    return dict(owner_id=owner_id, request_id=request_id, kind=kind, digest=digest,
+                route_revision=route_revision, deadline_ms=deadline_ms,
+                session_id=session_id, key_hash=key_hash)
+
+
+def _existing_request(db, values):
+    row = db.execute(select(jobs).where(jobs.c.owner_id == values["owner_id"],
+        jobs.c.kind == values["kind"], jobs.c.request_id == values["request_id"])).mappings().first()
+    if row and any(row[key] != value for key, value in values.items()):
+        raise LedgerError("request_conflict")
+    return row
 
 
 def _job(row):
@@ -139,34 +180,14 @@ class JobLedger:
                      session_id: str | None = None,
                      key_hash: str | None = None,
                      max_deadline_ms: int = 900_000) -> tuple[Job, bool]:
-        _uuid(owner_id)
-        _uuid(request_id)
-        _time(now_ms)
-        _time(deadline_ms)
-        if (session_id is None) != (key_hash is None):
-            raise ValueError("invalid_request_binding")
-        if session_id is not None:
-            _uuid(session_id)
-            if not isinstance(key_hash, str) or not re.fullmatch(r"[a-f0-9]{64}", key_hash):
-                raise ValueError("invalid_request_binding")
-        if (not isinstance(kind, str) or kind not in KINDS
-                or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest)):
-            raise ValueError("invalid_request_metadata")
-        if type(max_deadline_ms) is not int or not 0 < max_deadline_ms <= 900_000:
-            raise ValueError("invalid_deadline")
-        if (not isinstance(route_revision, str)
-                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", route_revision)):
-            raise ValueError("invalid_route_revision")
+        values = _request_values(owner_id=owner_id, request_id=request_id, kind=kind,
+            digest=digest, route_revision=route_revision, deadline_ms=deadline_ms,
+            now_ms=now_ms, session_id=session_id, key_hash=key_hash,
+            max_deadline_ms=max_deadline_ms)
         with self._write() as db:
             self._expire(db, now_ms)
-            existing = db.execute(select(jobs).where(jobs.c.owner_id == owner_id,
-                jobs.c.kind == kind, jobs.c.request_id == request_id)).mappings().first()
+            existing = _existing_request(db, values)
             if existing:
-                if any(existing[key] != value for key, value in
-                       (("digest", digest), ("route_revision", route_revision),
-                        ("deadline_ms", deadline_ms), ("session_id", session_id),
-                        ("key_hash", key_hash))):
-                    raise LedgerError("request_conflict")
                 return _job(existing), False
             if not now_ms < deadline_ms <= now_ms + max_deadline_ms:
                 raise ValueError("invalid_deadline")
@@ -176,11 +197,41 @@ class JobLedger:
             if db.scalar(select(func.count()).select_from(jobs).where(jobs.c.state == "QUEUED")) >= self.max_waiting:
                 raise LedgerError("queue_full")
             job_id = str(uuid4())
-            db.execute(jobs.insert().values(id=job_id, owner_id=owner_id, request_id=request_id,
-                session_id=session_id, key_hash=key_hash, kind=kind, digest=digest,
-                route_revision=route_revision, deadline_ms=deadline_ms,
+            db.execute(jobs.insert().values(id=job_id, **values,
                 created_ms=now_ms, state="QUEUED"))
             return _job(self._find(db, owner_id, job_id)), True
+
+    def reserve_and_claim_daily(self, *, owner_id: str, request_id: str, digest: str,
+                                route_revision: str, deadline_ms: int, now_ms: int,
+                                session_id: str | None = None, key_hash: str | None = None,
+                                max_deadline_ms: int = 900_000) -> DailyAdmission:
+        """Issue fresh daily capacity only at an idle transaction boundary.
+
+        This metadata claim does not admit a provider or start a worker. Existing
+        requests never receive their token again, including after an uncertain
+        commit. Work queued before this transaction always blocks new admission.
+        """
+        values = _request_values(owner_id=owner_id, request_id=request_id, kind="DAILY_REVIEW",
+            digest=digest, route_revision=route_revision, deadline_ms=deadline_ms,
+            now_ms=now_ms, session_id=session_id, key_hash=key_hash,
+            max_deadline_ms=max_deadline_ms)
+        with self._write() as db:
+            self._expire(db, now_ms)
+            existing = _existing_request(db, values)
+            if existing:
+                if now_ms < max(existing["created_ms"], existing["started_ms"] or 0,
+                                existing["finished_ms"] or 0):
+                    raise ValueError("clock_regression")
+                return DailyAdmission("RECORDED", _job(existing), None)
+            if not now_ms < deadline_ms <= now_ms + max_deadline_ms:
+                raise ValueError("invalid_deadline")
+            if db.scalar(select(jobs.c.id).where(jobs.c.state.in_(ACTIVE)).limit(1)):
+                return DailyAdmission("DEFERRED", None, None)
+            job_id, token = str(uuid4()), str(uuid4())
+            db.execute(jobs.insert().values(id=job_id, **values, created_ms=now_ms,
+                state="RUNNING", started_ms=now_ms, claim_token=token))
+            job = _job(self._find(db, owner_id, job_id))
+            return DailyAdmission("ADMITTED", job, Claim(job, token))
 
     def abandon_queued(self, *, now_ms: int) -> int:
         """Mark payload-less jobs unavailable when a volatile runtime starts."""
@@ -217,6 +268,9 @@ class JobLedger:
             if now_ms < row["created_ms"]:
                 raise ValueError("clock_regression")
             if db.scalar(select(func.count()).select_from(jobs).where(jobs.c.state.in_(EXECUTING))):
+                return None
+            if row["kind"] == "DAILY_REVIEW" and db.scalar(select(jobs.c.id).where(
+                    jobs.c.state == "QUEUED", jobs.c.kind != "DAILY_REVIEW").limit(1)):
                 return None
             token = str(uuid4())
             db.execute(update(jobs).where(jobs.c.id == job_id).values(

@@ -1,5 +1,25 @@
 # PLAN
 
+## Atomic Daily Capacity (2026-10-16)
+
+- [x] Inspect shared ledger/executor and daily lifecycle, choose idle-only metadata
+  scope and observe initial3-case RED. No dispatcher/provider activation.
+- [x] Share request/conflict validation; atomically create one RUNNING daily claim
+  only while idle. Busy adds no row; any duplicate returns no claim authority.
+- [x] Separate RED reproduced legacy daily claim bypass of a waiting chat; fixed
+  inside the shared claim transaction. Non-daily/normal reserve behavior retained.
+- [x] Final76 new synthetic cases/230 focused pass: kind/state priority, expiry,
+  cancellation/stop, all terminal/legacy duplicates, malformed/scoped/conflicting
+  metadata, restart, multiple connections/ordered races and commit uncertainty.
+- [x] Full backend1542 passed/27 existing opt-in skips, no failures/errors. Scoped
+  E/F lint, new-test format, compile, diff/source/security/docs review pass; no
+  unrelated formatting of the existing shared ledger. No new blocking finding.
+- [ ] Reviewed source publication and independent exact-head PR/Verify inspection.
+
+No dispatcher/native supervisor/provider/schedule/host/model/phone/therapy change.
+Already queued priority is not preemption; future lifecycle must internally own
+fresh claim consumption, source/handoff/stop and result archiving. See DAILY_IDLE_CAPACITY.md.
+
 ## Durable Daily Results (2026-10-16)
 
 - [x] Inspect daily worker/executor and encrypted source/queue/report contracts;

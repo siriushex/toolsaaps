@@ -1,5 +1,17 @@
 # DEVOPS
 
+## Daily Capacity Source Stage (2026-10-16)
+
+No operational caller, deployment, migration, timer or profile change. The new
+ledger method issues fresh daily capacity only inside an idle transaction;
+legacy daily claims now yield to queued non-daily work. Existing metadata schema,
+normal reservation/settlement and no-replay uncertain-stop rules are retained.
+Do not feed a returned RUNNING claim to the old QUEUED-only executor or build an
+API accepting arbitrary claim receipts. A dedicated owned lifecycle/provider/
+supervisor, positive stop, source/queue/result coordination and opt-in schedule
+must be integrated and separately admitted. No preemption/host latency guarantee.
+See DAILY_IDLE_CAPACITY.md; no host/model/phone/therapy operation in this stage.
+
 ## Daily Result Source Stage (2026-10-16)
 
 Only an explicit stopped-successful internal result write adds schema 5 and its

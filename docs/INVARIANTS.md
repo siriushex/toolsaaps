@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Daily Capacity Priority
+
+- Idle-only daily reservation, active-work priority check and fresh claim share
+  one committed metadata transaction. Busy adds no owner/queued reservation.
+- A duplicate in any state is metadata only, never reissued claim authority.
+  Commit uncertainty/restart leaves executing capacity held, never auto-replayed.
+- Legacy DAILY_REVIEW claims yield to queued non-daily jobs. Expired waiting
+  jobs do not block; running/cancel-requested jobs never expire implicitly.
+- Priority is for already queued work, not preemption, fairness or zero latency.
+  Interactive arrival after daily claim cannot imply successful process stop.
+- Capacity metadata is not a provider/OS/execution/publication receipt. No source,
+  model, queue handoff, schedule, result or therapy action follows from the call.
+
 ## Daily Result Durability
 
 - Only the trusted exact executor/worker composition may call the private result

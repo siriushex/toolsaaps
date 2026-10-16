@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Daily Idle Capacity
+
+The shared metadata ledger can reserve-and-claim a new DAILY_REVIEW only inside
+an idle serialized transaction. Busy returns no new reservation; duplicates
+return audit metadata without reissuing claim authority. Legacy daily claims
+also yield to queued non-daily work, closing the old-path bypass. Normal reserve
+and non-daily claim contracts are retained. This is no dispatcher/provider or
+preemption guarantee; RUNNING claims require separately owned execution/stop.
+See DAILY_IDLE_CAPACITY.md. No service, schema or schedule is activated.
+
 ## Stopped Daily Result Archive
 
 The internal daily_results composition saves a daily answer only after the
