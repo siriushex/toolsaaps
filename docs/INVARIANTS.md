@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Owned Daily Lifecycle
+
+- Only the executor's fresh idle ADMITTED claim invokes a factory. DEFERRED
+  consumes no daily slot/owner; RECORDED never reuses a token or starts a model.
+- A handoff alone is not inference. Reconstructing exact retained handoff work
+  requires current source verification and a first-ever new ledger claim. Any
+  recorded attempt or uncertain commit/stop prohibits replay.
+- Factory failure retains capacity unless positive cleanup exists. Proven
+  cancellation before any factory call withdraws only that never-started claim.
+- Dedicated peer/binding-checked daily JSON cannot become a CHAT/native RPC or
+  accept instructions/tools. Shared busy/poison spans both optional host channels.
+- Success requires source/reference checks, exact stop, ledger settlement and
+  encrypted archival. Stored historical output is not current-source, clinical
+  validity, publication admission, opt-in or scheduling authority.
+
 ## Native Moderation Event
 
 - Only the pinned turn/moderationMetadata notification is newly accepted. Its

@@ -105,6 +105,19 @@ def test_daily_worker_roundtrip_uses_shared_executor_and_never_publishes(tmp_pat
     ledger.engine.dispose()
 
 
+def test_atomic_idle_admission_can_bind_worker_without_rewriting_claimed_metadata(tmp_path):
+    parts = setup(tmp_path)
+    history, _, given, clock, ledger, job, runner, _, _ = parts
+    admitted = replace(job, state="RUNNING", started_ms=job.created_ms)
+    worker = module().DailyReviewWorker(admitted, given, history, device=KEY, model=MODEL,
+        clock_ms=lambda: clock[0], runner=runner)
+    assert worker.job == admitted
+    with pytest.raises(ValueError, match="binding"):
+        module().DailyReviewWorker(replace(admitted, started_ms=job.created_ms + 1),
+            given, history, device=KEY, model=MODEL, clock_ms=lambda: clock[0], runner=runner)
+    ledger.engine.dispose()
+
+
 @pytest.mark.parametrize("change", ["late", "revision", "delete", "new_observation"])
 def test_source_changed_after_handoff_prevents_any_model_start(tmp_path, change):
     parts = setup(tmp_path)

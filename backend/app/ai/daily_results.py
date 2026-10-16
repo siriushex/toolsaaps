@@ -384,7 +384,8 @@ def _save_success(executor, worker, job, checked, *, now_ms):
         or job.state != "SUCCEEDED"
         or job.kind != "DAILY_REVIEW"
         or job.route_revision != ROUTE_REVISION
-        or replace(job, state="QUEUED", started_ms=None, finished_ms=None) != worker.job
+        or replace(job, state="QUEUED", started_ms=None, finished_ms=None)
+        != replace(worker.job, state="QUEUED", started_ms=None, finished_ms=None)
         or executor.ledger.get(job.owner_id, job.id) != job
         or job.digest
         != daily_request_digest(
@@ -504,8 +505,12 @@ async def execute_and_archive(executor, worker):
     """One trusted composition; success and archival are separate durable facts."""
     if type(executor) is not JobExecutor or type(worker) is not DailyReviewWorker:
         raise ValueError("daily_archive_executor_required")
+    outcome = await executor.execute(worker.job.owner_id, worker.job.id, worker)
+    return await _archive_execution(executor, worker, outcome)
+
+
+async def _archive_execution(executor, worker, outcome):
     owner, device, job_id = worker.job.owner_id, worker.device, worker.job.id
-    outcome = await executor.execute(owner, job_id, worker)
     job = None if outcome is None else outcome.job
     if job is None or job.state != "SUCCEEDED":
         return DailyArchiveExecution(job, "NO_SUCCESS")

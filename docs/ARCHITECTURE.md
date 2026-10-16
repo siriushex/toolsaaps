@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Owned Daily Dispatch
+
+DailyDispatcher now joins encrypted one-shot handoff, fresh source checks,
+JobExecutor-owned atomic idle admission, contained daily work and stopped-result
+archival. A recorded request never obtains its claim again. The dedicated daily
+Unix contract returns strict JSON, not ChatResult-wrapped/truncated text.
+Explicit host --daily-socket shares busy/unknown-cleanup capacity with chat;
+default host behavior remains chat-only. See DAILY_DISPATCH.md. No schedule,
+public result route, recurring enrollment or clinical publication is enabled.
+
 ## Correlated Moderation Metadata
 
 The pinned native protocol emits turn/moderationMetadata during a text answer.

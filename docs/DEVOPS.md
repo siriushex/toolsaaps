@@ -1,5 +1,24 @@
 # DEVOPS
 
+## Owned Daily Dispatch (2026-10-17)
+
+Source-only execution/transport integration. Default host CLI remains chat-only;
+--daily-socket explicitly binds the dedicated channel under the same protected
+parent and shares one capacity/unknown-stop gate with chat. No unit/config/timer,
+new dependency, public daily route, phone or therapy setting changes here.
+
+Before activation run daily execution/dispatcher/supervisor, legacy executor,
+ledger/admission/results, text/vision and host suites plus full backend. Preserve
+unknown ledger/profile state; do not recreate old claims after startup. A
+handoff-only crash can obtain a first-ever ledger admission only after authentic
+retained work and fresh source verification. Result-loss after success is not a
+reason to repeat inference. See DAILY_DISPATCH.md for exact remaining gates.
+
+An actual deployment needs both socket/PID readiness checks, exact runtime/model/
+egress and stop verification, opted-in device/zone schedule, protected result
+reads and explicit source/schema rollback assessment. Existing365-day expiry
+and encrypted result schema are retained; no live migration is performed here.
+
 ## Native Moderation Compatibility (2026-10-17)
 
 The first reviewed frame-only rollout composed live base3b81c2a5 with two modules

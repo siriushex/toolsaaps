@@ -238,3 +238,91 @@ def test_cli_failure_prints_fixed_code_without_configuration_values(monkeypatch,
     assert host.main() == 1
     output = capsys.readouterr()
     assert output.out == "" and output.err == "host_start_or_stop_unconfirmed\n"
+
+
+@pytest.mark.parametrize("stop_receipt", [True, False])
+def test_optional_daily_host_shares_chat_capacity_and_poison(image, monkeypatch, stop_receipt):
+    from app.ai.daily_supervisor import SupervisorDailyReviewRunner
+    from app.ai.daily_worker import daily_session_policy
+    from test_ai_daily_glucose import NOW, MINUTE
+    from test_ai_daily_review import prepare, answer
+    from test_ai_native_text import transcript
+
+    with tempfile.TemporaryDirectory(prefix="daily-host-", dir="/tmp") as directory:
+        value = configuration(image)
+        value["socket"] = directory + "/text.sock"
+        value["api"] = dict(uid=os.getuid(), gid=os.getgid())
+        config = decode(value)
+        daily_path = Path(directory) / "daily.sock"
+        monkeypatch.setattr(host, "_require_host", lambda: None)
+        monkeypatch.setattr(host, "_parents", lambda _: None)
+        monkeypatch.setattr(host, "read_configuration", lambda _: config)
+        monkeypatch.setattr(host.HostConfiguration, "check_idle", lambda _: None)
+        monkeypatch.setattr(host.RuntimeImage, "verify", lambda *args: None)
+        monkeypatch.setattr(host.OfficialEgress, "check_time", lambda _: None)
+        processes, created = [], asyncio.Event()
+        work = prepare()
+        policy = daily_session_policy(config.policy.model)
+        def factory(*args):
+            process = (Process(transcript(answer(work).decode()), stop_receipt=stop_receipt)
+                       if args[-1] == policy else Pending())
+            processes.append(process)
+            created.set()
+            return process
+        monkeypatch.setattr(host, "SystemdTextProcess", factory)
+        async def scenario():
+            stop, ready = asyncio.Event(), asyncio.Event()
+            task = asyncio.create_task(host.serve(Path("/etc/personal-ai/settings.json"), stop,
+                ready=ready, daily_socket=daily_path, clock_ms=lambda: NOW))
+            try:
+                await asyncio.wait_for(ready.wait(), 1)
+                chat = SupervisorTextRunner(str(config.socket_path), config.api_peer, config.policy)
+                waiting = asyncio.create_task(chat.run("Synthetic", config.policy))
+                await asyncio.wait_for(created.wait(), 1)
+                await processes[0].entered.wait()
+                blocked = SupervisorDailyReviewRunner(str(daily_path), config.api_peer, policy,
+                    deadline_ms=NOW + MINUTE, clock_ms=lambda: NOW)
+                with pytest.raises(SupervisorError):
+                    await blocked.run(work, policy)
+                assert len(processes) == 1 and await blocked.stop_and_confirm()
+                waiting.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await waiting
+                assert await chat.stop_and_confirm()
+                daily = SupervisorDailyReviewRunner(str(daily_path), config.api_peer, policy,
+                    deadline_ms=NOW + MINUTE, clock_ms=lambda: NOW)
+                if stop_receipt:
+                    assert await daily.run(work, policy) == answer(work)
+                    assert await daily.stop_and_confirm()
+                else:
+                    with pytest.raises(SupervisorError):
+                        await daily.run(work, policy)
+                    assert not await daily.stop_and_confirm()
+                    rejected = SupervisorTextRunner(str(config.socket_path), config.api_peer, config.policy)
+                    with pytest.raises(SupervisorError):
+                        await rejected.run("Synthetic", config.policy)
+                assert len(processes) == 2
+            finally:
+                stop.set()
+                assert await task is stop_receipt
+            assert not daily_path.exists() and not config.socket_path.exists()
+        asyncio.run(scenario())
+
+
+def test_optional_daily_startup_collision_preserves_unowned_path(image, monkeypatch):
+    with tempfile.TemporaryDirectory(prefix="daily-host-", dir="/tmp") as directory:
+        value = configuration(image)
+        value["socket"] = directory + "/text.sock"
+        value["api"] = dict(uid=os.getuid(), gid=os.getgid())
+        config = decode(value)
+        daily_path = Path(directory) / "daily.sock"
+        daily_path.write_bytes(b"synthetic-existing")
+        monkeypatch.setattr(host, "_require_host", lambda: None)
+        monkeypatch.setattr(host, "_parents", lambda _: None)
+        monkeypatch.setattr(host, "read_configuration", lambda _: config)
+        monkeypatch.setattr(host.HostConfiguration, "check_idle", lambda _: None)
+        monkeypatch.setattr(host.RuntimeImage, "verify", lambda *args: None)
+        monkeypatch.setattr(host.OfficialEgress, "check_time", lambda _: None)
+        with pytest.raises(host.HostError, match="already_present"):
+            asyncio.run(host.serve(Path("/etc/personal-ai/settings.json"), asyncio.Event(), daily_socket=daily_path))
+        assert daily_path.read_bytes() == b"synthetic-existing" and not config.socket_path.exists()

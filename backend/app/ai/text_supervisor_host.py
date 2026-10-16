@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import json
 import os
@@ -16,13 +16,17 @@ import signal
 import socket
 import stat
 import sys
+import time
 
 from .contained_text_process import SystemdTextProcess, _require_host
 from .contextual_chat import contextual_chat_policy
+from .daily_supervisor import DailySupervisor
+from .daily_worker import daily_session_policy
+from .job_executor import _complete_critical
 from .native_text import TextSessionPolicy
 from .runtime_admission import ImageEntry, OfficialEgress, RuntimeImage, _owner, _parents, _path
 from .session_profile import FILE_FLAGS, DirectoryBinding, SessionProfileGuard, _directory
-from .text_supervisor import PeerIdentity, TextSupervisor
+from .text_supervisor import PeerIdentity, SupervisorCapacity, TextSupervisor
 
 CONFIG_LIMIT = 131072
 
@@ -186,37 +190,70 @@ def owned_listener(path: Path, api_gid: int):
                 path.unlink()
 
 
-async def serve(config_path: Path, shutdown: asyncio.Event, *, ready=None):
+async def serve(config_path: Path, shutdown: asyncio.Event, *, ready=None,
+                daily_socket: Path | None = None, clock_ms=None):
     _require_host()
     initial = await asyncio.to_thread(read_configuration, config_path)
     initial.egress.check_time()
     await asyncio.to_thread(initial.image.verify, initial.policy, initial.egress.hosts)
     await asyncio.to_thread(initial.check_idle)
-    def factory():
+    clock = clock_ms if clock_ms is not None else lambda: time.time_ns() // 1_000_000
+    if not callable(clock):
+        raise HostError("host_clock_rejected")
+    if daily_socket is not None:
+        _path(daily_socket)
+        if (daily_socket.parent != initial.socket_path.parent or daily_socket == initial.socket_path
+                or len(str(daily_socket).encode()) > 103):
+            raise HostError("host_daily_socket_rejected")
+        await asyncio.to_thread(initial.image.verify, daily_session_policy(initial.policy.model), initial.egress.hosts)
+    def factory(*, daily=False):
         # Only a fresh explicit root-owned admission may change public image/egress.
         current = read_configuration(config_path)
         if current.fixed_identity() != initial.fixed_identity():
             raise HostError("host_identity_changed")
-        return SystemdTextProcess(current.image, current.guard, current.egress, current.policy)
-    with owned_listener(initial.socket_path, initial.api_peer.gid) as listener:
-        supervisor = TextSupervisor(initial.policy, initial.api_peer, factory)
-        await supervisor.start(listener)
+        policy = daily_session_policy(current.policy.model) if daily else current.policy
+        return SystemdTextProcess(current.image, current.guard, current.egress, policy)
+    capacity = SupervisorCapacity()
+    supervisors = []
+    with ExitStack() as listeners:
         try:
+            listener = listeners.enter_context(owned_listener(initial.socket_path, initial.api_peer.gid))
+            text = TextSupervisor(initial.policy, initial.api_peer, factory, capacity=capacity)
+            pairs = [(text, listener)]
+            if daily_socket is not None:
+                listener = listeners.enter_context(owned_listener(daily_socket, initial.api_peer.gid))
+                daily = DailySupervisor(daily_session_policy(initial.policy.model), initial.api_peer,
+                    lambda: factory(daily=True), clock_ms=clock, capacity=capacity)
+                pairs.append((daily, listener))
+            for supervisor, listener in pairs:
+                supervisors.append(supervisor)
+                await supervisor.start(listener)
             if ready is not None:
                 ready.set()
             await shutdown.wait()
         finally:
-            stopped = await supervisor.close()
+            async def close_all():
+                stopped = True
+                for supervisor in reversed(supervisors):
+                    try:
+                        confirmed = await supervisor.close()
+                        stopped &= confirmed is True
+                    except (Exception, asyncio.CancelledError):
+                        stopped = False
+                return stopped
+            stopped, cancelled = await _complete_critical(close_all())
+            if cancelled:
+                raise asyncio.CancelledError
     return stopped
 
 
-async def _main(config_path):
+async def _main(config_path, *, daily_socket=None):
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(name, shutdown.set)
     try:
-        return await serve(config_path, shutdown)
+        return await serve(config_path, shutdown, daily_socket=daily_socket)
     finally:
         for name in (signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(name)
@@ -225,9 +262,11 @@ async def _main(config_path):
 def main():
     parser = argparse.ArgumentParser(description="Run the trusted local text supervisor.")
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--daily-socket", type=Path)
     args = parser.parse_args()
     try:
-        return 0 if asyncio.run(_main(args.config)) else 1
+        operation = _main(args.config) if args.daily_socket is None else _main(args.config, daily_socket=args.daily_socket)
+        return 0 if asyncio.run(operation) else 1
     except Exception:
         print("host_start_or_stop_unconfirmed", file=sys.stderr)
         return 1

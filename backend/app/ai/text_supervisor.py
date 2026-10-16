@@ -65,6 +65,16 @@ class PeerIdentity:
             raise SupervisorError("supervisor_peer_rejected") from None
 
 
+@dataclass
+class SupervisorCapacity:
+    active: bool = False
+    poisoned: bool = False
+
+    def __post_init__(self):
+        if type(self.active) is not bool or type(self.poisoned) is not bool:
+            raise ValueError("invalid_supervisor_capacity")
+
+
 def policy_digest(policy: TextSessionPolicy) -> str:
     if not isinstance(policy, TextSessionPolicy):
         raise ValueError("invalid_supervisor_policy")
@@ -218,9 +228,10 @@ class TextSupervisor:
     _policy_digest = staticmethod(policy_digest)
 
     def __init__(self, policy: TextSessionPolicy, peer: PeerIdentity, process_factory,
-                 *, run_seconds: float = RUN_SECONDS):
+                 *, run_seconds: float = RUN_SECONDS, capacity: SupervisorCapacity | None = None):
         if (not isinstance(peer, PeerIdentity) or not callable(process_factory)
-                or type(run_seconds) not in (int, float) or not 0 < run_seconds <= RUN_SECONDS):
+                or type(run_seconds) not in (int, float) or not 0 < run_seconds <= RUN_SECONDS
+                or capacity is not None and type(capacity) is not SupervisorCapacity):
             raise ValueError("invalid_text_supervisor")
         self.policy, self.peer, self.factory = policy, peer, process_factory
         self.digest = self._policy_digest(policy)
@@ -228,7 +239,24 @@ class TextSupervisor:
         self._server = None
         self._handlers = set()
         self._unfinished = set()
-        self._active = self._poisoned = self._closing = False
+        self._capacity = capacity if capacity is not None else SupervisorCapacity()
+        self._closing = False
+
+    @property
+    def _active(self):
+        return self._capacity.active
+
+    @_active.setter
+    def _active(self, value):
+        self._capacity.active = value
+
+    @property
+    def _poisoned(self):
+        return self._capacity.poisoned
+
+    @_poisoned.setter
+    def _poisoned(self, value):
+        self._capacity.poisoned = value
 
     async def start(self, listener: socket.socket):
         if (self._server is not None or self._closing or listener.family != socket.AF_UNIX

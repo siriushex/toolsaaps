@@ -1,5 +1,23 @@
 # PLAN
 
+## Owned Daily Dispatch (2026-10-17)
+
+- [x] Revalidate actual deployed text repair without new inference.
+- [x] Executor-owned atomic daily admission reuses existing stop/settlement.
+- [x] Join checked queue/work, idle priority, one-turn worker and result archive.
+- [x] Dedicated closed daily Unix channel, optional shared-capacity host binding.
+- [x] RED regressions precede each behavior; targeted cancellation/source/commit/
+  race/peer/deadline/stop checks pass. No ambiguous request replay.
+- [x] Full backend1618 passed/27 existing opt-in skips; scoped lint, diff and
+  source/security review pass. One host test module retains its imported-fixture
+  F811 exclusion; no global lint relaxation or unrelated fixture rewrite.
+- [ ] Reviewed publication and exact-head CI for this source stage.
+- [ ] Separate persisted05:00 opt-in/facts/read API/Android default result stage.
+- [ ] Exact reviewed live daily activation and real model/device acceptance.
+
+The new source is not active on the existing server. Its chat fix remains healthy;
+new daily work has no public schedule or result projection yet.
+
 ## Native Moderation Compatibility (2026-10-17)
 
 - [x] A bounded synthetic host diagnostic isolated text_notification_rejected;

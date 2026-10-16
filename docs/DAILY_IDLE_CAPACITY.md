@@ -53,16 +53,17 @@ process, login profile, source/history read, model request, queue handoff, resul
 or clinical action occurs here. No claim/payload is logged by the new method.
 
 Do not pass an already RUNNING job to `JobExecutor.execute` and expect execution;
-that method owns fresh claims for QUEUED jobs only. Future daily orchestration must
-obtain and consume this fresh claim inside its own trusted lifecycle, coordinate
-one-shot encrypted handoff/current source, guarantee independent process stop
-and then use the existing result archive. Never widen that into an API accepting
-caller claims or reinterpret a token/answer as OS stop confirmation.
+that method owns fresh claims for QUEUED jobs only. `execute_daily` now obtains
+and consumes fresh idle admission inside its own lifecycle; DailyDispatcher
+coordinates checked handoff, worker and stopped-result archive. See
+DAILY_DISPATCH.md. No API accepts caller claims; tokens/answers are not OS stop
+receipts and an existing attempt never obtains its old claim again.
 
-No public service calls this primitive in this stage. Daily supervisor/provider,
-priority-aware execution integration, opt-in scheduling, quality/publication and
-device/admin reads remain separately gated. No host, profile, schema, real data,
-model, phone/APK or therapy change accompanies this source stage.
+No public service calls this primitive by default. Priority-aware execution and
+the dedicated daily supervisor now have an explicit internal composition; opt-in
+scheduling, actual provider activation, quality/publication and device/admin
+reads remain gated. No live host/profile/schema/data/model/phone/therapy change
+accompanies this source integration.
 
 ## Checks
 

@@ -160,8 +160,8 @@ class DailyReviewWorker:
             or job.route_revision != ROUTE_REVISION
             or job.request_id != handoff.request_id
             or job.digest != digest
-            or job.state != "QUEUED"
-            or job.started_ms is not None
+            or job.state not in {"QUEUED", "RUNNING"}
+            or job.started_ms != (job.created_ms if job.state == "RUNNING" else None)
             or job.finished_ms is not None
             or job.key_hash is not None
             and job.key_hash != device

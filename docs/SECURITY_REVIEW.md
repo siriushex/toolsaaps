@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Owned Daily Execution And Channel (2026-10-17)
+
+- Idle admission and claim consumption occur inside JobExecutor. No caller-sent
+  token, success/stop receipt or old RUNNING job grants execution. Factory and
+  cleanup uncertainty retain global capacity; cancellation before construction
+  can settle only its provably never-started claim.
+- Existing request reads are owner/kind/request-bound immutable metadata, not
+  claim acquisition. Deferred/handoff-only recovery cannot bypass the first-ever
+  atomic reservation, current source/work checks or frozen deadline binding.
+- Daily Unix frames pin policy and whole-work/deadline digest; closed grammar,
+  peer checks, finite bounds, tools denial and independent stop remain. Raw chat,
+  execution configuration and foreign/expired inputs are rejected before start.
+- Optional host listeners share busy/poison with fixed profile/peer/model and
+  compiled prompts. Unknown cleanup closes future starts on both; default CLI
+  remains chat-only. No public daily read, recurring authorization or therapy
+  control exists. Source matching and stopped success are not clinical validity.
+
 ## Pinned Moderation Notification (2026-10-17)
 
 The sole newly accepted notification has the pinned threadId/turnId/metadata

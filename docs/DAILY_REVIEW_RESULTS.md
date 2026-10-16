@@ -6,7 +6,10 @@
 `JobExecutor` and `DailyReviewWorker`. It never accepts an external execution
 outcome or supplied success/stop flag. The executor must finish its independent
 contained-process cleanup and settle the shared metadata job as `SUCCEEDED`
-before the private result sink is called. The sink rereads the actual ledger,
+before the private result sink is called. DailyDispatcher reuses that private
+archive composition after its executor-owned idle admission; its initial worker
+job can be the exact fresh RUNNING record rather than a fabricated QUEUED copy.
+The sink rereads the actual ledger,
 checks the request/model/deadline binding, consumed encrypted queue and exact
 original archived work. Arbitrary Python injection is not a containment boundary;
 the actual provider/process must still be independently admitted.
@@ -81,9 +84,10 @@ infer meal, insulin, activity or delivery facts that were not analyzed.
   deletion or version reset is an operational rollback. Preserve originals and
   reconcile ledger/queue before any separately authorized restore.
 
-This is source-only trusted composition. No public/admin/device route, provider
-registration, daily supervisor, interactive-first dispatcher, timer or scheduler
-is activated. Advisory quality/publication admission remains separate. No host,
+This is source-only trusted composition. The dedicated daily channel and owned
+internal dispatcher are described in DAILY_DISPATCH.md. No public/admin/device
+route, provider service, timer or scheduler is activated. Advisory
+quality/publication admission remains separate. No live host,
 profile, model request, real medical payload, APK or therapy operation occurs.
 
 ## Verification

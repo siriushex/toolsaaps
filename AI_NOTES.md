@@ -1,3 +1,29 @@
+# Owned Daily Dispatch - 2026-10-17
+
+- Fresh read-only server check confirms deployed4c52 chat repair remains healthy,
+  idle and without native work; original three failed jobs were not replayed.
+- Joined the existing daily queue/worker/results via executor-owned atomic idle
+  admission. No factory before a fresh claim, no owner slot while deferred, no
+  old claim/replay on duplicate or lost commit. Pre-factory cancellation drains
+  admission and withdraws only proven never-started metadata; unknown factory/
+  process cleanup remains occupied for reconciliation.
+- Recorded handoff work can be rechecked after a handoff-only crash/deferral,
+  but cannot infer without a first-ever ledger admission. Result loss after
+  stopped success remains RESULT_UNAVAILABLE, not permission to resend.
+- Added a dedicated bounded daily JSON Unix channel, whole-work/deadline binding
+  and optional explicit host listener sharing busy/poison with chat. Model,
+  reasoning, tool/network/OS restrictions and365-day retention are unchanged.
+- Each new behavior has RED regressions before source. Targeted actual-local-
+  socket, priority, cancellation, source mutation, concurrency, commit/stop and
+  archive tests pass. Full backend1618 passed/27 unchanged opt-in skips, zero
+  failures/errors. Scoped lint/diff/source/security review pass; publication and
+  exact-head CI remain separate receipts. The existing host test's imported
+  pytest fixture has7 original F811 notices and2 identical new argument-shadow
+  notices; that code alone is excluded for this file, without global weakening.
+- This stage does not deploy new server code or enable05:00 analysis, public
+  daily reads, clinical publication, medical upload, model call, phone/APK or
+  therapy changes. Opt-in/schedule/facts/read/UI and live acceptance remain.
+
 # Native Moderation Compatibility - 2026-10-17
 
 - The reviewed frame-only source composition was installed after1160 live-base

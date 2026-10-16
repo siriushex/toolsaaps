@@ -256,6 +256,15 @@ class JobLedger:
             return _job(self._find(db, owner_id, job_id, session_id=session_id,
                                    key_hash=key_hash))
 
+    def get_request(self, owner_id: str, kind: str, request_id: str) -> Job | None:
+        _uuid(owner_id)
+        _uuid(request_id)
+        if kind not in KINDS:
+            raise ValueError("invalid_request_metadata")
+        with self.engine.connect() as db:
+            return _job(db.execute(select(jobs).where(jobs.c.owner_id == owner_id,
+                jobs.c.kind == kind, jobs.c.request_id == request_id)).mappings().first())
+
     def claim(self, owner_id: str, job_id: str, *, now_ms: int) -> Claim | None:
         _uuid(owner_id)
         _uuid(job_id)

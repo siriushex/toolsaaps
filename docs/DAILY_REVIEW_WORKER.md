@@ -1,7 +1,8 @@
 # Contained Daily Review Worker
 
-Source-only dedicated JSON protocol and worker. Not an activated daily service,
-dispatcher, provider policy registration, schedule or publication endpoint.
+Dedicated JSON protocol and worker. The owned internal dispatcher/channel are
+now composed in DAILY_DISPATCH.md; no daily service, schedule or publication
+endpoint is activated by this source.
 
 ## Separate Protocol And Binding
 
@@ -27,15 +28,16 @@ and actions are fixed false. No raw content is copied to the metadata ledger.
 
 ## Worker Lifecycle
 
-DailyReviewWorker accepts an immutable QUEUED DAILY_REVIEW Job, handoff, device,
+DailyReviewWorker accepts an immutable QUEUED DAILY_REVIEW Job, or an exact fresh
+RUNNING idle-admission Job with started_ms equal to created_ms, plus handoff/device,
 HistoryStore, trusted clock and exactly one contained process or injected runner.
 Construction validates binding without reading storage or starting a process.
 The job must match owner/device/request/digest/route and have at most a15-minute
 lifetime within the frozen report's expiry. An optional enrolled key binding
 must match the device. A handoff object's old source proof is not trusted.
 
-Run only through the existing JobExecutor, which atomically claims the shared
-ledger slot before invoking the worker. The worker is not an admission/security
+Run only through JobExecutor, whose queued path or owned execute_daily path
+atomically claims the shared ledger slot before invoking the worker. It is not an admission/security
 boundary against arbitrary trusted Python code calling it directly.
 
 1. Read the authenticated queue entry. It must have HANDOFF_RECORDED, exact frozen
@@ -76,10 +78,10 @@ This source is still GLUCOSE_ONLY; missing delivery/meal/activity/context adapte
 stay explicit. Nothing writes doses, targets, ISF/CR, GI or therapy commands.
 
 The worker does not reserve/claim the ledger, consume a queue handoff or persist
-the final result itself. There is deliberately no factory, polling loop or route
-that performs those steps automatically. A future trusted dispatcher must compose
-interactive-first atomic arbitration, profile/owner admission, a separate bounded
-daily supervisor channel, the one-shot handoff and durable result settlement.
+the final result itself. DailyDispatcher and the dedicated daily channel now
+compose those steps explicitly; there is no automatic polling loop or public
+route. Profile/owner/provider admission and actual recurring activation remain
+operational gates rather than permissions granted by this library.
 Do not reserve background owner capacity merely while scanning/waiting. Shared
 mutual exclusion is tested here, not interactive-first dispatch. Crash recovery
 must reconcile ledger/queue/profile originals and never replay uncertain work.
