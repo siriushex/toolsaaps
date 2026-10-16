@@ -2012,4 +2012,20 @@
     <string name="event_detail_manual">Manual record</string>
     <string name="event_detail_aaps">AAPS record</string>
     <string name="event_detail_automatic">Automatic record</string>
+    <string name="ai_focus_tab_report">Review</string>
+    <string name="ai_focus_tab_chat">Chat</string>
+    <string name="ai_focus_tab_recommendations">Advice</string>
+    <string name="ai_focus_tab_archive">Archive</string>
+    <string name="ai_focus_diagnostics">Diagnostics</string>
+    <string name="ai_focus_report_details">Details and sources</string>
+    <string name="ai_focus_coverage">Coverage: %1$s%%</string>
+    <string name="ai_focus_mmol">mmol/L</string>
+    <string name="ai_focus_period_day">24h</string>
+    <string name="ai_focus_period_days">%1$dd</string>
+    <string name="ai_focus_discuss">Discuss in chat</string>
+    <string name="ai_focus_search">Search reports</string>
+    <string name="ai_focus_questions">Questions</string>
+    <string name="ai_focus_title_report">Clinical report</string>
+    <string name="ai_focus_title_recommendations">Recommendations</string>
+    <string name="ai_focus_title_archive">Reports</string>
 </resources>

@@ -1,5 +1,27 @@
 # PLAN
 
+## Approved Focus AI Interface (2026-10-16)
+
+- [x] Human selected Focus/report-first; inspect existing UI, clinical disclosure,
+  PDF tickets, chat state and independent loading boundaries.
+- [x] Reproduce missing four-tab navigation/isolation in native Compose tests.
+- [x] Implement report/chat/recommendations/archive views with retained drafts and
+  scroll, compact period summary, pinned composer and accessible finite motion.
+  Keep diagnostics/replay/CSV and clinical consent/unknown-outcome/PDF gates.
+- [x] Reproduce tab-disposal send-latch regression and missing clinical advice;
+  fix root-lifetime submission latch, report busy semantics and grounded advice.
+  Final17 new native cases/48 focused checks pass; inspect English/Russian,
+  320x640/320x480 and1.6font native rasters. No actual-phone claim.
+- [x] Full5703-test run:5697 passed/6 existing skips,0 failures/errors. Full
+  test/lint/compile/assemble and instrumented-source compile pass in13m48s.
+  Lint0 errors,379 notices: five retired-text unused-resource warnings and two
+  dialog-height recommendations added to the372-notice baseline. Scoped native
+  rendering/source/security/docs reviewed; APK package/signing/hash recorded.
+- [ ] Publish reviewed source on existing PR and independently verify exact-head CI.
+
+No new provider, external upload, phone/therapy operation or fabricated glucose
+curve. Existing clinical summaries are the available source, not raw day-series.
+
 ## Contained Daily Review Worker (2026-10-16)
 
 - [x] Inspect the native text protocol, source-checked queue and shared executor.

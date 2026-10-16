@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Focus UI Source Stage (2026-10-16)
+
+Native navigation/presentation only; no database/config/provider migration.
+Source approval/build and synthetic native rasters are not intended-phone
+installation or real provider acceptance. Keep existing package/signing identity
+and never clear/uninstall/disable Copilot for backup. No test therapy/alert/audio
+commands are part of this UI check. Actual phone/version/permissions must be
+verified separately before any explicitly authorized USB update. Server daily
+result/schedule/photo admission is unaffected. See AI_FOCUS_UI.md.
+
 ## Daily Worker Source Stage (2026-10-16)
 
 daily_worker is not wired into the public API or existing text supervisor. Do not

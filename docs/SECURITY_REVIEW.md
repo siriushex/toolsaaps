@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Focus AI Interface (2026-10-16)
+
+- Reuses existing state and explicit callbacks, no new route/credential/network
+  capability or therapy writer. Opening panels/diagnostics never submits a job.
+- Existing exact disclosure/channel/event-preview and unknown-outcome retry
+  gates retained. Confirmed-send latch hoisted above tab lifetime after native
+  RED exposed re-enablement on disposal. PDF ticket effects stay at screen root.
+- Chat question preparation appends to draft, never sends or discards it. Full
+  archive detail is an immutable selected record, not an asserted current reading.
+- Native typed clinical recommendations preserve source/model/time/period and
+  supplied evidence without recomputing or applying treatment parameters.
+- Range percentages only from existing finite/consistent summary values; no
+  invented day-series. Existing quality and full-source details remain reachable.
+- Native tests/rasters are synthetic. No real medical data/provider/image upload,
+  live deployment, actual-phone/resource or clinical validation in this stage.
+
 ## Contained Daily Worker (2026-10-16)
 
 - Separate exact daily prompt/JSON schema and immutable queue/model/deadline/work

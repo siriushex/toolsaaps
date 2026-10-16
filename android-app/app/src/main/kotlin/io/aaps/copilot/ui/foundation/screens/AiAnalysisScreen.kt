@@ -15,6 +15,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +26,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -32,6 +36,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -45,6 +50,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -61,6 +68,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -86,6 +94,15 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -145,6 +162,13 @@ fun AiAnalysisScreen(
     val context = LocalContext.current
     var selectedDays by rememberSaveable { mutableIntStateOf(state.windowDays) }
     var pendingPdfTicketId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val submittedClinicalDisclosure = remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
+    LaunchedEffect(state.clinicalReport.canSend, state.clinicalReport.disclosure) {
+        val submitted = submittedClinicalDisclosure.value
+        if (submitted != null && (!state.clinicalReport.canSend || state.clinicalReport.disclosure != submitted)) {
+            submittedClinicalDisclosure.value = null
+        }
+    }
     val currentResolvePdfExport by rememberUpdatedState(onResolveClinicalReportPdfExport)
     val resolvePdfPickerResult: (Uri?) -> Unit = { uri ->
         val ticketId = pendingPdfTicketId
@@ -203,7 +227,42 @@ fun AiAnalysisScreen(
     val filteredTopMisses = state.localTopMisses
     val filteredDayTypeGaps = state.localDayTypeGaps
 
-    ScreenStateLayout(
+    AiFocusWorkspace(
+        state = state,
+        onDraftChange = onChatDraftChange,
+        modifier = modifier,
+        report = {
+            ClinicalReportSection(
+                state = state.clinicalReport,
+                onPrepare = onPrepareClinicalReport,
+                onRetryLocalPreparation = onRetryLocalClinicalReportPreparation,
+                onRepreparePdf = onReprepareClinicalReportPdf,
+                onSend = onSendClinicalReport,
+                onCancel = onCancelClinicalReport,
+                onRequestUnknownRetry = onRequestUnknownClinicalReportRetry,
+                onDismissUnknownRetry = onDismissUnknownClinicalReportRetry,
+                onConfirmUnknownRetry = onConfirmUnknownClinicalReportRetry,
+                onOpenSettings = onOpenClinicalReportSettings,
+                onSavePdf = onBeginClinicalReportPdfExport,
+                onSharePdf = onShareClinicalReportPdf,
+                submittedDisclosureState = submittedClinicalDisclosure
+            )
+        },
+        chat = {
+            AiChatHeroCard(
+                state = state,
+                onDraftChange = onChatDraftChange,
+                onSend = { onSendChatPrompt(state.chatDraft) },
+                onAttachImage = { imagePicker.launch(arrayOf("image/*")) },
+                onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+                onRemoveAttachment = onRemoveChatAttachment,
+                onVoiceRepliesToggle = onVoiceRepliesToggle,
+                onStartVoiceRecording = { audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onStopVoiceRecording = onStopVoiceRecording
+            )
+        },
+        diagnostics = {
+        ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
         errorText = state.errorText,
@@ -218,40 +277,10 @@ fun AiAnalysisScreen(
         }
     ) {
         LazyColumn(
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxSize().testTag("ai_focus_diagnostics_content"),
+            state = rememberLazyListState(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
-            item {
-                ClinicalReportSection(
-                    state = state.clinicalReport,
-                    onPrepare = onPrepareClinicalReport,
-                    onRetryLocalPreparation = onRetryLocalClinicalReportPreparation,
-                    onRepreparePdf = onReprepareClinicalReportPdf,
-                    onSend = onSendClinicalReport,
-                    onCancel = onCancelClinicalReport,
-                    onRequestUnknownRetry = onRequestUnknownClinicalReportRetry,
-                    onDismissUnknownRetry = onDismissUnknownClinicalReportRetry,
-                    onConfirmUnknownRetry = onConfirmUnknownClinicalReportRetry,
-                    onOpenSettings = onOpenClinicalReportSettings,
-                    onSavePdf = onBeginClinicalReportPdfExport,
-                    onSharePdf = onShareClinicalReportPdf
-                )
-            }
-            item {
-                AiChatHeroCard(
-                    state = state,
-                    onDraftChange = onChatDraftChange,
-                    onSend = { onSendChatPrompt(state.chatDraft) },
-                    onAttachImage = { imagePicker.launch(arrayOf("image/*")) },
-                    onAttachFile = { filePicker.launch(arrayOf("*/*")) },
-                    onRemoveAttachment = onRemoveChatAttachment,
-                    onVoiceRepliesToggle = onVoiceRepliesToggle,
-                    onStartVoiceRecording = {
-                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    },
-                    onStopVoiceRecording = onStopVoiceRecording
-                )
-            }
             item {
                 AiSectionCard {
                     AiSectionLabel(
@@ -964,7 +993,9 @@ fun AiAnalysisScreen(
                 }
             }
         }
-    }
+        }
+        }
+    )
 }
 
 @Composable
@@ -980,13 +1011,18 @@ private fun ClinicalReportSection(
     onConfirmUnknownRetry: () -> Unit,
     onOpenSettings: () -> Unit,
     onSavePdf: () -> Unit,
-    onSharePdf: () -> Unit
+    onSharePdf: () -> Unit,
+    submittedDisclosureState: MutableState<ClinicalReportDisclosureUi?>
 ) {
     val title = stringResource(id = R.string.clinical_report_title)
     var disclosureSnapshot by remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
     var eventPreviewSnapshot by remember { mutableStateOf<String?>(null) }
     var disclosureConfirming by remember { mutableStateOf(false) }
-    var submittedDisclosure by remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
+    var submittedDisclosure by submittedDisclosureState
+    var summaryDays by rememberSaveable { mutableIntStateOf(1) }
+    var showSummaryDetails by rememberSaveable { mutableStateOf(false) }
+    val summaries = listOfNotNull(state.summary24h, state.summary7d, state.summary30d)
+    val selectedSummary = summaries.firstOrNull { it.days == summaryDays } ?: summaries.firstOrNull()
     LaunchedEffect(state.disclosure, state.remoteEventPreviewText, state.canSend) {
         val snapshot = disclosureSnapshot
         if (
@@ -1000,10 +1036,6 @@ private fun ClinicalReportSection(
             eventPreviewSnapshot = null
             disclosureConfirming = false
         }
-        val submitted = submittedDisclosure
-        if (submitted != null && (!state.canSend || state.disclosure != submitted)) {
-            submittedDisclosure = null
-        }
     }
     Column(
         modifier = Modifier
@@ -1014,60 +1046,31 @@ private fun ClinicalReportSection(
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
         Text(
-            text = title,
-            modifier = Modifier.semantics { heading() },
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
             text = stringResource(id = R.string.clinical_report_advisory_only),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        if (state.summary24h != null) {
-            ClinicalPeriodSummaryRow(
-                summary = state.summary24h,
-                modifier = Modifier.testTag("clinical_report_summary_1")
-            )
-        }
-        if (state.summary24h != null && (state.summary7d != null || state.summary30d != null)) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        }
-        if (state.summary7d != null) {
-            ClinicalPeriodSummaryRow(
-                summary = state.summary7d,
-                modifier = Modifier.testTag("clinical_report_summary_7")
-            )
-        }
-        if (state.summary7d != null && state.summary30d != null) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        }
-        if (state.summary30d != null) {
-            ClinicalPeriodSummaryRow(
-                summary = state.summary30d,
-                modifier = Modifier.testTag("clinical_report_summary_30")
-            )
-            if (
-                state.summary30d.probableMealWindows.isNotEmpty() ||
-                state.summary30d.recentProbableMealWindows.isNotEmpty()
-            ) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                ClinicalProbableMealWindows(
-                    recentWindows = state.summary30d.recentProbableMealWindows,
-                    stableWindows = state.summary30d.probableMealWindows
-                )
+        if (selectedSummary != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                summaries.forEach { summary ->
+                    FilterChip(
+                        selected = summary.days == selectedSummary.days,
+                        onClick = { summaryDays = summary.days },
+                        modifier = Modifier.testTag("clinical_report_period_${summary.days}"),
+                        label = { Text(if (summary.days == 1) stringResource(R.string.ai_focus_period_day)
+                            else stringResource(R.string.ai_focus_period_days, summary.days)) }
+                    )
+                }
             }
+            AiFocusMetricSummary(selectedSummary) { showSummaryDetails = true }
+            Text(stringResource(clinicalLocalQualityString(selectedSummary.quality)),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         when (state.phase) {
             ClinicalReportPhaseUi.IDLE -> {
-                Text(
-                    text = stringResource(id = R.string.clinical_report_idle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 ClinicalPrimaryButton(
                     text = stringResource(id = R.string.clinical_report_prepare),
                     tag = "clinical_report_prepare",
@@ -1447,6 +1450,24 @@ private fun ClinicalReportSection(
                     Text(text = stringResource(id = R.string.clinical_report_retry_confirm))
                 }
             }
+        )
+    }
+    if (showSummaryDetails && selectedSummary != null) {
+        AlertDialog(
+            onDismissRequest = { showSummaryDetails = false },
+            title = { Text(title) },
+            text = {
+                Column(Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * .6f)
+                    .verticalScroll(rememberScrollState())) {
+                    ClinicalPeriodSummaryRow(selectedSummary,
+                        Modifier.testTag("clinical_report_detail_${selectedSummary.days}"))
+                    if (selectedSummary.days == 30 &&
+                        (selectedSummary.probableMealWindows.isNotEmpty() || selectedSummary.recentProbableMealWindows.isNotEmpty())) {
+                        ClinicalProbableMealWindows(selectedSummary.recentProbableMealWindows, selectedSummary.probableMealWindows)
+                    }
+                }
+            },
+            confirmButton = { TextButton({ showSummaryDetails = false }) { Text(stringResource(R.string.action_close)) } }
         )
     }
 }
@@ -2033,7 +2054,7 @@ private fun ClinicalCompleteReport(report: ClinicalCompleteReportUi) {
 }
 
 @Composable
-private fun clinicalNumericValue(
+internal fun clinicalNumericValue(
     value: Double?,
     decimals: Int,
     unit: ClinicalNumericUnitUi
@@ -2106,7 +2127,7 @@ private fun clinicalLocalQualityString(value: ClinicalLocalDataQualityUi): Int =
 }
 
 @Composable
-private fun clinicalAiProviderLabel(providerId: ClinicalAiProviderId): String =
+internal fun clinicalAiProviderLabel(providerId: ClinicalAiProviderId): String =
     stringResource(
         id = when (providerId) {
             ClinicalAiProviderId.OPENAI -> R.string.settings_clinical_ai_provider_openai
@@ -2146,7 +2167,7 @@ private fun clinicalFailureString(value: ClinicalReportFailureUi): Int = when (v
     ClinicalReportFailureUi.OTHER -> R.string.clinical_report_failure_other
 }
 
-private fun clinicalTextString(value: ClinicalReportTextKey): Int = when (value) {
+internal fun clinicalTextString(value: ClinicalReportTextKey): Int = when (value) {
     ClinicalReportTextKey.SUMMARY_STABLE -> R.string.clinical_text_summary_stable
     ClinicalReportTextKey.SUMMARY_HIGH_VARIABILITY ->
         R.string.clinical_text_summary_high_variability
@@ -2289,30 +2310,17 @@ private fun AiChatHeroCard(
     onStopVoiceRecording: () -> Unit
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val canSend = !state.chatInProgress && !state.chatVoiceBusy &&
+        (state.chatDraft.isNotBlank() || state.chatPendingAttachments.isNotEmpty())
+    val voiceLabel = stringResource(R.string.ai_analysis_chat_voice_mode_title)
+    var questionsOpen by remember { mutableStateOf(false) }
     val quickPrompts = listOf(
-        stringResource(id = R.string.ai_analysis_chat_quick_trend),
-        stringResource(id = R.string.ai_analysis_chat_quick_errors),
-        stringResource(id = R.string.ai_analysis_chat_quick_isfcr),
-        stringResource(id = R.string.ai_analysis_chat_quick_uam)
+        stringResource(R.string.ai_analysis_chat_quick_trend),
+        stringResource(R.string.ai_analysis_chat_quick_errors),
+        stringResource(R.string.ai_analysis_chat_quick_isfcr),
+        stringResource(R.string.ai_analysis_chat_quick_uam)
     )
-    AiSectionCard(
-        modifier = Modifier.animateContentSize()
-    ) {
-        AiSectionLabel(
-            text = stringResource(id = R.string.section_ai_chat),
-            infoText = stringResource(id = R.string.ai_analysis_chat_info)
-        )
-        if (!state.analysisReady) {
-            Text(
-                text = stringResource(
-                    id = R.string.ai_analysis_chat_requires_data,
-                    state.dataCoverageHours,
-                    state.minDataHours
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+    Column(Modifier.fillMaxSize().imePadding(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2326,7 +2334,7 @@ private fun AiChatHeroCard(
                     text = stringResource(id = R.string.ai_analysis_chat_voice_mode_title),
                     style = MaterialTheme.typography.titleSmall
                 )
-                Text(
+                if (state.chatRecording || state.chatVoiceBusy || state.chatSpeaking) Text(
                     text = when {
                         state.chatRecording -> stringResource(id = R.string.ai_analysis_chat_recording_active)
                         state.chatVoiceBusy -> stringResource(id = R.string.ai_analysis_chat_voice_busy)
@@ -2339,38 +2347,17 @@ private fun AiChatHeroCard(
             }
             Switch(
                 checked = state.chatVoiceRepliesEnabled,
-                onCheckedChange = onVoiceRepliesToggle
+                onCheckedChange = onVoiceRepliesToggle,
+                modifier = Modifier.semantics { contentDescription = voiceLabel }
             )
         }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        LazyColumn(
+            state = rememberLazyListState(), modifier = Modifier.weight(1f).fillMaxWidth()
+                .testTag("ai_focus_messages"),
+            reverseLayout = true, verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
-            quickPrompts.forEach { prompt ->
-                FilterChip(
-                    selected = false,
-                    onClick = { onDraftChange(prompt) },
-                    label = {
-                        Text(
-                            text = prompt,
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    },
-                    colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors()
-                )
-            }
-        }
-        if (state.chatMessages.isEmpty()) {
-            Text(
-                text = stringResource(id = R.string.ai_analysis_chat_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                state.chatMessages.takeLast(10).forEach { message ->
-                    AiChatMessageBubble(message = message)
-                }
+            items(state.chatMessages.asReversed()) { message ->
+                AiChatMessageBubble(message = message)
             }
         }
         if (state.chatPendingAttachments.isNotEmpty()) {
@@ -2390,11 +2377,19 @@ private fun AiChatHeroCard(
         TextField(
             value = state.chatDraft,
             onValueChange = onDraftChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("ai_focus_composer").onPreviewKeyEvent {
+                if (it.key == Key.Enter && !it.isShiftPressed && it.type == KeyEventType.KeyDown) {
+                    if (canSend) onSend()
+                    true
+                } else false
+            },
             label = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_label)) },
             placeholder = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_placeholder)) },
             textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
-            enabled = !state.chatInProgress && !state.chatVoiceBusy,
+            enabled = !state.chatVoiceBusy,
+            maxLines = 4,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
             colors = if (midnightGlass) {
                 TextFieldDefaults.colors(
                     focusedContainerColor = Color(0x33182947),
@@ -2418,64 +2413,32 @@ private fun AiChatHeroCard(
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton(
-                onClick = onAttachImage,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PhotoCamera,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(text = stringResource(id = R.string.ai_analysis_chat_attach_photo_short))
-            }
-            OutlinedButton(
-                onClick = onAttachFile,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AttachFile,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(text = stringResource(id = R.string.ai_analysis_chat_attach_file_short))
-            }
-            OutlinedButton(
-                onClick = if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy
-            ) {
-                Icon(
-                    imageVector = if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(
-                    text = if (state.chatRecording) {
-                        stringResource(id = R.string.ai_analysis_chat_stop_recording_short)
-                    } else {
-                        stringResource(id = R.string.ai_analysis_chat_start_recording_short)
+            AiFocusAction(Icons.Default.PhotoCamera,
+                stringResource(R.string.ai_analysis_chat_attach_photo_short), onAttachImage,
+                enabled = !state.chatInProgress && !state.chatVoiceBusy)
+            AiFocusAction(Icons.Default.AttachFile,
+                stringResource(R.string.ai_analysis_chat_attach_file_short), onAttachFile,
+                enabled = !state.chatInProgress && !state.chatVoiceBusy)
+            AiFocusAction(if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
+                stringResource(if (state.chatRecording) R.string.ai_analysis_chat_stop_recording_short
+                    else R.string.ai_analysis_chat_start_recording_short),
+                if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
+                enabled = !state.chatInProgress && !state.chatVoiceBusy)
+            androidx.compose.foundation.layout.Box {
+                AiFocusAction(Icons.Default.Lightbulb, stringResource(R.string.ai_focus_questions),
+                    { questionsOpen = true })
+                DropdownMenu(questionsOpen, { questionsOpen = false }) {
+                    quickPrompts.forEach { prompt ->
+                        DropdownMenuItem(text = { Text(prompt) }, onClick = {
+                            questionsOpen = false
+                            onDraftChange(if (state.chatDraft.isBlank()) prompt else state.chatDraft + "\n\n" + prompt)
+                        })
                     }
-                )
+                }
             }
             Spacer(modifier = Modifier.weight(1f))
-            if (state.chatInProgress || state.chatVoiceBusy) {
-                Icon(Icons.Default.HourglassEmpty,
-                    contentDescription = stringResource(R.string.owl_ai_waiting),
-                    modifier = Modifier.size(24.dp).progressSemantics())
-            }
-            OutlinedButton(
-                onClick = onSend,
-                enabled = !state.chatInProgress &&
-                    !state.chatVoiceBusy &&
-                    (state.chatDraft.isNotBlank() || state.chatPendingAttachments.isNotEmpty())
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(text = stringResource(id = R.string.ai_analysis_chat_send))
-            }
+            AiFocusAction(Icons.AutoMirrored.Filled.Send, stringResource(R.string.ai_analysis_chat_send),
+                onSend, Modifier.testTag("ai_focus_send"), enabled = canSend)
         }
     }
 }
@@ -2501,6 +2464,7 @@ private fun AiChatMessageBubble(
         stringResource(id = R.string.ai_analysis_chat_role_ai)
     }
     Card(
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
             contentColor = contentColor

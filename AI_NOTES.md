@@ -1,3 +1,37 @@
+# Approved Focus AI Workspace - 2026-10-16
+
+- Owner selected variant1 Focus. Native report/chat/advice/archive panels now
+  retain independent state; daily analytics load/error no longer hides local
+  report or chat. Only active content is composed. Existing diagnostics/replay/
+  tuning/CSV/PDF operations remain reachable without duplicated main controls.
+- Compact period selector and three summary metrics retain full source/quality/
+  totals/meal-window details. The available state has no raw day glucose series;
+  the chart shows only existing finite/consistent range percentages, not fake CGM.
+- Pinned composer and lazy supplied-message history replace the combined feed.
+  Busy/blank send guards, voice/file/photo callbacks and quick questions retained.
+  Discuss appends to an existing draft and never sends. Archive search opens full
+  selected record; typed clinical advice retains evidence/period/provider/model.
+- Initial6-case navigation/isolation RED observed. First compile wrapper brace
+  failure corrected. One test expected an exact text match for an intentionally
+  appended draft; corrected to substring assertions after inspecting actual text.
+- Expanded native RED exposed confirmed-send re-enablement after tab disposal;
+  latch now belongs to the screen root, alongside existing PDF ticket effects.
+  Pending consent is not restored as process-death approval. Separate missing
+  clinical-advice RED fixed through the existing typed formatting/evidence path.
+- Final17 new native cases/48 focused tests pass. English/Russian rasters at
+  320x640,320x480 and1.6font inspected. Wrapped tab words corrected through compact
+  native tab content; larger fonts use scrollable tabs. Finite owl/press feedback
+  follows existing lifecycle/power/reduced-motion policy, with busy semantics.
+- Full Android test/lint/compile/assemble and instrumented-source compilation pass
+  in13m48s. Final5703 cases:5697 passed/6 existing opt-in skips,0 failures/errors.
+  Lint0 errors,379 notices versus372 baseline:5 unused retired-copy resources,
+  2 dialog-height recommendations following existing bounded/scrollable pattern.
+  Native small-window/large-font rendering and source/security/docs review pass.
+  Package/signing identity unchanged; debug APK hash recorded privately. Source
+  publication/exact-head CI remain separate gates. No real medical data, provider/
+  server, phone, schema or therapy operation.
+  See AI_FOCUS_UI.md. Backend daily result/schedule/photo admission remains separate.
+
 # Contained Daily Review Worker - 2026-10-16
 
 - Adds dedicated native daily JSON session and immutable request binding for

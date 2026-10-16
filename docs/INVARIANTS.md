@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Focus AI Presentation
+
+- Daily analytics loading/failure must not hide usable chat or local report.
+- A tab visit does not submit, refresh, reprepare or retry an AI job. Discuss
+  appends to the unsent draft; sending and disclosure remain explicit actions.
+- Confirmed-send latch and PDF ticket effects outlive tab disposal; process death
+  cannot restore an unreviewed approval. Existing backend/controller gates remain.
+- Clinical recommendations retain typed source/period/evidence. Missing raw
+  glucose series cannot become a fabricated day curve or therapeutic conclusion.
+- One active panel, retained scroll/draft, accessible targets and finite native
+  motion; no hidden page may keep intercepting input or run a decorative loop.
+
 ## Contained Daily Worker
 
 - Dedicated daily JSON/prompt/request bindings must not widen CHAT/photo policy.

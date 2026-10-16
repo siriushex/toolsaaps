@@ -2012,4 +2012,20 @@
     <string name="event_detail_manual">Ручная запись</string>
     <string name="event_detail_aaps">Запись AAPS</string>
     <string name="event_detail_automatic">Автоматическая запись</string>
+    <string name="ai_focus_tab_report">Разбор</string>
+    <string name="ai_focus_tab_chat">Чат</string>
+    <string name="ai_focus_tab_recommendations">Советы</string>
+    <string name="ai_focus_tab_archive">Архив</string>
+    <string name="ai_focus_diagnostics">Диагностика</string>
+    <string name="ai_focus_report_details">Подробнее и источники</string>
+    <string name="ai_focus_coverage">Покрытие: %1$s%%</string>
+    <string name="ai_focus_mmol">ммоль/л</string>
+    <string name="ai_focus_period_day">24 ч</string>
+    <string name="ai_focus_period_days">%1$d дн.</string>
+    <string name="ai_focus_discuss">Обсудить в чате</string>
+    <string name="ai_focus_search">Поиск отчётов</string>
+    <string name="ai_focus_questions">Вопросы</string>
+    <string name="ai_focus_title_report">Клинический отчёт</string>
+    <string name="ai_focus_title_recommendations">Рекомендации</string>
+    <string name="ai_focus_title_archive">Отчёты</string>
 </resources>

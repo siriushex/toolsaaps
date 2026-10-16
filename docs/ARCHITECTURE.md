@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Focus AI Workspace
+
+The approved native Focus layout separates clinical report, chat, recommendations
+and archive with retained per-panel state and no global daily-loading gate.
+Only active content is composed; the composer is pinned outside the lazy message
+list. Existing clinical facts, explicit consent, guarded retry and PDF actions
+remain authoritative. PDF effects and the confirmed-send UI latch outlive tab
+composition, but do not persist consent across process death. Full diagnostics
+retain existing operational tools. No provider, server or therapy change follows
+from navigation. See AI_FOCUS_UI.md for data/rendering and acceptance boundaries.
+
 ## Contained Daily Review Worker
 
 The internal daily_worker uses a separate pinned daily JSON session, not the
