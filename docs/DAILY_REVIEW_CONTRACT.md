@@ -21,8 +21,11 @@ publication. Passing the stored hash back is not that verification. Input and
 output explicitly say NOT_INDEPENDENTLY_VERIFIED; no autonomous fresh badge.
 
 The separate internal check_daily_glucose_report_source now performs a protected
-point-in-time replay of retained history without a supplied hash. It is not yet
-consumed here or by a worker; old input/view labels deliberately remain unchanged.
+point-in-time replay of retained history without a supplied hash. The new
+prepare_checked_daily_glucose_review/validate_checked_daily_glucose_review consume
+it atomically with work/result construction, returning its actual check separately.
+Legacy input/view contracts remain unchanged; no worker is active. See
+[CHECKED_DAILY_REVIEW.md](CHECKED_DAILY_REVIEW.md).
 See [DAILY_SOURCE_VERIFICATION.md](DAILY_SOURCE_VERIFICATION.md).
 
 ## Frozen Model Input

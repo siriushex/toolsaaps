@@ -68,7 +68,10 @@ physiological-domain validation or clinical recommendation admission follows.
 
 The existing prepare_daily_glucose_review/validate_review source assertions remain
 caller-supplied; their NOT_INDEPENDENTLY_VERIFIED and NOT_ADMITTED labels remain.
-No worker consumes this new result yet. A future worker must bind the exact
+Separate checked preparation/reply helpers now consume this result in the same
+protected snapshot as construction, rejecting superseded or non-reproducing work.
+See [CHECKED_DAILY_REVIEW.md](CHECKED_DAILY_REVIEW.md). No worker is active yet.
+A future worker must bind the exact
 report revision/facts/device, perform this protected check before dispatch and
 again before publication, and separately enforce provider/stop/quality/admission,
 encrypted durable work/results and uncertain-state handling. An earlier MATCHED

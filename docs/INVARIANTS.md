@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Checked Daily Review Boundaries
+
+- Preparation and reply evaluation independently consume authenticated source
+  replay in the same protected transaction as work/result construction. There is
+  no hash/proof argument to bypass the second check or reuse old MATCHED state.
+- Latest visible archive revision must match work; a newer revision supersedes
+  old work. Reconstruct exact canonical work from that authenticated archive;
+  a self-consistent rehashed packet is not sufficient evidence for its metrics.
+- Bind owner/device before storage. Preserve response size/schema/reference/
+  priority gates and complete-operation deadlines; contract errors inside the
+  lock are not mislabeled as storage corruption. No partial checked object.
+- Actual point-in-time source checks remain separate from unchanged legacy
+  inner contracts. No continuous freshness, provider stop, publication, medical
+  quality or therapy authority follows. No queue/policy/schema widening occurs.
+
 ## Frozen Daily Source Checks
 
 - Selected archive and latest retained source share one bounded protected read

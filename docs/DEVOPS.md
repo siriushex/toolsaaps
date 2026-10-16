@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Checked Daily Review Boundary Stage (2026-10-16)
+
+Only trusted synchronous read helpers consume the source check; future async
+orchestration must offload them using the existing worker-thread convention.
+They perform no network/model work and hold no read lock across inference.
+No schema, service, descriptor, route, provider policy, scheduler, runtime/profile,
+phone or therapy setting is changed. No public capability is advertised.
+
+Checked work must be prepared again immediately before future dispatch if it
+waited in a queue. Checked replies still need independently admitted quality and
+a coordinated fresh check/durable publication boundary; they are not stored here.
+See CHECKED_DAILY_REVIEW.md. Legacy unverified preparation remains unchanged and
+must not be used to bypass the new trusted boundaries in a future daily worker.
+
 ## Frozen Source Check Stage (2026-10-16)
 
 Only internal read helpers and synthetic checks change. No migration, service,

@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Checked Daily Review Boundaries (2026-10-16)
+
+- Independent source check is consumed inside both trusted preparation and reply
+  evaluation, sharing protected selection/replay/construction and exit deadline.
+  No old proof/current-hash input; foreign work fails before device-store access.
+- Latest revision supersedes old work. Reconstruct complete work from the actual
+  authenticated report; a rehashed canonical packet cannot invent source metrics.
+- Early bounded syntax checks and later exact references/actions/priority remain.
+  Contract failures under the lock have distinct bounded errors, not false
+  storage-corruption errors. Actual integrity/row/SQL/wall failures stay closed.
+- The result is still NOT_ADMITTED; actual retained-history proof is a separate
+  point-in-time observation, not medical accuracy, model stop or future freshness.
+  No raw payload logging, new route/schema/provider/queue/profile/model or therapy
+  access. Future dispatch/publication must freshly coordinate these checks.
+
 ## Frozen Daily Source Verification (2026-10-16)
 
 - One trusted protected archive/source read, no caller-supplied freshness hash.

@@ -624,6 +624,16 @@ class HistoryStore:
 
         return check_report_source(self, owner, device, **options)
 
+    def prepare_checked_daily_glucose_review(self, owner, device, **options):
+        from .checked_daily_review import prepare_checked_review
+
+        return prepare_checked_review(self, owner, device, **options)
+
+    def validate_checked_daily_glucose_review(self, owner, device, work, body, *, now_ms):
+        from .checked_daily_review import validate_checked_review
+
+        return validate_checked_review(self, owner, device, work, body, now_ms=now_ms)
+
     def _enable_daily_reports(self, db):
         from .daily_reports import SCHEMA as REPORT_SCHEMA
 

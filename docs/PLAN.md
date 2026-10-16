@@ -1,5 +1,25 @@
 # PLAN
 
+## Checked Daily Review Boundaries (2026-10-16)
+
+- [x] Inspect dedicated CHAT/photo queue contracts; no implicit daily fallback.
+- [x] Observe missing checked-preparation RED; consume independent source replay
+  atomically with canonical work construction and fresh reply evaluation.
+- [x] Fix observed contract errors incorrectly becoming storage-unavailable;
+  distinct errors preserve actual integrity failures and prevent false retries.
+- [x] Final33 new cases/205 focused tests pass: stale source/proofs/hash echo,
+  supersession, canonical forgery, isolation, expiry/retention, corruption, closed
+  reply/reference checks, concurrency and complete-operation deadlines.
+- [x] Complete pinned backend1314 passed/27 existing opt-in skips; scoped E/F
+  lint, compile, diff/source/security/docs review pass. Synthetic6343-point/22-day
+  flow prepares in0.7607s and checks a reply in0.7021s locally; not provider,
+  target-host capacity or clinical accuracy evidence.
+- [ ] Reviewed source publication and exact-head CI evidence.
+
+No job reservation, provider, queue activation, publication, schema or deployment.
+Actual point-in-time source checks do not admit medical text or future dispatch.
+See CHECKED_DAILY_REVIEW.md for the remaining dedicated-worker lifecycle.
+
 ## Frozen Daily Source Verification (2026-10-16)
 
 - [x] Observe missing-check RED; inspect full archived ranges and moving cuts.

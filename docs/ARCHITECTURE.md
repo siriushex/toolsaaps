@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Source-Checked Daily Review Boundaries
+
+The internal checked_daily_review bridge now consumes the independent retained-
+source checker inside preparation and reply evaluation. Archive selection,
+source replay and canonical work/result construction share one bounded protected
+transaction. Replies recheck current source/latest revision and reconstruct work
+from the authenticated archive rather than trusting a hash or earlier proof.
+Actual source checks stay separate from the unchanged legacy inner contracts;
+results remain NOT_ADMITTED. No generic queue/provider, schema, model or action
+activation. See [CHECKED_DAILY_REVIEW.md](CHECKED_DAILY_REVIEW.md).
+
 ## Frozen Daily Source Verification
 
 HistoryStore.check_daily_glucose_report_source independently reads the selected
@@ -7,8 +18,9 @@ archive and latest retained source in one bounded protected transaction. It
 replays original analytical inputs/cuts while separately binding actual check
 time/sequence; unrelated uploads do not become false changes. Late observations,
 revisions/deletions, expiry, rollback and non-reproducing facts stay explicit.
-This point-in-time internal result is not yet consumed by a worker or the old
-caller-assertion preparation bridge. No schema, provider, route or therapy change.
+The new checked preparation/result bridge consumes this point-in-time result;
+the worker and old caller-assertion bridge remain separate. No schema, provider,
+route or therapy change.
 See [DAILY_SOURCE_VERIFICATION.md](DAILY_SOURCE_VERIFICATION.md).
 
 ## Grounded Daily Review Contract
