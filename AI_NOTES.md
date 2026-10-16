@@ -1,3 +1,29 @@
+# Scoped Runtime Acknowledgement - 2026-10-16
+
+- Added one bounded acknowledgement command to the explicitly running local
+  coordinator. Exact source/generation/ordinal/level revocation precedes Room;
+  pending claims check the action before hardware use. Old/competing/stopped
+  owners cannot acknowledge or arm themselves.
+- Exact executor cleanup and terminal journal finish precede pause persistence.
+  This prevents acknowledgement from clearing the claim needed by finish and
+  falsely disabling the runtime. Other active sources are not cancelled.
+- Current evidence/settings are rechecked within the Room transaction, including
+  after suspended writes. Lost authority rolls back journal and pause together.
+  Receiver cancellation does not retract accepted intent; runtime cancellation
+  settles pending replies as unconfirmed. Repeated taps do not extend pauses.
+- Review found a pending-claim wait using an obsolete expiry; the new ACK path
+  also needed to reject expired authority before waiting. Both now use fresh
+  evidence and cancellation checkpoints, with blocked-claim/bounded-read tests.
+  The first full run was deliberately cancelled to include these corrections.
+- Final187 focused cases passed. Full local Android unit/lint/Kotlin/debug build
+  passed in12m51s:512 suites,5911 cases,5905 passed,6 unchanged private-data skips,
+  0 failures/errors. Lint0 errors/371 warnings/8 hints, no notice-key changes.
+  APK v2 signature verified; Android source fingerprint unchanged throughout.
+  Reviewed source publication and exact-head CI remain the final source gate.
+- No visible ACK action, production owner, foreground/AlarmClock, permission,
+  default or therapy change. No phone, hardware sound, server/model or medical
+  upload. These runtime prerequisites do not establish physical delivery.
+
 # Native Alert Source And Audio Handoff - 2026-10-16
 
 - Reproduced two Room deadlocks when native/technical callbacks attempted local

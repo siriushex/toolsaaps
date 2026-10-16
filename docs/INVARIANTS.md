@@ -1,5 +1,26 @@
 # INVARIANTS
 
+## Scoped Runtime Acknowledgement
+
+- Only the current explicitly running coordinator accepts acknowledgement; the
+  command cannot start an owner or replace user opt-in. One pending intent is
+  bounded and tied to exact source/generation/ordinal/level and current boot.
+- Exact audio authority is revoked before Room waits. A claim callback must
+  notice its pending exact acknowledgement before starting hardware effects.
+  A stale action cannot cancel a different ordinal, generation or source.
+- Audio/volume and terminal-journal cleanup finish before the pause transaction.
+  Unconfirmed cleanup cannot become a successful acknowledgement or healthy owner.
+- Current source, freshness and settings are rechecked around persistence. Lost
+  authority rolls back the transaction, not just the return value. Another risk
+  source keeps its playback; higher risk is not acknowledged by an older action.
+- Receiver cancellation does not retract an already accepted intent. Runtime
+  shutdown settles pending replies without claiming that a pause was persisted.
+- Pending-claim waits use current source expiry. Expired acknowledgement cannot
+  spin on a past deadline; every runner iteration checks cancellation.
+- Duplicate actions never slide a pause. Configured critical/soft repeat, global
+  OFF and worsening semantics remain unchanged. No notification posting implies
+  acknowledgement, audio success or hearing; this API alone activates no runtime.
+
 ## Alert Control Intent Revocation
 
 - Valid OFF/resume/toggle intent advances the shared database control revision

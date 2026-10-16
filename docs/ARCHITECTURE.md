@@ -1,5 +1,31 @@
 # ARCHITECTURE
 
+## Scoped Runtime Acknowledgement
+
+The explicitly running LocalAlarmCoordinator accepts one bounded acknowledgement
+intent at a time. It binds source key, generation, cycle ordinal and level to
+current accepted evidence, settings and boot. An exact active owner is revoked
+before any Room wait; a pending claim is matched again in its onClaimed callback
+before hardware use. Old ordinals/generations cannot stop a replacement. An
+unstarted, stopped or competing coordinator cannot accept commands or arm itself.
+
+The runner finishes exact audio/volume and terminal-journal cleanup before it
+persists the pause. The acknowledgement does not clear an executor's active claim
+out from under its finish operation. Another source's playback is not cancelled.
+Source/settings/freshness are checked again inside the Room transaction and after
+the write; lost authority rolls back both journal and pause changes. Failed
+cleanup yields unavailable, never a successful acknowledgement.
+
+An accepted intent belongs to this runtime even if its receiver coroutine stops
+waiting. Runtime shutdown settles unprocessed intents as unconfirmed. Duplicate
+taps do not extend the pause; worsening and deliberate global OFF retain existing
+policy semantics. Pending claims wait on the current source expiry rather than
+their originally selected expiry; expired acknowledgement authority is rejected
+before waiting. The runner also checks cancellation on each iteration, preventing
+old-deadline busy loops while Room is delayed. This command API does not add a
+visible notification action, production coordinator owner, foreground service
+or AlarmClock scheduling.
+
 ## Immediate Alert Control Intent
 
 Episode control actions now revoke delivery before acquiring the persistent

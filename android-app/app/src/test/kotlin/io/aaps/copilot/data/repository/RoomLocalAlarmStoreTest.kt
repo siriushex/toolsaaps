@@ -159,6 +159,31 @@ class RoomLocalAlarmStoreTest {
         assertEquals(2L, high.startCycle!!.ordinal)
     }
 
+    @Test fun acknowledgementRechecksSourceAfterWaitingForPersistenceLock() = runBlocking {
+        val owner = store(); val signal = evidence()
+        val cycle = owner.evaluate(signal, timing)!!.startCycle!!
+        val before = state()
+        val current = java.util.concurrent.atomic.AtomicBoolean(true)
+        val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        lock.lock()
+        val ack = async(start = CoroutineStart.UNDISPATCHED) {
+            owner.acknowledge(signal, timing, LocalAlarmAcknowledgement(key, 1, cycle.ordinal, cycle.level), current::get)
+        }
+        try { current.set(false) } finally { lock.unlock() }
+        assertFalse(ack.await()); assertEquals(before, state()); assertEquals("CLAIMED", row(cycle).status)
+    }
+
+    @Test fun acknowledgementRollsBackBothJournalAndPauseWhenSourceChangesDuringWrite() = runBlocking {
+        val owner = store(); val signal = evidence()
+        val cycle = owner.evaluate(signal, timing)!!.startCycle!!
+        val before = state(); var reads = 0
+        assertFalse(owner.acknowledge(signal, timing, LocalAlarmAcknowledgement(key, 1, cycle.ordinal, cycle.level)) {
+            ++reads == 1
+        })
+        assertEquals(2, reads); assertEquals(before, state()); assertEquals("CLAIMED", row(cycle).status)
+        assertTrue(owner.finish(cycle))
+    }
+
     @Test fun recoverMarksInterruptedAttemptUncertainWithoutReplayOrResettingDue() = runBlocking {
         val owner = store(); val cycle = owner.evaluate(evidence(), timing)!!.startCycle!!
         assertTrue(owner.recordStep(evidence(), cycle, step(), timing))

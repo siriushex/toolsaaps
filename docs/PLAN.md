@@ -1,5 +1,19 @@
 # PLAN
 
+## Scoped Runtime Acknowledgement (2026-10-16)
+
+- [x] Add bounded exact-identity acknowledgement to the explicitly running
+  coordinator; revoke before Room and finish exact cleanup before pause writes.
+- [x] Recheck current source/settings around persistence; rollback on loss.
+- [x] Cover stale actions, busy journal, duplicate taps, worsening, other sources,
+  OFF, expiry, settings/capability loss, receiver and runtime cancellation.
+- [x] Final187 focused cases and full Android unit/lint/Kotlin/debug build pass:
+  5911 cases,5905 passed,6 unchanged private-data skips,0 failures/errors.
+  Lint has0 errors and unchanged371 warnings/8 hints; APK v2 signature verified.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Production owner, visible acknowledgement action, foreground/AlarmClock
+  lifecycle and OFF-expiry reassessment remain open, with device acceptance later.
+
 ## Native Alert Handoff (2026-10-16)
 
 - [x] Separate delivery ordering from short Room transactions; recheck pending
@@ -11,7 +25,8 @@
 - [x] Current focused104 cases and final full Android unit/lint/Kotlin/debug
   build:5890 cases/6 existing skips/0 failures/errors, unchanged lint notices,
   verified APK v2 signature.
-- [ ] Reviewed source publication and exact-head CI.
+- [x] Published ec3642fc; Verify38887130917 and38887123575 passed. Linux XML
+  exactly matches the local5890 cases and6 skips.
 - [ ] Select the handoff in production; connect current settings/capabilities,
   scoped ACK, foreground/AlarmClock lifecycle and OFF-expiry reassessment.
 

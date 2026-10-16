@@ -78,14 +78,16 @@ class RoomLocalAlarmStore(
     }
 
     suspend fun acknowledge(evidence: LocalAlarmEvidence, timing: LocalAlarmTiming,
-        action: LocalAlarmAcknowledgement): Boolean = guarded(false) { environment ->
+        action: LocalAlarmAcknowledgement, stillCurrent: () -> Boolean = { true }): Boolean = guarded(false) { environment ->
         val loaded = load(evidence.key, environment) ?: return@guarded false
-        if (environment.mutedUntilWallMs > environment.nowWallMs) return@guarded false
+        if (!stillCurrent() || environment.mutedUntilWallMs > environment.nowWallMs) return@guarded false
         val next = LocalAlarmPolicy.acknowledge(evidence, loaded.state, environment, timing, action)
             ?: return@guarded false
         if (next == loaded.state) return@guarded false
         loaded.state.activeCycle?.let { terminal(it, "CANCELLED", environment.nowWallMs) }
         persist(loaded, next, environment.nowWallMs)
+        // A source/settings change during a suspended Room write rolls back the pause.
+        check(stillCurrent())
         true
     }
 

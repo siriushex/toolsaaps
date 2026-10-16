@@ -29,7 +29,9 @@ locked-screen acceptance require their own explicitly authorized test.
 - [x] Split delivery and persistence locks, preserve pending-OFF denial, add an
   explicit checked-source handoff and settle native/local volume ownership.
 - [ ] Production INITIAL route selection and runtime admission.
-- [ ] Scoped acknowledgement and Android wake lifecycle.
+- [x] Scoped runtime acknowledgement command with immediate exact revocation,
+  cleanup-before-pause ordering and source revalidation in the transaction.
+- [ ] Visible acknowledgement action and Android wake lifecycle.
 - [x] Full local unit/lint/Kotlin/debug-build:5868 cases/6 existing skips,
   0 failures/errors; lint0 errors and unchanged379 notices. Source review and
   16-path credential/identifier scan complete; APK v2 signature verified.
@@ -37,7 +39,11 @@ locked-screen acceptance require their own explicitly authorized test.
   38877759914 and38877754037 passed, with matching local/CI unit cases.
 - [x] Final handoff full Android quality:5890 cases/5884 pass/6 unchanged skips,
   0 failures/errors; lint0 errors with unchanged379 notices; APK v2 verified.
-- [ ] Current handoff reviewed publication and exact-head CI.
+- [x] Handoff published ec3642fc; Verify38887130917 and38887123575 passed,
+  with Linux XML matching local5890 cases and6 unchanged skips.
+- [x] Current acknowledgement full local quality:5911 cases/5905 passed,
+  6 unchanged skips,0 failures/errors; unchanged lint and verified APK signature.
+- [ ] Current acknowledgement reviewed publication and exact-head CI.
 
 ## Integration Finding
 
