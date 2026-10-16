@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## First-Start Checklist (2026-10-16)
+
+- Bounded enum metadata and compare-and-set writes only; no new secret storage,
+  network request, medical export, treatment entity or clinical authority.
+- Manual readings retain blood-check provenance. No injected CGM, zero-filled
+  IOB/COB, generated treatment confirmations or claimed alert readiness.
+- AAPS review uses the existing explicit two-confirmation gate. Checklist choices
+  never arm or disarm; recorded refusal is respected and existing armed startup
+  remains available. Critical alert navigation takes precedence over auto-setup.
+- Native synthetic UI/store tests do not prove phone notification delivery or
+  hardware connectivity. Independent observation runtime remains a separate audit.
+- Full verification exposed a pre-existing Room commit/return cancellation gap in
+  manual priority registration. Deterministic RED retains the original failure;
+  the repair captures only local registration ownership before cancellation,
+  never suppresses cancellation across delivery and never replays unknown POSTs.
+
 ## Pre-lock Alert Control (2026-10-16)
 
 - Metadata gate shares the actual database coordination identity. Its revision

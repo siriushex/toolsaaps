@@ -112,7 +112,8 @@ internal fun decideBoundedUamExportV2Migration(
 
 class AppSettingsStore internal constructor(
     private val dataStore: DataStore<Preferences>,
-    private val currentInstallId: String? = TEST_INSTALL_ID
+    private val currentInstallId: String? = TEST_INSTALL_ID,
+    private val offerInitialSetup: Boolean = false
 ) {
     @Volatile
     private var threeModeConsentMigrationChecked = false
@@ -121,12 +122,48 @@ class AppSettingsStore internal constructor(
         dataStore = PreferenceDataStoreFactory.create(
             produceFile = { context.preferencesDataStoreFile("copilot_settings.preferences_pb") }
         ),
-        currentInstallId = TherapyActionInstallIdentity(context.noBackupFilesDir).loadOrCreate()
+        currentInstallId = TherapyActionInstallIdentity(context.noBackupFilesDir).loadOrCreate(),
+        offerInitialSetup = kotlin.runCatching {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            offerSetupForInstall(info.firstInstallTime, info.lastUpdateTime)
+        }.getOrDefault(false)
     )
 
     private val baseTargetScheduleCodec = BaseTargetScheduleCodec()
 
     val settings: Flow<AppSettings> = dataStore.data.map(::readSettings)
+
+    val setupProgress: Flow<SetupProgress> = dataStore.data.map(::readSetupProgress)
+
+    private fun readSetupProgress(prefs: Preferences): SetupProgress = SetupProgress(
+        status = prefs[SETUP_STATUS]?.let { raw -> SetupStatus.entries.find { it.name == raw } }
+            ?: if (offerInitialSetup) SetupStatus.NOT_STARTED else SetupStatus.LEGACY,
+        step = prefs[SETUP_STEP]?.let { raw -> SetupStep.entries.find { it.name == raw } } ?: SetupStep.EQUIPMENT,
+        glucoseSource = prefs[SETUP_GLUCOSE]?.let { raw -> SetupGlucoseSource.entries.find { it.name == raw } }
+            ?: SetupGlucoseSource.MANUAL,
+        insulinSource = prefs[SETUP_INSULIN]?.let { raw -> SetupInsulinSource.entries.find { it.name == raw } }
+            ?: SetupInsulinSource.NONE
+    )
+
+    // Compare-and-set protects late/double taps without touching clinical or connection preferences.
+    suspend fun saveSetupProgress(expected: SetupProgress, next: SetupProgress): Boolean {
+        var saved = false
+        dataStore.edit { prefs ->
+            if (readSetupProgress(prefs) != expected) return@edit
+            prefs[SETUP_STATUS] = next.status.name
+            prefs[SETUP_STEP] = next.step.name
+            prefs[SETUP_GLUCOSE] = next.glucoseSource.name
+            prefs[SETUP_INSULIN] = next.insulinSource.name
+            saved = true
+        }
+        return saved
+    }
+
+    private val SETUP_STATUS = stringPreferencesKey("setup_status_v1")
+    private val SETUP_STEP = stringPreferencesKey("setup_step_v1")
+    private val SETUP_GLUCOSE = stringPreferencesKey("setup_glucose_v1")
+    private val SETUP_INSULIN = stringPreferencesKey("setup_insulin_v1")
 
     internal suspend fun readLegacyOpenAiCredential(): String? =
         dataStore.data.first()[KEY_LEGACY_OPENAI_CREDENTIAL]

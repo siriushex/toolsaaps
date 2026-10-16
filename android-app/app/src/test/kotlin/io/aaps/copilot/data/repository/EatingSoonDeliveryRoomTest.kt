@@ -34,6 +34,75 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class EatingSoonDeliveryRoomTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun cancellationAfterPriorityCommitBeforeCallerResumesRetiresOnlyOwnedUnsentIntent() = runBlocking {
+        val manual = command("registration-cancel")
+        val inserted = CompletableDeferred<Unit>()
+        val releaseInsert = java.util.concurrent.CountDownLatch(1)
+        val intercepted = java.util.concurrent.atomic.AtomicBoolean(false)
+        db.close()
+        db = Room.inMemoryDatabaseBuilder(context, CopilotDatabase::class.java)
+            .allowMainThreadQueries()
+            .setQueryCallback({ sql, args ->
+                if (sql.startsWith("INSERT", ignoreCase = true) && sql.contains("action_commands") &&
+                    args.contains(manual.idempotencyKey) && intercepted.compareAndSet(false, true)) {
+                    inserted.complete(Unit)
+                    check(releaseInsert.await(5, TimeUnit.SECONDS))
+                }
+            }, java.util.concurrent.Executor { it.run() }).build()
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+            val repository = repository(server)
+            val held = CompletableDeferred<Unit>()
+            val releaseOwner = CompletableDeferred<Unit>()
+            val first = async(start = CoroutineStart.UNDISPATCHED) {
+                repository.submitTempTarget(command("registration-owner")) {
+                    held.complete(Unit)
+                    releaseOwner.await()
+                    null
+                }
+            }
+            withTimeout(5_000) { held.await() }
+            val scheduler = kotlinx.coroutines.test.TestCoroutineScheduler()
+            val waiting = async(kotlinx.coroutines.test.StandardTestDispatcher(scheduler)) {
+                repository.submitManualMealTarget(manual) { error("cancelled guard must not run") }
+            }
+            try {
+                scheduler.runCurrent()
+                withTimeout(5_000) { inserted.await() }
+                releaseInsert.countDown()
+                withTimeout(5_000) {
+                    db.actionCommandDao().observeLatest(10).first { rows ->
+                        rows.any { it.idempotencyKey == manual.idempotencyKey && it.status == "PENDING" }
+                    }
+                }
+                // The caller continuation is deliberately still queued after the durable commit.
+                waiting.cancel()
+                withTimeout(5_000) {
+                    while (!waiting.isCompleted) {
+                        scheduler.runCurrent()
+                        kotlinx.coroutines.delay(5)
+                    }
+                }
+                assertThat(db.actionCommandDao().byIdempotencyKey(manual.idempotencyKey)?.status).isEqualTo("BLOCKED")
+                assertThat(server.requestCount).isEqualTo(0)
+                releaseOwner.complete(Unit)
+                assertThat(withTimeout(5_000) { first.await() }).isTrue()
+            } finally {
+                releaseInsert.countDown()
+                waiting.cancel()
+                withTimeout(5_000) {
+                    while (!waiting.isCompleted) {
+                        scheduler.runCurrent()
+                        kotlinx.coroutines.delay(5)
+                    }
+                }
+                releaseOwner.complete(Unit)
+                first.cancelAndJoin()
+            }
+        }
+    }
+
     @Test fun explicitEatingSoonUsesTheSameGuardedThirtyMinuteCommandInEveryManagerMode() = runBlocking {
         MockWebServer().use { server ->
             val repository = repository(server)

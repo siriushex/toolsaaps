@@ -12,8 +12,8 @@ class TherapyActionBootstrapArchitectureTest {
         val resume = main.substringAfter("override fun onResume() {", "").substringBefore("\n    }")
         assertThat(resume).contains("enqueuePostDrawStartup()")
         val preparation = main.substringAfter("private fun enqueuePostDrawStartup()")
-            .substringBefore("private fun continueStartupAfterTherapyBootstrap()")
-        val continuation = main.substringAfter("private fun continueStartupAfterTherapyBootstrap()")
+            .substringBefore("private fun continueStartupAfterTherapyBootstrap")
+        val continuation = main.substringAfter("private fun continueStartupAfterTherapyBootstrap")
             .substringBefore("private fun showTherapyActionBootstrapDialog")
         assertThat(preparation).contains("Lifecycle.State.RESUMED")
         assertThat(continuation).contains("Lifecycle.State.RESUMED")
@@ -29,7 +29,7 @@ class TherapyActionBootstrapArchitectureTest {
         )
 
         assertThat(mainActivity).contains("setTherapyActionsArmed(true)")
-        assertThat(mainActivity).contains("continueStartupAfterTherapyBootstrap()")
+        assertThat(mainActivity).contains("continueStartupAfterTherapyBootstrap")
         assertThat(source("src/main/kotlin/io/aaps/copilot/service/AppContainer.kt"))
             .contains("TherapyActionBootstrapMigrationPolicy.shouldAutoArm")
         backgroundSources.forEach { background ->

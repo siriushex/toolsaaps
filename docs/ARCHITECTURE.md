@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## First-Start Checklist
+
+SetupProgress is separate from clinical AppSettings, stored by a scoped atomic
+compare-and-set in the same preferences datastore. Equipment choices only select
+checklist content. The native setup route links existing editors and permission
+screens; it cannot mint connectivity, glucose evidence or treatment authority.
+Fresh installations are offered setup, existing installations are not reset.
+Legacy refusal is respected; already-armed runtime startup remains independent
+of checklist completion. See ONBOARDING.md for actual capability limitations.
+
 ## Scoped Runtime Acknowledgement
 
 The explicitly running LocalAlarmCoordinator accepts one bounded acknowledgement

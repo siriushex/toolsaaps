@@ -1,3 +1,33 @@
+# First-Start Setup - 2026-10-16
+
+- Added a resumable five-step native setup checklist with independent glucose and
+  insulin-equipment choices, existing editor links, explicit Android notification
+  action and an optional separate AAPS permission review. Settings can reopen it.
+- Setup preferences use scoped compare-and-set writes, preserving all clinical
+  settings. New installs are offered setup; updates/unknown install metadata are
+  not forced through it. Already-armed startup is not blocked. A recorded legacy
+  therapy refusal is no longer re-prompted every time the app resumes.
+- Inspected a substantive limitation: manual food currently submits to AAPS and
+  several observation paths share the therapy arming gate. The checklist reports
+  these limits rather than fabricating independent no-pump support. Blood checks
+  and context notes remain available; standalone injection/food logging and the
+  observation/action runtime split are explicitly open in ONBOARDING.md.
+- First full run exposed an existing Eating Soon cancellation race: Room could
+  commit PENDING before cancellation discarded the return value outside the
+  owner's try/catch. A controlled-dispatcher/real-Room regression reproduced it
+  deterministically. Registration now captures exact ownership in local
+  NonCancellable work, then checks cancellation before queue admission; only the
+  first owner proven unsent is retired. Duplicate and already-started delivery
+  semantics are preserved. This is a prerequisite regression repair, not a new
+  target policy or an authorization change. Original RED evidence is retained.
+- Final54 focused cases pass. Full local Android unit/lint/Kotlin/debug build
+  passed in17m30s:514 suites,5931 cases,5925 passed,6 existing private-input skips,
+  0 failures/errors. Lint0 errors and unchanged371 warnings/8 hints. Android
+  source fingerprint stayed unchanged; APK v2 signature verified. Small Russian
+  and enlarged-text native rasters were inspected. Exact-head CI is the final
+  source publication gate. No phone installation, hardware sound, server/model
+  request, therapy action or changed clinical threshold.
+
 # Scoped Runtime Acknowledgement - 2026-10-16
 
 - Added one bounded acknowledgement command to the explicitly running local

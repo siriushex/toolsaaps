@@ -90,6 +90,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import io.aaps.copilot.R
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.config.SetupStatus
+import io.aaps.copilot.config.SetupStep
+import io.aaps.copilot.config.shouldAutoOpenSetup
+import io.aaps.copilot.ui.setup.SetupScreen
+import io.aaps.copilot.ui.setup.SetupViewModel
 import io.aaps.copilot.ui.MainViewModel
 import io.aaps.copilot.ui.motion.OwlMenuButton
 import io.aaps.copilot.ui.motion.OwlGesture
@@ -136,6 +141,7 @@ private object Destinations {
     object AiAnalysis : MoreDestination("ai_analysis", R.string.menu_ai_analysis, Icons.Default.Assessment)
     object Alerts : MoreDestination("alerts", R.string.nav_alerts, Icons.Default.Notifications)
     object Settings : MoreDestination("settings", R.string.menu_settings, Icons.Default.Tune)
+    object Setup : RootDestination("setup")
 
     val bottom = listOf(Overview, Forecast, Analytics)
     val more = listOf(Uam, Safety, Audit, AiAnalysis, Alerts, Settings)
@@ -153,11 +159,17 @@ internal fun clinicalAiSettingsRootCallbacks(
 
 @Composable
 fun CopilotFoundationRoot(
-    viewModel: MainViewModel = viewModel()
+    viewModel: MainViewModel = viewModel(),
+    setupViewModel: SetupViewModel = viewModel(),
+    onSetupClosed: () -> Unit = {},
+    onReviewTherapy: () -> Unit = {},
+    onSetupNotifications: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val setupState by setupViewModel.state.collectAsStateWithLifecycle()
+    var initialSetupChecked by rememberSaveable { mutableStateOf(false) }
 
     val message by viewModel.messageUiState.collectAsStateWithLifecycle()
     val appHealth by viewModel.appHealthUiState.collectAsStateWithLifecycle()
@@ -182,6 +194,16 @@ fun CopilotFoundationRoot(
     var drawerOpen by remember { mutableStateOf(false) }
     var chromeDetailsReady by remember { mutableStateOf(false) }
     var routeShellReady by remember { mutableStateOf(false) }
+    LaunchedEffect(setupState.progress, routeShellReady, currentRoute) {
+        val progress = setupState.progress
+        if (routeShellReady && currentRoute != null && !initialSetupChecked && progress != null) {
+            initialSetupChecked = true
+            if (shouldAutoOpenSetup(progress, currentRoute == Destinations.Overview.route,
+                viewModel.alertNavigationRequests.value != null, overview.glucoseAlertStrongActive)) {
+                navController.navigate(Destinations.Setup.route) { launchSingleTop = true }
+            }
+        }
+    }
     var openSensorLagTrendDetailRequest by remember { mutableStateOf(false) }
     var showPowerSaveDialog by remember { mutableStateOf(false) }
     var showEventsDialog by remember { mutableStateOf(false) }
@@ -273,11 +295,11 @@ fun CopilotFoundationRoot(
                 contentColor = MaterialTheme.colorScheme.onBackground,
                 topBar = {
                     TopBar(
-                        title = screenTitle(currentRoute),
+                        title = if (currentRoute == Destinations.Setup.route) stringResource(R.string.setup_title) else screenTitle(currentRoute),
                         uiStyle = selectedUiStyle,
                         staleData = appHealth.staleData,
                         killSwitchEnabled = appHealth.killSwitchEnabled,
-                        showStatusIndicators = chromeDetailsReady,
+                        showStatusIndicators = chromeDetailsReady && currentRoute != Destinations.Setup.route,
                         showGlucoseAlertToggle = currentRoute == Destinations.Overview.route,
                         glucoseAlertMutedUntilTs = overview.glucoseAlertMutedUntilTs,
                         showOverviewActions = currentRoute == Destinations.Overview.route && selectedUiStyle == UiStyle.CLARITY,
@@ -308,6 +330,7 @@ fun CopilotFoundationRoot(
                     )
                 },
                 bottomBar = {
+                    if (currentRoute != Destinations.Setup.route) {
                     NavigationBar(
                         containerColor = shellChromeColor(selectedUiStyle),
                         contentColor = shellChromeContentColor(selectedUiStyle)
@@ -347,6 +370,7 @@ fun CopilotFoundationRoot(
                             )
                         }
                     }
+                    }
                 },
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
         ) { innerPadding ->
@@ -358,8 +382,17 @@ fun CopilotFoundationRoot(
                             vertical = if (currentRoute == Destinations.Overview.route && selectedUiStyle == UiStyle.CLARITY) 4.dp else Spacing.sm)
                 ) {
                     if (routeShellReady) {
+                        if (currentRoute != Destinations.Setup.route && setupState.progress?.shouldOffer == true) {
+                            TextButton(onClick = {
+                                if (!navController.popBackStack(Destinations.Setup.route, false)) {
+                                    navController.navigate(Destinations.Setup.route) { launchSingleTop = true }
+                                }
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.setup_return))
+                            }
+                        }
                         val showHealthWarning = appHealth.staleData || appHealth.killSwitchEnabled
-                        if (currentRoute != Destinations.Overview.route && showHealthWarning) {
+                        if (currentRoute !in listOf(Destinations.Overview.route, Destinations.Setup.route) && showHealthWarning) {
                             AppHealthBanner(
                                 staleData = appHealth.staleData,
                                 killSwitchEnabled = appHealth.killSwitchEnabled,
@@ -377,6 +410,34 @@ fun CopilotFoundationRoot(
                             popEnterTransition = { NativeMotion.routeEnter },
                             popExitTransition = { NativeMotion.routeExit }
                         ) {
+                            composable(Destinations.Setup.route) {
+                                SetupScreen(
+                                    state = setupState,
+                                    onSave = setupViewModel::save,
+                                    onRetry = setupViewModel::reload,
+                                    onClose = {
+                                        if (navController.currentDestination?.route == Destinations.Setup.route) {
+                                            navController.popBackStack()
+                                        }
+                                        onSetupClosed()
+                                    },
+                                    onSettings = { destination ->
+                                        if (destination == IssueDestination.SAFETY) {
+                                            navController.navigate(Destinations.Safety.route) { launchSingleTop = true }
+                                        } else {
+                                            issueRequestToken += 1
+                                            issueSettingsDestination = destination
+                                            navController.navigate(Destinations.Settings.route) { launchSingleTop = true }
+                                        }
+                                    },
+                                    onBloodCheck = {
+                                        overviewAuthoritativeEditor = OverviewAuthoritativeEditor.BLOOD_CHECK
+                                        navController.navigate(Destinations.Overview.route) { launchSingleTop = true }
+                                    },
+                                    onReviewTherapy = onReviewTherapy,
+                                    onNotifications = onSetupNotifications
+                                )
+                            }
                             composable(Destinations.Overview.route) {
                                 OverviewScreen(
                                     state = overview,
@@ -550,6 +611,18 @@ fun CopilotFoundationRoot(
                                     viewModel.loadServerAiConnection()
                                 }
                                 SettingsScreen(
+                                    onOpenSetup = {
+                                        if (!navController.popBackStack(Destinations.Setup.route, false)) {
+                                            navController.navigate(Destinations.Setup.route) { launchSingleTop = true }
+                                        }
+                                        val progress = setupState.progress
+                                        if (progress != null) {
+                                            setupViewModel.save(progress.copy(status = SetupStatus.IN_PROGRESS,
+                                                step = SetupStep.EQUIPMENT))
+                                        } else {
+                                            setupViewModel.reload()
+                                        }
+                                    },
                                     telegramSettingsContent = {
                                         io.aaps.copilot.ui.foundation.screens.TelegramSettingsSection(
                                             viewModel.telegramRepository, viewModel::sendTelegramSummary

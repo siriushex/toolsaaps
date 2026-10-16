@@ -31,6 +31,8 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -92,12 +94,18 @@ class NightscoutActionRepository(
         deliveryGuard: (suspend () -> String?)? = null
     ): Boolean {
         val frozenCommand = command.copy(params = command.params.toMap())
-        // Publish manual intent before waiting so queued manager preflights see it.
-        val priorityRegistration = if (isExactEatingSoonCommand(frozenCommand)) {
-            registerPendingCommand(frozenCommand)
-        } else null
+        var priorityRegistration: PendingCommandRegistration? = null
         var admitted = false
         try {
+            if (isExactEatingSoonCommand(frozenCommand)) {
+                currentCoroutineContext().ensureActive()
+                // Capture ownership before cancellation can discard the committed Room result.
+                // This contains only local registration, never queue admission or delivery.
+                withContext(NonCancellable) {
+                    priorityRegistration = registerPendingCommand(frozenCommand)
+                }
+                currentCoroutineContext().ensureActive()
+            }
             return TEMP_TARGET_WRITE_MUTEX.withLock {
                 admitted = true
                 val registration = priorityRegistration
@@ -107,10 +115,11 @@ class NightscoutActionRepository(
             }
         } catch (cancelled: CancellationException) {
             // Only the owner cancelled before admission can prove no delivery began.
-            if (!admitted && priorityRegistration?.kind == PendingCommandRegistrationKind.FIRST_RESERVED) {
+            val owned = priorityRegistration
+            if (!admitted && owned?.kind == PendingCommandRegistrationKind.FIRST_RESERVED) {
                 try {
                     withContext(NonCancellable) {
-                        markBlocked(priorityRegistration.command, "target_not_sent")
+                        markBlocked(owned.command, "target_not_sent")
                     }
                 } catch (cleanupFailure: Exception) {
                     cancelled.addSuppressed(cleanupFailure)

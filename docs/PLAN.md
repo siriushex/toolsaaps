@@ -1,5 +1,21 @@
 # PLAN
 
+## First-Start Setup (2026-10-16)
+
+- [x] Inspect actual manual, AAPS and startup paths; document capability gaps.
+- [x] Add resumable five-step native checklist and Settings entry, existing editor
+  links, explicit notifications and separate AAPS command review.
+- [x] Preserve clinical preferences and existing installations; respect recorded
+  refusal and keep already-armed startup independent of checklist progress.
+- [x] 54 final focused persistence/native UI/startup/Eating Soon cases pass;
+  native Russian 320x640 and enlarged-text rasters inspected. Deterministic
+  Room commit/return cancellation regression repaired before the full rerun.
+- [x] Full Android quality:5931 cases,5925 passed/6 existing skips,0 failures;
+  lint0 errors, unchanged379 notices; debug APK v2 signature verified.
+- [ ] Reviewed publication and exact-head CI.
+- [ ] Separate observation runtime authorization, standalone local treatment
+  diary, manual-data analytics and device acceptance. See ONBOARDING.md.
+
 ## Scoped Runtime Acknowledgement (2026-10-16)
 
 - [x] Add bounded exact-identity acknowledgement to the explicitly running

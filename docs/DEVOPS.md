@@ -1,5 +1,14 @@
 # DEVOPS
 
+## First-Start Checklist (2026-10-16)
+
+Additive setup-only preferences and native UI; no Room schema, dependency,
+manifest, service or remote deployment changes. Older application versions ignore
+the new checklist keys. Equipment choices preserve all existing clinical and
+connection settings; this stage does not enable no-AAPS background forecasting.
+Complete local quality and exact-head Verify precede source-stage publication.
+APK installation and actual device permission/navigation acceptance are separate.
+
 ## Immediate OFF Source Repair (2026-10-16)
 
 Existing control entry points now revoke the admitted delivery child and shared

@@ -1,5 +1,27 @@
 # INVARIANTS
 
+## First-Start Setup
+
+- Equipment selection and checklist completion never arm/disarm therapy, change
+  targets, fabricate IOB/COB, emit CGM points, send food or upload medical data.
+- Manual readings keep their existing blood-check provenance. Sparse entries
+  are not continuous monitoring and cannot certify prediction/alert readiness.
+- Only explicit user action opens the existing two-confirmation therapy flow.
+  Existing arming and all transport guards remain authoritative; no-pump choices
+  cannot silently stop previously authorized therapy or imply that it stopped.
+- Failed/stale saves cannot advance/close the wizard as successful. Persisted
+  Later/Complete stays dismissed; unknown install metadata does not interrupt an
+  existing setup. Incomplete setup cannot block an already-armed runtime startup.
+
+## Priority Reservation Cancellation
+
+- Manual Eating Soon registration captures FIRST_RESERVED ownership before
+  cancellation may discard a committed Room return. Cancellation is rechecked
+  before queue admission; only the exact first owner proven unsent is blocked.
+- The cancellation-shielded section is local registration, not mutex admission,
+  delivery or retry. A cancelled duplicate cannot withdraw another owner, and
+  cancellation after transport starts retains unknown/no-replay semantics.
+
 ## Scoped Runtime Acknowledgement
 
 - Only the current explicitly running coordinator accepts acknowledgement; the
