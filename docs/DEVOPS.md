@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Local Observation Runtime
+
+Additive install-bound preference, default off. No Room schema, dependency,
+manifest permission or external server change. Existing source/TLS settings and
+therapy permissions are retained. Separate local periodic work runs without a
+network constraint and is cancelled on disable/power-save or therapy runtime
+handoff. Turning this option off is not a global source or therapy stop.
+
+Run LocalObservationSettingsTest, LocalObservationRuntimeTest, SetupScreenTest,
+bootstrap and reactive worker policy tests, then full Android quality. Retain
+native small-screen/large-font evidence. Phone source reception, reboot, screen
+lock and power-save return still require separate acceptance; Android restrictions
+can deny foreground start. No claim of independent alarms or guaranteed delivery.
+
 ## Local Diary / Room35
 
 MIGRATION_34_35 adds one independent journal table and its occurrence-time index.

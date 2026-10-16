@@ -7,6 +7,7 @@ object TherapyActionRuntimeState {
     private val armed = AtomicBoolean(false)
 
     fun update(settings: AppSettings) {
+        LocalObservationRuntimeState.update(settings)
         armed.set(settings.therapyActionsArmed)
     }
 

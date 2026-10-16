@@ -1,5 +1,35 @@
 # ARCHITECTURE
 
+## Independent Local Observation
+
+An explicit install-bound localObservationEnabled preference permits the local
+foreground runtime without therapyActionsArmed. Equipment/checklist selections
+and generic settings updates cannot grant it. The existing therapy runtime still
+implies observation; switching the independent option off cannot disarm therapy.
+An install-scoped decision marker prevents delayed legacy auto-arm migration even
+after this option is disabled. It does not replace explicit therapy confirmation.
+
+Application, foreground, boot, broadcast and power-save lifecycle admission use
+the combined observation permission. Command transports, circadian targets and
+normal clinical writer policies retain therapy-only authority. The foreground
+cycle rereads persisted settings and selects the existing LOCAL_READ_ONLY path
+for independent observation. That path cannot upgrade into writers, remote
+refresh, alerts, widget publication or AI dispatch when therapy state changes.
+
+A separate unique 15-minute local worker has no network constraint and yields
+to the foreground cycle. It checks current permission/power state, never becomes
+a normal automation job, and has bounded timeout/retry. In observation-only
+mode the scheduler cancels legacy normal/daily/circadian jobs; new reactive input
+still uses LOCAL_READ_ONLY without cancelling the observer's periodic work.
+Worker completion rereads current runtime policy before cancellation/resume/stop,
+so an older disarmed or power-save calculation cannot close a newly enabled
+observer. The selected calculation intent itself never upgrades mid-cycle.
+
+This enables configured local sources and silent calculations only. It does not
+connect remote Nightscout polling, independent alarms or daily AI, nor turn manual
+diary entries into clinical evidence. Fresh-data capability and Android background
+availability still require device/source acceptance.
+
 ## Local Manual Diary
 
 Room35 adds an isolated append-only local_diary_entries journal. A stable entry
@@ -18,8 +48,8 @@ History reads are bounded (100 recent entries, expandable to1000;100 revisions).
 
 These entries have no clinical consumer: no treatment import, upload adapter,
 CGM insertion, IOB/COB projection, forecast trigger or target/dose command. The
-existing AAPS Food action stays separate. Observation runtime authorization is
-still a different unfinished stage; this diary does not bypass it.
+existing AAPS Food action stays separate. The explicit local observation runtime
+above does not connect the diary to clinical calculations.
 
 ## First-Start Checklist
 

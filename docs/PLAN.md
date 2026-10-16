@@ -1,5 +1,21 @@
 # PLAN
 
+## Independent Local Observation (2026-10-16)
+
+- [x] Audit foreground/boot/broadcast/scheduler/automation/transport boundaries.
+- [x] Add install-bound opt-in, separate local-only periodic work and foreground
+  cycle routing; preserve therapy-only transports and existing armed runtime.
+- [x] Add native setup switch with actual permission state and explicit limits.
+- [x] Legacy migration checks the explicit observation decision atomically;
+  disabling observation later does not reopen automatic therapy arming.
+- [x] Final127 focused cases passed; Russian320x640 enlarged-text layout
+  inspected, including the full-row accessible observation switch.
+- [x] Full Android unit/lint/Kotlin/debug build passed in38m36s:5973 cases,
+  5967 passed/6 existing skips,0 failures/errors. Lint0 errors and unchanged379
+  notices; final source fingerprints and APK v2 signature verified.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Device acceptance, remote polling and independent alarms remain separate.
+
 ## Local Manual Diary (2026-10-16)
 
 - [x] Inspect actual AAPS-only meal submission and independent-use limitations.
@@ -12,8 +28,9 @@
 - [x] Full Android quality:5955 cases/5949 pass/6 existing skips,0 failures.
   Final two-label-only followup:19 UI cases and lint/build pass; no new lint
   notices. Native rasters reviewed; final source manifest and APK v2 verified.
-- [ ] Reviewed publication and exact-head Verify including full Linux tests.
-- [ ] Observation runtime split and validated diary analytics remain separate.
+- [x] Published e7913acb; push38907517550/PR38907524091 Verify passed. All5955
+  Linux cases/outcomes matched local results. No phone installation.
+- [ ] Validated diary analytics remain separate; local observation is above.
 
 ## First-Start Setup (2026-10-16)
 

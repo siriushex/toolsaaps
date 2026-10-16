@@ -1,3 +1,30 @@
+# Independent Local Observation - 2026-10-16
+
+- Added explicit install-bound background observation independent of therapy
+  permission. Local foreground/boot/power-save startup and configured local source
+  reception use combined runtime admission; therapy transports stay unchanged.
+- Independent foreground/periodic work uses LOCAL_READ_ONLY. It cannot enable
+  remote refresh, daily AI, alerts, sensitivity maintenance or command writers.
+  A dedicated network-independent worker yields to the foreground cycle and has
+  bounded retry; reactive local calculations no longer cancel this observer.
+- Native setup Data switch exposes actual saved permission, pending/error state
+  and limits. Already-armed users retain their actual runtime and Safety link.
+- Initial122 focused cases passed and the enlarged-text native raster was
+  inspected. Added atomic legacy-migration exclusion after explicit observation
+  choice, including after disabling it, and current-policy worker cleanup to
+  prevent a stale cycle from cancelling newly enabled observation. The initial
+  full run was intentionally cancelled to include that lifecycle repair.
+- Final127 focused cases and full Android unit/lint/Kotlin/debug build passed:
+  520 suites,5973 cases,5967 passed,6 unchanged skips,0 failures/errors. The final
+  full run completed in38m36s; two earlier full runs were deliberately cancelled
+  for lifecycle/error-preservation and accessibility corrections, not counted as
+  successful checks. Native Russian320x640 enlarged-text layout was inspected.
+- Lint has0 errors and unchanged371 warnings/8 hints. All1254 Android source
+  fingerprints stayed unchanged throughout the final run; APK v2 verified.
+  Reviewed source publication and exact-head CI remain the final source gate.
+  Phone/server/model, sound, medical-data transfer and therapy operations are
+  outside this stage; remote polling and independent alarms remain separate.
+
 # Local Manual Diary - 2026-10-16
 
 - Added a local-only native meal/injection diary with timestamp/time zone,

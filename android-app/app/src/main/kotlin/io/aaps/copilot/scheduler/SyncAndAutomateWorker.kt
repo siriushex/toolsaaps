@@ -31,7 +31,8 @@ internal enum class StartedWorkerOutcome {
 internal fun resolveStartedWorkerPolicy(
     therapyActionsArmed: Boolean,
     powerSaveActive: Boolean,
-    minuteLoopActive: Boolean
+    minuteLoopActive: Boolean,
+    localObservationEnabled: Boolean = false
 ): StartedWorkerPolicy {
     val localOnly = !therapyActionsArmed || powerSaveActive
     return StartedWorkerPolicy(
@@ -40,8 +41,9 @@ internal fun resolveStartedWorkerPolicy(
         } else {
             AutomationRepository.AutomationCycleIntent.NORMAL
         },
-        skipForMinuteLoop = minuteLoopActive && !localOnly,
-        cancelFutureRuntimeWork = localOnly,
+        skipForMinuteLoop = minuteLoopActive && !powerSaveActive &&
+            (therapyActionsArmed || localObservationEnabled),
+        cancelFutureRuntimeWork = (!therapyActionsArmed && !localObservationEnabled) || powerSaveActive,
         schedulePowerSaveResume = powerSaveActive,
         stopRuntimeControllers = powerSaveActive
     )
@@ -50,7 +52,8 @@ internal fun resolveStartedWorkerPolicy(
 internal fun resolveReactiveWorkerPolicy(
     dispatchMode: ClinicalInputInvalidationMode,
     therapyActionsArmedAtStart: Boolean,
-    powerSaveActiveAtStart: Boolean
+    powerSaveActiveAtStart: Boolean,
+    localObservationEnabled: Boolean = false
 ): StartedWorkerPolicy {
     val currentGateClosed = !therapyActionsArmedAtStart || powerSaveActiveAtStart
     val localOnly = dispatchMode == ClinicalInputInvalidationMode.LOCAL_READ_ONLY ||
@@ -62,7 +65,7 @@ internal fun resolveReactiveWorkerPolicy(
             AutomationRepository.AutomationCycleIntent.NORMAL
         },
         skipForMinuteLoop = false,
-        cancelFutureRuntimeWork = currentGateClosed,
+        cancelFutureRuntimeWork = (!therapyActionsArmedAtStart && !localObservationEnabled) || powerSaveActiveAtStart,
         schedulePowerSaveResume = powerSaveActiveAtStart,
         stopRuntimeControllers = powerSaveActiveAtStart
     )
@@ -487,15 +490,21 @@ internal suspend fun runStartedWorkerCycle(
     runAutomationCycle: suspend (AutomationRepository.AutomationCycleIntent) -> Boolean,
     cancelFutureRuntimeWork: suspend () -> Unit,
     schedulePowerSaveResume: suspend () -> Unit,
-    stopRuntimeControllers: suspend () -> Unit
+    stopRuntimeControllers: suspend () -> Unit,
+    runtimePolicyAtCleanup: suspend () -> StartedWorkerPolicy = { policy }
 ): StartedWorkerOutcome {
     if (policy.skipForMinuteLoop) return StartedWorkerOutcome.SKIPPED_MINUTE_LOOP
+    var cycleFailure: Throwable? = null
     val accepted = try {
         runAutomationCycle(policy.cycleIntent)
+    } catch (failure: Throwable) {
+        cycleFailure = failure
+        throw failure
     } finally {
-        if (policy.cancelFutureRuntimeWork) cancelFutureRuntimeWork()
-        if (policy.schedulePowerSaveResume) schedulePowerSaveResume()
-        if (policy.stopRuntimeControllers) stopRuntimeControllers()
+        val current = readRuntimeCleanupPolicy(cycleFailure, runtimePolicyAtCleanup)
+        if (current.cancelFutureRuntimeWork) cancelFutureRuntimeWork()
+        if (current.schedulePowerSaveResume) schedulePowerSaveResume()
+        if (current.stopRuntimeControllers) stopRuntimeControllers()
     }
     return if (accepted) StartedWorkerOutcome.EXECUTED else StartedWorkerOutcome.NOT_ACCEPTED
 }
@@ -505,13 +514,35 @@ internal suspend fun runReactiveWorkerCycle(
     runAutomationCycle: suspend (AutomationRepository.AutomationCycleIntent) -> Boolean,
     cancelFutureRuntimeWork: suspend () -> Unit,
     schedulePowerSaveResume: suspend () -> Unit,
-    stopRuntimeControllers: suspend () -> Unit
-): Boolean = try {
-    runAutomationCycle(policy.cycleIntent)
-} finally {
-    if (policy.cancelFutureRuntimeWork) cancelFutureRuntimeWork()
-    if (policy.schedulePowerSaveResume) schedulePowerSaveResume()
-    if (policy.stopRuntimeControllers) stopRuntimeControllers()
+    stopRuntimeControllers: suspend () -> Unit,
+    runtimePolicyAtCleanup: suspend () -> StartedWorkerPolicy = { policy }
+): Boolean {
+    var cycleFailure: Throwable? = null
+    return try {
+        runAutomationCycle(policy.cycleIntent)
+    } catch (failure: Throwable) {
+        cycleFailure = failure
+        throw failure
+    } finally {
+        val current = readRuntimeCleanupPolicy(cycleFailure, runtimePolicyAtCleanup)
+        if (current.cancelFutureRuntimeWork) cancelFutureRuntimeWork()
+        if (current.schedulePowerSaveResume) schedulePowerSaveResume()
+        if (current.stopRuntimeControllers) stopRuntimeControllers()
+    }
+}
+
+private suspend fun readRuntimeCleanupPolicy(
+    cycleFailure: Throwable?,
+    read: suspend () -> StartedWorkerPolicy
+): StartedWorkerPolicy = try {
+    read()
+} catch (readFailure: Throwable) {
+    val primary = if (cycleFailure == null || (readFailure is Error && cycleFailure !is Error)) {
+        readFailure
+    } else cycleFailure
+    val secondary = if (primary === readFailure) cycleFailure else readFailure
+    if (secondary != null && secondary !== primary) primary.addSuppressed(secondary)
+    throw primary
 }
 
 internal enum class ReactiveWorkerPreflightAction {
@@ -678,6 +709,7 @@ class SyncAndAutomateWorker(
         val powerSaveActive = PowerSaveController.isActive(settings)
         val executionPolicy = resolveStartedWorkerPolicy(
             therapyActionsArmed = settings.therapyActionsArmed,
+            localObservationEnabled = settings.localObservationEnabled,
             powerSaveActive = powerSaveActive,
             minuteLoopActive = LocalNightscoutForegroundService.isMinuteLoopActive()
         )
@@ -718,9 +750,10 @@ class SyncAndAutomateWorker(
                     },
                     cancelFutureRuntimeWork = { WorkScheduler.cancelRuntimeWork(applicationContext) },
                     schedulePowerSaveResume = {
-                        WorkScheduler.schedulePowerSaveResume(applicationContext, settings.powerSaveUntilMs)
+                        scheduleCurrentPowerSaveResume()
                     },
-                    stopRuntimeControllers = container::stopRuntimeControllers
+                    stopRuntimeControllers = container::stopRuntimeControllers,
+                    runtimePolicyAtCleanup = ::currentRuntimeCleanupPolicy
                 )
             }
             container.auditLogger.info(
@@ -780,6 +813,7 @@ class SyncAndAutomateWorker(
                 val executionPolicy = resolveReactiveWorkerPolicy(
                     dispatchMode = reactiveWork.mode,
                     therapyActionsArmedAtStart = settings.therapyActionsArmed,
+                    localObservationEnabled = settings.localObservationEnabled,
                     powerSaveActiveAtStart = PowerSaveController.isActive(settings)
                 )
                 PreparedReactiveWorkerCycle {
@@ -797,12 +831,10 @@ class SyncAndAutomateWorker(
                                 WorkScheduler.cancelRuntimeWork(applicationContext)
                             },
                             schedulePowerSaveResume = {
-                                WorkScheduler.schedulePowerSaveResume(
-                                    applicationContext,
-                                    settings.powerSaveUntilMs
-                                )
+                                scheduleCurrentPowerSaveResume()
                             },
-                            stopRuntimeControllers = container::stopRuntimeControllers
+                            stopRuntimeControllers = container::stopRuntimeControllers,
+                            runtimePolicyAtCleanup = ::currentRuntimeCleanupPolicy
                         )
                     }
                 }
@@ -860,6 +892,23 @@ class SyncAndAutomateWorker(
             ReactiveWorkerOrchestrationResult.RETRY -> Result.retry()
             ReactiveWorkerOrchestrationResult.FAILURE ->
                 Result.failure(terminalEvidence?.toWorkData() ?: androidx.work.Data.EMPTY)
+        }
+    }
+
+    private suspend fun currentRuntimeCleanupPolicy(): StartedWorkerPolicy {
+        val current = (applicationContext as CopilotApp).container.settingsStore.settings.first()
+        return resolveStartedWorkerPolicy(
+            therapyActionsArmed = current.therapyActionsArmed,
+            localObservationEnabled = current.localObservationEnabled,
+            powerSaveActive = PowerSaveController.isActive(current),
+            minuteLoopActive = false
+        )
+    }
+
+    private suspend fun scheduleCurrentPowerSaveResume() {
+        val current = (applicationContext as CopilotApp).container.settingsStore.settings.first()
+        if (PowerSaveController.isActive(current)) {
+            WorkScheduler.schedulePowerSaveResume(applicationContext, current.powerSaveUntilMs)
         }
     }
 

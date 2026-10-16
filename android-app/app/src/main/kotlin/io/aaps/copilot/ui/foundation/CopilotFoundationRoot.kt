@@ -417,6 +417,9 @@ fun CopilotFoundationRoot(
                                     state = setupState,
                                     onSave = setupViewModel::save,
                                     onRetry = setupViewModel::reload,
+                                    onObservation = { enabled ->
+                                        setupViewModel.setLocalObservationEnabled(enabled, onSetupClosed)
+                                    },
                                     onClose = {
                                         if (navController.currentDestination?.route == Destinations.Setup.route) {
                                             navController.popBackStack()

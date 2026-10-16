@@ -21,6 +21,8 @@ import io.aaps.copilot.service.HealthConnectActivityCollector
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutSecretClipboard
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.PowerSaveRuntimeState
+import io.aaps.copilot.service.localObservationRuntimeAllowed
 import io.aaps.copilot.ui.foundation.CopilotFoundationRoot
 import io.aaps.copilot.config.SetupStatus
 import io.aaps.copilot.config.shouldShowLegacyTherapyBootstrap
@@ -116,15 +118,19 @@ class MainActivity : ComponentActivity() {
             app.container.migrateTherapyActionBootstrapForInPlaceUpdate()
             val settings = app.container.settingsStore.settings.first()
             val setup = app.container.settingsStore.setupProgress.first()
+            TherapyActionRuntimeState.update(settings)
+            PowerSaveRuntimeState.update(settings)
             currentCoroutineContext().ensureActive()
             if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@enqueue
-            if (setup.shouldOffer && !settings.therapyActionsArmed) return@enqueue
-            if (shouldShowLegacyTherapyBootstrap(setup, settings.therapyActionsArmed,
+            if (setup.shouldOffer && !settings.localObservationRuntimeAllowed()) return@enqueue
+            if (!settings.localObservationEnabled && shouldShowLegacyTherapyBootstrap(setup, settings.therapyActionsArmed,
                 app.container.settingsStore.isTherapyActionBootstrapEvaluated())) {
                 showTherapyActionBootstrapDialog(app)
                 return@enqueue
             }
-            continueStartupAfterTherapyBootstrap(requestPermissions = setup.status == SetupStatus.LEGACY)
+            continueStartupAfterTherapyBootstrap(
+                requestPermissions = setup.status == SetupStatus.LEGACY && !settings.localObservationEnabled
+            )
         }
     }
 

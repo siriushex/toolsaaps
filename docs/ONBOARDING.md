@@ -5,7 +5,7 @@
 The five-step native checklist covers equipment, data entry/connections, optional
 profile, notification settings and review. Glucose equipment and insulin source
 are independent: manual/sensor combined with none/injections/pump/AAPS. These are
-checklist choices, not operating modes or clinical authority. No selected device
+checklist choices, not clinical authority. No selected device
 is presented as connected and completion is not a readiness certificate.
 
 On a confirmed fresh Android installation the checklist opens automatically.
@@ -27,6 +27,11 @@ New setup does not require therapy arming to finish. Legacy foreground arming
 migration remains unchanged. Legacy undecided users retain the existing two-step
 confirmation; a recorded refusal is no longer re-prompted on every foreground
 entry. Already-armed runtime startup is not blocked by an unfinished checklist.
+A separate explicit Background observation switch on Data permits configured
+local sources and silent local recalculation without therapy permission. It is
+install-bound, defaults off, and does not enable independent alarms or daily AI.
+The review distinguishes permission from actual reception. Existing armed users
+see the actual shared runtime and its Safety link, not a misleading off switch.
 AAPS users may explicitly review the same two-step confirmation from the final
 step. Choosing manual/no-pump does not revoke previously authorized therapy;
 the final step explicitly shows that actual state and links to Safety.
@@ -38,20 +43,22 @@ a late saved close cannot pop a different screen the user has since opened.
 | Configuration | Available now | Not established by setup |
 | --- | --- | --- |
 | Manual / no sensor | Stored blood checks, local meal/injection diary, context notes, optional profile | Continuous alerts, glucose trend or continuous forecast |
-| Sensor only | Existing source configuration and displayed imported readings | Independent background analysis without the current arming gate |
-| Injections or pump without AAPS | Blood checks/context, local meal/injection diary and declared equipment | Validated IOB/COB or independent background analysis |
+| Sensor only | Configured local source ingestion and explicit independent silent background recalculation | Remote polling, independent alarms, device-validated forecasts |
+| Injections or pump without AAPS | Blood checks/context, local diary and explicit local observation | Validated diary-derived IOB/COB, independent alarms |
 | AAPS | Existing source configuration and guarded treatment workflows | Connectivity, successful commands, prediction/alert readiness |
 
 Blood measurements remain BloodGlucoseCheck records; they are not inserted as
-CGM points. Missing IOB/COB is not filled with zero. The current foreground
-service/workers and several ingestion/forecast paths still use therapy arming
-as a runtime gate. This checklist deliberately does not bypass those gates.
+CGM points. Missing IOB/COB is not filled with zero. Background observation and
+therapy have different permissions; treatment transports retain every arming
+guard. Local recalculation can still reject incomplete data. An enabled switch
+does not certify connection, forecast validity or physical alert delivery.
 
 ## Remaining Independent-Use Work
 
-1. Separate observation/ingestion lifecycle authorization from treatment writer
-   authorization, auditing application, boot, broadcast, scheduler, local server
-   and automation entry points. Preserve every transport-side treatment guard.
+1. Local lifecycle authorization is separated from treatment writers. Validate
+   real source/foreground/boot/power-save behavior on a phone before advertising
+   autonomous monitoring. Remote polling and independent alert publication remain
+   separate work; no configured sources or user permissions are auto-enabled.
 2. Local structured meal/injection diary is implemented: drawer or setup Data
    step, explicit gram/unit fields and time, correction/history, deleted records
    and restore. It is independent of AAPS submission and therapy authorization.
@@ -61,7 +68,7 @@ as a runtime gate. This checklist deliberately does not bypass those gates.
 4. Validate each actual hardware/source combination and background behavior on
    devices before advertising autonomous no-AAPS monitoring or forecasts.
 
-Independent runtime and analytical consumers remain open capabilities.
+Independent alarms, remote polling and diary analytical consumers remain open.
 
 ## Diary Acceptance
 

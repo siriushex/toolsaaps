@@ -94,13 +94,11 @@ class TherapyActionBootstrapArchitectureTest {
     }
 
     @Test
-    fun backgroundEntryPointsRemainInertUntilTherapyActionsAreArmed() {
+    fun treatmentEntryPointsKeepArmingAndObservationEntryPointsHaveSeparateAuthority() {
         val guardedSources = listOf(
-            source("src/main/kotlin/io/aaps/copilot/receiver/LocalDataBroadcastReceiver.kt"),
-            source("src/main/kotlin/io/aaps/copilot/receiver/BootCompletedReceiver.kt"),
             source("src/main/kotlin/io/aaps/copilot/scheduler/SyncAndAutomateWorker.kt"),
             source("src/main/kotlin/io/aaps/copilot/scheduler/CircadianTargetWorker.kt"),
-            source("src/main/kotlin/io/aaps/copilot/scheduler/PowerSaveResumeWorker.kt"),
+            source("src/main/kotlin/io/aaps/copilot/scheduler/DailyAnalysisWorker.kt"),
             source("src/main/kotlin/io/aaps/copilot/service/LocalNightscoutForegroundService.kt"),
             source("src/main/kotlin/io/aaps/copilot/service/AppContainer.kt")
         )
@@ -110,6 +108,12 @@ class TherapyActionBootstrapArchitectureTest {
         }
         assertThat(source("src/main/kotlin/io/aaps/copilot/scheduler/WorkScheduler.kt"))
             .contains("TherapyActionRuntimeState.isArmed()")
+        listOf("receiver/LocalDataBroadcastReceiver", "receiver/BootCompletedReceiver",
+            "scheduler/PowerSaveResumeWorker", "service/LocalNightscoutForegroundService",
+            "service/AppContainer").forEach { path ->
+            assertThat(source("src/main/kotlin/io/aaps/copilot/$path.kt"))
+                .contains("localObservationRuntimeAllowed()")
+        }
     }
 
     @Test
@@ -121,6 +125,15 @@ class TherapyActionBootstrapArchitectureTest {
         assertThat(settingsStore).doesNotContain(
             "prefs[KEY_THERAPY_ACTIONS_ARMED] ?: false"
         )
+    }
+
+    @Test
+    fun explicitObserverDoesNotEnterLegacyTherapyOrUnrelatedPermissionPrompts() {
+        val startup = source("src/main/kotlin/io/aaps/copilot/MainActivity.kt")
+            .substringAfter("private fun enqueuePostDrawStartup")
+            .substringBefore("private fun continueStartupAfterTherapyBootstrap")
+        assertThat(startup).contains("!settings.localObservationEnabled && shouldShowLegacyTherapyBootstrap")
+        assertThat(startup).contains("requestPermissions = setup.status == SetupStatus.LEGACY && !settings.localObservationEnabled")
     }
 
     @Test

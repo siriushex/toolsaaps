@@ -64,9 +64,39 @@ class SetupScreenTest {
         var opens = 0
         screen({ SetupUiState(SetupProgress(step = SetupStep.DATA)) }, onBlood = { opens++ }) {
             assertEquals(0, opens)
-            compose.onNodeWithTag("setup_blood_check").performClick()
+            compose.onNodeWithTag("setup_blood_check").performScrollTo().performClick()
             assertEquals(1, opens)
             compose.onNodeWithTag("setup_sources").assertDoesNotExist()
+        }
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun observationRequiresExplicitSwitchAndDoesNotReviewTherapyOrFinishSetup() {
+        var state by mutableStateOf(SetupUiState(SetupProgress(step = SetupStep.DATA,
+            glucoseSource = SetupGlucoseSource.SENSOR)))
+        val changes = mutableListOf<Boolean>()
+        screen({ state }, onObservation = { changes += it; state = state.copy(observationEnabled = it) },
+            fontScale = 1.5f) {
+            assertTrue(changes.isEmpty())
+            compose.onNodeWithTag("setup_observation").performScrollTo().performClick().assertIsOn()
+            assertEquals(listOf(true), changes)
+            assertFalse(state.therapyArmed)
+            compose.onNodeWithTag("setup_next").assertIsDisplayed()
+            saveRaster("setup-observation-large")
+            compose.onNodeWithTag("setup_observation").performClick().assertIsOff()
+            assertEquals(listOf(true, false), changes)
+        }
+    }
+
+    @Test fun failedOrSavingObservationCannotBeToggledAndArmedModeShowsActualAuthority() {
+        var state by mutableStateOf(SetupUiState(SetupProgress(step = SetupStep.DATA), saving = true))
+        screen({ state }) {
+            compose.onNodeWithTag("setup_observation").assertIsNotEnabled()
+            compose.runOnIdle { state = state.copy(saving = false, failed = true) }
+            compose.onNodeWithTag("setup_observation").assertIsNotEnabled()
+            compose.runOnIdle { state = state.copy(failed = false, therapyArmed = true) }
+            compose.onNodeWithTag("setup_observation").assertDoesNotExist()
+            compose.onNodeWithText("Observation is included", substring = true).assertExists()
         }
     }
 
@@ -180,6 +210,7 @@ class SetupScreenTest {
         onTherapy: () -> Unit = { error("Unexpected therapy review") },
         onRetry: () -> Unit = { error("Unexpected reload") },
         onDiary: () -> Unit = { error("Unexpected diary") },
+        onObservation: (Boolean) -> Unit = { error("Unexpected observation") },
         fontScale: Float = 1f,
         test: () -> Unit
     ) {
@@ -191,7 +222,8 @@ class SetupScreenTest {
                 CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                     AapsCopilotTheme(darkTheme = false, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                         SetupScreen(state(), onSave, onClose, onSettings, onBlood, onTherapy,
-                            onNotifications = { error("Unexpected permission") }, onRetry = onRetry, onDiary = onDiary)
+                            onNotifications = { error("Unexpected permission") }, onRetry = onRetry, onDiary = onDiary,
+                            onObservation = onObservation)
                     }
                 }
             }

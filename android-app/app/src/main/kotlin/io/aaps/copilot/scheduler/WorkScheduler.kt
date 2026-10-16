@@ -13,6 +13,7 @@ import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.service.PowerSaveController
 import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.LocalObservationRuntimeState
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
@@ -43,7 +44,7 @@ object WorkScheduler {
     }
 
     fun schedule(context: Context) {
-        if (!TherapyActionRuntimeState.isArmed()) {
+        if (!LocalObservationRuntimeState.isAllowed()) {
             cancelRuntimeWork(context)
             return
         }
@@ -52,6 +53,21 @@ object WorkScheduler {
             schedulePowerSaveResume(context, PowerSaveRuntimeState.untilMs())
             return
         }
+
+        val manager = WorkManager.getInstance(context)
+        if (!TherapyActionRuntimeState.isArmed()) {
+            workManagerTransport(context).cancelGateClosedRuntimeWork()
+            manager.enqueueUniquePeriodicWork(
+                OBSERVATION_WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<LocalObservationWorker>(
+                    SYNC_PERIODIC_INTERVAL_MINUTES, TimeUnit.MINUTES
+                ).build()
+            )
+            cancelPowerSaveResume(context)
+            return
+        }
+        manager.cancelUniqueWork(OBSERVATION_WORK_NAME)
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -137,6 +153,7 @@ object WorkScheduler {
 
     fun cancelRuntimeWork(context: Context) {
         workManagerTransport(context).cancelGateClosedRuntimeWork()
+        WorkManager.getInstance(context).cancelUniqueWork(OBSERVATION_WORK_NAME)
     }
 
     fun schedulePowerSaveResume(context: Context, untilMs: Long) {
@@ -158,6 +175,7 @@ object WorkScheduler {
     }
 
     const val SYNC_WORK_NAME = "copilot.sync.automate"
+    internal const val OBSERVATION_WORK_NAME = "copilot.observation.local"
     const val ANALYSIS_WORK_NAME = "copilot.analysis.daily"
     const val REACTIVE_WORK_NAME = "copilot.sync.reactive"
     const val CIRCADIAN_TARGET_WORK_NAME = "copilot.target.circadian.next"

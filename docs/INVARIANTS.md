@@ -1,5 +1,26 @@
 # INVARIANTS
 
+## Independent Observation Authority
+
+- Observation is explicit, defaults off and is bound to the no-backup install
+  identity. Restored preferences, equipment selection and general settings writes
+  cannot grant it. Failed/stale writes do not report successful activation.
+- Observation permission never grants treatment authority. Every existing relay,
+  target and dose transport gate remains therapy-only. Existing armed users are
+  not silently disarmed by setup or observation controls.
+- An explicit observation choice permanently excludes automatic legacy therapy
+  arming for that installation, even after observation is turned off. The existing
+  explicit two-step therapy confirmation remains available and authoritative.
+- Independent background cycles use LOCAL_READ_ONLY: no remote refresh, clinical
+  writer, action-repository access, alert/AI publication or sensitivity maintenance.
+  Queued observer work cannot become normal work after subsequent therapy arming.
+- Disable/power-save cancel observer work; restart reads persisted permission.
+  Reactive local work cannot cancel a currently permitted observer merely because
+  therapy is disarmed. Android execution/signal delivery is not guaranteed.
+- Source-specific trust, TLS migration, permissions and freshness gates remain.
+  Source ingestion settings remain independent of the background runtime switch.
+  Manual diary and blood checks retain provenance and never fabricate CGM/IOB/COB.
+
 ## Local Manual Diary
 
 - A local entry reports food eaten or insulin already taken. Saving never sends

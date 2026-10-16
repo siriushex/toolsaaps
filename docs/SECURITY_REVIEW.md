@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Independent Local Observation (2026-10-16)
+
+- Scoped CAS preferences bind opt-in to the existing no-backup install identity;
+  generic settings, restored backup or setup choices cannot mint permission.
+- Runtime OR admission is not used in command transports or target policies.
+  Observation selects the pre-existing LOCAL_READ_ONLY policy, with no remote
+  sync, AI dispatch, alert publication or command writer. Existing local source
+  trust/authentication and permissions are not relaxed or auto-enabled.
+- Separate periodic work has no therapeutic fallback or network requirement.
+  Fresh worker/service checks preserve off/power-save intent. Legacy queued daily
+  analysis now checks therapy authorization before starting. Reactive local input
+  retains bounded queue ownership and cannot cancel an enabled local observer.
+- Manual data is not promoted to CGM or delivered-treatment evidence. Runtime
+  permission is not connectivity, clinical accuracy, alarm readiness or delivery.
+  Actual device acceptance and independent alarms remain open.
+
 ## Local Manual Diary (2026-10-16)
 
 - Scope is local structured records, not therapy control. Store depends only on

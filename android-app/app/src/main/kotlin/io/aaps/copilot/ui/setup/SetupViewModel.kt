@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 data class SetupUiState(
     val progress: SetupProgress? = null,
     val therapyArmed: Boolean = false,
+    val observationEnabled: Boolean = false,
     val saving: Boolean = false,
     val failed: Boolean = false
 )
@@ -33,9 +34,11 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         observation = viewModelScope.launch {
             try {
                 combine(store.setupProgress, store.settings) { setup, settings ->
-                    setup to settings.therapyActionsArmed
-                }.collect { (progress, armed) ->
-                    mutableState.value = mutableState.value.copy(progress = progress, therapyArmed = armed)
+                    setup to settings
+                }.collect { (progress, settings) ->
+                    mutableState.value = mutableState.value.copy(progress = progress,
+                        therapyArmed = settings.therapyActionsArmed,
+                        observationEnabled = settings.localObservationEnabled)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -58,6 +61,23 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     mutableState.value = mutableState.value.copy(saving = false, failed = true)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(saving = false, failed = true)
+            }
+        }
+    }
+
+    fun setLocalObservationEnabled(enabled: Boolean, onSaved: () -> Unit) {
+        val before = mutableState.value
+        if (before.saving || before.failed || before.progress == null || before.therapyArmed) return
+        mutableState.value = before.copy(saving = true, failed = false)
+        viewModelScope.launch {
+            try {
+                val saved = store.setLocalObservationEnabled(before.observationEnabled, enabled)
+                mutableState.value = mutableState.value.copy(saving = false, failed = !saved)
+                if (saved) onSaved()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

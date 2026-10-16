@@ -1659,12 +1659,12 @@ class AppContainer(context: Context) {
                 PowerSaveRuntimeState.update(settings)
                 TherapyActionRuntimeState.update(settings)
                 TherapyActionTransportGate.publishState(settings.therapyActionsArmed)
-                if (!settings.therapyActionsArmed) {
+                if (!settings.localObservationRuntimeAllowed()) {
                     WorkScheduler.cancelRuntimeWork(context.applicationContext)
-                    stopRuntimeControllers(LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED)
+                    stopRuntimeControllers(LocalNightscoutRuntimeReason.OBSERVATION_DISABLED)
                     LocalNightscoutServiceController.stop(
                         context.applicationContext,
-                        LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                        LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
                     )
                     return@collectLatest
                 }
@@ -1887,7 +1887,7 @@ class AppContainer(context: Context) {
     }
 
     fun startRuntimeControllers() {
-        if (PowerSaveRuntimeState.isActive() || !TherapyActionRuntimeState.isArmed()) return
+        if (PowerSaveRuntimeState.isActive() || !LocalObservationRuntimeState.isAllowed()) return
         if (runtimeControllersActive) return
         runtimeControllersActive = true
         startLocalActivitySensors()
@@ -1899,7 +1899,8 @@ class AppContainer(context: Context) {
                 settingsStore.settings.collectLatest { settings ->
                     localNightscoutServer.update(
                         enabled = LocalNightscoutUpgradeMigrationGate.canEnable(
-                            requestedEnabled = settings.localNightscoutEnabled,
+                            requestedEnabled = settings.localNightscoutEnabled &&
+                                settings.localObservationRuntimeAllowed() && !PowerSaveController.isActive(settings),
                             migrationAcknowledged =
                                 settings.localNightscoutLegacyMigrationAcknowledged
                         ),

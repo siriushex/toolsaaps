@@ -4,6 +4,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,7 +38,8 @@ internal fun SetupScreen(
     onReviewTherapy: () -> Unit,
     onNotifications: () -> Unit,
     onRetry: () -> Unit,
-    onDiary: () -> Unit
+    onDiary: () -> Unit,
+    onObservation: (Boolean) -> Unit
 ) {
     val progress = state.progress
     val context = LocalContext.current
@@ -95,6 +97,19 @@ internal fun SetupScreen(
                         Text(stringResource(R.string.setup_equipment_note), style = MaterialTheme.typography.bodySmall)
                     }
                     SetupStep.DATA -> {
+                        if (state.therapyArmed) {
+                            Text(stringResource(R.string.setup_observation_therapy))
+                        } else {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("setup_observation")
+                                .toggleable(value = state.observationEnabled, enabled = !state.saving && !state.failed,
+                                    role = Role.Switch, onValueChange = onObservation),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(R.string.setup_observation_title), Modifier.weight(1f))
+                                Switch(checked = state.observationEnabled, onCheckedChange = null,
+                                    enabled = !state.saving && !state.failed)
+                            }
+                            Text(stringResource(R.string.setup_observation_detail), style = MaterialTheme.typography.bodySmall)
+                        }
                         if (progress.glucoseSource == SetupGlucoseSource.MANUAL) {
                             Text(stringResource(R.string.setup_manual_detail))
                             SetupAction(R.string.setup_blood_check, "setup_blood_check", !state.saving, onBloodCheck)
@@ -140,6 +155,8 @@ internal fun SetupScreen(
                             R.string.setup_manual else R.string.setup_sensor), style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(insulinTitle(progress.insulinSource)))
                         Text(stringResource(R.string.setup_review_detail))
+                        Text(stringResource(if (state.observationEnabled || state.therapyArmed)
+                            R.string.setup_observation_on else R.string.setup_observation_off))
                         Text(stringResource(if (state.therapyArmed) R.string.setup_therapy_enabled else R.string.setup_therapy_blocked))
                         if (progress.insulinSource == SetupInsulinSource.AAPS && !state.therapyArmed) {
                             SetupAction(R.string.setup_review_therapy, "setup_review_therapy", !state.saving, onReviewTherapy)
