@@ -77,6 +77,61 @@ class GlucoseAlarmSourceTest {
         assertEquals(1, nativeCalls)
     }
 
+    @Test fun explicitLocalOwnerReceivesCheckedSourceAfterClaimButBeforeAnyDeliveryReceipt() = runBlocking {
+        val owner = machine()
+        var calls = 0
+        val result = owner.coordinateWithLocalAlarmSource(signal()) { claim, source ->
+            calls++
+            assertEquals(claim.episodeId, source?.evidence?.key?.id)
+            assertSame(source, owner.currentAlarmSource())
+            assertEquals("CLAIMED", db.alertDeliveryReceiptDao().byEpisodeAndKind(claim.episodeId, "INITIAL")!!.result)
+            assertEquals("OPEN", db.alertEventDao().byEpisodeId(claim.episodeId)!!.status)
+            val local = RoomLocalAlarmStore(db) {
+                io.aaps.copilot.domain.alerts.LocalAlarmEnvironment(true, true, elapsed, now, boot)
+            }
+            val cycle = kotlinx.coroutines.withTimeout(1_500L) {
+                local.evaluate(requireNotNull(source).evidence, io.aaps.copilot.domain.alerts.LocalAlarmTiming())
+            }
+            assertEquals(io.aaps.copilot.domain.alerts.LocalAlarmAdmission.START, cycle?.admission)
+            assertTrue(local.finish(requireNotNull(cycle?.startCycle)))
+            AlertSideEffectResult.failed("synthetic_no_audio_started")
+        }
+        assertEquals(1, calls)
+        assertEquals(AlertReceiptResult.FAILED, result.receiptResult)
+        assertNotNull(owner.currentAlarmSource())
+    }
+
+    @Test fun explicitLocalOwnerGetsNoAuthorityForMissingOrExpiredObservation() = runBlocking {
+        val owner = machine()
+        val signal = signal(measuredAt = now - 360_000)
+        var calls = 0
+        owner.coordinateWithLocalAlarmSource(signal) { _, source ->
+            calls++
+            assertNull(source)
+            AlertSideEffectResult.delivered()
+        }
+        assertEquals(1, calls)
+        assertNull(owner.currentAlarmSource())
+    }
+
+    @Test fun localHandoffDoesNotReplayInitialOrInventStartedAudio() = runBlocking {
+        val owner = machine()
+        var calls = 0
+        val first = owner.coordinateWithLocalAlarmSource(signal()) { _, source ->
+            assertNotNull(source)
+            calls++
+            AlertSideEffectResult.delivered()
+        }
+        advance(1_000)
+        owner.coordinateWithLocalAlarmSource(signal()) { _, _ ->
+            calls++
+            AlertSideEffectResult.delivered()
+        }
+        assertEquals(1, calls)
+        assertEquals(1, db.alertDeliveryReceiptDao().byEpisodeId(first.episodeId!!).size)
+        assertNull(db.alertLocalDao().state("GLUCOSE", first.episodeId!!))
+    }
+
     @Test fun duplicateDoesNotReplayInitialOrResetGenerationQueueAndExpiry() = runBlocking {
         val machine = machine(); val measuredAt = now
         accept(machine); val first = machine.currentAlarmSource()!!

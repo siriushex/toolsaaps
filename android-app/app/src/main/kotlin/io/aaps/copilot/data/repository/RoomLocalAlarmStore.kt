@@ -35,6 +35,7 @@ class RoomLocalAlarmStore(
     private val environmentProvider: () -> LocalAlarmEnvironment
 ) {
     private val mutex = EpisodeAlertOperationLocks.forIdentity(db)
+    private val controls = AlertControlIntentGate.forIdentity(db)
     private val runtime = LocalAlarmRuntimeOwnership.forIdentity(db)
     internal val runtimeMutex get() = runtime.mutex
     internal val runtimeUnavailable get() = runtime.unavailable
@@ -251,16 +252,21 @@ class RoomLocalAlarmStore(
         }
     }
 
-    private suspend fun <T> guarded(unavailable: T, operation: suspend (LocalAlarmEnvironment) -> T): T = try {
-        mutex.withLock {
-            db.withTransaction {
-                val mute = db.alertEventDao().byEpisodeId(EpisodeAlertDeliveryStateMachine.MUTE_STATE_ID)?.suppressionUntil ?: 0L
-                operation(environmentProvider().copy(mutedUntilWallMs = mute))
+    private suspend fun <T> guarded(unavailable: T, operation: suspend (LocalAlarmEnvironment) -> T): T {
+        val stamp = controls.snapshot()
+        return try {
+            mutex.withLock {
+                db.withTransaction {
+                    val mute = db.alertEventDao().byEpisodeId(EpisodeAlertDeliveryStateMachine.MUTE_STATE_ID)?.suppressionUntil ?: 0L
+                    val environment = environmentProvider()
+                    operation(environment.copy(mutedUntilWallMs = mute,
+                        armed = environment.armed && controls.current(stamp)))
+                }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            unavailable
         }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        unavailable
     }
 }

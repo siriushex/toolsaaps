@@ -142,7 +142,8 @@ class EpisodeAlertDeliveryStateMachine(
     private val revokeAlarmSources: () -> Unit = {},
     private val revokeRiskPlayback: () -> Unit = {}
 ) {
-    private val mutex = EpisodeAlertOperationLocks.forIdentity(store.coordinationIdentity)
+    private val mutex = EpisodeAlertOperationLocks.forDeliveryIdentity(store.coordinationIdentity)
+    private val persistenceMutex = EpisodeAlertOperationLocks.forIdentity(store.coordinationIdentity)
     private val controls = AlertControlIntentGate.forIdentity(store.coordinationIdentity)
     private val alarmSources = LocalAlarmSourceFeed(io.aaps.copilot.domain.alerts.LocalAlarmSourceKind.GLUCOSE, alarmClock)
     @Volatile private var sourceControlStamp: AlertControlIntentGate.Stamp? = null
@@ -158,6 +159,20 @@ class EpisodeAlertDeliveryStateMachine(
     suspend fun coordinate(
         signal: EpisodeAlertSignal,
         deliver: suspend (EpisodeDeliveryClaim) -> AlertSideEffectResult
+    ): EpisodeCoordinationResult = coordinateInternal(signal, false, deliver)
+
+    /** Explicit local owner only: a committed claim is not an audio-start receipt. */
+    suspend fun coordinateWithLocalAlarmSource(
+        signal: EpisodeAlertSignal,
+        deliver: suspend (EpisodeDeliveryClaim, CheckedLocalAlarmSource?) -> AlertSideEffectResult
+    ): EpisodeCoordinationResult = coordinateInternal(signal, true) { claim ->
+        deliver(claim, currentAlarmSource())
+    }
+
+    private suspend fun coordinateInternal(
+        signal: EpisodeAlertSignal,
+        publishBeforeDelivery: Boolean,
+        deliver: suspend (EpisodeDeliveryClaim) -> AlertSideEffectResult
     ): EpisodeCoordinationResult {
         val stamp = controls.snapshot()
         return mutex.withLock {
@@ -165,12 +180,21 @@ class EpisodeAlertDeliveryStateMachine(
             if (sourceControlStamp !== stamp) alarmSources.invalidate()
             val observation = signal.alarmObservation?.takeIf { it.matches(signal) }?.observation
             val ticket = alarmSources.begin(observation)
+            var sourceAttempted = false
             try {
-                val result = coordinateLocked(signal) { claim ->
-                    admittedDelivery(stamp) { deliver(claim) } ?: AlertSideEffectResult.failed("alert_control_changed")
+                val result = coordinateLocked(signal, stamp) { claim ->
+                    admittedDelivery(stamp) {
+                        if (publishBeforeDelivery) {
+                            sourceAttempted = true
+                            publishAlarmSourceBestEffort(signal, claim.episodeId, ticket, stamp)
+                        }
+                        currentCoroutineContext().ensureActive()
+                        if (controls.current(stamp)) deliver(claim) else AlertSideEffectResult.failed("alert_control_changed")
+                    } ?: AlertSideEffectResult.failed("alert_control_changed")
                 }
-                if (controls.current(stamp)) publishAlarmSourceBestEffort(signal, result.episodeId, ticket, stamp)
-                else alarmSources.fail(ticket)
+                if (controls.current(stamp) && !sourceAttempted) {
+                    publishAlarmSourceBestEffort(signal, result.episodeId, ticket, stamp)
+                }
                 if (!controls.current(stamp)) alarmSources.fail(ticket)
                 result
             } catch (failure: Throwable) {
@@ -215,7 +239,7 @@ class EpisodeAlertDeliveryStateMachine(
         if (ticket == null) return
         try {
             val binding = kotlinx.coroutines.withTimeoutOrNull(1_000L) {
-                store.transaction { id?.let { eventById(it) } to muteUntil() }
+                receiptTransaction { id?.let { eventById(it) } to muteUntil() }
             }
             val event = binding?.first
             if (event == null || event.episodeId != id || event.status != AlertEpisodeStatus.OPEN.name ||
@@ -237,9 +261,13 @@ class EpisodeAlertDeliveryStateMachine(
         }
     }
 
-    private suspend fun coordinateLocked(signal: EpisodeAlertSignal,
+    private suspend fun <T> receiptTransaction(block: suspend EpisodeAlertReceiptStore.() -> T): T =
+        persistenceMutex.withLock { store.transaction(block) }
+
+    private suspend fun coordinateLocked(signal: EpisodeAlertSignal, stamp: AlertControlIntentGate.Stamp?,
         deliver: suspend (EpisodeDeliveryClaim) -> AlertSideEffectResult): EpisodeCoordinationResult {
-        val prepared = store.transaction { prepare(signal) }
+        val prepared = receiptTransaction { if (controls.current(stamp)) prepare(signal) else null }
+            ?: return EpisodeCoordinationResult(null, null, null, false)
         val claim = prepared.claim ?: return prepared.result
         val sideEffect = try {
             deliver(claim)
@@ -248,7 +276,7 @@ class EpisodeAlertDeliveryStateMachine(
         } catch (error: Exception) {
             AlertSideEffectResult.failed(error::class.java.simpleName.ifBlank { "delivery_error" })
         }
-        val initialDelivery = store.transaction {
+        val initialDelivery = receiptTransaction {
             val persisted = receipt(claim.episodeId, claim.kind)
             if (persisted?.result == AlertReceiptResult.CLAIMED.name) {
                 updateReceipt(
@@ -266,7 +294,7 @@ class EpisodeAlertDeliveryStateMachine(
                             revision = event.revision + 1L
                         )
                         upsertEvent(deliveredEvent)
-                        return@transaction deliveredEvent.initialDeliveryOrNull(
+                        return@receiptTransaction deliveredEvent.initialDeliveryOrNull(
                             claim = claim,
                             requestedAt = signal.nowTs
                         )
@@ -329,21 +357,20 @@ class EpisodeAlertDeliveryStateMachine(
     suspend fun muteFromNotification(nowTs: Long, durationMs: Long): Long =
         muteFor(nowTs, durationMs)
 
-    suspend fun currentMutedUntil(): Long = mutex.withLock {
-        store.transaction { muteUntil() }
-    }
+    suspend fun currentMutedUntil(): Long = receiptTransaction { muteUntil() }
 
     suspend fun coordinateMutedSideEffect(operation: suspend (muted: Boolean) -> Unit) {
         val stamp = controls.snapshot()
         mutex.withLock {
             if (!controls.current(stamp)) return@withLock
-            val until = store.transaction { muteUntil() }
+            val until = receiptTransaction { if (controls.current(stamp)) muteUntil() else null }
+                ?: return@withLock
             admittedDelivery(stamp) { operation(until > clock()) }
         }
     }
 
     suspend fun toggleFromOverview(nowTs: Long): EpisodeMuteToggleResult = control {
-        val transition = store.transaction {
+        val transition = receiptTransaction {
             val previous = muteUntil()
             when (glucoseAlertBellAction(previous, nowTs)) {
                 GlucoseAlertBellAction.RESUME -> {
@@ -377,9 +404,9 @@ class EpisodeAlertDeliveryStateMachine(
         legacy: GlucoseAlertRuntimeState,
         nowTs: Long
     ): String? = mutex.withLock {
-        store.transaction {
+        receiptTransaction {
             eventById(LEGACY_IMPORT_MARKER_ID)?.let { marker ->
-                return@transaction marker.causeSummary?.takeIf { it.isNotBlank() }
+                return@receiptTransaction marker.causeSummary?.takeIf { it.isNotBlank() }
             }
             val existing = latestUnresolvedGlucoseEpisode()
             val importedEpisodeId = when {
@@ -437,7 +464,7 @@ class EpisodeAlertDeliveryStateMachine(
 
     private suspend fun muteForLocked(nowTs: Long, durationMs: Long): Long {
         val requestedUntil = safeAdd(nowTs, durationMs)
-        val effectiveUntil = store.transaction {
+        val effectiveUntil = receiptTransaction {
             maxOf(muteUntil(), requestedUntil).also { writeMuteUntil(it, nowTs) }
         }
         clearRiskSideEffects()
@@ -446,7 +473,7 @@ class EpisodeAlertDeliveryStateMachine(
     }
 
     private suspend fun resumeLocked(nowTs: Long) {
-        store.transaction { writeMuteUntil(0L, nowTs) }
+        receiptTransaction { writeMuteUntil(0L, nowTs) }
         clearRiskSideEffects()
         mirrorMuteBestEffort(0L)
     }

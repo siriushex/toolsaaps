@@ -1,3 +1,31 @@
+# Native Alert Source And Audio Handoff - 2026-10-16
+
+- Reproduced two Room deadlocks when native/technical callbacks attempted local
+  journal work. Split delivery ordering from short persistent transactions.
+  Pending OFF initially exposed a new local START race; Room admission now binds
+  to current shared control intent before and after waiting.
+- Added explicit checked-source handoff after committed INITIAL claim. Original
+  callers retain their existing order. Missing/expired source permits no local
+  authority; neither an initial claim nor notification implies audio STARTED.
+- Local audio preparation restores native boost before the new volume baseline.
+  Replacement playback waits for exact local audio/volume cleanup; a retired
+  lease stays visible after player stop. Unknown cleanup denies another owner.
+  Normal retirement does not cancel the executor's parent work.
+- An additional regression reproduced urgent replacement waiting behind terminal
+  Room persistence. Transport release now completes after hardware cleanup and
+  before journal work, without marking that journal write successful.
+- Regression coverage includes Room callbacks, pending OFF, source/receipt order,
+  legacy/local/preview transitions, reentrant observers, stop while awaiting
+  cleanup, cancellation and actual controller/executor integration.
+- Checks: final full Android unit/lint/Kotlin/debug build passed in13m40s:
+  512 suites/5890 cases,5884 passed,6 unchanged skips,0 failures/errors.
+  Lint0 errors/371 warnings/8 hints with no notice-key changes. The final
+  journal-handoff focused suite passed104 cases; debug APK v2 signature verified.
+  Source fingerprint stayed unchanged throughout the final full run.
+- No production notifier uses the explicit source handoff yet. Foreground owner,
+  genuine AlarmClock, scoped ACK UI and device acceptance remain unfinished.
+  No phone, sound, server/model, medical payload or therapy action performed.
+
 # Immediate Alert Control Intent - 2026-10-16
 
 - Four new behavioral tests reproduced delayed OFF behind Room, queued old

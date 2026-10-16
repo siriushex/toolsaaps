@@ -33,12 +33,32 @@
 - New data revokes old publication before persistence. Storage/read/cancellation
   failure cannot leave cached authority; stale failure tickets cannot revoke a
   newer publication. Cancellation/fatal errors are cleaned up then propagated.
-- Native initial delivery and receipts remain first. Optional glucose source
-  readback is bounded; its ordinary error/timeout never undoes or replays INITIAL.
+- The default native initial delivery and receipts remain first. The explicit
+  handoff may read source authority after committed claim but before its callback;
+  neither authority nor notification success implies confirmed audio STARTED.
+  Optional source readback is bounded; its error/timeout never replays INITIAL.
   Failed diagnostic posting does not itself resolve confirmed clinical risk.
 - OFF/resume/toggle attempts revoke all feeds before writes. OFF expiry, restart
   and display refresh alone never republish. No extra timer, permission, sound,
   therapy action or production coordinator activation accompanies this stage.
+
+## Native Audio Handoff
+
+- Delivery ordering must not hold the persistence mutex across physical side
+  effects. Local transactions independently reject pending/changed control intent;
+  splitting locks must not reopen the gap before the persistent OFF write.
+- A local transport lease is acquired before volume baseline capture. Old native
+  boost restoration finishes first. Denied admission never steals urgent playback.
+- Player stop alone does not release the external volume lease. New native/preview
+  playback waits for exact-owner cleanup; unconfirmed cleanup never authorizes it.
+- Confirmed transport release does not wait for the journal mutex. A blocked or
+  failed terminal write is not audio ownership and cannot suppress an otherwise
+  admitted urgent native replacement; its failure remains independently visible.
+- Request fencing remains effective during cleanup waits and reentrant observers.
+  OFF or a newer request prevents delayed playback from an older request.
+- Normal retirement does not cancel the executor's caller. Preemption cancels only
+  the local child; a completed claim/notification is never fabricated as sound.
+- These source/transport prerequisites do not activate repeat, ACK or wake owners.
 
 ## Local Alarm Fatigue Policy
 

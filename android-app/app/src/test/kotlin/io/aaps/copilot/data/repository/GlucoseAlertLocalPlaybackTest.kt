@@ -16,6 +16,8 @@ import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import java.io.File
 import java.time.Duration
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.*
 import org.junit.After
@@ -109,6 +111,184 @@ class GlucoseAlertLocalPlaybackTest {
         assertThat(result.played).isFalse()
         assertThat(players).isEmpty()
         assertThat(shadowOf(audio).lastAudioFocusRequest).isNull()
+    }
+
+    @Test fun preparationRestoresLegacyBoostBeforeTheNewVolumeLeaseReadsItsBaseline() = runTest {
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 1, 0)
+        val legacy = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent(); prepare()
+        assertThat(legacy.await().played).isTrue()
+        assertThat(audio.getStreamVolume(AudioManager.STREAM_ALARM)).isGreaterThan(1)
+        val owner = LocalAlarmAudioOwner(cycle, { true }, {}, { true })
+        assertThat(controller.prepareLocalAlarm(owner)).isTrue()
+        assertThat(AndroidAlarmVolumePort(audio).read().index).isEqualTo(1)
+        assertThat(shadowOf(players.single()).state).isEqualTo(ShadowMediaPlayer.State.END)
+        assertThat(controller.ownsLocalAlarm(cycle)).isTrue()
+        controller.stopLocalAlarm(cycle)
+    }
+
+    @Test fun deniedPreparationDoesNotInterruptTheExistingUrgentClip() = runTest {
+        val legacy = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent(); prepare(); legacy.await()
+        assertThat(controller.prepareLocalAlarm(LocalAlarmAudioOwner(cycle, { false }, {}, { true }))).isFalse()
+        assertThat(shadowOf(players.single()).isReallyPlaying).isTrue()
+    }
+
+    @Test fun legacyReplacementWaitsForTheExactOwnersVolumeCleanup() = runTest {
+        val released = CompletableDeferred<Boolean>()
+        var revoked = 0
+        val owner = LocalAlarmAudioOwner(cycle, { true }, { revoked++ }, { released.await() })
+        assertThat(controller.prepareLocalAlarm(owner)).isTrue()
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 5, 0)
+        val legacy = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent()
+        assertThat(revoked).isEqualTo(1)
+        assertThat(players).isEmpty()
+        assertThat(legacy.isCompleted).isFalse()
+        controller.stopLocalAlarm(cycle)
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 1, 0)
+        released.complete(true)
+        runCurrent(); prepare()
+        assertThat(legacy.await().played).isTrue()
+        controller.stop(); shadowOf(Looper.getMainLooper()).idle()
+        assertThat(audio.getStreamVolume(AudioManager.STREAM_ALARM)).isEqualTo(1)
+    }
+
+    @Test fun retiredOwnerStillBlocksPreviewUntilVolumeRestorationCompletes() = runTest {
+        val released = CompletableDeferred<Boolean>()
+        val owner = LocalAlarmAudioOwner(cycle, { true }, {}, { released.await() })
+        assertThat(controller.prepareLocalAlarm(owner)).isTrue()
+        controller.stopLocalAlarm(cycle)
+        val preview = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings) }
+        runCurrent()
+        assertThat(players).isEmpty()
+        assertThat(preview.isCompleted).isFalse()
+        released.complete(true)
+        runCurrent(); prepare()
+        assertThat(preview.await().played).isTrue()
+    }
+
+    @Test fun unknownCleanupBlocksReplacementWithoutStartingAnotherPlayer() = runTest {
+        assertThat(controller.prepareLocalAlarm(LocalAlarmAudioOwner(cycle, { true }, {}, { false }))).isTrue()
+        val result = controller.playForDecision(urgentDecision(), settings)
+        assertThat(result.played).isFalse()
+        assertThat(result.failureReason).isEqualTo("local_audio_cleanup_unconfirmed")
+        assertThat(controller.prepareLocalAlarm(LocalAlarmAudioOwner(cycle.copy(ordinal = 2), { true }, {}, { true }))).isFalse()
+        assertThat(players).isEmpty()
+    }
+
+    @Test fun offWhileWaitingForCleanupCannotStartTheReplacementLater() = runTest {
+        val released = CompletableDeferred<Boolean>()
+        assertThat(controller.prepareLocalAlarm(LocalAlarmAudioOwner(cycle, { true }, {}, { released.await() }))).isTrue()
+        val legacy = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent()
+        controller.stop()
+        released.complete(true)
+        runCurrent()
+        assertThat(legacy.await().played).isFalse()
+        assertThat(players).isEmpty()
+    }
+
+    @Test fun completedLeaseCanBeReplacedButActiveLeaseCannotBeStolen() = runTest {
+        val first = LocalAlarmAudioOwner(cycle, { true }, {}, { true })
+        val second = LocalAlarmAudioOwner(cycle.copy(ordinal = 2), { true }, {}, { true })
+        assertThat(controller.prepareLocalAlarm(first)).isTrue()
+        assertThat(controller.prepareLocalAlarm(second)).isFalse()
+        controller.stopLocalAlarm(cycle)
+        assertThat(controller.prepareLocalAlarm(second)).isTrue()
+        controller.stopLocalAlarm(cycle)
+        assertThat(controller.ownsLocalAlarm(second.cycle)).isTrue()
+        controller.stopLocalAlarm(second.cycle)
+    }
+
+    @Test fun preparationCancellationReleasesTheReservedRequest() = runTest {
+        var checks = 0
+        val first = LocalAlarmAudioOwner(cycle, { if (++checks == 2) throw CancellationException("prepare_cancel"); true }, {}, { true })
+        val preparation = async { controller.prepareLocalAlarm(first) }
+        try { preparation.await(); error("Expected cancellation") } catch (_: CancellationException) { }
+        assertThat(controller.ownsLocalAlarm(cycle)).isFalse()
+        val next = LocalAlarmAudioOwner(cycle.copy(ordinal = 2), { true }, {}, { true })
+        assertThat(controller.prepareLocalAlarm(next)).isTrue()
+        controller.stopLocalAlarm(next.cycle)
+    }
+
+    @Test fun reentrantLegacyReplacementWinsOverAnUnfinishedPreparation() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val initial = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent(); prepare(); initial.await()
+        var replaced = false
+        var replacement: Deferred<GlucoseAlertAudioPlaybackResult>? = null
+        val observer = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.playbackState.collect {
+                if (it.activeSlot == null && !replaced) {
+                    replaced = true
+                    replacement = async(start = CoroutineStart.UNDISPATCHED) {
+                        controller.preview(GlucoseAlertAudioSlot.SOFT, settings)
+                    }
+                }
+            }
+        }
+        val owner = LocalAlarmAudioOwner(cycle, { true }, {}, { true })
+        assertThat(controller.prepareLocalAlarm(owner)).isFalse()
+        runCurrent(); prepare()
+        assertThat(replacement!!.await().played).isTrue()
+        assertThat(controller.ownsLocalAlarm(cycle)).isFalse()
+        observer.cancel()
+    }
+
+    @Test fun actualExecutorCleansItsVolumeBeforeNativeUrgentPlaybackStarts() = actualExecutorHandoff(false)
+
+    @Test fun actualExecutorReleasesAudioBeforeBusyJournalWrite() = actualExecutorHandoff(true)
+
+    private fun actualExecutorHandoff(blockJournal: Boolean) = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val database = Room.inMemoryDatabaseBuilder(context, CopilotDatabase::class.java)
+            .allowMainThreadQueries().build()
+        val environment = LocalAlarmEnvironment(true, true, now, 10_000, 1)
+        val evidence = LocalAlarmEvidence(cycle.key, 1, cycle.level, 1, now, 900_000, true)
+        val started = CompletableDeferred<Unit>()
+        val created = Channel<MediaPlayer>(Channel.UNLIMITED)
+        ShadowMediaPlayer.setCreateListener { player, _ -> players += player; created.trySend(player) }
+        val store = RoomLocalAlarmStore(database) { environment }
+        val executor = LocalAlarmCycleExecutor(store, AndroidAlarmVolumePort(audio), controller,
+            current = { LocalAlarmExecutionContext(evidence, environment, true, true) },
+            waitMs = { started.complete(Unit); awaitCancellation() })
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, 1, 0)
+        val persistence = EpisodeAlertOperationLocks.forIdentity(database)
+        var locked = false
+        try {
+            val local = async { executor.execute(settings) }
+            select<Unit> {
+                created.onReceive { }
+                local.onAwait { error("Local execution ended before audio: ${it.status}") }
+            }
+            runCurrent(); prepare()
+            select<Unit> {
+                started.onAwait { }
+                local.onAwait { error("Local execution ended before wait: ${it.status}") }
+            }
+            if (blockJournal) { persistence.lock(); locked = true }
+            val legacy = async { controller.playForDecision(urgentDecision(), settings) }
+            select<Unit> {
+                created.onReceive { }
+                legacy.onAwait { error("Native playback ended before preparation: ${it.failureReason}") }
+            }
+            runCurrent(); prepare()
+            assertThat(legacy.await().played).isTrue()
+            if (locked) {
+                assertThat(local.isCompleted).isFalse()
+                persistence.unlock(); locked = false
+            }
+            local.join()
+            assertThat(local.isCancelled).isTrue()
+            assertThat(currentCoroutineContext().isActive).isTrue()
+            assertThat(shadowOf(players.first()).state).isEqualTo(ShadowMediaPlayer.State.END)
+            controller.stop(); shadowOf(Looper.getMainLooper()).idle()
+            assertThat(audio.getStreamVolume(AudioManager.STREAM_ALARM)).isEqualTo(1)
+        } finally {
+            if (locked) persistence.unlock()
+            created.close(); database.close()
+        }
     }
 
     @Test fun admittedSoftClipUsesAlarmAttributesButDoesNotWriteStreamVolume() = runTest {

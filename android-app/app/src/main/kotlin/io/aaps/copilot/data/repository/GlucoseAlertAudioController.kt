@@ -43,6 +43,7 @@ class GlucoseAlertAudioController(
     private var activeLocalSession: LocalPlaybackSession? = null
     private var lastLocalWindow: LocalAlarmPlaybackWindow? = null
     private var nextCriticalSecondary = false
+    @Volatile private var localAudioOwner: LocalAlarmAudioOwner? = null
     private val _playbackState = MutableStateFlow(GlucoseAlertAudioPlaybackState())
 
     val playbackState: StateFlow<GlucoseAlertAudioPlaybackState> = _playbackState.asStateFlow()
@@ -91,6 +92,36 @@ class GlucoseAlertAudioController(
         settings: AppSettings
     ): GlucoseAlertAudioPlaybackResult = play(slot, settings, isPreview = true, ensureAudible = false)
 
+    override suspend fun prepareLocalAlarm(owner: LocalAlarmAudioOwner): Boolean {
+        val stamp = ownership.stamp()
+        return withContext(Dispatchers.Main.immediate) {
+            localAudioOwner?.let { previous ->
+                if (previous.retained() || !previous.awaitRelease()) return@withContext false
+                if (localAudioOwner === previous) localAudioOwner = null
+            }
+            if (!owner.current()) return@withContext false
+            val request = ownership.beginLocalIfCurrent(stamp, owner.cycle) ?: return@withContext false
+            var prepared = false
+            try {
+                stopActivePlayback()
+                if (!ownership.isCurrent(request) || !owner.current()) return@withContext false
+                localAudioOwner = owner
+                prepared = ownership.isCurrent(request) && owner.current()
+                prepared
+            } finally {
+                if (!prepared) {
+                    if (localAudioOwner === owner) localAudioOwner = null
+                    ownership.release(request)
+                    owner.revoke()
+                }
+            }
+        }
+    }
+
+    override fun ownsLocalAlarm(cycle: LocalAlarmCycle): Boolean = localAudioOwner?.let {
+        it.cycle == cycle && it.retained() && localAudioOwner === it
+    } == true
+
     override suspend fun playLocalAlarm(
         cycle: LocalAlarmCycle,
         stepIndex: Int,
@@ -107,6 +138,10 @@ class GlucoseAlertAudioController(
                 false
             }
             if (!allowed) return@withContext GlucoseAlertAudioPlaybackResult(failureReason = "local_alarm_denied")
+            localAudioOwner?.let {
+                if (it.cycle != cycle || !it.current()) return@withContext GlucoseAlertAudioPlaybackResult(
+                    failureReason = "local_alarm_owner_changed")
+            }
             val slot = if (!cycle.level.strong) GlucoseAlertAudioSlot.SOFT
                 else if (cycle.ordinal % 2L == 1L) GlucoseAlertAudioSlot.CRITICAL_PRIMARY
                 else GlucoseAlertAudioSlot.CRITICAL_SECONDARY
@@ -126,10 +161,12 @@ class GlucoseAlertAudioController(
 
     override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
         val revoked = ownership.revokeCycle(cycle)
+        localAudioOwner?.takeIf { it.cycle == cycle }?.retire()
         val stop = Runnable {
             stopCapturedRequests(revoked, "local_alarm_stopped")
             // A cycle stop still applies to a later step of that exact cycle, never a newer ordinal.
             stopCapturedRequests(ownership.revokeCycle(cycle), "local_alarm_stopped")
+            // Keep the retired lease visible until its executor restores volume.
         }
         if (Looper.myLooper() == Looper.getMainLooper()) stop.run() else mainHandler.post(stop)
     }
@@ -141,6 +178,7 @@ class GlucoseAlertAudioController(
 
     fun stop() {
         val revoked = ownership.revokeAll()
+        localAudioOwner?.revoke()
         mainHandler.post { stopCapturedRequests(revoked) }
     }
 
@@ -154,6 +192,18 @@ class GlucoseAlertAudioController(
         try {
             val spec = resolvePlaybackSpec(settings, slot)
             return withContext(Dispatchers.Main.immediate) {
+                if (!ownership.isCurrent(request)) return@withContext GlucoseAlertAudioPlaybackResult(
+                    failureReason = "audio_request_superseded")
+                val interrupted = localAudioOwner
+                interrupted?.revoke()
+                // The former executor restores its volume before another clip can use the stream.
+                if (interrupted != null) {
+                    if (!interrupted.awaitRelease()) {
+                        ownership.release(request)
+                        return@withContext GlucoseAlertAudioPlaybackResult(failureReason = "local_audio_cleanup_unconfirmed")
+                    }
+                    if (localAudioOwner === interrupted) localAudioOwner = null
+                }
                 startPlaybackOnMain(slot, spec, isPreview, ensureAudible, request)
             }
         } catch (failure: Throwable) {

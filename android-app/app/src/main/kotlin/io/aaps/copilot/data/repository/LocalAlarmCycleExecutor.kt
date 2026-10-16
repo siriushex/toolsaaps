@@ -16,6 +16,7 @@ import io.aaps.copilot.domain.alerts.LocalAlarmTiming
 import io.aaps.copilot.domain.alerts.LocalAlarmVibrationResult
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +28,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
 interface LocalAlarmAudioPort {
+    suspend fun prepareLocalAlarm(owner: LocalAlarmAudioOwner): Boolean
+    fun ownsLocalAlarm(cycle: LocalAlarmCycle): Boolean
     suspend fun playLocalAlarm(cycle: LocalAlarmCycle, stepIndex: Int, settings: AppSettings,
         admitted: (LocalAlarmCycle) -> Boolean): GlucoseAlertAudioPlaybackResult
     fun stopLocalAlarm(cycle: LocalAlarmCycle)
@@ -65,6 +68,8 @@ class LocalAlarmCycleExecutor(
         val revoked = AtomicBoolean(false)
         val stopped = AtomicBoolean(false)
         @Volatile var stopConfirmed = false
+        @Volatile var audioPrepared = false
+        val transportReleased = CompletableDeferred<Boolean>()
     }
     private data class StepWindow(val start: Long, val end: Long)
     private val mutex = Mutex()
@@ -129,6 +134,8 @@ class LocalAlarmCycleExecutor(
                             cleanupCancellation = cleanupCancellation ?: cancelled
                             cleanupConfirmed = false
                         }
+                        // Hardware handoff must not wait for the independent journal transaction.
+                        it.transportReleased.complete(cleanupConfirmed)
                         try {
                             journalFinished = store.finish(it.cycle,
                                 cancelled = status != LocalAlarmExecutionStatus.FINISHED || !cleanupConfirmed)
@@ -138,6 +145,7 @@ class LocalAlarmCycleExecutor(
                         }
                     }
                 } finally {
+                    session?.transportReleased?.complete(false)
                     owner = null
                     mutex.unlock()
                 }
@@ -175,6 +183,12 @@ class LocalAlarmCycleExecutor(
     private suspend fun runSteps(session: Session, profile: LocalAlarmProfile,
         settings: AppSettings): LocalAlarmExecutionStatus {
         val cycle = session.cycle
+        if (!refresh(session)) return LocalAlarmExecutionStatus.DENIED
+        val ownership = LocalAlarmAudioOwner(cycle, { admitted(cycle) },
+            { session.job.cancel(CancellationException("local_alarm_audio_preempted")) },
+            { session.transportReleased.await() })
+        if (!audio.prepareLocalAlarm(ownership)) return LocalAlarmExecutionStatus.DENIED
+        session.audioPrepared = true
         if (!refresh(session)) return LocalAlarmExecutionStatus.DENIED
         session.window = StepWindow(cycle.startedElapsedMs,
             cycle.startedElapsedMs + LocalAlarmProfiles.stepDeadlineOffsetMs(profile, 0))
@@ -252,6 +266,7 @@ class LocalAlarmCycleExecutor(
 
     private fun guard(cycle: LocalAlarmCycle, inStep: Boolean): Boolean {
         val session = owner?.takeIf { it.cycle == cycle && !it.revoked.get() && it.job.isActive } ?: return false
+        if (session.audioPrepared && !audio.ownsLocalAlarm(cycle)) return false
         val captured = context() ?: return false
         if (!captured.audioAvailable || !captured.volumeAvailable) return false
         if (inStep) {

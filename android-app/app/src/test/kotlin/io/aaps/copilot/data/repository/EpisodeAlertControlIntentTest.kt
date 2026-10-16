@@ -4,6 +4,13 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.domain.alerts.LocalAlarmAdmission
+import io.aaps.copilot.domain.alerts.LocalAlarmEnvironment
+import io.aaps.copilot.domain.alerts.LocalAlarmEvidence
+import io.aaps.copilot.domain.alerts.LocalAlarmKey
+import io.aaps.copilot.domain.alerts.LocalAlarmLevel
+import io.aaps.copilot.domain.alerts.LocalAlarmSourceKind
+import io.aaps.copilot.domain.alerts.LocalAlarmTiming
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -37,6 +44,56 @@ class EpisodeAlertControlIntentTest {
             .allowMainThreadQueries().build()
     }
     @After fun close() { db.close() }
+
+    private suspend fun claimLocal(id: String) {
+        val local = RoomLocalAlarmStore(db) { LocalAlarmEnvironment(enabled = true, armed = true,
+            nowElapsedMs = 10_000, nowWallMs = now, bootCount = 3) }
+        val evidence = LocalAlarmEvidence(LocalAlarmKey(LocalAlarmSourceKind.GLUCOSE, id), 1,
+            LocalAlarmLevel.LOW_NOW, 3, 10_000, 70_000, true)
+        val result = withTimeout(1_500L) { local.evaluate(evidence, LocalAlarmTiming()) }
+        assertEquals(LocalAlarmAdmission.START, result?.admission)
+        assertTrue(local.finish(requireNotNull(result?.startCycle)))
+    }
+
+    @Test fun nativeDeliveryCanClaimAndFinishLocalAudioWithoutHoldingItsPersistenceLock() = runBlocking {
+        val result = machine().coordinate(signal()) {
+            claimLocal(it.episodeId)
+            AlertSideEffectResult.delivered()
+        }
+        assertEquals(AlertReceiptResult.DELIVERED, result.receiptResult)
+    }
+
+    @Test fun technicalDeliveryDoesNotHoldTheLocalAudioPersistenceLock() = runBlocking {
+        machine().coordinateMutedSideEffect {
+            assertFalse(it)
+            claimLocal("source-technical-handoff")
+        }
+    }
+
+    @Test fun pendingOffStillDeniesNewLocalClaimsWhileTheDeliveryFinishesCleanup() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val cleaning = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        val delivery = async(start = CoroutineStart.UNDISPATCHED) {
+            machine().coordinate(signal()) {
+                entered.complete(Unit)
+                try { awaitCancellation() } finally {
+                    withContext(NonCancellable) { cleaning.complete(Unit); finish.await() }
+                }
+            }
+        }
+        entered.await()
+        val off = async(start = CoroutineStart.UNDISPATCHED) { machine().muteFor(now, 60_000L) }
+        try {
+            withTimeout(1_500L) { cleaning.await() }
+            val local = RoomLocalAlarmStore(db) { LocalAlarmEnvironment(true, true, 10_000, now, 3) }
+            val evidence = LocalAlarmEvidence(LocalAlarmKey(LocalAlarmSourceKind.GLUCOSE, "pending-control"),
+                1, LocalAlarmLevel.LOW_NOW, 3, 10_000, 70_000, true)
+            val result = withTimeout(1_500L) { local.evaluate(evidence, LocalAlarmTiming()) }
+            assertEquals(LocalAlarmAdmission.UNAVAILABLE, result?.admission)
+            assertNull(result?.startCycle)
+        } finally { finish.complete(Unit); delivery.await(); off.await() }
+    }
 
     @Test fun offWithdrawsSourcesBeforeWaitingForBusyRoom() = runBlocking {
         var revoked = false

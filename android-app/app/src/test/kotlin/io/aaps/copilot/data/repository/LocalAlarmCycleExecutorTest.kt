@@ -54,7 +54,16 @@ class LocalAlarmCycleExecutorTest {
         val stopped = mutableListOf<LocalAlarmCycle>()
         var fail = false
         var stopFails = false
+        var prepareAllowed = true
+        var lease: LocalAlarmAudioOwner? = null
         var onStart: suspend (LocalAlarmCycle) -> Unit = {}
+        override suspend fun prepareLocalAlarm(owner: LocalAlarmAudioOwner): Boolean {
+            if (!prepareAllowed || !owner.current()) return false
+            lease = owner
+            return true
+        }
+        override fun ownsLocalAlarm(cycle: LocalAlarmCycle): Boolean =
+            lease?.let { it.cycle == cycle && it.retained() } == true
         override suspend fun playLocalAlarm(cycle: LocalAlarmCycle, stepIndex: Int,
             settings: AppSettings, admitted: (LocalAlarmCycle) -> Boolean): GlucoseAlertAudioPlaybackResult {
             assertTrue(admitted(cycle))
@@ -66,6 +75,7 @@ class LocalAlarmCycleExecutorTest {
                     else settings.criticalAlertAudio2DurationMs)
         }
         override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
+            lease?.takeIf { it.cycle == cycle }?.retire()
             stopped += cycle
             if (stopFails) error("stop_unconfirmed")
         }
@@ -130,6 +140,61 @@ class LocalAlarmCycleExecutorTest {
         assertEquals(listOf(70, 85, 100, 100), result(outcome.cycle!!).steps.map { it.reachedPercent })
         assertEquals(listOf(LocalAlarmAudioResult.STARTED, LocalAlarmAudioResult.NOT_REQUESTED,
             LocalAlarmAudioResult.NOT_REQUESTED, LocalAlarmAudioResult.NOT_REQUESTED), result(outcome.cycle!!).steps.map { it.audio })
+    }
+
+    @Test fun deniedTransportPreparationNeverChangesVolumeOrStartsAudio() = runBlocking {
+        audio.prepareAllowed = false
+        val outcome = executor().execute(settings)
+        assertEquals(LocalAlarmExecutionStatus.DENIED, outcome.status)
+        assertTrue(audio.steps.isEmpty())
+        assertTrue(volume.writes.isEmpty())
+        assertEquals("CANCELLED", row(outcome.cycle!!).status)
+    }
+
+    @Test fun normalCompletionReleasesOwnershipWithoutCancellingItsCaller() = runBlocking {
+        assertEquals(LocalAlarmExecutionStatus.FINISHED, executor().execute(settings).status)
+        assertTrue(currentCoroutineContext().isActive)
+        assertFalse(audio.lease!!.current())
+        assertTrue(audio.lease!!.awaitRelease())
+        assertEquals(1, volume.index)
+    }
+
+    @Test fun transportPreemptionAwaitsTheExactCycleCleanupNotItsCaller() = runBlocking {
+        val waiting = CompletableDeferred<Unit>()
+        onWait = { waiting.complete(Unit); awaitCancellation() }
+        val execution = async { executor().execute(settings) }
+        waiting.await()
+        val lease = audio.lease!!
+        lease.revoke()
+        assertTrue(withTimeout(5_000) { lease.awaitRelease() })
+        execution.join()
+        assertTrue(execution.isCancelled)
+        assertTrue(currentCoroutineContext().isActive)
+        assertEquals(1, volume.index)
+        assertEquals("CANCELLED", row(lease.cycle).status)
+    }
+
+    @Test fun failedCleanupCannotAuthorizeAnotherAudioOwner() = runBlocking {
+        audio.stopFails = true
+        val outcome = executor().execute(settings)
+        assertEquals(LocalAlarmExecutionStatus.CLEANUP_UNAVAILABLE, outcome.status)
+        assertFalse(audio.lease!!.awaitRelease())
+    }
+
+    @Test fun transportReleaseDoesNotWaitForBlockedJournalPersistence() = runBlocking {
+        val waiting = CompletableDeferred<Unit>()
+        onWait = { waiting.complete(Unit); awaitCancellation() }
+        val execution = async { executor().execute(settings) }
+        waiting.await()
+        val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        lock.lock()
+        try {
+            val lease = audio.lease!!
+            lease.revoke()
+            assertTrue(withTimeout(1_500) { lease.awaitRelease() })
+            assertEquals(1, volume.index)
+            assertFalse(execution.isCompleted)
+        } finally { lock.unlock(); execution.join() }
     }
 
     @Test fun actualRoomOffDuringWaitStopsAndRestoresWithoutAnotherStep() = runBlocking {

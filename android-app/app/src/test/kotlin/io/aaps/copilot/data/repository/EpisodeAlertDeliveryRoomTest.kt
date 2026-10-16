@@ -60,12 +60,16 @@ class EpisodeAlertDeliveryRoomTest {
     }
 
     @Test
-    fun technicalCallbackHoldsTheActualSharedRoomOperationMutex() = runBlocking {
+    fun technicalCallbackHoldsDeliveryOrderButNotTheLocalAudioPersistenceMutex() = runBlocking {
         machine().coordinateMutedSideEffect {
-            val shared = EpisodeAlertOperationLocks.forIdentity(db)
+            val shared = EpisodeAlertOperationLocks.forDeliveryIdentity(db)
             val acquired = shared.tryLock()
             if (acquired) shared.unlock()
             assertThat(acquired).isFalse()
+            val persistence = EpisodeAlertOperationLocks.forIdentity(db)
+            val persistenceAcquired = persistence.tryLock()
+            if (persistenceAcquired) persistence.unlock()
+            assertThat(persistenceAcquired).isTrue()
         }
     }
 
@@ -78,7 +82,7 @@ class EpisodeAlertDeliveryRoomTest {
             clearRiskSideEffects = {
                 monitor.invalidateAlarmSource()
                 assertThat(monitor.currentAlarmSource()).isNull()
-                val shared = EpisodeAlertOperationLocks.forIdentity(db)
+                val shared = EpisodeAlertOperationLocks.forDeliveryIdentity(db)
                 val acquired = shared.tryLock()
                 if (acquired) shared.unlock()
                 assertThat(acquired).isFalse()

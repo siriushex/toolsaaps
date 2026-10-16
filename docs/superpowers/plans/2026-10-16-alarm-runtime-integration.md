@@ -26,18 +26,33 @@ locked-screen acceptance require their own explicitly authorized test.
   original four REDs and348 focused passing cases retained privately.
 - [x] Cross-owner source revival reproduced; publication now binds to its exact
   control revision. Final full quality includes this additional regression.
-- [ ] Native INITIAL handoff and runtime admission.
+- [x] Split delivery and persistence locks, preserve pending-OFF denial, add an
+  explicit checked-source handoff and settle native/local volume ownership.
+- [ ] Production INITIAL route selection and runtime admission.
 - [ ] Scoped acknowledgement and Android wake lifecycle.
 - [x] Full local unit/lint/Kotlin/debug-build:5868 cases/6 existing skips,
   0 failures/errors; lint0 errors and unchanged379 notices. Source review and
   16-path credential/identifier scan complete; APK v2 signature verified.
-- [ ] Reviewed source publication and exact-head CI.
+- [x] Previous OFF source stage afa44533 published; exact-head Verify runs
+  38877759914 and38877754037 passed, with matching local/CI unit cases.
+- [x] Final handoff full Android quality:5890 cases/5884 pass/6 unchanged skips,
+  0 failures/errors; lint0 errors with unchanged379 notices; APK v2 verified.
+- [ ] Current handoff reviewed publication and exact-head CI.
 
 ## Integration Finding
 
-The native INITIAL callback currently holds the same Room operation mutex that
-the local executor needs for its claim. Activating the coordinator inside that
-callback would deadlock. Passing a source emission directly to the coordinator
-afterward would instead repeat INITIAL while native sound/boost may still be
-owned. The next change must explicitly settle this lock and volume handoff;
-any-channel DELIVERED cannot be imported as a fabricated local audio STARTED.
+Two tests reproduced the native/technical callback deadlock. Delivery ordering
+now remains serialized without holding the short persistence lock required by a
+local claim. A separate regression reproduced pending-OFF admission before its
+write; guarded local transactions now recheck the shared control revision.
+
+coordinateWithLocalAlarmSource permits checked authority after committed claim,
+before its callback, without inventing an audio receipt. Local audio preparation
+finishes native boost cleanup before volume acquisition. Legacy/preview
+replacement waits for the retired local lease's exact audio/volume cleanup.
+The transport-release promise completes before terminal Room persistence; a busy
+journal does not block an independently admitted urgent native replacement.
+
+Production still must choose one INITIAL route using current settings and
+capabilities, not consume a source emission after independently sounding legacy
+INITIAL. Any-channel DELIVERED cannot be imported as local audio STARTED.

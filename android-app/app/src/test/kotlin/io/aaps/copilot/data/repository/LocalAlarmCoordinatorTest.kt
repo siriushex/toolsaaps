@@ -80,6 +80,14 @@ class LocalAlarmCoordinatorTest {
         @Volatile var playing: LocalAlarmCycle? = null
         @Volatile var stopFails = false
         @Volatile var lastGuard: ((LocalAlarmCycle) -> Boolean)? = null
+        @Volatile var lease: LocalAlarmAudioOwner? = null
+        override suspend fun prepareLocalAlarm(owner: LocalAlarmAudioOwner): Boolean {
+            if (!owner.current()) return false
+            lease = owner
+            return true
+        }
+        override fun ownsLocalAlarm(cycle: LocalAlarmCycle): Boolean =
+            lease?.let { it.cycle == cycle && it.retained() } == true
         override suspend fun playLocalAlarm(cycle: LocalAlarmCycle, stepIndex: Int, settings: AppSettings,
             admitted: (LocalAlarmCycle) -> Boolean): GlucoseAlertAudioPlaybackResult {
             assertTrue(admitted(cycle)); assertTrue(playing == null || playing == cycle)
@@ -87,6 +95,7 @@ class LocalAlarmCoordinatorTest {
             return GlucoseAlertAudioPlaybackResult(played = true, durationMs = if (cycle.level.strong) 20_000 else 2_000)
         }
         override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
+            lease?.takeIf { it.cycle == cycle }?.retire()
             stops += cycle
             if (stopFails) error("stop_unconfirmed")
             if (playing == cycle) playing = null

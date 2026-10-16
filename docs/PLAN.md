@@ -1,5 +1,23 @@
 # PLAN
 
+## Native Alert Handoff (2026-10-16)
+
+- [x] Separate delivery ordering from short Room transactions; recheck pending
+  control intent for local admission. Preserve OFF cleanup-before-write ordering.
+- [x] Add explicit checked-source callback after committed INITIAL claim, without
+  fabricating audio-start receipts or replaying the initial side effect.
+- [x] Prepare local audio ownership before volume acquisition; retain retired
+  leases until confirmed cleanup before native/preview replacement.
+- [x] Current focused104 cases and final full Android unit/lint/Kotlin/debug
+  build:5890 cases/6 existing skips/0 failures/errors, unchanged lint notices,
+  verified APK v2 signature.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Select the handoff in production; connect current settings/capabilities,
+  scoped ACK, foreground/AlarmClock lifecycle and OFF-expiry reassessment.
+
+No phone sound, installation, therapy or platform activation in this prerequisite
+stage. Full runtime remains open in the existing alarm-runtime-integration plan.
+
 ## Immediate Alert Control Boundary (2026-10-16)
 
 - [x] Reproduce four actual OFF-versus-lock/preparation/queued-delivery defects.

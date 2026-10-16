@@ -9,7 +9,7 @@ its revision before waiting; old work cannot start after OFF/resume/toggle even
 if it acquires Room first. Cancellation runs outside the gate monitor.
 
 Only the alert side-effect child is cancelled. Its cleanup completes before the
-persistent lock is released; the caller remains available to finish unrelated
+delivery-order lock is released; the caller remains available to finish unrelated
 forecast/therapy work. Parent cancellation and fatal errors still propagate.
 AppContainer immediately stops the shared audio controller and vibration; Room
 OFF, notification cleanup and the legacy mirror retain their serialized order.
@@ -20,11 +20,34 @@ Published glucose sources bind to that exact control revision. Another owner
 cannot restore cached authority after resume; a fresh accepted evaluation opens
 the new cohort. StateFlow remains a wake signal, not admission.
 
-This fixes the live legacy boundary. Native INITIAL still holds the operation
-mutex while starting audio, and the inactive local executor requires that same
-mutex to claim. A coordinator call from inside that callback would deadlock.
-Its eventual handoff must also finish the native boost/local volume-lease cleanup
-before replacing the audio owner. No foreground/AlarmClock activation is implied.
+## Native Alert Handoff
+
+Database identity now owns separate delivery-order and persistence mutexes.
+Native/technical callbacks and their cancellation cleanup hold delivery order,
+not the persistence mutex needed by local claims. Only bounded receipt/control
+transactions hold persistence. Local guarded transactions capture shared control
+intent before waiting and deny arming when that intent changes or remains pending,
+including while OFF waits for old physical cleanup. Terminal cleanup stays allowed.
+
+The explicit coordinateWithLocalAlarmSource path commits the initial claim, then
+optionally reads back the matching OPEN event and current OFF before invoking its
+callback with a checked source. Expired/missing observations yield no authority;
+an ordinary optional-read failure never cancels the native fallback. The source
+does not establish audio STARTED or DELIVERED, and duplicate INITIAL is not replayed.
+The existing coordinate path retains its post-delivery source publication order.
+No production notifier selects the new path yet.
+
+Local execution reserves an admitted transport lease before capturing its volume
+baseline. Reservation first finishes legacy player/boost cleanup. A replacement
+legacy/preview request revokes only the exact local child and waits for its audio
+and volume cleanup; unknown cleanup denies replacement. A retired lease remains
+visible between player stop and volume restoration, including to reentrant idle
+observers. Ordinary completion retires the lease without cancelling its caller.
+Confirmed transport cleanup releases the handoff before journal persistence:
+a busy Room transaction must not delay an independently admitted urgent native
+clip. The old executor still finishes its own journal/coordination lifecycle;
+the transport result never represents a successful journal write.
+This handoff does not arm a foreground service, AlarmClock or scoped ACK action.
 
 ## Shared Audio Request Ownership
 
@@ -60,8 +83,9 @@ generation for existing scoped ACK policy. Failure/safe/OFF ends that cohort;
 another accepted cohort uses its newer committed revision. A cached StateFlow
 is a wake feed, not admission: currentAlarmSource rechecks time and identity.
 
-Glucose binds only after native delivery/receipt work, using a best-effort1s
-readback of the exact matching OPEN episode and Room OFF. Failure/timeout of that
+The default glucose path binds after native delivery/receipt work, using a
+best-effort1s readback of the exact matching OPEN episode and Room OFF. The explicit
+handoff path may bind between committed claim and callback as described above. Failure/timeout of that
 optional read cannot undo or replay INITIAL. Diagnostic source candidates come
 from the same validated current history/OPEN-event transaction as its existing
 assessment, never from display acceptedAt; they publish after initial notice and
