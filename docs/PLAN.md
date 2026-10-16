@@ -1,5 +1,28 @@
 # PLAN
 
+## Reliable Alert Delivery: Initial Isolation (2026-10-16)
+
+- [x] Owner continued after written design review. Scope is staged source work,
+  not phone arming or an assertion that the entire proposed runtime works.
+- [x] Public notifier/Room and accepted-runtime tests reproduced blocked-channel
+  false-positive posting, writer/target failure suppressing alert publication,
+  and successful notification hiding explicit audio failure/timeout.
+- [x] Selected-channel/group checks, required-channel diagnostics and persistent
+  bounded degradation on any-channel receipts implemented. No channel override.
+- [x] Expanded RED reproduced alert-behind-writer ordering. Accepted normal alerts
+  now precede writers; ordinary consumer errors stay independent without retry.
+- [x] Final126 focused cases/24 new tests pass. Complete Android test/lint/
+  compile/debug-build passed in9m39s:5727 cases,5721 passed/6 existing opt-in
+  skips,0 failures/errors; lint0 errors,379 existing notices. Source/security/diff
+  review passed. Publication/exact-head Verify receipts are tracked separately.
+- [ ] Next implementation stage: accepted source bridge and real single-owner
+  foreground/wake delivery, scoped ACK, coalesced noncritical backoff and OFF
+  expiry reassessment. No production coordinator activation in this first stage.
+- [ ] Separately authorized intended-phone update and harmless physical delivery
+  tests, including locked screen/idle, denied permissions, routes and cleanup.
+
+Plan: superpowers/plans/2026-10-16-alert-delivery-failure-isolation.md.
+
 ## Atomic Daily Capacity (2026-10-16)
 
 - [x] Inspect shared ledger/executor and daily lifecycle, choose idle-only metadata

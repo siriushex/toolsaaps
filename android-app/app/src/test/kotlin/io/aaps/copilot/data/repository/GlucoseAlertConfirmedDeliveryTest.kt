@@ -2,10 +2,88 @@ package io.aaps.copilot.data.repository
 
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class GlucoseAlertConfirmedDeliveryTest {
+
+    @Test fun postedNotificationDoesNotHideExplicitAudioFailure() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = true, postNotification = { true }, invokeVibration = { true },
+            startAudio = { GlucoseAlertAudioPlaybackResult(failureReason = "audio_start_failed") })
+        assertThat(result.degradedReason).isEqualTo("audio_start_failed")
+        assertThat(result.toAlertSideEffectResult().receiptResult).isEqualTo(AlertReceiptResult.DELIVERED)
+        assertThat(result.toAlertSideEffectResult().failureReason).isEqualTo("audio_start_failed")
+    }
+
+    @Test fun postedNotificationDoesNotHideAudioTimeout() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = true, postNotification = { true }, invokeVibration = { true },
+            audioStartTimeoutMs = 100L, startAudio = { awaitCancellation() })
+        assertThat(result.degradedReason).isEqualTo("audio_start_timeout")
+        assertThat(result.notificationPosted).isTrue()
+    }
+
+    @Test fun successfulAudioDoesNotHideDeniedNotification() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = false, postNotification = { error("not permitted") },
+            invokeVibration = { true }, startAudio = { GlucoseAlertAudioPlaybackResult(played = true) })
+        assertThat(result.degradedReason).isEqualTo("notifications_denied")
+        assertThat(result.audioPlayed).isTrue()
+    }
+
+    @Test fun successfulAudioDoesNotHideFailedNotificationInvocation() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = true, postNotification = { throw SecurityException() },
+            invokeVibration = { true }, startAudio = { GlucoseAlertAudioPlaybackResult(played = true) })
+        assertThat(result.degradedReason).isEqualTo("notification_post_failed_or_blocked")
+        assertThat(result.audioPlayed).isTrue()
+    }
+
+    @Test fun audioCancellationIsNotConvertedToAHealthyNotificationResult() = runTest {
+        val expected = CancellationException("synthetic_stop")
+        val failure = runCatching {
+            deliverConfirmedGlucoseAlertChannels(
+                notificationPermissionGranted = true, postNotification = { true }, invokeVibration = { true },
+                startAudio = { throw expected })
+        }.exceptionOrNull()
+        assertThat(failure).isInstanceOf(CancellationException::class.java)
+        assertThat(failure).hasMessageThat().isEqualTo(expected.message)
+    }
+
+    @Test fun independentRequiredChannelFailuresAreAllRetained() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = false, postNotification = { error("not permitted") },
+            invokeVibration = { false }, audioRequired = true, vibrationRequired = true,
+            startAudio = { GlucoseAlertAudioPlaybackResult(failureReason = "audio_start_failed") })
+        assertThat(result.notificationFailureReason).isEqualTo("notifications_denied")
+        assertThat(result.audioFailureReason).isEqualTo("audio_start_failed")
+        assertThat(result.vibrationFailureReason).isEqualTo("vibration_unavailable")
+        assertThat(result.toAlertSideEffectResult().receiptResult).isEqualTo(AlertReceiptResult.FAILED)
+    }
+
+    @Test fun requiredAudioAndVibrationCannotSilentlyReturnNoResult() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = true, postNotification = { true },
+            invokeVibration = { false }, audioRequired = true, vibrationRequired = true,
+            startAudio = { GlucoseAlertAudioPlaybackResult() })
+        assertThat(result.notificationFailureReason).isNull()
+        assertThat(result.audioFailureReason).isEqualTo("audio_not_started")
+        assertThat(result.vibrationFailureReason).isEqualTo("vibration_unavailable")
+        assertThat(result.degradedReason).isEqualTo("audio_not_started")
+    }
+
+    @Test fun vibrationFailureIsVisibleEvenWhenBothOtherChannelsSucceed() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted = true, postNotification = { true },
+            invokeVibration = { throw SecurityException() }, audioRequired = true, vibrationRequired = true,
+            startAudio = { GlucoseAlertAudioPlaybackResult(played = true) })
+        assertThat(result.notificationFailureReason).isNull()
+        assertThat(result.audioFailureReason).isNull()
+        assertThat(result.vibrationFailureReason).isEqualTo("vibration_unavailable")
+        assertThat(result.degradedReason).isEqualTo("vibration_unavailable")
+    }
 
     @Test
     fun enqueueButStartFailsIsNotDelivered() = runTest {

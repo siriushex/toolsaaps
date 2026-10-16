@@ -1,3 +1,53 @@
+# Accepted Initial Alert Delivery Isolation - 2026-10-16
+
+- Owner continued after written design review. First bounded production stage
+  checks actual selected notification channel/group, preserves required audio/
+  vibration and notification failures independently, and keeps a bounded partial
+  failure summary on existing any-channel receipts. Silent WATCH stays silent.
+- New public-notifier/Room and accepted-runtime REDs reproduced blocked-channel
+  false-positive posting, writer/target failure suppressing alerts and hidden
+  partial audio failures. Expanded RED proved alert-behind-writer ordering.
+- Normal accepted alerts now publish before potentially slow writers. Ordinary
+  alert errors do not prevent otherwise permitted therapy; a therapy error stays
+  primary with a separate alert error suppressed. No retries/success widget after
+  failure; cancellation/fatal/invalid-authority gates remain. Source-change stays
+  read-only. The4s audio-start limit remains, not a full-clip/model wait.
+- Final focused126 cases pass, including24 new cases. Complete Android test/lint/
+  compile/debug-build recheck passed in9m39s:5727 cases,5721 passed/6 existing
+  opt-in skips,0 failures/errors. Lint0 errors,371 warnings/8 hints matching the
+  existing379-notice baseline; no new scoped warning. Source/security/diff review
+  passed. Publication and exact-head Verify receipts remain separate gates.
+  One RED assertion incorrectly required exception identity across coroutine
+  timeout stack recovery; corrected to cancellation type/message after inspection.
+- First complete5727-case run had0 failures/errors and6 existing skips. Lint
+  correctly rejected the broader RuntimeException catch as an explicit permission
+  handler. Restored a separate SecurityException branch, without lint suppression
+  or permission/default changes; final complete quality passed on that source.
+- No schema/default, coordinator/service/wake/permission or OFF behavior change.
+  Source bridge, repeats/backoff/coalescing, scoped ACK, OFF expiry reassessment
+  and real phone acceptance remain open. No phone/audio/volume/remote/therapy
+  operation. See the approved reliable-alert design and failure-isolation plan.
+
+# Reliable Local Alert Delivery Audit - 2026-10-16
+
+- Read-only source/platform audit found the prepared LocalAlarmCoordinator is
+  not instantiated in production. Current episode receipts deliver initial/urgent
+  escalation, not timed repeats; notification actions provide global OFF30/60,
+  not a separately scoped explicit acknowledgement. Legacy suppressed episodes
+  do not resume merely because their OFF deadline expires.
+- Notification API acceptance does not prove selected-channel visibility or
+  hearing. Accepted fan-out publishes alerts after the therapy stage; failure
+  isolation needs verification without bypassing source/sensor acceptance.
+- Proposed episode-scoped ACK, critical repeats, coalesced noncritical backoff,
+  actual readiness and a genuine current-critical wake path are written in
+  docs/superpowers/specs/2026-10-16-reliable-alert-delivery-design.md. Written
+  approval remains pending; no runtime code, preference or manifest changes.
+- Baseline diagnostic run:144 existing tests passed,0 failures/errors/skips;
+  Gradle BUILD SUCCESSFUL in17s. Reports retained privately in task artifacts.
+  No full build or physical delivery claim: ADB inventory is empty. No phone,
+  sound/volume, permissions, installation, server, clinical threshold or therapy
+  operation. Android/OEM constraints prevent a100-percent delivery guarantee.
+
 # Atomic Daily Idle Capacity - 2026-10-16
 
 - Adds internal DAILY_REVIEW-only reserve-and-claim under one metadata transaction.

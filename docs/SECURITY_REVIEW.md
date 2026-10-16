@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Accepted Alert Failure Isolation (2026-10-16)
+
+- Strict accepted forecast/UAM/sensitivity and existing per-intent writer policy
+  remain before effects. Normal accepted alert publication moves before writers,
+  not before acceptance. No second clinical engine or therapy/threshold change.
+- Only ordinary Exception is isolated. Cancellation/fatal errors are not retried
+  or swallowed. A failed writer stays failed, with any ordinary alert failure
+  suppressed; successful independent therapy never turns an alert error healthy.
+- Posting checks current global access and selected channel/group. No new channel
+  IDs, permission, DND override, service, alarm or opt-in activation. Existing
+  independent app sound/vibration fallback remains distinct from channel posting.
+- Per-channel failures use fixed codes/existing exception class identifiers, not
+  new raw exception messages or medical payload logging. Existing any-channel
+  receipt retains a bounded summary; success is not hearing or acknowledgement.
+- Tests use in-memory Room and synthetic accepted input, never real glucose,
+  model calls, pump/target commands or phone audio. Full repeat/source/owner/wake/
+  scoped ACK and physical acceptance gates remain open. No100-percent guarantee.
+
 ## Daily Idle Capacity (2026-10-16)
 
 - DAILY_REVIEW-only metadata method, shared strict request validation and exact

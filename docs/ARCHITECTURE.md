@@ -1,5 +1,27 @@
 # ARCHITECTURE
 
+## Accepted Alert Initial Delivery
+
+After strict accepted forecast/UAM/sensitivity binding, normal alert publication
+precedes potentially slow therapy writers. The existing audio-start handshake is
+bounded at4s; this path does not wait for the full clip or an AI model result.
+An ordinary alert error is retained while the otherwise permitted therapy stage
+runs once. A therapy error stays primary, with an ordinary alert error suppressed;
+an alert-only error is rethrown after therapy. No success widget follows failure.
+Cancellation/fatal errors are not converted into permission for more side effects.
+Source-change policy still only assesses causes after read-only target evaluation.
+
+The notifier rechecks global notification access and the selected channel/group
+before posting; it does not recreate blocked channels or override user choices.
+Notification, requested audio and requested vibration failures remain separate in
+delivery results/telemetry. The existing any-channel DELIVERED receipt now retains
+its bounded degradation summary; it is not an acknowledgement or proof of hearing.
+Silent WATCH requests no audio/vibration and is not degraded for their absence.
+
+This hardens the existing initial-delivery path, not the inactive coordinator.
+Repeat/source/foreground/wake ownership, OFF-expiry reassessment, scoped ACK and
+actual-phone acceptance remain required. No setting default or permission changes.
+
 ## Daily Idle Capacity
 
 The shared metadata ledger can reserve-and-claim a new DAILY_REVIEW only inside

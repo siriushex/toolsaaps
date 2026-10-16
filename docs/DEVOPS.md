@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Initial Alert Delivery Source Stage (2026-10-16)
+
+No schema, permission, service/alarm, setting default, server or phone operation.
+Normal accepted alerts now precede the existing therapy stage, with independent
+ordinary failure handling and truthful selected-channel/partial-channel reports.
+Source-change and writer authorization remain unchanged. Source/build/CI is not
+APK installation, runtime arming, physical audibility or clinical validation.
+No disable/force-stop, backup, test sound or therapy command is authorized here.
+The repeated runtime, source bridge, ACK/OFF wake ownership and intended-phone
+acceptance are separate remaining stages of the approved reliable-alert design.
+
 ## Daily Capacity Source Stage (2026-10-16)
 
 No operational caller, deployment, migration, timer or profile change. The new

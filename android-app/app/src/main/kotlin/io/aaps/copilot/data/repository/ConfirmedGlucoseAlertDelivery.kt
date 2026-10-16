@@ -8,6 +8,8 @@ internal suspend fun deliverConfirmedGlucoseAlertChannels(
     postNotification: () -> Boolean,
     invokeVibration: () -> Boolean,
     audioStartTimeoutMs: Long = GLUCOSE_ALERT_AUDIO_START_TIMEOUT_MS,
+    audioRequired: Boolean = false,
+    vibrationRequired: Boolean = false,
     startAudio: suspend () -> GlucoseAlertAudioPlaybackResult
 ): GlucoseAlertDeliveryResult {
     require(audioStartTimeoutMs > 0L)
@@ -23,12 +25,15 @@ internal suspend fun deliverConfirmedGlucoseAlertChannels(
             failureReason = error::class.java.simpleName.ifBlank { "audio_start_failed" }
         )
     }
-    val failureReason = when {
-        notificationPosted || vibrationSucceeded || audio.played -> null
-        !audio.failureReason.isNullOrBlank() -> audio.failureReason
-        !notificationPermissionGranted -> "notifications_denied_no_fallback_channel"
-        else -> "risk_side_effect_not_delivered"
+    val notificationFailure = when {
+        !notificationPermissionGranted -> "notifications_denied"
+        !notificationPosted -> "notification_post_failed_or_blocked"
+        else -> null
     }
+    val audioFailure = if (audio.played) null else audio.failureReason?.takeIf { it.isNotBlank() }
+        ?: "audio_not_started".takeIf { audioRequired }
+    val vibrationFailure = "vibration_unavailable".takeIf { vibrationRequired && !vibrationSucceeded }
+    val failureReason = audioFailure ?: notificationFailure ?: vibrationFailure
     return GlucoseAlertDeliveryResult(
         notificationPermissionGranted = notificationPermissionGranted,
         notificationPosted = notificationPosted,
@@ -39,7 +44,10 @@ internal suspend fun deliverConfirmedGlucoseAlertChannels(
         audioClipLabel = audio.clipLabel,
         audioFallbackUsed = audio.fallbackUsed,
         audioStartMs = audio.startMs,
-        audioDurationMs = audio.durationMs
+        audioDurationMs = audio.durationMs,
+        notificationFailureReason = notificationFailure,
+        audioFailureReason = audioFailure,
+        vibrationFailureReason = vibrationFailure
     )
 }
 
@@ -47,7 +55,7 @@ internal const val GLUCOSE_ALERT_AUDIO_START_TIMEOUT_MS = 4_000L
 
 internal fun GlucoseAlertDeliveryResult.toAlertSideEffectResult(): AlertSideEffectResult =
     if (notificationPosted || vibrationSucceeded || audioPlayed) {
-        AlertSideEffectResult.delivered()
+        AlertSideEffectResult(AlertReceiptResult.DELIVERED, degradedReason?.take(160))
     } else {
         AlertSideEffectResult.failed(degradedReason ?: "risk_side_effect_not_delivered")
     }

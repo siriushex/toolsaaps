@@ -1,5 +1,24 @@
 # INVARIANTS
 
+## Accepted Alert Delivery Isolation
+
+- Accepted forecast/UAM/sensitivity authority validation precedes every consumer.
+  No invalid authority, cancelled owner or process-fatal error starts new effects.
+- Normal permitted alert publication precedes the potentially slow writer stage.
+  Each consumer is invoked at most once by this helper. It introduces no retry,
+  replacement command, relaxed writer policy or clinical threshold change.
+- Ordinary alert failure does not suppress otherwise permitted therapy. A therapy
+  exception remains primary; a separate alert exception is suppressed, never
+  swallowed or converted into a successful widget publication. Cancellation wins.
+- Source-change read-only policy never publishes notifications or writes therapy.
+- Successful notify invocation cannot override blocked global/channel/group state.
+  Missing/unreadable channel state is not confirmed posting. No channel reset.
+- Required audio/vibration failure stays visible even when another channel works.
+  Any-channel receipt success preserves its bounded degradation summary and does
+  not establish human hearing/ACK, media completion or full-channel success.
+- Silent WATCH does not require audio/vibration. No repeat, ACK, wake/service,
+  OFF behavior, schema/default, phone or therapy activation accompanies this stage.
+
 ## Daily Capacity Priority
 
 - Idle-only daily reservation, active-work priority check and fresh claim share

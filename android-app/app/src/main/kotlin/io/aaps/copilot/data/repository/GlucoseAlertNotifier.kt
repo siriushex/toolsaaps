@@ -171,6 +171,8 @@ class GlucoseAlertNotifier(
             notificationPermissionGranted = permissionGranted,
             postNotification = { postNotification(manager, claim, notification) },
             invokeVibration = { vibrate(SOFT_VIBRATION) },
+            audioRequired = true,
+            vibrationRequired = true,
             startAudio = { audioController.playForDecision(decision = decision, settings = settings) }
         )
     }
@@ -219,6 +221,8 @@ class GlucoseAlertNotifier(
                 )
             },
             invokeVibration = { vibrate(STRONG_VIBRATION) },
+            audioRequired = true,
+            vibrationRequired = true,
             startAudio = { audioController.playForDecision(decision = decision, settings = settings) }
         )
     }
@@ -285,17 +289,20 @@ class GlucoseAlertNotifier(
         claim: EpisodeDeliveryClaim,
         notification: Notification
     ): Boolean {
-        if (
-            Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return false
-        }
         return try {
+            if (!notificationsAllowed()) return false
+            val platform = context.getSystemService(NotificationManager::class.java) ?: return false
+            val channel = platform.getNotificationChannel(notification.channelId) ?: return false
+            if (channel.importance == NotificationManager.IMPORTANCE_NONE) return false
+            channel.group?.let { groupId ->
+                val group = platform.getNotificationChannelGroup(groupId) ?: return false
+                if (group.isBlocked) return false
+            }
             manager.notify(claim.notificationTag, claim.notificationId, notification)
             true
         } catch (_: SecurityException) {
+            false
+        } catch (_: RuntimeException) {
             false
         }
     }
@@ -525,7 +532,10 @@ data class GlucoseAlertDeliveryResult(
     val audioClipLabel: String? = null,
     val audioFallbackUsed: Boolean = false,
     val audioStartMs: Int? = null,
-    val audioDurationMs: Int? = null
+    val audioDurationMs: Int? = null,
+    val notificationFailureReason: String? = null,
+    val audioFailureReason: String? = null,
+    val vibrationFailureReason: String? = null
 ) {
     val vibrationAttempted: Boolean
         get() = vibrationSucceeded
