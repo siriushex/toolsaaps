@@ -1,5 +1,22 @@
 # PLAN
 
+## Frozen Daily Source Verification (2026-10-16)
+
+- [x] Observe missing-check RED; inspect full archived ranges and moving cuts.
+- [x] Share protected report/source snapshot and deterministic replay, with actual
+  check bindings and explicit changed/unavailable states; no storage migration.
+- [x] Reproduce missed post-midnight guard RED and expand the checked right guard.
+- [x] Synthetic regressions cover late/revised/deleted/irrelevant source, integrity,
+  retention, rollback, full-facts mismatch, concurrency, ranges, clocks and limits.
+- [x] Final43 new cases and172 focused tests; full pinned backend1281 passed,
+  27 existing opt-in skips. Scoped lint/compile, source/security/docs review pass.
+  A separate synthetic6343-point/22-day check completes locally in0.5709s;
+  this is not target-host capacity, provider or medical validation.
+- [ ] Reviewed source publication and independent exact-head CI receipts.
+
+No worker integration, provider, public/admin route, scheduler, host, APK or therapy.
+See DAILY_SOURCE_VERIFICATION.md; this point-in-time result is not clinical admission.
+
 ## Grounded Daily Review Contract (2026-10-16)
 
 - [x] Observe missing-module RED; add bounded trusted preparation and read-only

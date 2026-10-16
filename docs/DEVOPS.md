@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Frozen Source Check Stage (2026-10-16)
+
+Only internal read helpers and synthetic checks change. No migration, service,
+descriptor, profile, scheduler, public API, model, phone or therapy operation.
+The existing protected file/lock/transaction/deadline bounds are shared by report
+selection and source replay; reads never enable archive schema 3. Source evidence
+at retention is unavailable, never repaired by extending expiry or restoring old
+records. No worker consumes the check; source deployment remains separate.
+See DAILY_SOURCE_VERIFICATION.md for the actual versus replayed cuts and limits.
+
 ## Daily Review Contract Source Stage (2026-10-16)
 
 Only internal preparation and reference checking are implemented. The exact
@@ -8,7 +18,7 @@ NOT_ADMITTED. No server descriptor, capability, public enum, native policy,
 supervisor, source root, service, profile, timer or database schema is changed.
 No provider or real-device test is included. Pure helpers are not deployment.
 
-A future worker needs independent frozen-source freshness verification, a
+A future worker needs to consume independent frozen-source verification, a
 separate explicitly admitted DAILY_REVIEW policy, shared profile/ledger ownership,
 encrypted work/results and no-replay uncertain-state handling before opt-in
 scheduling. Matching supplied hashes, valid JSON or REFERENCES_ONLY cannot

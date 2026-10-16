@@ -1,3 +1,30 @@
+# Frozen Daily Source Verification - 2026-10-16
+
+- Adds internal check_daily_glucose_report_source, not a provider/worker or
+  public API. Selected archive and current retained evidence share one protected
+  read transaction, original identity/ranges/cuts for reproducibility, and
+  separate actual check clocks/sequence/window/full-facts bindings.
+- Initial missing-check RED observed; expanded tests passed171 cases before the
+  final deadline regression. A separate RED exposed ignored new post-midnight
+  guard points; current checked right guard now includes them without inventing
+  an earlier observation time or silently omitting them under the old cutoff.
+- Late/revised/deleted/context inputs are changed; unrelated time/sequence or
+  other-date uploads do not alone stale an unchanged report. Selected tombstones
+  are authenticated. Retention loss, rollback and full-facts mismatch are explicit
+  UNAVAILABLE, never an empty-source success; limits/integrity fail without proof.
+- No database schema/write, deployment, model, phone or therapy operation. Frozen
+  analytical settings are not today's target settings; retained matching source
+  is not medical validity, device completeness or continuing freshness. Legacy
+  preparation/result labels stay unverified/not admitted until worker integration.
+- Final43 new cases/172 focused tests pass; complete pinned backend1281 passed,
+  27 existing opt-in skips, one existing dependency deprecation warning. Scoped
+  E/F lint, compilation, diff/source/security and documentation review pass.
+- Separate synthetic6343-point/22-day archive check completes locally in0.5709s,
+  process peak88.8MiB including fixture/imports. Initial and unrelated-source
+  checks match; an in-window revision changes the result. This is not target-host
+  capacity, provider/token/cost or clinical accuracy evidence. Source publication
+  and exact-head CI remain separate gates. See DAILY_SOURCE_VERIFICATION.md.
+
 # Grounded Daily Review Contract - 2026-10-16
 
 - Implements the next approved source-only daily-review dependency: trusted

@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Frozen Daily Source Verification
+
+HistoryStore.check_daily_glucose_report_source independently reads the selected
+archive and latest retained source in one bounded protected transaction. It
+replays original analytical inputs/cuts while separately binding actual check
+time/sequence; unrelated uploads do not become false changes. Late observations,
+revisions/deletions, expiry, rollback and non-reproducing facts stay explicit.
+This point-in-time internal result is not yet consumed by a worker or the old
+caller-assertion preparation bridge. No schema, provider, route or therapy change.
+See [DAILY_SOURCE_VERIFICATION.md](DAILY_SOURCE_VERIFICATION.md).
+
 ## Grounded Daily Review Contract
 
 The internal daily_review module compiles an authenticated selected facts report
@@ -11,7 +22,7 @@ HistoryStore.prepare_daily_glucose_review is a read-only trusted-service bridge.
 Strict synthetic answer checking produces an evidence-linked REFERENCES_ONLY /
 NOT_ADMITTED view, not model dispatch or a publication/therapy authority. Matching
 caller-supplied digests do not independently establish source freshness; a real
-worker still needs frozen-source verification and separate policy/stop/quality
+worker still needs to consume frozen-source verification and separate policy/stop/quality
 admission. No generic CHAT widening, public route, scheduler or result table.
 See [DAILY_REVIEW_CONTRACT.md](DAILY_REVIEW_CONTRACT.md).
 

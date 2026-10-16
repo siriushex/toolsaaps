@@ -283,7 +283,7 @@ def save_report(store, owner, device, facts, *, now_ms):
             db.close()
 
 
-def get_report(
+def _query_key(
     store,
     owner,
     device,
@@ -310,34 +310,67 @@ def get_report(
         )
     ):
         raise ValueError("invalid_daily_report_query")
-    key = _key(store, owner, device, window.reportDate, window.zoneId)
+    return _key(store, owner, device, window.reportDate, window.zoneId)
+
+
+def _read_report(store, owner, device, db, *, key, now_ms, report_revision):
+    """Read inside the caller's protected transaction and deadline."""
+    if db.execute("PRAGMA user_version").fetchone()[0] < 3:
+        return None
+    _highwater(db)
+    clause, args = (
+        ("", ())
+        if report_revision is None
+        else (" AND report_revision=?", (report_revision,))
+    )
+    row = db.execute(
+        "SELECT * FROM daily_reports WHERE report_key=? AND created_ms<=? AND expires_ms>?"
+        + clause
+        + " ORDER BY report_revision DESC LIMIT 1",
+        (key, now_ms, now_ms, *args),
+    ).fetchone()
+    return None if row is None else _decrypt(store, owner, device, row)
+
+
+def get_report(
+    store,
+    owner,
+    device,
+    *,
+    report_date,
+    zone_id,
+    now_ms,
+    report_revision=None,
+    source_digest=None,
+):
+    key = _query_key(
+        store,
+        owner,
+        device,
+        report_date=report_date,
+        zone_id=zone_id,
+        now_ms=now_ms,
+        report_revision=report_revision,
+        source_digest=source_digest,
+    )
     with store._locked():
         db = store._open(owner, device, create=False)
         if db is None:
             return None
         try:
             db.execute("BEGIN")
-            if db.execute("PRAGMA user_version").fetchone()[0] < 3:
-                return None
             end = _budget(db)
-            _highwater(db)
-            clause, args = (
-                ("", ())
-                if report_revision is None
-                else (" AND report_revision=?", (report_revision,))
+            result = _read_report(
+                store,
+                owner,
+                device,
+                db,
+                key=key,
+                now_ms=now_ms,
+                report_revision=report_revision,
             )
-            row = db.execute(
-                "SELECT * FROM daily_reports WHERE report_key=? AND created_ms<=? AND expires_ms>?"
-                + clause
-                + " ORDER BY report_revision DESC LIMIT 1",
-                (key, now_ms, now_ms, *args),
-            ).fetchone()
-            if row is None:
-                _deadline(end)
-                return None
-            result = _decrypt(store, owner, device, row)
             _deadline(end)
-            if source_digest is not None:
+            if result is not None and source_digest is not None:
                 changed = source_digest != result.facts.comparison.sourceDigest
                 result = result.model_copy(
                     update=dict(

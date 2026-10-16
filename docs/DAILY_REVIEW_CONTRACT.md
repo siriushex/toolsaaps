@@ -20,6 +20,11 @@ independent frozen-source membership/revision verification before dispatch and
 publication. Passing the stored hash back is not that verification. Input and
 output explicitly say NOT_INDEPENDENTLY_VERIFIED; no autonomous fresh badge.
 
+The separate internal check_daily_glucose_report_source now performs a protected
+point-in-time replay of retained history without a supplied hash. It is not yet
+consumed here or by a worker; old input/view labels deliberately remain unchanged.
+See [DAILY_SOURCE_VERIFICATION.md](DAILY_SOURCE_VERIFICATION.md).
+
 ## Frozen Model Input
 
 DailyReviewWork holds immutable canonical bytes and fixed prompt/schema/digest
@@ -76,8 +81,8 @@ path. There is no mapper from its review action to a treatment command.
 
 ## Separate Remaining Gates
 
-- Bounded missing-domain adapters and independently verified frozen-source
-  freshness, without replacing authenticated evidence with a hash echo.
+- Bounded missing-domain adapters and consumption/rechecking of the independent
+  frozen-source result, without treating an older MATCHED object as current.
 - Dedicated DAILY_REVIEW policy/transport admission using the trusted model and
   reasoning, empty tools/actions, shared profile ownership and exact stop/IO.
 - Encrypted work/results, durable opt-in logical-day reservation, restart/

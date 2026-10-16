@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Frozen Daily Source Checks
+
+- Selected archive and latest retained source share one bounded protected read
+  transaction. Reuse original cuts only for deterministic replay, never as new
+  current snapshot metadata. Actual check time/sequence/window remain distinct.
+- Compare complete facts as well as source digest. Observe late boundary inputs
+  beyond the original midnight cutoff; never hide them behind that cutoff.
+  Authenticate selected tombstones before treating evidence as absent.
+- Retention loss, source rollback or non-reproducing derived facts cannot be
+  MATCHED. Integrity/row/SQL/wall-budget failures produce no partial assertion.
+- MATCHED is only retained GLUCOSE_ONLY evidence at the check moment, not source
+  completeness, medical validity, current range configuration or future freshness.
+  No worker, legacy preparation promotion, provider or publication authority exists.
+
 ## Grounded Daily Review
 
 - Only authenticated archived calculator output enters trusted preparation. A

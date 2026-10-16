@@ -619,6 +619,11 @@ class HistoryStore:
             zone_id=zone_id, source_digest=source_digest, now_ms=now_ms, report_revision=report_revision)
         return prepare_review(report, now_ms=now_ms, language=language)
 
+    def check_daily_glucose_report_source(self, owner, device, **options):
+        from .daily_source import check_report_source
+
+        return check_report_source(self, owner, device, **options)
+
     def _enable_daily_reports(self, db):
         from .daily_reports import SCHEMA as REPORT_SCHEMA
 
@@ -631,18 +636,11 @@ class HistoryStore:
             db.commit()
 
     @contextmanager
-    def _glucose_snapshot(self, owner, device, *, from_ms, until_ms, now_ms, row_limit):
-        """One bounded read lifetime shared by daily and multi-day calculations."""
-        from .history_contract import HistoryRecord
-
+    def _daily_read_snapshot(self, owner, device):
+        """Archive selection and source reads can share one bounded transaction."""
         with self._locked():
             db = self._open(owner, device, create=False)
-            if db is None:
-                yield [], [], 0
-                return
             try:
-                db.execute("BEGIN")
-                snapshot = self._highwater(db)
                 stop_at = time.monotonic() + 5
                 instructions = 0
 
@@ -651,32 +649,56 @@ class HistoryStore:
                     instructions += 1000
                     return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
 
-                db.set_progress_handler(budget, 1000)
-                limit = min(self.max_rows, row_limit)
-                rows = db.execute(
-                    "SELECT r.* FROM history_records r WHERE r.event_ms>=? AND r.event_ms<=? "
-                    "AND r.observed_ms<=? AND r.received_ms<=? AND r.expires_ms>? "
-                    "AND r.kind IN ('GLUCOSE','THERAPY') AND r.deleted=0 AND r.sequence<=? AND NOT EXISTS "
-                    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
-                    "AND n.sequence>r.sequence AND n.sequence<=?) "
-                    "ORDER BY r.event_ms,r.record_id LIMIT ?",
-                    (from_ms, until_ms,
-                     now_ms, now_ms, now_ms, snapshot, snapshot, limit + 1),
-                )
-                cipher, records, sensor_changes = self._cipher(owner, device), [], []
-                for count, row in enumerate(rows, 1):
-                    if count > limit or time.monotonic() >= stop_at:
-                        raise HistoryError(503, "daily_glucose_unavailable")
-                    record = HistoryRecord.model_validate(self._read_record(owner, device, cipher, row))
-                    if record.kind == "GLUCOSE":
-                        records.append(record)
-                    elif record.data == {"eventType": "SENSOR_CHANGE"}:
-                        sensor_changes.append(record)
-                yield records, sensor_changes, snapshot
+                if db is not None:
+                    db.execute("BEGIN")
+                    db.set_progress_handler(budget, 1000)
+                    snapshot = self._highwater(db)
+                else:
+                    snapshot = 0
+                yield db, snapshot, stop_at
                 if time.monotonic() >= stop_at:
                     raise HistoryError(503, "daily_glucose_unavailable")
             finally:
-                db.close()
+                if db is not None:
+                    db.close()
+
+    def _read_glucose_records(self, owner, device, db, *, from_ms, until_ms,
+                              now_ms, row_limit, snapshot, stop_at, include_deleted=False):
+        from .history_contract import HistoryRecord
+
+        limit = min(self.max_rows, row_limit)
+        live = "" if include_deleted else " AND r.deleted=0"
+        rows = db.execute(
+            "SELECT r.* FROM history_records r WHERE r.event_ms>=? AND r.event_ms<=? "
+            "AND r.observed_ms<=? AND r.received_ms<=? AND r.expires_ms>? "
+            "AND r.kind IN ('GLUCOSE','THERAPY')" + live + " AND r.sequence<=? AND NOT EXISTS "
+            "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
+            "AND n.sequence>r.sequence AND n.sequence<=?) "
+            "ORDER BY r.event_ms,r.record_id LIMIT ?",
+            (from_ms, until_ms, now_ms, now_ms, now_ms, snapshot, snapshot, limit + 1),
+        )
+        cipher, records, sensor_changes = self._cipher(owner, device), [], []
+        for count, row in enumerate(rows, 1):
+            if count > limit or time.monotonic() >= stop_at:
+                raise HistoryError(503, "daily_glucose_unavailable")
+            record = HistoryRecord.model_validate(self._read_record(owner, device, cipher, row))
+            if record.kind == "GLUCOSE":
+                records.append(record)
+            elif record.data == {"eventType": "SENSOR_CHANGE"}:
+                sensor_changes.append(record)
+        return records, sensor_changes
+
+    @contextmanager
+    def _glucose_snapshot(self, owner, device, *, from_ms, until_ms, now_ms, row_limit):
+        """One bounded read lifetime shared by daily and multi-day calculations."""
+        with self._daily_read_snapshot(owner, device) as (db, snapshot, stop_at):
+            if db is None:
+                yield [], [], snapshot
+            else:
+                records, changes = self._read_glucose_records(owner, device, db,
+                    from_ms=from_ms, until_ms=until_ms, now_ms=now_ms, row_limit=row_limit,
+                    snapshot=snapshot, stop_at=stop_at)
+                yield records, changes, snapshot
 
     def purge(self, *, now_ms: int):
         valid_time(now_ms)

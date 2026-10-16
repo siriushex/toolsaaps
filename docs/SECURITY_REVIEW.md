@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Frozen Daily Source Verification (2026-10-16)
+
+- One trusted protected archive/source read, no caller-supplied freshness hash.
+  Exact owner/device/archive/facts binding, latest authenticated source including
+  tombstones, full original analytical inputs and actual check cuts are retained.
+- Moving global cuts and unrelated history cannot alone cause false staleness.
+  Later observations, including new midnight guards, cannot hide behind old cuts.
+  Retention, rollback, non-reproducing facts and resource failure never admit work.
+- This is not forensic detection of every missing/unselected row, device-source
+  completeness or clinical validation. Frozen range settings are not today's
+  therapy settings. A MATCHED object has no transferable or continuing authority.
+- Legacy model input/view keep their unverified/admission labels; no worker,
+  provider, public route, migration, credential, host or therapy changes. Future
+  dispatch/publication must independently bind and recheck the exact report.
+
 ## Grounded Daily Review Source Contract (2026-10-16)
 
 - Trusted authenticated report selection only. No public method exposure, raw
