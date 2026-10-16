@@ -70,6 +70,15 @@ class SetupScreenTest {
         }
     }
 
+    @Test fun localDiaryOpensOnlyOnExplicitTap() {
+        var opens = 0
+        screen({ SetupUiState(SetupProgress(step = SetupStep.DATA)) }, onDiary = { opens++ }) {
+            assertEquals(0, opens)
+            compose.onNodeWithTag("setup_diary").performScrollTo().performClick()
+            assertEquals(1, opens)
+        }
+    }
+
     @Test fun profileActionsOpenTheExistingEditorsAndDoNotCompleteTheStep() {
         val opened = mutableListOf<IssueDestination>()
         screen({ SetupUiState(SetupProgress(step = SetupStep.PROFILE)) }, onSettings = { opened += it }) {
@@ -170,6 +179,7 @@ class SetupScreenTest {
         onBlood: () -> Unit = { error("Unexpected blood entry") },
         onTherapy: () -> Unit = { error("Unexpected therapy review") },
         onRetry: () -> Unit = { error("Unexpected reload") },
+        onDiary: () -> Unit = { error("Unexpected diary") },
         fontScale: Float = 1f,
         test: () -> Unit
     ) {
@@ -181,7 +191,7 @@ class SetupScreenTest {
                 CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                     AapsCopilotTheme(darkTheme = false, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                         SetupScreen(state(), onSave, onClose, onSettings, onBlood, onTherapy,
-                            onNotifications = { error("Unexpected permission") }, onRetry = onRetry)
+                            onNotifications = { error("Unexpected permission") }, onRetry = onRetry, onDiary = onDiary)
                     }
                 }
             }

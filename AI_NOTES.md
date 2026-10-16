@@ -1,3 +1,29 @@
+# Local Manual Diary - 2026-10-16
+
+- Added a local-only native meal/injection diary with timestamp/time zone,
+  fixed-point quantities, explicit insulin identity/type and optional notes.
+  Menu and setup links do not require sensor/AAPS/therapy arming.
+- Append-only Room35 revisions preserve originals, corrections, tombstones and
+  restore operations. Stable saved draft identity and exact idempotent retries
+  prevent duplicate creation after a lost commit acknowledgement. Conflicting
+  edits fail rather than overwrite newer content. Read failure is not empty data.
+- This stage deliberately has no clinical or export consumer. Entries do not
+  produce IOB/COB, trigger predictions, control Target Manager, confirm physical
+  delivery or send commands. Separate observation lifecycle remains unfinished.
+- 50 focused storage/UI/migration tests pass. Native Russian 320x640/large-font
+  inspection found a split button word; adaptive stacking fixed it and the
+  focused rerun passed. Removed the hardcoded connected/active drawer badge,
+  which falsely claimed connectivity for manual users. Delayed field callbacks
+  cannot replace a different draft. Malformed persisted metadata fails visibly.
+- Full local Android unit/lint/Kotlin/debug build passed in13m55s:5955 cases,
+  5949 pass/6 unchanged private-input skips,0 failures/errors. A new count-label
+  plural warning was corrected in two resource strings only. Final19 UI cases,
+  lint/Kotlin/debug build passed in9m36s; lint0 errors and the unchanged371
+  warnings/8 hints. Source manifests confirm only those two labels changed after
+  the full tests and no source changed during final verification. APK v2 verified.
+- Reviewed source publication and exact-head CI remain the source delivery gate.
+  No phone, server/model, sound, medical upload or therapy operation performed.
+
 # First-Start Setup - 2026-10-16
 
 - Added a resumable five-step native setup checklist with independent glucose and

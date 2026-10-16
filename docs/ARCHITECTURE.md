@@ -1,5 +1,26 @@
 # ARCHITECTURE
 
+## Local Manual Diary
+
+Room35 adds an isolated append-only local_diary_entries journal. A stable entry
+identity and expected revision bind each create/correction/delete/restore. A
+transaction admits one current revision; exact committed retries return their
+existing receipt. Original occurrence time, time zone, fixed-point amount,
+insulin name/type, manual provenance and earlier revisions remain available.
+Amounts are stored in thousandths of grams or units, never binary floating point.
+
+The native Diary route is reachable from the drawer and setup, with no AAPS,
+sensor, network or therapy-arming requirement. A SavedStateHandle retains the
+draft identity and fields across UI recreation. Failures keep the editor open;
+stale writers cannot overwrite newer revisions. Deleted rows are tombstones,
+not physical erasure, with an explicit restore action and revision viewer.
+History reads are bounded (100 recent entries, expandable to1000;100 revisions).
+
+These entries have no clinical consumer: no treatment import, upload adapter,
+CGM insertion, IOB/COB projection, forecast trigger or target/dose command. The
+existing AAPS Food action stays separate. Observation runtime authorization is
+still a different unfinished stage; this diary does not bypass it.
+
 ## First-Start Checklist
 
 SetupProgress is separate from clinical AppSettings, stored by a scoped atomic

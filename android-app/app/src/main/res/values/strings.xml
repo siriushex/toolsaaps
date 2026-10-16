@@ -56,7 +56,6 @@
     <string name="pump_link_details">Check the pump and AAPS connection warnings. Missing communication does not prove that insulin delivery has stopped. A reconnect attempt is not confirmation of recovery. This monitor does not restart apps, change Bluetooth or send pump commands.</string>
     <string name="app_name">AAPS Predictive Copilot</string>
     <string name="app_subtitle_predictive_analytics">Predictive Analytics</string>
-    <string name="status_connected_loop_active">Connected • Loop Active</string>
 
     <string name="local_nightscout_channel_name">Local Nightscout Runtime</string>
     <string name="local_nightscout_channel_description">Keeps local Nightscout loopback endpoint active for AAPS integration</string>

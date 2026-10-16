@@ -1,5 +1,22 @@
 # INVARIANTS
 
+## Local Manual Diary
+
+- A local entry reports food eaten or insulin already taken. Saving never sends
+  a treatment command, confirms hardware delivery, enables therapy or uploads it.
+- Manual diary data is stored separately from therapy/CGM/telemetry tables and
+  is not counted as observed IOB/COB or used by Target Manager/predictions.
+- Stable identity and expected revision prevent stale replacement and duplicate
+  creation after a lost commit acknowledgement. Retry cannot silently change
+  the payload. Corrections/deletions/restores preserve prior revisions.
+- Kind, gram/unit semantics, original occurrence time/time zone and manual source
+  remain explicit. Future planned events, nonfinite/negative/zero values and
+  missing injection identity/type are rejected; no suggested dose is populated.
+- Deleted records remain locally recoverable, as disclosed before confirmation;
+  deletion is not physical erasure or cancellation of delivered insulin.
+- Migration34->35 is additive and preserves clinical tables. No new destructive
+  fallback. An older APK cannot open the migrated DB; use forward repair.
+
 ## First-Start Setup
 
 - Equipment selection and checklist completion never arm/disarm therapy, change

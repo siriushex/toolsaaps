@@ -323,6 +323,8 @@ class AppContainer(context: Context) {
         )
         .build()
 
+    internal val localDiary by lazy { io.aaps.copilot.data.repository.LocalDiaryRepository(db) }
+
     internal val serverAiRoomHistorySync by lazy {
         io.aaps.copilot.data.repository.ServerAiRoomHistorySync(
             io.aaps.copilot.data.repository.RoomAiHistorySource(db),

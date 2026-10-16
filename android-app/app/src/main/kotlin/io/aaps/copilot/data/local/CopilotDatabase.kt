@@ -2,6 +2,8 @@ package io.aaps.copilot.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import io.aaps.copilot.data.local.dao.LocalDiaryDao
+import io.aaps.copilot.data.local.entity.LocalDiaryEntryEntity
 import io.aaps.copilot.data.local.dao.AlertLocalDao
 import io.aaps.copilot.data.local.entity.AlertLocalStateEntity
 import io.aaps.copilot.data.local.entity.AlertLocalCycleEntity
@@ -92,6 +94,7 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
 
 @Database(
     entities = [
+        LocalDiaryEntryEntity::class,
         GlucoseSampleEntity::class,
         MealForecastJournalEntity::class,
         MealInputObservationEntity::class,
@@ -142,10 +145,11 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         AlertLocalStateEntity::class,
         AlertLocalCycleEntity::class
     ],
-    version = 34,
+    version = 35,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
+    abstract fun localDiaryDao(): LocalDiaryDao
     abstract fun mealInputObservationDao(): MealInputObservationDao
     abstract fun mealForecastJournalDao(): MealForecastJournalDao
     abstract fun alertLocalDao(): AlertLocalDao

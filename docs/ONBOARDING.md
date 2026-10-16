@@ -37,9 +37,9 @@ a late saved close cannot pop a different screen the user has since opened.
 
 | Configuration | Available now | Not established by setup |
 | --- | --- | --- |
-| Manual / no sensor | Stored blood checks, context notes, optional profile | Continuous alerts, glucose trend or continuous forecast |
+| Manual / no sensor | Stored blood checks, local meal/injection diary, context notes, optional profile | Continuous alerts, glucose trend or continuous forecast |
 | Sensor only | Existing source configuration and displayed imported readings | Independent background analysis without the current arming gate |
-| Injections or pump without AAPS | Blood checks/context and declared equipment | Standalone structured meal/injection diary, validated IOB/COB |
+| Injections or pump without AAPS | Blood checks/context, local meal/injection diary and declared equipment | Validated IOB/COB or independent background analysis |
 | AAPS | Existing source configuration and guarded treatment workflows | Connectivity, successful commands, prediction/alert readiness |
 
 Blood measurements remain BloodGlucoseCheck records; they are not inserted as
@@ -52,15 +52,25 @@ as a runtime gate. This checklist deliberately does not bypass those gates.
 1. Separate observation/ingestion lifecycle authorization from treatment writer
    authorization, auditing application, boot, broadcast, scheduler, local server
    and automation entry points. Preserve every transport-side treatment guard.
-2. Add a local-only structured meal/injection diary with time, units, provenance,
-   correction/deletion semantics and an explicit no-delivery contract. Do not
-   route such entries through AAPS command submission.
+2. Local structured meal/injection diary is implemented: drawer or setup Data
+   step, explicit gram/unit fields and time, correction/history, deleted records
+   and restore. It is independent of AAPS submission and therapy authorization.
+   These entries are not yet connected to forecasts, IOB/COB or AI history.
 3. Provide sparse/manual-data presentation and quality-aware advisory analytics;
    never infer continuous coverage or delivery confirmation from manual entries.
 4. Validate each actual hardware/source combination and background behavior on
    devices before advertising autonomous no-AAPS monitoring or forecasts.
 
-These are documented open capabilities, not hidden mock implementations.
+Independent runtime and analytical consumers remain open capabilities.
+
+## Diary Acceptance
+
+With therapy unarmed and no sources, open Diary from the drawer or setup. Record
+food and an already-taken injection, then reopen, correct, inspect revisions,
+delete and restore. Check comma decimal input, long names/notes, large text and
+process recreation with an unfinished draft. Nothing is sent to AAPS. Date/time
+uses the stored zone and actual event time, not the time of a later correction.
+The 1000-entry display bound is disclosed; older entries are retained, not erased.
 
 ## Verification
 

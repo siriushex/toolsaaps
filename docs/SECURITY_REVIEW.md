@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Local Manual Diary (2026-10-16)
+
+- Scope is local structured records, not therapy control. Store depends only on
+  Room and a clock; no remote gateway, queue, clinical consumer or AI export is
+  added. Synthetic tests inspect clinical/command tables for unexpected writes.
+- Parameterized reads and bounded values/strings; fixed-point decimal parsing
+  rejects scientific notation and ambiguous separators instead of coercing it.
+- Append-only revisions and transactional optimistic concurrency protect against
+  stale writes, duplicate retries and accidental resurrection. Draft identity
+  persists in Android saved instance state. No clinical payload is logged.
+- Delete is a reversible tombstone, explicitly disclosed; this is not secure
+  erasure. Existing application storage/backup boundaries remain applicable.
+- Local diary is not independently validated treatment evidence. It does not
+  establish delivery, correct IOB/COB, authorize forecasts or arm alerts/actions.
+
 ## First-Start Checklist (2026-10-16)
 
 - Bounded enum metadata and compare-and-set writes only; no new secret storage,

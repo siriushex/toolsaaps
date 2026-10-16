@@ -56,7 +56,6 @@
     <string name="pump_link_details">Проверьте помпу и предупреждения о связи в AAPS. Отсутствие связи не доказывает, что подача инсулина остановлена. Попытка переподключения ещё не означает восстановление. Этот монитор не перезапускает приложения, не меняет Bluetooth и не отправляет команды помпе.</string>
     <string name="app_name">AAPS Predictive Copilot</string>
     <string name="app_subtitle_predictive_analytics">Predictive Analytics</string>
-    <string name="status_connected_loop_active">Подключено • Loop Active</string>
 
     <string name="local_nightscout_channel_name">Локальный Nightscout Runtime</string>
     <string name="local_nightscout_channel_description">Поддерживает loopback endpoint Nightscout для интеграции с AAPS</string>

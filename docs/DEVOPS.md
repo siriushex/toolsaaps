@@ -1,5 +1,18 @@
 # DEVOPS
 
+## Local Diary / Room35
+
+MIGRATION_34_35 adds one independent journal table and its occurrence-time index.
+There is no backfill, clinical mutation, changed dependency or destructive
+fallback. Verify the file-backed34->35 path, older supported tails and restart.
+The previous schema34 APK cannot open35: use a reviewed forward fix, not an
+APK-only downgrade or stale therapy restore. Source publication is not approval
+to install, stop the app or copy medical data from the phone.
+
+Run LocalDiaryRepositoryTest, LocalDiaryMigrationTest, LocalDiaryViewModelTest,
+LocalDiaryScreenTest, SetupScreenTest and supported migration tests, then full
+Android unit/lint/Kotlin/debug-build. Physical-device acceptance remains separate.
+
 ## First-Start Checklist (2026-10-16)
 
 Additive setup-only preferences and native UI; no Room schema, dependency,

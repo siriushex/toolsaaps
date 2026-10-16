@@ -36,7 +36,8 @@ internal fun SetupScreen(
     onBloodCheck: () -> Unit,
     onReviewTherapy: () -> Unit,
     onNotifications: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onDiary: () -> Unit
 ) {
     val progress = state.progress
     val context = LocalContext.current
@@ -105,6 +106,7 @@ internal fun SetupScreen(
                         }
                         Text(stringResource(if (progress.insulinSource == SetupInsulinSource.AAPS)
                             R.string.setup_aaps_detail else R.string.setup_without_aaps_detail))
+                        SetupAction(R.string.diary_title, "setup_diary", !state.saving, onDiary)
                         if (progress.insulinSource == SetupInsulinSource.AAPS) {
                             SetupAction(R.string.setup_sources, "setup_aaps_sources", !state.saving) {
                                 onSettings(IssueDestination.DATA_SOURCES)

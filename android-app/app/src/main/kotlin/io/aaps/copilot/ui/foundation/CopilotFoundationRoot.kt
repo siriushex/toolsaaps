@@ -2,7 +2,6 @@ package io.aaps.copilot.ui.foundation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -95,6 +95,7 @@ import io.aaps.copilot.config.SetupStep
 import io.aaps.copilot.config.shouldAutoOpenSetup
 import io.aaps.copilot.ui.setup.SetupScreen
 import io.aaps.copilot.ui.setup.SetupViewModel
+import io.aaps.copilot.ui.diary.LocalDiaryRoute
 import io.aaps.copilot.ui.MainViewModel
 import io.aaps.copilot.ui.motion.OwlMenuButton
 import io.aaps.copilot.ui.motion.OwlGesture
@@ -142,9 +143,10 @@ private object Destinations {
     object Alerts : MoreDestination("alerts", R.string.nav_alerts, Icons.Default.Notifications)
     object Settings : MoreDestination("settings", R.string.menu_settings, Icons.Default.Tune)
     object Setup : RootDestination("setup")
+    object Diary : MoreDestination("diary", R.string.diary_title, Icons.Default.History)
 
     val bottom = listOf(Overview, Forecast, Analytics)
-    val more = listOf(Uam, Safety, Audit, AiAnalysis, Alerts, Settings)
+    val more = listOf(Diary, Uam, Safety, Audit, AiAnalysis, Alerts, Settings)
 }
 
 internal data class ClinicalAiSettingsRootCallbacks(
@@ -392,7 +394,7 @@ fun CopilotFoundationRoot(
                             }
                         }
                         val showHealthWarning = appHealth.staleData || appHealth.killSwitchEnabled
-                        if (currentRoute !in listOf(Destinations.Overview.route, Destinations.Setup.route) && showHealthWarning) {
+                        if (currentRoute !in listOf(Destinations.Overview.route, Destinations.Setup.route, Destinations.Diary.route) && showHealthWarning) {
                             AppHealthBanner(
                                 staleData = appHealth.staleData,
                                 killSwitchEnabled = appHealth.killSwitchEnabled,
@@ -435,9 +437,11 @@ fun CopilotFoundationRoot(
                                         navController.navigate(Destinations.Overview.route) { launchSingleTop = true }
                                     },
                                     onReviewTherapy = onReviewTherapy,
-                                    onNotifications = onSetupNotifications
+                                    onNotifications = onSetupNotifications,
+                                    onDiary = { navController.navigate(Destinations.Diary.route) { launchSingleTop = true } }
                                 )
                             }
+                            composable(Destinations.Diary.route) { LocalDiaryRoute() }
                             composable(Destinations.Overview.route) {
                                 OverviewScreen(
                                     state = overview,
@@ -1108,32 +1112,6 @@ private fun RootDrawerOverlay(
                             style = MaterialTheme.typography.bodySmall,
                             color = if (uiStyle == UiStyle.MIDNIGHT_GLASS) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (uiStyle == UiStyle.MIDNIGHT_GLASS) Color(0x1400E676) else MaterialTheme.colorScheme.secondaryContainer,
-                            border = BorderStroke(1.dp, if (uiStyle == UiStyle.MIDNIGHT_GLASS) Color(0x3300E676) else MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(
-                                            if (uiStyle == UiStyle.MIDNIGHT_GLASS) Color(0xFF34D399) else MaterialTheme.colorScheme.primary,
-                                            RoundedCornerShape(999.dp)
-                                        )
-                                        .width(8.dp)
-                                        .height(8.dp)
-                                )
-                                Text(
-                                    text = stringResource(id = R.string.status_connected_loop_active),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-                        }
                         Text(
                             text = stringResource(id = R.string.menu_more),
                             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
@@ -1221,6 +1199,7 @@ private fun screenTitle(route: String?): String {
         Destinations.AiAnalysis.route -> stringResource(id = R.string.menu_ai_analysis)
         Destinations.Alerts.route -> stringResource(id = R.string.nav_alerts)
         Destinations.Settings.route -> stringResource(id = R.string.menu_settings)
+        Destinations.Diary.route -> stringResource(id = R.string.diary_title)
         else -> stringResource(id = R.string.nav_overview)
     }
 }

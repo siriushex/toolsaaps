@@ -17,7 +17,7 @@
     <string name="setup_manual_detail">Blood measurements and context notes can be saved without a sensor. A single measurement is not continuous monitoring; it does not provide continuous alerts or a reliable forecast.</string>
     <string name="setup_sensor_detail">Choose an existing data source in settings. A selected sensor is not a connection: check that a recent glucose reading actually appears on Overview.</string>
     <string name="setup_aaps_detail">AAPS supplies treatment history. Sending meals, Eating Soon and targets requires a separate command permission; setup does not grant it.</string>
-    <string name="setup_without_aaps_detail">AAPS is not required to save blood measurements and context notes. Independent meal and injection logging and automatic calculations without AAPS are not yet supported. Missing IOB and COB must not be treated as zero.</string>
+    <string name="setup_without_aaps_detail">Blood measurements, meals, injections and notes can be saved locally without AAPS. Diary records do not calculate IOB/COB or authorize treatment. Missing IOB and COB must not be treated as zero.</string>
     <string name="setup_blood_check">Enter blood measurement</string>
     <string name="setup_sources">Open data sources</string>
     <string name="setup_profile_title">Your profile</string>

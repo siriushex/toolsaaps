@@ -1,5 +1,20 @@
 # PLAN
 
+## Local Manual Diary (2026-10-16)
+
+- [x] Inspect actual AAPS-only meal submission and independent-use limitations.
+- [x] Add separate revisioned Room35 records with exact decimal units, provenance,
+  optimistic concurrency, idempotent retries and recoverable deletion.
+- [x] Add native list/editor/history, saved draft identity, menu/setup navigation;
+  keep existing clinical inputs and AAPS Food workflow unchanged.
+- [x] 50 focused storage/migration/UI/no-delivery cases pass. Native Russian
+  320x640/large-text rasters inspected; adaptive buttons prevent broken words.
+- [x] Full Android quality:5955 cases/5949 pass/6 existing skips,0 failures.
+  Final two-label-only followup:19 UI cases and lint/build pass; no new lint
+  notices. Native rasters reviewed; final source manifest and APK v2 verified.
+- [ ] Reviewed publication and exact-head Verify including full Linux tests.
+- [ ] Observation runtime split and validated diary analytics remain separate.
+
 ## First-Start Setup (2026-10-16)
 
 - [x] Inspect actual manual, AAPS and startup paths; document capability gaps.
@@ -12,9 +27,10 @@
   Room commit/return cancellation regression repaired before the full rerun.
 - [x] Full Android quality:5931 cases,5925 passed/6 existing skips,0 failures;
   lint0 errors, unchanged379 notices; debug APK v2 signature verified.
-- [ ] Reviewed publication and exact-head CI.
-- [ ] Separate observation runtime authorization, standalone local treatment
-  diary, manual-data analytics and device acceptance. See ONBOARDING.md.
+- [x] Published 29130a85; push38899831185/PR38899838081 passed. Linux/local 5931
+  cases and outcomes matched exactly. No phone installation.
+- [ ] Separate observation runtime authorization, manual-data analytics and
+  device acceptance. Local diary is the next implemented stage above.
 
 ## Scoped Runtime Acknowledgement (2026-10-16)
 
