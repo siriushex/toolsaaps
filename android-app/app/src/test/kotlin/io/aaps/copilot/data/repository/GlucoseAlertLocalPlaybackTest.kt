@@ -14,6 +14,7 @@ import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import java.io.File
 import java.time.Duration
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Before
@@ -298,6 +299,197 @@ class GlucoseAlertLocalPlaybackTest {
         assertThat(result.await().played).isFalse()
         assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
     }
+
+    @Test fun queuedGlobalStopCannotKillANewerUrgentLegacyRequest() = runTest {
+        val first = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings) }
+        runCurrent(); prepare(); first.await()
+        controller.stop()
+        val next = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent(); prepare()
+        assertThat(next.await().played).isTrue()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertThat(shadowOf(players.last()).isReallyPlaying).isTrue()
+        assertThat(controller.playbackState.value.activeSlot).isEqualTo(GlucoseAlertAudioSlot.CRITICAL_PRIMARY)
+    }
+
+    @Test fun queuedPreviewStopCannotKillANewerPreviewRequest() = runTest {
+        val first = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings) }
+        runCurrent(); prepare(); first.await()
+        controller.stopPreview()
+        val next = async { controller.preview(GlucoseAlertAudioSlot.CRITICAL_PRIMARY, settings) }
+        runCurrent(); prepare()
+        assertThat(next.await().played).isTrue()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertThat(shadowOf(players.last()).isReallyPlaying).isTrue()
+    }
+
+    @Test fun lateLegacyCancellationCannotKillANewerLocalRequest() = lateLegacyCancellation(local = true)
+    @Test fun lateLegacyCancellationCannotKillANewerLegacyRequest() = lateLegacyCancellation(local = false)
+
+    private fun lateLegacyCancellation(local: Boolean) = runTest {
+        val first = async(StandardTestDispatcher(testScheduler)) { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent()
+        val next = async(UnconfinedTestDispatcher(testScheduler)) {
+            if (local) controller.playLocalAlarm(cycle, 0, settings) { allowed }
+            else controller.playForDecision(urgentDecision(), settings)
+        }
+        prepare()
+        assertThat(next.await().played).isTrue()
+        first.cancel(); runCurrent(); first.join()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertThat(shadowOf(players.last()).isReallyPlaying).isTrue()
+    }
+
+    @Test fun currentOffRevokesPreparingRequestBeforeQueuedCleanupRuns() = runTest {
+        val result = async { controller.playLocalAlarm(cycle, 0, settings) { allowed } }
+        runCurrent()
+        controller.stop()
+        prepare()
+        assertThat(result.await().played).isFalse()
+        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+    }
+
+    @Test fun duplicateLegacyPreparedCallbackCannotExtendTheClip() = runTest {
+        val result = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings.copy(softAlertAudioDurationMs = 2_000)) }
+        runCurrent(); prepare(); assertThat(result.await().played).isTrue()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        shadowOf(players.last()).invokePreparedListener()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+    }
+
+    @Test fun offInsidePostStartClockReadCannotConfirmTheRevokedRequest() = runTest {
+        controller = GlucoseAlertAudioController(context) {
+            if (players.lastOrNull()?.let { shadowOf(it).isReallyPlaying } == true) controller.stop()
+            now
+        }
+        val result = async { controller.playLocalAlarm(cycle, 0, settings) { allowed } }
+        runCurrent(); prepare()
+        assertThat(result.await().played).isFalse()
+        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+    }
+
+    @Test fun offInsideStopTimerCaptureCannotConfirmTheRevokedRequest() = runTest {
+        var playingReads = 0
+        controller = GlucoseAlertAudioController(context) {
+            if (players.lastOrNull()?.let { shadowOf(it).isReallyPlaying } == true && ++playingReads == 2) controller.stop()
+            now
+        }
+        val result = async { controller.playLocalAlarm(cycle, 0, settings) { allowed } }
+        runCurrent(); prepare()
+        assertThat(result.await().played).isFalse()
+        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+    }
+
+    @Test fun globalOffInsideLocalPreflightCannotCreateAPlayer() = runTest {
+        val result = controller.playLocalAlarm(cycle, 0, settings) {
+            controller.stop()
+            true
+        }
+        assertThat(result.played).isFalse(); assertThat(players).isEmpty()
+    }
+
+    @Test fun legacyCancellationBeforeMainDispatchCannotStopANewerRequest() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val old = async(start = CoroutineStart.UNDISPATCHED) { controller.playForDecision(urgentDecision(), settings) }
+        controller.stop()
+        old.cancel()
+        val next = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent(); prepare()
+        assertThat(next.await().played).isTrue()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertThat(shadowOf(players.last()).isReallyPlaying).isTrue()
+        old.join()
+    }
+
+    @Test fun stopFromPlaybackObserverCannotConfirmRevokedPlayback() = runTest {
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.playbackState.collect { state ->
+                if (state.activeSlot != null) controller.stop()
+            }
+        }
+        val result = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings) }
+        runCurrent()
+        prepare()
+        assertThat(result.await().played).isFalse()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+    }
+
+    @Test fun slowPlaybackObserverCannotMoveTheAbsoluteStopDeadline() = runTest {
+        now = 14_000
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.playbackState.collect { state ->
+                if (state.activeSlot != null) {
+                    now = 15_000
+                    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+                }
+            }
+        }
+        val result = async {
+            controller.playLocalAlarm(cycle, 0, settings.copy(softAlertAudioDurationMs = 5_000)) { allowed }
+        }
+        runCurrent()
+        prepare()
+        assertThat(result.await().played).isTrue()
+        now = 19_000
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+    }
+
+    @Test fun replacementFromPlaybackObserverKeepsItsPlayerAndDoesNotConfirmOldPlayback() = runTest {
+        var replacement: Deferred<GlucoseAlertAudioPlaybackResult>? = null
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.playbackState.collect { state ->
+                if (state.activeSlot != null && replacement == null) {
+                    replacement = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        controller.preview(GlucoseAlertAudioSlot.CRITICAL_PRIMARY, settings)
+                    }
+                }
+            }
+        }
+        val first = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings) }
+        runCurrent()
+        prepare()
+        assertThat(first.await().played).isFalse()
+        assertThat(players).hasSize(2)
+        assertThat(shadowOf(players.last()).state).isNotEqualTo(ShadowMediaPlayer.State.END)
+        prepare()
+        assertThat(requireNotNull(replacement).await().played).isTrue()
+    }
+
+    @Test fun replacementFromIdleObserverSurvivesTheOldPhysicalCleanup() = runTest {
+        val first = async { controller.preview(GlucoseAlertAudioSlot.SOFT, settings) }
+        runCurrent()
+        prepare()
+        assertThat(first.await().played).isTrue()
+        var replacement: Deferred<GlucoseAlertAudioPlaybackResult>? = null
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.playbackState.collect { state ->
+                if (state.activeSlot == null && replacement == null) {
+                    replacement = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        controller.preview(GlucoseAlertAudioSlot.CRITICAL_PRIMARY, settings)
+                    }
+                }
+            }
+        }
+        controller.stop()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertThat(players).hasSize(2)
+        assertThat(shadowOf(players.last()).state).isNotEqualTo(ShadowMediaPlayer.State.END)
+        prepare()
+        assertThat(requireNotNull(replacement).await().played).isTrue()
+    }
+
+    private fun urgentDecision() = GlucoseAlertDecision(
+        state = GlucoseAlertState.LOW_NOW, direction = GlucoseAlertDirection.LOW,
+        notifyKind = GlucoseAlertNotifyKind.LOW_NOW, nextState = GlucoseAlertRuntimeState(),
+        lowThreshold = 4.0, highThreshold = 10.0, urgentLowThreshold = 4.0,
+        pred5 = null, pred30 = null, pred60 = null, ciLow30 = null, ciHigh30 = null,
+        currentGlucoseMmol = 3.8, currentGlucoseFresh = true, predictedMinutesToLow = null,
+        trendDelta5Mmol = null, softActive = false, strongActive = true,
+        repeatSuppressedByTrend = false, disableReason = null
+    )
 
     private fun prepare() {
         shadowOf(players.last()).apply {

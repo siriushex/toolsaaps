@@ -2028,4 +2028,5 @@
     <string name="ai_focus_title_report">Clinical report</string>
     <string name="ai_focus_title_recommendations">Recommendations</string>
     <string name="ai_focus_title_archive">Reports</string>
+    <string name="ai_focus_latest_saved">Latest saved review</string>
 </resources>

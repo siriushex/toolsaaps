@@ -84,6 +84,7 @@ class AiFocusScreenTest {
             compose.onNodeWithTag("ai_focus_archive_search").performTextInput("missing")
             compose.onNodeWithTag("ai_focus_archive_item_0").assertDoesNotExist()
             compose.onNodeWithTag("ai_focus_archive_search").performTextClearance()
+            compose.onNodeWithTag("ai_focus_archive_search").performTextInput("observation")
             compose.onNodeWithTag("ai_focus_archive_item_0").performClick()
             compose.onNodeWithTag("ai_focus_archive_detail").assertIsDisplayed()
             compose.onNodeWithText("Sample observation").assertExists()
@@ -101,6 +102,105 @@ class AiFocusScreenTest {
             compose.onNodeWithTag("ai_focus_composer").assertTextContains("Unsent draft", substring = true)
                 .assertTextContains("Review the supplied context", substring = true)
             assertEquals(0, sends)
+        }
+    }
+
+    @Test fun reportsShowNewestSuccessfulSavedReviewWithoutOpeningADialog() {
+        val older = AiAnalysisHistoryItemUi(1_000, "2026-10-01", "scheduler", "SUCCESS",
+            "Older saved review", emptyList(), emptyList(), null)
+        val latest = older.copy(runTs = 3_000, date = "2026-10-03", summary = "Most recent completed observations")
+        val failed = older.copy(runTs = 4_000, date = "2026-10-04", status = "FAILED",
+            summary = "Unusable answer", errorMessage = "Synthetic failure")
+        screen(ready().copy(historyItems = listOf(older, failed, latest))) {
+            compose.onNodeWithTag("ai_focus_tab_archive").performClick()
+            compose.onNodeWithTag("ai_focus_latest_report").assertIsDisplayed()
+            compose.onNodeWithText("Most recent completed observations").assertIsDisplayed()
+            compose.onNodeWithTag("ai_focus_latest_open").performClick()
+            compose.onNodeWithTag("ai_focus_archive_detail").assertIsDisplayed()
+            compose.onNodeWithText("2026-10-03").assertExists()
+        }
+    }
+
+    @Test fun failedHistoryCannotBecomeClinicalAdvice() {
+        val failed = AiAnalysisHistoryItemUi(2_000, "2026-10-02", "scheduler", "FAILED",
+            "Failed review", emptyList(), listOf("Unvalidated failed advice"), "Synthetic failure")
+        val valid = failed.copy(runTs = 1_000, date = "2026-10-01", status = "SUCCESS",
+            summary = "Saved review", recommendations = listOf("Review the dated evidence"), errorMessage = null)
+        screen(ready().copy(historyItems = listOf(valid, failed))) {
+            compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+            compose.onNodeWithText("Unvalidated failed advice").assertDoesNotExist()
+            compose.onNodeWithText("Review the dated evidence").assertExists()
+        }
+    }
+
+    @Test fun discussingSavedAdviceRetainsDateAndSourceWithoutSending() {
+        val record = AiAnalysisHistoryItemUi(1_000, "2026-10-01", "scheduler", "SUCCESS",
+            "Saved review", emptyList(), listOf("Review the dated evidence"), null)
+        var draft = ""
+        var sends = 0
+        screenContent({ ready().copy(historyItems = listOf(record), chatDraft = draft) },
+            onDraft = { draft = it }, onSend = { sends++ }) {
+            compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+            compose.onNodeWithTag("ai_focus_history_discuss_0").performClick()
+            assertTrue(draft.contains("2026-10-01"))
+            assertTrue(draft.contains("scheduler"))
+            assertTrue(draft.contains("Review the dated evidence"))
+            assertEquals(0, sends)
+        }
+    }
+
+    @Test fun onlyFailedReportsKeepTheirErrorAndNeverShowASuccessPreview() {
+        val failed = AiAnalysisHistoryItemUi(2_000, "2026-10-02", "scheduler", "FAILED",
+            "Failed review", emptyList(), emptyList(), "Synthetic failure")
+        screen(ready().copy(historyItems = listOf(failed))) {
+            compose.onNodeWithTag("ai_focus_tab_archive").performClick()
+            compose.onNodeWithTag("ai_focus_latest_report").assertDoesNotExist()
+            compose.onNodeWithTag("ai_focus_archive_item_0").performClick()
+            compose.onNodeWithText("Synthetic failure").assertExists()
+        }
+    }
+
+    @Test fun inconsistentSuccessWithAnErrorCannotSupplyAdviceOrPreview() {
+        val inconsistent = AiAnalysisHistoryItemUi(2_000, "2026-10-02", "scheduler", "SUCCESS",
+            "Incomplete review", emptyList(), listOf("Unusable advice"), "Synthetic failure")
+        screen(ready().copy(historyItems = listOf(inconsistent))) {
+            compose.onNodeWithTag("ai_focus_tab_archive").performClick()
+            compose.onNodeWithTag("ai_focus_latest_report").assertDoesNotExist()
+            compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+            compose.onNodeWithText("Unusable advice").assertDoesNotExist()
+        }
+    }
+
+    @Test fun discussingAFailedReportDoesNotCopyPrivateDiagnosticsIntoChat() {
+        val record = AiAnalysisHistoryItemUi(2_000, "2026-10-02", "scheduler", "FAILED",
+            "Saved diagnostic summary", emptyList(), emptyList(), "Private diagnostic details")
+        var draft = ""
+        var sends = 0
+        screenContent({ ready().copy(historyItems = listOf(record), chatDraft = draft) },
+            onDraft = { draft = it }, onSend = { sends++ }) {
+            compose.onNodeWithTag("ai_focus_tab_archive").performClick()
+            compose.onNodeWithTag("ai_focus_archive_item_0").performClick()
+            compose.onNodeWithText("Private diagnostic details").assertExists()
+            compose.onNodeWithText("Discuss in chat").performClick()
+            assertTrue(draft.contains("2026-10-02 / scheduler / FAILED"))
+            assertTrue(draft.contains("Saved diagnostic summary"))
+            assertFalse(draft.contains("Private diagnostic details"))
+            assertEquals(0, sends)
+        }
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h480dp-port")
+    @Test fun latestReportHasNativePixelsAndAnAccessibleActionAtSmallWidth() {
+        val record = AiAnalysisHistoryItemUi(2_000, "2026-10-02", "scheduler", "SUCCESS",
+            "За выбранный период сохранены наблюдения для обсуждения.",
+            listOf("Контекст измерений требует проверки"), emptyList(), null)
+        screen(ready().copy(historyItems = listOf(record))) {
+            compose.onNodeWithTag("ai_focus_tab_archive").performClick()
+            compose.onNodeWithTag("ai_focus_latest_report").assertIsDisplayed()
+            val action = compose.onNodeWithTag("ai_focus_latest_open").fetchSemanticsNode().boundsInRoot
+            assertTrue(action.width >= 48f && action.height >= 48f)
+            assertTrue(action.right <= root.width && action.bottom <= root.height)
+            saveRaster("focus-ru-latest-report")
         }
     }
 

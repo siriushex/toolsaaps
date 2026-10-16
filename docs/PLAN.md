@@ -1,5 +1,26 @@
 # PLAN
 
+## Feature Completion And Audio Ownership (2026-10-16)
+
+- [x] Revalidate Focus implementation and actual source gaps; split exclusive
+  work tracks with dependencies and acceptance in
+  superpowers/plans/2026-10-16-feature-completion-tracks.md. Native subagents are
+  unavailable; no external agent or user-owned chat was started as a substitute.
+- [x] Reproduce actual audio queued-stop/preparation/duplicate callback races;
+  bind bounded identity ownership to legacy, preview and local playback.
+- [x] Three additional StateFlow observer REDs reproduced false confirmation
+  and replacement-player cleanup; corrected ownership and publication ordering.
+  Focused585 cases pass, including39 actual-controller and16 pure ownership cases.
+- [x] Newest saved Focus report/source-aware discussion/error filters pass24
+  native cases; raw diagnostic errors stay out of discussion drafts. Additional
+  timer RED fixed stop installation before active-state observers. Final full
+  Android unit/lint/Kotlin/debug-build passed:5857 cases/5851 pass/6 existing skips,
+  0 failures/errors; lint0 errors and unchanged379 notice keys. APK v2 verified.
+- [ ] Reviewed source publication and exact-head Verify.
+- [ ] Foreground/genuine AlarmClock/scoped acknowledgement/OFF reassessment,
+  daily dispatcher/schedule/read routes, evidence adapters and intended-device
+  acceptance remain separate track deliverables, not enabled by this stage.
+
 ## Reliable Alerts: Accepted Sources (2026-10-16)
 
 - [x] Shared checked feed with clock/boot/deadline, exact revocation and stable

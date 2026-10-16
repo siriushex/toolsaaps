@@ -1,3 +1,44 @@
+# Shared Audio Ownership And Focus Follow-through - 2026-10-16
+
+- Audited the expanded owner request against actual source. Approved Focus
+  variant1 already exists natively, not just in the prototype. Recorded eight
+  independently assignable tracks and dependencies; native subagent tools are
+  unavailable, so no agents/external runners/chats were secretly substituted.
+- Existing actual audio controller now binds legacy/preview/local requests to
+  bounded identity tickets. Immediate revocation plus exact Main cleanup fences
+  queued old Stop/cancellation; denied local admission preserves the native owner.
+  Duplicate prepared/seek callbacks cannot restart/extend playback. Post-clock
+  revocation cannot produce a false played confirmation.
+- Three additional observer-reentrancy REDs reproduced false confirmation and old
+  cleanup releasing a replacement. Old physical cleanup now finishes before idle
+  publication, and start confirmation rechecks ownership after observers. Focused
+  585 cases pass, including39 real-controller and16 ownership cases; fake media
+  only. Original failing logs/JUnit retained privately.
+- Further absolute-deadline RED reproduced a slow StateFlow observer delaying
+  stop installation. Install the owned stop timer before publishing active
+  state; keep the start-failure continuation until post-observer confirmation.
+- Focus saved-report REDs reproduced missing direct preview, failed advice and
+  loss of date/source in chat drafts. Added newest successful nonempty/error-free
+  preview, retained failed records for diagnostics and source-aware editable
+  discussion. All23 native Focus tests pass;320x480 Russian saved-report raster
+  inspected. First23-case run had two ambiguous fixture text matchers, corrected
+  without changing production behavior. A separate privacy RED reproduced raw
+  diagnostic errors entering discussion drafts; those errors now stay in details.
+  First complete quality passed5855 cases/6 existing skips and lint0 errors with
+  371 warnings/8 hints. Final full unit/lint/Kotlin/debug-build passed in13m02s:
+  5857 cases across511 suites,5851 passed/6 existing opt-in skips,0 failures/errors.
+  All40 actual-controller and24 Focus cases pass. Lint0 errors,371 warnings/8
+  hints with identical notice keys to the first full run. Debug v2 signature
+  verified;18 reviewed text paths have no credential-pattern hit. Exact-head
+  source publication/CI remains a separate gate.
+- Prior52b5e03 PR38861573382 and push38861567074 Verify jobs all passed; both
+  downloaded Android reports confirm5820 cases/0 failures/errors/6 existing skips.
+  These receipts do not verify the current uncommitted stage.
+- No phone disabling/install/backup/sound/volume, host/model/medical-data or therapy
+  operation. Full foreground/AlarmClock/acknowledgement, new daily dispatcher/
+  schedule/read routes, typed evidence domains and intended-phone acceptance
+  remain open. Legacy cloud history is not a completed new daily model run.
+
 # Accepted Alarm Source Producers - 2026-10-16
 
 - Continued the approved scheme in a bounded source stage. Shared checked feed

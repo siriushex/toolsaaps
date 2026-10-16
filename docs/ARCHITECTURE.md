@@ -1,5 +1,22 @@
 # ARCHITECTURE
 
+## Shared Audio Request Ownership
+
+The actual legacy, preview and admitted local paths use one bounded synchronous
+request fence. It tracks only requested/active identity tickets and an opaque
+revision. Legacy/preview reserve before source resolution/Main dispatch; local
+reservation follows admission/window/duplicate checks and requires the captured
+revision. Denied local preflight never replaces a valid urgent legacy request.
+
+Stop revokes synchronously, then exact captured tickets are cleaned up on Main.
+Stale cancellation, preview Stop and old-cycle callbacks cannot release a newer
+request. Physical cleanup finishes before idle StateFlow publication: observers
+may synchronously start a replacement. Start confirmation rechecks identity after
+observable callbacks and clock reads; duplicate prepared/seek callbacks cannot
+restart or extend a clip. URI fallback, urgent legacy floor, focus/gain and local
+absolute deadlines remain unchanged. This is transport fencing, not source
+authority, a persistent OFF policy or full foreground/AlarmClock ownership.
+
 ## Accepted Glucose And Diagnostic Alarm Sources
 
 The actual accepted forecast path forwards its CGM timestamp through the notifier
@@ -86,6 +103,10 @@ remain authoritative. PDF effects and the confirmed-send UI latch outlive tab
 composition, but do not persist consent across process death. Full diagnostics
 retain existing operational tools. No provider, server or therapy change follows
 from navigation. See AI_FOCUS_UI.md for data/rendering and acceptance boundaries.
+Reports show the newest supplied successful, nonempty, error-free saved review
+without a preliminary tap. Failed/inconsistent runs remain inspectable but do not
+supply advice. Discussion drafts retain source/date and selected report context;
+no draft is sent automatically. This does not connect the new daily result API.
 
 ## Contained Daily Review Worker
 

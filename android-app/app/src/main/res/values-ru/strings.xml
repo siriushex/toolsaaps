@@ -2028,4 +2028,5 @@
     <string name="ai_focus_title_report">Клинический отчёт</string>
     <string name="ai_focus_title_recommendations">Рекомендации</string>
     <string name="ai_focus_title_archive">Отчёты</string>
+    <string name="ai_focus_latest_saved">Последний сохранённый разбор</string>
 </resources>

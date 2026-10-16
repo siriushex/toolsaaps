@@ -23,6 +23,15 @@ global app navigation unchanged. Native Compose, not a WebView/mock provider.
 - Archive searches supplied records and opens the complete selected report,
   including observations, recommendations, source, time, status and any error.
   It does not invent a saved PDF or imply historical data is current.
+  The newest supplied successful, nonempty, error-free saved review is previewed
+  directly on opening Reports; search still covers all supplied records and
+  failed runs remain inspectable. Failed/inconsistent results cannot feed the
+  recommendations panel. A success string is not medical validation or proof
+  that the new protected daily-review service is active.
+  Discussing advice preserves its displayed source/date; discussing a report
+  preserves its summary, observations, recommendations and status in an editable
+  draft. Raw diagnostic errors remain in details and are not copied into chat.
+  Neither action uploads or sends that draft.
 
 Only the active panel is composed. SaveableStateHolder retains independent scroll
 and search/period state across tab visits; draft remains in the existing model.

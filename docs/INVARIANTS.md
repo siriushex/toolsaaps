@@ -870,6 +870,20 @@
 - No coordinator consumer, extra timer/poll, schema, arming, hardware or clinical
   change. Technical pump connectivity never proves physical attachment/delivery.
 
+## Audio Request Fencing
+
+- Request identity is transport state, never clinical admission or persistent OFF.
+  At most one requested and one physical active ticket exist; no generation map.
+- Global/preview/exact-cycle Stop revoke known matching tickets before queued
+  Main cleanup. Old cancellation/cleanup never releases a newer pending/active
+  request. A denied local preflight cannot preempt an urgent native owner.
+- Physical cleanup and volume/focus restoration precede idle-state publication.
+  Observable-state callbacks and clock reads may revoke/replace a request; reread
+  exact ownership before confirming start or installing its stop timer. Install
+  the stop timer before observable active-state callbacks can delay publication.
+- Prepared/seek callbacks are one-shot. Do not extend absolute local deadlines,
+  remove the native urgent floor or treat played=true as evidence of hearing.
+
 ## Inactive Alarm Runtime Ownership
 
 - Constructor/signal cannot auto-start or manufacture accepted authority.

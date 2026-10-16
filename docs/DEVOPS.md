@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Audio Ownership And Focus Follow-through (2026-10-16)
+
+Source/controller/UI changes only. No schema, dependency, manifest, service,
+permission/default, model request, host or phone operation. Exact request fencing
+is not the complete source/foreground/native INITIAL handoff and does not arm
+AlarmClock or enable acknowledgement. Saved legacy cloud history is not the new
+per-device daily results service; rendering it cannot activate a nightly model.
+Full Android quality and exact-head CI precede source-stage completion. Phone
+installation, locked-screen/sound/volume acceptance and daily server activation
+remain distinct authorized operations. See the feature-completion track plan.
+
 ## Accepted Alarm Source Stage (2026-10-16)
 
 Glucose and delivery-diagnostic accepted paths now expose checked source feeds;

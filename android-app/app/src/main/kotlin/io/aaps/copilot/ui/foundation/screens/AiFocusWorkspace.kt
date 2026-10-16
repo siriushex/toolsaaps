@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.design.Spacing
@@ -172,7 +174,7 @@ private fun RowScope.FocusMetric(label: String, value: Double?, unit: String, mo
 
 @Composable
 private fun AiFocusRecommendations(state: AiAnalysisUiState, discuss: (String) -> Unit) {
-    val latest = state.historyItems.maxByOrNull { it.runTs }
+    val latest = state.historyItems.filter { it.isUsableSavedReview() }.maxByOrNull { it.runTs }
     val clinical = state.clinicalReport.complete
     LazyColumn(Modifier.fillMaxSize(), state = rememberLazyListState(),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -216,7 +218,7 @@ private fun FocusRecommendation(line: String, source: String, tag: String, discu
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         Text(source, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(line, style = MaterialTheme.typography.bodyMedium)
-        TextButton({ discuss(line) }, Modifier.testTag(tag)) { Text(stringResource(R.string.ai_focus_discuss)) }
+        TextButton({ discuss("$source\n$line") }, Modifier.testTag(tag)) { Text(stringResource(R.string.ai_focus_discuss)) }
         HorizontalDivider()
     }
 }
@@ -225,11 +227,13 @@ private fun FocusRecommendation(line: String, source: String, tag: String, discu
 private fun AiFocusArchive(state: AiAnalysisUiState, discuss: (String) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var opened by remember { mutableStateOf<AiAnalysisHistoryItemUi?>(null) }
-    val matches = remember(state.historyItems, query) {
-        state.historyItems.filter {
+    val records = remember(state.historyItems) { state.historyItems.sortedByDescending { it.runTs } }
+    val latest = records.firstOrNull { it.isUsableSavedReview() }?.takeIf { query.isBlank() }
+    val matches = remember(records, query, latest) {
+        records.filter {
             query.isBlank() || (listOf(it.date, it.source, it.status, it.summary) + it.anomalies + it.recommendations)
                 .any { field -> field.contains(query, ignoreCase = true) }
-        }
+        }.filterNot { it == latest }
     }
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().testTag("ai_focus_archive_search"),
@@ -243,7 +247,28 @@ private fun AiFocusArchive(state: AiAnalysisUiState, discuss: (String) -> Unit) 
                 color = MaterialTheme.colorScheme.error)
         }
         LazyColumn(state = rememberLazyListState(), modifier = Modifier.weight(1f)) {
-            if (matches.isEmpty()) item { Text(stringResource(R.string.ai_analysis_no_history), Modifier.padding(Spacing.md)) }
+            latest?.let { record ->
+                item(key = "latest-saved-review") {
+                    Column(Modifier.fillMaxWidth().testTag("ai_focus_latest_report").padding(Spacing.md),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.ai_focus_latest_saved), Modifier.weight(1f).semantics { heading() },
+                                style = MaterialTheme.typography.titleSmall)
+                            AiFocusAction(Icons.AutoMirrored.Filled.ArrowForward,
+                                stringResource(R.string.ai_focus_report_details), { opened = record },
+                                Modifier.testTag("ai_focus_latest_open"))
+                        }
+                        Text("${record.date} / ${record.source}", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(record.summary, style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 4, overflow = TextOverflow.Ellipsis)
+                        HorizontalDivider()
+                    }
+                }
+            }
+            if (matches.isEmpty() && latest == null) item {
+                Text(stringResource(R.string.ai_analysis_no_history), Modifier.padding(Spacing.md))
+            }
             itemsIndexed(matches) { index, record ->
                 Column(Modifier.fillMaxWidth().clickable { opened = record }
                     .testTag("ai_focus_archive_item_$index").padding(Spacing.md),
@@ -272,9 +297,16 @@ private fun AiFocusArchive(state: AiAnalysisUiState, discuss: (String) -> Unit) 
                 }
             },
             confirmButton = { TextButton({ opened = null }) { Text(stringResource(R.string.action_close)) } },
-            dismissButton = { TextButton({ opened = null; discuss(record.summary) }) { Text(stringResource(R.string.ai_focus_discuss)) } })
+            dismissButton = { TextButton({
+                opened = null
+                discuss((listOf("${record.date} / ${record.source} / ${record.status}", record.summary) +
+                    record.anomalies + record.recommendations).joinToString("\n"))
+            }) { Text(stringResource(R.string.ai_focus_discuss)) } })
     }
 }
+
+private fun AiAnalysisHistoryItemUi.isUsableSavedReview() =
+    status == "SUCCESS" && errorMessage.isNullOrBlank() && summary.isNotBlank()
 
 private fun focusTimestamp(timestamp: Long) = runCatching {
     DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm").withZone(ZoneId.systemDefault())

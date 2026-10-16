@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Audio Ownership And Saved Review Presentation (2026-10-16)
+
+- Metadata-only synchronous fence contains no Room/platform callbacks or clinical
+  decisions. Exact identity release/revocation is bounded; stale async cleanup
+  cannot cancel a replacement. Main owns player/focus/volume and cleans old
+  physical state before notifying observers. Observer/clock revocation is tested.
+- No new alert thresholds, URI policy, urgent floor, telemetry payload, Android
+  permission/default, source authority, runtime arming or therapy action.
+- Saved-review previews/advice require supplied SUCCESS, nonempty summary and
+  no error. This is UI consistency only, not source freshness or clinical quality
+  admission. Failed records stay visible for diagnosis; no report is fabricated.
+- Discussion retains dated source context in a draft, never auto-sends. Raw
+  diagnostic errors stay in details, not chat drafts. A behavioral RED reproduced
+  accidental copying before its removal. No new
+  backend route, model prompt, medical-data transfer or credential is introduced.
+  New daily review read/schedule/provider and phone acceptance remain open.
+
 ## Accepted Alarm Sources (2026-10-16)
 
 - Scope is local typed provenance, not therapy/threshold/default/permission or
