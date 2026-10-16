@@ -83,9 +83,9 @@ taps do not extend the pause; worsening and deliberate global OFF retain existin
 policy semantics. Pending claims wait on the current source expiry rather than
 their originally selected expiry; expired acknowledgement authority is rejected
 before waiting. The runner also checks cancellation on each iteration, preventing
-old-deadline busy loops while Room is delayed. This command API does not add a
-visible notification action, production coordinator owner, foreground service
-or AlarmClock scheduling.
+old-deadline busy loops while Room is delayed. The command API cannot start a
+service. Its production notification/foreground/AlarmClock adapter is described
+under Foreground Glucose Alarm Runtime below.
 
 ## Immediate Alert Control Intent
 
@@ -122,7 +122,38 @@ callback with a checked source. Expired/missing observations yield no authority;
 an ordinary optional-read failure never cancels the native fallback. The source
 does not establish audio STARTED or DELIVERED, and duplicate INITIAL is not replayed.
 The existing coordinate path retains its post-delivery source publication order.
-No production notifier selects the new path yet.
+The production glucose notifier now selects the checked handoff through
+GlucoseAlarmDeliveryRouter. Only an already running, explicitly enabled owner
+can accept it. A decline before ownership retains the native path; timeout or
+unconfirmed cleanup cannot start a second player.
+
+## Foreground Glucose Alarm Runtime
+
+GlucoseAlarmService owns one LocalAlarmCoordinator and the existing audio player,
+not a second player or clinical engine. Its install-bound setting defaults off
+and is separate from therapy and observation consent. Foreground/boot startup
+rechecks that setting. The non-exported specialUse service exposes a silent
+ongoing status notification and current scoped acknowledgement. Technical pump
+link and delivery-diagnostic alerts still use their existing native paths.
+
+Only accepted glucose deliveries/evaluations offer authority. Source-flow
+emissions wake the coordinator but cannot themselves start playback. An actual
+native audio START can defer local playback until its configured repeat without
+inventing a local INITIAL or audio receipt. Native/local route selection retains
+the existing episode receipt and postcommit semantics.
+
+GlucoseAlarmWakeScheduler installs one genuine user-visible AlarmClock for the
+next current critical repeat or scoped pause expiry. No source-expiry, soft
+repeat or idle polling timer uses AlarmClock. Global OFF removes it. A private,
+non-backed-up token validates replacement, boot and wall/elapsed time; it carries
+no clinical data or playback authority. Process recreation requires a new
+accepted current source and never reconstructs one from the wake token.
+
+The foreground owner holds a bounded partial wake lock only around an admitted
+cycle and cleanup. Notifications, fixed-volume restrictions, exact-alarm access
+and scheduling failures are exposed as limited/unavailable, not successful
+delivery. No Android state proves that a person heard an alert. The Alerts screen
+contains explicit opt-in and links to system alarm/notification access.
 
 Local execution reserves an admitted transport lease before capturing its volume
 baseline. Reservation first finishes legacy player/boost cleanup. A replacement
@@ -183,10 +214,10 @@ revoke glucose/diagnostic/pump feeds before writes, even if persistence fails.
 
 AppContainer supplies wall/elapsed time and a process-lifetime boot count; a
 process cannot survive reboot. Unknown boot/time gives no source. No repeated
-Settings-provider read is added to the first-alert path. No production caller
-constructs/arms LocalAlarmCoordinator: single native audio remains unchanged.
-Full foreground/AlarmClock ownership, scoped ACK UI, OFF-expiry reassessment,
-current settings/capabilities and physical phone acceptance remain separate.
+Settings-provider read is added to the first-alert path. The explicit foreground
+glucose owner consumes these sources through the checked route described above;
+technical sources still use native notices. OFF expiry alone cannot revive a
+source. Physical phone acceptance remains a separate gate.
 
 ## Accepted Alert Initial Delivery
 
@@ -1056,14 +1087,14 @@ alone does not republish it; another validated monitor evaluation is required.
 This is serialized source invalidation, not pre-lock cancellation of an active
 alarm actor. Glucose/diagnostic source publication is described above; complete
 typed request/capability/opt-in admission and foreground ownership remain open.
-No production consumer constructs or arms LocalAlarmCoordinator.
+Technical sources are not yet offered to the production glucose-only owner.
 Service/channel/UI/device acceptance gates remain unchanged. Technical
 link status cannot establish that a pump is worn or insulin enters the body.
 
-## Inactive Serialized Alarm Coordinator
+## Serialized Alarm Coordinator
 
-LocalAlarmCoordinator has no production constructor call. Construction/signals
-cannot start it; an explicitly running future owner must supply current accepted
+LocalAlarmCoordinator is constructed only by GlucoseAlarmOwner. Construction/signals
+cannot start it; the explicitly enabled foreground owner must supply current accepted
 typed requests, saved settings, boot/clocks/OFF and platform capabilities. The
 coordinator never infers arming from journal, UI risk or notification history.
 
@@ -1116,18 +1147,18 @@ reads actual Room OFF and validates the exact same keys' state/claim/result
 payloads. Null means unavailable/corrupt storage. Preview never changes ordinals,
 due, ACK, progress or cycle journal rows, even after an expired deadline.
 
-Only the inactive coordinator uses preview. No production caller constructs it.
-It cancels and joins old execution before claiming a selected replacement; future
+Only the coordinator uses preview. Its production owner is glucose-only.
+It cancels and joins old execution before claiming a selected replacement; all
 source producers must publish current accepted authority/OFF invalidation immediately.
 The decision/timestamp cannot arm a service or authorize hardware. Notification,
-vibration/wake/native fallback, lifecycle, opt-in/ACK UI and device/night delivery
-remain separate gates; legacy and clinical behavior are unchanged.
+vibration/wake/native fallback and opt-in/ACK UI are connected as described above;
+physical device/night delivery remains a separate acceptance gate.
 
 ## Local Alarm Cycle Execution
 
 LocalAlarmCycleExecutor combines one newly committed Room claim, the existing
 volume lease and the existing guarded audio controller through LocalAlarmAudioPort.
-Only the inactive coordinator constructs it; no armed service does. Initial
+Only the coordinator constructs it, through the foreground owner. Initial
 claims use the saved repeat settings; actual strong-slot duration
 is resolved for the cycle ordinal. Only START is executable; an existing ACTIVE
 claim is never adopted or replayed.
@@ -1137,9 +1168,9 @@ mute lock/transaction. It reads actual Room OFF and validates state/result shape
 source evidence and elapsed bounds, without creating a later claim or persisting
 a pure-policy evaluation. The runner rechecks this gate between side effects.
 Injected current accepted evidence/OFF/capabilities guard synchronous hardware
-calls and callbacks as well. The future source owner must publish invalidation
-and cancel the exact running cycle immediately; this stage supplies no producer
-of that authority and cannot make Room and platform side effects atomic.
+calls and callbacks as well. The source owner publishes invalidation and cancels
+the exact running cycle immediately. Room and platform side effects still cannot
+be made atomic.
 
 One try-locked coroutine owns execution; competing calls return BUSY without
 claims. At most four absolute step windows are visited, with cancellable waits
@@ -1165,7 +1196,7 @@ existing UNCERTAIN recovery without replay. No automatic retry is introduced.
 
 ### Noncritical Backoff And Shared Cooldown (2026-10-16)
 
-The inactive local runtime doubles each unchanged noncritical cycle's previous
+The local runtime doubles each unchanged noncritical cycle's previous
 persisted interval up to30 minutes (default5/10/20/30). Derivation uses last-cycle
 start and next due, not lifetime ordinal, so no schema change is needed. Duplicate
 or fresh same-level evidence does not slide due/reset backoff. New generation/
@@ -1189,20 +1220,19 @@ active ownership, cancellation, recovery and cleanup rules are unchanged. The
 query bounds materialized rows, not total SQLite scan work; it adds no index or
 migration. Profile its retained-history cost before live activation.
 
-This is policy/executor support, not production source/foreground/AlarmClock/ACK
-integration. The existing native urgent fallback remains independent and the
-single-owner runtime is still not instantiated by production AppContainer.
+Production glucose source/foreground/AlarmClock/ACK integration is described above.
+The existing native urgent fallback remains available under the checked handoff;
+the dedicated foreground service owns the single local runtime.
 
-Operational multi-source ownership, fresh source/OFF publication, async playback
-failure/native fallback, visual notification, vibration/wake ownership, dedicated
-foreground lifecycle, explicit opt-in and real-device acceptance remain release
-gates. Default legacy behavior, settings/schema and clinical writers are unchanged.
+Operational technical multi-source ownership and real-device acceptance remain
+separate release gates. Default legacy behavior, schema and clinical writers are
+unchanged; only explicit alarm consent enables the new local runtime.
 
 ## Guarded Local Alarm Playback
 
 GlucoseAlertAudioController now exposes an explicit playLocalAlarm(cycle, step,
 settings, admitted) transport entry point and exact-cycle stopLocalAlarm.
-Its only caller is the inactive cycle executor. The future source owner must supply
+Its only execution path is the cycle executor through the foreground owner, which supplies
 the committed claim, fresh accepted source/OFF/capability checks and confirmed
 volume floor before playback; this API cannot authorize or arm an alarm.
 

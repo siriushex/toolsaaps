@@ -1,5 +1,26 @@
 # DEVOPS
 
+## Foreground Glucose Alarms
+
+The new local runtime is off by default; source publication does not enable it
+on any phone. Opt-in is in Alerts. It uses a private specialUse foreground
+service, SCHEDULE_EXACT_ALARM access and a bounded partial wake lock. Android can
+show each current critical repeat as its next system alarm. Denied access or
+foreground-start refusal is visible; no permission is auto-granted. Play Console
+special-use declaration/review remains a separate distribution requirement.
+
+Disable the new toggle to withdraw its owner and cancel its pending clock;
+existing native initial alerts remain available. Global OFF 30/60 still pauses
+all existing risk deliveries. No schema migration, therapy preference change or
+new server operation is part of this stage. Phone installation and deliberate
+audio/vibration/locked-screen/Doze acceptance require separate authorization.
+
+Platform references checked 2026-10-16:
+- https://developer.android.com/develop/background-work/services/fgs/service-types
+- https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
+- https://developer.android.com/about/versions/14/changes/schedule-exact-alarms
+- https://developer.android.com/reference/android/app/AlarmManager
+
 ## Local Observation Runtime
 
 Additive install-bound preference, default off. No Room schema, dependency,

@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         (application as? CopilotApp)?.container?.refreshInfusionSetAsync()
+        lifecycleScope.launch { io.aaps.copilot.service.GlucoseAlarmServiceController.reconcile(this@MainActivity) }
         enqueuePostDrawStartup()
     }
 

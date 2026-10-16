@@ -10,6 +10,7 @@ import io.aaps.copilot.domain.alerts.LocalAlarmEvidence
 import io.aaps.copilot.domain.alerts.LocalAlarmPolicy
 import io.aaps.copilot.domain.alerts.LocalAlarmRequest
 import io.aaps.copilot.domain.alerts.LocalAlarmTiming
+import io.aaps.copilot.domain.alerts.LocalAlarmWake
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -46,7 +47,10 @@ class LocalAlarmCoordinator(
     private val audio: LocalAlarmAudioPort,
     private val current: () -> LocalAlarmCoordinatorContext?,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
-    private val waitMs: suspend (Long) -> Unit = { delay(it) }
+    private val waitMs: suspend (Long) -> Unit = { delay(it) },
+    private val onClaimed: (LocalAlarmCycle) -> Unit = {},
+    private val onFinished: (LocalAlarmExecutionResult) -> Unit = {},
+    private val onWakeChanged: (LocalAlarmWake?) -> Unit = {}
 ) {
     private class Running(val selected: LocalAlarmEvidence, val settings: AppSettings, val startedAt: Long) {
         lateinit var job: Job
@@ -109,9 +113,14 @@ class LocalAlarmCoordinator(
                             running.cycle = cycle
                             pendingAcknowledgement?.takeIf { matches(it.action, cycle) }?.let { revoke(running) }
                         }
+                        onClaimed(cycle)
                         wakes.trySend(Unit)
                     },
-                    onFinished = { result -> execution?.let { it.result = result }; wakes.trySend(Unit) })
+                    onFinished = { result ->
+                        execution?.let { it.result = result }
+                        onFinished(result)
+                        wakes.trySend(Unit)
+                    })
                 var noClaimSnapshot: LocalAlarmCoordinatorContext? = null
                 try {
                 while (true) {
@@ -146,6 +155,7 @@ class LocalAlarmCoordinator(
                     }
                     val captured = snapshot()
                     if (captured == null || !available(captured)) {
+                        onWakeChanged(null)
                         if (!stopOwned()) return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
                         awaitWake(this, null, captured?.environment?.nowElapsedMs)
                         continue
@@ -166,6 +176,7 @@ class LocalAlarmCoordinator(
                     val after = snapshot()
                     if (!sameSnapshot(captured, after)) continue
                     if (pendingAcknowledgement != null) continue
+                    onWakeChanged(decision.criticalWake)
                     if (decision.status == LocalAlarmArbitrationStatus.INVALID_SNAPSHOT) {
                         return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
                     }
@@ -225,6 +236,7 @@ class LocalAlarmCoordinator(
                     lastExit = exit
                     if (exit == LocalAlarmCoordinatorExit.UNAVAILABLE) store.runtimeUnavailable.set(true)
                     store.runtimeMutex.unlock()
+                    onWakeChanged(null)
                 }
             }
         }

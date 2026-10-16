@@ -12,7 +12,18 @@ data class LocalAlarmArbitrationDecision(
     val retainedCycle: LocalAlarmCycle? = null,
     val cancelCycle: LocalAlarmCycle? = null,
     val interruptedCycles: List<LocalAlarmCycle> = emptyList(),
-    val nextWakeElapsedMs: Long? = null
+    val nextWakeElapsedMs: Long? = null,
+    val criticalWake: LocalAlarmWake? = null
+)
+
+data class LocalAlarmWake(
+    val key: LocalAlarmKey,
+    val generation: Long,
+    val ordinal: Long,
+    val level: LocalAlarmLevel,
+    val bootCount: Int,
+    val dueElapsedMs: Long,
+    val validUntilElapsedMs: Long
 )
 
 /** Read-only selection. A replacement may start only after exact old cleanup. */
@@ -49,10 +60,12 @@ object LocalAlarmArbitrationPolicy {
         val selected = ready?.request?.evidence.takeUnless { keep }
         val wake = candidates.flatMap { deadlines(it, environment) }
             .filter { it > environment.nowElapsedMs }.minOrNull()
+        val criticalWake = candidates.mapNotNull { criticalWake(it, environment) }
+            .minByOrNull { it.dueElapsedMs }
         return LocalAlarmArbitrationDecision(
             if (keep || selected != null) LocalAlarmArbitrationStatus.READY else LocalAlarmArbitrationStatus.IDLE,
             selected = selected, retainedCycle = retained.takeIf { keep },
-            cancelCycle = owner.takeUnless { keep }, nextWakeElapsedMs = wake)
+            cancelCycle = owner.takeUnless { keep }, nextWakeElapsedMs = wake, criticalWake = criticalWake)
     }
 
     internal fun boundedKeys(requests: List<LocalAlarmRequest>, owner: LocalAlarmCycle?): Set<LocalAlarmKey>? {
@@ -96,5 +109,20 @@ object LocalAlarmArbitrationPolicy {
         if (wallDeadline <= environment.nowWallMs) return null
         val delay = wallDeadline - environment.nowWallMs
         return if (environment.nowElapsedMs > Long.MAX_VALUE - delay) null else environment.nowElapsedMs + delay
+    }
+
+    private fun criticalWake(candidate: Candidate, environment: LocalAlarmEnvironment): LocalAlarmWake? {
+        val evidence = candidate.request.evidence
+        val state = candidate.evaluation.state ?: return null
+        if (!evidence.level.strong || state.ordinal <= 0L) return null
+        val due = when (candidate.evaluation.admission) {
+            LocalAlarmAdmission.ACTIVE, LocalAlarmAdmission.WAITING -> state.nextDueElapsedMs
+            LocalAlarmAdmission.ACKNOWLEDGED -> state.pause?.untilWallMs?.let { elapsed(it, environment) }
+            else -> null
+        } ?: return null
+        // Source expiry is a local invalidation deadline, never an alarm-clock event.
+        if (due <= environment.nowElapsedMs || due >= evidence.validUntilElapsedMs) return null
+        return LocalAlarmWake(evidence.key, evidence.generation, state.ordinal, evidence.level,
+            evidence.bootCount, due, evidence.validUntilElapsedMs)
     }
 }

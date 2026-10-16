@@ -8,6 +8,41 @@ import org.junit.Test
 
 class GlucoseAlertConfirmedDeliveryTest {
 
+    @Test fun acceptedLocalStartDoesNotAlsoStartNativeChannels() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(true, { true }, { error("duplicate vibration") },
+            startLocal = { LocalGlucoseInitialResult(GlucoseAlertAudioPlaybackResult(played = true), true) },
+            startAudio = { error("duplicate audio") })
+        assertThat(result.audioPlayed).isTrue()
+        assertThat(result.vibrationSucceeded).isTrue()
+    }
+
+    @Test fun explicitLocalDeclinePreservesNativeFallback() = runTest {
+        var audio = 0; var vibration = 0
+        val result = deliverConfirmedGlucoseAlertChannels(true, { true }, { vibration++; true },
+            startLocal = { null }, startAudio = { audio++; GlucoseAlertAudioPlaybackResult(played = true) })
+        assertThat(result.audioPlayed).isTrue(); assertThat(audio).isEqualTo(1); assertThat(vibration).isEqualTo(1)
+    }
+
+    @Test fun unconfirmedLocalTimeoutNeverStartsDuplicateNativeChannels() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(true, { true }, { error("unsafe fallback") },
+            audioStartTimeoutMs = 100, startLocal = { awaitCancellation() }, startAudio = { error("unsafe fallback") })
+        assertThat(result.audioPlayed).isFalse()
+        assertThat(result.audioFailureReason).isEqualTo("local_start_timeout")
+    }
+
+    @Test fun failedLocalOwnershipNeverStartsDuplicateNativeChannels() = runTest {
+        val result = deliverConfirmedGlucoseAlertChannels(true, { true }, { error("unsafe fallback") },
+            startLocal = { error("unknown owner") }, startAudio = { error("unsafe fallback") })
+        assertThat(result.audioFailureReason).isEqualTo("local_start_failed")
+        assertThat(result.audioPlayed).isFalse()
+    }
+
+    @Test fun localCancellationPropagatesWithoutNativeFallback() = runTest {
+        val error = runCatching { deliverConfirmedGlucoseAlertChannels(true, { true }, { error("unsafe fallback") },
+            startLocal = { throw CancellationException("withdrawn") }, startAudio = { error("unsafe fallback") }) }.exceptionOrNull()
+        assertThat(error).isInstanceOf(CancellationException::class.java)
+    }
+
     @Test fun postedNotificationDoesNotHideExplicitAudioFailure() = runTest {
         val result = deliverConfirmedGlucoseAlertChannels(
             notificationPermissionGranted = true, postNotification = { true }, invokeVibration = { true },

@@ -62,6 +62,18 @@
 
 ## Scoped Runtime Acknowledgement
 
+- The production notification binds its immutable action to an ephemeral owner
+  session plus exact source/generation/ordinal/level. The non-exported receiver
+  may acknowledge an existing owner only; it never starts one or grants consent.
+- New alarm consent is installation-bound, defaults off and is not writable by
+  generic clinical settings updates. It cannot enable therapy or observation.
+- System wake tokens are not medical evidence. Reboot, clock drift, replacement,
+  expiry, OFF and lost source authority prevent old-event replay. There is at
+  most one critical AlarmClock, with no catch-up burst.
+- An unknown local INITIAL timeout is not a decline. Native fallback requires
+  either no admitted owner or completed confirmed cleanup. Notification, audio
+  and vibration outcomes remain separate, and hearing is never inferred.
+
 - Only the current explicitly running coordinator accepts acknowledgement; the
   command cannot start an owner or replace user opt-in. One pending intent is
   bounded and tied to exact source/generation/ordinal/level and current boot.
@@ -157,8 +169,9 @@
   Deferral does not consume ordinal, fake a result or acknowledge any source.
 - Exact ACK and global OFF remain effective. Neither history refresh, higher
   risk nor model output can bypass deliberate global OFF. No catch-up bursts.
-- Source authority, foreground/wake/ACK UI integration and physical acceptance
-  are not supplied by this inactive policy stage. No phone or therapy change.
+- Policy alone cannot supply source authority or foreground/wake/ACK admission.
+  The explicit glucose adapter supplies those gates; physical phone acceptance
+  remains separate. No clinical threshold or therapy change is authorized.
 
 ## Accepted Alert Delivery Isolation
 
@@ -1004,10 +1017,11 @@
 - Prepared/seek callbacks are one-shot. Do not extend absolute local deadlines,
   remove the native urgent floor or treat played=true as evidence of hearing.
 
-## Inactive Alarm Runtime Ownership
+## Alarm Runtime Ownership
 
 - Constructor/signal cannot auto-start or manufacture accepted authority.
-  No production source/service constructs the coordinator; opt-in stays absent.
+  Only the explicitly enabled foreground glucose owner constructs the coordinator;
+  construction, journal recovery and a system wake cannot grant opt-in.
 - One database-instance lifetime owner, distinct from the global OFF lock.
   Revocation/stop must not wait for Room before cleanup starts on Main.
 - A committed in-flight claim belongs only to its actual execution job, not a
@@ -1079,10 +1093,10 @@
   remains on denial, media error, timeout or a clock jump at timer capture.
 - New mode shares the existing single player and uses alarm attributes/gains;
   it does not alter stream volume, ringer/DND/route or clinical calculations.
-- Future coordinator admission must include the confirmed urgent floor and
-  call stop on current OFF/source/capability loss while playing. No default
-  true authority, polling, service or runtime activation is added. The only new
-  audio API consumer is the inactive cycle executor, not a production source.
+- Coordinator admission includes the confirmed urgent floor and calls stop on
+  current OFF/source/capability loss while playing. No default true authority or
+  automatic opt-in is allowed. Only the cycle executor through the foreground
+  owner consumes the local audio API.
 - Default legacy alerts remain. Platform URI/timer behavior is not a Doze
   delivery guarantee; foreground/wake and real-device acceptance remain.
 

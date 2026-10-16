@@ -1,3 +1,39 @@
+# Foreground Glucose Alarm Integration - 2026-10-16
+
+- Connected checked glucose INITIAL routing, explicit install-bound alarm opt-in
+  and a private specialUse foreground owner using the existing single player.
+- Added scoped notification acknowledgement and one critical system AlarmClock;
+  private nonclinical tokens reject replacement, expiry, clock drift and reboot.
+  Global OFF cancels scheduling; source emissions alone never authorize sound.
+- Fixed ambiguous handoff timeout: only an explicit decline or confirmed owner
+  cleanup may fall back to native channels. Actual native START defers local
+  repetition without inventing a local audio receipt.
+- Added Alerts controls and honest limited/unavailable state. Technical alert
+  notifiers, clinical thresholds, therapy and independent observation limits are
+  unchanged. This is source integration, not a phone activation or sound test.
+- Initial production Kotlin compilation passed. Focused test compilation found
+  two test API/type issues, corrected before rerun. All355 focused cases passed,
+  and the Russian320x640 enlarged-text native raster was inspected. A final
+  accessibility label and defensive service-error cleanup passed the final
+  focused run:414 cases in27 suites,0 failures/errors/skips.
+- The first full run exposed an obsolete no-production-owner assertion. Two
+  architecture guards now allow exactly the explicit foreground owner while
+  retaining single-player and no-therapy-writer boundaries. Full runs were
+  intentionally stopped to include those guards, removal of a disabled-level
+  action, and startup consent-revocation cleanup; they are not successful checks.
+- Full attempt3 ran6011 cases and found one UI-test isolation failure: the
+  isolated variant had not removed the new service, receiver and permissions.
+  Its manifest now excludes all four without weakening the architecture test.
+  Final full quality includes the actual UI-test manifest merge.
+- Final full Android unit/lint/Kotlin/debug build passed in24m31s:526 suites,
+  6011 cases,6005 passed,6 unchanged private-input skips,0 failures/errors.
+  All1260 Android source fingerprints remained unchanged. APK v2 verified.
+- Lint:0 errors,377 warnings/8 hints. Six new advisory notices were reviewed:
+  two suggest asynchronous preferences and four suggest KTX convenience calls.
+  Explicit synchronous token persistence/invalidation is retained deliberately;
+  these notices are not new permission or API errors. Source publication and
+  exact-head CI are the remaining post-commit gate, tracked in PR7.
+
 # Independent Local Observation - 2026-10-16
 
 - Added explicit install-bound background observation independent of therapy

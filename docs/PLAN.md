@@ -1,5 +1,19 @@
 # PLAN
 
+## Foreground Glucose Alarm Integration (2026-10-16)
+
+- [x] Connect explicit checked INITIAL routing and existing single audio owner.
+- [x] Add installation-bound opt-in, private foreground lifetime and scoped
+  notification acknowledgement; preserve native technical alerts.
+- [x] Add one genuine critical AlarmClock and nonclinical expiring wake token.
+- [x] Final414 synthetic native fallback, cancellation, OFF, stale action,
+  permission, clock/reboot, cleanup and large-text UI checks;0 failures.
+- [x] Full Android quality:6011 cases/6005 pass/6 unchanged skips,0 failures;
+  lint0 errors,377 warnings/8 hints (six reviewed new style notices); APK v2
+  and unchanged source fingerprints verified.
+- [ ] Reviewed source publication and exact-head CI (post-commit result in PR7).
+- [ ] Separately authorized physical device/sound/Doze acceptance.
+
 ## Independent Local Observation (2026-10-16)
 
 - [x] Audit foreground/boot/broadcast/scheduler/automation/transport boundaries.

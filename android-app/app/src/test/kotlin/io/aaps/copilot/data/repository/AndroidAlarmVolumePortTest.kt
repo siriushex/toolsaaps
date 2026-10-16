@@ -41,18 +41,23 @@ class AndroidAlarmVolumePortTest {
             "MediaPlayer", "Vibrator", "WakeLock").forEach { assertThat(source).doesNotContain(it) }
     }
 
-    @Test fun volumeHelperOnlyHasInactiveExecutorAndNoRuntimeArming() {
+    @Test fun volumeHelperOnlyUsesScopedExecutorAndExplicitForegroundOwner() {
         val root = File("src/main/kotlin/io/aaps/copilot")
         val owners = setOf("LocalAlarmVolumeLease.kt", "AndroidAlarmVolumePort.kt")
         val consumers = root.walkTopDown().filter { it.extension == "kt" && it.name !in owners }
             .filter { it.readText().contains(Regex("LocalAlarmVolumeLease|AndroidAlarmVolumePort")) }
             .map { it.relativeTo(root).path }.toList()
-        assertThat(consumers).containsExactly("data/repository/LocalAlarmCycleExecutor.kt")
+        assertThat(consumers).containsExactly("data/repository/LocalAlarmCycleExecutor.kt", "service/GlucoseAlarmService.kt")
         val runners = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCycleExecutor.kt" }
             .filter { it.readText().contains(Regex("LocalAlarmCycleExecutor\\s*\\(")) }.map { it.relativeTo(root).path }.toList()
         assertThat(runners).containsExactly("data/repository/LocalAlarmCoordinator.kt")
         val coordinators = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCoordinator.kt" }
-            .filter { it.readText().contains(Regex("LocalAlarmCoordinator\\s*\\(")) }.toList()
-        assertThat(coordinators).isEmpty()
+            .filter { it.readText().contains(Regex("LocalAlarmCoordinator\\s*\\(")) }.map { it.relativeTo(root).path }.toList()
+        assertThat(coordinators).containsExactly("data/repository/GlucoseAlarmOwner.kt")
+        val services = root.walkTopDown().filter { it.extension == "kt" && it.name != "GlucoseAlarmOwner.kt" }
+            .filter { it.readText().contains(Regex("GlucoseAlarmOwner\\s*\\(")) }.map { it.relativeTo(root).path }.toList()
+        assertThat(services).containsExactly("service/GlucoseAlarmService.kt")
+        assertThat(File(root, "service/GlucoseAlarmService.kt").readText())
+            .contains("settingsStore.settings.first().localAlarmRuntimeEnabled")
     }
 }

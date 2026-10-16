@@ -219,6 +219,8 @@ class AppSettingsStore internal constructor(
             ),
             localObservationEnabled = currentInstallId != null &&
                 prefs[KEY_LOCAL_OBSERVATION_INSTALL_ID] == currentInstallId,
+            localAlarmRuntimeEnabled = currentInstallId != null &&
+                prefs[KEY_LOCAL_ALARM_INSTALL_ID] == currentInstallId,
             powerSaveUntilMs = prefs[KEY_POWER_SAVE_UNTIL_MS] ?: 0L,
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
@@ -903,6 +905,18 @@ class AppSettingsStore internal constructor(
         return saved
     }
 
+    suspend fun setLocalAlarmRuntimeEnabled(expected: Boolean, enabled: Boolean): Boolean {
+        val installId = currentInstallId ?: return false
+        var saved = false
+        dataStore.edit { prefs ->
+            if ((prefs[KEY_LOCAL_ALARM_INSTALL_ID] == installId) != expected) return@edit
+            if (enabled) prefs[KEY_LOCAL_ALARM_INSTALL_ID] = installId
+            else prefs.remove(KEY_LOCAL_ALARM_INSTALL_ID)
+            saved = true
+        }
+        return saved
+    }
+
     suspend fun setTherapyActionsArmed(armed: Boolean): Boolean {
         return TherapyActionTransportGate.updateState(requestedArmed = armed) {
             val installId = currentInstallId ?: return@updateState false
@@ -1575,6 +1589,7 @@ class AppSettingsStore internal constructor(
             stringPreferencesKey("local_observation_install_id_v1")
         private val KEY_LOCAL_OBSERVATION_DECIDED_INSTALL_ID =
             stringPreferencesKey("local_observation_decided_install_id_v1")
+        private val KEY_LOCAL_ALARM_INSTALL_ID = stringPreferencesKey("local_alarm_install_id_v1")
         private val KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID =
             stringPreferencesKey("therapy_action_bootstrap_evaluated_install_id_v1")
         private val KEY_POWER_SAVE_UNTIL_MS = longPreferencesKey("power_save_until_ms")
@@ -2093,6 +2108,7 @@ data class AppSettings(
     val exportFolderUri: String?,
     val therapyActionsArmed: Boolean = false,
     val localObservationEnabled: Boolean = false,
+    val localAlarmRuntimeEnabled: Boolean = false,
     val energyProfile: EnergyProfileSettings = EnergyProfileSettings(),
     val mealPortions: MealPortionSettings = MealPortionSettings()
 )

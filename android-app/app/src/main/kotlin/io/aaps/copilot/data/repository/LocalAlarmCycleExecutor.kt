@@ -33,6 +33,8 @@ interface LocalAlarmAudioPort {
     suspend fun playLocalAlarm(cycle: LocalAlarmCycle, stepIndex: Int, settings: AppSettings,
         admitted: (LocalAlarmCycle) -> Boolean): GlucoseAlertAudioPlaybackResult
     fun stopLocalAlarm(cycle: LocalAlarmCycle)
+    fun notificationResult(cycle: LocalAlarmCycle): LocalAlarmNotificationResult = LocalAlarmNotificationResult.NOT_REQUESTED
+    fun vibrationResult(cycle: LocalAlarmCycle): LocalAlarmVibrationResult = LocalAlarmVibrationResult.NOT_REQUESTED
 }
 
 // The source owner must publish current accepted authority/OFF/capabilities and
@@ -218,12 +220,13 @@ class LocalAlarmCycleExecutor(
             if (!refresh(session)) return LocalAlarmExecutionStatus.DENIED
             val captured = context() ?: return LocalAlarmExecutionStatus.DENIED
             val at = captured.environment.nowElapsedMs
-            val result = LocalAlarmStepResult(index, at, LocalAlarmNotificationResult.NOT_REQUESTED,
+            val result = LocalAlarmStepResult(index, at,
+                if (step.startsClip) audio.notificationResult(cycle) else LocalAlarmNotificationResult.NOT_REQUESTED,
                 when (playback?.played) {
                     true -> LocalAlarmAudioResult.STARTED
                     false -> LocalAlarmAudioResult.FAILED
                     null -> LocalAlarmAudioResult.NOT_REQUESTED
-                }, LocalAlarmVibrationResult.NOT_REQUESTED, step.targetPercent)
+                }, if (step.startsClip) audio.vibrationResult(cycle) else LocalAlarmVibrationResult.NOT_REQUESTED, step.targetPercent)
             if (!store.recordStep(captured.evidence, cycle, result, session.timing)) {
                 return LocalAlarmExecutionStatus.JOURNAL_UNAVAILABLE
             }

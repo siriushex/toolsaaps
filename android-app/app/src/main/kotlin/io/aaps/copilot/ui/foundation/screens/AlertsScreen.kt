@@ -38,12 +38,14 @@ import java.util.Date
 @Composable
 fun AlertsScreen(
     state: AlertsUiState,
-    onSelectEpisode: (String) -> Unit
+    onSelectEpisode: (String) -> Unit,
+    runtimeControls: @Composable () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("alertsScreen"),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
+        item { runtimeControls() }
         item { MuteStatus(state.mutedUntilTs) }
         state.active?.let { active ->
             item {

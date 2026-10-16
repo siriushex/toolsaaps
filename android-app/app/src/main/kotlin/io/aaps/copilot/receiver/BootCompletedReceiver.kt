@@ -31,6 +31,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
                         val settings = app.container.settingsStore.settings.first()
                         PowerSaveRuntimeState.update(settings)
                         TherapyActionRuntimeState.update(settings)
+                        io.aaps.copilot.service.GlucoseAlarmServiceController.reconcile(context.applicationContext)
                         if (!settings.localObservationRuntimeAllowed()) {
                             WorkScheduler.cancelRuntimeWork(context.applicationContext)
                             app.container.stopRuntimeControllers(

@@ -593,7 +593,8 @@ fun CopilotFoundationRoot(
                                 LaunchedEffect(Unit) { viewModel.refreshAlertsWindow() }
                                 AlertsScreen(
                                     state = alerts,
-                                    onSelectEpisode = viewModel::selectAlertEpisode
+                                    onSelectEpisode = viewModel::selectAlertEpisode,
+                                    runtimeControls = { io.aaps.copilot.ui.foundation.screens.AlarmRuntimeControls() }
                                 )
                             }
                             composable(Destinations.Analytics.route) {

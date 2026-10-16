@@ -405,12 +405,12 @@ class GlucoseAlertLocalPlaybackTest {
         assertThat(controller.playbackState.value.isPreview).isTrue()
     }
 
-    @Test fun newEntryPointOnlyHasInactiveExecutorAndNoTherapyNetworkWriter() {
+    @Test fun localEntryPointOnlyHasScopedOwnerAndNoTherapyNetworkWriter() {
         val root = File("src/main/kotlin/io/aaps/copilot")
         val consumers = root.walkTopDown().filter { it.extension == "kt" && it.name != "GlucoseAlertAudioController.kt" }
             .filter { it.readText().contains(Regex("playLocalAlarm\\s*\\(|stopLocalAlarm\\s*\\(")) }
             .map { it.relativeTo(root).path }.toList()
-        assertThat(consumers).containsExactly("data/repository/LocalAlarmCycleExecutor.kt")
+        assertThat(consumers).containsExactly("data/repository/LocalAlarmCycleExecutor.kt", "data/repository/GlucoseAlarmOwner.kt")
         val executor = File(root, "data/repository/LocalAlarmCycleExecutor.kt").readText()
         listOf("AutomationRepository", "ForecastRepository", "Telegram", "MediaPlayer(")
             .forEach { assertThat(executor).doesNotContain(it) }
@@ -418,8 +418,11 @@ class GlucoseAlertLocalPlaybackTest {
             .filter { it.readText().contains(Regex("LocalAlarmCycleExecutor\\s*\\(")) }.map { it.relativeTo(root).path }.toList()
         assertThat(runners).containsExactly("data/repository/LocalAlarmCoordinator.kt")
         val coordinators = root.walkTopDown().filter { it.extension == "kt" && it.name != "LocalAlarmCoordinator.kt" }
-            .filter { it.readText().contains(Regex("LocalAlarmCoordinator\\s*\\(")) }.toList()
-        assertThat(coordinators).isEmpty()
+            .filter { it.readText().contains(Regex("LocalAlarmCoordinator\\s*\\(")) }.map { it.relativeTo(root).path }.toList()
+        assertThat(coordinators).containsExactly("data/repository/GlucoseAlarmOwner.kt")
+        val owner = File(root, "data/repository/GlucoseAlarmOwner.kt").readText()
+        listOf("AutomationRepository", "ForecastRepository", "Telegram", "MediaPlayer(", "TargetManager")
+            .forEach { assertThat(owner).doesNotContain(it) }
         val source = File(root, "data/repository/GlucoseAlertAudioController.kt").readText()
         listOf("AutomationRepository", "ForecastRepository", "Telegram", "setCommunicationDevice", "setRingerMode")
             .forEach { assertThat(source).doesNotContain(it) }

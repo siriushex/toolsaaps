@@ -10,12 +10,23 @@ internal suspend fun deliverConfirmedGlucoseAlertChannels(
     audioStartTimeoutMs: Long = GLUCOSE_ALERT_AUDIO_START_TIMEOUT_MS,
     audioRequired: Boolean = false,
     vibrationRequired: Boolean = false,
+    startLocal: (suspend () -> LocalGlucoseInitialResult?)? = null,
     startAudio: suspend () -> GlucoseAlertAudioPlaybackResult
 ): GlucoseAlertDeliveryResult {
     require(audioStartTimeoutMs > 0L)
     val notificationPosted = notificationPermissionGranted && safeChannelInvocation(postNotification)
-    val vibrationSucceeded = safeChannelInvocation(invokeVibration)
-    val audio = try {
+    val local = try {
+        if (startLocal == null) null else {
+            // An explicit decline permits fallback; an unfinished handoff does not.
+            val attempt = withTimeoutOrNull(audioStartTimeoutMs) { LocalStartAttempt(startLocal()) }
+            if (attempt == null) LocalGlucoseInitialResult(
+                GlucoseAlertAudioPlaybackResult(failureReason = "local_start_timeout"), false)
+            else attempt.result
+        }
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { LocalGlucoseInitialResult(GlucoseAlertAudioPlaybackResult(failureReason = "local_start_failed"), false) }
+    val vibrationSucceeded = local?.vibration ?: safeChannelInvocation(invokeVibration)
+    val audio = local?.audio ?: try {
         withTimeoutOrNull(audioStartTimeoutMs) { startAudio() }
             ?: GlucoseAlertAudioPlaybackResult(failureReason = "audio_start_timeout")
     } catch (cancellation: CancellationException) {
@@ -52,6 +63,8 @@ internal suspend fun deliverConfirmedGlucoseAlertChannels(
 }
 
 internal const val GLUCOSE_ALERT_AUDIO_START_TIMEOUT_MS = 4_000L
+
+private data class LocalStartAttempt(val result: LocalGlucoseInitialResult?)
 
 internal fun GlucoseAlertDeliveryResult.toAlertSideEffectResult(): AlertSideEffectResult =
     if (notificationPosted || vibrationSucceeded || audioPlayed) {

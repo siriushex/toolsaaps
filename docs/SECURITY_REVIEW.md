@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Glucose Alarm Runtime Integration (2026-10-16)
+
+- Private specialUse service and private ACK receiver; immutable PendingIntents,
+  exact ephemeral session and cycle identity; no receiver-side runtime arming.
+- Explicit installation-bound consent, excluded from restored activation.
+  Wake-token preferences are excluded from cloud backup and device transfer.
+- Stored wake identity contains no glucose, episode or therapy payload. A token
+  permits only a lifecycle wake; current accepted evidence and Room OFF still
+  govern all sound/volume effects. Replaced, expired, early, rebooted and
+  clock-shifted operations cannot reconstitute medical authority.
+- One existing audio owner; native fallback cannot follow unknown local timeout
+  or failed cleanup. Fixed-volume and blocked-notification states stay visible.
+- Technical alert paths and medical thresholds are unchanged. No physical
+  audibility, device-resume reliability or human response is implied by unit
+  tests. Device acceptance and store policy review remain separate gates.
+
 ## Independent Local Observation (2026-10-16)
 
 - Scoped CAS preferences bind opt-in to the existing no-backup install identity;

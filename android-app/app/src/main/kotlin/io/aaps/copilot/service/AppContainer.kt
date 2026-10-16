@@ -708,6 +708,7 @@ class AppContainer(context: Context) {
     }
 
     val glucoseAlertAudioController = GlucoseAlertAudioController(context.applicationContext)
+    val glucoseAlarmRouter = io.aaps.copilot.data.repository.GlucoseAlarmDeliveryRouter(::currentAlarmSourceClock)
     // A process cannot survive a device reboot; avoid a Settings-provider read on every alert.
     private val alarmSourceBootCount: Int = try {
         android.provider.Settings.Global.getInt(appContext.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
@@ -752,12 +753,14 @@ class AppContainer(context: Context) {
         revokeRiskPlayback = {
             glucoseAlertAudioController.stop()
             GlucoseAlertNotifier.cancelGlucoseAlertVibration(context.applicationContext)
+            glucoseAlarmRouter.currentOwner()?.signal()
         }
     )
     private val glucoseAlertNotifier = GlucoseAlertNotifier(
         context = context.applicationContext,
         audioController = glucoseAlertAudioController,
-        episodeDelivery = episodeAlertDelivery
+        episodeDelivery = episodeAlertDelivery,
+        alarmRouter = glucoseAlarmRouter
     )
 
     val telegramRepository = io.aaps.copilot.telegram.TelegramRepository(
@@ -783,7 +786,7 @@ class AppContainer(context: Context) {
     val deliveryDiagnosticDisplay get() = deliveryDiagnostic.display
     val deliveryDiagnosticAlarmSource get() = deliveryDiagnostic.alarmSource
     fun currentDeliveryDiagnosticAlarmSource() = deliveryDiagnostic.currentAlarmSource()
-    private fun currentAlarmSourceClock(): io.aaps.copilot.data.repository.LocalAlarmSourceClock? = try {
+    fun currentAlarmSourceClock(): io.aaps.copilot.data.repository.LocalAlarmSourceClock? = try {
         io.aaps.copilot.data.repository.LocalAlarmSourceClock(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
             alarmSourceBootCount)
     } catch (cancelled: CancellationException) { throw cancelled }
