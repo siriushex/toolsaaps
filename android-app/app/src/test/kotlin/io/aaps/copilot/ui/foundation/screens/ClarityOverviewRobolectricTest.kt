@@ -395,6 +395,40 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
+    @Test fun plusFoodConfirmationForwardsEatingSoonExactlyOnceForEveryFoodType() {
+        val intents = mutableListOf<Pair<Boolean, String>>()
+        withUi { screen(ready(), {}, onMeal = { eating, id -> intents += eating to id }) }.use {
+            for (profile in io.aaps.copilot.domain.profile.MealAbsorptionProfile.entries) {
+                compose.onNodeWithTag("clarityAddMeal").performClick()
+                compose.onNodeWithTag("mealProfile_${profile.name}").performScrollTo().performClick()
+                compose.onNodeWithTag("overviewEatingSoon").performScrollTo().assertIsOn()
+                compose.onNodeWithTag("overviewPrepareMeal").performClick()
+                compose.onNodeWithText(text(R.string.meal_entry_title)).assertDoesNotExist()
+            }
+            assertEquals(3, intents.size)
+            assertTrue(intents.all { it.first })
+            assertEquals(3, intents.map { it.second }.distinct().size)
+        }
+    }
+
+    @Test fun restoredFoodTargetFailureExplainsTheBlockWithoutSendingAnotherRequest() {
+        var sends = 0
+        val key = "manual:meal:restored-food:eating-soon"
+        val receipt = io.aaps.copilot.data.local.entity.ActionCommandEntity(key, origin, "temp_target",
+            com.google.gson.Gson().toJson(mapOf("targetMmol" to "4.1", "durationMinutes" to "30",
+                "reason" to "Eating Soon", "eatingSoonFailureCode" to "sensor_untrusted")), "{}", key, "BLOCKED")
+        val eating = eatingSoonPresentation(receipt, null, origin)
+        withUi { screen(ready().copy(eatingSoon = eating), { sends++ }) }.use {
+            compose.onNodeWithTag("clarityEatingSoon").performClick()
+            compose.onNodeWithTag("clarityEatingDetails").assertIsDisplayed()
+            val app = RuntimeEnvironment.getApplication()
+            compose.onNodeWithText(io.aaps.copilot.ui.manualEatingSoonBlockedMessage(app, "sensor_untrusted"))
+                .assertIsDisplayed()
+            capture("food-eating-refusal-restored.png", true)
+            assertEquals(0, sends)
+        }
+    }
+
     @Test fun ordinaryCompactOverviewNeedsNoContentScroll() {
         withUi { screen(ready(), {}) }.use {
             compose.waitForIdle()
@@ -628,10 +662,10 @@ class ClarityOverviewRobolectricTest {
     }
 
     @Composable private fun screen(state: OverviewUiState, onEating: (String) -> Unit,
-        onChange: () -> Unit = {}, onClinical: () -> Unit = {}) {
+        onChange: () -> Unit = {}, onClinical: () -> Unit = {}, onMeal: ((Boolean, String) -> Unit)? = null) {
         OverviewScreen(state, onRunCycleNow = onChange, onSetKillSwitch = { onChange() }, onDisablePowerSave = onChange,
             onAddBloodCheck = { _, _, _, _ -> onChange() }, onOpenClinicalReport = onClinical, onEatingSoon = onEating,
-            onManualCarbs = { _, _, _, _, _, _, _, _ -> onChange() },
+            onManualCarbs = { _, _, _, _, eating, id, _, _ -> onMeal?.invoke(eating, id); onChange() },
             onOpenAapsBolus = onChange, onBaseTargetScheduleSave = { onChange() },
             onUamExportUiModeChange = { onChange() }, onIsfRuntimeSourceChange = { onChange() },
             onCrRuntimeSourceChange = { onChange() })

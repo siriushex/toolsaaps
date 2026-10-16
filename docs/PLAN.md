@@ -1,5 +1,23 @@
 # PLAN
 
+## Food Eating Soon Follow-through (2026-10-17)
+
+- [x] Trace plus/Food through the same manual target channel and current safety
+  policy. Three added behavioral regressions failed before implementation.
+- [x] Move the target attempt before optional research persistence, retaining
+  independent outcomes, carb-input ordering and no ambiguous replay.
+- [x] Restore durable allowlisted refusal details and preserve them over local
+  hints. Do not relax safety or claim an unobserved device refusal cause.
+- [x] Focused Room/HTTP/native UI/priority/cancellation checks:141 passed,
+  zero failures/errors/skips across9 nonempty suites.
+- [x] Full Android unit, lint, Kotlin compile and debug APK gates:6033 cases,
+  6 unchanged private-input skips,no failures/errors;lint0 errors,unchanged385
+  notices. Debug v2 signature and native320x640 refusal view checked.
+- Publication and exact-head Verify remain post-commit gates; record their exact
+  source SHA and results in the PR, not as a source self-certification.
+- Physical-device acceptance remains separate; no real food/target test,
+  app stop/backup or phone installation is part of this source stage.
+
 ## Foreground Glucose Alarm Integration (2026-10-16)
 
 - [x] Connect explicit checked INITIAL routing and existing single audio owner.

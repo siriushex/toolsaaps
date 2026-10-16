@@ -1,3 +1,29 @@
+# Food Eating Soon Follow-through - 2026-10-17
+
+- Source trace found optional research persistence preceding the manual target
+  priority reservation, and a food-origin refusal reason lost on presentation
+  reconstruction. Three regressions failed as expected before the fix: delayed
+  target count0 instead of1, and two missing durable refusal explanations.
+- Attempt the existing guarded target before the research observer; keep that
+  observer before carb transport. Preserve sent/unknown target outcomes when
+  later work fails or is cancelled. No replay, new writer or automatic renewal.
+- Share the existing transport failure-code allowlist with durable presentation;
+  exact canonical terminal receipts only. A stale/null local hint cannot mask
+  that stored explanation. No arbitrary payload text is rendered.
+- Existing fixed30-minute intent, manual cadence/mode handling, confirmed
+  priority and all medical/arming/chronology/transport gates are unchanged.
+  Added native plus/Food confirmation and restored-refusal coverage.
+- Focused Room/HTTP/native UI/priority/cancellation checks passed141 cases,
+  zero failures/errors/skips. Full sequential unit/lint/compile/assemble passed
+  in30m46s:6033 cases,6027 passes,6 unchanged private-input skips,zero failures
+  or errors. Lint has0 errors and the unchanged377 warnings/eight hints.
+  All6 changed Android source/test hashes remained unchanged through the gates.
+  Debug APK v2 signature verified; native320x640 refusal details inspected.
+  Publication/exact-head CI remains a separate recorded PR gate.
+- ADB remained empty after the build; the actual device refusal cause and
+  physical delivery are not established. No
+  phone stop, backup, installation, target, food, bolus or sound test performed.
+
 # AI Conversation Functional Review - 2026-10-16
 
 - Reproduced attachment-only send mismatch, concurrent recording/send, unsupported

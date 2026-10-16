@@ -575,7 +575,7 @@ class NightscoutActionRepository(
             STATUS_SENT -> EatingSoonResult(MealDeliveryStatus.SENT)
             STATUS_BLOCKED, STATUS_FAILED -> EatingSoonResult(
                 MealDeliveryStatus.BLOCKED,
-                canonicalEatingSoonFailureCode(blockReason) ?: storedEatingSoonFailureCode(record) ?: "target_not_sent"
+                canonicalEatingSoonFailureCode(blockReason) ?: eatingSoonFailureReasonStatic(record, gson) ?: "target_not_sent"
             )
             else -> EatingSoonResult(MealDeliveryStatus.UNKNOWN, "delivery_unconfirmed")
         }
@@ -972,29 +972,6 @@ class NightscoutActionRepository(
             (canonicalEatingSoonFailureCode(reason) ?: "target_not_sent")))
     }
 
-    private fun storedEatingSoonFailureCode(record: ActionCommandEntity): String? {
-        val payload = try {
-            gson.fromJson(record.payloadJson, JsonObject::class.java)
-        } catch (_: JsonParseException) {
-            null
-        }
-        val value = payload?.get(EATING_SOON_FAILURE_CODE)
-            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
-        return canonicalEatingSoonFailureCode(value)
-    }
-
-    private fun canonicalEatingSoonFailureCode(reason: String?): String? {
-        if (reason == null || reason.length > 96) return null
-        val code = reason.removePrefix("managed_preflight:")
-        if (code == "therapy_actions_not_armed") return "actions_disarmed"
-        if (code in EATING_SOON_FAILURE_CODES) return code
-        for (minutes in listOf(5, 30, 60)) {
-            if (code in listOf("forecast_${minutes}m_missing", "forecast_${minutes}m_invalid",
-                    "forecast_${minutes}m_too_low", "forecast_${minutes}m_ci_low")) return code
-        }
-        return null
-    }
-
     private suspend fun markSent(command: ActionCommand, channel: String) {
         val payload = command.params.toMutableMap().apply {
             put("deliveryChannel", channel)
@@ -1170,6 +1147,32 @@ class NightscoutActionRepository(
             "accepted_forecast_unavailable", "settings_changed", "safety_read_expired", "safety_lookup_failed",
             "target_authority_read_timeout", "invalid_action_payload", "missing_nightscout_url", "target_not_sent"
         )
+
+        internal fun eatingSoonFailureReasonStatic(record: ActionCommandEntity, gson: Gson): String? {
+            if (record.status !in setOf(STATUS_BLOCKED, STATUS_FAILED) ||
+                !isCanonicalEatingSoonCommand(record, gson)) return null
+            val payload = try {
+                gson.fromJson(record.payloadJson, JsonObject::class.java)
+            } catch (_: JsonParseException) {
+                null
+            }
+            val value = payload?.get(EATING_SOON_FAILURE_CODE)
+                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            return canonicalEatingSoonFailureCode(value)
+        }
+
+        private fun canonicalEatingSoonFailureCode(reason: String?): String? {
+            if (reason == null || reason.length > 96) return null
+            val code = reason.removePrefix("managed_preflight:")
+            if (code == "therapy_actions_not_armed") return "actions_disarmed"
+            if (code in EATING_SOON_FAILURE_CODES) return code
+            for (minutes in listOf(5, 30, 60)) {
+                if (code in listOf("forecast_${minutes}m_missing", "forecast_${minutes}m_invalid",
+                        "forecast_${minutes}m_too_low", "forecast_${minutes}m_ci_low")) return code
+            }
+            return null
+        }
+
         private val TEMP_TARGET_WRITE_MUTEX = Mutex()
         private val TEMP_TARGET_RETRY_OWNERS = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
         const val MANUAL_IDEMPOTENCY_PREFIX = "manual:"

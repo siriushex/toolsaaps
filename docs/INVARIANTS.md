@@ -639,13 +639,18 @@
 ## Independent Explicit Eating Soon
 
 - A checked meal target is independent of carb transport/annotation success.
-  Attempt the existing guarded canonical target first; preserve both outcomes.
+  Attempt the existing guarded canonical target before optional research
+  persistence as well as carbs/annotation; preserve both outcomes. Research input
+  still precedes the carb transport and has no target authority.
 - No mode switch, GI/portion value, carb throttle or annotation failure can
   turn explicit intent into an automatic proposal or invent target success.
 - Cancellation and same-key duplicate submission cannot replay ambiguous actions.
   Unstarted carbs, attempted unknown carbs and target statuses remain distinct.
 - Existing safety/arming/chronology and confirmed30-minute priority remain.
   A sent request is not proof of AAPS application. No automatic renewal.
+- Food-origin refusal details survive UI/process recreation through the exact
+  canonical terminal receipt and the shared allowlist. Never expose raw payload
+  errors or let a null/stale local hint replace the stored reason.
 - Signed net IOB for residual prediction and positive safety IOB stay distinct;
   high mean forecasts alone cannot bypass low-bound/reliability protections.
 
