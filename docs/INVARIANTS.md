@@ -1,5 +1,14 @@
 # INVARIANTS
 
+## Native Moderation Event
+
+- Only the pinned turn/moderationMetadata notification is newly accepted. Its
+  exact three fields and thread/turn correlation are checked, including events
+  preceding the RPC acknowledgement. Unrelated turns cannot inject metadata.
+- Opaque metadata remains subject to existing JSON/frame/session bounds and is
+  neither persisted nor interpreted as authority. Missing/failed completion,
+  foreign IDs, tools and other unknown notifications remain refusals.
+
 ## Bounded Native Context Echoes
 
 - Native pipe and parser share the finite 6*131072+1024-byte line bound so an

@@ -63,6 +63,56 @@ def test_completed_text_uses_one_ephemeral_turn_and_preserves_model_settings():
     assert transport.sent[3]["params"]["environments"] == []
 
 
+@pytest.mark.parametrize("metadata", [None, {}, [], True, 2, "synthetic", {"category": "synthetic"}])
+def test_correlated_moderation_metadata_does_not_abort_or_replace_the_answer(metadata):
+    frames = transcript()
+    frames.insert(6, {"method": "turn/moderationMetadata", "params": {
+        "threadId": "sample-thread", "turnId": "sample-turn", "metadata": metadata}})
+    result, transport = run(frames)
+    assert result == {"text": "Synthetic answer"}
+    assert sum(value["method"] == "turn/start" for value in transport.sent) == 1
+
+
+@pytest.mark.parametrize("field", ["threadId", "turnId"])
+def test_moderation_metadata_cannot_cross_thread_or_turn(field):
+    frames = transcript()
+    params = {"threadId": "sample-thread", "turnId": "sample-turn", "metadata": {"private": "sample"}}
+    params[field] = "foreign"
+    frames.insert(6, {"method": "turn/moderationMetadata", "params": params})
+    with pytest.raises(NativeTextError, match="text_correlation_rejected"):
+        run(frames)
+
+
+@pytest.mark.parametrize("change", [lambda value: value.pop("metadata"),
+                                  lambda value: value.update(action="unexpected")])
+def test_moderation_metadata_requires_the_pinned_envelope(change):
+    frames = transcript()
+    params = {"threadId": "sample-thread", "turnId": "sample-turn", "metadata": None}
+    change(params)
+    frames.insert(6, {"method": "turn/moderationMetadata", "params": params})
+    with pytest.raises(NativeTextError, match="text_envelope_rejected"):
+        run(frames)
+
+
+def test_moderation_metadata_is_not_a_success_or_a_moderation_override():
+    frames = transcript()
+    frames.insert(6, {"method": "turn/moderationMetadata", "params": {
+        "threadId": "sample-thread", "turnId": "sample-turn", "metadata": {"status": "allowed"}}})
+    frames[-1]["params"]["turn"].update(status="failed", error={"code": "synthetic"})
+    with pytest.raises(NativeTextError, match="text_completion_rejected"):
+        run(frames)
+
+
+def test_moderation_before_turn_ack_must_match_later_ack():
+    frames = transcript()
+    frames.insert(4, {"method": "turn/moderationMetadata", "params": {
+        "threadId": "sample-thread", "turnId": "sample-turn", "metadata": None}})
+    assert run(frames)[0] == {"text": "Synthetic answer"}
+    frames[5]["result"]["turn"]["id"] = "foreign-turn"
+    with pytest.raises(NativeTextError, match="text_correlation_rejected"):
+        run(frames)
+
+
 @pytest.mark.parametrize("text", ["x" * 70_000, "\u0430" * 20_000, "\0" * 12_000],
                          ids=["ascii", "unicode-json", "escaped-control"])
 def test_full_context_user_echo_fits_the_admitted_input_without_a_second_turn(text):

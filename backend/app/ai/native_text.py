@@ -229,6 +229,10 @@ class _NativeSession:
                     self._final = self._decode_answer(item.get("text"))
                 elif item.get("phase") != "commentary":
                     raise NativeTextError("text_message_phase_rejected")
+        elif method == "turn/moderationMetadata":
+            if set(params) != {"threadId", "turnId", "metadata"}:
+                raise NativeTextError("text_envelope_rejected")
+            self._correlate(params, turn=True)
         elif method in {"item/agentMessage/delta", "item/reasoning/summaryTextDelta",
                         "item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
                         "model/verification", "model/safetyBuffering/updated"}:

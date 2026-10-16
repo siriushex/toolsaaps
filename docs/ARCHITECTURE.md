@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Correlated Moderation Metadata
+
+The pinned native protocol emits turn/moderationMetadata during a text answer.
+Accept only its exact threadId/turnId/metadata envelope and correlate both IDs.
+The opaque JSON metadata is ignored, never stored or treated as an answer,
+successful completion, tool permission or override of provider safety decisions.
+Final typed answer and successful turn completion remain independently required.
+All other unknown notifications still fail closed.
+
 ## Full-Context Native Framing
 
 Native user-message notifications can echo an admitted 128 KiB text input. The

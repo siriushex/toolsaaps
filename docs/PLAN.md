@@ -1,5 +1,21 @@
 # PLAN
 
+## Native Moderation Compatibility (2026-10-17)
+
+- [x] A bounded synthetic host diagnostic isolated text_notification_rejected;
+  the unknown method hash matches turn/moderationMetadata in the pinned schema.
+- [x] Thirteen synthetic regressions fail before the source correction.
+- [x] Add exact-envelope, correlated handling without interpreting metadata or
+  weakening successful-completion, tool, ownership and cleanup requirements.
+- [x] Focused191 cases and full backend1566 passed/27 existing opt-in skips;
+  scoped lint, diff and source/security review pass.
+- [ ] Reviewed publication and exact-head CI for this additional fix.
+- [ ] Separately reviewed immutable rollout and actual large-context answer.
+
+The earlier frame correction is installed as a live-base composition. Its real
+long-context test failed safely on this second protocol incompatibility; do not
+claim the chat is repaired from service readiness. No failed user job is replayed.
+
 ## Full-Context AI Framing (2026-10-17)
 
 - [x] Trace the 128 KiB context/64 KiB native-line mismatch; four new synthetic
@@ -12,7 +28,7 @@
   Scoped E/F lint and Python compilation pass. Three pre-existing imported
   pytest-fixture F811 findings are verified against HEAD and excluded only in
   that test file. Diff/source/security/docs reviewed; no new blocking finding.
-- [ ] Reviewed source publication and exact-head Verify inspection.
+- [x] Source59bba270 published; both exact-head Verify runs completed success.
 - [ ] Separately authorized target-host rollout and actual model/device outcome.
 
 No real model request, server deployment, Android change or nightly scheduler

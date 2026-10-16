@@ -1,5 +1,22 @@
 # DEVOPS
 
+## Native Moderation Compatibility (2026-10-17)
+
+The first reviewed frame-only rollout composed live base3b81c2a5 with two modules
+from59bba270. Full compatibility suite:1160 passed/27 opt-in skips; both exact-head
+Verify runs passed. Two source-path drop-ins preserve the old interpreter,
+dependencies, descriptors and private storage. Public unit rollback copies only;
+no credentials/history copied and no database/schema migration.
+
+Readiness and both standalone/parent-contained no-turn handshakes passed. One
+large synthetic supervisor request failed with positive stop/idle. A separately
+reviewed diagnostic identified an unhandled turn/moderationMetadata event. The
+method fingerprint matches the pinned generated ServerNotification schema. This
+is a protocol defect, not proof of the cause of the earlier three user failures.
+The additional source fix needs its own tests, rollout and real answer receipt.
+Do not replay prior jobs or reset uncertain profile claims. Nightly05:00 remains
+unconnected; this compatibility stage grants no clinical/therapy authority.
+
 ## Full-Context Native Frame Correction (2026-10-17)
 
 Source-only correction: the shared bounded native pipe/parser line cap covers

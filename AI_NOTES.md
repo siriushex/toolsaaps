@@ -1,3 +1,23 @@
+# Native Moderation Compatibility - 2026-10-17
+
+- The reviewed frame-only source composition was installed after1160 live-base
+  tests and both exact-head CI runs passed. API/supervisor source-path/readiness
+  and timer restoration were verified; private stores, credentials, therapy and
+  phone were not changed. Public units alone have an exact rollback copy.
+- A98 KiB synthetic model turn still failed, with stop and profile idle confirmed.
+  Standalone and parent-contained no-turn handshakes both passed. A separate
+  one-turn diagnostic returned text_notification_rejected and only event counts,
+  sizes and a method fingerprint. It matches turn/moderationMetadata in the
+  pinned source's generated schema; no provider message or clinical data logged.
+- Thirteen new regressions fail on the old adapter. Handle only this exact
+  three-field event with thread/turn correlation; opaque metadata is ignored,
+  not interpreted as permission, final output or successful moderation status.
+  All completion, unknown-event, tool and independent cleanup guards remain.
+- Focused191 cases and full backend1566 passed/27 existing opt-in skips, zero
+  failures/errors. Scoped lint, diff and source/security review pass. Publication,
+  exact-head CI and a separate actual rollout/model receipt follow.
+  No automatic user-job replay and no nightly05:00 activation are included.
+
 # Full-Context AI Framing - 2026-10-17
 
 - Found a source-level mismatch: text input accepts 128 KiB but native parser and

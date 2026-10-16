@@ -1,5 +1,14 @@
 # SECURITY REVIEW
 
+## Pinned Moderation Notification (2026-10-17)
+
+The sole newly accepted notification has the pinned threadId/turnId/metadata
+schema. Exact fields and both identities are checked before ignoring opaque JSON
+metadata. No metadata is logged, stored, surfaced as clinical advice or allowed
+to grant tools or override a failed/moderated provider completion. Native input,
+aggregate stream, event, output and independent stop limits remain unchanged.
+Other unknown events and foreign/malformed envelopes still fail closed.
+
 ## Bounded Full-Context Frames (2026-10-17)
 
 - Full admitted text can be echoed by native item events. Pipe/parser now share
