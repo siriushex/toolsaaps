@@ -1,3 +1,36 @@
+# AI Conversation Functional Review - 2026-10-16
+
+- Reproduced attachment-only send mismatch, concurrent recording/send, unsupported
+  server media controls and diagnostic failures leaking into conversation history.
+  Nine synthetic RED cases produced seven expected behavioral failures.
+- Shared question/busy/recording guards now match UI and dispatch. The send latch
+  is set before launch and reset in finally, including context-building failure.
+- Typed localized failure entries distinguish unknown outcomes, context sync,
+  access and transport errors without showing raw exceptions as AI advice.
+  Filtering precedes the ten-turn bound; legitimate discussions of errors remain.
+- Server text-only routing gates media/speech controls and stale callbacks while
+  keeping an existing recording stoppable. Clinical provider routing, therapy
+  actions and automatic parameter changes remain unchanged.
+- Focused backend chat/context/query/daily/owner checks passed:214 cases. Expanded
+  Android AI/report/recommendation checks passed:1117 cases,73 suites,no skips.
+  The Russian320x640 native failure screen was inspected.
+- First full Android attempt ran6026 cases:one unchanged Nightscout server-start
+  test failed and six private-input cases skipped. Its complete45-case class then
+  passed separately,with one expected skip. The original failure is retained;
+  full Android rerun then passed6026 cases,527 suites,zero failures,six skips.
+  The isolated retest alone was not used as the full gate.
+- The first full backend run stopped progressing and was explicitly interrupted
+  after1530 passes/27 skips. Isolated image/route checks then passed62 cases.
+  A verbose full rerun completed:1542 passed,27 opt-in skips,zero failures.
+  Skips are26 real-nginx engine cases and one capacity case;Pillow12.3 is present.
+  Two deprecations concern Starlette/anyio and an existing fork-isolation fixture.
+  These are synthetic tests,not actual device enrollment or model acceptance.
+- Final sequential lint/build passed:zero errors,377 warnings/eight hints,
+  unchanged from the preceding report. CompileDebugKotlin,assembleDebug and
+  processUiTestMainManifest passed;the signed APK identity was verified.
+  An earlier parallel lint attempt was cancelled under host memory pressure,
+  not counted as a pass. Device acceptance remains a separate check.
+
 # Foreground Glucose Alarm Integration - 2026-10-16
 
 - Connected checked glucose INITIAL routing, explicit install-bound alarm opt-in

@@ -119,6 +119,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import io.aaps.copilot.ui.aiChatFailureMessage
+import io.aaps.copilot.ui.canSubmitAiChat
 import kotlin.math.max
 
 private val AiSectionShape = RoundedCornerShape(18.dp)
@@ -2310,8 +2312,9 @@ private fun AiChatHeroCard(
     onStopVoiceRecording: () -> Unit
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
-    val canSend = !state.chatInProgress && !state.chatVoiceBusy &&
-        (state.chatDraft.isNotBlank() || state.chatPendingAttachments.isNotEmpty())
+    val canSend = canSubmitAiChat(state.chatDraft, state.chatInProgress, state.chatVoiceBusy, state.chatRecording) &&
+        (!state.chatTextOnly || state.chatPendingAttachments.isEmpty())
+    val mediaAvailable = !state.chatTextOnly && !state.chatInProgress && !state.chatVoiceBusy && !state.chatRecording
     val voiceLabel = stringResource(R.string.ai_analysis_chat_voice_mode_title)
     var questionsOpen by remember { mutableStateOf(false) }
     val quickPrompts = listOf(
@@ -2331,7 +2334,8 @@ private fun AiChatHeroCard(
                 verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
             ) {
                 Text(
-                    text = stringResource(id = R.string.ai_analysis_chat_voice_mode_title),
+                    text = stringResource(id = if (state.chatTextOnly) R.string.ai_chat_text_mode
+                        else R.string.ai_analysis_chat_voice_mode_title),
                     style = MaterialTheme.typography.titleSmall
                 )
                 if (state.chatRecording || state.chatVoiceBusy || state.chatSpeaking) Text(
@@ -2346,9 +2350,10 @@ private fun AiChatHeroCard(
                 )
             }
             Switch(
-                checked = state.chatVoiceRepliesEnabled,
+                checked = state.chatVoiceRepliesEnabled && !state.chatTextOnly,
                 onCheckedChange = onVoiceRepliesToggle,
-                modifier = Modifier.semantics { contentDescription = voiceLabel }
+                enabled = !state.chatTextOnly,
+                modifier = Modifier.testTag("ai_focus_voice_replies").semantics { contentDescription = voiceLabel }
             )
         }
         LazyColumn(
@@ -2415,15 +2420,18 @@ private fun AiChatHeroCard(
         ) {
             AiFocusAction(Icons.Default.PhotoCamera,
                 stringResource(R.string.ai_analysis_chat_attach_photo_short), onAttachImage,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy)
+                Modifier.testTag("ai_focus_attach_photo"),
+                enabled = mediaAvailable)
             AiFocusAction(Icons.Default.AttachFile,
                 stringResource(R.string.ai_analysis_chat_attach_file_short), onAttachFile,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy)
+                Modifier.testTag("ai_focus_attach_file"),
+                enabled = mediaAvailable)
             AiFocusAction(if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
                 stringResource(if (state.chatRecording) R.string.ai_analysis_chat_stop_recording_short
                     else R.string.ai_analysis_chat_start_recording_short),
                 if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy)
+                Modifier.testTag("ai_focus_record"),
+                enabled = state.chatRecording || mediaAvailable)
             androidx.compose.foundation.layout.Box {
                 AiFocusAction(Icons.Default.Lightbulb, stringResource(R.string.ai_focus_questions),
                     { questionsOpen = true })
@@ -2448,22 +2456,29 @@ private fun AiChatMessageBubble(
     message: AiChatMessageUi
 ) {
     val isUser = message.role.equals("user", ignoreCase = true)
-    val containerColor = if (isUser) {
+    val containerColor = if (message.failure != null) {
+        MaterialTheme.colorScheme.errorContainer
+    } else if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
-    val contentColor = if (isUser) {
+    val contentColor = if (message.failure != null) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else if (isUser) {
         MaterialTheme.colorScheme.onPrimaryContainer
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val roleLabel = if (isUser) {
+    val roleLabel = if (message.failure != null) {
+        stringResource(R.string.ai_chat_failure_title)
+    } else if (isUser) {
         stringResource(id = R.string.ai_analysis_chat_role_user)
     } else {
         stringResource(id = R.string.ai_analysis_chat_role_ai)
     }
     Card(
+        modifier = if (message.failure != null) Modifier.testTag("ai_chat_failure") else Modifier,
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
@@ -2500,7 +2515,7 @@ private fun AiChatMessageBubble(
                 }
             }
             Text(
-                text = message.text,
+                text = message.failure?.let { stringResource(aiChatFailureMessage(it)) } ?: message.text,
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp)
             )
             if (message.attachments.isNotEmpty()) {

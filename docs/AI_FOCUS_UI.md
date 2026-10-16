@@ -16,8 +16,16 @@ global app navigation unchanged. Native Compose, not a WebView/mock provider.
 - Chat has its own lazy supplied-message list and a pinned composer. Draft and
   attachments remain owned by the existing state/callbacks. Blank/busy send is
   disabled; discussing a finding appends to an existing draft and never sends.
-  Photo/file/recording/voice actions retain their existing channel implementation
-  and gates; this UI does not activate image recognition or grant upload access.
+  A nonblank question is required even with attachments. Recording, transcription
+  and a pending question block a second send. Server text-only routing disables
+  photo/file/new-recording/speech actions; a pre-existing recording remains
+  stoppable, and stale callbacks recheck routing before file use or transcription.
+  Stale attachments remain removable, but cannot be submitted to the text route.
+  This does not activate image recognition or grant upload access.
+  Request errors use localized status presentation, not a model-answer bubble
+  containing raw diagnostics. They never enter subsequent model history or crowd
+  out the last ten real conversation messages. Unknown outcomes are distinguished
+  from confirmed pre-submission failures; no automatic retry is added.
 - Recommendations preserve their source/period and review meaning. No new
   automatic target/dose/ISF or therapeutic action is offered.
 - Archive searches supplied records and opens the complete selected report,

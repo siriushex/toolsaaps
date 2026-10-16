@@ -76,6 +76,71 @@ class AiFocusScreenTest {
         }
     }
 
+    @Test fun attachmentOnlyDraftCannotSendWithoutAQuestion() = screen(
+        ready().copy(chatDraft = "  ", chatPendingAttachments = listOf(
+            AiChatAttachmentUi("sample-file", "notes.txt", "FILE")
+        ))
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_focus_send").assertIsNotEnabled()
+    }
+
+    @Test fun serverTextChatDoesNotOfferUnsupportedMediaOrSpeech() = screen(
+        ready().copy(chatTextOnly = true)
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_focus_attach_photo").assertIsNotEnabled()
+        compose.onNodeWithTag("ai_focus_attach_file").assertIsNotEnabled()
+        compose.onNodeWithTag("ai_focus_record").assertIsNotEnabled()
+        compose.onNodeWithTag("ai_focus_voice_replies").assertIsNotEnabled()
+    }
+
+    @Test fun recordingMustRemainStoppableIfTheConnectionChangesToTextOnly() = screen(
+        ready().copy(chatTextOnly = true, chatRecording = true, chatInProgress = true)
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_focus_record").assertIsEnabled()
+    }
+
+    @Test fun staleAttachmentMustBeRemovedBeforeSendingToTextOnlyServer() = screen(
+        ready().copy(chatTextOnly = true, chatDraft = "Review the supplied context",
+            chatPendingAttachments = listOf(AiChatAttachmentUi("sample", "notes.txt", "FILE")))
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_focus_send").assertIsNotEnabled()
+    }
+
+    @Test fun recordingCannotSubmitASecondTextQuestion() = screen(
+        ready().copy(chatDraft = "Another question", chatRecording = true)
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_focus_send").assertIsNotEnabled()
+    }
+
+    @Test fun technicalFailureHasItsOwnPresentationAndDoesNotExposeDiagnostics() = screen(
+        ready().copy(chatMessages = listOf(AiChatMessageUi("failed", "assistant",
+            "Private network diagnostics", 1, failure = AiChatFailureUi.UNKNOWN_OUTCOME)))
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_chat_failure").assertIsDisplayed()
+        compose.onNodeWithText("Private network diagnostics").assertDoesNotExist()
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun russianTextOnlyFailureRemainsUsableAtSmallWidth() = screen(ready().copy(
+        chatTextOnly = true, chatDraft = "Проверить доступные данные",
+        chatMessages = listOf(AiChatMessageUi("failed", "assistant", "Private diagnostics", 1,
+            failure = AiChatFailureUi.UNKNOWN_OUTCOME))
+    )) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithText("Текстовый чат").assertIsDisplayed()
+        compose.onNodeWithText("Ответ не получен").assertIsDisplayed()
+        compose.onNodeWithText("Private diagnostics").assertDoesNotExist()
+        compose.onNodeWithTag("ai_focus_composer").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_send").assertIsEnabled()
+        saveRaster("focus-ru-text-failure")
+    }
+
     @Test fun archiveSearchOpensFullRecordWithoutStartingAnalysis() {
         val row = AiAnalysisHistoryItemUi(1_000, "2026-10-01", "LOCAL", "SUCCESS",
             "Synthetic full report", listOf("Sample observation"), listOf("Sample review"), null)

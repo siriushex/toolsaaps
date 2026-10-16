@@ -840,13 +840,19 @@ data class AiReplayUi(
     val driftStats: List<AiReplayDriftStatUi> = emptyList()
 )
 
+enum class AiChatFailureUi {
+    CONNECTION, UNAVAILABLE, ACCESS, TEXT_ONLY, INVALID_REQUEST, CONTEXT, UNKNOWN_OUTCOME,
+    TIMEOUT, CANCELLED, INVALID_RESPONSE, OTHER
+}
+
 data class AiChatMessageUi(
     val id: String,
     val role: String,
     val text: String,
     val ts: Long,
     val attachments: List<AiChatAttachmentUi> = emptyList(),
-    val voiceTranscript: Boolean = false
+    val voiceTranscript: Boolean = false,
+    val failure: AiChatFailureUi? = null
 )
 
 data class AiChatAttachmentUi(
@@ -1210,6 +1216,7 @@ data class AiAnalysisUiState(
     val chatRecording: Boolean = false,
     val chatVoiceBusy: Boolean = false,
     val chatSpeaking: Boolean = false,
+    val chatTextOnly: Boolean = false,
     val clinicalReport: ClinicalReportUiState = ClinicalReportUiState()
 )
 

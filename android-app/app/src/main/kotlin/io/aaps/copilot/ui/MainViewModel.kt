@@ -109,7 +109,7 @@ import io.aaps.copilot.data.repository.deliveryDiagnosticLookbackFrom
 import io.aaps.copilot.data.repository.ContextEventCommandResult
 import io.aaps.copilot.data.repository.UamExportPolicy
 import io.aaps.copilot.data.repository.AiChatAttachmentRequest
-import io.aaps.copilot.data.repository.AiChatTurn
+import io.aaps.copilot.data.repository.ServerAiChatRouting
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.eating.EatingEvidencePoint
@@ -4491,12 +4491,17 @@ class MainViewModel(application: Application) :
             chatSpeaking = composer.speaking
         )
     }
+        .combine(container.serverAiConnectionManager.state) { state, _ ->
+            val textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED
+            state.copy(chatTextOnly = textOnly, chatVoiceRepliesEnabled = state.chatVoiceRepliesEnabled && !textOnly)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AiAnalysisUiState(
                 loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
-                isStale = true
+                isStale = true,
+                chatTextOnly = true
             )
         )
 
@@ -8027,6 +8032,7 @@ class MainViewModel(application: Application) :
     }
 
     fun setAiChatVoiceRepliesEnabled(enabled: Boolean) {
+        if (enabled && !allowAiChatMedia()) return
         aiChatVoiceRepliesEnabledState.value = enabled
         if (!enabled) {
             stopAiVoicePlayback()
@@ -8038,9 +8044,15 @@ class MainViewModel(application: Application) :
     }
 
     fun addAiChatAttachment(uri: Uri, preferImage: Boolean) {
+        if (!allowAiChatMedia()) return
         viewModelScope.launch(Dispatchers.IO) {
+            if (!allowAiChatMedia()) return@launch
             runCatching {
                 val attachment = copyAiAttachmentToCache(uri = uri, preferImage = preferImage)
+                if (!allowAiChatMedia()) {
+                    File(attachment.localPath).delete()
+                    return@launch
+                }
                 val updated = aiChatPendingAttachmentsState.value.toMutableList().apply {
                     add(attachment)
                 }
@@ -8052,6 +8064,7 @@ class MainViewModel(application: Application) :
     }
 
     fun startAiVoiceRecording() {
+        if (!allowAiChatMedia() || aiChatInProgressState.value || aiChatVoiceBusyState.value) return
         if (ContextCompat.checkSelfPermission(
                 getApplication(),
                 Manifest.permission.RECORD_AUDIO
@@ -8103,6 +8116,10 @@ class MainViewModel(application: Application) :
         aiMediaRecorder = null
         aiRecordingFile = null
         aiChatRecordingState.value = false
+        if (!allowAiChatMedia() || aiChatInProgressState.value || aiChatVoiceBusyState.value) {
+            recordedFile.delete()
+            return
+        }
         aiChatVoiceBusyState.value = true
         viewModelScope.launch {
             val transcript = runCatching {
@@ -8129,32 +8146,30 @@ class MainViewModel(application: Application) :
 
     fun sendAiChatPrompt(prompt: String = aiChatDraftState.value, fromVoiceTranscript: Boolean = false) {
         val question = prompt.trim()
-        if (question.isBlank() || aiChatInProgressState.value) return
+        if (!canSubmitAiChat(question, aiChatInProgressState.value, aiChatVoiceBusyState.value,
+                aiChatRecordingState.value)) return
+        val pendingAttachments = aiChatPendingAttachmentsState.value
+        if (pendingAttachments.isNotEmpty() && !allowAiChatMedia()) return
+        // Latch before launching so a second callback cannot submit the same draft.
+        aiChatInProgressState.value = true
 
         viewModelScope.launch {
-            val snapshot = uiState.value
-            val now = System.currentTimeMillis()
-            val pendingAttachments = aiChatPendingAttachmentsState.value
-            val historyBeforeSend = aiChatMessagesState.value
-                .takeLast(10)
-                .map { msg -> AiChatTurn(role = msg.role, text = msg.text) }
-            val userAttachmentsUi = pendingAttachments.map { it.toUi() }
-            aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                id = "user-$now",
-                role = "user",
-                text = question,
-                ts = now,
-                attachments = userAttachmentsUi,
-                voiceTranscript = fromVoiceTranscript
-            )
-            aiChatDraftState.value = ""
-            aiChatPendingAttachmentsState.value = emptyList()
-            aiChatInProgressState.value = true
-
-            val contextSummary = buildAiChatContextSummary(snapshot)
-
-            runCatching {
-                if (pendingAttachments.isEmpty()) {
+            try {
+                val snapshot = uiState.value
+                val now = System.currentTimeMillis()
+                val historyBeforeSend = aiChatModelHistory(aiChatMessagesState.value)
+                aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
+                    id = "user-$now",
+                    role = "user",
+                    text = question,
+                    ts = now,
+                    attachments = pendingAttachments.map { it.toUi() },
+                    voiceTranscript = fromVoiceTranscript
+                )
+                aiChatDraftState.value = ""
+                aiChatPendingAttachmentsState.value = emptyList()
+                val contextSummary = buildAiChatContextSummary(snapshot)
+                val response = if (pendingAttachments.isEmpty()) {
                     container.aiChatRepository.ask(
                         question = question,
                         contextSummary = contextSummary,
@@ -8175,33 +8190,40 @@ class MainViewModel(application: Application) :
                         }
                     )
                 }
-            }.onSuccess { response ->
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
                     id = "assistant-${System.currentTimeMillis()}",
                     role = "assistant",
                     text = response,
                     ts = System.currentTimeMillis()
                 )
-                if (aiChatVoiceRepliesEnabledState.value) {
+                if (aiChatVoiceRepliesEnabledState.value &&
+                    container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.UNCONFIGURED) {
                     playAiVoiceReply(response)
                 }
-            }.onFailure { error ->
-                if (error is CancellationException) {
-                    aiChatInProgressState.value = false
-                    throw error
-                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
                     id = "assistant-err-${System.currentTimeMillis()}",
                     role = "assistant",
-                    text = "AI chat failed: ${error.message ?: "unknown error"}",
-                    ts = System.currentTimeMillis()
+                    text = "",
+                    ts = System.currentTimeMillis(),
+                    failure = aiChatFailureUi(error)
                 )
+            } finally {
+                aiChatInProgressState.value = false
             }
-            aiChatInProgressState.value = false
         }
     }
 
+    private fun allowAiChatMedia(): Boolean {
+        if (container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.UNCONFIGURED) return true
+        messageState.value = getApplication<Application>().getString(R.string.ai_chat_text_only)
+        return false
+    }
+
     private suspend fun playAiVoiceReply(text: String) {
+        if (!allowAiChatMedia()) return
         aiChatVoiceBusyState.value = true
         val audioDir = File(getApplication<Application>().cacheDir, "ai-chat-tts").apply { mkdirs() }
         runCatching {

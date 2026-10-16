@@ -429,9 +429,15 @@
   rejection is not permission to bypass guards or retry model submission.
 - Configured or not-yet-loaded server routing precedes personal-key reads and
   has no failure fallback. The repository rejects unsupported modalities before
-  reading their files or personal credentials; this does not claim that the UI
-  picker/recorder has already been capability-gated. Existing clinical
-  optimization is not rerouted.
+  reading their files or personal credentials. The chat UI disables unsupported
+  media and speech actions, including during unloaded routing; stale picker and
+  recorder callbacks recheck the route. An existing recording always remains
+  stoppable. Existing clinical optimization is not rerouted.
+- UI request failures are typed status entries, never assistant observations in
+  model history. History filters invalid/blank/status messages before applying
+  its ten-turn bound. Ambiguous outcomes retain their uncertainty and never
+  authorize automatic submission retry. Composer guards apply to keyboard and
+  click callbacks; a synchronous latch and finally cleanup bound one request.
 - Model jobs follow successful signed context sync; ambiguous submission is
   UNKNOWN, never an automatic new request. Only correlated jobs can be cancelled.
 - Nonexpired upload retries retain exact batch bytes/identity and persisted device binding.
