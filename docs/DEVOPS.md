@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Daily Worker Source Stage (2026-10-16)
+
+daily_worker is not wired into the public API or existing text supervisor. Do not
+route daily envelopes through CHAT, reserve owner capacity while scanning, or
+launch an uncontained native runner. No daemon, schema, profile, config, host,
+model session or APK changes accompany this stage. Shared JobExecutor/ledger
+settlement is reused; uncertain stop/clock or queue handoff outcomes must not
+be replayed. A separate daily supervisor/atomic priority dispatcher and encrypted
+result lifecycle need explicit admission before opt-in scheduling/deployment.
+See DAILY_REVIEW_WORKER.md for operational boundaries and remaining gates.
+
 ## Durable Daily Queue Source Stage (2026-10-16)
 
 Only explicit enqueue adds daily_review_queue/index and commits additive schema 4

@@ -1,3 +1,31 @@
+# Contained Daily Review Worker - 2026-10-16
+
+- Adds dedicated native daily JSON session and immutable request binding for
+  original queue UUID, exact model, prompt/envelope/schema and deadline/IO limits.
+  Reuses native correlation/tool denial and existing contained-process contract;
+  no CHAT/photo policy, public route or model/reasoning-setting changes.
+- Worker verifies authenticated consumed handoff and independently current latest
+  archive/source before exactly one turn, then checks current source, closed
+  reply/references and deadline again. Changed history/report, missing low-first
+  findings or hidden missing-domain codes cannot become a successful result.
+- Uses existing shared JobExecutor for global claim/stop/settlement. Joins owned
+  bounded reader threads on cancellation; failed/cancelled native start still
+  needs independent stop. Non-True cleanup/timeout keeps capacity held and exposes
+  no result. Concurrent executor calls cannot execute the same claim twice.
+- Missing-module RED observed. Expanded tests exposed existing fail-closed ledger
+  clock_regression on settlement before start; preserved shared behavior and
+  asserted unresolved state rather than inventing a stop timestamp or retrying.
+- Final60 new synthetic cases/174 focused tests pass. Full pinned backend1414
+  passed/27 existing opt-in skips, one existing dependency deprecation warning.
+  Scoped E/F lint, format, compile, diff/source/security/documentation checks pass.
+  Source publication and exact-head CI receipts remain separate verification.
+- Returned review remains REFERENCES_ONLY/UNREVIEWED_AI_INTERPRETATION/NOT_ADMITTED.
+  This is glucose-only advisory source, not clinical admission or OS/model-quality
+  acceptance. No model request, real medical data, server, phone, schema or therapy
+  operation. Dedicated daily supervisor/provider/profile admission, atomic
+  interactive-first dispatch, encrypted final-result settlement and opt-in
+  scheduling remain explicit next gates. See DAILY_REVIEW_WORKER.md.
+
 # Durable Daily Review Queue - 2026-10-16
 
 - Adds internal encrypted logical-day reservation/get/cancel and one-shot handoff,

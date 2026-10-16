@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Contained Daily Worker
+
+- Dedicated daily JSON/prompt/request bindings must not widen CHAT/photo policy.
+- Consumed durable handoff and independently current canonical archive/source
+  are checked before native start; reply references/source are checked again.
+- Failed/cancelled start still requires exact process stop. Reader cancellation
+  is not thread termination; join owned work before any cleanup confirmation.
+- Only JobExecutor settlement after a positive stop may expose a result. Unknown
+  stop or regressed ledger clock keeps the slot unresolved, never auto-retried.
+- A worker does not confer provider/priority/publication/clinical admission.
+  Results remain NOT_ADMITTED and cannot write therapy or suppress protection.
+
 ## Durable Daily Reservations
 
 - One automatic owner/device/date/zone reservation, independent of prompt,

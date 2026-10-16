@@ -1,5 +1,17 @@
 # ARCHITECTURE
 
+## Contained Daily Review Worker
+
+The internal daily_worker uses a separate pinned daily JSON session, not the
+CHAT output contract. It binds frozen work/model/deadline/queue UUID to a shared
+ledger Job and rechecks durable handoff/latest source before a single native turn
+and current source/references after the reply. Owned reader threads are drained
+on cancellation; the existing JobExecutor exposes a result only after independent
+process stop and ledger settlement. No daily dispatcher/supervisor channel,
+encrypted result lifecycle, provider registration or schedule is activated.
+See DAILY_REVIEW_WORKER.md; shared exclusion is not priority arbitration and
+REFERENCES_ONLY/NOT_ADMITTED is not medical approval.
+
 ## Durable Daily Review Queue
 
 The internal daily_queue module stores one encrypted automatic logical-day

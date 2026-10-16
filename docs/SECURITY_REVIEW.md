@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Contained Daily Worker (2026-10-16)
+
+- Separate exact daily prompt/JSON schema and immutable queue/model/deadline/work
+  digest; no client-selected policy, CHAT widening, tool or action registration.
+- Durable consumed handoff and current archive/source before native start, fresh
+  source/reference gates after reply. Old proofs, forged work or valid JSON alone
+  are not admission. Existing quality/low-first/missing-context labels preserved.
+- Existing correlated native protocol and bounded IO; no retry/fallback/raw output
+  logging or ledger payloads. Failed start still requires independent OS stop.
+- Cancellation joins owned bounded readers. Exact True stop plus shared ledger
+  settlement required before returning result. Unknown cleanup/clock leaves slot
+  held. Concurrency tests prove exclusion/one claim, not priority arbitration.
+- Injection is trusted source composition, not proof of actual Linux containment.
+  No public route, provider/daily supervisor admission, schedule, persisted result
+  or review/publication gate. Free text stays unreviewed and therapy-inert.
+  Source/security review must not be described as a live host/medical-data test.
+
 ## Durable Daily Review Queue (2026-10-16)
 
 - One authenticated encrypted per-device logical-day reservation; prompt/language/

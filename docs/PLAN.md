@@ -1,5 +1,21 @@
 # PLAN
 
+## Contained Daily Review Worker (2026-10-16)
+
+- [x] Inspect the native text protocol, source-checked queue and shared executor.
+- [x] Add a dedicated bounded JSON session and immutable daily request binding;
+  do not widen the public CHAT policy or change model/reasoning settings.
+- [x] Check the consumed queue/archive/source before inference and the current
+  source again after the reply; drain owned readers on cancellation and require
+  independent process stop before the existing executor exposes any result.
+- [x] Final60 new cases/174 focused tests pass, full backend1414 passed/27 existing
+  opt-in skips. Scoped lint/format/compile and source/security/docs review pass.
+- [ ] Publish the reviewed source stage and independently inspect exact-head CI.
+
+This stage does not install or activate a provider, scheduler, API route, phone
+update or therapy path. Interactive-first dispatch and encrypted final-result
+settlement remain separate admission work, not properties of a worker alone.
+
 ## Durable Daily Review Queue (2026-10-16)
 
 - [x] Inspect shared ledger/profile and approved automatic logical-day rules;
