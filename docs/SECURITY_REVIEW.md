@@ -1,5 +1,27 @@
 # SECURITY REVIEW
 
+## Accepted Alarm Sources (2026-10-16)
+
+- Scope is local typed provenance, not therapy/threshold/default/permission or
+  runtime activation. Source candidates contain only bounded identity/level/time
+  and basis metadata, with no new payload export or raw medical logging.
+- Source factories require actual accepted current evidence; UI/retained history
+  cannot authorize. Glucose uses current confirmed candidate, not latched LOW_NOW.
+  Diagnostic uses validated history and matching OPEN event inside its existing
+  transaction, not acceptedAt supplied by a display or downstream caller.
+- Revoke on invalid input, uncertainty, OFF attempts, expiry/clock/boot change.
+  Exact tickets protect a newer publication from a stale failed/cancelled read.
+  Both deadlines stay tied to the original same-CGM window. Clock exceptions
+  cannot suppress legacy first delivery; cancellation/fatal errors propagate.
+- New diagnostic tests reproduced missing accepted-source publication and a
+  cached-source leak on pre-acceptance Room OFF read failure. Tests also cover
+  source-read timeout/cancellation after native success, duplicates, reboot,
+  corrupt state, recovery and forecast-origin expiry using synthetic Room data.
+- The existing shared mutex serializes source commit and OFF without source
+  callbacks re-entering Room/monitor locks. A future active actor still requires
+  explicit pre-lock intent cancellation, full capabilities/current settings,
+  source admission and real-device delivery validation. No100-percent guarantee.
+
 ## Local Noncritical Fatigue Policy (2026-10-16)
 
 - No medical threshold, source authorization, prediction, dose/target, source

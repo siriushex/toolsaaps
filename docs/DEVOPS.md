@@ -1,5 +1,22 @@
 # DEVOPS
 
+## Accepted Alarm Source Stage (2026-10-16)
+
+Glucose and delivery-diagnostic accepted paths now expose checked source feeds;
+no consumer arms a second sound owner. No schema/migration, manifest, service,
+permission, setting default, phone, model/server or therapy operation. Keep
+existing native initial delivery until an explicitly admitted single-owner
+handoff is verified. Source publication/flow emission is not physical delivery.
+Clock failure gives no source, never a fabricated current timestamp. Boot is read
+once per process; after reboot/startup fresh accepted evidence is still required.
+Targeted555 synthetic cases and final full tests/lint/compile/build passed:
+5820 cases,5814 pass/6 existing skips,0 failures/errors; lint0 errors and the
+unchanged371-warning/8-hint baseline. One first-run TLS startup failure did not
+recur in isolated or full retry; retain its original report. Exact-head source
+publication/CI is a separate gate, never phone acceptance.
+Plan: superpowers/plans/2026-10-16-accepted-alarm-sources.md. Do not disable or
+install on a phone, exercise sound/volume or infer clinical validation from CI.
+
 ## Alert Fatigue Source Stage (2026-10-16)
 
 No schema/migration, service/permission/default, source adapter, phone or therapy

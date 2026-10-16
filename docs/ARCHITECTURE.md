@@ -1,5 +1,39 @@
 # ARCHITECTURE
 
+## Accepted Glucose And Diagnostic Alarm Sources
+
+The actual accepted forecast path forwards its CGM timestamp through the notifier
+to episode coordination. A private-constructor observation projects the engine's
+confirmed current candidate, not a latched episode/UI severity. A recovering
+current low cannot repeat legacy LOW_NOW retained by hysteresis. Existing
+clinical thresholds, confirmation, initial notification and episode/AI receipts
+are unchanged. Silent WATCH and unknown current evidence publish no source.
+
+LocalAlarmSourceFeed handles short-lived provenance only: current boot, wall and
+elapsed deadlines, bounded clock disagreement, ordered observations and exact
+revocation tickets. Same-CGM observations can tighten, never extend their original
+window; fresh CGM retains episode generation and queue age. Level changes retain
+generation for existing scoped ACK policy. Failure/safe/OFF ends that cohort;
+another accepted cohort uses its newer committed revision. A cached StateFlow
+is a wake feed, not admission: currentAlarmSource rechecks time and identity.
+
+Glucose binds only after native delivery/receipt work, using a best-effort1s
+readback of the exact matching OPEN episode and Room OFF. Failure/timeout of that
+optional read cannot undo or replay INITIAL. Diagnostic source candidates come
+from the same validated current history/OPEN-event transaction as its existing
+assessment, never from display acceptedAt; they publish after initial notice and
+receipt work. Their expiry also bounds the current forecast origin. Ordinary
+failed posting does not resolve risk; cancellation/storage uncertainty revokes.
+Retained startup display cannot mint authority. Global OFF/resume/toggle attempts
+revoke glucose/diagnostic/pump feeds before writes, even if persistence fails.
+
+AppContainer supplies wall/elapsed time and a process-lifetime boot count; a
+process cannot survive reboot. Unknown boot/time gives no source. No repeated
+Settings-provider read is added to the first-alert path. No production caller
+constructs/arms LocalAlarmCoordinator: single native audio remains unchanged.
+Full foreground/AlarmClock ownership, scoped ACK UI, OFF-expiry reassessment,
+current settings/capabilities and physical phone acceptance remain separate.
+
 ## Accepted Alert Initial Delivery
 
 After strict accepted forecast/UAM/sensitivity binding, normal alert publication
@@ -858,14 +892,14 @@ No additional timer, poll, persistence schema or accepted packet cadence changes
 Existing deadline scheduling captures time after publication, so synchronous
 subscriber work cannot move the absolute heartbeat deadline into the future.
 
-The existing committed global OFF/resume/overview cleanup withdraws this source
-without Room/monitor reentry and before legacy player cleanup. OFF expiry alone
-does not republish it; another validated monitor evaluation is required. This is
-post-commit source invalidation, not pre-lock OFF-intent cancellation of an actor.
-No production consumer constructs or arms LocalAlarmCoordinator. A complete
-current-context bridge still needs glucose/diagnostic producers, stable alarm
-key/generation/queue-age mapping, OFF-intent invalidation and capability/opt-in
-admission. Service/channel/UI/device acceptance gates remain unchanged. Technical
+Global OFF/resume/overview now withdraws this source before the authoritative
+write and again during existing cleanup, without Room/monitor reentry. OFF expiry
+alone does not republish it; another validated monitor evaluation is required.
+This is serialized source invalidation, not pre-lock cancellation of an active
+alarm actor. Glucose/diagnostic source publication is described above; complete
+typed request/capability/opt-in admission and foreground ownership remain open.
+No production consumer constructs or arms LocalAlarmCoordinator.
+Service/channel/UI/device acceptance gates remain unchanged. Technical
 link status cannot establish that a pump is worn or insulin enters the body.
 
 ## Inactive Serialized Alarm Coordinator

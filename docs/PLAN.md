@@ -1,5 +1,23 @@
 # PLAN
 
+## Reliable Alerts: Accepted Sources (2026-10-16)
+
+- [x] Shared checked feed with clock/boot/deadline, exact revocation and stable
+  duplicate measurement generation/queue age; no hardware capability implied.
+- [x] Actual glucose timestamp/current confirmed candidate to matching committed
+  episode, preserving native initial delivery and existing thresholds/receipts.
+- [x] Diagnostic source from validated current history/OPEN event, not retained
+  display; revoke on failed/cancelled work, low risk, OFF, recovery or uncertainty.
+- [x] AppContainer clock/revocation composition, no production coordinator owner.
+- [x]555 targeted cases and complete Android quality pass:5820 cases,5814 passed,
+  6 existing skips,0 failures/errors; lint0 errors,379 unchanged notices.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Single-audio handoff, foreground/AlarmClock owner, scoped ACK UI, OFF-expiry
+  fresh reassessment and separately authorized actual-phone acceptance.
+
+Plan: superpowers/plans/2026-10-16-accepted-alarm-sources.md. Sources are checked
+provenance only; this stage does not activate repeated sounds or prove hearing.
+
 ## Reliable Alerts: Fatigue Policy (2026-10-16)
 
 - [x] Explicit owner approval of repeat/ACK/OFF/visible AlarmClock design.

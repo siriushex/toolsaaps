@@ -250,7 +250,9 @@ class GlucoseAlertEngine {
             episodeId = "",
             strongAlertSequence = nextStrongAlertSequence,
             episodeStage = episodeStage,
-            episodeDirection = episodeDirection
+            episodeDirection = episodeDirection,
+            currentAlarmStage = if (confirmationSatisfied && candidateDirection == resolvedDirection &&
+                resolvedStage != GlucoseAlertState.NONE) candidateStage else GlucoseAlertState.NONE
         )
     }
 
@@ -314,6 +316,10 @@ class GlucoseAlertEngine {
 
     companion object {
         private const val CURRENT_GLUCOSE_FRESH_MAX_MINUTES = 5L
+        internal fun currentGlucoseValidUntilTimestamp(timestamp: Long): Long? {
+            val interval = (CURRENT_GLUCOSE_FRESH_MAX_MINUTES + 1L) * 60_000L
+            return if (timestamp <= 0 || timestamp > Long.MAX_VALUE - interval) null else timestamp + interval
+        }
         private const val LOW_NOW_SAFETY_THRESHOLD_MMOL = 4.0
         private const val SOFT_CONFIRMATION_REQUIRED = 2
         private const val SAFE_DURATION_HYSTERESIS_MS = 15 * 60_000L
@@ -362,7 +368,8 @@ data class GlucoseAlertDecision(
     val episodeId: String = "",
     val strongAlertSequence: Int = 0,
     val episodeStage: GlucoseAlertState = state,
-    val episodeDirection: GlucoseAlertDirection? = direction
+    val episodeDirection: GlucoseAlertDirection? = direction,
+    val currentAlarmStage: GlucoseAlertState = GlucoseAlertState.NONE
 )
 
 enum class GlucoseAlertNotifyKind {

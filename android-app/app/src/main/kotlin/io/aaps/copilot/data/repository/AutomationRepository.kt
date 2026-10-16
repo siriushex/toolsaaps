@@ -2183,7 +2183,8 @@ class AutomationRepository(
             settings = settings,
             causeAnalysis = preparedCause?.analysis,
             causeSnapshot = preparedCause?.snapshot,
-            nowTs = nowTs
+            nowTs = nowTs,
+            currentGlucoseTimestamp = latestGlucose.ts
         )
         persistGlucoseAlertTelemetry(
             nowTs = nowTs,

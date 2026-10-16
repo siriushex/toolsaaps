@@ -1,5 +1,26 @@
 # INVARIANTS
 
+## Accepted Alarm Source Provenance
+
+- Only accepted current decisions bound to committed matching OPEN episodes may
+  publish glucose/diagnostic sources. Persisted events and UI acceptedAt do not
+  authorize repeats; a latched severity is not the current confirmed candidate.
+- Source expiry derives from existing measurement/forecast freshness. Duplicate
+  CGM cannot slide either wall/elapsed deadline or reset generation/queue age.
+  Unknown/changed boot, backward clocks, >5s disagreement and expiry revoke.
+- Shared source mechanics do not detect clinical risk or grant hardware access.
+  Future admission still requires current settings, authoritative Room OFF,
+  platform capabilities and an explicit running single-audio owner.
+- New data revokes old publication before persistence. Storage/read/cancellation
+  failure cannot leave cached authority; stale failure tickets cannot revoke a
+  newer publication. Cancellation/fatal errors are cleaned up then propagated.
+- Native initial delivery and receipts remain first. Optional glucose source
+  readback is bounded; its ordinary error/timeout never undoes or replays INITIAL.
+  Failed diagnostic posting does not itself resolve confirmed clinical risk.
+- OFF/resume/toggle attempts revoke all feeds before writes. OFF expiry, restart
+  and display refresh alone never republish. No extra timer, permission, sound,
+  therapy action or production coordinator activation accompanies this stage.
+
 ## Local Alarm Fatigue Policy
 
 - Noncritical cycles start one short clip only; they never inherit a critical

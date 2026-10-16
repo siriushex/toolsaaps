@@ -1,3 +1,40 @@
+# Accepted Alarm Source Producers - 2026-10-16
+
+- Continued the approved scheme in a bounded source stage. Shared checked feed
+  binds actual accepted glucose/diagnostic evidence to committed matching OPEN
+  episodes, current boot, wall/elapsed deadlines and exact revocation tickets.
+  Same-CGM updates never slide expiry or reset generation/queue age. Fresh CGM
+  preserves cohort identity; safe/failed/OFF revocation requires new acceptance.
+- Glucose notifier now receives the actual AutomationRepository CGM timestamp.
+  The engine separately projects its confirmed current candidate: latched urgent
+  status retained by hysteresis cannot authorize repeating an improved old low.
+  Existing thresholds, confirmation, legacy state/notify and therapy are intact.
+- Native first delivery/receipt stays first; optional1s committed source readback
+  cannot undo its success. Parent cancellation propagates and revokes. Diagnostic
+  candidates come from its existing validated history/OPEN-event transaction;
+  display/startup readback alone never publishes. Ordinary failed posting does
+  not resolve clinical risk; corrupt/failed/cancelled work removes authority.
+- API/behavior REDs captured missing publication, clock-cancellation cleanup and
+  old-source leakage when Room OFF read fails before diagnostic acceptance.
+  Targeted555 cases passed after fixes, including explicit clock/boot/dupe/window,
+  production notifier timestamp forwarding, optional-read timeout/cancellation,
+  OFF write failure, retained/corrupt display and forecast-origin expiry.
+- Boot count is cached once per process; current wall/elapsed checks require no
+  repeated Settings-provider access before first native sound. Final full quality
+  includes another ordinary source-clock-failure/native-delivery isolation test.
+- Full Android test/lint/compile/debug-build passed in7m38s:5820 cases across510
+  suites,5814 passed,6 existing opt-in skips,0 failures/errors. Lint0 errors,
+  371 warnings/8 hints, unchanged379-notice baseline. All69 added cases pass.
+  The first full run had one existing TLS-server startup fixture return null;
+  its isolated45-case suite (44 pass/1 existing skip) and full retry passed without
+  test weakening or exchange-code edits. Original failed evidence is retained.
+  Reviewed19 text paths, no binary/private payload/credential-pattern hit;
+  exact-head source publication/CI remains a separate gate.
+- No phone installation/disable/backup, test sound/volume/DND, service/permission/
+  default/schema, server/model or therapy operation. LocalAlarmCoordinator stays
+  uninstantiated. Foreground/AlarmClock ownership, safe native-audio handoff,
+  scoped ACK UI, OFF-expiry reassessment and actual-device acceptance remain open.
+
 # Local Alarm Fatigue Policy - 2026-10-16
 
 - Explicit owner approval received for configured critical repeats, exact ACK,

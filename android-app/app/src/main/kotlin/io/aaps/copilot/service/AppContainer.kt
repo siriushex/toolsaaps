@@ -706,6 +706,11 @@ class AppContainer(context: Context) {
     }
 
     val glucoseAlertAudioController = GlucoseAlertAudioController(context.applicationContext)
+    // A process cannot survive a device reboot; avoid a Settings-provider read on every alert.
+    private val alarmSourceBootCount: Int = try {
+        android.provider.Settings.Global.getInt(appContext.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { -1 }
     private val alertAiProductionDispatcher = AlertAiProductionFactory.create(
         scope = appScope,
         settingsSource = AlertAiAnalysisSettingsSource {
@@ -736,7 +741,12 @@ class AppContainer(context: Context) {
             io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(context.applicationContext)
             io.aaps.copilot.data.repository.InfusionSetNotifier.clear(context.applicationContext)
         },
-        postCommitObserver = alertAiProductionDispatcher
+        postCommitObserver = alertAiProductionDispatcher,
+        alarmClock = ::currentAlarmSourceClock,
+        revokeAlarmSources = {
+            pumpLinkMonitor.invalidateAlarmSource()
+            deliveryDiagnostic.invalidateAlarmSource()
+        }
     )
     private val glucoseAlertNotifier = GlucoseAlertNotifier(
         context = context.applicationContext,
@@ -757,12 +767,21 @@ class AppContainer(context: Context) {
 
     private val pumpLinkNotifier = PumpLinkNotifier(appContext)
     private val deliveryDiagnosticNotifier = io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier(appContext)
-    private val deliveryDiagnostic = io.aaps.copilot.data.repository.DeliveryDiagnosticRepository(
-        db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
-        { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) }
-    )
+    private val deliveryDiagnostic: io.aaps.copilot.data.repository.DeliveryDiagnosticRepository =
+        io.aaps.copilot.data.repository.DeliveryDiagnosticRepository(
+            db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
+            { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) },
+            alarmClock = ::currentAlarmSourceClock
+        )
     private val infusionSetNotifier = io.aaps.copilot.data.repository.InfusionSetNotifier(appContext)
     val deliveryDiagnosticDisplay get() = deliveryDiagnostic.display
+    val deliveryDiagnosticAlarmSource get() = deliveryDiagnostic.alarmSource
+    fun currentDeliveryDiagnosticAlarmSource() = deliveryDiagnostic.currentAlarmSource()
+    private fun currentAlarmSourceClock(): io.aaps.copilot.data.repository.LocalAlarmSourceClock? = try {
+        io.aaps.copilot.data.repository.LocalAlarmSourceClock(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+            alarmSourceBootCount)
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
     private suspend fun currentInfusionSetEvidence() = io.aaps.copilot.data.repository.InfusionSetEvidenceReader.read(
         db.therapyDao().latestInfusionChangeCandidates(io.aaps.copilot.data.repository.InfusionSetEvidenceReader.TYPES,
             io.aaps.copilot.data.repository.InfusionSetEvidenceReader.MAX_CANDIDATES + 1), System.currentTimeMillis())

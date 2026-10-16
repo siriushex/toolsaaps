@@ -40,7 +40,8 @@ class GlucoseAlertNotifier(
         settings: AppSettings,
         causeAnalysis: AlertCauseAnalysis? = null,
         causeSnapshot: AlertCauseSnapshot? = null,
-        nowTs: Long = System.currentTimeMillis()
+        nowTs: Long = System.currentTimeMillis(),
+        currentGlucoseTimestamp: Long? = null
     ): GlucoseAlertDeliveryResult {
         if (decision.notifyKind == GlucoseAlertNotifyKind.CLEAR) {
             episodeDelivery?.coordinate(
@@ -58,7 +59,8 @@ class GlucoseAlertNotifier(
                 direction = decision.episodeDirection,
                 nowTs = nowTs,
                 causeAnalysis = causeAnalysis,
-                causeSnapshot = causeSnapshot
+                causeSnapshot = causeSnapshot,
+                alarmObservation = GlucoseAlarmObservation.fromDecision(decision, nowTs, currentGlucoseTimestamp)
             )
         ) { claim ->
             ensureChannels()
