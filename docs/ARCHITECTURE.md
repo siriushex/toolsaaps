@@ -1,5 +1,31 @@
 # ARCHITECTURE
 
+## Immediate Alert Control Intent
+
+Episode control actions now revoke delivery before acquiring the persistent
+operation mutex. A database-identity gate stores an opaque control revision,
+pending control count and the one admitted delivery child. Queued work captures
+its revision before waiting; old work cannot start after OFF/resume/toggle even
+if it acquires Room first. Cancellation runs outside the gate monitor.
+
+Only the alert side-effect child is cancelled. Its cleanup completes before the
+persistent lock is released; the caller remains available to finish unrelated
+forecast/therapy work. Parent cancellation and fatal errors still propagate.
+AppContainer immediately stops the shared audio controller and vibration; Room
+OFF, notification cleanup and the legacy mirror retain their serialized order.
+An ordinary immediate-stop failure cannot prevent the persistent OFF attempt.
+Failed writes still fail; the process gate is not a successful persistent mute.
+
+Published glucose sources bind to that exact control revision. Another owner
+cannot restore cached authority after resume; a fresh accepted evaluation opens
+the new cohort. StateFlow remains a wake signal, not admission.
+
+This fixes the live legacy boundary. Native INITIAL still holds the operation
+mutex while starting audio, and the inactive local executor requires that same
+mutex to claim. A coordinator call from inside that callback would deadlock.
+Its eventual handoff must also finish the native boost/local volume-lease cleanup
+before replacing the audio owner. No foreground/AlarmClock activation is implied.
+
 ## Shared Audio Request Ownership
 
 The actual legacy, preview and admitted local paths use one bounded synchronous

@@ -6,9 +6,11 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Looper
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.domain.alerts.*
 import io.aaps.copilot.domain.predict.InsulinActionProfileId
 import java.io.File
@@ -52,6 +54,53 @@ class GlucoseAlertLocalPlaybackTest {
         controller.stop()
         shadowOf(Looper.getMainLooper()).idle()
         Dispatchers.resetMain()
+    }
+
+    @Test fun actualOffCancelsNativePreparationAndLateCallbackCannotRestartIt() = runTest {
+        val database = Room.inMemoryDatabaseBuilder(context, CopilotDatabase::class.java)
+            .allowMainThreadQueries().build()
+        val created = CompletableDeferred<MediaPlayer>()
+        ShadowMediaPlayer.setCreateListener { player, _ -> players += player; created.complete(player) }
+        val machine = EpisodeAlertDeliveryStateMachine(RoomEpisodeAlertReceiptStore(database),
+            revokeRiskPlayback = controller::stop)
+        try {
+            val delivery = async {
+                machine.coordinate(EpisodeAlertSignal(GlucoseAlertState.LOW_NOW, GlucoseAlertDirection.LOW, 1_000_000)) {
+                    val result = controller.playForDecision(urgentDecision(), settings)
+                    GlucoseAlertDeliveryResult(audioPlayed = result.played).toAlertSideEffectResult()
+                }
+            }
+            val player = created.await()
+            machine.muteFor(1_000_000, 30 * 60_000L)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertThat(shadowOf(player).state).isEqualTo(ShadowMediaPlayer.State.END)
+            // The shadow resets its own state to PREPARED even after release.
+            shadowOf(player).invokePreparedListener()
+            assertThat(delivery.await().receiptResult).isEqualTo(AlertReceiptResult.FAILED)
+            assertThat(shadowOf(player).state).isNotEqualTo(ShadowMediaPlayer.State.STARTED)
+            assertThat(controller.playbackState.value.activeSlot).isNull()
+            assertThat(shadowOf(audio).lastAbandonedAudioFocusRequest).isNotNull()
+        } finally { database.close() }
+    }
+
+    @Test fun actualOffStopsAlreadyPlayingNativeAudioBeforeRoomLockIsAvailable() = runTest {
+        val database = Room.inMemoryDatabaseBuilder(context, CopilotDatabase::class.java)
+            .allowMainThreadQueries().build()
+        val lock = EpisodeAlertOperationLocks.forIdentity(database)
+        val playback = async { controller.playForDecision(urgentDecision(), settings) }
+        runCurrent(); prepare()
+        assertThat(playback.await().played).isTrue()
+        val player = players.last()
+        val machine = EpisodeAlertDeliveryStateMachine(RoomEpisodeAlertReceiptStore(database),
+            revokeRiskPlayback = controller::stop)
+        lock.lock()
+        val off = async(start = CoroutineStart.UNDISPATCHED) { machine.muteFor(1_000_000, 30 * 60_000L) }
+        try {
+            shadowOf(Looper.getMainLooper()).idle()
+            assertThat(off.isCompleted).isFalse()
+            assertThat(shadowOf(player).state).isEqualTo(ShadowMediaPlayer.State.END)
+            assertThat(controller.playbackState.value.activeSlot).isNull()
+        } finally { lock.unlock(); off.await(); database.close() }
     }
 
     @Test fun deniedSignalDoesNotCreatePlayerOrRequestFocus() = runTest {

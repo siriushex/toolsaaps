@@ -1,5 +1,24 @@
 # INVARIANTS
 
+## Alert Control Intent Revocation
+
+- Valid OFF/resume/toggle intent advances the shared database control revision
+  before any Room wait. Invalid duration does not revoke an active delivery.
+- Queued work and each admitted side-effect child bind to that revision. New
+  controls cancel only that child; parent cancellation/fatal errors retain their
+  original meaning and are never converted into normal continuation.
+- Persistent control changes remain serialized after exact child cleanup. The
+  immediate audio/vibration stop runs first; an ordinary hardware-stop error
+  cannot skip the Room write. Failed writes never claim a successful OFF.
+- Control cancellation records failure, not audio-start/hearing/acknowledgement.
+  It neither fabricates a new clinical INITIAL nor dispatches a postcommit AI
+  request as if the cancelled attempt succeeded.
+- Cached glucose source admission requires its publication control revision,
+  including across multiple owners of the same database. Ending a control or
+  resuming cannot make old cached evidence current again.
+- No new repeat owner, permission, default, therapy behavior or platform wake
+  scheduling is activated by this prerequisite repair.
+
 ## Accepted Alarm Source Provenance
 
 - Only accepted current decisions bound to committed matching OPEN episodes may

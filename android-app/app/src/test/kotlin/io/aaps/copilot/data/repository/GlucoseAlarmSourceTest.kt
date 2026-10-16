@@ -168,6 +168,19 @@ class GlucoseAlarmSourceTest {
         machine.resume(now); assertNull(machine.currentAlarmSource())
     }
 
+    @Test fun controlFromAnotherOwnerCannotRestoreACachedSourceAfterResume() = runBlocking {
+        val sourceOwner = machine(); accept(sourceOwner)
+        val previous = sourceOwner.currentAlarmSource()!!
+        val actionOwner = machine()
+        actionOwner.muteFor(now, 30 * 60_000L)
+        assertNull(sourceOwner.currentAlarmSource())
+        actionOwner.resume(now)
+        assertNull("A new control epoch cannot authorize an old source", sourceOwner.currentAlarmSource())
+        advance(300_000); accept(sourceOwner)
+        val refreshed = sourceOwner.currentAlarmSource()!!
+        assertNotEquals(previous.evidence.generation, refreshed.evidence.generation)
+    }
+
     @Test fun offBeforeAnyDeliveryDoesNotAuthorizeUntilFreshUnmutedAcceptance() = runBlocking {
         val machine = machine(); machine.muteFor(now, 30 * 60_000L)
         accept(machine)

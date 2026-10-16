@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Pre-lock Alert Control (2026-10-16)
+
+- Metadata gate shares the actual database coordination identity. Its revision
+  invalidates queued old work and owns only the admitted alert child; cancellation
+  executes outside the monitor and cannot cancel the enclosing clinical caller.
+- The persistent operation mutex still covers cleanup/receipt/Room mutations.
+  Immediate audio/vibration revocation has no new permission or authority. An
+  ordinary stop callback failure does not skip the authoritative OFF attempt.
+- Real parent cancellation/fatal errors propagate. A deliberately cancelled
+  alert attempt remains failed, not a notification/audio/AI success. Existing
+  conditional initial-delivery observer is unchanged.
+- Regression review reproduced cross-instance cached source revival. Glucose
+  source publication now retains its exact control revision; another owner's
+  OFF/resume cannot revive it. No retained UI source may grant hardware access.
+- Synthetic tests exercise in-memory Room and the actual controller with fake
+  media. No phone sound/volume, medical payload, network/model or therapy action.
+  Real foreground/wake/scoped-ACK admission and device validation remain open.
+
 ## Audio Ownership And Saved Review Presentation (2026-10-16)
 
 - Metadata-only synchronous fence contains no Room/platform callbacks or clinical

@@ -1,5 +1,18 @@
 # DEVOPS
 
+## Immediate OFF Source Repair (2026-10-16)
+
+Existing control entry points now revoke the admitted delivery child and shared
+audio/vibration before waiting for Room. Control revision is process metadata,
+not a database migration or substitute for persisted OFF. Parent cancellation,
+failed write and exact cleanup remain visible. No permission, service, scheduler,
+dependency/default, host/model or phone operation is included. Full Android
+quality passed5868 cases/6 existing skips/0 failures or errors in20m24s; lint
+has0 errors and unchanged379 notices. Debug v2 signature verified. Exact-head
+CI remains required before source-stage completion.
+The native INITIAL lock/volume handoff remains a prerequisite to real repeated
+runtime activation; do not infer it from the current pre-lock cancellation fix.
+
 ## Audio Ownership And Focus Follow-through (2026-10-16)
 
 Source/controller/UI changes only. No schema, dependency, manifest, service,

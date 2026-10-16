@@ -746,6 +746,10 @@ class AppContainer(context: Context) {
         revokeAlarmSources = {
             pumpLinkMonitor.invalidateAlarmSource()
             deliveryDiagnostic.invalidateAlarmSource()
+        },
+        revokeRiskPlayback = {
+            glucoseAlertAudioController.stop()
+            GlucoseAlertNotifier.cancelGlucoseAlertVibration(context.applicationContext)
         }
     )
     private val glucoseAlertNotifier = GlucoseAlertNotifier(

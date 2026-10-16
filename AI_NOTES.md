@@ -1,3 +1,34 @@
+# Immediate Alert Control Intent - 2026-10-16
+
+- Four new behavioral tests reproduced delayed OFF behind Room, queued old
+  delivery winning the mutex, and suspended native/technical side effects
+  preventing control completion. Added a shared database control revision and
+  an owned alert child. OFF/resume/toggle revoke before Room; only that child's
+  cancellation is absorbed, preserving the parent caller and fatal errors.
+- AppContainer immediately stops shared audio/vibration before persistence.
+  Room control/receipt writes and postcommit cleanup stay serialized. An ordinary
+  immediate-stop error cannot suppress the persistent OFF attempt; failed writes
+  remain failures. Invalid duration cannot revoke an active request.
+- Updated three old tests that expected delivery to finish before OFF; they now
+  verify cancellation/cleanup and no late post.348 focused cases pass, including
+  two new actual-controller/Room tests for preparing and already-playing media.
+  A fixture assertion now checks END before the shadow's late-prepared helper
+  itself resets state, then independently checks that playback did not start.
+- Review found and reproduced cached glucose-source revival across two owners
+  after OFF/resume. Publication now binds to the exact control revision and a
+  new accepted evaluation is required to open another cohort. Complete Android
+  unit/lint/Kotlin/debug-build passed in20m24s:5868 cases across512 suites,
+  5862 passed/6 existing skips,0 failures/errors. All42 actual-controller and8
+  control-intent cases pass. Lint0 errors,371 warnings/8 hints with identical
+  notice keys to the previous full baseline. APK v2 signature verified.
+  Reviewed16 text paths; no credential-pattern or new restricted-identifier hit.
+  Source publication and exact-head CI remain a separate final check.
+- The full runtime still requires native INITIAL lock/volume handoff: its callback
+  holds the mutex required by local execution. No foreground service, AlarmClock,
+  scoped ACK UI, manifest/default, phone/model/server or therapy activation here.
+- Previous published192a52f0 passed both Verify runs38870159391/38870150944;
+  those receipts are prior-stage evidence, not verification of these changes.
+
 # Shared Audio Ownership And Focus Follow-through - 2026-10-16
 
 - Audited the expanded owner request against actual source. Approved Focus

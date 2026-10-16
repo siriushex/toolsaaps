@@ -1,5 +1,26 @@
 # PLAN
 
+## Immediate Alert Control Boundary (2026-10-16)
+
+- [x] Reproduce four actual OFF-versus-lock/preparation/queued-delivery defects.
+- [x] Cancel the exact admitted alert child before Room without cancelling its
+  enclosing caller; wire immediate shared audio/vibration stop in AppContainer.
+- [x] Verify348 focused cases, including42 actual-controller shadow-media cases.
+- [x] Reproduce cross-owner cached-source revival; bind publication to the exact
+  control revision and require fresh accepted evaluation after a control change.
+- [x] Full Android unit/lint/Kotlin/debug-build passed in20m24s:5868 cases,
+  5862 pass/6 existing skips,0 failures/errors; lint0 errors and unchanged379
+  notice keys. APK v2 signature verified,16 reviewed text paths scanned.
+- [ ] Exact-head source publication/CI; original behavioral failures and final
+  reports are retained in private execution evidence.
+- [ ] Continue safe native INITIAL/volume handoff, foreground/AlarmClock owner,
+  scoped acknowledgement and fresh OFF-expiry reassessment. The coordinator
+  remains inactive; this repair alone is not the completed runtime.
+
+Plan: superpowers/plans/2026-10-16-alarm-runtime-integration.md. Previous source
+stage192a52f0 passed both Verify runs38870159391/38870150944, including downloaded
+reports matching5857 local cases; those checks do not verify the current changes.
+
 ## Feature Completion And Audio Ownership (2026-10-16)
 
 - [x] Revalidate Focus implementation and actual source gaps; split exclusive

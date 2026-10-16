@@ -118,14 +118,17 @@ class EpisodeAlertDeliveryRoomTest {
     }
 
     @Test
-    fun technicalSideEffectAndMuteShareTheSameOperationLock() = runBlocking {
+    fun technicalCancellationFinishesBeforeMuteCommitsUnderTheSharedLock() = runBlocking {
         val entered = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
+        val cleaned = CompletableDeferred<Unit>()
         val muteStarted = CompletableDeferred<Unit>()
         val first = machine()
         val second = machine()
         val delivery = async(Dispatchers.Default) {
-            first.coordinateMutedSideEffect { entered.complete(Unit); release.await() }
+            first.coordinateMutedSideEffect {
+                entered.complete(Unit)
+                try { kotlinx.coroutines.awaitCancellation() } finally { cleaned.complete(Unit) }
+            }
         }
         entered.await()
         val mute = async(Dispatchers.Default) {
@@ -133,12 +136,9 @@ class EpisodeAlertDeliveryRoomTest {
             second.muteFor(10_000L, GlucoseAlertMuteOption.MINUTES_30.durationMs)
         }
         muteStarted.await()
-        delay(100L)
-        val completedBeforeRelease = mute.isCompleted
-        release.complete(Unit)
-        delivery.await()
-        mute.await()
-        assertThat(completedBeforeRelease).isFalse()
+        withTimeout(2_000L) { mute.await(); delivery.await() }
+        assertThat(cleaned.isCompleted).isTrue()
+        assertThat(first.currentMutedUntil()).isEqualTo(10_000L + GlucoseAlertMuteOption.MINUTES_30.durationMs)
     }
 
     @Test
@@ -251,7 +251,7 @@ class EpisodeAlertDeliveryRoomTest {
     @Test
     fun concurrentCoordinateMuteAndResumeStaySerialized() = runBlocking {
         val deliveryEntered = CompletableDeferred<Unit>()
-        val releaseDelivery = CompletableDeferred<Unit>()
+        val deliveryCleaned = CompletableDeferred<Unit>()
         val muteStarted = CompletableDeferred<Unit>()
         val resumeStarted = CompletableDeferred<Unit>()
         val completionOrder = Collections.synchronizedList(mutableListOf<String>())
@@ -261,8 +261,7 @@ class EpisodeAlertDeliveryRoomTest {
         val delivery = async(Dispatchers.Default) {
             first.coordinate(low(nowTs = 20_000L)) {
                 deliveryEntered.complete(Unit)
-                releaseDelivery.await()
-                AlertSideEffectResult.delivered()
+                try { kotlinx.coroutines.awaitCancellation() } finally { deliveryCleaned.complete(Unit) }
             }
         }
         deliveryEntered.await()
@@ -280,14 +279,9 @@ class EpisodeAlertDeliveryRoomTest {
         }
         muteStarted.await()
         resumeStarted.await()
-        delay(100L)
-        assertThat(mute.isCompleted).isFalse()
-        assertThat(resume.isCompleted).isFalse()
-
-        releaseDelivery.complete(Unit)
-        delivery.await()
-        val mutedUntil = mute.await()
-        resume.await()
+        val mutedUntil = withTimeout(2_000L) { mute.await().also { resume.await(); delivery.await() } }
+        assertThat(deliveryCleaned.isCompleted).isTrue()
+        assertThat(delivery.await().receiptResult).isEqualTo(AlertReceiptResult.FAILED)
         val expectedFinalMute = if (completionOrder.last() == "resume") 0L else mutedUntil
         assertThat(mutedUntil).isEqualTo(20_001L + GlucoseAlertMuteOption.MINUTES_30.durationMs)
         assertThat(first.currentMutedUntil()).isEqualTo(expectedFinalMute)
