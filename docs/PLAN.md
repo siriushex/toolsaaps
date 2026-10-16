@@ -1,5 +1,24 @@
 # PLAN
 
+## Durable Daily Review Queue (2026-10-16)
+
+- [x] Inspect shared ledger/profile and approved automatic logical-day rules;
+  choose a queue that consumes no interactive/global model slot during preparation.
+- [x] Observe missing-queue RED; implement encrypted reservation/get/cancel and
+  fresh-source/current-report one-shot handoff with explicit additive schema 4.
+- [x] Reproduce missing post-commit deadline RED; committed handoff markers remain
+  consumed even when acknowledgement fails, with no automatic second delivery.
+- [x] Final40 new cases/261 focused tests pass; full pinned backend1354 passed,
+  27 existing opt-in skips. Scoped lint/compile and diff checks pass.
+- [x] Final source/security/docs review passes. Synthetic6343-point/22-day queue
+  survives restart and delivers once: enqueue0.93s/handoff0.7385s,104.7MiB process
+  including fixture/imports. Not provider/target-host capacity or clinical evidence.
+- [ ] Explicit reviewed source publication and independent exact-head CI receipts.
+
+No worker, provider/global-slot admission, schedule, server, phone or therapy
+activation. Durable results and actual priority/contained execution remain separate.
+See DAILY_REVIEW_QUEUE.md; one-shot handoff is not exactly-once model execution.
+
 ## Checked Daily Review Boundaries (2026-10-16)
 
 - [x] Inspect dedicated CHAT/photo queue contracts; no implicit daily fallback.

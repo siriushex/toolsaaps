@@ -1,5 +1,23 @@
 # INVARIANTS
 
+## Durable Daily Reservations
+
+- One automatic owner/device/date/zone reservation, independent of prompt,
+  language/report revision or retry. Only the latest completed civil day may
+  be newly enqueued; original frozen work/audit are never silently replaced.
+- Authenticate complete encrypted queue payload and metadata under a distinct
+  purpose. Only explicit enqueue enables schema 4; reads/cancel/handoff do not.
+  Existing history/chat/report quotas and fixed report-day retention include it.
+- Recheck latest source/report and exact current work under serialized handoff.
+  Record handoff before returning work, at most once across concurrent callers
+  and restarts. A committed marker with missing acknowledgement is not retried.
+- HANDOFF_RECORDED is not model submission/success/stop or publication. Queued
+  cancellation cannot pretend to stop handed work. No global slot is reserved;
+  actual worker admission/priority/ownership/settlement remain separate.
+- Dispatch deadline is next civil-day end, respecting DST; audit expiry never
+  extends. An old prompt can be read for audit but not handed off under new pins.
+  No provider, scheduler, public/API/therapy activation follows from these methods.
+
 ## Checked Daily Review Boundaries
 
 - Preparation and reply evaluation independently consume authenticated source

@@ -1,5 +1,25 @@
 # SECURITY REVIEW
 
+## Durable Daily Review Queue (2026-10-16)
+
+- One authenticated encrypted per-device logical-day reservation; prompt/language/
+  revision changes cannot create another automatic request. Latest completed day
+  only, no year-of-jobs restart backfill. Old snapshots are retained for audit.
+- Distinct queue AEAD purpose binds sequence/key/UUID/state/clocks and work. Reuse
+  private files/lock/manifest/keys, shared quotas, fixed retention and bounded
+  payload/count/SQL/wall limits. No raw work, model errors or credentials are logged.
+- Handoff rechecks source/latest report/current work inside a serialized write,
+  then records one-shot delivery before return. Actual commit uncertainty cannot
+  cause another delivery; failures before commit roll back. Cancellation is not
+  an unsupported stop claim. Unknown model/stop outcomes remain unreconciled.
+- No provider/slot admission or worker is created; queue handoff is not permission
+  to invoke a model. Shared profile/ledger priority/stop/result admission must be
+  independently composed. Existing public CHAT/photo contracts remain unchanged.
+- Explicit schema 4 is forward-only; reads never migrate. Operator file rollback,
+  deletion or an older snapshot is not forensically defeated by this store.
+  Preserve uncertain originals and reconcile ledger before any operational restore.
+  No server, medical-data, APK or therapy operation accompanies the source stage.
+
 ## Checked Daily Review Boundaries (2026-10-16)
 
 - Independent source check is consumed inside both trusted preparation and reply

@@ -51,6 +51,20 @@ def prepare_checked_review(
         return SourceCheckedReviewWork(work, source)
 
 
+def _bind_work_to_report(report, source, work, packet, *, now_ms):
+    if report is not None and (
+        report.reportKey,
+        report.reportRevision,
+        report.factsDigest,
+    ) != (packet.reportKey, packet.reportRevision, packet.factsDigest):
+        raise HistoryError(409, "daily_review_report_superseded")
+    matched = _matched_report(report, source)
+    expected = _prepare_input(matched, now_ms=now_ms, language=packet.language)
+    if expected != work:
+        raise HistoryError(409, "daily_review_work_archive_mismatch")
+    return expected
+
+
 def validate_checked_review(store, owner, device, work, body, *, now_ms):
     valid_time(now_ms)
     packet = daily_review._packet(work)
@@ -71,16 +85,7 @@ def validate_checked_review(store, owner, device, work, body, *, now_ms):
         zone_id=window.zoneId,
         now_ms=now_ms,
     ) as (report, source):
-        if report is not None and (
-            report.reportKey,
-            report.reportRevision,
-            report.factsDigest,
-        ) != (packet.reportKey, packet.reportRevision, packet.factsDigest):
-            raise HistoryError(409, "daily_review_report_superseded")
-        matched = _matched_report(report, source)
-        expected = _prepare_input(matched, now_ms=now_ms, language=packet.language)
-        if expected != work:
-            raise HistoryError(409, "daily_review_work_archive_mismatch")
+        expected = _bind_work_to_report(report, source, work, packet, now_ms=now_ms)
         try:
             result = daily_review.validate_review(
                 expected, body, current_source_digest=source.sourceDigest, now_ms=now_ms

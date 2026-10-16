@@ -1,5 +1,23 @@
 # DEVOPS
 
+## Durable Daily Queue Source Stage (2026-10-16)
+
+Only explicit enqueue adds daily_review_queue/index and commits additive schema 4
+after preserving schemas 1-3. Reads/get/handoff/cancel never migrate. Failed payload
+writes roll back rows; an already committed additive migration may remain. Queue
+payloads share quotas/purge, distinct AEAD purpose and fixed report-day+365d expiry.
+
+Old source supporting only schemas 1-3 cannot reopen schema 4. No reverse SQL,
+table drop or version reset is a rollback. No host/database/backup operation is
+performed here. Future rollout requires compatible source and coordinated protected
+restore/ledger reconciliation; do not replay reservations from an older snapshot.
+
+Handoff is one-shot even after commit succeeded but acknowledgement/deadline
+failed. Preserve the marker/unknown outcome rather than automatically resubmitting.
+No model, worker, slot reservation, schedule, capability or public route is enabled;
+actual dispatch arbitration/containment/result settlement remain separate.
+See DAILY_REVIEW_QUEUE.md.
+
 ## Checked Daily Review Boundary Stage (2026-10-16)
 
 Only trusted synchronous read helpers consume the source check; future async

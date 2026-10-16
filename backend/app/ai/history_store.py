@@ -252,13 +252,15 @@ class HistoryStore:
                 "sqlite_sequence",
             }
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version in (2, 3):
+            if version in (2, 3, 4):
                 expected.add("server_chat")
-            if version == 3:
+            if version in (3, 4):
                 expected.add("daily_reports")
+            if version == 4:
+                expected.add("daily_review_queue")
             if tables != expected:
                 raise ValueError("dedicated_history_database_required")
-            if version not in (1, 2, 3):
+            if version not in (1, 2, 3, 4):
                 raise ValueError("unsupported_history_schema")
             manifest = db.execute("SELECT * FROM history_manifest").fetchall()
             if (
@@ -293,6 +295,8 @@ class HistoryStore:
             db.execute("DELETE FROM server_chat WHERE expires_ms<=?", (now_ms,))
         if version >= 3:
             db.execute("DELETE FROM daily_reports WHERE expires_ms<=?", (now_ms,))
+        if version >= 4:
+            db.execute("DELETE FROM daily_review_queue WHERE expires_ms<=?", (now_ms,))
 
     @staticmethod
     def _highwater(db):
@@ -321,6 +325,12 @@ class HistoryStore:
             ).fetchone()
             count += reports
             extra += report_bytes
+        if version >= 4:
+            queued, queue_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_review_queue"
+            ).fetchone()
+            count += queued
+            extra += queue_bytes
         if (
             count > self.max_rows
             or size + extra > self.max_bytes
@@ -634,6 +644,37 @@ class HistoryStore:
 
         return validate_checked_review(self, owner, device, work, body, now_ms=now_ms)
 
+    def enqueue_daily_glucose_review(self, owner, device, **options):
+        from .daily_queue import enqueue
+
+        return enqueue(self, owner, device, **options)
+
+    def get_queued_daily_glucose_review(self, owner, device, queue_id, *, now_ms):
+        from .daily_queue import get_entry
+
+        return get_entry(self, owner, device, queue_id, now_ms=now_ms)
+
+    def handoff_daily_glucose_review(self, owner, device, queue_id, *, now_ms):
+        from .daily_queue import handoff
+
+        return handoff(self, owner, device, queue_id, now_ms=now_ms)
+
+    def cancel_daily_glucose_review(self, owner, device, queue_id, *, now_ms):
+        from .daily_queue import cancel
+
+        return cancel(self, owner, device, queue_id, now_ms=now_ms)
+
+    def _enable_daily_queue(self, db):
+        from .daily_queue import SCHEMA as QUEUE_SCHEMA
+
+        self._enable_daily_reports(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] == 3:
+            db.execute("BEGIN IMMEDIATE")
+            for statement in QUEUE_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=4")
+            db.commit()
+
     def _enable_daily_reports(self, db):
         from .daily_reports import SCHEMA as REPORT_SCHEMA
 
@@ -645,23 +686,28 @@ class HistoryStore:
             db.execute("PRAGMA user_version=3")
             db.commit()
 
+    @staticmethod
+    def _daily_budget(db):
+        stop_at, instructions = time.monotonic() + 5, 0
+
+        def budget():
+            nonlocal instructions
+            instructions += 1000
+            return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
+
+        if db is not None:
+            db.set_progress_handler(budget, 1000)
+        return stop_at
+
     @contextmanager
     def _daily_read_snapshot(self, owner, device):
         """Archive selection and source reads can share one bounded transaction."""
         with self._locked():
             db = self._open(owner, device, create=False)
             try:
-                stop_at = time.monotonic() + 5
-                instructions = 0
-
-                def budget():
-                    nonlocal instructions
-                    instructions += 1000
-                    return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
-
+                stop_at = self._daily_budget(db)
                 if db is not None:
                     db.execute("BEGIN")
-                    db.set_progress_handler(budget, 1000)
                     snapshot = self._highwater(db)
                 else:
                     snapshot = 0

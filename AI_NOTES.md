@@ -1,3 +1,33 @@
+# Durable Daily Review Queue - 2026-10-16
+
+- Adds internal encrypted logical-day reservation/get/cancel and one-shot handoff,
+  with source-checked frozen work and a stable future correlation UUID. Only the
+  latest completed civil day can be newly enqueued. Prompt/language/report changes,
+  concurrent calls or restart cannot create another automatic day reservation.
+- Explicit enqueue alone adds schema 4 while preserving history/chat/reports.
+  Queue content and authenticated metadata use a distinct AEAD purpose, shared
+  quotas/purge,128KiB entry/512-entry caps and fixed report-day+365d audit retention.
+  Dispatch deadline follows next civil-day end, including23/25-hour DST days.
+- Handoff rechecks current latest report/source and exact canonical work under
+  one serialized write before recording delivery. A separate RED exposed missing
+  post-commit timeout checking; committed markers stay consumed if acknowledgement
+  failed. No at-least-once retry or unsupported successful-model/stop claim.
+- Initial quota test used a cap below its existing source-read rows; corrected
+  the fixture limit to isolate actual shared write-quota rollback. Original test
+  evidence retained. Final40 new cases/261 focused and1354 full backend tests
+  pass,27 existing opt-in skips and one existing dependency deprecation warning.
+  Scoped E/F lint, compile, diff/source/security/docs checks pass.
+- Synthetic6343-point/22-day queue: enqueue0.93s,handoff0.7385s,104.7MiB process
+  including fixture/imports,12541-byte encoded item. Restart preserved input and
+  only one delivery. This is not provider/target-host capacity, clinical accuracy
+  or token/cost evidence. Source publication/exact-head CI remain separate gates.
+- No queue operation reserves shared ledger/profile capacity. Handoff explicitly
+  has no provider/slot admission. Dedicated worker priority/containment, encrypted
+  result settlement, schedule and live activation remain separate. No model,
+  medical data, host, APK or therapy operation. Schema4 cannot be opened by source
+  supporting only1-3; operational restore must preserve uncertainty/reconcile ledger.
+  See DAILY_REVIEW_QUEUE.md.
+
 # Checked Daily Review Boundaries - 2026-10-16
 
 - Adds trusted prepare_checked_daily_glucose_review and

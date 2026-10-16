@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Durable Daily Review Queue
+
+The internal daily_queue module stores one encrypted automatic logical-day
+reservation and frozen source-checked work per owner/device/date/zone. Explicit
+enqueue alone adds schema 4. Shared quotas/retention/private-file rules apply.
+One serialized fresh-source/latest-report check records one-shot handoff before
+returning work; restart or an uncertain acknowledgement cannot reissue it.
+No model, global slot, worker, scheduler or public capability is activated.
+See [DAILY_REVIEW_QUEUE.md](DAILY_REVIEW_QUEUE.md).
+
 ## Source-Checked Daily Review Boundaries
 
 The internal checked_daily_review bridge now consumes the independent retained-

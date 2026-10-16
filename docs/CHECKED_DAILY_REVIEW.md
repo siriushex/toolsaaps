@@ -65,6 +65,9 @@ Reads do not migrate, reserve jobs, persist results or change report metadata.
 
 The existing generic queue admits only its dedicated CHAT/MEAL_PHOTO contracts.
 These review helpers are not registered there and cannot be routed through CHAT.
+A separate internal encrypted logical-day queue now consumes checked preparation
+and reuses the exact-work binding at one-shot handoff. It reserves no shared slot
+and launches no worker/model. See [DAILY_REVIEW_QUEUE.md](DAILY_REVIEW_QUEUE.md).
 A future daily worker must use the checked preparation immediately before actual
 dispatch, not treat earlier queued preparation as continuing permission. It must
 use checked result evaluation after response, then coordinate a fresh check with
@@ -72,7 +75,7 @@ any durable publication commit. Releasing this read lock cannot promise that
 history will not change next; a returned object is not an enduring certificate.
 
 Still separate: daily provider/policy/contained stop and shared-profile ownership,
-encrypted durable work/results, logical-day reservation, uncertain-outcome handling,
+encrypted durable results, coordinated reservation/uncertain-outcome settlement,
 interactive-first opt-in schedule, clinical advisory-quality admission and protected
 device/admin read surfaces. No live model, server, APK or therapy change is made.
 
