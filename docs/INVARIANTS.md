@@ -1,5 +1,24 @@
 # INVARIANTS
 
+## Local Alarm Fatigue Policy
+
+- Noncritical cycles start one short clip only; they never inherit a critical
+  maximum. Critical floors, within-clip ramp and configured repeat stay intact.
+- Unchanged noncritical identities double scheduled intervals to30 minutes.
+  Current evidence refresh never resets backoff/slides an existing due. Lifetime
+  ordinal is identity/replay protection, not a per-generation repeat count.
+- Shared noncritical cooldown uses current-boot confirmed audio-start receipts
+  across sources, not just current requests, notification posting or claim time.
+  A live claim reserves one slot but never establishes successful sound/hearing.
+- Shared-history uncertainty prevents only new noncritical sound. Critical
+  selection/admission never waits for the unrelated shared-history query.
+- Shared preview and committed admission use the same transactional gate.
+  Deferral does not consume ordinal, fake a result or acknowledge any source.
+- Exact ACK and global OFF remain effective. Neither history refresh, higher
+  risk nor model output can bypass deliberate global OFF. No catch-up bursts.
+- Source authority, foreground/wake/ACK UI integration and physical acceptance
+  are not supplied by this inactive policy stage. No phone or therapy change.
+
 ## Accepted Alert Delivery Isolation
 
 - Accepted forecast/UAM/sensitivity authority validation precedes every consumer.

@@ -1,7 +1,8 @@
 # Reliable Local Alert Delivery
 
-Status: approved for staged source implementation by the owner's 2026-10-16
-continuation after the written review. Not implemented or armed as a whole.
+Status: explicitly approved by the owner's 2026-10-16 answer, including configured
+critical repeats, scoped ACK, noncritical backoff, global OFF and genuine visible
+AlarmClock wake. Staged source implementation; not implemented or armed as a whole.
 Scope: delivery, confirmation, repeat timing, operational readiness and audit.
 Keep accepted clinical detection, thresholds, freshness/sensor guards, prediction,
 therapy/targets and existing global OFF semantics unchanged. No live phone,

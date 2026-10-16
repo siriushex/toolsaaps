@@ -954,8 +954,12 @@ claims. At most four absolute step windows are visited, with cancellable waits
 bounded by source expiry and cycle end. Late windows are skipped, not replayed.
 Volume readback must confirm each target before audio; the same step window is
 rechecked inside volume/player admission, so a slow hardware read cannot admit
-an old step. Strong clips start once, soft clips at most four times. Later cycles
-retain the confirmed target maximum. Indexed bounded journal reads replace
+an old step. Strong clips start once and retain their confirmed target maximum
+on later cycles. Noncritical cycles use one short clip at the initial25% target,
+never a four-clip ramp or a maximum inherited from a previous critical level.
+The old15-second first-step admission window is shared by player and executor;
+the55-second cleanup bound does not authorize a delayed soft start.
+Indexed bounded journal reads replace
 neither source freshness nor Android capability admission; there is no polling,
 forecast, AI or therapy work on this path.
 
@@ -966,6 +970,36 @@ cleanup; noncancellable cleanup attempts audio stop, guarded volume release and
 journal finish independently, then always drops ownership/unlocks. Cancellation
 propagates; unconfirmed cleanup is not FINISHED, and interrupted claims require
 existing UNCERTAIN recovery without replay. No automatic retry is introduced.
+
+### Noncritical Backoff And Shared Cooldown (2026-10-16)
+
+The inactive local runtime doubles each unchanged noncritical cycle's previous
+persisted interval up to30 minutes (default5/10/20/30). Derivation uses last-cycle
+start and next due, not lifetime ordinal, so no schema change is needed. Duplicate
+or fresh same-level evidence does not slide due/reset backoff. New generation/
+level and fresh admission after ACK/OFF reset to configured base. Critical cadence
+stays configured (default2 minutes) and retains reached progression. An overdue
+cycle schedules one next opportunity from now, never catches up a backlog.
+
+RoomLocalAlarmStore computes shared noncritical admission inside its existing
+operation lock/transaction for both preview and committed START. It reads up to65
+current-boot journal rows in the soft-interval+cycle-timeout lookback, including
+sources absent from the current batch. Over64, bad payload/time/claim shape or a
+query failure makes only new noncritical sound unavailable. Confirmed STARTED
+audio receipts establish the configured shared interval. Failed/not-requested
+audio and notification-only results do not. Live exact claims reserve the slot
+only through cleanup/deadline; a reservation is not a delivery receipt.
+
+COOLDOWN preserves per-source due/ordinal/ACK state and schedules the shared
+deadline or earlier source expiry. Critical selection/retention and committed
+critical admission skip the unrelated shared-history query entirely. Exact
+active ownership, cancellation, recovery and cleanup rules are unchanged. The
+query bounds materialized rows, not total SQLite scan work; it adds no index or
+migration. Profile its retained-history cost before live activation.
+
+This is policy/executor support, not production source/foreground/AlarmClock/ACK
+integration. The existing native urgent fallback remains independent and the
+single-owner runtime is still not instantiated by production AppContainer.
 
 Operational multi-source ownership, fresh source/OFF publication, async playback
 failure/native fallback, visual notification, vibration/wake ownership, dedicated

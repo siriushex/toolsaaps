@@ -7,12 +7,12 @@ import org.junit.Test
 class LocalAlarmProfilesTest {
     private val timing = LocalAlarmTiming()
 
-    @Test fun softLevelsUseFourBoundedClips() {
+    @Test fun softLevelsUseOneShortClipWithoutWithinCycleEscalation() {
         for (level in listOf(LocalAlarmLevel.SOFT_HIGH_RISK, LocalAlarmLevel.WARNING_30,
             LocalAlarmLevel.PUMP_LINK, LocalAlarmLevel.DELIVERY_DIAGNOSTIC)) {
             val profile = LocalAlarmProfiles.create(level, timing)!!
-            assertThat(profile.steps.map { it.offsetMs }).containsExactly(0L, 15_000L, 30_000L, 45_000L).inOrder()
-            assertThat(profile.steps.map { it.targetPercent }).containsExactly(25, 50, 75, 100).inOrder()
+            assertThat(profile.steps.map { it.offsetMs }).containsExactly(0L)
+            assertThat(profile.steps.map { it.targetPercent }).containsExactly(25)
             assertThat(profile.steps.all { it.startsClip }).isTrue()
             assertThat(profile.clipDurationMs).isEqualTo(2_000)
             assertThat(profile.repeatMs).isEqualTo(300_000L)
@@ -45,10 +45,15 @@ class LocalAlarmProfilesTest {
     }
 
     @Test fun actuallyReachedProgressionIsRetainedAcrossRepeats() {
-        val profile = LocalAlarmProfiles.create(LocalAlarmLevel.WARNING_30, timing, reachedPercent = 75)!!
+        val profile = LocalAlarmProfiles.create(LocalAlarmLevel.CRITICAL_5, timing, reachedPercent = 75)!!
         assertThat(profile.steps.map { it.targetPercent }).containsExactly(75, 75, 75, 100).inOrder()
         val completed = LocalAlarmProfiles.create(LocalAlarmLevel.LOW_NOW, timing, reachedPercent = 100)!!
         assertThat(completed.steps.map { it.targetPercent }).containsExactly(100, 100, 100, 100).inOrder()
+    }
+
+    @Test fun softSignalDoesNotInheritMaximumVolumeFromEarlierCriticalRisk() {
+        val profile = LocalAlarmProfiles.create(LocalAlarmLevel.WARNING_30, timing, reachedPercent = 100)!!
+        assertThat(profile.steps.map { it.targetPercent }).containsExactly(25)
     }
 
     @Test fun minimumAndMaximumConfiguredTimingsStayBounded() {

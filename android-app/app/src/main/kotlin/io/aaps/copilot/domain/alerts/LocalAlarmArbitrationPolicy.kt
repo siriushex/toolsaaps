@@ -83,6 +83,7 @@ object LocalAlarmArbitrationPolicy {
         val deadline = when (evaluation.admission) {
             LocalAlarmAdmission.ACTIVE -> evaluation.state?.activeCycle?.deadlineElapsedMs
             LocalAlarmAdmission.WAITING -> evaluation.state?.nextDueElapsedMs
+            LocalAlarmAdmission.COOLDOWN -> environment.noncriticalCooldownUntilElapsedMs
             LocalAlarmAdmission.ACKNOWLEDGED -> evaluation.state?.pause?.untilWallMs?.let { elapsed(it, environment) }
             LocalAlarmAdmission.MUTED -> elapsed(environment.mutedUntilWallMs, environment)
             LocalAlarmAdmission.START -> null

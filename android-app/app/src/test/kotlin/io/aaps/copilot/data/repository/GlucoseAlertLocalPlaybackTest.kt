@@ -101,15 +101,12 @@ class GlucoseAlertLocalPlaybackTest {
         assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
     }
 
-    @Test fun lastSoftClipIsTruncatedAtTheAbsoluteCycleDeadline() = runTest {
+    @Test fun removedSoftStepsCannotCreateAPlayerNearTheCycleDeadline() = runTest {
         now = 54_000
         val result = async { controller.playLocalAlarm(cycle, 3, settings.copy(softAlertAudioDurationMs = 5_000)) { allowed } }
         runCurrent()
-        prepare()
-        assertThat(result.await().durationMs).isEqualTo(2_000)
-        now = 56_000
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
-        assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
+        assertThat(result.await().played).isFalse()
+        assertThat(players).isEmpty()
     }
 
     @Test fun exactCycleStopCancelsPreparationButStaleStopCannotCancelANewOwner() = runTest {
@@ -221,18 +218,18 @@ class GlucoseAlertLocalPlaybackTest {
     }
 
     @Test fun slowPostStartAdmissionCannotMoveTheAbsoluteStopDeadline() = runTest {
-        now = 54_000
+        now = 14_000
         val result = async {
-            controller.playLocalAlarm(cycle, 3, settings.copy(softAlertAudioDurationMs = 5_000)) {
-                if (players.lastOrNull()?.let { shadowOf(it).isReallyPlaying } == true) now = 55_000
+            controller.playLocalAlarm(cycle, 0, settings.copy(softAlertAudioDurationMs = 5_000)) {
+                if (players.lastOrNull()?.let { shadowOf(it).isReallyPlaying } == true) now = 15_000
                 true
             }
         }
         runCurrent()
         prepare()
         assertThat(result.await().played).isTrue()
-        now = 56_000
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        now = 19_000
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
         assertThat(shadowOf(players.last()).state).isEqualTo(ShadowMediaPlayer.State.END)
     }
 

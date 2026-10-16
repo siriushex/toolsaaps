@@ -128,18 +128,17 @@ class LocalAlarmCoordinatorTest {
         }
     }
 
-    @Test fun equalPriorityKeepsOwnerUntilCompletionThenOldestPendingWins() = runBlocking {
+    @Test fun equalPriorityKeepsOwnerThenOldestPendingWinsAfterSharedCooldown() = runBlocking {
         val owner = coordinator()
         running(owner) {
             until { audio.starts.size == 1 }; val first = audio.starts.single().first
             template = template.copy(requests = template.requests + request("source-b", pending = 0))
             owner.signal(); delay(20); assertEquals(first, audio.playing)
-            repeat(3) { index ->
-                until { clock.hasDeadline(16_000L + index * 15_000L) }
-                clock.advance(15_000); until { audio.starts.size >= index + 2 }
-            }
-            until { clock.hasDeadline(48_000) }
-            clock.advance(2_000); until { audio.starts.any { it.first.key.id == "source-b" } }
+            until { clock.hasDeadline(3_000) }
+            clock.advance(2_000); terminal(first, "FINISHED")
+            until { clock.hasDeadline(301_000) }
+            assertEquals(1, audio.starts.size)
+            clock.advance(298_000); until { audio.starts.any { it.first.key.id == "source-b" } }
             assertEquals("FINISHED", row(first).status); assertTrue(audio.stops.contains(first))
         }
     }
@@ -147,7 +146,7 @@ class LocalAlarmCoordinatorTest {
     @Test fun duplicateUpdatesNeverRestartCycleSlideDueOrAccumulateTimers() = runBlocking {
         val registering = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        clock.beforeRegister = { ms -> if (ms == 15_000L && clock.now.get() == 1_000L) {
+        clock.beforeRegister = { ms -> if (ms == 2_000L && clock.now.get() == 1_000L) {
             registering.complete(Unit); release.await()
         } }
         val owner = coordinator()
@@ -157,15 +156,19 @@ class LocalAlarmCoordinatorTest {
             // Audio start precedes asynchronous Room work and step-wait registration.
             release.complete(Unit)
             until { clock.count() == 2 }
-            assertTrue("Step wait must be registered before advancing its clock", clock.hasDeadline(16_000))
-            clock.advance(10_000)
+            assertTrue("Step wait must be registered before advancing its clock", clock.hasDeadline(3_000))
+            clock.advance(1_000)
             template = template.copy(requests = template.requests.map { it.copy(evidence = it.evidence.copy(observedElapsedMs = clock.now.get())) })
             repeat(20) { owner.signal() }
             until { clock.count() == 2 }
             assertEquals(1, audio.starts.size); assertEquals(301_000L, db.alertLocalDao().state("GLUCOSE", "source-a")!!.nextDueElapsedMs)
             assertTrue(clock.count() <= 2)
-            clock.advance(5_000); until { audio.starts.size == 2 }
-            assertTrue(audio.starts.all { it.first == cycle })
+            clock.advance(1_000); terminal(cycle, "FINISHED")
+            until { clock.hasDeadline(301_000) }
+            assertEquals(1, audio.starts.size)
+            clock.advance(298_000); until { audio.starts.size == 2 }
+            assertEquals(2L, audio.starts.last().first.ordinal)
+            assertNotEquals(cycle, audio.starts.last().first)
         }
     }
 

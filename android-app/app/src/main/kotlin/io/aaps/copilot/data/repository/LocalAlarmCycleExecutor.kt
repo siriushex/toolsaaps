@@ -176,14 +176,14 @@ class LocalAlarmCycleExecutor(
         settings: AppSettings): LocalAlarmExecutionStatus {
         val cycle = session.cycle
         if (!refresh(session)) return LocalAlarmExecutionStatus.DENIED
-        session.window = StepWindow(cycle.startedElapsedMs, cycle.startedElapsedMs + profile.steps[1].offsetMs)
+        session.window = StepWindow(cycle.startedElapsedMs,
+            cycle.startedElapsedMs + LocalAlarmProfiles.stepDeadlineOffsetMs(profile, 0))
         if (volume.acquire(cycle).status != AlarmVolumeStatus.ACQUIRED) return LocalAlarmExecutionStatus.VOLUME_UNAVAILABLE
         var playingUntil = cycle.startedElapsedMs
         for ((index, step) in profile.steps.withIndex()) {
             val due = cycle.startedElapsedMs + step.offsetMs
             if (!waitUntil(session, due)) return LocalAlarmExecutionStatus.DENIED
-            val next = profile.steps.getOrNull(index + 1)?.let { cycle.startedElapsedMs + it.offsetMs }
-                ?: cycle.deadlineElapsedMs
+            val next = cycle.startedElapsedMs + LocalAlarmProfiles.stepDeadlineOffsetMs(profile, index)
             val now = context()?.environment?.nowElapsedMs ?: return LocalAlarmExecutionStatus.DENIED
             if (now >= next) {
                 if (index == 0) return LocalAlarmExecutionStatus.MISSED_START

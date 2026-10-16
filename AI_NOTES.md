@@ -1,3 +1,33 @@
+# Local Alarm Fatigue Policy - 2026-10-16
+
+- Explicit owner approval received for configured critical repeats, exact ACK,
+  noncritical backoff cap30min, complete global OFF and genuine visible critical
+  AlarmClock. This bounded source stage changes inactive policy/executor support
+  only, not live source/foreground/AlarmClock/ACK integration.
+- Test-first REDs reproduced four soft clips and missing shared cooldown/backoff.
+  Soft cycles now start one short25% clip, not escalating fragments or an inherited
+  critical maximum. Shared15-second initial admission prevents delayed playback.
+- Unchanged noncritical intervals double to30min, with persisted due retained
+  across evidence refresh/restart. Critical intervals/floor/ramp stay unchanged;
+  ACK uses configured base and OFF remains complete. No backlog replay.
+- Room shared admission includes absent/resolved sources' confirmed audio-start
+  receipts. Live claims reserve one slot but are not counted as delivered;
+  failed/not-requested audio and notification-only receipts do not start cooldown.
+  Overfull/invalid history is unknown, not zero, and affects new soft sound only.
+- Separate RED caught critical preview reading unrelated soft history; critical
+  selection/retention and committed admission now skip that query entirely.
+  Query bounds payloads to65 rows, not total scan work; retained-history cost
+  requires profiling before activation. No database/schema/index migration.
+- Final210 alarm-focused cases plus26 real-player callback cases passed. Full
+  Android tests/lint/compile/debug-build passed in9m56s:5751 cases,5745 passed,
+  6 existing opt-in skips,0 failures/errors. Lint0 errors,371 warnings/8 hints,
+  unchanged379-notice baseline. Source/security/diff review passed. First full
+  run exposed2 old fourth-soft-clip fixtures; updated to reject removed steps and
+  preserve absolute stop-deadline coverage, then repeated complete quality.
+- Reviewed source publication/exact-head CI receipts are separate gates.
+  No phone operation, volume/sound test, permission/default/server/therapy change.
+  See the fatigue-policy plan and approved reliable-alert design for open work.
+
 # Accepted Initial Alert Delivery Isolation - 2026-10-16
 
 - Owner continued after written design review. First bounded production stage

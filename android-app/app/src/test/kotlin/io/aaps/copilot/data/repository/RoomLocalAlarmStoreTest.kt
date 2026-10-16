@@ -87,18 +87,18 @@ class RoomLocalAlarmStoreTest {
     }
 
     @Test fun stepsAreIdempotentBoundedAndOnlyConfirmedProgressPersists() = runBlocking {
-        val owner = store(); val cycle = owner.evaluate(evidence(), timing)!!.startCycle!!
-        assertTrue(owner.recordStep(evidence(), cycle, step(percent = null), timing))
+        val owner = store(); val cycle = owner.evaluate(evidence(LocalAlarmLevel.CRITICAL_5), timing)!!.startCycle!!
+        assertTrue(owner.recordStep(evidence(cycle.level), cycle, step(percent = null), timing))
         assertEquals(0, LocalAlarmPersistenceCodec.decodeState(state().stateJson)!!.reachedPercent)
-        assertTrue(owner.recordStep(evidence(), cycle, step(percent = null), timing))
-        assertFalse(owner.recordStep(evidence(), cycle, step(), timing))
-        assertFalse(owner.recordStep(evidence(), cycle, step(1, 50), timing))
+        assertTrue(owner.recordStep(evidence(cycle.level), cycle, step(percent = null), timing))
+        assertFalse(owner.recordStep(evidence(cycle.level), cycle, step(), timing))
+        assertFalse(owner.recordStep(evidence(cycle.level), cycle, step(1, 50), timing))
         environment = environment.copy(nowElapsedMs = 16_000)
-        assertTrue(owner.recordStep(evidence(), cycle, step(1, 50), timing))
+        assertTrue(owner.recordStep(evidence(cycle.level), cycle, step(1, 50), timing))
         assertEquals(50, LocalAlarmPersistenceCodec.decodeState(state().stateJson)!!.reachedPercent)
         assertEquals(2, LocalAlarmPersistenceCodec.decodeResult(row(cycle).resultJson)!!.steps.size)
         environment = environment.copy(nowElapsedMs = cycle.deadlineElapsedMs)
-        assertFalse(owner.recordStep(evidence(), cycle, step(2, 75), timing))
+        assertFalse(owner.recordStep(evidence(cycle.level), cycle, step(2, 75), timing))
     }
 
     @Test fun rejectedAuthorityMuteAndChangedLevelCannotWriteResults() = runBlocking {
@@ -113,13 +113,13 @@ class RoomLocalAlarmStoreTest {
     }
 
     @Test fun identicalEarlierStepRemainsIdempotentAfterLaterConfirmedProgress() = runBlocking {
-        val owner = store(); val cycle = owner.evaluate(evidence(), timing)!!.startCycle!!
+        val owner = store(); val cycle = owner.evaluate(evidence(LocalAlarmLevel.CRITICAL_5), timing)!!.startCycle!!
         val first = step()
-        assertTrue(owner.recordStep(evidence(), cycle, first, timing))
+        assertTrue(owner.recordStep(evidence(cycle.level), cycle, first, timing))
         environment = environment.copy(nowElapsedMs = 16_000)
-        assertTrue(owner.recordStep(evidence(), cycle, step(1, 50), timing))
+        assertTrue(owner.recordStep(evidence(cycle.level), cycle, step(1, 50), timing))
         val before = state()
-        assertTrue(owner.recordStep(evidence(), cycle, first, timing))
+        assertTrue(owner.recordStep(evidence(cycle.level), cycle, first, timing))
         assertEquals(before, state())
         assertEquals(2, LocalAlarmPersistenceCodec.decodeResult(row(cycle).resultJson)!!.steps.size)
     }
@@ -213,7 +213,7 @@ class RoomLocalAlarmStoreTest {
     }
 
     @Test fun cycleCollisionAndStateWriteFailureRollbackEntireClaim() = runBlocking {
-        val signal = evidence(); val cycle = LocalAlarmPolicy.evaluate(signal, null, environment, timing).startCycle!!
+        val signal = evidence(LocalAlarmLevel.CRITICAL_5); val cycle = LocalAlarmPolicy.evaluate(signal, null, environment, timing).startCycle!!
         db.alertLocalDao().insertCycle(AlertLocalCycleEntity(key.kind.name, key.id, 1, 1, 2, cycle.level.name,
             cycle.startedElapsedMs, cycle.deadlineElapsedMs, 10_000, null, "CLAIMED", LocalAlarmPersistenceCodec.encodeResult(LocalAlarmCycleResult())!!))
         assertNull(store().evaluate(signal, timing))

@@ -48,7 +48,7 @@ class LocalAlarmPolicyTest {
     @Test fun repeatAtExactDueCreatesNextOrdinalAndRebasesDeadline() {
         val result = LocalAlarmPolicy.evaluate(evidence, initial(), at(now + 300_000L), timing)
         assertThat(result.startCycle!!.ordinal).isEqualTo(2L)
-        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(now + 600_000L)
+        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(now + 900_000L)
     }
 
     @Test fun longPauseDoesNotReplayBacklog() {
@@ -56,7 +56,7 @@ class LocalAlarmPolicyTest {
         val fresh = evidence.copy(observedElapsedMs = later.nowElapsedMs)
         val result = LocalAlarmPolicy.evaluate(fresh, initial(), later, timing)
         assertThat(result.startCycle!!.ordinal).isEqualTo(2L)
-        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(later.nowElapsedMs + 300_000L)
+        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(later.nowElapsedMs + 600_000L)
     }
 
     @Test fun unchangedEvidenceBeforeDueDoesNotSlideRepeatEvenWhenWallClockChanges() {
@@ -254,9 +254,9 @@ class LocalAlarmPolicyTest {
     }
 
     @Test fun confirmedProgressCarriesIntoNextCycleWithoutReturningToGentleStep() {
-        val state = initial()
+        val state = initial(LocalAlarmLevel.CRITICAL_5)
         val progressed = LocalAlarmPolicy.recordReached(state, state.activeCycle!!, 75, environment)
-        val result = LocalAlarmPolicy.evaluate(evidence, progressed, at(now + 300_000L), timing)
+        val result = LocalAlarmPolicy.evaluate(evidence.copy(level = LocalAlarmLevel.CRITICAL_5), progressed, at(now + 120_000L), timing)
         assertThat(result.profile!!.steps.first().targetPercent).isEqualTo(75)
         assertThat(result.state!!.reachedPercent).isEqualTo(75)
     }

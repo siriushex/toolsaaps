@@ -1,5 +1,25 @@
 # PLAN
 
+## Reliable Alerts: Fatigue Policy (2026-10-16)
+
+- [x] Explicit owner approval of repeat/ACK/OFF/visible AlarmClock design.
+- [x] Scoped plan and REDs reproduced four soft clips, missing bounded backoff,
+  cross-source bursts and critical selection waiting on unrelated soft history.
+- [x] One soft clip, base/2x/4x/max30-minute intervals and durable cross-source
+  cooldown/reservation implemented in the existing inactive runtime. Critical
+  cadence/floor and shared-history bypass remain independent.
+- [x] Final210 alarm-focused and26 player-callback tests pass. Complete Android
+  test/lint/compile/debug-build passed in9m56s:5751 cases,5745 passed/6 existing
+  skips,0 failures/errors; lint0 errors,379 unchanged baseline notices. Source/
+  security/diff review passed. First full run's2 old four-soft-clip fixtures were
+  updated while retaining deadline coverage; complete quality rerun inspected.
+- [ ] Reviewed source publication and exact-head CI receipt.
+- [ ] Complete accepted-source bridge, real foreground/AlarmClock owner, scoped
+  ACK UI, OFF expiry reassessment and separately authorized phone acceptance.
+
+Plan: superpowers/plans/2026-10-16-alert-fatigue-policy.md. No production runtime
+activation, phone operation, clinical threshold, schema/default or therapy change.
+
 ## Reliable Alert Delivery: Initial Isolation (2026-10-16)
 
 - [x] Owner continued after written design review. Scope is staged source work,

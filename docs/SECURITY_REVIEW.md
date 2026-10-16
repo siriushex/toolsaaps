@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Local Noncritical Fatigue Policy (2026-10-16)
+
+- No medical threshold, source authorization, prediction, dose/target, source
+  adapter, manifest/default or phone change. Runtime remains uninstantiated.
+- Shared cooldown is scheduling metadata, not clinical authority or evidence
+  that a person heard a sound. Only recorded STARTED audio extends it; accepted
+  claims merely reserve the noncritical slot until cleanup/deadline.
+- The query includes sources absent from current requests, fixed typed levels,
+  boot/elapsed lookback and limit65. Validate cycle/result/clock/status shape;
+  over64 or unknown history does not become a healthy zero deadline. Unknown
+  history disables only new soft sound; critical selection/admission bypasses
+  the unrelated query. Existing owner recovery/cleanup cannot be bypassed.
+- State schema1/strict codec is unchanged and can read older four-step results.
+  Backoff derives from validated intervals, not ordinal. Cancellation propagates;
+  duplicate updates, ACK/OFF, reboot and no-backlog guarantees remain explicit.
+- Tests use synthetic input/in-memory Room/fake audio and volume only. Full
+  source bridge, real owner/wake and device acceptance remain required. No new
+  telemetry payload, secret, live medical data or operational probe is added.
+
 ## Accepted Alert Failure Isolation (2026-10-16)
 
 - Strict accepted forecast/UAM/sensitivity and existing per-intent writer policy

@@ -1,5 +1,17 @@
 # DEVOPS
 
+## Alert Fatigue Source Stage (2026-10-16)
+
+No schema/migration, service/permission/default, source adapter, phone or therapy
+operation. Inactive policy/executor support now uses one soft clip, noncritical
+backoff and journal-derived shared cooldown. The lookback query materializes at
+most65 rows; over64 or invalid history prevents new soft admission, not critical
+selection. Critical selection/retention skips that query. Total SQL scan cost
+requires retained-history profiling before runtime activation; no CPU claim.
+Continue the approved source/foreground/wake/ACK/OFF integration before claiming
+live repeat delivery. Preserve urgent native fallback and single audio ownership.
+Build/CI does not install an APK, arm alarms or prove physical/human delivery.
+
 ## Initial Alert Delivery Source Stage (2026-10-16)
 
 No schema, permission, service/alarm, setting default, server or phone operation.
