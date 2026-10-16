@@ -1,3 +1,27 @@
+# Durable Daily Review Results - 2026-10-16
+
+- Adds internal exact worker/executor composition and private encrypted result
+  sink after positive stop and actual SUCCEEDED ledger settlement. Binds original
+  queue/work/model/request/clocks/source/reply; no supplied public success receipt.
+- Explicit result writes add schema 5 with separate AEAD purpose, shared quotas/
+  retention and immutable retry/conflict rules. Reads never migrate. Selected
+  reads replay current source/latest report; summary pages explicitly unchecked.
+  Original sourceAtReply remains historical, all text remains NOT_ADMITTED.
+- Two-database crash loss is explicit RESULT_UNAVAILABLE, never re-inferred.
+  Committed lost acknowledgement recovers the original row. Cancellation drains
+  owned writes; unknown stop retains shared capacity and cannot archive a reply.
+- Initial missing-module RED observed. Expanded review reproduced a cancelled
+  repeat-read thread outliving its owner; owned archive reads are now drained
+  before cancellation propagates, as are writes. Schema5 compatibility test
+  preserves history/chat/facts/queue operations without downgrading the store.
+- Final52 new cases/309 focused tests and complete backend1466 passed/27 existing
+  opt-in skips, no failures/errors. One existing dependency deprecation warning.
+  Scoped E/F lint, format, compile, diff/source/security/docs review pass. Source
+  publication and exact-head CI verification remain separate pending gates.
+- No provider/priority/supervisor/schedule/publication admission, real model or
+  medical data, server, profile, phone/APK or therapy operation. Schema 5 is
+  forward-only; no operational migration/rollback occurs. See DAILY_REVIEW_RESULTS.md.
+
 # Approved Focus AI Workspace - 2026-10-16
 
 - Owner selected variant1 Focus. Native report/chat/advice/archive panels now

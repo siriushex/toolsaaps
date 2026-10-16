@@ -1,5 +1,22 @@
 # INVARIANTS
 
+## Daily Result Durability
+
+- Only the trusted exact executor/worker composition may call the private result
+  sink after positive stop and actual SUCCEEDED ledger settlement. A supplied
+  Job/outcome/status is not a public execution receipt or provider admission.
+- Authenticate immutable owner/device/job/request/work/model/clocks/source/reply
+  provenance under a distinct purpose. Shared quota, expiry and bounded reads
+  include results; only explicit writes enable schema 5, never ordinary reads.
+- Cross-database success-before-save loss stays RESULT_UNAVAILABLE. Commit with
+  lost acknowledgement may recover the original row; neither path re-infers.
+  Cancellation drains owned storage work. Uncertain stop keeps capacity held.
+- Original sourceAtReply and summary membership are not currentness. Selected
+  reads replay retained source/latest report within one protected snapshot and
+  expose changes, unavailable evidence or supersession, never rewrite history.
+- Stored text remains REFERENCES_ONLY/NOT_ADMITTED/unreviewed. No inferred
+  medical validity, provider/publication admission, route, schedule or therapy.
+
 ## Focus AI Presentation
 
 - Daily analytics loading/failure must not hide usable chat or local report.

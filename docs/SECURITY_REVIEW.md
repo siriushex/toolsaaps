@@ -1,5 +1,26 @@
 # SECURITY REVIEW
 
+## Daily Result Archive (2026-10-16)
+
+- Private sink reached only by exact worker/executor composition after confirmed
+  stop and actual ledger success; request/model/work/queue/archive binding is
+  rechecked. Injected Python is trusted composition, not containment proof.
+- Distinct AEAD purpose and complete row metadata, private owner/device files,
+  immutable retry/conflict rules, bounded payload/count/pages, shared quota and
+  fixed retention. No medical payload/model errors in the metadata ledger/logs.
+- Cancellation drains owned writes. Cross-database loss/commit uncertainty has
+  explicit missing-result/recovery behavior, no automatic model retry. Unknown
+  stop cannot create a result or release original global capacity.
+- SourceAtReply is historical only; selected reads recheck source/latest report
+  in one snapshot. Summary pages explicitly unchecked. Stale/superseded/missing
+  evidence does not become current medical advice. All text stays NOT_ADMITTED.
+- Forward-only schema 5, no operational migration/restore. Same-schema old prompt
+  pins are audit-readable but not dispatch authority; incompatible future schema
+  needs compatibility work. No forensic whole-file rollback protection claimed.
+- Synthetic checks only. No provider/public/admin/phone route, real model/medical
+  data, host, schedule, APK or therapy operation. Independent provider/OS/quality
+  and publication admission remain necessary; valid prose may still be wrong.
+
 ## Focus AI Interface (2026-10-16)
 
 - Reuses existing state and explicit callbacks, no new route/credential/network

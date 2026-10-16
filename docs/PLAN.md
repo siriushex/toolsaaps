@@ -1,5 +1,26 @@
 # PLAN
 
+## Durable Daily Results (2026-10-16)
+
+- [x] Inspect daily worker/executor and encrypted source/queue/report contracts;
+  record exact crash/admission scope and observe missing-lifecycle RED.
+- [x] Add encrypted immutable schema 5 result sink, stopped-executor composition,
+  selected fresh-source read and explicitly unchecked bounded summary pages.
+- [x] Final52 new synthetic cases and309 focused checks pass: restart/retry,
+  commit uncertainty/no-reinference, failed/cancelled/expired/unknown stop,
+  changed/superseded/missing source, retention, isolation/tampering, quotas,
+  bounded snapshots, prompt audit, concurrent claim and cancellation draining.
+  Separate RED caught a cancelled repeat-read thread outliving its owner; fixed
+  by draining owned reads as well as writes. Schema5 retains history/chat/facts/
+  queue operations. Full1466 passed/27 existing opt-in skips, no failures/errors.
+- [x] Scoped E/F lint, format, compile, diff/source/security/docs review pass.
+  Cross-database loss/forward-only migration and unreviewed text remain explicit.
+- [ ] Publish reviewed source on existing PR and inspect exact-head Verify.
+
+No provider, supervisor/priority/scheduler/publication admission, server, phone,
+medical-data or therapy activation. See DAILY_REVIEW_RESULTS.md. Successful
+ledger settlement and durable result are separate facts, not an atomic commit.
+
 ## Approved Focus AI Interface (2026-10-16)
 
 - [x] Human selected Focus/report-first; inspect existing UI, clinical disclosure,

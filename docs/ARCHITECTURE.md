@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Stopped Daily Result Archive
+
+The internal daily_results composition saves a daily answer only after the
+existing exact worker/executor confirms cleanup and settles the actual ledger
+job successfully. Explicit private writes add encrypted per-device schema 5;
+shared quotas/retention include immutable work/source/reply provenance. Selected
+reads independently check current source; summary pages remain unchecked.
+Cross-database crash loss is explicit and never re-infers. No provider, route,
+schedule or publication/therapy admission. See DAILY_REVIEW_RESULTS.md.
+
 ## Focus AI Workspace
 
 The approved native Focus layout separates clinical report, chat, recommendations
@@ -19,7 +29,8 @@ ledger Job and rechecks durable handoff/latest source before a single native tur
 and current source/references after the reply. Owned reader threads are drained
 on cancellation; the existing JobExecutor exposes a result only after independent
 process stop and ledger settlement. No daily dispatcher/supervisor channel,
-encrypted result lifecycle, provider registration or schedule is activated.
+provider registration or schedule is activated. Encrypted result composition is
+now a separate explicit internal call, never a side effect of worker.run.
 See DAILY_REVIEW_WORKER.md; shared exclusion is not priority arbitration and
 REFERENCES_ONLY/NOT_ADMITTED is not medical approval.
 

@@ -554,11 +554,16 @@ def validate_review(work, body, *, current_source_digest, now_ms):
     ):
         raise ValueError("daily_review_source_changed_or_expired")
     result = _decode(body, DailyReviewResult, MAX_RESULT_BYTES)
+    return _ground_result(packet, work.input_digest, result)
+
+
+def _ground_result(packet, input_digest, result):
+    """Reference validation shared with authenticated historical audit reads."""
     candidates = {c.pattern.candidateId: c for c in packet.candidates}
     selected = [f.candidateId for f in result.findings]
     if (
         result.factsDigest != packet.factsDigest
-        or result.packetDigest != work.input_digest
+        or result.packetDigest != input_digest
         or result.status != packet.requiredStatus
         or len(set(selected)) != len(selected)
         or not set(packet.requiredCandidateIds) <= set(selected)
@@ -586,7 +591,7 @@ def validate_review(work, body, *, current_source_digest, now_ms):
         )
     return GroundedDailyReview(
         factsDigest=packet.factsDigest,
-        packetDigest=work.input_digest,
+        packetDigest=input_digest,
         status=result.status,
         day=packet.day,
         cohorts=packet.cohorts,

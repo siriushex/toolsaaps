@@ -252,15 +252,17 @@ class HistoryStore:
                 "sqlite_sequence",
             }
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version in (2, 3, 4):
+            if version in (2, 3, 4, 5):
                 expected.add("server_chat")
-            if version in (3, 4):
+            if version in (3, 4, 5):
                 expected.add("daily_reports")
-            if version == 4:
+            if version in (4, 5):
                 expected.add("daily_review_queue")
+            if version == 5:
+                expected.add("daily_review_results")
             if tables != expected:
                 raise ValueError("dedicated_history_database_required")
-            if version not in (1, 2, 3, 4):
+            if version not in (1, 2, 3, 4, 5):
                 raise ValueError("unsupported_history_schema")
             manifest = db.execute("SELECT * FROM history_manifest").fetchall()
             if (
@@ -297,6 +299,8 @@ class HistoryStore:
             db.execute("DELETE FROM daily_reports WHERE expires_ms<=?", (now_ms,))
         if version >= 4:
             db.execute("DELETE FROM daily_review_queue WHERE expires_ms<=?", (now_ms,))
+        if version >= 5:
+            db.execute("DELETE FROM daily_review_results WHERE expires_ms<=?", (now_ms,))
 
     @staticmethod
     def _highwater(db):
@@ -331,6 +335,12 @@ class HistoryStore:
             ).fetchone()
             count += queued
             extra += queue_bytes
+        if version >= 5:
+            results, result_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_review_results"
+            ).fetchone()
+            count += results
+            extra += result_bytes
         if (
             count > self.max_rows
             or size + extra > self.max_bytes
@@ -663,6 +673,17 @@ class HistoryStore:
         from .daily_queue import cancel
 
         return cancel(self, owner, device, queue_id, now_ms=now_ms)
+
+    def _enable_daily_results(self, db):
+        from .daily_results import SCHEMA as RESULT_SCHEMA
+
+        self._enable_daily_queue(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] == 4:
+            db.execute("BEGIN IMMEDIATE")
+            for statement in RESULT_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=5")
+            db.commit()
 
     def _enable_daily_queue(self, db):
         from .daily_queue import SCHEMA as QUEUE_SCHEMA

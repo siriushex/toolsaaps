@@ -1,5 +1,21 @@
 # DEVOPS
 
+## Daily Result Source Stage (2026-10-16)
+
+Only an explicit stopped-successful internal result write adds schema 5 and its
+result table/index after preserving schemas 1-4. Read paths never migrate. Shared
+quotas/purge and fixed report-day+365d expiry include results. Failed payload
+writes roll back, but committed additive migration can remain. Source supporting
+only schemas 1-4 cannot open 5; do not downgrade, drop tables or reset versions.
+No host/database/backup/restore operation is performed here.
+
+The ledger and device store do not commit atomically. Preserve a successful job
+with missing result as RESULT_UNAVAILABLE; never auto-infer again. Lost write
+acknowledgement is recovered by original job identity, not a new request.
+Unknown stop still holds shared capacity. Provider/supervisor/priority/schedule
+and public advisory-quality admission remain separate. No server/profile/API/
+medical-data/model/phone/therapy activation. See DAILY_REVIEW_RESULTS.md.
+
 ## Focus UI Source Stage (2026-10-16)
 
 Native navigation/presentation only; no database/config/provider migration.
@@ -18,7 +34,7 @@ launch an uncontained native runner. No daemon, schema, profile, config, host,
 model session or APK changes accompany this stage. Shared JobExecutor/ledger
 settlement is reused; uncertain stop/clock or queue handoff outcomes must not
 be replayed. A separate daily supervisor/atomic priority dispatcher and encrypted
-result lifecycle need explicit admission before opt-in scheduling/deployment.
+result composition need explicit admission before opt-in scheduling/deployment.
 See DAILY_REVIEW_WORKER.md for operational boundaries and remaining gates.
 
 ## Durable Daily Queue Source Stage (2026-10-16)
