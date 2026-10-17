@@ -26,7 +26,7 @@ class MainViewModelClinicalReportSourceTest {
     }
 
     @Test
-    fun viewModelObservesRepositoryAndRouteOpeningPreparesWithoutSending() {
+    fun viewModelObservesRepositoryAndRouteOpeningDoesNotReprepareOrSend() {
         val source = mainViewModelSource()
         val routeBlock = source
             .substringAfter("fun setActiveRoute(route: String?)")
@@ -36,7 +36,7 @@ class MainViewModelClinicalReportSourceTest {
             .substringBefore("fun sendClinicalReport(")
 
         assertThat(source).contains("state = container.clinicalReportRepository.state")
-        assertThat(routeBlock).contains("prepareClinicalReport()")
+        assertThat(routeBlock).doesNotContain("prepareClinicalReport()")
         assertThat(routeBlock).doesNotContain("clinicalReportCommands.send(")
         assertThat(routeBlock).doesNotContain("retryUnknownClinicalReport()")
         assertThat(prepareBlock).contains("clinicalReportCommands.prepare()")

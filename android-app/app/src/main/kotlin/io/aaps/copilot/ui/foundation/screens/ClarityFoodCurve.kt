@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.PlainTooltip
@@ -52,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.aaps.copilot.R
+import io.aaps.copilot.ui.motion.NativeIconButton
 import io.aaps.copilot.domain.nutrition.*
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.ui.foundation.components.InteractiveClinicalForecastChart
@@ -87,6 +87,7 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
         .atZone(java.time.ZoneId.of(zoneId)).toLocalTime().toSecondOfDay() / 60) }
     var history by remember { mutableStateOf<LentaMealHistory?>(null) }
     var loading by remember { mutableStateOf(false) }
+    val preparation = remember(state) { mealPreparationPresentation(state) }
     val modes = rememberSaveableStateHolder()
     LaunchedEffect(estimateMode, cutoff, zoneId) {
         if (estimateMode && history == null) {
@@ -166,7 +167,9 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = onEatingSoon,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("clarityFoodEatingSoon")) {
-                            Icon(Icons.Default.Restaurant, null)
+                            if (preparation.status == MealPreparationStatus.IOB_PRESENT)
+                                io.aaps.copilot.ui.motion.MealPreparationGlyph(preparation.episodeKey, !state.powerSaveActive)
+                            else Icon(Icons.Default.Restaurant, null)
                             Text(clarityEatingStatusLabel(state.eatingSoon.status), Modifier.padding(start = 8.dp))
                         }
                         ClarityToolButton(Icons.Default.Add, stringResource(R.string.clarity_add_meal), "clarityFoodAddMeal", onMeal)
@@ -241,6 +244,6 @@ internal fun ClarityToolButton(icon: androidx.compose.ui.graphics.vector.ImageVe
     enabled: Boolean, onClick: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(modifier = Modifier.size(48.dp).testTag(tag), enabled = enabled, onClick = onClick) { Icon(icon, label) }
+        NativeIconButton(modifier = Modifier.size(48.dp).testTag(tag), enabled = enabled, onClick = onClick) { Icon(icon, label) }
     }
 }

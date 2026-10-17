@@ -76,7 +76,9 @@ class AiAnalysisClinicalReportTest {
 
         composeRule.onNodeWithTag("clinical_report_section").assertIsDisplayed()
         composeRule.onNodeWithTag("clinical_report_summary_1").assertIsDisplayed()
+        composeRule.onNodeWithTag("clinical_report_period_7").performClick()
         composeRule.onNodeWithTag("clinical_report_summary_7").assertIsDisplayed()
+        composeRule.onNodeWithTag("clinical_report_period_30").performClick()
         composeRule.onNodeWithTag("clinical_report_summary_30").assertIsDisplayed()
         composeRule.onNodeWithTag("clinical_report_send")
             .assertHeightIsAtLeast(48.dp)
@@ -123,6 +125,7 @@ class AiAnalysisClinicalReportTest {
             }
         }
 
+        composeRule.onNodeWithTag("clinical_report_summary_1").performClick()
         composeRule.onNodeWithTag("clinical_report_aaps_carbs_1").assertExists()
         composeRule.onNodeWithText("AAPS carbohydrate reference (diagnostic)").assertExists()
         composeRule.onNodeWithText("99.0 g").assertExists()
@@ -498,6 +501,7 @@ class AiAnalysisClinicalReportTest {
         }
 
         composeRule.onNodeWithTag("clinical_report_summary_7").assertIsDisplayed()
+        composeRule.onNodeWithTag("clinical_report_period_30").performClick()
         composeRule.onNodeWithTag("clinical_report_summary_30").assertIsDisplayed()
         composeRule.runOnIdle {
             assertEquals(listOf(8L to null), resolutions)
@@ -830,6 +834,7 @@ class AiAnalysisClinicalReportTest {
         }
 
         composeRule.onNodeWithTag("clinical_report_summary_7").assertIsDisplayed()
+        composeRule.onNodeWithTag("clinical_report_period_30").performClick()
         composeRule.onNodeWithTag("clinical_report_summary_30").assertIsDisplayed()
         composeRule.onNodeWithTag("clinical_report_progress_stage").assertDoesNotExist()
         composeRule.onNodeWithTag("clinical_report_complete_status").assertDoesNotExist()
@@ -871,7 +876,6 @@ class AiAnalysisClinicalReportTest {
             .fetchSemanticsNode().boundsInRoot
         val tags = listOf(
             "clinical_report_summary_7",
-            "clinical_report_summary_30",
             "clinical_report_complete_status",
             "clinical_report_complete_quality",
             "clinical_report_complete_observations",

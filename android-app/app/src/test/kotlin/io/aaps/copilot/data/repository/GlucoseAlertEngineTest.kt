@@ -10,6 +10,45 @@ class GlucoseAlertEngineTest {
 
     private val engine = GlucoseAlertEngine()
 
+    @Test fun repeatSourceUsesCurrentRiskRatherThanLatchedUrgentLevel() {
+        val previous = GlucoseAlertRuntimeState(activeAlertState = GlucoseAlertState.LOW_NOW,
+            activeDirection = GlucoseAlertDirection.LOW, lastStageChangeTs = 900_000L)
+        val sample = input(nowTs = 1_000_000L, currentGlucoseMmol = 5.5,
+            pred5 = 5.1, pred30 = 3.6, pred60 = 3.5, ciLow30 = 3.3, ciHigh30 = 4.0)
+        val first = engine.evaluate(sample, previous)
+        assertThat(first.currentAlarmStage).isEqualTo(GlucoseAlertState.NONE)
+        val decision = engine.evaluate(sample.copy(nowTs = 1_060_000L), first.nextState)
+        assertThat(decision.state).isEqualTo(GlucoseAlertState.LOW_NOW)
+        assertThat(decision.currentAlarmStage).isEqualTo(GlucoseAlertState.WARNING_30)
+    }
+
+    @Test fun currentLowSourceDoesNotWaitForAnotherSampleOrForecast() {
+        val decision = engine.evaluate(input(nowTs = 1_000_000L, currentGlucoseMmol = 3.7,
+            staleData = true, sensorBlocked = true), GlucoseAlertRuntimeState())
+        assertThat(decision.currentAlarmStage).isEqualTo(GlucoseAlertState.LOW_NOW)
+    }
+
+    @Test fun unconfirmedOrOppositeForecastRiskCannotAuthorizeRepeats() {
+        val sample = input(nowTs = 1_000_000L, currentGlucoseMmol = 7.0,
+            pred5 = 16.0, pred30 = 18.0, pred60 = 20.0, ciLow30 = 16.0, ciHigh30 = 20.0)
+        val previous = GlucoseAlertRuntimeState(activeAlertState = GlucoseAlertState.LOW_NOW,
+            activeDirection = GlucoseAlertDirection.LOW, lastStageChangeTs = 900_000L)
+        val first = engine.evaluate(sample, previous)
+        val second = engine.evaluate(sample.copy(nowTs = 1_060_000L), first.nextState)
+        assertThat(second.state).isEqualTo(GlucoseAlertState.LOW_NOW)
+        assertThat(second.currentAlarmStage).isEqualTo(GlucoseAlertState.NONE)
+        val newRisk = engine.evaluate(sample, GlucoseAlertRuntimeState())
+        assertThat(newRisk.currentAlarmStage).isEqualTo(GlucoseAlertState.NONE)
+    }
+
+    @Test fun confirmedCurrentHighGetsItsOwnSourceDirection() {
+        val sample = input(nowTs = 1_000_000L, currentGlucoseMmol = 12.0,
+            pred30 = 16.0, ciLow30 = 15.0, ciHigh30 = 17.0)
+        val first = engine.evaluate(sample, GlucoseAlertRuntimeState())
+        val second = engine.evaluate(sample.copy(nowTs = 1_060_000L), first.nextState)
+        assertThat(second.currentAlarmStage).isEqualTo(GlucoseAlertState.SOFT_HIGH_RISK)
+    }
+
     @Test
     fun tenMinuteDropIsNotHiddenByThirtyMinuteRecovery() {
         val sample = input(settings = testSettings(), nowTs = 1_000_000L,

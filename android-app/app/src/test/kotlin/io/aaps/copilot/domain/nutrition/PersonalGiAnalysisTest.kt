@@ -90,6 +90,7 @@ class PersonalGiAnalysisTest {
             first.copy(value = Double.NaN) to "INVALID_GI",
             first.copy(value = -1.0) to "INVALID_GI",
             first.copy(source = "MODEL") to "INVALID_GI",
+            first.copy(source = "MODEL_ESTIMATE", reference = "meal_gi_type_history_v1") to "INVALID_GI",
             first.copy(source = "CATALOG", reference = null) to "INVALID_GI",
             first.copy(therapyRevision = "r2") to "GI_REVISION_MISMATCH",
             first.copy(availableAtMs = cutoff + 1) to "GI_AVAILABILITY",

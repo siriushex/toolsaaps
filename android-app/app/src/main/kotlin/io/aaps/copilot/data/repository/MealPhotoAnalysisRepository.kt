@@ -1,7 +1,10 @@
 package io.aaps.copilot.data.repository
 
 import java.util.UUID
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -35,7 +38,11 @@ sealed interface MealPhotoAnalysisResult {
             INVALID_REQUEST,
             BUSY,
             NETWORK,
-            INVALID_RESPONSE
+            INVALID_RESPONSE,
+            NOT_CONFIGURED,
+            UNAVAILABLE,
+            UNKNOWN_OUTCOME,
+            TIMED_OUT
         }
     }
 }
@@ -51,7 +58,8 @@ class MealPhotoAnalysisRepository(
 ) {
     private val mutex = Mutex()
     private var activeRequestId: String? = null
-    private val completed = LinkedHashMap<String, MealPhotoNutritionEstimate>()
+    private data class Completed(val digest: List<Byte>, val estimate: MealPhotoNutritionEstimate)
+    private val completed = LinkedHashMap<String, Completed>()
 
     suspend fun analyze(bytes: ByteArray, mimeType: String = "image/jpeg"): MealPhotoAnalysisResult {
         val requestId = requestIdFactory()
@@ -73,9 +81,13 @@ class MealPhotoAnalysisRepository(
         } catch (_: IllegalArgumentException) {
             return MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST)
         }
+        val digest = MessageDigest.getInstance("SHA-256").digest(request.bytes).toList()
         mutex.withLock {
-            completed[requestId]?.let { return MealPhotoAnalysisResult.Success(it) }
-            if (activeRequestId != null && activeRequestId != requestId) {
+            completed[requestId]?.let {
+                return if (it.digest == digest) MealPhotoAnalysisResult.Success(it.estimate)
+                else MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST)
+            }
+            if (activeRequestId != null) {
                 return MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.BUSY)
             }
             activeRequestId = requestId
@@ -90,7 +102,7 @@ class MealPhotoAnalysisRepository(
                 }
             }
             mutex.withLock {
-                completed[requestId] = parsed
+                completed[requestId] = Completed(digest, parsed)
                 while (completed.size > MAX_COMPLETED_RESULTS) {
                     completed.remove(completed.entries.first().key)
                 }
@@ -98,11 +110,15 @@ class MealPhotoAnalysisRepository(
             MealPhotoAnalysisResult.Success(parsed)
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure: MealPhotoGatewayFailure) {
+            MealPhotoAnalysisResult.Failure(failure.reason)
         } catch (_: Exception) {
             MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.NETWORK)
         } finally {
-            mutex.withLock {
-                if (activeRequestId == requestId) activeRequestId = null
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    if (activeRequestId == requestId) activeRequestId = null
+                }
             }
         }
     }

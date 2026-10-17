@@ -10,6 +10,7 @@ import io.aaps.copilot.service.LocalNightscoutRuntimeReason
 import io.aaps.copilot.service.PowerSaveController
 import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.localObservationRuntimeAllowed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,14 +31,15 @@ class BootCompletedReceiver : BroadcastReceiver() {
                         val settings = app.container.settingsStore.settings.first()
                         PowerSaveRuntimeState.update(settings)
                         TherapyActionRuntimeState.update(settings)
-                        if (!settings.therapyActionsArmed) {
+                        io.aaps.copilot.service.GlucoseAlarmServiceController.reconcile(context.applicationContext)
+                        if (!settings.localObservationRuntimeAllowed()) {
                             WorkScheduler.cancelRuntimeWork(context.applicationContext)
                             app.container.stopRuntimeControllers(
-                                LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                                LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
                             )
                             LocalNightscoutServiceController.stop(
                                 context.applicationContext,
-                                LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                                LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
                             )
                             return@runCatching
                         }

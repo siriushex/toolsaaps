@@ -105,9 +105,9 @@ class LocalNightscoutForegroundService : Service() {
             latestSettingsSnapshot = settings
             PowerSaveRuntimeState.update(settings)
             TherapyActionRuntimeState.update(settings)
-            if (!settings.therapyActionsArmed) {
+            if (!settings.localObservationRuntimeAllowed()) {
                 app.container.stopRuntimeControllers(
-                    LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                    LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
                 )
                 WorkScheduler.cancelRuntimeWork(applicationContext)
                 stopSelfSafely()
@@ -136,9 +136,9 @@ class LocalNightscoutForegroundService : Service() {
                         latestSettingsSnapshot = latest
                         PowerSaveRuntimeState.update(latest)
                         TherapyActionRuntimeState.update(latest)
-                        if (!latest.therapyActionsArmed) {
+                        if (!latest.localObservationRuntimeAllowed()) {
                             app.container.stopRuntimeControllers(
-                                LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                                LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
                             )
                             WorkScheduler.cancelRuntimeWork(applicationContext)
                             stopSelfSafely()
@@ -243,6 +243,7 @@ class LocalNightscoutForegroundService : Service() {
                 debugVacuumJob = null
                 if (
                     settings == null ||
+                    !settings.localObservationRuntimeAllowed() ||
                     PowerSaveController.isActive(settings) ||
                     !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
                 ) {
@@ -289,6 +290,7 @@ class LocalNightscoutForegroundService : Service() {
             withContext(Dispatchers.Main.immediate) {
                 if (
                     settings == null ||
+                    !settings.localObservationRuntimeAllowed() ||
                     PowerSaveController.isActive(settings) ||
                     !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
                 ) {
@@ -403,7 +405,7 @@ class LocalNightscoutForegroundService : Service() {
 
     private fun runtimeStopReason(settings: AppSettings?): LocalNightscoutRuntimeReason = when {
         settings == null -> LocalNightscoutRuntimeReason.SERVICE_STOPPED
-        !settings.therapyActionsArmed -> LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+        !settings.localObservationRuntimeAllowed() -> LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
         PowerSaveController.isActive(settings) -> LocalNightscoutRuntimeReason.POWER_SAVE_ACTIVE
         !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled) ->
             LocalNightscoutRuntimeReason.DISABLED
@@ -422,6 +424,7 @@ class LocalNightscoutForegroundService : Service() {
 
                     if (
                         settings == null ||
+                        !settings.localObservationRuntimeAllowed() ||
                         PowerSaveController.isActive(settings) ||
                         !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
                     ) {
@@ -443,7 +446,7 @@ class LocalNightscoutForegroundService : Service() {
                         lastPeriodicCycleBucket.compareAndSet(cycleBucket - 1, cycleBucket)
                     ) {
                         runCatching {
-                            app.container.automationRepository.runAutomationCycle()
+                            runCurrentRuntimeCycle(app)
                         }.onFailure {
                             app.container.auditLogger.warn(
                                 "minute_cycle_failed",
@@ -454,7 +457,7 @@ class LocalNightscoutForegroundService : Service() {
                         // Recover CAS state if process resumed after long sleep.
                         lastPeriodicCycleBucket.set(cycleBucket)
                         runCatching {
-                            app.container.automationRepository.runAutomationCycle()
+                            runCurrentRuntimeCycle(app)
                         }.onFailure {
                             app.container.auditLogger.warn(
                                 "minute_cycle_failed",
@@ -472,6 +475,17 @@ class LocalNightscoutForegroundService : Service() {
                 minuteLoopActive.set(false)
             }
         }
+    }
+
+    private suspend fun runCurrentRuntimeCycle(app: CopilotApp) {
+        val settings = app.container.settingsStore.settings.first()
+        runAdmittedLocalRuntimeCycle(
+            therapyArmed = settings.therapyActionsArmed,
+            observationEnabled = settings.localObservationEnabled,
+            powerSaveActive = PowerSaveController.isActive(settings),
+            normal = { app.container.automationRepository.runAutomationCycle() },
+            local = { app.container.automationRepository.runLocalReadOnlyCycle() }
+        )
     }
 
     companion object {

@@ -1,0 +1,27 @@
+<resources>
+    <string name="meal_photo_title">Food photo</string>
+    <string name="meal_photo_camera">Camera</string>
+    <string name="meal_photo_gallery">Gallery</string>
+    <string name="meal_photo_consent">The selected food photo will be sent to your AI server for analysis.</string>
+    <string name="meal_photo_estimate_note">Model estimate. Confirm mass and the amount eaten.</string>
+    <string name="meal_photo_needs_connection">Connect your AI server in Settings → Server Copilot.</string>
+    <string name="meal_photo_unavailable">Photo analysis is unavailable on the server. Manual food entry remains available.</string>
+    <string name="meal_photo_connecting">Checking server…</string>
+    <string name="meal_photo_analyzing">Analyzing food…</string>
+    <string name="meal_photo_invalid_image">Cannot prepare this image. Select another photo.</string>
+    <string name="meal_photo_invalid_result">The server returned an invalid estimate. Nothing was applied.</string>
+    <string name="meal_photo_unknown">The server did not confirm acceptance. The result is unknown; no automatic retry was sent.</string>
+    <string name="meal_photo_timeout">The analysis timed out. No food was recorded.</string>
+    <string name="meal_photo_recheck">Check connection</string>
+    <string name="meal_photo_use">Use in food form</string>
+    <string name="meal_photo_mass_range">Estimated mass: %1$s g</string>
+    <string name="meal_photo_mass">Mass, g</string>
+    <string name="meal_photo_eaten" formatted="false">Eaten, %</string>
+    <string name="meal_photo_raw">Raw</string>
+    <string name="meal_photo_cooked">Cooked</string>
+    <string name="meal_photo_unknown_value">Unknown</string>
+    <string name="meal_photo_totals">Energy: %1$s kcal\nProtein: %2$s g\nFat: %3$s g\nCarbs: %4$s g</string>
+    <string name="meal_photo_incomplete">Some values are unknown. The subtotal is not a complete meal total.</string>
+    <string name="meal_photo_confirm_carbs">Confirm carbohydrates, g</string>
+    <string name="meal_photo_carb_limit">Up to %1$d g. Does not record food yet.</string>
+</resources>

@@ -1,0 +1,27 @@
+<resources>
+    <string name="meal_photo_title">Еда по фото</string>
+    <string name="meal_photo_camera">Камера</string>
+    <string name="meal_photo_gallery">Галерея</string>
+    <string name="meal_photo_consent">Выбранное фото еды будет отправлено на ваш ИИ-сервер для анализа.</string>
+    <string name="meal_photo_estimate_note">Оценка модели. Уточните массу и съеденную долю.</string>
+    <string name="meal_photo_needs_connection">Подключите ИИ-сервер в разделе «Настройки → Серверный Copilot».</string>
+    <string name="meal_photo_unavailable">Анализ фото на сервере недоступен. Еду можно ввести вручную.</string>
+    <string name="meal_photo_connecting">Проверка сервера…</string>
+    <string name="meal_photo_analyzing">Распознавание еды…</string>
+    <string name="meal_photo_invalid_image">Не удалось подготовить изображение. Выберите другое фото.</string>
+    <string name="meal_photo_invalid_result">Сервер вернул некорректную оценку. Ничего не применено.</string>
+    <string name="meal_photo_unknown">Сервер не подтвердил приём запроса. Результат неизвестен, автоматический повтор не отправлен.</string>
+    <string name="meal_photo_timeout">Время анализа истекло. Еда не записана.</string>
+    <string name="meal_photo_recheck">Проверить связь</string>
+    <string name="meal_photo_use">В форму еды</string>
+    <string name="meal_photo_mass_range">Оценка массы: %1$s г</string>
+    <string name="meal_photo_mass">Масса, г</string>
+    <string name="meal_photo_eaten" formatted="false">Съедено, %</string>
+    <string name="meal_photo_raw">Сырое</string>
+    <string name="meal_photo_cooked">Готовое</string>
+    <string name="meal_photo_unknown_value">Неизвестно</string>
+    <string name="meal_photo_totals">Калории: %1$s ккал\nБелки: %2$s г\nЖиры: %3$s г\nУглеводы: %4$s г</string>
+    <string name="meal_photo_incomplete">Часть значений неизвестна. Неполная сумма не равна итогу всего блюда.</string>
+    <string name="meal_photo_confirm_carbs">Подтвердите углеводы, г</string>
+    <string name="meal_photo_carb_limit">До %1$d г. Еда пока не записывается.</string>
+</resources>

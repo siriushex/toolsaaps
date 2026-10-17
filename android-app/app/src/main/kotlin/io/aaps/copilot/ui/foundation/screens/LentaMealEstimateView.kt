@@ -59,8 +59,8 @@ internal fun LentaMealEstimateView(estimate: LentaMealEstimate?, profile: MealAb
                 else -> R.string.lenta_history_default
             }, estimate.supportMeals, estimate.supportDays), style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.testTag("lentaEstimateSource"))
-            Text(estimate.historyGi?.let { stringResource(R.string.lenta_history_gi,
-                UiFormatters.formatGrams(it, 0), estimate.giSupportMeals) }
+            Text(estimate.automaticGi?.let { stringResource(R.string.meal_automatic_gi,
+                UiFormatters.formatGrams(it.value, 0)) }
                 ?: stringResource(R.string.lenta_history_gi_unknown),
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("lentaEstimateGi"))
             LentaEstimateChart(estimate, chartHeight, inspectionRequest)

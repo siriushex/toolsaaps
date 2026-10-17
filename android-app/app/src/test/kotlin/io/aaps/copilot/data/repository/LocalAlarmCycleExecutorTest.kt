@@ -54,7 +54,16 @@ class LocalAlarmCycleExecutorTest {
         val stopped = mutableListOf<LocalAlarmCycle>()
         var fail = false
         var stopFails = false
+        var prepareAllowed = true
+        var lease: LocalAlarmAudioOwner? = null
         var onStart: suspend (LocalAlarmCycle) -> Unit = {}
+        override suspend fun prepareLocalAlarm(owner: LocalAlarmAudioOwner): Boolean {
+            if (!prepareAllowed || !owner.current()) return false
+            lease = owner
+            return true
+        }
+        override fun ownsLocalAlarm(cycle: LocalAlarmCycle): Boolean =
+            lease?.let { it.cycle == cycle && it.retained() } == true
         override suspend fun playLocalAlarm(cycle: LocalAlarmCycle, stepIndex: Int,
             settings: AppSettings, admitted: (LocalAlarmCycle) -> Boolean): GlucoseAlertAudioPlaybackResult {
             assertTrue(admitted(cycle))
@@ -66,6 +75,7 @@ class LocalAlarmCycleExecutorTest {
                     else settings.criticalAlertAudio2DurationMs)
         }
         override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
+            lease?.takeIf { it.cycle == cycle }?.retire()
             stopped += cycle
             if (stopFails) error("stop_unconfirmed")
         }
@@ -105,16 +115,16 @@ class LocalAlarmCycleExecutorTest {
         assertEquals(1L, db.alertLocalDao().state(signal.key.kind.name, signal.key.id)!!.ordinal)
     }
 
-    @Test fun softCycleRaisesBeforeEachClipAndRecordsOnlyConfirmedWork() = runBlocking {
+    @Test fun softCyclePlaysOneShortClipAndRecordsOnlyConfirmedWork() = runBlocking {
         val outcome = executor().execute(settings)
         assertEquals(LocalAlarmExecutionStatus.FINISHED, outcome.status)
-        assertEquals(listOf(0, 1, 2, 3), audio.steps)
-        assertEquals(listOf(3, 5, 8, 10), audio.levels)
-        assertEquals(listOf(1_000L, 16_000L, 31_000L, 46_000L), audio.times)
-        assertEquals(listOf(3, 5, 8, 10, 1), volume.writes)
+        assertEquals(listOf(0), audio.steps)
+        assertEquals(listOf(3), audio.levels)
+        assertEquals(listOf(1_000L), audio.times)
+        assertEquals(listOf(3, 1), volume.writes)
         val cycle = outcome.cycle!!
         assertEquals("FINISHED", row(cycle).status)
-        assertEquals(listOf(25, 50, 75, 100), result(cycle).steps.map { it.reachedPercent })
+        assertEquals(listOf(25), result(cycle).steps.map { it.reachedPercent })
         assertTrue(result(cycle).steps.all { it.notification == LocalAlarmNotificationResult.NOT_REQUESTED &&
             it.vibration == LocalAlarmVibrationResult.NOT_REQUESTED })
         assertTrue(environment.nowElapsedMs <= cycle.deadlineElapsedMs)
@@ -130,6 +140,61 @@ class LocalAlarmCycleExecutorTest {
         assertEquals(listOf(70, 85, 100, 100), result(outcome.cycle!!).steps.map { it.reachedPercent })
         assertEquals(listOf(LocalAlarmAudioResult.STARTED, LocalAlarmAudioResult.NOT_REQUESTED,
             LocalAlarmAudioResult.NOT_REQUESTED, LocalAlarmAudioResult.NOT_REQUESTED), result(outcome.cycle!!).steps.map { it.audio })
+    }
+
+    @Test fun deniedTransportPreparationNeverChangesVolumeOrStartsAudio() = runBlocking {
+        audio.prepareAllowed = false
+        val outcome = executor().execute(settings)
+        assertEquals(LocalAlarmExecutionStatus.DENIED, outcome.status)
+        assertTrue(audio.steps.isEmpty())
+        assertTrue(volume.writes.isEmpty())
+        assertEquals("CANCELLED", row(outcome.cycle!!).status)
+    }
+
+    @Test fun normalCompletionReleasesOwnershipWithoutCancellingItsCaller() = runBlocking {
+        assertEquals(LocalAlarmExecutionStatus.FINISHED, executor().execute(settings).status)
+        assertTrue(currentCoroutineContext().isActive)
+        assertFalse(audio.lease!!.current())
+        assertTrue(audio.lease!!.awaitRelease())
+        assertEquals(1, volume.index)
+    }
+
+    @Test fun transportPreemptionAwaitsTheExactCycleCleanupNotItsCaller() = runBlocking {
+        val waiting = CompletableDeferred<Unit>()
+        onWait = { waiting.complete(Unit); awaitCancellation() }
+        val execution = async { executor().execute(settings) }
+        waiting.await()
+        val lease = audio.lease!!
+        lease.revoke()
+        assertTrue(withTimeout(5_000) { lease.awaitRelease() })
+        execution.join()
+        assertTrue(execution.isCancelled)
+        assertTrue(currentCoroutineContext().isActive)
+        assertEquals(1, volume.index)
+        assertEquals("CANCELLED", row(lease.cycle).status)
+    }
+
+    @Test fun failedCleanupCannotAuthorizeAnotherAudioOwner() = runBlocking {
+        audio.stopFails = true
+        val outcome = executor().execute(settings)
+        assertEquals(LocalAlarmExecutionStatus.CLEANUP_UNAVAILABLE, outcome.status)
+        assertFalse(audio.lease!!.awaitRelease())
+    }
+
+    @Test fun transportReleaseDoesNotWaitForBlockedJournalPersistence() = runBlocking {
+        val waiting = CompletableDeferred<Unit>()
+        onWait = { waiting.complete(Unit); awaitCancellation() }
+        val execution = async { executor().execute(settings) }
+        waiting.await()
+        val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        lock.lock()
+        try {
+            val lease = audio.lease!!
+            lease.revoke()
+            assertTrue(withTimeout(1_500) { lease.awaitRelease() })
+            assertEquals(1, volume.index)
+            assertFalse(execution.isCompleted)
+        } finally { lock.unlock(); execution.join() }
     }
 
     @Test fun actualRoomOffDuringWaitStopsAndRestoresWithoutAnotherStep() = runBlocking {
@@ -174,6 +239,7 @@ class LocalAlarmCycleExecutorTest {
     }
 
     @Test fun observedManualVolumeOverrideStopsWithoutRestoration() = runBlocking {
+        signal = signal.copy(level = LocalAlarmLevel.CRITICAL_5)
         onWait = { volume.index = 2 }
         val outcome = executor().execute(settings)
         assertEquals(LocalAlarmExecutionStatus.VOLUME_UNAVAILABLE, outcome.status)
@@ -183,12 +249,13 @@ class LocalAlarmCycleExecutorTest {
     }
 
     @Test fun missedIntermediateWindowIsSkippedNotReplayed() = runBlocking {
+        signal = signal.copy(level = LocalAlarmLevel.CRITICAL_5)
         var first = true
         onWait = { if (first) { first = false; environment = environment.copy(nowElapsedMs = 16_000) } }
         val outcome = executor().execute(settings)
         assertEquals(LocalAlarmExecutionStatus.FINISHED, outcome.status)
-        assertEquals(listOf(0, 2, 3), audio.steps)
-        assertEquals(listOf(0, 2, 3), result(outcome.cycle!!).steps.map { it.index })
+        assertEquals(listOf(0), audio.steps)
+        assertEquals(listOf(0, 3), result(outcome.cycle!!).steps.map { it.index })
     }
 
     @Test fun cancellationPropagatesAndCleansUpOnce() = runBlocking {
@@ -215,7 +282,7 @@ class LocalAlarmCycleExecutorTest {
 
     @Test fun cleanupCancellationCannotLeaveExecutorPermanentlyBusy() = runBlocking {
         val owner = executor()
-        onWait = { if (audio.steps.size == 4) volume.cancelReads = true }
+        onWait = { volume.cancelReads = true }
         try { owner.execute(settings); fail("Expected cancellation") } catch (_: CancellationException) { }
         volume.cancelReads = false
         onWait = {}
@@ -228,10 +295,11 @@ class LocalAlarmCycleExecutorTest {
         audio.stopFails = true
         val outcome = executor().execute(settings)
         assertNotEquals(LocalAlarmExecutionStatus.FINISHED, outcome.status)
-        assertEquals(listOf(3, 5, 8, 10, 1), volume.writes)
+        assertEquals(listOf(3, 1), volume.writes)
     }
 
     @Test fun evidenceExpiryEndsWaitBeforeNextStep() = runBlocking {
+        signal = signal.copy(level = LocalAlarmLevel.CRITICAL_5)
         signal = signal.copy(validUntilElapsedMs = 6_000)
         val outcome = executor().execute(settings)
         assertEquals(LocalAlarmExecutionStatus.DENIED, outcome.status)
@@ -289,6 +357,7 @@ class LocalAlarmCycleExecutorTest {
     }
 
     @Test fun laterCycleRetainsConfirmedMaximumRatherThanRestartingQuietly() = runBlocking {
+        signal = signal.copy(level = LocalAlarmLevel.CRITICAL_5)
         val owner = executor()
         assertEquals(LocalAlarmExecutionStatus.FINISHED, owner.execute(settings).status)
         val due = db.alertLocalDao().state(signal.key.kind.name, signal.key.id)!!.nextDueElapsedMs!!
@@ -296,7 +365,7 @@ class LocalAlarmCycleExecutorTest {
         audio.steps.clear(); audio.levels.clear(); volume.writes.clear()
         val second = owner.execute(settings)
         assertEquals(2L, second.cycle!!.ordinal)
-        assertEquals(listOf(10, 10, 10, 10), audio.levels)
+        assertEquals(listOf(10), audio.levels)
         assertEquals(listOf(10, 1), volume.writes)
         assertTrue(result(second.cycle!!).steps.all { it.reachedPercent == 100 })
     }
@@ -372,6 +441,7 @@ class LocalAlarmCycleExecutorTest {
     }
 
     @Test fun failedFinishObserverNeverRetainsExecutorLock() = runBlocking {
+        signal = signal.copy(level = LocalAlarmLevel.CRITICAL_5)
         var failOnce = true
         val runner = executor(onFinished = { if (failOnce) { failOnce = false; error("observer_unavailable") } })
         try { runner.execute(settings); fail() } catch (_: IllegalStateException) {}

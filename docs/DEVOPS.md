@@ -1,5 +1,554 @@
 # DEVOPS
 
+## Authenticated Daily Facts Host
+
+Source adds optional actual-bool owner `daily_facts`, defaultfalse. No installed
+descriptor/unit, timer, key or database is changed by this stage. One nonroot
+API-lifetime task prepares only explicitly opted-in device facts after local05:00,
+with current grant checks, completion deduplication and bounded failure retry.
+No model/profile admission, daily_reads enablement or public settings route.
+Run new service/schedule/owner/auth/subscription/lifecycle tests and full backend,
+then inspect exact-head Verify. Before actual opt-in, every history writer must
+support schema6. Do not copy tokens, reset claims or roll back to an incompatible
+old API. A disable/restart must drain in-flight facts before resources close.
+See DAILY_FACTS_HOST.md for limits, revocation race and separate live acceptance.
+
+## Daily Facts Opt-In
+
+Source adds internal schedule read/CAS-write/one-shot producer operations only.
+No existing descriptor, host, cron, systemd timer or phone setting is changed.
+Opt-in explicitly migrates the dedicated synthetic/test store to schema6; reads
+do not migrate. Run schedule/report/source/history/queue/result and full backend
+tests plus scoped lint/compile before source publication. Actual host composition
+must verify current device/owner consent and run bounded synchronous work off the
+event loop; no timer or live model call is permitted merely by this source stage.
+All writers must understand schema6 before an actual opt-in. Binary-only rollback
+to code supporting only1-5 will refuse the database; preserve data and restore
+compatible source, never reset schema/drop tables/restore old medical history.
+Details and the separate operational gates are in DAILY_FACTS_SCHEDULE.md.
+
+## Android Server Archive
+
+Source adds a separate encrypted DAILY_ARCHIVE slot and native Reports reader;
+no clinical database migration or server descriptor/unit change. Existing owner
+daily_reads admission remains false unless separately reviewed and enabled.
+Run focused client/cache/security/Focus/native tests, then full Android quality
+and actual native raster inspection. Verify the exact pushed SHA, not only local
+success. Do not use a real model request, patient upload or database copy for QA.
+No APK installation is implied; existing alerts/services must not be disabled.
+Cutoff refresh is visible read-only work, not actual server05:00 dispatch.
+See ANDROID_SERVER_DAILY_ARCHIVE.md for cache/retention/rollback limitations.
+
+## Daily Result Read Admission (2026-10-17)
+
+Source adds optional protected owner descriptor `daily_reads` (actual bool,
+defaultfalse). No installed descriptor, unit, proxy or server is changed here.
+Before a separately approved rollout, run daily-read/owner/history/archive/source
+tests and the full backend suite; verify exact-head CI. Reuse existing protected
+owner roots and signed routes. No key, profile, new root or migration is needed.
+Enabling reads does not enable05:00 facts/dispatch or model/publication admission.
+An approved rollout must check actual signed same-device responses and denial
+after revocation, preserving current/historical source labels. Returning the
+flag to false removes the routes; do not downgrade or restore history schemas.
+Never use a real model request or copy a phone database to test this read stage.
+
+## Meal Preparation And Automatic GI
+
+Android-only source, no Room schema, backend, provider or device settings change.
+MODEL_ESTIMATE uses existing nullable meal metadata with an explicit reference;
+older applications ignore the unsupported source instead of treating it as a
+known GI. Run source/persistence/history/unchanged-clinical-output regressions,
+native compact/large-font and finite-frame checks, then full unit/lint/build.
+No test food, bolus, target or sound is needed. A known future meal timestamp is
+not clinical readiness; do not enable the isolated timing research via this UI.
+
+## Food Photo Saved-Session Repair (2026-10-17)
+
+Run ServerMealPhotoSessionTest with existing photo gateway/protocol/repository,
+connection, preparation and native review tests, then full Android test/lint/build.
+Check saved/unloaded/expired access, 401, text-only capability, missing session,
+pending activation and credentials removed between readiness and submission.
+Phone installation is a separate `adb install -r` on the intended existing device;
+do not disable, uninstall, clear data or send test food/targets.
+
+Read-only host projection on 2026-10-17 confirms owner descriptor v2 has no vision
+endpoint while API/text are active. This APK repair cannot enable image inference.
+No fake capabilities, text tunnel, copied login profile or replay is permitted.
+Vision rollout requires independently admitted decoder/native/channel and an
+explicit bounded synthetic provider test; preserve owned-config rollback.
+For an existing trusted text refresher, --text-admission may point to its root-
+owned protected descriptor. Only verified public image/egress follows renewal;
+model/private identity remains pinned. Keep the photo POST body allowance local
+to its exact route (3 MiB); existing text body limits must not be widened.
+
+Owner rollout was explicitly authorized and passed one synthetic provider test
+and independent API/proxy checks. Preserve owned config backups; never copy login
+tokens, reset a guard or replay that test. Graceful nginx reload is asynchronous:
+wait for observed drain before checking sustained idle and restarting API, then
+verify effective photo/text size limits. Anonymous probes must remain refused.
+
+## Local Nightly Advice
+
+No backend deployment/schema or Room migration. A fixed local aggregate key
+and unique network-free advice worker are added; startup requests catch-up.
+05:00 uses the WorkManager next override, not a critical/system alarm. Power-save
+defers work. Test source limits, duplicate/restart/cancellation, local clock/DST,
+stale display and existing Focus/clinical report behavior. See NIGHTLY_ADVICE.md.
+Do not claim actual overnight delivery from a local synthetic test or green CI.
+
+## Chat Motion And Attachments
+
+Android-only source, no Room/server schema or service change. Existing server
+TEXT limits remain4096codepoints/8192bytes; no image/PDF activation. Run focused
+attachment/route/Focus/motion tests and full Android test/lint/build, then inspect
+exact-head Verify. Native raster/video evidence stays private. A built APK is
+not USB/provider acceptance. See AI_CHAT_ATTACHMENTS.md for exact route limits.
+
+## Owned Daily Dispatch (2026-10-17)
+
+Source-only execution/transport integration. Default host CLI remains chat-only;
+--daily-socket explicitly binds the dedicated channel under the same protected
+parent and shares one capacity/unknown-stop gate with chat. No unit/config/timer,
+new dependency, public daily route, phone or therapy setting changes here.
+
+Before activation run daily execution/dispatcher/supervisor, legacy executor,
+ledger/admission/results, text/vision and host suites plus full backend. Preserve
+unknown ledger/profile state; do not recreate old claims after startup. A
+handoff-only crash can obtain a first-ever ledger admission only after authentic
+retained work and fresh source verification. Result-loss after success is not a
+reason to repeat inference. See DAILY_DISPATCH.md for exact remaining gates.
+
+An actual deployment needs both socket/PID readiness checks, exact runtime/model/
+egress and stop verification, opted-in device/zone schedule, protected result
+reads and explicit source/schema rollback assessment. Existing365-day expiry
+and encrypted result schema are retained; no live migration is performed here.
+
+## Native Moderation Compatibility (2026-10-17)
+
+The first reviewed frame-only rollout composed live base3b81c2a5 with two modules
+from59bba270. Full compatibility suite:1160 passed/27 opt-in skips; both exact-head
+Verify runs passed. Two source-path drop-ins preserve the old interpreter,
+dependencies, descriptors and private storage. Public unit rollback copies only;
+no credentials/history copied and no database/schema migration.
+
+Readiness and both standalone/parent-contained no-turn handshakes passed. One
+large synthetic supervisor request failed with positive stop/idle. A separately
+reviewed diagnostic identified an unhandled turn/moderationMetadata event. The
+method fingerprint matches the pinned generated ServerNotification schema. This
+is a protocol defect, not proof of the cause of the earlier three user failures.
+The additional source fix needs its own tests, rollout and real answer receipt.
+Do not replay prior jobs or reset uncertain profile claims. Nightly05:00 remains
+unconnected; this compatibility stage grants no clinical/therapy authority.
+
+## Full-Context Native Frame Correction (2026-10-17)
+
+Source-only correction: the shared bounded native pipe/parser line cap covers
+the existing 128 KiB input with worst-case JSON escaping. No runtime binary,
+network admission, service, schema, model or profile change is performed here.
+The original contained-text design's 64 KiB line assumption is superseded by
+6*131072+1024 bytes; its 1 MiB session and other independent limits remain.
+
+Before any rollout, run the full backend suite and the native text/process,
+supervisor/host, contextual-chat, vision and daily-worker checks. Publish only
+reviewed source/tests/docs. Stage a new immutable server image under an explicit
+operational plan; do not edit an active pinned image, copy login credentials,
+reset uncertain claims or automatically replay failed/unknown model jobs.
+An actual bounded provider test and intended-device result remain separate
+acceptance gates. This repair does not enable the 05:00 daily review pipeline.
+
+## Foreground Glucose Alarms
+
+The new local runtime is off by default; source publication does not enable it
+on any phone. Opt-in is in Alerts. It uses a private specialUse foreground
+service, SCHEDULE_EXACT_ALARM access and a bounded partial wake lock. Android can
+show each current critical repeat as its next system alarm. Denied access or
+foreground-start refusal is visible; no permission is auto-granted. Play Console
+special-use declaration/review remains a separate distribution requirement.
+
+Disable the new toggle to withdraw its owner and cancel its pending clock;
+existing native initial alerts remain available. Global OFF 30/60 still pauses
+all existing risk deliveries. No schema migration, therapy preference change or
+new server operation is part of this stage. Phone installation and deliberate
+audio/vibration/locked-screen/Doze acceptance require separate authorization.
+
+Platform references checked 2026-10-16:
+- https://developer.android.com/develop/background-work/services/fgs/service-types
+- https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
+- https://developer.android.com/about/versions/14/changes/schedule-exact-alarms
+- https://developer.android.com/reference/android/app/AlarmManager
+
+## Local Observation Runtime
+
+Additive install-bound preference, default off. No Room schema, dependency,
+manifest permission or external server change. Existing source/TLS settings and
+therapy permissions are retained. Separate local periodic work runs without a
+network constraint and is cancelled on disable/power-save or therapy runtime
+handoff. Turning this option off is not a global source or therapy stop.
+
+Run LocalObservationSettingsTest, LocalObservationRuntimeTest, SetupScreenTest,
+bootstrap and reactive worker policy tests, then full Android quality. Retain
+native small-screen/large-font evidence. Phone source reception, reboot, screen
+lock and power-save return still require separate acceptance; Android restrictions
+can deny foreground start. No claim of independent alarms or guaranteed delivery.
+
+## Local Diary / Room35
+
+MIGRATION_34_35 adds one independent journal table and its occurrence-time index.
+There is no backfill, clinical mutation, changed dependency or destructive
+fallback. Verify the file-backed34->35 path, older supported tails and restart.
+The previous schema34 APK cannot open35: use a reviewed forward fix, not an
+APK-only downgrade or stale therapy restore. Source publication is not approval
+to install, stop the app or copy medical data from the phone.
+
+Run LocalDiaryRepositoryTest, LocalDiaryMigrationTest, LocalDiaryViewModelTest,
+LocalDiaryScreenTest, SetupScreenTest and supported migration tests, then full
+Android unit/lint/Kotlin/debug-build. Physical-device acceptance remains separate.
+
+## First-Start Checklist (2026-10-16)
+
+Additive setup-only preferences and native UI; no Room schema, dependency,
+manifest, service or remote deployment changes. Older application versions ignore
+the new checklist keys. Equipment choices preserve all existing clinical and
+connection settings; this stage does not enable no-AAPS background forecasting.
+Complete local quality and exact-head Verify precede source-stage publication.
+APK installation and actual device permission/navigation acceptance are separate.
+
+## Immediate OFF Source Repair (2026-10-16)
+
+Existing control entry points now revoke the admitted delivery child and shared
+audio/vibration before waiting for Room. Control revision is process metadata,
+not a database migration or substitute for persisted OFF. Parent cancellation,
+failed write and exact cleanup remain visible. No permission, service, scheduler,
+dependency/default, host/model or phone operation is included. Full Android
+quality passed5868 cases/6 existing skips/0 failures or errors in20m24s; lint
+has0 errors and unchanged379 notices. Debug v2 signature verified. Exact-head
+CI remains required before source-stage completion.
+The native INITIAL lock/volume handoff remains a prerequisite to real repeated
+runtime activation; do not infer it from the current pre-lock cancellation fix.
+
+## Audio Ownership And Focus Follow-through (2026-10-16)
+
+Source/controller/UI changes only. No schema, dependency, manifest, service,
+permission/default, model request, host or phone operation. Exact request fencing
+is not the complete source/foreground/native INITIAL handoff and does not arm
+AlarmClock or enable acknowledgement. Saved legacy cloud history is not the new
+per-device daily results service; rendering it cannot activate a nightly model.
+Full Android quality and exact-head CI precede source-stage completion. Phone
+installation, locked-screen/sound/volume acceptance and daily server activation
+remain distinct authorized operations. See the feature-completion track plan.
+
+## Accepted Alarm Source Stage (2026-10-16)
+
+Glucose and delivery-diagnostic accepted paths now expose checked source feeds;
+no consumer arms a second sound owner. No schema/migration, manifest, service,
+permission, setting default, phone, model/server or therapy operation. Keep
+existing native initial delivery until an explicitly admitted single-owner
+handoff is verified. Source publication/flow emission is not physical delivery.
+Clock failure gives no source, never a fabricated current timestamp. Boot is read
+once per process; after reboot/startup fresh accepted evidence is still required.
+Targeted555 synthetic cases and final full tests/lint/compile/build passed:
+5820 cases,5814 pass/6 existing skips,0 failures/errors; lint0 errors and the
+unchanged371-warning/8-hint baseline. One first-run TLS startup failure did not
+recur in isolated or full retry; retain its original report. Exact-head source
+publication/CI is a separate gate, never phone acceptance.
+Plan: superpowers/plans/2026-10-16-accepted-alarm-sources.md. Do not disable or
+install on a phone, exercise sound/volume or infer clinical validation from CI.
+
+## Alert Fatigue Source Stage (2026-10-16)
+
+No schema/migration, service/permission/default, source adapter, phone or therapy
+operation. Inactive policy/executor support now uses one soft clip, noncritical
+backoff and journal-derived shared cooldown. The lookback query materializes at
+most65 rows; over64 or invalid history prevents new soft admission, not critical
+selection. Critical selection/retention skips that query. Total SQL scan cost
+requires retained-history profiling before runtime activation; no CPU claim.
+Continue the approved source/foreground/wake/ACK/OFF integration before claiming
+live repeat delivery. Preserve urgent native fallback and single audio ownership.
+Build/CI does not install an APK, arm alarms or prove physical/human delivery.
+
+## Initial Alert Delivery Source Stage (2026-10-16)
+
+No schema, permission, service/alarm, setting default, server or phone operation.
+Normal accepted alerts now precede the existing therapy stage, with independent
+ordinary failure handling and truthful selected-channel/partial-channel reports.
+Source-change and writer authorization remain unchanged. Source/build/CI is not
+APK installation, runtime arming, physical audibility or clinical validation.
+No disable/force-stop, backup, test sound or therapy command is authorized here.
+The repeated runtime, source bridge, ACK/OFF wake ownership and intended-phone
+acceptance are separate remaining stages of the approved reliable-alert design.
+
+## Daily Capacity Source Stage (2026-10-16)
+
+No operational caller, deployment, migration, timer or profile change. The new
+ledger method issues fresh daily capacity only inside an idle transaction;
+legacy daily claims now yield to queued non-daily work. Existing metadata schema,
+normal reservation/settlement and no-replay uncertain-stop rules are retained.
+Do not feed a returned RUNNING claim to the old QUEUED-only executor or build an
+API accepting arbitrary claim receipts. A dedicated owned lifecycle/provider/
+supervisor, positive stop, source/queue/result coordination and opt-in schedule
+must be integrated and separately admitted. No preemption/host latency guarantee.
+See DAILY_IDLE_CAPACITY.md; no host/model/phone/therapy operation in this stage.
+
+## Daily Result Source Stage (2026-10-16)
+
+Only an explicit stopped-successful internal result write adds schema 5 and its
+result table/index after preserving schemas 1-4. Read paths never migrate. Shared
+quotas/purge and fixed report-day+365d expiry include results. Failed payload
+writes roll back, but committed additive migration can remain. Source supporting
+only schemas 1-4 cannot open 5; do not downgrade, drop tables or reset versions.
+No host/database/backup/restore operation is performed here.
+
+The ledger and device store do not commit atomically. Preserve a successful job
+with missing result as RESULT_UNAVAILABLE; never auto-infer again. Lost write
+acknowledgement is recovered by original job identity, not a new request.
+Unknown stop still holds shared capacity. Provider/supervisor/priority/schedule
+and public advisory-quality admission remain separate. No server/profile/API/
+medical-data/model/phone/therapy activation. See DAILY_REVIEW_RESULTS.md.
+
+## Focus UI Source Stage (2026-10-16)
+
+Focus+ (2026-10-17) adds two fixed Room telemetry projections and an independent
+local 05:00 WorkManager task, with no schema migration or server activation.
+Old successful display survives an unsuccessful refresh; no remote request is
+replayed. Keep package/signing identity, do not disable/clear Copilot for backup.
+See AI_FOCUS_PLUS.md; build/CI and intended-phone acceptance remain separate.
+
+Native navigation/presentation only; no database/config/provider migration.
+Source approval/build and synthetic native rasters are not intended-phone
+installation or real provider acceptance. Keep existing package/signing identity
+and never clear/uninstall/disable Copilot for backup. No test therapy/alert/audio
+commands are part of this UI check. Actual phone/version/permissions must be
+verified separately before any explicitly authorized USB update. Server daily
+result/schedule/photo admission is unaffected. See AI_FOCUS_UI.md.
+
+## Daily Worker Source Stage (2026-10-16)
+
+daily_worker is not wired into the public API or existing text supervisor. Do not
+route daily envelopes through CHAT, reserve owner capacity while scanning, or
+launch an uncontained native runner. No daemon, schema, profile, config, host,
+model session or APK changes accompany this stage. Shared JobExecutor/ledger
+settlement is reused; uncertain stop/clock or queue handoff outcomes must not
+be replayed. A separate daily supervisor/atomic priority dispatcher and encrypted
+result composition need explicit admission before opt-in scheduling/deployment.
+See DAILY_REVIEW_WORKER.md for operational boundaries and remaining gates.
+
+## Durable Daily Queue Source Stage (2026-10-16)
+
+Only explicit enqueue adds daily_review_queue/index and commits additive schema 4
+after preserving schemas 1-3. Reads/get/handoff/cancel never migrate. Failed payload
+writes roll back rows; an already committed additive migration may remain. Queue
+payloads share quotas/purge, distinct AEAD purpose and fixed report-day+365d expiry.
+
+Old source supporting only schemas 1-3 cannot reopen schema 4. No reverse SQL,
+table drop or version reset is a rollback. No host/database/backup operation is
+performed here. Future rollout requires compatible source and coordinated protected
+restore/ledger reconciliation; do not replay reservations from an older snapshot.
+
+Handoff is one-shot even after commit succeeded but acknowledgement/deadline
+failed. Preserve the marker/unknown outcome rather than automatically resubmitting.
+No model, worker, slot reservation, schedule, capability or public route is enabled;
+actual dispatch arbitration/containment/result settlement remain separate.
+See DAILY_REVIEW_QUEUE.md.
+
+## Checked Daily Review Boundary Stage (2026-10-16)
+
+Only trusted synchronous read helpers consume the source check; future async
+orchestration must offload them using the existing worker-thread convention.
+They perform no network/model work and hold no read lock across inference.
+No schema, service, descriptor, route, provider policy, scheduler, runtime/profile,
+phone or therapy setting is changed. No public capability is advertised.
+
+Checked work must be prepared again immediately before future dispatch if it
+waited in a queue. Checked replies still need independently admitted quality and
+a coordinated fresh check/durable publication boundary; they are not stored here.
+See CHECKED_DAILY_REVIEW.md. Legacy unverified preparation remains unchanged and
+must not be used to bypass the new trusted boundaries in a future daily worker.
+
+## Frozen Source Check Stage (2026-10-16)
+
+Only internal read helpers and synthetic checks change. No migration, service,
+descriptor, profile, scheduler, public API, model, phone or therapy operation.
+The existing protected file/lock/transaction/deadline bounds are shared by report
+selection and source replay; reads never enable archive schema 3. Source evidence
+at retention is unavailable, never repaired by extending expiry or restoring old
+records. No worker consumes the check; source deployment remains separate.
+See DAILY_SOURCE_VERIFICATION.md for the actual versus replayed cuts and limits.
+
+## Daily Review Contract Source Stage (2026-10-16)
+
+Only internal preparation and reference checking are implemented. The exact
+source result schema and hash accompany canonical work input; result text stays
+NOT_ADMITTED. No server descriptor, capability, public enum, native policy,
+supervisor, source root, service, profile, timer or database schema is changed.
+No provider or real-device test is included. Pure helpers are not deployment.
+
+A future worker needs to consume independent frozen-source verification, a
+separate explicitly admitted DAILY_REVIEW policy, shared profile/ledger ownership,
+encrypted work/results and no-replay uncertain-state handling before opt-in
+scheduling. Matching supplied hashes, valid JSON or REFERENCES_ONLY cannot
+substitute for those gates. Keep the trusted model/reasoning choices unchanged.
+
+## Daily Facts Archive Source Stage (2026-10-16)
+
+No deployment or operator invocation accompanies these internal methods. Only
+save_daily_glucose_report explicitly enables archive schema 3; it first preserves
+the additive chat schema 2 and adds the report table/index. Failed report writes
+roll back payloads; a successfully committed additive migration may remain.
+Old source accepting only schema 1/2 cannot reopen schema 3. Do not downgrade an
+enabled store, delete the report table or reset its version. A future operational
+rollout needs a protected consistent copy/restore gate and compatible source;
+retain original stores and uncertain work rather than attempting reverse SQL.
+
+Existing purge and shared row/byte quotas include reports. Reports expire at
+their original civil-day end plus 365 days, not the time of a refresh/retry.
+Logical date/zone has at most 32 revisions; maximum encoded report is 512 KiB;
+list reads return at most 20 authenticated summaries under SQL/wall-time bounds.
+Reads never migrate, dispatch a model or rescan source history. An explicit
+source check is a point-in-time comparison, not continuously monitored freshness.
+No public/signed/admin route or background caller is enabled by this stage.
+
+## Owner Text API Rollout (2026-10-16)
+
+Source3b81c2a5 has passed both exact-head Verify runs (all six jobs). The
+owner-authorized Linux rollout now runs a separate nonroot HTTP API behind TLS
+and the existing proof/attestation boundary. The root Unix text controller alone
+launches the distinct contained native identity. Private keys/stores remain
+separate from the preserved owner profile; neither the API nor operator copied
+login credentials. No medical payload was used for deployment tests.
+
+Observed gates: differential permitted/denied TLS/BPF probes, actual empty-profile
+kernel/start/stop/IO checks, protected nonroot API startup, and exactly one real
+synthetic text turn (OK,9.085s,no retry). Independent checks found an idle original
+profile and no running native job. The target-host synthetic store/context/API/
+attestation/year suite passed170 tests. Its210241 encrypted records read in3.664s
+cold,1.1319s verified-cache,3.4781s after restart and3.6287s after another writer's
+revision, within unchanged budgets;239.7MiB peak,zero swap. These are synthetic
+capacity results, not actual phone archive completeness or clinical accuracy.
+
+The admitted deployment has PID-bound supervisor readiness, actual HTTP readiness,
+socket activation and a singleton public-only admission renewal every5minutes.
+Each renewal rechecks DNS/TLS and differential network denial before publishing a
+12-minute descriptor; it cannot change the model, profile, peer or private binding.
+Failure closes only the owned API/socket. Recovery of an unknown profile/job claim
+is still manual, never a reset or replay. Known public image inventory is bounded;
+reaching its maintenance limit also fails closed. Trust snapshots remain separately
+operator-pinned: renew them under controlled drain before their seven-day freshness
+limit. A successful network renewal does not renew Android trust.
+
+Only the owned nginx site changed, after an exact private rollback copy and syntax
+checks. It streams128KiB-bounded API bodies without disk body/response spooling or
+request logging, preserves signed headers/raw request paths and strips forwarded
+identity. Eleven public TLS negative checks passed, including401/400/404/405/413/
+415 behavior. Owned API closure yielded public503; restart restored401. A401 is
+access rejection, not a successful signed model exchange or device activation.
+
+No enrollment credential has been issued. Real hardware attestation, signed
+phone history/chat and app UI acceptance remain pending because ADB is absent.
+Public routing is the authenticated enrollment surface, not a bypass of that
+device gate. Do not replace hardware proof with a synthetic root or bearer-only
+fallback. The image supervisor/photo capability, daily model worker/schedule and
+private admin are not enabled by this text deployment. Do not claim full AI
+feature completion from the synthetic text receipt.
+
+Rollback: close the owned API/socket, drain its exact controller/native invocation,
+retain encrypted stores and any uncertain claims, verify the current site matches
+the installed digest and restore only its saved original site before nginx test/
+reload. Preserve original profile tokens and metadata. Operational configs,
+private receipts and logs are not source-publication artifacts.
+
+## Photo Supervisor And Decoder
+
+The source CLI is app.ai.vision_supervisor_host, with the closed protected
+configuration and separate public-image/user requirements documented in
+[VISION_API_DECODER.md](VISION_API_DECODER.md). The optional owner vision socket
+must not be configured until that host is independently admitted. No installer,
+root HTTP process, automatic credential copying or nginx change is included.
+Run the new decoder/supervisor/host and owner API suites, then the full backend
+gate with pinned Pillow. Synthetic privileged records are not production proof.
+
+## Native Meal Vision Verification
+
+Focused gates: test_ai_native_vision, test_ai_contained_vision and the existing
+native-text/process/profile suites; then full backend/tests with pinned Pillow.
+See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md) for limits and pending
+rollout gates. The native transport does not activate owner_api or replace the
+public nginx503. Reuse the original guard binding, never initialize over it.
+No image through the text supervisor, root HTTP API or capability-only bypass.
+Rollback of a future admitted service must drain its exact invocations, retain
+uncertain claims and private storage, and restore only its owned proxy mapping.
+
+## Combined UI And Photo Gate
+
+See [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md) for exact source scope,
+local synthetic capacity evidence, per-100g schema and inactive server boundary.
+Install pinned backend requirements (now including Pillow 12.3.0) for image
+decoder tests; missing optional decoder skips do not establish image readiness.
+Run full Android unit tests, lint and assemble before the in-place device gate.
+No service/profile activation or provider request is implied by source CI.
+
+## Core Room Export
+
+The independent server_ai_export_index_v1.db is created lazily in Android's
+noBackupFilesDir; it contains hashed keys, fingerprints, times and progress, not
+medical payloads. server_ai_room_export_pending_v1.bin holds an AES-GCM atomic
+page with a separate Keystore alias/AAD from the existing signed transport plan.
+Never clear either pending journal to unblock an uncertain send, regenerate a
+decryption key, or move an index between device bindings. Clinical copilot.db
+schema/version remain unchanged. Downgrading the app does not delete journals.
+
+Local source checks: ServerAiRoomHistoryTest and RoomAiHistoryMaintenanceTest,
+then existing ServerAi* tests plus the common testDebugUnitTest/lintDebug/
+assembleDebug gate. Synthetic native SQLite checks are not actual Keystore,
+power-loss or phone/server evidence. Inspect coverage and fresh signed requests
+on the admitted device before considering the path operational.
+
+For a fixture-data-only correction after a full run, keep the original suite
+report and unchanged production lint/APK evidence; rerun the affected tests:
+`./gradlew :app:testDebugUnitTest --tests '*ServerAi*Test' --tests '*RoomAiHistoryMaintenanceTest' --tests '*AiChatRepository*Test' --tests '*AiChatContextSummaryTest'`.
+The core-history stage's full 5625-test execution found one invalid classification
+fixture; after AAPS_REAL correction, 150 affected tests passed. Do not describe
+that scoped rerun as a second complete-suite execution.
+
+## Owner API Source Entry
+
+Before provisioning, use protected owner configuration version2. Its attestation
+object requires revocation_snapshot with exactly path and sha256, pointing to a
+separate single-link0400/0600 regular file readable by the API. Pin the complete
+official JSON response from https://android.googleapis.com/attestation/status;
+do not translate serial keys into imaginary certificate hashes or replace a
+failed fetch with an empty list. Set revocation_checked_ms from verified operator
+intake, keep the existing freshness bound, and renew/restart under controlled
+drain before that trust expires. The API never downloads trust from request data.
+Retain the prior descriptor and snapshot when replacing them; no v1 fallback.
+
+Storage validation runs concurrently with signed requests and worker admission.
+Inventory must use independent checked descriptors, not a shared lifetime cursor.
+The owner-api overlap regression checks ownership and descriptor cleanup; the
+journal fault test must assert its injection actually ran after authentication
+gates. Do not replace a503 assertion with retries that hide storage drift.
+
+`COPILOT_AI_OWNER_CONFIG` selects the mandatory protected descriptor documented
+in `backend/app/ai/owner_api.py`. Run `uvicorn app.ai.owner_api:create_app --factory`
+as the dedicated nonroot API user, one worker, ASGI lifespan enabled, behind the
+separately admitted TLS/proof boundary. Provision private storage and independent
+keys; never copy login credentials into API configuration. No startup is performed
+by imports or the normal backend app. Unresolved executing ledger claims require
+trusted reconciliation, not database deletion or automatic replay.
+
+Focused source gates: `backend/tests/test_ai_owner_api.py`, Android
+ServerAiChatGateway/ServerAiHistoryClient/repository tests and AiChatContextSummary
+tests, followed by the full backend suite and one shared Android unit/lint/build.
+Worker source tests are not deployment or actual device evidence. Rollback of an
+admitted deployment must drain only its owned service before releasing storage;
+retain encrypted state, uncertain claims and the independent owner profile.
+
+For narrow client corrections after a complete suite has identified an issue,
+retain the unchanged suite evidence and run the affected client/legacy tests:
+`./gradlew :app:testDebugUnitTest --tests '*ServerAi*Test' --tests '*AiChatRepository*Test' --tests '*AiChatContextSummaryTest' :app:lintDebug :app:assembleDebug`.
+Record the full-run and focused-retest results separately, including skips;
+do not label a scoped rerun as a zero-failure complete-suite run. Published CI
+still runs the full suite on the exact new commit.
+
 ## Trusted Supervisor Entry Point
 
 PYTHONPATH=backend python -m app.ai.text_supervisor_host --help describes the

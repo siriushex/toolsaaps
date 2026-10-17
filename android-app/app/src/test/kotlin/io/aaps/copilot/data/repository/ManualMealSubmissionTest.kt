@@ -15,6 +15,43 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class ManualMealSubmissionTest {
+    @Test fun checkedTargetDoesNotWaitForResearchHistoryPersistence() = runTest {
+        val observerEntered = CompletableDeferred<Unit>()
+        val releaseObserver = CompletableDeferred<Unit>()
+        var targets = 0
+        var carbs = 0
+        val subject = ManualMealSubmission(
+            { carbs++; true }, { _, _, _ -> },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) },
+            onMealInput = { observerEntered.complete(Unit); releaseObserver.await() }
+        )
+        val submission = async { subject.submit(command, selection, null, true) }
+        try {
+            observerEntered.await()
+            assertThat(targets).isEqualTo(1)
+            assertThat(carbs).isEqualTo(0)
+        } finally {
+            releaseObserver.complete(Unit)
+        }
+        assertThat(submission.await().eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(targets).isEqualTo(1)
+    }
+
+    @Test fun cancelledResearchWriteCannotWithdrawOrReplayTheEarlierTarget() = runTest {
+        var targets = 0
+        val subject = ManualMealSubmission(
+            { error("carbs must not start after cancellation") }, { _, _, _ -> },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) },
+            onMealInput = { throw CancellationException() }
+        )
+        try { subject.submit(command, selection, null, true) }
+        catch (_: CancellationException) { }
+        val retained = subject.submit(command, selection, null, true)
+        assertThat(retained.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(retained.carbs).isEqualTo(MealDeliveryStatus.NOT_REQUESTED)
+        assertThat(targets).isEqualTo(1)
+    }
+
     @Test fun everyFoodProfileAndOptionalGiPreserveTheSameExplicitTargetIntent() = runTest {
         for (profile in MealAbsorptionProfile.values()) {
             for (gi in listOf(null, io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput("55"))) {
@@ -106,7 +143,7 @@ class ManualMealSubmissionTest {
         )
         assertThat(subject.submit(command, selection, null, true).carbs).isEqualTo(MealDeliveryStatus.SENT)
         subject.submit(command, selection, null, true)
-        assertThat(calls).containsExactly("input", "target", "carbs", "profile").inOrder()
+        assertThat(calls).containsExactly("target", "input", "carbs", "profile").inOrder()
     }
     @Test fun uncheckedBlockedCarbsRetainReasonWithoutRetryOrTarget() = runTest {
         var sends = 0

@@ -22,6 +22,8 @@ class CompactOverviewWiringTest {
         assertTrue(root.contains("object Safety : MoreDestination"))
         assertTrue(root.contains("showPowerSaveDialog = true"))
         assertTrue(root.contains("testTag(\"drawerPowerSave\")"))
+        assertTrue(root.contains("object Diary : MoreDestination"))
+        assertFalse(root.contains("R.string.status_connected_loop_active"))
         val main = source("screens/ClarityOverview.kt")
         assertFalse(main.contains("clarityMoreDetails"))
         assertFalse(main.contains("clarityFoodOpen"))

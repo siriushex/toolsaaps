@@ -2,6 +2,8 @@ package io.aaps.copilot.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
@@ -43,6 +45,7 @@ sealed interface MealPhotoPreparationResult {
 object MealPhotoPreparation {
     const val MAX_LONGEST_EDGE = 1_280
     const val MAX_OUTPUT_BYTES = 1_048_576
+    const val MAX_INPUT_BYTES = 16 * 1_048_576
     private const val MIN_LONGEST_EDGE = 320
     private const val MAX_INPUT_DIMENSION = 100_000
     private const val JPEG_QUALITY = 88
@@ -51,6 +54,8 @@ object MealPhotoPreparation {
         if (input.isEmpty()) return MealPhotoPreparationResult.Failure(
             MealPhotoPreparationResult.Failure.Reason.EMPTY
         )
+        if (input.size > MAX_INPUT_BYTES) return MealPhotoPreparationResult.Failure(
+            MealPhotoPreparationResult.Failure.Reason.DIMENSIONS_TOO_LARGE)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(input, 0, input.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
@@ -58,7 +63,8 @@ object MealPhotoPreparation {
                 MealPhotoPreparationResult.Failure.Reason.INVALID_IMAGE
             )
         }
-        if (bounds.outWidth > MAX_INPUT_DIMENSION || bounds.outHeight > MAX_INPUT_DIMENSION) {
+        if (bounds.outWidth > MAX_INPUT_DIMENSION || bounds.outHeight > MAX_INPUT_DIMENSION ||
+            bounds.outWidth.toLong() * bounds.outHeight > 100_000_000L) {
             return MealPhotoPreparationResult.Failure(
                 MealPhotoPreparationResult.Failure.Reason.DIMENSIONS_TOO_LARGE
             )
@@ -72,10 +78,31 @@ object MealPhotoPreparation {
                 MealPhotoPreparationResult.Failure.Reason.DECODE_FAILED
             )
         return try {
-            encode(bitmap)
+            val orientation = try {
+                ByteArrayInputStream(input).use {
+                    ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                }
+            } catch (_: java.io.IOException) { ExifInterface.ORIENTATION_NORMAL }
+            val oriented = orient(bitmap, orientation)
+            try { encode(oriented) } finally { if (oriented !== bitmap) oriented.recycle() }
         } finally {
             bitmap.recycle()
         }
+    }
+
+    internal fun orient(source: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return source
+        }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     private fun sampleSize(width: Int, height: Int): Int {

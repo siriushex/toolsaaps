@@ -11,7 +11,12 @@ import io.aaps.copilot.domain.alerts.AlertCauseDirection
 import io.aaps.copilot.domain.alerts.AlertCauseSnapshot
 import io.aaps.copilot.domain.alerts.AlertCauseSnapshotCodec
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.withLock
 
 interface EpisodeAlertReceiptStore {
@@ -55,7 +60,8 @@ data class EpisodeAlertSignal(
     val direction: GlucoseAlertDirection?,
     val nowTs: Long,
     val causeAnalysis: AlertCauseAnalysis? = null,
-    val causeSnapshot: AlertCauseSnapshot? = null
+    val causeSnapshot: AlertCauseSnapshot? = null,
+    val alarmObservation: GlucoseAlarmObservation? = null
 )
 
 data class EpisodeDeliveryClaim(
@@ -131,17 +137,138 @@ class EpisodeAlertDeliveryStateMachine(
         JsonParser.parseString(json).asJsonObject
     },
     private val postCommitObserver: EpisodeAlertPostCommitObserver =
-        EpisodeAlertPostCommitObserver {}
+        EpisodeAlertPostCommitObserver {},
+    private val alarmClock: () -> LocalAlarmSourceClock? = { null },
+    private val revokeAlarmSources: () -> Unit = {},
+    private val revokeRiskPlayback: () -> Unit = {}
 ) {
-    private val mutex = EpisodeAlertOperationLocks.forIdentity(store.coordinationIdentity)
+    private val mutex = EpisodeAlertOperationLocks.forDeliveryIdentity(store.coordinationIdentity)
+    private val persistenceMutex = EpisodeAlertOperationLocks.forIdentity(store.coordinationIdentity)
+    private val controls = AlertControlIntentGate.forIdentity(store.coordinationIdentity)
+    private val alarmSources = LocalAlarmSourceFeed(io.aaps.copilot.domain.alerts.LocalAlarmSourceKind.GLUCOSE, alarmClock)
+    @Volatile private var sourceControlStamp: AlertControlIntentGate.Stamp? = null
+    val alarmSource = alarmSources.source
+    fun currentAlarmSource(): CheckedLocalAlarmSource? {
+        val stamp = sourceControlStamp
+        if (!controls.current(stamp)) return null
+        return alarmSources.current().takeIf { controls.current(stamp) }
+    }
+    fun invalidateAlarmSource() = alarmSources.invalidate()
     val mutedUntil: Flow<Long> = store.observeMuteUntil().withExactMuteExpiry(clock)
 
     suspend fun coordinate(
         signal: EpisodeAlertSignal,
         deliver: suspend (EpisodeDeliveryClaim) -> AlertSideEffectResult
-    ): EpisodeCoordinationResult = mutex.withLock {
-        val prepared = store.transaction { prepare(signal) }
-        val claim = prepared.claim ?: return@withLock prepared.result
+    ): EpisodeCoordinationResult = coordinateInternal(signal, false, deliver)
+
+    /** Explicit local owner only: a committed claim is not an audio-start receipt. */
+    suspend fun coordinateWithLocalAlarmSource(
+        signal: EpisodeAlertSignal,
+        deliver: suspend (EpisodeDeliveryClaim, CheckedLocalAlarmSource?) -> AlertSideEffectResult
+    ): EpisodeCoordinationResult = coordinateInternal(signal, true) { claim ->
+        deliver(claim, currentAlarmSource())
+    }
+
+    private suspend fun coordinateInternal(
+        signal: EpisodeAlertSignal,
+        publishBeforeDelivery: Boolean,
+        deliver: suspend (EpisodeDeliveryClaim) -> AlertSideEffectResult
+    ): EpisodeCoordinationResult {
+        val stamp = controls.snapshot()
+        return mutex.withLock {
+            if (!controls.current(stamp)) return@withLock EpisodeCoordinationResult(null, null, null, false)
+            if (sourceControlStamp !== stamp) alarmSources.invalidate()
+            val observation = signal.alarmObservation?.takeIf { it.matches(signal) }?.observation
+            val ticket = alarmSources.begin(observation)
+            var sourceAttempted = false
+            try {
+                val result = coordinateLocked(signal, stamp) { claim ->
+                    admittedDelivery(stamp) {
+                        if (publishBeforeDelivery) {
+                            sourceAttempted = true
+                            publishAlarmSourceBestEffort(signal, claim.episodeId, ticket, stamp)
+                        }
+                        currentCoroutineContext().ensureActive()
+                        if (controls.current(stamp)) deliver(claim) else AlertSideEffectResult.failed("alert_control_changed")
+                    } ?: AlertSideEffectResult.failed("alert_control_changed")
+                }
+                if (controls.current(stamp) && !sourceAttempted) {
+                    publishAlarmSourceBestEffort(signal, result.episodeId, ticket, stamp)
+                }
+                if (!controls.current(stamp)) alarmSources.fail(ticket)
+                result
+            } catch (failure: Throwable) {
+                alarmSources.fail(ticket)
+                throw failure
+            }
+        }
+    }
+
+    private suspend fun <T : Any> admittedDelivery(stamp: AlertControlIntentGate.Stamp?,
+        operation: suspend () -> T): T? = supervisorScope {
+        val child = async(start = CoroutineStart.LAZY) { operation() }
+        if (!controls.register(stamp, child)) child.cancel(AlertControlChanged()) else child.start()
+        try {
+            child.await()
+        } catch (changed: AlertControlChanged) {
+            currentCoroutineContext().ensureActive()
+            if (controls.current(stamp)) throw changed
+            null
+        } finally {
+            controls.release(child)
+        }
+    }
+
+    private suspend fun <T> control(operation: suspend () -> T): T {
+        val intent = controls.begin()
+        try {
+            // Cancelling a delivery may resume its cleanup; keep it outside the gate monitor.
+            intent.delivery?.cancel(AlertControlChanged())
+            revokeSources()
+            try { revokeRiskPlayback() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Persistent OFF must still be attempted. */ }
+            return mutex.withLock { operation() }
+        } finally {
+            controls.finish(intent)
+        }
+    }
+
+    private suspend fun publishAlarmSourceBestEffort(signal: EpisodeAlertSignal, id: String?,
+        ticket: LocalAlarmSourceTicket?, stamp: AlertControlIntentGate.Stamp?) {
+        if (ticket == null) return
+        try {
+            val binding = kotlinx.coroutines.withTimeoutOrNull(1_000L) {
+                receiptTransaction { id?.let { eventById(it) } to muteUntil() }
+            }
+            val event = binding?.first
+            if (event == null || event.episodeId != id || event.status != AlertEpisodeStatus.OPEN.name ||
+                event.eventType != EVENT_TYPE_PREFIX + signal.direction?.name || event.stage != signal.stage.name ||
+                event.resolvedAt != null || event.createdAt !in 1..signal.nowTs || event.updatedAt != signal.nowTs) {
+                alarmSources.fail(ticket)
+                return
+            }
+            if (!controls.current(stamp)) {
+                alarmSources.fail(ticket)
+                return
+            }
+            sourceControlStamp = stamp
+            alarmSources.publish(ticket, event.episodeId, event.revision, binding.second)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            alarmSources.fail(ticket)
+        }
+    }
+
+    private suspend fun <T> receiptTransaction(block: suspend EpisodeAlertReceiptStore.() -> T): T =
+        persistenceMutex.withLock { store.transaction(block) }
+
+    private suspend fun coordinateLocked(signal: EpisodeAlertSignal, stamp: AlertControlIntentGate.Stamp?,
+        deliver: suspend (EpisodeDeliveryClaim) -> AlertSideEffectResult): EpisodeCoordinationResult {
+        val prepared = receiptTransaction { if (controls.current(stamp)) prepare(signal) else null }
+            ?: return EpisodeCoordinationResult(null, null, null, false)
+        val claim = prepared.claim ?: return prepared.result
         val sideEffect = try {
             deliver(claim)
         } catch (cancellation: CancellationException) {
@@ -149,7 +276,7 @@ class EpisodeAlertDeliveryStateMachine(
         } catch (error: Exception) {
             AlertSideEffectResult.failed(error::class.java.simpleName.ifBlank { "delivery_error" })
         }
-        val initialDelivery = store.transaction {
+        val initialDelivery = receiptTransaction {
             val persisted = receipt(claim.episodeId, claim.kind)
             if (persisted?.result == AlertReceiptResult.CLAIMED.name) {
                 updateReceipt(
@@ -167,7 +294,7 @@ class EpisodeAlertDeliveryStateMachine(
                             revision = event.revision + 1L
                         )
                         upsertEvent(deliveredEvent)
-                        return@transaction deliveredEvent.initialDeliveryOrNull(
+                        return@receiptTransaction deliveredEvent.initialDeliveryOrNull(
                             claim = claim,
                             requestedAt = signal.nowTs
                         )
@@ -177,7 +304,7 @@ class EpisodeAlertDeliveryStateMachine(
             null
         }
         initialDelivery?.let(::notifyPostCommitBestEffort)
-        prepared.result.copy(
+        return prepared.result.copy(
             receiptResult = sideEffect.receiptResult,
             sideEffectAttempted = true
         )
@@ -218,28 +345,32 @@ class EpisodeAlertDeliveryStateMachine(
         }
     }
 
-    suspend fun muteFor(nowTs: Long, durationMs: Long): Long = mutex.withLock {
-        muteForLocked(nowTs, durationMs)
+    suspend fun muteFor(nowTs: Long, durationMs: Long): Long {
+        require(durationMs > 0L)
+        return control { muteForLocked(nowTs, durationMs) }
     }
 
-    suspend fun resume(nowTs: Long = System.currentTimeMillis()) = mutex.withLock {
+    suspend fun resume(nowTs: Long = System.currentTimeMillis()) = control {
         resumeLocked(nowTs)
     }
 
     suspend fun muteFromNotification(nowTs: Long, durationMs: Long): Long =
         muteFor(nowTs, durationMs)
 
-    suspend fun currentMutedUntil(): Long = mutex.withLock {
-        store.transaction { muteUntil() }
+    suspend fun currentMutedUntil(): Long = receiptTransaction { muteUntil() }
+
+    suspend fun coordinateMutedSideEffect(operation: suspend (muted: Boolean) -> Unit) {
+        val stamp = controls.snapshot()
+        mutex.withLock {
+            if (!controls.current(stamp)) return@withLock
+            val until = receiptTransaction { if (controls.current(stamp)) muteUntil() else null }
+                ?: return@withLock
+            admittedDelivery(stamp) { operation(until > clock()) }
+        }
     }
 
-    suspend fun coordinateMutedSideEffect(operation: suspend (muted: Boolean) -> Unit) = mutex.withLock {
-        val until = store.transaction { muteUntil() }
-        operation(until > clock())
-    }
-
-    suspend fun toggleFromOverview(nowTs: Long): EpisodeMuteToggleResult = mutex.withLock {
-        val transition = store.transaction {
+    suspend fun toggleFromOverview(nowTs: Long): EpisodeMuteToggleResult = control {
+        val transition = receiptTransaction {
             val previous = muteUntil()
             when (glucoseAlertBellAction(previous, nowTs)) {
                 GlucoseAlertBellAction.RESUME -> {
@@ -273,9 +404,9 @@ class EpisodeAlertDeliveryStateMachine(
         legacy: GlucoseAlertRuntimeState,
         nowTs: Long
     ): String? = mutex.withLock {
-        store.transaction {
+        receiptTransaction {
             eventById(LEGACY_IMPORT_MARKER_ID)?.let { marker ->
-                return@transaction marker.causeSummary?.takeIf { it.isNotBlank() }
+                return@receiptTransaction marker.causeSummary?.takeIf { it.isNotBlank() }
             }
             val existing = latestUnresolvedGlucoseEpisode()
             val importedEpisodeId = when {
@@ -332,9 +463,8 @@ class EpisodeAlertDeliveryStateMachine(
     }
 
     private suspend fun muteForLocked(nowTs: Long, durationMs: Long): Long {
-        require(durationMs > 0L)
         val requestedUntil = safeAdd(nowTs, durationMs)
-        val effectiveUntil = store.transaction {
+        val effectiveUntil = receiptTransaction {
             maxOf(muteUntil(), requestedUntil).also { writeMuteUntil(it, nowTs) }
         }
         clearRiskSideEffects()
@@ -343,7 +473,7 @@ class EpisodeAlertDeliveryStateMachine(
     }
 
     private suspend fun resumeLocked(nowTs: Long) {
-        store.transaction { writeMuteUntil(0L, nowTs) }
+        receiptTransaction { writeMuteUntil(0L, nowTs) }
         clearRiskSideEffects()
         mirrorMuteBestEffort(0L)
     }
@@ -356,6 +486,13 @@ class EpisodeAlertDeliveryStateMachine(
         } catch (_: Exception) {
             // Room is authoritative; the legacy DataStore mirror must not block mute actions.
         }
+    }
+
+    private fun revokeSources() {
+        alarmSources.invalidate()
+        try { revokeAlarmSources() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* A source callback must not prevent authoritative Room OFF. */ }
     }
 
     private suspend fun EpisodeAlertReceiptStore.prepare(signal: EpisodeAlertSignal): PreparedDelivery {

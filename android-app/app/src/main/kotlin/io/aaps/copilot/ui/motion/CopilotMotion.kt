@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import kotlin.coroutines.coroutineContext
 
@@ -38,6 +39,7 @@ private val stationaryClock = object : State<Long> { override val value = 0L }
 @Composable
 fun ProvideCopilotMotion(enabled: Boolean, content: @Composable () -> Unit) {
     val context = LocalContext.current.applicationContext
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     fun systemAllowsMotion(): Boolean =
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f &&
             context.getSystemService(PowerManager::class.java)?.isPowerSaveMode != true
@@ -58,7 +60,10 @@ fun ProvideCopilotMotion(enabled: Boolean, content: @Composable () -> Unit) {
             context.unregisterReceiver(receiver)
         }
     }
-    CompositionLocalProvider(LocalCopilotMotionEnabled provides (enabled && systemEnabled), content = content)
+    CompositionLocalProvider(
+        LocalCopilotMotionEnabled provides (enabled && systemEnabled && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)),
+        content = content
+    )
 }
 
 /** Frames invalidate drawing only. Resume never replays a consumed decorative gesture. */

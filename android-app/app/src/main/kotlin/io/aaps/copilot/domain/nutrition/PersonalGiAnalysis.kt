@@ -138,7 +138,8 @@ class PersonalGiAnalyzer {
                 versions.isEmpty() -> "MISSING_GI"
                 gi == null -> "CONFLICTING_GI"
                 gi.therapyRevision != episode.meal.therapyRevision -> "GI_REVISION_MISMATCH"
-                MealGlycemicIndex.fromStored(gi.value, gi.source, gi.reference) == null -> "INVALID_GI"
+                gi.source !in setOf("USER", "CATALOG") ||
+                    MealGlycemicIndex.fromStored(gi.value, gi.source, gi.reference) == null -> "INVALID_GI"
                 gi.availableAtMs <= 0 || gi.availableAtMs > request.cutoffMs -> "GI_AVAILABILITY"
                 episode.meal.timestamp.toEpochMilli() < originalSplit.boundaryMs &&
                     maxOf(episode.latestEvidenceAtMs, gi.availableAtMs) >= originalSplit.boundaryMs -> "LATE_TRAINING_EVIDENCE"

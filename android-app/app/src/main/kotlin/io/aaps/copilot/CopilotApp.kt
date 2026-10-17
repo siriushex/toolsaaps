@@ -24,6 +24,8 @@ class CopilotApp : Application(), Configuration.Provider, AlertNavigationHost {
         val startupRecovery = CopilotDatabaseIntegrityManager.restoreIfNeeded(this)
         container = AppContainer(this)
         WorkScheduler.scheduleEatingWindowRefresh(this)
+        WorkScheduler.scheduleNightlyAdvice(this)
+        WorkScheduler.scheduleClinicalDisplay(this)
         startupRecovery?.let { result ->
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                 val metadata = buildMap<String, Any?> {

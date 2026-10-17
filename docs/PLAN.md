@@ -1,5 +1,787 @@
 # PLAN
 
+## Authenticated Facts Host (2026-10-17)
+
+- [x] Read-only live contour inventory and approved facts/design retrieval.
+- [x] Observe16 expected missing-behavior REDs before production changes.
+- [x] Default-off owner flag, bounded current roster, per-device fresh checks,
+  off-loop producer, completion/backoff and lifecycle drain implemented.
+- [x] Preserve selected-day analytical range inside the existing transaction.
+- [x] Expanded240 affected auth/owner/service/schedule/dispatcher cases passed.
+- [x] Full fixed-input backend:1752passed/27existing skips, zero failures;
+  30 new cases included. Source manifests match, scoped lint/compile passed.
+- [ ] Explicit source publication/exact-head Verify and separate PR receipt.
+- No live config/service/consent/model, phone or therapy operation. See
+  DAILY_FACTS_HOST.md for current boundaries and deployment prerequisites.
+
+## Opt-In Daily Facts Preparation (2026-10-17)
+
+- [x] Continue approved night-review design with persisted facts-only consent,
+  local05:00, latest completed day and existing encrypted archive.
+- [x] Observe27 missing-API/module assertion failures before production changes.
+- [x] Implement atomic generation-CAS settings, schema6 and one-shot producer.
+- [x] Independent mutable-range RED reproduced and fixed by validated freeze.
+- [x] Initial expanded272-case source/report/history/queue/result gate passed.
+- [x] Final41 new schedule cases included in full backend; prior77 affected
+  schedule/report cases passed. Linux first CI's fixture path ordering fixed.
+- [x] Complete portable backend:1722passed/27existing skips, no failures; scoped lint and
+  compilation passed. New files full Ruff clean; three existing unrelated
+  import-order notices retained in older modules. Final input manifests match.
+- [ ] Reviewed source publication and exact-head Verify, separate PR receipt.
+- No persistent host timer, enrollment, model, phone/APK or therapy operation.
+  See DAILY_FACTS_SCHEDULE.md for schema rollback and remaining admission.
+
+## Android Server Daily Archive (2026-10-17)
+
+- [x] Continue approved daily-review/Focus+ design as separate unreviewed audit,
+  not ordinary clinical publication. Inspect current signed API/native boundaries.
+- [x] Initial codec and independent cache/native missing-feature REDs observed.
+- [x] Signed client/codec plus existing history suite:37 cases passed before
+  cache/native work. Actual synthetic backend golden projection is included.
+- [x] Implement bounded cache, current-session binding and native Reports slot.
+- [x] Expanded38-case fault/native gate and ordinary/actual1.8x long-text
+  raster inspection; disk-read identity and expiry/clock regressions included.
+- [x] Full6168-test execution on reviewed inputs:6162 passed, six existing skips,
+  zero failures/errors. Final lint/compile/assemble are a separate gate below.
+- [x] Final Android lint/compile/build passed, zero errors/new lint issues;
+  existing376 warnings/eight hints. Reviewed input manifests match byte-for-byte.
+- Reviewed source/exact-head CI are post-commit gates in the PR receipt.
+  No server/provider/schedule/phone/therapy activation. See
+  ANDROID_SERVER_DAILY_ARCHIVE.md and OPEN_FEATURES.md.
+
+## Protected Daily Result Reads (2026-10-17)
+
+- [x] Continue approved daily-review read-projection track; distinguish stale
+  delivery-map checkboxes from current source and separate device receipts.
+- [x] Observe missing-projection/default-off REDs before production edits.
+- [x] Strict list/detail projections and explicit bool owner composition, reusing
+  signed HistoryService and encrypted bounded reads, without provider input.
+- [x] Focused205 read/owner/history/archive tests; scoped lint and compilation.
+- [x] Final full backend gate:1681 passed,27 existing skips,zero failures/errors;
+  independent proof-path and expired-access checks are included.
+- Reviewed source publication/exact-head Verify are post-commit gates, recorded
+  separately in the PR receipt. No server/APK activation or clinical authority.
+  Current source/acceptance boundaries are summarized in OPEN_FEATURES.md.
+
+## Focus+ Android Display (2026-10-17)
+
+- [x] Observe initial behavioral REDs for duplicate owl, composer and route work.
+- [x] Implement global AI owl menu, six-tool composer and retained display state.
+- [x] Add local-only 05:00/catch-up worker and bounded transactional projection.
+- [x] Room/native/schedule/PDF/consent regressions and native raster inspection.
+- [x] Full6130-test execution:6123passed/six skipped; one merged-tree UI finder
+  corrected. Final121 affected tests pass, including all50 native workspace tests.
+- [x] Final Android lint/compile/build:zero errors/new issues, baseline376
+  warnings/eight hints. App source/test inputs remained fixed during the gate.
+- Reviewed source publication/exact-head CI and intended-phone USB acceptance
+  are separate post-commit gates recorded in the stage receipt, not assumed here.
+- No server daily-model activation or therapy authority. See AI_FOCUS_PLUS.md.
+
+## Meal Preparation And Automatic GI (2026-10-17)
+
+- [x] Trace historical GI display/preview and separate timing research; identify
+  empty manual parser in Food and missing compact preparation renderer.
+- [x] Observe three expected behavioral REDs before production changes.
+- [x] Wire a versioned MODEL_ESTIMATE through Food, immutable confirmation,
+  exact canonical metadata, Lenta and event provenance. Independent known-GI
+  history only; generated values cannot become training evidence.
+- [x] Add finite food motion for explicit intent plus fresh IOB. A future
+  canonical meal may supply a labelled plan; IOB cannot invent readiness time.
+- [x] Focused synthetic, persistence, unchanged-forecast and native UI tests;
+  full unit suite: 6102 passed, six skipped, zero failures/errors.
+- [x] Full Android unit/lint/build; after mechanical lint cleanup, repeat45
+  affected UI tests plus lint/build: zero new lint issues,376 warnings/eight hints.
+- [ ] Reviewed source publication and exact-head Verify.
+- No new therapy authority or timing-model clinical activation. See
+  MEAL_PREPARATION_GI.md for coefficients and evidence boundaries.
+
+## Restored Food Photo Connection (2026-10-17)
+
+- [x] Trace ACTIVE-only photo gate against connection.load restoring SAVED.
+- [x] Eight real-constructor regressions before production fix: 7 expected
+  assertion failures, zero errors; no transport reached for restored sessions.
+- [x] Let signed persistence/auth/refresh checks decide restored access and
+  distinguish actual authorization refusal from unavailable photo service.
+- [x] Targeted 40 tests pass, including signed successful result after restore.
+- [x] Full Android unit suite: 6082 passed, 6 skipped, zero failures/errors.
+- [x] Complete Android test/lint/build: no errors, existing lint baseline.
+- [x] Persistent public admission renewal: scoped 61/full 1628 backend tests pass.
+- [x] Reviewed source7394a56b and both exact-head Verify runs succeeded;
+  receipt is attached to PR7. No public APK or private deployment data.
+- [x] Explicitly authorized decoder admission/offline stop and one synthetic
+  provider test: typed four-ingredient estimate, confirmed stop/idle guard.
+- [x] Separate image host/API connected after verified owned-config rollback
+  during first probe; auth and photo-only 3 MiB/text 128 KiB barriers checked.
+- [ ] Intended Redmi installation and real UI acceptance; ADB inventory empty.
+
+## Nightly 3-14 Day Advice (2026-10-17)
+
+- [x] Trace mixed report advice and unanchored therapy-gated daily work.
+- [x] Add first metric/schedule regressions and observe missing-feature RED.
+- [x] Implement read-only canonical summaries, bounded atomic snapshot and 05:00
+  WorkManager/catch-up with no therapy or provider authority.
+- [x] Dated native advice, 3/7/14-day selector, sparse/stale status and unsent
+  discussion; keep other AI reports separately sourced.
+- [x] Synthetic/native QA and full Android test/lint/compile/build:6073 passed,
+  6 existing skips, zero failures/errors; lint0 errors and unchanged377 warnings/
+  8 hints. Final localized UI inspected, APK identity/signature checked.
+- Reviewed publication/exact-head CI are post-commit gates, recorded in the PR
+  only after their terminal results are inspected.
+- [ ] Separate intended-phone overnight acceptance; no deployment/install here.
+
+## Chat Motion And Bounded Attachments (2026-10-17)
+
+- [x] Inspect Focus composer, native motion and actual provider bounds.
+- [x] Finite pending-only owl/typing renderer and stable message identities.
+- [x] Bounded imports, strict text and real personal image/PDF bytes; small text
+  files on existing signed server route, no personal fallback.
+- [x] Focused74 tests and final native raster/encoded motion inspection.
+- [x] Full Android6043passed/6skips, lint0errors/377warnings/8hints, compile/build.
+- Publication/CI is recorded by the exact-head PR receipt, not assumed here.
+- [ ] Separate server image/PDF route and actual provider/device acceptance.
+
+No live provider/medical upload, phone, server activation or therapy operation
+belongs to this Android source stage. Picker availability is not image readiness.
+
+## Owned Daily Dispatch (2026-10-17)
+
+- [x] Revalidate actual deployed text repair without new inference.
+- [x] Executor-owned atomic daily admission reuses existing stop/settlement.
+- [x] Join checked queue/work, idle priority, one-turn worker and result archive.
+- [x] Dedicated closed daily Unix channel, optional shared-capacity host binding.
+- [x] RED regressions precede each behavior; targeted cancellation/source/commit/
+  race/peer/deadline/stop checks pass. No ambiguous request replay.
+- [x] Full backend1618 passed/27 existing opt-in skips; scoped lint, diff and
+  source/security review pass. One host test module retains its imported-fixture
+  F811 exclusion; no global lint relaxation or unrelated fixture rewrite.
+- [ ] Reviewed publication and exact-head CI for this source stage.
+- [ ] Separate persisted05:00 opt-in/facts/read API/Android default result stage.
+- [ ] Exact reviewed live daily activation and real model/device acceptance.
+
+The new source is not active on the existing server. Its chat fix remains healthy;
+new daily work has no public schedule or result projection yet.
+
+## Native Moderation Compatibility (2026-10-17)
+
+- [x] A bounded synthetic host diagnostic isolated text_notification_rejected;
+  the unknown method hash matches turn/moderationMetadata in the pinned schema.
+- [x] Thirteen synthetic regressions fail before the source correction.
+- [x] Add exact-envelope, correlated handling without interpreting metadata or
+  weakening successful-completion, tool, ownership and cleanup requirements.
+- [x] Focused191 cases and full backend1566 passed/27 existing opt-in skips;
+  scoped lint, diff and source/security review pass.
+- [ ] Reviewed publication and exact-head CI for this additional fix.
+- [ ] Separately reviewed immutable rollout and actual large-context answer.
+
+The earlier frame correction is installed as a live-base composition. Its real
+long-context test failed safely on this second protocol incompatibility; do not
+claim the chat is repaired from service readiness. No failed user job is replayed.
+
+## Full-Context AI Framing (2026-10-17)
+
+- [x] Trace the 128 KiB context/64 KiB native-line mismatch; four new synthetic
+  regressions fail at parser/pipe limits before the production fix.
+- [x] Share the bounded JSON-escape-aware native line cap, preserving aggregate
+  stream/event/answer and source/tool/cancellation/stop controls.
+- [x] Final focused 238 tests pass, including max-input ASCII/UTF-8 and escaped
+  controls through real child pipes, supervisor, two echoes and positive stop.
+- [x] Full backend: 1553 passed/27 existing opt-in skips, zero failures/errors.
+  Scoped E/F lint and Python compilation pass. Three pre-existing imported
+  pytest-fixture F811 findings are verified against HEAD and excluded only in
+  that test file. Diff/source/security/docs reviewed; no new blocking finding.
+- [x] Source59bba270 published; both exact-head Verify runs completed success.
+- [ ] Separately authorized target-host rollout and actual model/device outcome.
+
+No real model request, server deployment, Android change or nightly scheduler
+activation is part of this source stage. A reproducible synthetic defect does
+not establish the cause of an individual operational failure.
+
+## Food Eating Soon Follow-through (2026-10-17)
+
+- [x] Trace plus/Food through the same manual target channel and current safety
+  policy. Three added behavioral regressions failed before implementation.
+- [x] Move the target attempt before optional research persistence, retaining
+  independent outcomes, carb-input ordering and no ambiguous replay.
+- [x] Restore durable allowlisted refusal details and preserve them over local
+  hints. Do not relax safety or claim an unobserved device refusal cause.
+- [x] Focused Room/HTTP/native UI/priority/cancellation checks:141 passed,
+  zero failures/errors/skips across9 nonempty suites.
+- [x] Full Android unit, lint, Kotlin compile and debug APK gates:6033 cases,
+  6 unchanged private-input skips,no failures/errors;lint0 errors,unchanged385
+  notices. Debug v2 signature and native320x640 refusal view checked.
+- Publication and exact-head Verify remain post-commit gates; record their exact
+  source SHA and results in the PR, not as a source self-certification.
+- Physical-device acceptance remains separate; no real food/target test,
+  app stop/backup or phone installation is part of this source stage.
+
+## Foreground Glucose Alarm Integration (2026-10-16)
+
+- [x] Connect explicit checked INITIAL routing and existing single audio owner.
+- [x] Add installation-bound opt-in, private foreground lifetime and scoped
+  notification acknowledgement; preserve native technical alerts.
+- [x] Add one genuine critical AlarmClock and nonclinical expiring wake token.
+- [x] Final414 synthetic native fallback, cancellation, OFF, stale action,
+  permission, clock/reboot, cleanup and large-text UI checks;0 failures.
+- [x] Full Android quality:6011 cases/6005 pass/6 unchanged skips,0 failures;
+  lint0 errors,377 warnings/8 hints (six reviewed new style notices); APK v2
+  and unchanged source fingerprints verified.
+- [ ] Reviewed source publication and exact-head CI (post-commit result in PR7).
+- [ ] Separately authorized physical device/sound/Doze acceptance.
+
+## Independent Local Observation (2026-10-16)
+
+- [x] Audit foreground/boot/broadcast/scheduler/automation/transport boundaries.
+- [x] Add install-bound opt-in, separate local-only periodic work and foreground
+  cycle routing; preserve therapy-only transports and existing armed runtime.
+- [x] Add native setup switch with actual permission state and explicit limits.
+- [x] Legacy migration checks the explicit observation decision atomically;
+  disabling observation later does not reopen automatic therapy arming.
+- [x] Final127 focused cases passed; Russian320x640 enlarged-text layout
+  inspected, including the full-row accessible observation switch.
+- [x] Full Android unit/lint/Kotlin/debug build passed in38m36s:5973 cases,
+  5967 passed/6 existing skips,0 failures/errors. Lint0 errors and unchanged379
+  notices; final source fingerprints and APK v2 signature verified.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Device acceptance, remote polling and independent alarms remain separate.
+
+## Local Manual Diary (2026-10-16)
+
+- [x] Inspect actual AAPS-only meal submission and independent-use limitations.
+- [x] Add separate revisioned Room35 records with exact decimal units, provenance,
+  optimistic concurrency, idempotent retries and recoverable deletion.
+- [x] Add native list/editor/history, saved draft identity, menu/setup navigation;
+  keep existing clinical inputs and AAPS Food workflow unchanged.
+- [x] 50 focused storage/migration/UI/no-delivery cases pass. Native Russian
+  320x640/large-text rasters inspected; adaptive buttons prevent broken words.
+- [x] Full Android quality:5955 cases/5949 pass/6 existing skips,0 failures.
+  Final two-label-only followup:19 UI cases and lint/build pass; no new lint
+  notices. Native rasters reviewed; final source manifest and APK v2 verified.
+- [x] Published e7913acb; push38907517550/PR38907524091 Verify passed. All5955
+  Linux cases/outcomes matched local results. No phone installation.
+- [ ] Validated diary analytics remain separate; local observation is above.
+
+## First-Start Setup (2026-10-16)
+
+- [x] Inspect actual manual, AAPS and startup paths; document capability gaps.
+- [x] Add resumable five-step native checklist and Settings entry, existing editor
+  links, explicit notifications and separate AAPS command review.
+- [x] Preserve clinical preferences and existing installations; respect recorded
+  refusal and keep already-armed startup independent of checklist progress.
+- [x] 54 final focused persistence/native UI/startup/Eating Soon cases pass;
+  native Russian 320x640 and enlarged-text rasters inspected. Deterministic
+  Room commit/return cancellation regression repaired before the full rerun.
+- [x] Full Android quality:5931 cases,5925 passed/6 existing skips,0 failures;
+  lint0 errors, unchanged379 notices; debug APK v2 signature verified.
+- [x] Published 29130a85; push38899831185/PR38899838081 passed. Linux/local 5931
+  cases and outcomes matched exactly. No phone installation.
+- [ ] Separate observation runtime authorization, manual-data analytics and
+  device acceptance. Local diary is the next implemented stage above.
+
+## Scoped Runtime Acknowledgement (2026-10-16)
+
+- [x] Add bounded exact-identity acknowledgement to the explicitly running
+  coordinator; revoke before Room and finish exact cleanup before pause writes.
+- [x] Recheck current source/settings around persistence; rollback on loss.
+- [x] Cover stale actions, busy journal, duplicate taps, worsening, other sources,
+  OFF, expiry, settings/capability loss, receiver and runtime cancellation.
+- [x] Final187 focused cases and full Android unit/lint/Kotlin/debug build pass:
+  5911 cases,5905 passed,6 unchanged private-data skips,0 failures/errors.
+  Lint has0 errors and unchanged371 warnings/8 hints; APK v2 signature verified.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Production owner, visible acknowledgement action, foreground/AlarmClock
+  lifecycle and OFF-expiry reassessment remain open, with device acceptance later.
+
+## Native Alert Handoff (2026-10-16)
+
+- [x] Separate delivery ordering from short Room transactions; recheck pending
+  control intent for local admission. Preserve OFF cleanup-before-write ordering.
+- [x] Add explicit checked-source callback after committed INITIAL claim, without
+  fabricating audio-start receipts or replaying the initial side effect.
+- [x] Prepare local audio ownership before volume acquisition; retain retired
+  leases until confirmed cleanup before native/preview replacement.
+- [x] Current focused104 cases and final full Android unit/lint/Kotlin/debug
+  build:5890 cases/6 existing skips/0 failures/errors, unchanged lint notices,
+  verified APK v2 signature.
+- [x] Published ec3642fc; Verify38887130917 and38887123575 passed. Linux XML
+  exactly matches the local5890 cases and6 skips.
+- [ ] Select the handoff in production; connect current settings/capabilities,
+  scoped ACK, foreground/AlarmClock lifecycle and OFF-expiry reassessment.
+
+No phone sound, installation, therapy or platform activation in this prerequisite
+stage. Full runtime remains open in the existing alarm-runtime-integration plan.
+
+## Immediate Alert Control Boundary (2026-10-16)
+
+- [x] Reproduce four actual OFF-versus-lock/preparation/queued-delivery defects.
+- [x] Cancel the exact admitted alert child before Room without cancelling its
+  enclosing caller; wire immediate shared audio/vibration stop in AppContainer.
+- [x] Verify348 focused cases, including42 actual-controller shadow-media cases.
+- [x] Reproduce cross-owner cached-source revival; bind publication to the exact
+  control revision and require fresh accepted evaluation after a control change.
+- [x] Full Android unit/lint/Kotlin/debug-build passed in20m24s:5868 cases,
+  5862 pass/6 existing skips,0 failures/errors; lint0 errors and unchanged379
+  notice keys. APK v2 signature verified,16 reviewed text paths scanned.
+- [ ] Exact-head source publication/CI; original behavioral failures and final
+  reports are retained in private execution evidence.
+- [ ] Continue safe native INITIAL/volume handoff, foreground/AlarmClock owner,
+  scoped acknowledgement and fresh OFF-expiry reassessment. The coordinator
+  remains inactive; this repair alone is not the completed runtime.
+
+Plan: superpowers/plans/2026-10-16-alarm-runtime-integration.md. Previous source
+stage192a52f0 passed both Verify runs38870159391/38870150944, including downloaded
+reports matching5857 local cases; those checks do not verify the current changes.
+
+## Feature Completion And Audio Ownership (2026-10-16)
+
+- [x] Revalidate Focus implementation and actual source gaps; split exclusive
+  work tracks with dependencies and acceptance in
+  superpowers/plans/2026-10-16-feature-completion-tracks.md. Native subagents are
+  unavailable; no external agent or user-owned chat was started as a substitute.
+- [x] Reproduce actual audio queued-stop/preparation/duplicate callback races;
+  bind bounded identity ownership to legacy, preview and local playback.
+- [x] Three additional StateFlow observer REDs reproduced false confirmation
+  and replacement-player cleanup; corrected ownership and publication ordering.
+  Focused585 cases pass, including39 actual-controller and16 pure ownership cases.
+- [x] Newest saved Focus report/source-aware discussion/error filters pass24
+  native cases; raw diagnostic errors stay out of discussion drafts. Additional
+  timer RED fixed stop installation before active-state observers. Final full
+  Android unit/lint/Kotlin/debug-build passed:5857 cases/5851 pass/6 existing skips,
+  0 failures/errors; lint0 errors and unchanged379 notice keys. APK v2 verified.
+- [ ] Reviewed source publication and exact-head Verify.
+- [ ] Foreground/genuine AlarmClock/scoped acknowledgement/OFF reassessment,
+  daily dispatcher/schedule/read routes, evidence adapters and intended-device
+  acceptance remain separate track deliverables, not enabled by this stage.
+
+## Reliable Alerts: Accepted Sources (2026-10-16)
+
+- [x] Shared checked feed with clock/boot/deadline, exact revocation and stable
+  duplicate measurement generation/queue age; no hardware capability implied.
+- [x] Actual glucose timestamp/current confirmed candidate to matching committed
+  episode, preserving native initial delivery and existing thresholds/receipts.
+- [x] Diagnostic source from validated current history/OPEN event, not retained
+  display; revoke on failed/cancelled work, low risk, OFF, recovery or uncertainty.
+- [x] AppContainer clock/revocation composition, no production coordinator owner.
+- [x]555 targeted cases and complete Android quality pass:5820 cases,5814 passed,
+  6 existing skips,0 failures/errors; lint0 errors,379 unchanged notices.
+- [ ] Reviewed source publication and exact-head CI.
+- [ ] Single-audio handoff, foreground/AlarmClock owner, scoped ACK UI, OFF-expiry
+  fresh reassessment and separately authorized actual-phone acceptance.
+
+Plan: superpowers/plans/2026-10-16-accepted-alarm-sources.md. Sources are checked
+provenance only; this stage does not activate repeated sounds or prove hearing.
+
+## Reliable Alerts: Fatigue Policy (2026-10-16)
+
+- [x] Explicit owner approval of repeat/ACK/OFF/visible AlarmClock design.
+- [x] Scoped plan and REDs reproduced four soft clips, missing bounded backoff,
+  cross-source bursts and critical selection waiting on unrelated soft history.
+- [x] One soft clip, base/2x/4x/max30-minute intervals and durable cross-source
+  cooldown/reservation implemented in the existing inactive runtime. Critical
+  cadence/floor and shared-history bypass remain independent.
+- [x] Final210 alarm-focused and26 player-callback tests pass. Complete Android
+  test/lint/compile/debug-build passed in9m56s:5751 cases,5745 passed/6 existing
+  skips,0 failures/errors; lint0 errors,379 unchanged baseline notices. Source/
+  security/diff review passed. First full run's2 old four-soft-clip fixtures were
+  updated while retaining deadline coverage; complete quality rerun inspected.
+- [ ] Reviewed source publication and exact-head CI receipt.
+- [ ] Complete accepted-source bridge, real foreground/AlarmClock owner, scoped
+  ACK UI, OFF expiry reassessment and separately authorized phone acceptance.
+
+Plan: superpowers/plans/2026-10-16-alert-fatigue-policy.md. No production runtime
+activation, phone operation, clinical threshold, schema/default or therapy change.
+
+## Reliable Alert Delivery: Initial Isolation (2026-10-16)
+
+- [x] Owner continued after written design review. Scope is staged source work,
+  not phone arming or an assertion that the entire proposed runtime works.
+- [x] Public notifier/Room and accepted-runtime tests reproduced blocked-channel
+  false-positive posting, writer/target failure suppressing alert publication,
+  and successful notification hiding explicit audio failure/timeout.
+- [x] Selected-channel/group checks, required-channel diagnostics and persistent
+  bounded degradation on any-channel receipts implemented. No channel override.
+- [x] Expanded RED reproduced alert-behind-writer ordering. Accepted normal alerts
+  now precede writers; ordinary consumer errors stay independent without retry.
+- [x] Final126 focused cases/24 new tests pass. Complete Android test/lint/
+  compile/debug-build passed in9m39s:5727 cases,5721 passed/6 existing opt-in
+  skips,0 failures/errors; lint0 errors,379 existing notices. Source/security/diff
+  review passed. Publication/exact-head Verify receipts are tracked separately.
+- [ ] Next implementation stage: accepted source bridge and real single-owner
+  foreground/wake delivery, scoped ACK, coalesced noncritical backoff and OFF
+  expiry reassessment. No production coordinator activation in this first stage.
+- [ ] Separately authorized intended-phone update and harmless physical delivery
+  tests, including locked screen/idle, denied permissions, routes and cleanup.
+
+Plan: superpowers/plans/2026-10-16-alert-delivery-failure-isolation.md.
+
+## Atomic Daily Capacity (2026-10-16)
+
+- [x] Inspect shared ledger/executor and daily lifecycle, choose idle-only metadata
+  scope and observe initial3-case RED. No dispatcher/provider activation.
+- [x] Share request/conflict validation; atomically create one RUNNING daily claim
+  only while idle. Busy adds no row; any duplicate returns no claim authority.
+- [x] Separate RED reproduced legacy daily claim bypass of a waiting chat; fixed
+  inside the shared claim transaction. Non-daily/normal reserve behavior retained.
+- [x] Final76 new synthetic cases/230 focused pass: kind/state priority, expiry,
+  cancellation/stop, all terminal/legacy duplicates, malformed/scoped/conflicting
+  metadata, restart, multiple connections/ordered races and commit uncertainty.
+- [x] Full backend1542 passed/27 existing opt-in skips, no failures/errors. Scoped
+  E/F lint, new-test format, compile, diff/source/security/docs review pass; no
+  unrelated formatting of the existing shared ledger. No new blocking finding.
+- [ ] Reviewed source publication and independent exact-head PR/Verify inspection.
+
+No dispatcher/native supervisor/provider/schedule/host/model/phone/therapy change.
+Already queued priority is not preemption; future lifecycle must internally own
+fresh claim consumption, source/handoff/stop and result archiving. See DAILY_IDLE_CAPACITY.md.
+
+## Durable Daily Results (2026-10-16)
+
+- [x] Inspect daily worker/executor and encrypted source/queue/report contracts;
+  record exact crash/admission scope and observe missing-lifecycle RED.
+- [x] Add encrypted immutable schema 5 result sink, stopped-executor composition,
+  selected fresh-source read and explicitly unchecked bounded summary pages.
+- [x] Final52 new synthetic cases and309 focused checks pass: restart/retry,
+  commit uncertainty/no-reinference, failed/cancelled/expired/unknown stop,
+  changed/superseded/missing source, retention, isolation/tampering, quotas,
+  bounded snapshots, prompt audit, concurrent claim and cancellation draining.
+  Separate RED caught a cancelled repeat-read thread outliving its owner; fixed
+  by draining owned reads as well as writes. Schema5 retains history/chat/facts/
+  queue operations. Full1466 passed/27 existing opt-in skips, no failures/errors.
+- [x] Scoped E/F lint, format, compile, diff/source/security/docs review pass.
+  Cross-database loss/forward-only migration and unreviewed text remain explicit.
+- [ ] Publish reviewed source on existing PR and inspect exact-head Verify.
+
+No provider, supervisor/priority/scheduler/publication admission, server, phone,
+medical-data or therapy activation. See DAILY_REVIEW_RESULTS.md. Successful
+ledger settlement and durable result are separate facts, not an atomic commit.
+
+## Approved Focus AI Interface (2026-10-16)
+
+- [x] Human selected Focus/report-first; inspect existing UI, clinical disclosure,
+  PDF tickets, chat state and independent loading boundaries.
+- [x] Reproduce missing four-tab navigation/isolation in native Compose tests.
+- [x] Implement report/chat/recommendations/archive views with retained drafts and
+  scroll, compact period summary, pinned composer and accessible finite motion.
+  Keep diagnostics/replay/CSV and clinical consent/unknown-outcome/PDF gates.
+- [x] Reproduce tab-disposal send-latch regression and missing clinical advice;
+  fix root-lifetime submission latch, report busy semantics and grounded advice.
+  Final17 new native cases/48 focused checks pass; inspect English/Russian,
+  320x640/320x480 and1.6font native rasters. No actual-phone claim.
+- [x] Full5703-test run:5697 passed/6 existing skips,0 failures/errors. Full
+  test/lint/compile/assemble and instrumented-source compile pass in13m48s.
+  Lint0 errors,379 notices: five retired-text unused-resource warnings and two
+  dialog-height recommendations added to the372-notice baseline. Scoped native
+  rendering/source/security/docs reviewed; APK package/signing/hash recorded.
+- [ ] Publish reviewed source on existing PR and independently verify exact-head CI.
+
+No new provider, external upload, phone/therapy operation or fabricated glucose
+curve. Existing clinical summaries are the available source, not raw day-series.
+
+## Contained Daily Review Worker (2026-10-16)
+
+- [x] Inspect the native text protocol, source-checked queue and shared executor.
+- [x] Add a dedicated bounded JSON session and immutable daily request binding;
+  do not widen the public CHAT policy or change model/reasoning settings.
+- [x] Check the consumed queue/archive/source before inference and the current
+  source again after the reply; drain owned readers on cancellation and require
+  independent process stop before the existing executor exposes any result.
+- [x] Final60 new cases/174 focused tests pass, full backend1414 passed/27 existing
+  opt-in skips. Scoped lint/format/compile and source/security/docs review pass.
+- [ ] Publish the reviewed source stage and independently inspect exact-head CI.
+
+This stage does not install or activate a provider, scheduler, API route, phone
+update or therapy path. Interactive-first dispatch and encrypted final-result
+settlement remain separate admission work, not properties of a worker alone.
+
+## Durable Daily Review Queue (2026-10-16)
+
+- [x] Inspect shared ledger/profile and approved automatic logical-day rules;
+  choose a queue that consumes no interactive/global model slot during preparation.
+- [x] Observe missing-queue RED; implement encrypted reservation/get/cancel and
+  fresh-source/current-report one-shot handoff with explicit additive schema 4.
+- [x] Reproduce missing post-commit deadline RED; committed handoff markers remain
+  consumed even when acknowledgement fails, with no automatic second delivery.
+- [x] Final40 new cases/261 focused tests pass; full pinned backend1354 passed,
+  27 existing opt-in skips. Scoped lint/compile and diff checks pass.
+- [x] Final source/security/docs review passes. Synthetic6343-point/22-day queue
+  survives restart and delivers once: enqueue0.93s/handoff0.7385s,104.7MiB process
+  including fixture/imports. Not provider/target-host capacity or clinical evidence.
+- [ ] Explicit reviewed source publication and independent exact-head CI receipts.
+
+No worker, provider/global-slot admission, schedule, server, phone or therapy
+activation. Durable results and actual priority/contained execution remain separate.
+See DAILY_REVIEW_QUEUE.md; one-shot handoff is not exactly-once model execution.
+
+## Checked Daily Review Boundaries (2026-10-16)
+
+- [x] Inspect dedicated CHAT/photo queue contracts; no implicit daily fallback.
+- [x] Observe missing checked-preparation RED; consume independent source replay
+  atomically with canonical work construction and fresh reply evaluation.
+- [x] Fix observed contract errors incorrectly becoming storage-unavailable;
+  distinct errors preserve actual integrity failures and prevent false retries.
+- [x] Final33 new cases/205 focused tests pass: stale source/proofs/hash echo,
+  supersession, canonical forgery, isolation, expiry/retention, corruption, closed
+  reply/reference checks, concurrency and complete-operation deadlines.
+- [x] Complete pinned backend1314 passed/27 existing opt-in skips; scoped E/F
+  lint, compile, diff/source/security/docs review pass. Synthetic6343-point/22-day
+  flow prepares in0.7607s and checks a reply in0.7021s locally; not provider,
+  target-host capacity or clinical accuracy evidence.
+- [ ] Reviewed source publication and exact-head CI evidence.
+
+No job reservation, provider, queue activation, publication, schema or deployment.
+Actual point-in-time source checks do not admit medical text or future dispatch.
+See CHECKED_DAILY_REVIEW.md for the remaining dedicated-worker lifecycle.
+
+## Frozen Daily Source Verification (2026-10-16)
+
+- [x] Observe missing-check RED; inspect full archived ranges and moving cuts.
+- [x] Share protected report/source snapshot and deterministic replay, with actual
+  check bindings and explicit changed/unavailable states; no storage migration.
+- [x] Reproduce missed post-midnight guard RED and expand the checked right guard.
+- [x] Synthetic regressions cover late/revised/deleted/irrelevant source, integrity,
+  retention, rollback, full-facts mismatch, concurrency, ranges, clocks and limits.
+- [x] Final43 new cases and172 focused tests; full pinned backend1281 passed,
+  27 existing opt-in skips. Scoped lint/compile, source/security/docs review pass.
+  A separate synthetic6343-point/22-day check completes locally in0.5709s;
+  this is not target-host capacity, provider or medical validation.
+- [ ] Reviewed source publication and independent exact-head CI receipts.
+
+No worker integration, provider, public/admin route, scheduler, host, APK or therapy.
+See DAILY_SOURCE_VERIFICATION.md; this point-in-time result is not clinical admission.
+
+## Grounded Daily Review Contract (2026-10-16)
+
+- [x] Observe missing-module RED; add bounded trusted preparation and read-only
+  archive bridge, fixed prompt, exact result schema and grounded reference view.
+- [x] Review REDs: missing echo digest/schema, full21-day input overflow and missing
+  independent-freshness disclaimer. Explicit compact evidence/baseline projection
+  preserves original metrics and denominators, with complete omission labels.
+- [x] Final52 new synthetic cases and129 focused cases pass, including the21-day projection and
+  source/candidate/action/schema/type/quality/priority failures; source review adds
+  explicit NOT_INDEPENDENTLY_VERIFIED freshness and its regression check.
+- [x] Full pinned backend1238 passed/27 existing opt-in skips; scoped E/F lint,
+  compilation, diff/source/security and documentation review pass. Synthetic
+  complete21-day facts project from136566 archive bytes to25591 envelope bytes,
+  with36 selected/96 omitted selected-candidate windows explicitly disclosed.
+- [ ] Reviewed source publication and independent exact-head CI receipts.
+
+No real provider, daily policy/admission, encrypted result lifecycle, scheduler,
+server/phone/UI or therapy activation. See DAILY_REVIEW_CONTRACT.md. Actual
+frozen-source verification remains separate, not a supplied hash comparison.
+
+## Daily Facts Archive (2026-10-16)
+
+- [x] Audit discussed unfinished features; source/operational distinctions in
+  OPEN_FEATURES.md. Select protected daily facts storage, not phone-dependent work.
+- [x] Observe missing-archive RED; internal encrypted save/get/list, immutable
+  revisions, explicit source freshness projection and additive schema 3.
+- [x] 37 new synthetic checks and 145 relevant checks pass: isolation, corruption,
+  exact retry, revisions/deletion, retention, limits, concurrency, quality labels
+  and history/chat compatibility. A separate local 365-empty-report exercise
+  passes bounded 19-page reads; it is not host or medical-payload capacity proof.
+- [x] Full backend1186 passed/27 existing skips, scoped lint/compilation and
+  final source/security review. Missing optional Pillow in the first ambient
+  environment is recorded; final checks use the pinned complete requirements.
+- [ ] Reviewed source publication and exact-head CI evidence.
+
+No provider, host, public/admin route, schedule, phone or therapy operation.
+Missing domain adapters and the actual review worker/admin remain separate.
+
+## Native Navigation Follow-through (2026-10-16)
+
+- [x] Reproduce retained page fade with real NavHost and inspect resolved sources.
+- [x] Reject snap-only replacement; use immediate page changes while retaining
+  the approved owl and drawer gestures. Opaque pixels and draft retention pass.
+- [x] Rapid-pop raw/accessibility/native-pixel and draft-retention checks pass;
+  wait for actual native commit within96ms,not only semantic-tree presence.
+- [x] Focused55 native tests passed,zero skips; raster inspected.
+- [x] Full5686-test run:5680 passed,6 existing opt-in skips,zero errors/failures.
+- [x] Final unit/lint/assemble/Kotlin gate passed in10m38s;0lint errors,unchanged
+  warning keys. Corrected debug APK signature/hash verified; source reviewed.
+- Observe exact published SHA/Verify and retain the publication receipt before
+  integrating this stage; an earlier green head is not evidence for this source.
+- [ ] Separate intended-phone acceptance; current USB/ADB inventories empty.
+
+## Approved Owl Navigation (2026-10-16)
+
+- [x] Owner approved the navigation/notification prototype independently of the
+  unselected AI-analysis layout variants. Native scope and privacy recorded.
+- [x] Red native regression for missing owl menu action (expected missing tag,
+  before production edits; original XML/log retained privately).
+- [x] Fixed48dp owl action, explicit route/menu/busy gestures and no replay after
+  suppression; preserve compact actions and return focus on drawer closure.
+- [x] Remove duplicate chat owl, retain real busy semantics; verify existing
+  single notification artwork/public redaction without changing delivery.
+- [x] Focused native raster/semantics/policy/notification tests:51 passed.
+- [x] Full final Android unit run:5682 tests,5676 passed,6 opt-in private-data
+  skips,zero failures/errors. Original focused fixture failures retained.
+- [x] Final lint/assemble/Kotlin gate passed in11m07s; debug v2 APK signature
+  verified. Reviewed source/tests/docs prepared for feature-branch publication.
+- [ ] Separate physical Redmi/notification/TalkBack/performance acceptance.
+
+See superpowers/specs/2026-10-16-owl-navigation-native-design.md. No app install,
+backend operation, medical payload or therapy change is part of this stage.
+Observe exact published SHA and Verify after push; an earlier green branch head
+does not verify this change. Retain its publication receipt in task evidence.
+
+## Owner API Activation (2026-10-16)
+
+- [x] Fresh read-only host/API/profile metadata inspection; existing API remains
+  explicitly503, owner session journal idle, no auth body read or token copy.
+- [x] Prepare isolated public source and frozen dependency runtime; import gate
+  passes without starting API, model or phone work.
+- [x] Reproduce/fix serial revocation adapter gap; protected v2 descriptor and
+  all-chain status checks pass121 focused tests.
+- [x] Final full backend1149 passed/27 existing skips; scoped lint/compilation
+  and documentation/source review. Snapshot remains an operator-pinned input.
+- [x] Source3b81c2a5 published; both exact-head Verify runs/all six jobs passed.
+- [x] Actual immutable image, expiring differential DNS/TLS/BPF admission/renewal,
+  kernel and exact lifecycle checks; separate nonroot API/private keys/stores.
+- [x] One actual synthetic provider turn, idle/stop confirmation; target-host
+  170-test synthetic storage/retention/restore/year-capacity gate passed.
+- [x] Readiness and socket/timer startup; private rollback and syntax-checked TLS
+  enrollment/API routing;11 public negative tests and503/recovery behavior.
+- [ ] Real hardware enrollment, signed phone history/chat and app acceptance.
+- [ ] Separate photo admission, daily worker/schedule and private admin delivery.
+
+Text routing now exists after operational checks, not through a capability edit.
+No enrollment credential issued; full phone activation remains unverified. See
+DEVOPS.md. Android trust renewal remains an operator duty before seven-day expiry.
+
+## Comparable Glucose History (2026-10-16)
+
+- [x] Sparse hourly v2 facts preserve daily integration; DST clock matching is
+  explicitly unavailable without dropping correct daily totals.
+- [x] Same-context weighted 7/21-day baselines, separate range eligibility,
+  missing-day reasons and no sparse-current daily delta.
+- [x] Evidence-bound two-hour observations and provisional distinct-day
+  recurrences, explicit denominators/omissions and no cause/treatment inference.
+- [x] Protected single 22-day snapshot, revisions/deletions, corruption and
+  quota/deadline rejection, retention clipping and concurrent-writer tests.
+- [x] Focused 145 passed, scoped lint/compilation and local synthetic capacity.
+- [x] Final full backend 1130 passed/27 existing skips. An unchanged legacy
+  macOS runner cleanup failure in the initial run remains recorded; isolated
+  tests and two full repeats passed without a runner source change.
+- [ ] Source publication and exact-head CI evidence.
+- [ ] Other domain adapters, encrypted report lifecycle, bounded model review,
+  durable schedule and private admin implementation/admission.
+
+See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md). No model, phone, deployment
+or therapy operation. The admin artifact remains a synthetic offline mockup.
+
+## Daily Review Foundation (2026-10-15)
+
+- [x] Owner approved deterministic facts, bounded advisory review and private
+  admin direction; approved design/prompt text promoted to specs.
+- [x] Closed daily window/range/facts/evidence contracts, linear metrics,
+  cohorts, missing-time semantics and bounded descriptive episodes.
+- [x] Protected read snapshot, source binding, latest revisions/deletions,
+  integrity/budget failure and known sensor-change boundaries.
+- [x] Focused 72 tests, scoped E/F lint and Python compilation passed.
+- [x] Final full backend1086 passed/27 existing skips; scoped lint and compilation.
+- [x] Source 4006e505 published; both exact-head workflows and all 6 jobs passed.
+- [ ] Other domain adapters, encrypted report lifecycle,
+  model review worker/schedule and private admin implementation/admission.
+
+See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md). No public service, model or
+phone activation is part of this source stage. Admin mockup uses synthetic data.
+
+## Photo API And Decoder (2026-10-15)
+
+- [x] Dedicated raw-photo Unix protocol and immutable receipt binding; text's
+  closed contract unchanged through shared private lifecycle hooks.
+- [x] Separate offline decoder image/process/user, source pins, kernel gate,
+  original stop/IO and root host assembly; no default deployment.
+- [x] Optional protected owner API composition, signed synthetic photo path,
+  full two-service shutdown and independent normalizer-before-model gate.
+- [x] Focused175 tests passed using synthetic data and actual local sockets/pipes.
+- [x] Full backend1032 passed/27 existing opt-in skips; scoped lint and review.
+- [ ] Source publication and exact-head CI.
+- [ ] Operational public image/user/network/storage provisioning/admission,
+  scoped provider and signed-device proof before public activation.
+
+See [VISION_API_DECODER.md](VISION_API_DECODER.md).
+
+## Contained Meal Vision (2026-10-15)
+
+- [x] Reproduce the missing native image path and locate the explicit public503.
+- [x] Add dedicated pinned v2 inline image protocol, exact modality checks and
+  concrete process transport with independent image budgets; share strict checks.
+- [x] Fix shared profile idle ordering after independent IO confirmation.
+- [x] Focused protocol/process/profile tests, including actual local child pipes.
+- [x] Full backend994 passed/27 existing opt-in skips; scoped lint/source review.
+- [ ] Source publication and exact-head CI.
+- [ ] OS-isolated decoder and authenticated vision supervisor channel, actual
+  host/network/storage/model/signed-device admission before public activation.
+
+See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md). No provider/service/phone
+operation is included in the source stage.
+
+## Combined UI And Photo Integration (2026-10-15)
+
+- [x] Merge PR #6 with current owner/Room source, preserve both doc histories.
+- [x] Fix photo coordinator and implement signed task-specific client.
+- [x] Connect camera/gallery/review to existing meal form without auto-send.
+- [x] Review/integrate context capacity and inactive typed vision adapter.
+- [x] Full backend with decoder, independent synthetic capacity and Ruff.
+- [x] Frozen combined Android test/lint/APK (5667 tests, 6 private-fixture skips,
+  zero failures/errors); signed APK retained locally.
+- [x] Source publication and exact-head CI at06ddd75 (all6 checks successful).
+- [x] In-place update and main/food/photo-state/background smoke on the intended
+  device; installed APK hash and unchanged app/DB identities verified.
+- [ ] Separate contained image transport/decoder admission and real server
+  activation. This is NOT completed by the source adapter or client UI.
+
+Details and limits: [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md).
+
+## Core Room Context (2026-10-15)
+
+- Previous fe4a546 checks are all successful, including both Android CI runs.
+- Implement bounded read-only core source pages, separate durable metadata and
+  encrypted frozen-page recovery, revisions/deletions and signed upload before
+  observational chat context. No clinical schema migration or therapy change.
+- Admission-aware maintenance: recent six hours first, then365days; recent scans
+  every15minutes and daily full reconciliation. Scope and omissions remain visible
+  to the model; unlisted domains/GI overlays remain outside this core adapter.
+- Native Room tests cover time keysets, aliases, revisions/tombstones, exact retry,
+  failed storage/clear, binding refusal and lifecycle cancellation/backoff.
+  Full execution (5625 tests) found one incorrect fixture (REAL instead of AAPS_REAL);
+  after correcting only the fixture, 150 affected tests passed without failures
+  or skips. Full lint/APK gates passed with unchanged executable source. Three
+  relevant backend contract tests passed. Preserve full-run/scoped evidence
+  separately; source publication/exact-head CI remain independent checks.
+- Actual enrollment, server/phone activation, full archive UI and remaining domain
+  adapters continue as separate work. Source checks do not establish deployment.
+
+## Parallel Owner Chat Integration (2026-10-15)
+
+- CI follow-up: isolate inventory directory cursors after an intermittent signed
+  status503. Deterministic overlap and real journal-fault coverage added; backend
+  880passed/26existing skips. Android remains unchanged. Verify the follow-up's
+  exact CI head, not a single passing run at the earlier commit.
+
+- Three isolated source workers: nonroot API composition, Android chat routing,
+  signed history transport/client. Controller owns DI, shared docs and one common
+  Android/backend gate. See the parallel-ai-integration plan for exact ownership.
+- Current controller changes remove the24hour chat lock and correct observational
+  context labels. Extended analytics/clinical thresholds remain unchanged.
+- Verification: backend879passed/26existing optional skips; initial Android
+  full5597tests found one history-length defect(5590passed/6skipped). The fix and
+  boundary cases passed123affected tests with no failures/skips. Final lint/APK
+  gates passed(zero lint errors); source publication/CI follow independently.
+  No service/device deployment is implied.
+- Remaining after source verification: real structured Room backfill with stable
+  IDs/revisions/timestamps, archive restoration UI, protected server provisioning,
+  kernel/network/storage/purge/restore/load admission and actual Redmi checks.
+  Multimodal support requires a separately verified server capability contract.
+## Native Motion Follow-Up (2026-10-15)
+
+- Refined icon press feedback, coordinated drawer motion and short owl/glyph
+  accents from main 7ca72a24. Clinical state and all original actions unchanged.
+- Local 23 motion tests and full 5,549-test suite passed (6 private-fixture skips),
+  Kotlin/lint/APK passed. Includes reduced-motion cancellation red/green evidence.
+- Source-only feature PR requires exact-head Verify. Main merge and physical
+  phone installation remain separate; see `NATIVE_MOTION_REFINEMENT.md`.
+
 ## Feather 01 Main Integration (2026-10-15)
 
 - User approved native artwork plus Git main. Isolated integration reconciles

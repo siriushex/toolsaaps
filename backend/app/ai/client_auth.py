@@ -101,6 +101,7 @@ ACCESS_MS = 600_000
 SESSION_MS = 30 * 86_400_000
 SUBSCRIPTION_CODE_MS = 86_400_000
 MAX_SUBSCRIPTION_DAYS = 366
+MAX_BACKGROUND_DEVICES = 64
 _CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -372,6 +373,36 @@ class ClientAuth:
                                   key_fingerprint=row["key_hash"],
                                   public_key_der=bytes(row["public_key_der"]),
                                   subscription_expires_ms=row["expires_ms"])
+
+    def list_authorized_attested_sessions(self, *, owner_id: str, now_ms: int):
+        """Bounded trusted background roster, not a credential or admission API."""
+        _time(now_ms)
+        if type(owner_id) is not str or str(UUID(owner_id)) != owner_id:
+            raise ValueError("canonical_uuid_required")
+        with self.engine.connect() as db:
+            rows = db.execute(select(
+                attested_device_keys.c.owner_id, attested_device_keys.c.session_id,
+                attested_device_keys.c.key_hash, attested_device_keys.c.public_key_der,
+                subscription_grants.c.expires_ms,
+            ).join(sessions, sessions.c.id == attested_device_keys.c.session_id).join(
+                subscription_grants, subscription_grants.c.session_id == sessions.c.id,
+            ).where(
+                attested_device_keys.c.owner_id == owner_id,
+                sessions.c.owner_id == owner_id,
+                sessions.c.revoked_ms.is_(None), sessions.c.expires_ms > now_ms,
+                attested_device_keys.c.revoked_ms.is_(None),
+                attested_device_keys.c.enrolled_ms <= now_ms,
+                subscription_grants.c.activated_ms.is_not(None),
+                subscription_grants.c.activated_ms <= now_ms,
+                subscription_grants.c.expires_ms > now_ms,
+            ).order_by(attested_device_keys.c.key_hash).limit(MAX_BACKGROUND_DEVICES + 1)).mappings().all()
+        if len(rows) > MAX_BACKGROUND_DEVICES:
+            raise ValueError("background_device_limit")
+        return tuple(AttestedDevice(
+            owner_id=row["owner_id"], session_id=row["session_id"],
+            key_fingerprint=row["key_hash"], public_key_der=bytes(row["public_key_der"]),
+            subscription_expires_ms=row["expires_ms"],
+        ) for row in rows)
 
     def refresh(self, refresh_token: str, *, now_ms: int) -> Tokens:
         _time(now_ms)

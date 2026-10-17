@@ -46,7 +46,7 @@ class AlertsArchitectureTest {
         assertThat(repository).doesNotContain("alertLocalDao")
         assertThat(repository).doesNotContain("RoomLocalAlarmStore")
         // Version34 adds passive meal input observations, not an alert read-path writer.
-        assertThat(database).contains("version = 34")
+        assertThat(database).contains("version = 35")
     }
 
     @Test

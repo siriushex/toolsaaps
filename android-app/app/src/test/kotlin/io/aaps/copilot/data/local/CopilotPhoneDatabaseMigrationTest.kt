@@ -140,7 +140,7 @@ class CopilotPhoneDatabaseMigrationTest {
 
     private companion object {
         const val MIN_SUPPORTED_VERSION = 21
-        const val CURRENT_VERSION = 34
+        const val CURRENT_VERSION = 35
 
         val KEY_V26_TABLES = setOf(
             "sensitivity_runtime_snapshots",

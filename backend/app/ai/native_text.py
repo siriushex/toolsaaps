@@ -35,6 +35,8 @@ NATIVE_SETTINGS = tuple(f"features.{key}=false" for key in DISABLED_FEATURES) + 
     'model_catalog_json="/work/text-model.json"',
 )
 STARTUP_NOTICE_SHA256 = "0423500be79523998b914735593b9d7a2a3bde53601c0f60bd51ae9bac1a6ba1"
+# Native user-message events can echo the full input with JSON escaping.
+NATIVE_LINE_LIMIT = 6 * 131_072 + 1024
 
 
 def restricted_catalog(catalog: dict, model: str) -> dict:
@@ -77,12 +79,12 @@ def _unique(pairs):
     return result
 
 
-class NativeTextSession:
-    """One ephemeral conversation and one turn, with no retry or tool dispatch."""
+class _NativeSession:
+    """Shared correlation/notification checks, not a public input interface."""
 
-    def __init__(self, transport: TextTransport, policy: TextSessionPolicy, *, containment_verified: bool):
-        if containment_verified is not True or not isinstance(policy, TextSessionPolicy):
-            raise ValueError("contained_text_transport_required")
+    line_limit = NATIVE_LINE_LIMIT
+
+    def __init__(self, transport, policy):
         self.transport, self.policy = transport, policy
         self._used = False
         self._bytes = self._events = 0
@@ -91,13 +93,11 @@ class NativeTextSession:
         self._final = None
         self._completed = False
 
-    async def run(self, text: str) -> dict[str, str]:
+    async def _run(self, inputs):
         if self._used:
             raise NativeTextError("text_session_already_used")
         self._used = True
         try:
-            if not isinstance(text, str) or not 1 <= len(text.encode()) <= self.policy.max_input_bytes:
-                raise NativeTextError("text_input_limit")
             initialized = await self._request(1, "initialize", {
                 "clientInfo": {"name": "personal-ai", "version": "1"},
                 "capabilities": {"experimentalApi": True},
@@ -122,7 +122,7 @@ class NativeTextSession:
                 raise NativeTextError("text_correlation_rejected")
             response = await self._request(3, "turn/start", {
                 "threadId": self._thread, "environments": [],
-                "input": [{"type": "text", "text": text, "textElements": []}],
+                "input": inputs,
             })
             self._turn = self._identifier(response["turn"]["id"])
             if self._observed_turn not in (None, self._turn):
@@ -134,7 +134,7 @@ class NativeTextSession:
                 self._notification(value)
             if self._final is None:
                 raise NativeTextError("text_missing_answer")
-            return ChatResult.decode({"text": self._final}).as_dict()
+            return self._final
         except NativeTextError:
             raise
         except (KeyError, TypeError, ValueError, UnicodeError, SchemaError, RecursionError):
@@ -154,7 +154,7 @@ class NativeTextSession:
 
     async def _receive(self):
         raw = await self.transport.receive()
-        if type(raw) is not bytes or not 1 <= len(raw) <= 65_536:
+        if type(raw) is not bytes or not 1 <= len(raw) <= self.line_limit:
             raise NativeTextError("text_line_limit")
         self._bytes += len(raw)
         self._events += 1
@@ -226,9 +226,13 @@ class NativeTextSession:
                 if item.get("phase") in (None, "final_answer"):
                     if self._final is not None:
                         raise NativeTextError("text_duplicate_answer")
-                    self._final = ChatResult.decode({"text": item.get("text")}).text
+                    self._final = self._decode_answer(item.get("text"))
                 elif item.get("phase") != "commentary":
                     raise NativeTextError("text_message_phase_rejected")
+        elif method == "turn/moderationMetadata":
+            if set(params) != {"threadId", "turnId", "metadata"}:
+                raise NativeTextError("text_envelope_rejected")
+            self._correlate(params, turn=True)
         elif method in {"item/agentMessage/delta", "item/reasoning/summaryTextDelta",
                         "item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
                         "model/verification", "model/safetyBuffering/updated"}:
@@ -246,3 +250,28 @@ class NativeTextSession:
             self._correlate(params)
         elif method not in {"account/rateLimits/updated", "skills/changed", "account/updated"}:
             raise NativeTextError("text_notification_rejected")
+
+
+class NativeTextSession(_NativeSession):
+    """One text-only ephemeral conversation; no image/file or tool input."""
+
+    def __init__(self, transport: TextTransport, policy: TextSessionPolicy, *, containment_verified: bool):
+        if containment_verified is not True or type(policy) is not TextSessionPolicy:
+            raise ValueError("contained_text_transport_required")
+        super().__init__(transport, policy)
+
+    @staticmethod
+    def _decode_answer(value):
+        return ChatResult.decode({"text": value}).as_dict()
+
+    async def run(self, text: str) -> dict[str, str]:
+        if self._used:
+            raise NativeTextError("text_session_already_used")
+        try:
+            valid = isinstance(text, str) and 1 <= len(text.encode()) <= self.policy.max_input_bytes
+        except UnicodeError:
+            valid = False
+        if not valid:
+            self._used = True
+            raise NativeTextError("text_input_limit")
+        return await self._run([{"type": "text", "text": text, "textElements": []}])

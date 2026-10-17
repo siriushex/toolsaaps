@@ -8,17 +8,58 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.BackoffPolicy
+import androidx.work.await
 import kotlinx.coroutines.flow.first
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.service.PowerSaveController
 import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.LocalObservationRuntimeState
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 object WorkScheduler {
 
     internal const val SYNC_PERIODIC_INTERVAL_MINUTES = 15L
+
+    internal fun clinicalDisplayRequest(now: ZonedDateTime) =
+        PeriodicWorkRequestBuilder<ClinicalDisplayWorker>(1, TimeUnit.DAYS)
+            .setNextScheduleTimeOverride(NightlyAdviceSchedule.next(now).toInstant().toEpochMilli())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
+
+    fun scheduleClinicalDisplay(context: Context, now: ZonedDateTime = ZonedDateTime.now()) {
+        val manager = WorkManager.getInstance(context)
+        manager.enqueueUniquePeriodicWork("clinical_display_daily", ExistingPeriodicWorkPolicy.UPDATE, clinicalDisplayRequest(now))
+        manager.enqueueUniqueWork("clinical_display_catchup", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<ClinicalDisplayWorker>()
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build())
+    }
+
+    internal suspend fun rescheduleClinicalDisplay(context: Context) {
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork("clinical_display_daily",
+            ExistingPeriodicWorkPolicy.UPDATE, clinicalDisplayRequest(ZonedDateTime.now())).await()
+    }
+
+    internal fun nightlyAdviceRequest(now: ZonedDateTime) =
+        PeriodicWorkRequestBuilder<NightlyAdviceWorker>(1, TimeUnit.DAYS)
+            .setNextScheduleTimeOverride(NightlyAdviceSchedule.next(now).toInstant().toEpochMilli())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
+            .build()
+
+    fun scheduleNightlyAdvice(context: Context, now: ZonedDateTime = ZonedDateTime.now()) {
+        val manager = WorkManager.getInstance(context)
+        manager.enqueueUniquePeriodicWork(NIGHTLY_ADVICE_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, nightlyAdviceRequest(now))
+        manager.enqueueUniqueWork(NIGHTLY_ADVICE_CATCHUP_WORK_NAME, ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<NightlyAdviceWorker>()
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build())
+    }
+
+    internal suspend fun rescheduleNightlyAdvice(context: Context) {
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            NIGHTLY_ADVICE_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, nightlyAdviceRequest(ZonedDateTime.now())
+        ).await()
+    }
 
     internal fun requestInitialEnergyProfileRefresh(context: Context) {
         WorkManager.getInstance(context).enqueueUniqueWork(
@@ -43,7 +84,7 @@ object WorkScheduler {
     }
 
     fun schedule(context: Context) {
-        if (!TherapyActionRuntimeState.isArmed()) {
+        if (!LocalObservationRuntimeState.isAllowed()) {
             cancelRuntimeWork(context)
             return
         }
@@ -52,6 +93,21 @@ object WorkScheduler {
             schedulePowerSaveResume(context, PowerSaveRuntimeState.untilMs())
             return
         }
+
+        val manager = WorkManager.getInstance(context)
+        if (!TherapyActionRuntimeState.isArmed()) {
+            workManagerTransport(context).cancelGateClosedRuntimeWork()
+            manager.enqueueUniquePeriodicWork(
+                OBSERVATION_WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<LocalObservationWorker>(
+                    SYNC_PERIODIC_INTERVAL_MINUTES, TimeUnit.MINUTES
+                ).build()
+            )
+            cancelPowerSaveResume(context)
+            return
+        }
+        manager.cancelUniqueWork(OBSERVATION_WORK_NAME)
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -137,6 +193,7 @@ object WorkScheduler {
 
     fun cancelRuntimeWork(context: Context) {
         workManagerTransport(context).cancelGateClosedRuntimeWork()
+        WorkManager.getInstance(context).cancelUniqueWork(OBSERVATION_WORK_NAME)
     }
 
     fun schedulePowerSaveResume(context: Context, untilMs: Long) {
@@ -158,6 +215,9 @@ object WorkScheduler {
     }
 
     const val SYNC_WORK_NAME = "copilot.sync.automate"
+    internal const val NIGHTLY_ADVICE_WORK_NAME = "copilot.advice.nightly"
+    internal const val NIGHTLY_ADVICE_CATCHUP_WORK_NAME = "copilot.advice.catchup"
+    internal const val OBSERVATION_WORK_NAME = "copilot.observation.local"
     const val ANALYSIS_WORK_NAME = "copilot.analysis.daily"
     const val REACTIVE_WORK_NAME = "copilot.sync.reactive"
     const val CIRCADIAN_TARGET_WORK_NAME = "copilot.target.circadian.next"

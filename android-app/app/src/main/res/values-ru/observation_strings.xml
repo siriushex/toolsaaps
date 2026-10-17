@@ -1,0 +1,7 @@
+<resources>
+    <string name="setup_observation_title">Фоновое наблюдение</string>
+    <string name="setup_observation_detail">Локальные источники и тихий пересчёт. Без команд помпе, автоматических запросов ИИ и независимых тревог.</string>
+    <string name="setup_observation_therapy">Наблюдение входит во включённый режим терапии. Разрешения команд доступны в разделе «Безопасность».</string>
+    <string name="setup_observation_on">Фоновое наблюдение разрешено. Получение данных проверьте в источниках.</string>
+    <string name="setup_observation_off">Независимое фоновое наблюдение выключено.</string>
+</resources>

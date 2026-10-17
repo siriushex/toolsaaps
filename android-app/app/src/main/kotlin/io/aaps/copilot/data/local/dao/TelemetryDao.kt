@@ -710,6 +710,8 @@ interface TelemetryDao {
     @Query(
         "DELETE FROM telemetry_samples WHERE rowid IN (" +
             "SELECT rowid FROM telemetry_samples WHERE " +
+            "NOT (source = 'clinical_display' AND id = key " +
+            "AND key IN ('clinical_display_snapshot_v1', 'clinical_display_attempt_v1')) AND " +
             "NOT (" +
             "id = 'copilot-local-safety-clock-high-water-v1' " +
             "AND timestamp BETWEEN 1 AND 253402300799999 " +

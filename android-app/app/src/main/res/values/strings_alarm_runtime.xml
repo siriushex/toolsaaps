@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="alarm_runtime_title">Background alert repeats</string>
+    <string name="alarm_runtime_off">Off</string>
+    <string name="alarm_runtime_starting">Starting</string>
+    <string name="alarm_runtime_waiting">Waiting for a current glucose alert</string>
+    <string name="alarm_runtime_running">Current glucose alert</string>
+    <string name="alarm_runtime_paused">Alerts paused</string>
+    <string name="alarm_runtime_limited">Delivery limited. Check alarms, notifications and alarm volume.</string>
+    <string name="alarm_runtime_unavailable">Background delivery unavailable. Open the app to retry.</string>
+    <string name="alarm_runtime_ack">Seen</string>
+    <string name="alarm_runtime_system_clock">A critical repeat appears as a system alarm. OFF 30/60 keeps all alerts paused.</string>
+    <string name="alarm_runtime_alarm_permission">Alarms and reminders permission</string>
+    <string name="alarm_runtime_notification_permission">Notification permission</string>
+    <string name="alarm_runtime_retry">Retry background alerts</string>
+    <string name="alarm_runtime_settings_failed">Setting unavailable. Try again.</string>
+</resources>

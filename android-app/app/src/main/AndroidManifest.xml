@@ -16,6 +16,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -79,6 +82,16 @@
                 android:resource="@xml/clinical_pdf_file_paths" />
         </provider>
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.meal-photo"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/meal_photo_file_paths" />
+        </provider>
+
         <service
             android:name=".service.LocalNightscoutForegroundService"
             android:enabled="true"
@@ -119,6 +132,13 @@
             android:name=".receiver.GlucoseAlertActionReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <receiver android:name=".receiver.GlucoseAlarmAckReceiver" android:exported="false" />
+        <service android:name=".service.GlucoseAlarmService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled current glucose alert delivery and acknowledgement" />
+        </service>
 
         <receiver
             android:name=".widget.CopilotGlucoseWidgetProvider"

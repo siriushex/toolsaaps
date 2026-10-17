@@ -27,11 +27,15 @@ class LocalAlarmCoordinatorTest {
     private val volume = Volume()
     private val audio = Audio()
     @Volatile private var missing = false
+    @Volatile private var beforeSnapshot: () -> Unit = {}
     @Volatile private var template = LocalAlarmCoordinatorContext(settings(), listOf(request()),
         LocalAlarmEnvironment(true, true, 1_000, 10_000, 2), true, true)
-    private fun live(): LocalAlarmCoordinatorContext? = if (missing) null else template.let {
+    private fun live(): LocalAlarmCoordinatorContext? {
+        beforeSnapshot()
+        return if (missing) null else template.let {
         val now = clock.now.get()
         it.copy(environment = it.environment.copy(nowElapsedMs = now, nowWallMs = 9_000 + now))
+        }
     }
     private fun store() = RoomLocalAlarmStore(db) {
         template.environment.copy(nowElapsedMs = clock.now.get(), nowWallMs = 9_000 + clock.now.get())
@@ -80,6 +84,14 @@ class LocalAlarmCoordinatorTest {
         @Volatile var playing: LocalAlarmCycle? = null
         @Volatile var stopFails = false
         @Volatile var lastGuard: ((LocalAlarmCycle) -> Boolean)? = null
+        @Volatile var lease: LocalAlarmAudioOwner? = null
+        override suspend fun prepareLocalAlarm(owner: LocalAlarmAudioOwner): Boolean {
+            if (!owner.current()) return false
+            lease = owner
+            return true
+        }
+        override fun ownsLocalAlarm(cycle: LocalAlarmCycle): Boolean =
+            lease?.let { it.cycle == cycle && it.retained() } == true
         override suspend fun playLocalAlarm(cycle: LocalAlarmCycle, stepIndex: Int, settings: AppSettings,
             admitted: (LocalAlarmCycle) -> Boolean): GlucoseAlertAudioPlaybackResult {
             assertTrue(admitted(cycle)); assertTrue(playing == null || playing == cycle)
@@ -87,6 +99,7 @@ class LocalAlarmCoordinatorTest {
             return GlucoseAlertAudioPlaybackResult(played = true, durationMs = if (cycle.level.strong) 20_000 else 2_000)
         }
         override fun stopLocalAlarm(cycle: LocalAlarmCycle) {
+            lease?.takeIf { it.cycle == cycle }?.retire()
             stops += cycle
             if (stopFails) error("stop_unconfirmed")
             if (playing == cycle) playing = null
@@ -102,6 +115,295 @@ class LocalAlarmCoordinatorTest {
         coordinator().signal(); delay(20)
         assertTrue(audio.starts.isEmpty()); assertTrue(volume.writes.isEmpty())
         assertNull(db.alertLocalDao().state("GLUCOSE", "source-a"))
+    }
+
+    private fun action(cycle: LocalAlarmCycle) = LocalAlarmAcknowledgement(cycle.key, cycle.generation, cycle.ordinal, cycle.level)
+
+    private suspend fun state(cycle: LocalAlarmCycle) = requireNotNull(LocalAlarmPersistenceCodec.decodeState(
+        requireNotNull(db.alertLocalDao().state(cycle.key.kind.name, cycle.key.id)).stateJson))
+
+    @Test fun acknowledgementRequiresRunningOwnerAndNeverStartsRuntime() = runBlocking {
+        val cycle = requireNotNull(store().evaluate(request().evidence, LocalAlarmTiming())?.startCycle)
+        assertFalse(coordinator().acknowledge(action(cycle)))
+        assertNull(state(cycle).pause)
+        assertTrue(audio.starts.isEmpty())
+    }
+
+    @Test fun acknowledgementArrivingBeforeClaimCallbackStopsBeforeAnyHardwareEffect() = runBlocking {
+        db.close()
+        lateinit var owner: LocalAlarmCoordinator
+        val submitted = CompletableDeferred<Deferred<Boolean>>()
+        var intercept = true
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CopilotDatabase::class.java)
+            .allowMainThreadQueries().setQueryCallback({ sql, _ ->
+                if (intercept && sql.contains("INSERT") && sql.contains("alert_local_cycle")) {
+                    intercept = false
+                    submitted.complete(async(Dispatchers.Unconfined) {
+                        owner.acknowledge(LocalAlarmAcknowledgement(request().evidence.key, 1, 1, LocalAlarmLevel.WARNING_30))
+                    })
+                }
+            }, java.util.concurrent.Executor { it.run() }).build()
+        owner = coordinator()
+        running(owner) { job ->
+            assertTrue(withTimeout(5_000) { submitted.await().await() })
+            val saved = requireNotNull(LocalAlarmPersistenceCodec.decodeState(
+                requireNotNull(db.alertLocalDao().state("GLUCOSE", "source-a")).stateJson))
+            assertNotNull(saved.pause); assertFalse(saved.cycleActive)
+            assertEquals("CANCELLED", row(requireNotNull(saved.lastCycle)).status)
+            assertTrue(audio.starts.isEmpty()); assertTrue(volume.writes.isEmpty()); assertTrue(job.isActive)
+        }
+    }
+
+    private suspend fun blockedClaim(block: suspend CoroutineScope.(LocalAlarmCoordinator) -> Unit) {
+        db.close()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        var intercept = true
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CopilotDatabase::class.java)
+            .allowMainThreadQueries().setQueryCallback({ sql, _ ->
+                if (intercept && sql.contains("INSERT") && sql.contains("alert_local_cycle")) {
+                    intercept = false
+                    entered.countDown()
+                    check(release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                }
+            }, java.util.concurrent.Executor { it.run() }).build()
+        val owner = coordinator()
+        running(owner) {
+            try {
+                until { entered.count == 0L }
+                block(owner)
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test fun expiredAcknowledgementWhileClaimIsPendingDoesNotSpinOrWaitForDatabase() = runBlocking {
+        blockedClaim { owner ->
+            val ack = async(start = CoroutineStart.UNDISPATCHED) {
+                owner.acknowledge(LocalAlarmAcknowledgement(request().evidence.key, 1, 1, LocalAlarmLevel.WARNING_30))
+            }
+            val reads = java.util.concurrent.atomic.AtomicInteger()
+            beforeSnapshot = { check(reads.incrementAndGet() < 100) }
+            clock.advance(900_000)
+            assertFalse(withTimeout(5_000) { ack.await() })
+            assertTrue(reads.get() < 100); assertTrue(audio.starts.isEmpty())
+        }
+    }
+
+    @Test fun refreshedSourceWhileClaimIsPendingUsesCurrentExpiryWithoutBusyLoop() = runBlocking {
+        blockedClaim { owner ->
+            val reads = java.util.concurrent.atomic.AtomicInteger()
+            beforeSnapshot = { check(reads.incrementAndGet() < 100) }
+            template = template.copy(requests = listOf(request().copy(evidence = request().evidence.copy(
+                observedElapsedMs = 901_000, validUntilElapsedMs = 1_800_000))))
+            clock.advance(900_000); owner.signal()
+            until { clock.hasDeadline(1_800_000) }
+            assertTrue(reads.get() < 100); assertTrue(audio.starts.isEmpty())
+        }
+    }
+
+    @Test fun acknowledgementStopsExactCycleFinishesJournalThenPausesWithoutPoisoningRuntime() = runBlocking {
+        val owner = coordinator()
+        running(owner) { job ->
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            assertTrue(withTimeout(5_000) { owner.acknowledge(action(cycle)) })
+            assertTrue(audio.stops.contains(cycle)); assertNull(audio.playing); assertEquals(1, volume.index)
+            assertEquals("CANCELLED", row(cycle).status)
+            assertFalse(state(cycle).cycleActive); assertEquals(310_000L, state(cycle).pause?.untilWallMs)
+            assertTrue(job.isActive); assertFalse(store().runtimeUnavailable.get())
+            until { clock.hasDeadline(301_000) }
+            clock.advance(300_000); until { audio.starts.size == 2 }
+            assertEquals(2L, audio.starts.last().first.ordinal)
+        }
+    }
+
+    @Test fun oldOrdinalAndOtherGenerationCannotStopCurrentSignal() = runBlocking {
+        val owner = coordinator()
+        running(owner) {
+            until { audio.starts.size == 1 }; val first = audio.starts.single().first
+            until { clock.hasDeadline(3_000) }; clock.advance(2_000); terminal(first, "FINISHED")
+            until { clock.hasDeadline(301_000) }; clock.advance(298_000)
+            until { audio.starts.size == 2 }; val next = audio.starts.last().first
+            assertFalse(owner.acknowledge(action(first)))
+            assertFalse(owner.acknowledge(action(next).copy(generation = next.generation + 1)))
+            assertEquals(next, audio.playing); assertFalse(audio.stops.contains(next))
+            assertNull(state(next).pause)
+        }
+    }
+
+    @Test fun acknowledgementAfterClipAndDuplicateTapDoNotExtendPause() = runBlocking {
+        val owner = coordinator()
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            until { clock.hasDeadline(3_000) }; clock.advance(2_000); terminal(cycle, "FINISHED")
+            assertTrue(owner.acknowledge(action(cycle)))
+            val pause = state(cycle).pause
+            clock.advance(1_000)
+            assertFalse(owner.acknowledge(action(cycle)))
+            assertEquals(pause, state(cycle).pause); assertEquals("FINISHED", row(cycle).status)
+        }
+    }
+
+    @Test fun acknowledgementImmediatelyRevokesAudioWhileJournalLockIsBusy() = runBlocking {
+        val owner = coordinator(); val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            lock.lock()
+            val ack = async { owner.acknowledge(action(cycle)) }
+            try {
+                until { audio.stops.contains(cycle) }
+                assertFalse(audio.lastGuard!!(cycle)); assertNull(audio.playing); assertEquals(1, volume.index)
+                assertFalse(ack.isCompleted)
+                assertFalse(owner.acknowledge(action(cycle)))
+            } finally { lock.unlock() }
+            assertTrue(withTimeout(5_000) { ack.await() })
+            assertNotNull(state(cycle).pause); assertFalse(store().runtimeUnavailable.get())
+        }
+    }
+
+    @Test fun worseningWhileAcknowledgementWaitsCannotPauseNewRisk() = runBlocking {
+        val owner = coordinator(); val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            lock.lock()
+            val ack = async { owner.acknowledge(action(cycle)) }
+            try {
+                until { audio.stops.contains(cycle) }
+                template = template.copy(requests = listOf(request(level = LocalAlarmLevel.LOW_NOW)))
+                owner.signal()
+            } finally { lock.unlock() }
+            assertFalse(withTimeout(5_000) { ack.await() })
+            until { audio.starts.size == 2 }
+            assertEquals(LocalAlarmLevel.LOW_NOW, audio.starts.last().first.level)
+            assertNull(state(audio.starts.last().first).pause)
+        }
+    }
+
+    @Test fun worseningAfterAcknowledgementBypassesOnlyScopedPause() = runBlocking {
+        val owner = coordinator()
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            assertTrue(owner.acknowledge(action(cycle)))
+            template = template.copy(requests = listOf(request(level = LocalAlarmLevel.LOW_NOW)))
+            owner.signal(); until { audio.starts.size == 2 }
+            assertEquals(LocalAlarmLevel.LOW_NOW, audio.starts.last().first.level)
+            assertFalse(owner.acknowledge(action(cycle)))
+            assertNotNull(audio.playing)
+        }
+    }
+
+    @Test fun scopedAcknowledgementDoesNotCancelAnotherSource() = runBlocking {
+        val owner = coordinator()
+        running(owner) {
+            until { audio.starts.size == 1 }; val first = audio.starts.single().first
+            template = template.copy(requests = template.requests + request("source-b", LocalAlarmLevel.LOW_NOW))
+            owner.signal(); until { audio.starts.size == 2 }; val next = audio.starts.last().first
+            assertTrue(owner.acknowledge(action(first)))
+            assertEquals(next, audio.playing); assertFalse(audio.stops.contains(next))
+            assertNull(state(next).pause)
+        }
+    }
+
+    @Test fun failedCleanupRejectsAcknowledgementAndRetainsUnavailableState() = runBlocking {
+        val owner = coordinator()
+        running(owner) { job ->
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            audio.stopFails = true
+            assertFalse(withTimeout(5_000) { owner.acknowledge(action(cycle)) })
+            assertEquals(LocalAlarmCoordinatorExit.UNAVAILABLE, job.await())
+            assertNull(state(cycle).pause); assertTrue(store().runtimeUnavailable.get())
+        }
+    }
+
+    @Test fun globalOffDuringAcknowledgementDeniesPauseAndAnyReplacement() = runBlocking {
+        val owner = coordinator(); val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            lock.lock()
+            val ack = async { owner.acknowledge(action(cycle)) }
+            try {
+                until { audio.stops.contains(cycle) }
+                template = template.copy(environment = template.environment.copy(mutedUntilWallMs = 70_000))
+                owner.signal()
+            } finally { lock.unlock() }
+            RoomEpisodeAlertReceiptStore(db).writeMuteUntil(70_000, 10_000)
+            assertFalse(withTimeout(5_000) { ack.await() })
+            assertNull(state(cycle).pause); assertEquals(1, audio.starts.size)
+        }
+    }
+
+    @Test fun criticalAcknowledgementUsesConfiguredRepeatNotNoncriticalBackoff() = runBlocking {
+        template = template.copy(settings = template.settings.copy(strongLowRepeatMinutes = 3),
+            requests = listOf(request(level = LocalAlarmLevel.LOW_NOW)))
+        val owner = coordinator()
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            assertTrue(owner.acknowledge(action(cycle)))
+            assertEquals(190_000L, state(cycle).pause?.untilWallMs)
+            until { clock.hasDeadline(181_000) }
+            clock.advance(180_000); until { audio.starts.size == 2 }
+            assertEquals(2L, audio.starts.last().first.ordinal)
+        }
+    }
+
+    private suspend fun changeDuringAcknowledgement(change: () -> Unit) {
+        val owner = coordinator(); val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        running(owner) { job ->
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            lock.lock()
+            val ack = async { owner.acknowledge(action(cycle)) }
+            try {
+                until { audio.stops.contains(cycle) }
+                change(); owner.signal()
+            } finally { lock.unlock() }
+            assertFalse(withTimeout(5_000) { ack.await() })
+            assertNull(state(cycle).pause); assertEquals(1, audio.starts.size)
+            assertTrue(job.isActive); assertFalse(store().runtimeUnavailable.get())
+        }
+    }
+
+    @Test fun sourceExpiryDuringAcknowledgementCannotPersistPause() = runBlocking {
+        changeDuringAcknowledgement { clock.advance(900_000) }
+    }
+
+    @Test fun settingsChangeDuringAcknowledgementCannotUseOldPauseLength() = runBlocking {
+        changeDuringAcknowledgement { template = template.copy(settings = template.settings.copy(softAlertRepeatMinutes = 10)) }
+    }
+
+    @Test fun capabilityLossDuringAcknowledgementCannotClaimSuccess() = runBlocking {
+        changeDuringAcknowledgement { template = template.copy(audioAvailable = false) }
+    }
+
+    @Test fun receiverCancellationDoesNotUndoAlreadyAcceptedUserIntent() = runBlocking {
+        val owner = coordinator(); val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        running(owner) {
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            lock.lock()
+            val ack = async { owner.acknowledge(action(cycle)) }
+            try {
+                until { audio.stops.contains(cycle) }
+                ack.cancelAndJoin()
+                assertFalse(owner.acknowledge(action(cycle)))
+            } finally { lock.unlock() }
+            withTimeout(5_000) { while (state(cycle).pause == null) delay(5) }
+            assertFalse(store().runtimeUnavailable.get())
+        }
+    }
+
+    @Test fun ownerShutdownSettlesQueuedAcknowledgementAsUnconfirmed() = runBlocking {
+        val owner = coordinator(); val lock = EpisodeAlertOperationLocks.forIdentity(db)
+        running(owner) { job ->
+            until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
+            lock.lock()
+            val ack = async { owner.acknowledge(action(cycle)) }
+            try {
+                until { audio.stops.contains(cycle) }
+                job.cancel()
+            } finally { lock.unlock() }
+            assertFalse(withTimeout(5_000) { ack.await() }); job.join()
+            assertNull(state(cycle).pause)
+            assertFalse(owner.acknowledge(action(cycle)))
+            assertFalse(store().runtimeUnavailable.get())
+        }
     }
 
     @Test fun missingOrUnarmedContextCannotStartAndIdleHasNoTimer() = runBlocking {
@@ -128,18 +430,17 @@ class LocalAlarmCoordinatorTest {
         }
     }
 
-    @Test fun equalPriorityKeepsOwnerUntilCompletionThenOldestPendingWins() = runBlocking {
+    @Test fun equalPriorityKeepsOwnerThenOldestPendingWinsAfterSharedCooldown() = runBlocking {
         val owner = coordinator()
         running(owner) {
             until { audio.starts.size == 1 }; val first = audio.starts.single().first
             template = template.copy(requests = template.requests + request("source-b", pending = 0))
             owner.signal(); delay(20); assertEquals(first, audio.playing)
-            repeat(3) { index ->
-                until { clock.hasDeadline(16_000L + index * 15_000L) }
-                clock.advance(15_000); until { audio.starts.size >= index + 2 }
-            }
-            until { clock.hasDeadline(48_000) }
-            clock.advance(2_000); until { audio.starts.any { it.first.key.id == "source-b" } }
+            until { clock.hasDeadline(3_000) }
+            clock.advance(2_000); terminal(first, "FINISHED")
+            until { clock.hasDeadline(301_000) }
+            assertEquals(1, audio.starts.size)
+            clock.advance(298_000); until { audio.starts.any { it.first.key.id == "source-b" } }
             assertEquals("FINISHED", row(first).status); assertTrue(audio.stops.contains(first))
         }
     }
@@ -147,7 +448,7 @@ class LocalAlarmCoordinatorTest {
     @Test fun duplicateUpdatesNeverRestartCycleSlideDueOrAccumulateTimers() = runBlocking {
         val registering = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        clock.beforeRegister = { ms -> if (ms == 15_000L && clock.now.get() == 1_000L) {
+        clock.beforeRegister = { ms -> if (ms == 2_000L && clock.now.get() == 1_000L) {
             registering.complete(Unit); release.await()
         } }
         val owner = coordinator()
@@ -157,15 +458,19 @@ class LocalAlarmCoordinatorTest {
             // Audio start precedes asynchronous Room work and step-wait registration.
             release.complete(Unit)
             until { clock.count() == 2 }
-            assertTrue("Step wait must be registered before advancing its clock", clock.hasDeadline(16_000))
-            clock.advance(10_000)
+            assertTrue("Step wait must be registered before advancing its clock", clock.hasDeadline(3_000))
+            clock.advance(1_000)
             template = template.copy(requests = template.requests.map { it.copy(evidence = it.evidence.copy(observedElapsedMs = clock.now.get())) })
             repeat(20) { owner.signal() }
             until { clock.count() == 2 }
             assertEquals(1, audio.starts.size); assertEquals(301_000L, db.alertLocalDao().state("GLUCOSE", "source-a")!!.nextDueElapsedMs)
             assertTrue(clock.count() <= 2)
-            clock.advance(5_000); until { audio.starts.size == 2 }
-            assertTrue(audio.starts.all { it.first == cycle })
+            clock.advance(1_000); terminal(cycle, "FINISHED")
+            until { clock.hasDeadline(301_000) }
+            assertEquals(1, audio.starts.size)
+            clock.advance(298_000); until { audio.starts.size == 2 }
+            assertEquals(2L, audio.starts.last().first.ordinal)
+            assertNotEquals(cycle, audio.starts.last().first)
         }
     }
 
@@ -263,6 +568,8 @@ class LocalAlarmCoordinatorTest {
         running(first) {
             until { audio.starts.size == 1 }
             assertEquals(LocalAlarmCoordinatorExit.BUSY, withTimeout(2_000) { second.run() })
+            assertFalse(second.acknowledge(action(audio.starts.single().first)))
+            assertNotNull(audio.playing)
             assertEquals(1, audio.starts.size)
         }
     }

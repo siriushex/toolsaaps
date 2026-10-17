@@ -2,6 +2,12 @@
 
 Date: 2026-10-15. User-selected friendly feathered owl; presentation only.
 
+The approved2026-10-16 follow-up supersedes only the original title-slot placement:
+one38dp owl is now the48dp menu action, not an additional overview logo. Explicit
+route and AI busy gestures share the existing finite-clock/policy implementation.
+See superpowers/specs/2026-10-16-owl-navigation-native-design.md. Original stage
+evidence below is retained; new native/device evidence is recorded separately.
+
 ## Integration Boundary
 
 Before the presentation patch, the isolated main reconciliation's Android tree
@@ -15,9 +21,11 @@ work in another working tree is excluded. No phone/server update is performed.
 - Adaptive launcher with safe-zone padding and themed monochrome variant.
 - 32dp context owl occupies only the compact overview's empty title slot.
   Secondary headings retain their original space and actions.
-- 24dp waiting gaze follows the actual AI busy state; its cap freezes artwork,
+- 24dp waiting gaze follows the actual AI busy state; its finite cap settles artwork,
   never reports request success. Indeterminate accessibility semantics remain
   after the cap or reduced motion. Four other short gestures are available.
+  The native refinement uses a small parallel glance, not an orbit; see
+  `NATIVE_MOTION_REFINEMENT.md` for timings and interaction feedback.
 - Twelve existing untinted event images retain names, 128px lossless WebP and
   512px masters. First nonurgent selected event gets at most one finite accent.
 - 52 native glyph records: 40 reviewed notification scenarios plus 12 event types.

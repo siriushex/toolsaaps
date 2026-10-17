@@ -31,7 +31,8 @@ import java.util.Locale
 class GlucoseAlertNotifier(
     private val context: Context,
     private val audioController: GlucoseAlertAudioController,
-    private val episodeDelivery: EpisodeAlertDeliveryStateMachine? = null
+    private val episodeDelivery: EpisodeAlertDeliveryStateMachine? = null,
+    private val alarmRouter: GlucoseAlarmDeliveryRouter? = null
 ) {
 
     suspend fun deliver(
@@ -40,7 +41,8 @@ class GlucoseAlertNotifier(
         settings: AppSettings,
         causeAnalysis: AlertCauseAnalysis? = null,
         causeSnapshot: AlertCauseSnapshot? = null,
-        nowTs: Long = System.currentTimeMillis()
+        nowTs: Long = System.currentTimeMillis(),
+        currentGlucoseTimestamp: Long? = null
     ): GlucoseAlertDeliveryResult {
         if (decision.notifyKind == GlucoseAlertNotifyKind.CLEAR) {
             episodeDelivery?.coordinate(
@@ -52,15 +54,15 @@ class GlucoseAlertNotifier(
         }
         val coordinator = episodeDelivery ?: return GlucoseAlertDeliveryResult(degradedReason = "episode_coordinator_missing")
         var nativeResult = GlucoseAlertDeliveryResult()
-        val coordinated = coordinator.coordinate(
-            signal = EpisodeAlertSignal(
+        val signal = EpisodeAlertSignal(
                 stage = decision.episodeStage,
                 direction = decision.episodeDirection,
                 nowTs = nowTs,
                 causeAnalysis = causeAnalysis,
-                causeSnapshot = causeSnapshot
+                causeSnapshot = causeSnapshot,
+                alarmObservation = GlucoseAlarmObservation.fromDecision(decision, nowTs, currentGlucoseTimestamp)
             )
-        ) { claim ->
+        val deliverClaim: suspend (EpisodeDeliveryClaim, CheckedLocalAlarmSource?) -> AlertSideEffectResult = { claim, source ->
             ensureChannels()
             val claimedDecision = claimedDecisionForDelivery(decision, claim)
             nativeResult = when (claimedDecision.notifyKind) {
@@ -76,18 +78,23 @@ class GlucoseAlertNotifier(
                     claim,
                     claimedDecision,
                     currentGlucoseMmol,
-                    settings
+                    settings,
+                    source
                 )
                 GlucoseAlertNotifyKind.CRITICAL_5,
                 GlucoseAlertNotifyKind.LOW_NOW -> notifyCritical(
                     claim,
                     claimedDecision,
                     currentGlucoseMmol,
-                    settings
+                    settings,
+                    source
                 )
             }
             nativeResult.toAlertSideEffectResult()
         }
+        val coordinated = if (alarmRouter == null) coordinator.coordinate(signal) { deliverClaim(it, null) }
+            else coordinator.coordinateWithLocalAlarmSource(signal, deliverClaim)
+        if (!coordinated.sideEffectAttempted) alarmRouter?.accepted(coordinator.currentAlarmSource())
         return when {
             coordinated.sideEffectAttempted -> nativeResult
             coordinated.deliveryKind == AlertDeliveryKind.SUPPRESSED_SNOOZE ->
@@ -133,7 +140,8 @@ class GlucoseAlertNotifier(
         claim: EpisodeDeliveryClaim,
         decision: GlucoseAlertDecision,
         currentGlucoseMmol: Double?,
-        settings: AppSettings
+        settings: AppSettings,
+        source: CheckedLocalAlarmSource?
     ): GlucoseAlertDeliveryResult {
         val manager = NotificationManagerCompat.from(context)
         val permissionGranted = notificationsAllowed()
@@ -167,10 +175,12 @@ class GlucoseAlertNotifier(
             .setAutoCancel(true)
             .setCompactMuteRow(decision, currentGlucoseMmol, claim.persistedCause)
             .build()
-        return deliverConfirmedGlucoseAlertChannels(
+        return deliverAudioChannels(source, settings,
             notificationPermissionGranted = permissionGranted,
             postNotification = { postNotification(manager, claim, notification) },
             invokeVibration = { vibrate(SOFT_VIBRATION) },
+            audioRequired = true,
+            vibrationRequired = true,
             startAudio = { audioController.playForDecision(decision = decision, settings = settings) }
         )
     }
@@ -179,7 +189,8 @@ class GlucoseAlertNotifier(
         claim: EpisodeDeliveryClaim,
         decision: GlucoseAlertDecision,
         currentGlucoseMmol: Double?,
-        settings: AppSettings
+        settings: AppSettings,
+        source: CheckedLocalAlarmSource?
     ): GlucoseAlertDeliveryResult {
         val permissionGranted = notificationsAllowed()
         val (title, body) = when (decision.notifyKind) {
@@ -203,13 +214,14 @@ class GlucoseAlertNotifier(
             .setContentTitle(title)
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSilent(settings.localAlarmRuntimeEnabled && alarmRouter?.currentOwner() != null)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOnlyAlertOnce(true)
             .setContentIntent(alertsContentPendingIntent(claim.episodeId))
             .setAutoCancel(true)
             .setCompactMuteRow(decision, currentGlucoseMmol, claim.persistedCause)
             .build()
-        return deliverConfirmedGlucoseAlertChannels(
+        return deliverAudioChannels(source, settings,
             notificationPermissionGranted = permissionGranted,
             postNotification = {
                 postNotification(
@@ -219,8 +231,27 @@ class GlucoseAlertNotifier(
                 )
             },
             invokeVibration = { vibrate(STRONG_VIBRATION) },
+            audioRequired = true,
+            vibrationRequired = true,
             startAudio = { audioController.playForDecision(decision = decision, settings = settings) }
         )
+    }
+
+    private suspend fun deliverAudioChannels(
+        source: CheckedLocalAlarmSource?, settings: AppSettings,
+        notificationPermissionGranted: Boolean, postNotification: () -> Boolean,
+        invokeVibration: () -> Boolean, audioRequired: Boolean, vibrationRequired: Boolean,
+        startAudio: suspend () -> GlucoseAlertAudioPlaybackResult
+    ): GlucoseAlertDeliveryResult {
+        var local = false
+        val result = deliverConfirmedGlucoseAlertChannels(
+            notificationPermissionGranted, postNotification, invokeVibration,
+            audioRequired = audioRequired, vibrationRequired = vibrationRequired,
+            startLocal = alarmRouter?.let { router -> { router.initial(source, settings).also { local = it != null } } },
+            startAudio = startAudio
+        )
+        if (!local && result.audioPlayed) alarmRouter?.nativeInitial(source, true)
+        return result
     }
 
     private fun ensureChannels() {
@@ -285,17 +316,20 @@ class GlucoseAlertNotifier(
         claim: EpisodeDeliveryClaim,
         notification: Notification
     ): Boolean {
-        if (
-            Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return false
-        }
         return try {
+            if (!notificationsAllowed()) return false
+            val platform = context.getSystemService(NotificationManager::class.java) ?: return false
+            val channel = platform.getNotificationChannel(notification.channelId) ?: return false
+            if (channel.importance == NotificationManager.IMPORTANCE_NONE) return false
+            channel.group?.let { groupId ->
+                val group = platform.getNotificationChannelGroup(groupId) ?: return false
+                if (group.isBlocked) return false
+            }
             manager.notify(claim.notificationTag, claim.notificationId, notification)
             true
         } catch (_: SecurityException) {
+            false
+        } catch (_: RuntimeException) {
             false
         }
     }
@@ -525,7 +559,10 @@ data class GlucoseAlertDeliveryResult(
     val audioClipLabel: String? = null,
     val audioFallbackUsed: Boolean = false,
     val audioStartMs: Int? = null,
-    val audioDurationMs: Int? = null
+    val audioDurationMs: Int? = null,
+    val notificationFailureReason: String? = null,
+    val audioFailureReason: String? = null,
+    val vibrationFailureReason: String? = null
 ) {
     val vibrationAttempted: Boolean
         get() = vibrationSucceeded

@@ -5,6 +5,8 @@ import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -19,7 +21,11 @@ import io.aaps.copilot.service.HealthConnectActivityCollector
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.LocalNightscoutSecretClipboard
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.PowerSaveRuntimeState
+import io.aaps.copilot.service.localObservationRuntimeAllowed
 import io.aaps.copilot.ui.foundation.CopilotFoundationRoot
+import io.aaps.copilot.config.SetupStatus
+import io.aaps.copilot.config.shouldShowLegacyTherapyBootstrap
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -35,6 +41,7 @@ class MainActivity : ComponentActivity() {
         )
     }
     private var therapyBootstrapDialog: AlertDialog? = null
+    private var setupNotificationRequested = false
 
     private val healthConnectPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -58,11 +65,21 @@ class MainActivity : ComponentActivity() {
         continuePermissionStartup(notificationPermissionRequestStarted = false)
     }
 
+    private val setupNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* The setup screen rechecks Android permission on resume. */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            CopilotFoundationRoot()
+            CopilotFoundationRoot(
+                onSetupClosed = ::enqueuePostDrawStartup,
+                onReviewTherapy = {
+                    (application as? CopilotApp)?.let { showTherapyActionBootstrapDialog(it) }
+                },
+                onSetupNotifications = ::requestSetupNotifications
+            )
         }
     }
 
@@ -75,6 +92,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         (application as? CopilotApp)?.container?.refreshInfusionSetAsync()
+        lifecycleScope.launch { io.aaps.copilot.service.GlucoseAlarmServiceController.reconcile(this@MainActivity) }
         enqueuePostDrawStartup()
     }
 
@@ -100,23 +118,41 @@ class MainActivity : ComponentActivity() {
             val app = application as? CopilotApp ?: return@enqueue
             app.container.migrateTherapyActionBootstrapForInPlaceUpdate()
             val settings = app.container.settingsStore.settings.first()
+            val setup = app.container.settingsStore.setupProgress.first()
+            TherapyActionRuntimeState.update(settings)
+            PowerSaveRuntimeState.update(settings)
             currentCoroutineContext().ensureActive()
             if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@enqueue
-            if (!settings.therapyActionsArmed) {
+            if (setup.shouldOffer && !settings.localObservationRuntimeAllowed()) return@enqueue
+            if (!settings.localObservationEnabled && shouldShowLegacyTherapyBootstrap(setup, settings.therapyActionsArmed,
+                app.container.settingsStore.isTherapyActionBootstrapEvaluated())) {
                 showTherapyActionBootstrapDialog(app)
                 return@enqueue
             }
-            continueStartupAfterTherapyBootstrap()
+            continueStartupAfterTherapyBootstrap(
+                requestPermissions = setup.status == SetupStatus.LEGACY && !settings.localObservationEnabled
+            )
         }
     }
 
-    private fun continueStartupAfterTherapyBootstrap() {
+    private fun continueStartupAfterTherapyBootstrap(requestPermissions: Boolean = true) {
         if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return
         LocalNightscoutServiceController.start(this)
-        foregroundStartup.runPermissionsOnce {
+        if (requestPermissions) foregroundStartup.runPermissionsOnce {
             continuePermissionStartup(
                 notificationPermissionRequestStarted = ensurePostNotificationPermission()
             )
+        }
+    }
+
+    private fun requestSetupNotifications() {
+        if (!setupNotificationRequested && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            setupNotificationRequested = true
+            setupNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
         }
     }
 
@@ -130,6 +166,7 @@ class MainActivity : ComponentActivity() {
                     app.container.settingsStore.setTherapyActionsArmed(false)
                     TherapyActionRuntimeState.setArmed(false)
                     therapyBootstrapDialog = null
+                    continueStartupAfterTherapyBootstrap(requestPermissions = false)
                 }
             }
             .setPositiveButton(R.string.therapy_action_bootstrap_review_enable) { _, _ ->
@@ -165,7 +202,9 @@ class MainActivity : ComponentActivity() {
                     val armed = app.container.settingsStore.setTherapyActionsArmed(true)
                     TherapyActionRuntimeState.setArmed(armed)
                     therapyBootstrapDialog = null
-                    if (armed) continueStartupAfterTherapyBootstrap()
+                    if (armed) continueStartupAfterTherapyBootstrap(
+                        requestPermissions = app.container.settingsStore.setupProgress.first().status == SetupStatus.LEGACY
+                    )
                 }
             }
             .setCancelable(false)

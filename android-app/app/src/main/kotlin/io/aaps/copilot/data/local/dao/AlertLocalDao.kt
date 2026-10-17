@@ -31,6 +31,11 @@ interface AlertLocalDao {
     @Update
     suspend fun updateCycle(entity: AlertLocalCycleEntity): Int
 
+    @Query("SELECT * FROM alert_local_cycles WHERE bootCount=:boot AND startedElapsedMs >= :since " +
+        "AND level IN ('SOFT_HIGH_RISK','PUMP_LINK','DELIVERY_DIAGNOSTIC','WARNING_30') " +
+        "ORDER BY startedElapsedMs DESC, sourceKind, sourceId, ordinal DESC LIMIT 65")
+    suspend fun recentNoncriticalCycles(boot: Int, since: Long): List<AlertLocalCycleEntity>
+
     @Query("SELECT * FROM alert_local_state WHERE bootCount=:boot AND nextDueElapsedMs <= :now " +
         "ORDER BY nextDueElapsedMs, sourceKind, sourceId LIMIT MAX(1,MIN(:limit,64))")
     suspend fun dueRepeats(boot: Int, now: Long, limit: Int = 64): List<AlertLocalStateEntity>

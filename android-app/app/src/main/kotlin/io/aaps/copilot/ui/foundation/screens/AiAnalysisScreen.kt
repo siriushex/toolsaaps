@@ -9,20 +9,28 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -31,25 +39,33 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
-import io.aaps.copilot.ui.motion.CopilotOwl
-import io.aaps.copilot.ui.motion.OwlGesture
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +77,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -71,6 +88,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -86,6 +104,15 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -102,6 +129,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import io.aaps.copilot.ui.aiChatFailureMessage
+import io.aaps.copilot.ui.canSubmitAiChat
 import kotlin.math.max
 
 private val AiSectionShape = RoundedCornerShape(18.dp)
@@ -139,12 +168,23 @@ fun AiAnalysisScreen(
     onVoiceRepliesToggle: (Boolean) -> Unit = {},
     onStartVoiceRecording: () -> Unit = {},
     onStopVoiceRecording: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    diagnosticsVisible: Boolean = false,
+    onDismissDiagnostics: () -> Unit = {},
+    onRetryClinicalDisplay: () -> Unit = {},
+    serverArchive: (@Composable (String) -> Unit)? = null
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val context = LocalContext.current
     var selectedDays by rememberSaveable { mutableIntStateOf(state.windowDays) }
     var pendingPdfTicketId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val submittedClinicalDisclosure = remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
+    LaunchedEffect(state.clinicalReport.canSend, state.clinicalReport.disclosure) {
+        val submitted = submittedClinicalDisclosure.value
+        if (submitted != null && (!state.clinicalReport.canSend || state.clinicalReport.disclosure != submitted)) {
+            submittedClinicalDisclosure.value = null
+        }
+    }
     val currentResolvePdfExport by rememberUpdatedState(onResolveClinicalReportPdfExport)
     val resolvePdfPickerResult: (Uri?) -> Unit = { uri ->
         val ticketId = pendingPdfTicketId
@@ -174,22 +214,10 @@ fun AiAnalysisScreen(
         }
     }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(it, flags)
-            }
-            onAttachImage(it)
-        }
+        uri?.let(onAttachImage)
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(it, flags)
-            }
-            onAttachFile(it)
-        }
+        uri?.let(onAttachFile)
     }
     val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) onStartVoiceRecording()
@@ -203,7 +231,64 @@ fun AiAnalysisScreen(
     val filteredTopMisses = state.localTopMisses
     val filteredDayTypeGaps = state.localDayTypeGaps
 
-    ScreenStateLayout(
+    AiFocusWorkspace(
+        state = state,
+        onDraftChange = onChatDraftChange,
+        modifier = modifier,
+        diagnosticsVisible = diagnosticsVisible,
+        onDismissDiagnostics = onDismissDiagnostics,
+        serverArchive = serverArchive,
+        report = { discuss ->
+            var showActions by rememberSaveable { mutableStateOf(false) }
+            val display = state.clinicalDisplay
+            if (display != null) AiFocusDisplayReport(display, state.clinicalDisplayRefreshing,
+                state.clinicalDisplayFailed, onRetryClinicalDisplay, { showActions = !showActions }, discuss)
+            if (display != null && !showActions && state.clinicalReport.failure != null) {
+                TextButton({ showActions = true }, Modifier.testTag("ai_focus_last_request_failure")) {
+                    Icon(Icons.Default.Error, null)
+                    Text(stringResource(clinicalFailureString(state.clinicalReport.failure)),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (display == null && state.clinicalDisplayFailed) TextButton(onRetryClinicalDisplay,
+                Modifier.testTag("ai_focus_display_retry")) { Text(stringResource(R.string.ai_focus_retry)) }
+            if (display == null || showActions || state.clinicalReport.phase == ClinicalReportPhaseUi.BUILDING ||
+                state.clinicalReport.phase == ClinicalReportPhaseUi.UPLOADING) {
+                if (showActions && display?.complete != null && state.clinicalReport.complete == null)
+                    ClinicalCompleteReport(display.complete)
+                ClinicalReportSection(
+                    state = state.clinicalReport,
+                    onPrepare = onPrepareClinicalReport,
+                    onRetryLocalPreparation = onRetryLocalClinicalReportPreparation,
+                    onRepreparePdf = onReprepareClinicalReportPdf,
+                    onSend = onSendClinicalReport,
+                    onCancel = onCancelClinicalReport,
+                    onRequestUnknownRetry = onRequestUnknownClinicalReportRetry,
+                    onDismissUnknownRetry = onDismissUnknownClinicalReportRetry,
+                    onConfirmUnknownRetry = onConfirmUnknownClinicalReportRetry,
+                    onOpenSettings = onOpenClinicalReportSettings,
+                    onSavePdf = onBeginClinicalReportPdfExport,
+                    onSharePdf = onShareClinicalReportPdf,
+                    submittedDisclosureState = submittedClinicalDisclosure
+                )
+            }
+        },
+        chat = {
+            AiChatHeroCard(
+                state = state,
+                onDraftChange = onChatDraftChange,
+                onSend = { onSendChatPrompt(state.chatDraft) },
+                onAttachImage = { imagePicker.launch(arrayOf("image/*")) },
+                onAttachFile = { filePicker.launch(if (state.chatTextOnly)
+                    arrayOf("text/*", "application/json", "application/xml", "application/yaml") else arrayOf("*/*")) },
+                onRemoveAttachment = onRemoveChatAttachment,
+                onVoiceRepliesToggle = onVoiceRepliesToggle,
+                onStartVoiceRecording = { audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onStopVoiceRecording = onStopVoiceRecording
+            )
+        },
+        diagnostics = {
+        ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
         errorText = state.errorText,
@@ -218,40 +303,10 @@ fun AiAnalysisScreen(
         }
     ) {
         LazyColumn(
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxSize().testTag("ai_focus_diagnostics_content"),
+            state = rememberLazyListState(),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
-            item {
-                ClinicalReportSection(
-                    state = state.clinicalReport,
-                    onPrepare = onPrepareClinicalReport,
-                    onRetryLocalPreparation = onRetryLocalClinicalReportPreparation,
-                    onRepreparePdf = onReprepareClinicalReportPdf,
-                    onSend = onSendClinicalReport,
-                    onCancel = onCancelClinicalReport,
-                    onRequestUnknownRetry = onRequestUnknownClinicalReportRetry,
-                    onDismissUnknownRetry = onDismissUnknownClinicalReportRetry,
-                    onConfirmUnknownRetry = onConfirmUnknownClinicalReportRetry,
-                    onOpenSettings = onOpenClinicalReportSettings,
-                    onSavePdf = onBeginClinicalReportPdfExport,
-                    onSharePdf = onShareClinicalReportPdf
-                )
-            }
-            item {
-                AiChatHeroCard(
-                    state = state,
-                    onDraftChange = onChatDraftChange,
-                    onSend = { onSendChatPrompt(state.chatDraft) },
-                    onAttachImage = { imagePicker.launch(arrayOf("image/*")) },
-                    onAttachFile = { filePicker.launch(arrayOf("*/*")) },
-                    onRemoveAttachment = onRemoveChatAttachment,
-                    onVoiceRepliesToggle = onVoiceRepliesToggle,
-                    onStartVoiceRecording = {
-                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    },
-                    onStopVoiceRecording = onStopVoiceRecording
-                )
-            }
             item {
                 AiSectionCard {
                     AiSectionLabel(
@@ -964,7 +1019,9 @@ fun AiAnalysisScreen(
                 }
             }
         }
-    }
+        }
+        }
+    )
 }
 
 @Composable
@@ -980,13 +1037,18 @@ private fun ClinicalReportSection(
     onConfirmUnknownRetry: () -> Unit,
     onOpenSettings: () -> Unit,
     onSavePdf: () -> Unit,
-    onSharePdf: () -> Unit
+    onSharePdf: () -> Unit,
+    submittedDisclosureState: MutableState<ClinicalReportDisclosureUi?>
 ) {
     val title = stringResource(id = R.string.clinical_report_title)
     var disclosureSnapshot by remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
     var eventPreviewSnapshot by remember { mutableStateOf<String?>(null) }
     var disclosureConfirming by remember { mutableStateOf(false) }
-    var submittedDisclosure by remember { mutableStateOf<ClinicalReportDisclosureUi?>(null) }
+    var submittedDisclosure by submittedDisclosureState
+    var summaryDays by rememberSaveable { mutableIntStateOf(1) }
+    var showSummaryDetails by rememberSaveable { mutableStateOf(false) }
+    val summaries = listOfNotNull(state.summary24h, state.summary7d, state.summary30d)
+    val selectedSummary = summaries.firstOrNull { it.days == summaryDays } ?: summaries.firstOrNull()
     LaunchedEffect(state.disclosure, state.remoteEventPreviewText, state.canSend) {
         val snapshot = disclosureSnapshot
         if (
@@ -1000,10 +1062,6 @@ private fun ClinicalReportSection(
             eventPreviewSnapshot = null
             disclosureConfirming = false
         }
-        val submitted = submittedDisclosure
-        if (submitted != null && (!state.canSend || state.disclosure != submitted)) {
-            submittedDisclosure = null
-        }
     }
     Column(
         modifier = Modifier
@@ -1014,60 +1072,31 @@ private fun ClinicalReportSection(
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
         Text(
-            text = title,
-            modifier = Modifier.semantics { heading() },
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
             text = stringResource(id = R.string.clinical_report_advisory_only),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        if (state.summary24h != null) {
-            ClinicalPeriodSummaryRow(
-                summary = state.summary24h,
-                modifier = Modifier.testTag("clinical_report_summary_1")
-            )
-        }
-        if (state.summary24h != null && (state.summary7d != null || state.summary30d != null)) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        }
-        if (state.summary7d != null) {
-            ClinicalPeriodSummaryRow(
-                summary = state.summary7d,
-                modifier = Modifier.testTag("clinical_report_summary_7")
-            )
-        }
-        if (state.summary7d != null && state.summary30d != null) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        }
-        if (state.summary30d != null) {
-            ClinicalPeriodSummaryRow(
-                summary = state.summary30d,
-                modifier = Modifier.testTag("clinical_report_summary_30")
-            )
-            if (
-                state.summary30d.probableMealWindows.isNotEmpty() ||
-                state.summary30d.recentProbableMealWindows.isNotEmpty()
-            ) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                ClinicalProbableMealWindows(
-                    recentWindows = state.summary30d.recentProbableMealWindows,
-                    stableWindows = state.summary30d.probableMealWindows
-                )
+        if (selectedSummary != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                summaries.forEach { summary ->
+                    FilterChip(
+                        selected = summary.days == selectedSummary.days,
+                        onClick = { summaryDays = summary.days },
+                        modifier = Modifier.testTag("clinical_report_period_${summary.days}"),
+                        label = { Text(if (summary.days == 1) stringResource(R.string.ai_focus_period_day)
+                            else stringResource(R.string.ai_focus_period_days, summary.days)) }
+                    )
+                }
             }
+            AiFocusMetricSummary(selectedSummary) { showSummaryDetails = true }
+            Text(stringResource(clinicalLocalQualityString(selectedSummary.quality)),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         when (state.phase) {
             ClinicalReportPhaseUi.IDLE -> {
-                Text(
-                    text = stringResource(id = R.string.clinical_report_idle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 ClinicalPrimaryButton(
                     text = stringResource(id = R.string.clinical_report_prepare),
                     tag = "clinical_report_prepare",
@@ -1447,6 +1476,24 @@ private fun ClinicalReportSection(
                     Text(text = stringResource(id = R.string.clinical_report_retry_confirm))
                 }
             }
+        )
+    }
+    if (showSummaryDetails && selectedSummary != null) {
+        AlertDialog(
+            onDismissRequest = { showSummaryDetails = false },
+            title = { Text(title) },
+            text = {
+                Column(Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * .6f)
+                    .verticalScroll(rememberScrollState())) {
+                    ClinicalPeriodSummaryRow(selectedSummary,
+                        Modifier.testTag("clinical_report_detail_${selectedSummary.days}"))
+                    if (selectedSummary.days == 30 &&
+                        (selectedSummary.probableMealWindows.isNotEmpty() || selectedSummary.recentProbableMealWindows.isNotEmpty())) {
+                        ClinicalProbableMealWindows(selectedSummary.recentProbableMealWindows, selectedSummary.probableMealWindows)
+                    }
+                }
+            },
+            confirmButton = { TextButton({ showSummaryDetails = false }) { Text(stringResource(R.string.action_close)) } }
         )
     }
 }
@@ -2033,7 +2080,7 @@ private fun ClinicalCompleteReport(report: ClinicalCompleteReportUi) {
 }
 
 @Composable
-private fun clinicalNumericValue(
+internal fun clinicalNumericValue(
     value: Double?,
     decimals: Int,
     unit: ClinicalNumericUnitUi
@@ -2099,14 +2146,14 @@ private fun ClinicalReportSubsection(
     }
 }
 
-private fun clinicalLocalQualityString(value: ClinicalLocalDataQualityUi): Int = when (value) {
+internal fun clinicalLocalQualityString(value: ClinicalLocalDataQualityUi): Int = when (value) {
     ClinicalLocalDataQualityUi.GOOD -> R.string.clinical_report_quality_good
     ClinicalLocalDataQualityUi.LIMITED -> R.string.clinical_report_quality_limited
     ClinicalLocalDataQualityUi.INSUFFICIENT -> R.string.clinical_report_quality_insufficient
 }
 
 @Composable
-private fun clinicalAiProviderLabel(providerId: ClinicalAiProviderId): String =
+internal fun clinicalAiProviderLabel(providerId: ClinicalAiProviderId): String =
     stringResource(
         id = when (providerId) {
             ClinicalAiProviderId.OPENAI -> R.string.settings_clinical_ai_provider_openai
@@ -2146,7 +2193,7 @@ private fun clinicalFailureString(value: ClinicalReportFailureUi): Int = when (v
     ClinicalReportFailureUi.OTHER -> R.string.clinical_report_failure_other
 }
 
-private fun clinicalTextString(value: ClinicalReportTextKey): Int = when (value) {
+internal fun clinicalTextString(value: ClinicalReportTextKey): Int = when (value) {
     ClinicalReportTextKey.SUMMARY_STABLE -> R.string.clinical_text_summary_stable
     ClinicalReportTextKey.SUMMARY_HIGH_VARIABILITY ->
         R.string.clinical_text_summary_high_variability
@@ -2289,114 +2336,75 @@ private fun AiChatHeroCard(
     onStopVoiceRecording: () -> Unit
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
+    val canSend = !state.chatAttachmentBusy && canSubmitAiChat(state.chatDraft, state.chatInProgress, state.chatVoiceBusy, state.chatRecording) &&
+        (!state.chatTextOnly || state.chatPendingAttachments.all {
+            it.kind.equals("file", true) && io.aaps.copilot.data.repository.AiChatAttachmentPolicy.isText(it.name, it.mimeType)
+        })
+    val mediaAvailable = !state.chatTextOnly && !state.chatInProgress && !state.chatVoiceBusy && !state.chatRecording && !state.chatAttachmentBusy
+    val filesAvailable = !state.chatInProgress && !state.chatVoiceBusy && !state.chatRecording && !state.chatAttachmentBusy
+    val voiceLabel = stringResource(if (state.chatTextOnly) R.string.ai_chat_text_mode else R.string.ai_focus_voice_replies_label)
+    var questionsOpen by remember { mutableStateOf(false) }
     val quickPrompts = listOf(
-        stringResource(id = R.string.ai_analysis_chat_quick_trend),
-        stringResource(id = R.string.ai_analysis_chat_quick_errors),
-        stringResource(id = R.string.ai_analysis_chat_quick_isfcr),
-        stringResource(id = R.string.ai_analysis_chat_quick_uam)
+        stringResource(R.string.ai_analysis_chat_quick_trend),
+        stringResource(R.string.ai_analysis_chat_quick_errors),
+        stringResource(R.string.ai_analysis_chat_quick_isfcr),
+        stringResource(R.string.ai_analysis_chat_quick_uam)
     )
-    AiSectionCard(
-        modifier = Modifier.animateContentSize()
-    ) {
-        AiSectionLabel(
-            text = stringResource(id = R.string.section_ai_chat),
-            infoText = stringResource(id = R.string.ai_analysis_chat_info)
-        )
-        if (!state.analysisReady) {
-            Text(
-                text = stringResource(
-                    id = R.string.ai_analysis_chat_requires_data,
-                    state.dataCoverageHours,
-                    state.minDataHours
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Column(Modifier.fillMaxSize().imePadding(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        LazyColumn(
+            state = rememberLazyListState(), modifier = Modifier.weight(1f).fillMaxWidth()
+                .testTag("ai_focus_messages"),
+            reverseLayout = true, verticalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.Bottom)
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
-            ) {
-                Text(
-                    text = stringResource(id = R.string.ai_analysis_chat_voice_mode_title),
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Text(
-                    text = when {
-                        state.chatRecording -> stringResource(id = R.string.ai_analysis_chat_recording_active)
-                        state.chatVoiceBusy -> stringResource(id = R.string.ai_analysis_chat_voice_busy)
-                        state.chatSpeaking -> stringResource(id = R.string.ai_analysis_chat_speaking)
-                        else -> stringResource(id = R.string.ai_analysis_chat_voice_mode_body)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            if (state.chatInProgress) item(key = "waiting") {
+                io.aaps.copilot.ui.motion.AiChatWaitingIndicator(
+                    requestKey = state.chatMessages.lastOrNull { it.role == "user" }?.id ?: "pending",
+                    showOwl = false)
             }
-            Switch(
-                checked = state.chatVoiceRepliesEnabled,
-                onCheckedChange = onVoiceRepliesToggle
-            )
-        }
-        if (state.analysisReady) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
-            ) {
-                quickPrompts.forEach { prompt ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { onDraftChange(prompt) },
-                        label = {
-                            Text(
-                                text = prompt,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        colors = if (midnightGlass) aiFilterChipColors() else FilterChipDefaults.filterChipColors()
-                    )
-                }
-            }
-        }
-        if (state.chatMessages.isEmpty()) {
-            Text(
-                text = stringResource(id = R.string.ai_analysis_chat_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                state.chatMessages.takeLast(10).forEach { message ->
-                    AiChatMessageBubble(message = message)
-                }
+            items(state.chatMessages.asReversed(), key = { it.id }) { message ->
+                AiChatMessageBubble(message = message)
             }
         }
         if (state.chatPendingAttachments.isNotEmpty()) {
-            FlowRow(
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().testTag("ai_chat_attachments"),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
-                state.chatPendingAttachments.forEach { attachment ->
+                items(state.chatPendingAttachments, key = { it.id }) { attachment ->
                     AiAttachmentChip(
                         attachment = attachment,
                         removable = true,
-                        onRemove = { onRemoveAttachment(attachment.id) }
+                        onRemove = { onRemoveAttachment(attachment.id) },
+                        modifier = Modifier.width(240.dp)
                     )
                 }
             }
         }
+        if (state.chatAttachmentBusy) LinearProgressIndicator(
+            Modifier.fillMaxWidth().testTag("ai_chat_attachment_importing"))
+        if (state.chatRecording || state.chatVoiceBusy || state.chatSpeaking) Text(
+            stringResource(when {
+                state.chatRecording -> R.string.ai_analysis_chat_recording_active
+                state.chatVoiceBusy -> R.string.ai_analysis_chat_voice_busy
+                else -> R.string.ai_analysis_chat_speaking
+            }), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextField(
             value = state.chatDraft,
             onValueChange = onDraftChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("ai_focus_composer").onPreviewKeyEvent {
+                if (it.key == Key.Enter && !it.isShiftPressed && it.type == KeyEventType.KeyDown) {
+                    if (canSend) onSend()
+                    true
+                } else false
+            },
             label = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_label)) },
             placeholder = { Text(text = stringResource(id = R.string.ai_analysis_chat_input_placeholder)) },
             textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
-            enabled = !state.chatInProgress && !state.chatVoiceBusy,
+            enabled = !state.chatVoiceBusy,
+            maxLines = 4,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
             colors = if (midnightGlass) {
                 TextFieldDefaults.colors(
                     focusedContainerColor = Color(0x33182947),
@@ -2417,66 +2425,50 @@ private fun AiChatHeroCard(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton(
-                onClick = onAttachImage,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PhotoCamera,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(text = stringResource(id = R.string.ai_analysis_chat_attach_photo_short))
-            }
-            OutlinedButton(
-                onClick = onAttachFile,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AttachFile,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(text = stringResource(id = R.string.ai_analysis_chat_attach_file_short))
-            }
-            OutlinedButton(
-                onClick = if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
-                enabled = !state.chatInProgress && !state.chatVoiceBusy && state.analysisReady
-            ) {
-                Icon(
-                    imageVector = if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(
-                    text = if (state.chatRecording) {
-                        stringResource(id = R.string.ai_analysis_chat_stop_recording_short)
-                    } else {
-                        stringResource(id = R.string.ai_analysis_chat_start_recording_short)
+            AiFocusAction(Icons.Default.PhotoCamera,
+                stringResource(R.string.ai_analysis_chat_attach_photo_short), onAttachImage,
+                Modifier.testTag("ai_focus_attach_photo"),
+                enabled = mediaAvailable)
+            AiFocusAction(Icons.Default.AttachFile,
+                stringResource(R.string.ai_analysis_chat_attach_file_short), onAttachFile,
+                Modifier.testTag("ai_focus_attach_file"),
+                enabled = filesAvailable)
+            AiFocusAction(if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
+                stringResource(if (state.chatRecording) R.string.ai_analysis_chat_stop_recording_short
+                    else R.string.ai_analysis_chat_start_recording_short),
+                if (state.chatRecording) onStopVoiceRecording else onStartVoiceRecording,
+                Modifier.testTag("ai_focus_record"),
+                enabled = state.chatRecording || mediaAvailable)
+            androidx.compose.foundation.layout.Box {
+                AiFocusAction(Icons.Default.Lightbulb, stringResource(R.string.ai_focus_questions),
+                    { questionsOpen = true }, Modifier.testTag("ai_focus_questions"))
+                DropdownMenu(questionsOpen, { questionsOpen = false }) {
+                    quickPrompts.forEach { prompt ->
+                        DropdownMenuItem(text = { Text(prompt) }, onClick = {
+                            questionsOpen = false
+                            onDraftChange(if (state.chatDraft.isBlank()) prompt else state.chatDraft + "\n\n" + prompt)
+                        })
                     }
-                )
+                }
             }
-            Spacer(modifier = Modifier.weight(1f))
-            if (state.chatInProgress || state.chatVoiceBusy) {
-                CopilotOwl(size = 24.dp, gesture = OwlGesture.WAITING, motionKey = "chat-wait")
-            }
-            OutlinedButton(
-                onClick = onSend,
-                enabled = state.analysisReady &&
-                    !state.chatInProgress &&
-                    !state.chatVoiceBusy &&
-                    (state.chatDraft.isNotBlank() || state.chatPendingAttachments.isNotEmpty())
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(text = stringResource(id = R.string.ai_analysis_chat_send))
-            }
+            AiVoiceReplyToggle(state.chatVoiceRepliesEnabled && !state.chatTextOnly,
+                !state.chatTextOnly, voiceLabel, onVoiceRepliesToggle)
+            AiFocusAction(Icons.AutoMirrored.Filled.Send, stringResource(R.string.ai_analysis_chat_send),
+                onSend, Modifier.testTag("ai_focus_send"), enabled = canSend)
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun AiVoiceReplyToggle(checked: Boolean, enabled: Boolean, label: String, onChange: (Boolean) -> Unit) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconToggleButton(checked, onChange, Modifier.size(48.dp).testTag("ai_focus_voice_replies"), enabled) {
+            Icon(Icons.AutoMirrored.Filled.VolumeUp, label)
         }
     }
 }
@@ -2486,22 +2478,30 @@ private fun AiChatMessageBubble(
     message: AiChatMessageUi
 ) {
     val isUser = message.role.equals("user", ignoreCase = true)
-    val containerColor = if (isUser) {
+    val containerColor = if (message.failure != null) {
+        MaterialTheme.colorScheme.errorContainer
+    } else if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
-    val contentColor = if (isUser) {
+    val contentColor = if (message.failure != null) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else if (isUser) {
         MaterialTheme.colorScheme.onPrimaryContainer
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val roleLabel = if (isUser) {
+    val roleLabel = if (message.failure != null) {
+        stringResource(R.string.ai_chat_failure_title)
+    } else if (isUser) {
         stringResource(id = R.string.ai_analysis_chat_role_user)
     } else {
         stringResource(id = R.string.ai_analysis_chat_role_ai)
     }
     Card(
+        modifier = if (message.failure != null) Modifier.testTag("ai_chat_failure") else Modifier,
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
             contentColor = contentColor
@@ -2537,7 +2537,7 @@ private fun AiChatMessageBubble(
                 }
             }
             Text(
-                text = message.text,
+                text = message.failure?.let { stringResource(aiChatFailureMessage(it)) } ?: message.text,
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp)
             )
             if (message.attachments.isNotEmpty()) {
@@ -2562,10 +2562,12 @@ private fun AiChatMessageBubble(
 private fun AiAttachmentChip(
     attachment: AiChatAttachmentUi,
     removable: Boolean,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.widthIn(max = 280.dp),
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     ) {
@@ -2581,22 +2583,24 @@ private fun AiAttachmentChip(
                 },
                 contentDescription = null
             )
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     text = attachment.name,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 val meta = listOfNotNull(attachment.previewLabel, attachment.sizeLabel).joinToString(" • ")
                 if (meta.isNotBlank()) {
                     Text(
                         text = meta,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
             if (removable) {
-                IconButton(onClick = onRemove) {
+                IconButton(onClick = onRemove, modifier = Modifier.testTag("ai_chat_remove_${attachment.id}")) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = stringResource(id = R.string.ai_analysis_chat_remove_attachment)

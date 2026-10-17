@@ -69,13 +69,9 @@ internal class ManualMealSubmission(
             profileSaved = false
         ))
         completed[key] = entry
-        // Persist research intent only. An unavailable research observer must not
-        // prevent the existing user-authorized carbohydrate submission.
-        try { onMealInput(reservedCommand) }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { }
         // Explicit target intent is independent of carbohydrate transport and annotations.
-        // Its existing delivery callback still performs the live safety preflight.
+        // Attempt it before research persistence can delay its priority reservation.
+        // The existing delivery callback still performs the live safety preflight.
         if (eatingSoon) {
             entry.result = entry.result.copy(eatingSoon = EatingSoonResult(MealDeliveryStatus.UNKNOWN))
             val target = try {
@@ -87,6 +83,11 @@ internal class ManualMealSubmission(
             }
             entry.result = entry.result.copy(eatingSoon = target)
         }
+        // Research intent remains before carbohydrate transport, but cannot delay
+        // this meal's explicit target request or overwrite its independent result.
+        try { onMealInput(reservedCommand) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { }
         entry.result = entry.result.copy(carbs = MealDeliveryStatus.UNKNOWN)
         val sent = try {
             sendCarbs(reservedCommand)

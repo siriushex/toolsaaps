@@ -4,21 +4,25 @@ import androidx.room.withTransaction
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.AlertLocalCycleEntity
 import io.aaps.copilot.data.local.entity.AlertLocalStateEntity
+import io.aaps.copilot.domain.alerts.LOCAL_ALARM_CYCLE_TIMEOUT_MS
 import io.aaps.copilot.domain.alerts.LocalAlarmAcknowledgement
 import io.aaps.copilot.domain.alerts.LocalAlarmAdmission
 import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationDecision
 import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationPolicy
 import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationStatus
+import io.aaps.copilot.domain.alerts.LocalAlarmAudioResult
 import io.aaps.copilot.domain.alerts.LocalAlarmCycle
 import io.aaps.copilot.domain.alerts.LocalAlarmCycleResult
 import io.aaps.copilot.domain.alerts.LocalAlarmEnvironment
 import io.aaps.copilot.domain.alerts.LocalAlarmEvaluation
 import io.aaps.copilot.domain.alerts.LocalAlarmEvidence
 import io.aaps.copilot.domain.alerts.LocalAlarmKey
+import io.aaps.copilot.domain.alerts.LocalAlarmLevel
 import io.aaps.copilot.domain.alerts.LocalAlarmPersistenceCodec
 import io.aaps.copilot.domain.alerts.LocalAlarmPolicy
 import io.aaps.copilot.domain.alerts.LocalAlarmProfiles
 import io.aaps.copilot.domain.alerts.LocalAlarmRequest
+import io.aaps.copilot.domain.alerts.LocalAlarmSourceKind
 import io.aaps.copilot.domain.alerts.LocalAlarmState
 import io.aaps.copilot.domain.alerts.LocalAlarmStepResult
 import io.aaps.copilot.domain.alerts.LocalAlarmTiming
@@ -31,6 +35,7 @@ class RoomLocalAlarmStore(
     private val environmentProvider: () -> LocalAlarmEnvironment
 ) {
     private val mutex = EpisodeAlertOperationLocks.forIdentity(db)
+    private val controls = AlertControlIntentGate.forIdentity(db)
     private val runtime = LocalAlarmRuntimeOwnership.forIdentity(db)
     internal val runtimeMutex get() = runtime.mutex
     internal val runtimeUnavailable get() = runtime.unavailable
@@ -56,7 +61,11 @@ class RoomLocalAlarmStore(
         val keys = LocalAlarmArbitrationPolicy.boundedKeys(snapshot, owner)
             ?: return@guarded LocalAlarmArbitrationDecision(LocalAlarmArbitrationStatus.INVALID_SNAPSHOT, cancelCycle = owner)
         val states = keys.mapNotNull { key -> load(key, environment)?.let { key to it.state } }.toMap()
-        LocalAlarmArbitrationPolicy.evaluate(snapshot, states, owner, environment, timing)
+        val immediate = LocalAlarmArbitrationPolicy.evaluate(snapshot, states, owner, environment, timing)
+        if (immediate.selected?.level?.strong == true || immediate.retainedCycle?.level?.strong == true ||
+            snapshot.none { it.evidence.level.audible && !it.evidence.level.strong }) return@guarded immediate
+        LocalAlarmArbitrationPolicy.evaluate(snapshot, states, owner,
+            noncriticalEnvironment(environment, timing), timing)
     }
 
     /** Read-only execution gate: never creates a claim, advances progress or refreshes state. */
@@ -69,14 +78,16 @@ class RoomLocalAlarmStore(
     }
 
     suspend fun acknowledge(evidence: LocalAlarmEvidence, timing: LocalAlarmTiming,
-        action: LocalAlarmAcknowledgement): Boolean = guarded(false) { environment ->
+        action: LocalAlarmAcknowledgement, stillCurrent: () -> Boolean = { true }): Boolean = guarded(false) { environment ->
         val loaded = load(evidence.key, environment) ?: return@guarded false
-        if (environment.mutedUntilWallMs > environment.nowWallMs) return@guarded false
+        if (!stillCurrent() || environment.mutedUntilWallMs > environment.nowWallMs) return@guarded false
         val next = LocalAlarmPolicy.acknowledge(evidence, loaded.state, environment, timing, action)
             ?: return@guarded false
         if (next == loaded.state) return@guarded false
         loaded.state.activeCycle?.let { terminal(it, "CANCELLED", environment.nowWallMs) }
         persist(loaded, next, environment.nowWallMs)
+        // A source/settings change during a suspended Room write rolls back the pause.
+        check(stillCurrent())
         true
     }
 
@@ -137,7 +148,8 @@ class RoomLocalAlarmStore(
             terminal(interrupted, "UNCERTAIN", environment.nowWallMs)
             previous = previous?.copy(cycleActive = false)
         }
-        val evaluation = LocalAlarmPolicy.evaluate(evidence, previous, environment, timing)
+        val admissionEnvironment = if (evidence.level.strong) environment else noncriticalEnvironment(environment, timing)
+        val evaluation = LocalAlarmPolicy.evaluate(evidence, previous, admissionEnvironment, timing)
         val next = evaluation.state
         if (interrupted == null) loaded?.state?.activeCycle?.let { old ->
             if (next?.activeCycle != old) {
@@ -152,6 +164,50 @@ class RoomLocalAlarmStore(
         }
         if (next != null) persist(loaded, next, environment.nowWallMs)
         return evaluation.copy(cancelActive = evaluation.cancelActive || interrupted != null)
+    }
+
+    private suspend fun noncriticalEnvironment(environment: LocalAlarmEnvironment,
+        timing: LocalAlarmTiming): LocalAlarmEnvironment {
+        val until = try {
+            check(timing.valid() && LocalAlarmPolicy.validEnvironment(environment))
+            val interval = timing.softRepeatMinutes * 60_000L
+            val since = (environment.nowElapsedMs - interval - LOCAL_ALARM_CYCLE_TIMEOUT_MS).coerceAtLeast(0L)
+            val rows = dao.recentNoncriticalCycles(environment.bootCount, since)
+            check(rows.size <= 64)
+            var deadline = 0L
+            for (row in rows) {
+                val cycle = LocalAlarmCycle(LocalAlarmKey(LocalAlarmSourceKind.valueOf(row.sourceKind), row.sourceId),
+                    row.generation, row.ordinal, LocalAlarmLevel.valueOf(row.level), row.bootCount,
+                    row.startedElapsedMs, row.deadlineElapsedMs)
+                check(!cycle.level.strong && cycle.startedElapsedMs <= environment.nowElapsedMs &&
+                    LocalAlarmPolicy.validStateShape(LocalAlarmState(cycle.key, cycle.generation, cycle.level,
+                        cycle.bootCount, cycle.startedElapsedMs, cycle.deadlineElapsedMs, cycle.ordinal, cycle)))
+                check(row.claimedAtMs >= 0L && when (row.status) {
+                    "CLAIMED" -> row.terminalAtMs == null
+                    "FINISHED", "CANCELLED", "UNCERTAIN" -> row.terminalAtMs?.let { it >= 0L } == true
+                    else -> false
+                })
+                val result = requireNotNull(LocalAlarmPersistenceCodec.decodeResult(row.resultJson))
+                for (step in result.steps) {
+                    check(step.atElapsedMs >= cycle.startedElapsedMs && step.atElapsedMs < cycle.deadlineElapsedMs &&
+                        step.atElapsedMs <= environment.nowElapsedMs)
+                    if (step.audio == LocalAlarmAudioResult.STARTED) {
+                        check(step.atElapsedMs <= Long.MAX_VALUE - interval)
+                        deadline = maxOf(deadline, step.atElapsedMs + interval)
+                    }
+                }
+                if (row.status == "CLAIMED" && cycle.deadlineElapsedMs > environment.nowElapsedMs) {
+                    check(load(cycle.key, environment)?.state?.activeCycle == cycle)
+                    deadline = maxOf(deadline, cycle.deadlineElapsedMs)
+                }
+            }
+            deadline
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        return environment.copy(noncriticalCooldownUntilElapsedMs = until)
     }
 
     private suspend fun load(key: LocalAlarmKey, environment: LocalAlarmEnvironment): Loaded? {
@@ -198,16 +254,21 @@ class RoomLocalAlarmStore(
         }
     }
 
-    private suspend fun <T> guarded(unavailable: T, operation: suspend (LocalAlarmEnvironment) -> T): T = try {
-        mutex.withLock {
-            db.withTransaction {
-                val mute = db.alertEventDao().byEpisodeId(EpisodeAlertDeliveryStateMachine.MUTE_STATE_ID)?.suppressionUntil ?: 0L
-                operation(environmentProvider().copy(mutedUntilWallMs = mute))
+    private suspend fun <T> guarded(unavailable: T, operation: suspend (LocalAlarmEnvironment) -> T): T {
+        val stamp = controls.snapshot()
+        return try {
+            mutex.withLock {
+                db.withTransaction {
+                    val mute = db.alertEventDao().byEpisodeId(EpisodeAlertDeliveryStateMachine.MUTE_STATE_ID)?.suppressionUntil ?: 0L
+                    val environment = environmentProvider()
+                    operation(environment.copy(mutedUntilWallMs = mute,
+                        armed = environment.armed && controls.current(stamp)))
+                }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            unavailable
         }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        unavailable
     }
 }

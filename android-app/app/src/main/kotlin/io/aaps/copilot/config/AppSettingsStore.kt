@@ -77,6 +77,7 @@ internal data class SensitivitySettingsMutation(
 enum class TherapyActionBootstrapMigrationResult {
     ARMED,
     ALREADY_DECIDED,
+    OBSERVATION_ONLY,
     FAILED
 }
 
@@ -112,7 +113,8 @@ internal fun decideBoundedUamExportV2Migration(
 
 class AppSettingsStore internal constructor(
     private val dataStore: DataStore<Preferences>,
-    private val currentInstallId: String? = TEST_INSTALL_ID
+    private val currentInstallId: String? = TEST_INSTALL_ID,
+    private val offerInitialSetup: Boolean = false
 ) {
     @Volatile
     private var threeModeConsentMigrationChecked = false
@@ -121,12 +123,48 @@ class AppSettingsStore internal constructor(
         dataStore = PreferenceDataStoreFactory.create(
             produceFile = { context.preferencesDataStoreFile("copilot_settings.preferences_pb") }
         ),
-        currentInstallId = TherapyActionInstallIdentity(context.noBackupFilesDir).loadOrCreate()
+        currentInstallId = TherapyActionInstallIdentity(context.noBackupFilesDir).loadOrCreate(),
+        offerInitialSetup = kotlin.runCatching {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            offerSetupForInstall(info.firstInstallTime, info.lastUpdateTime)
+        }.getOrDefault(false)
     )
 
     private val baseTargetScheduleCodec = BaseTargetScheduleCodec()
 
     val settings: Flow<AppSettings> = dataStore.data.map(::readSettings)
+
+    val setupProgress: Flow<SetupProgress> = dataStore.data.map(::readSetupProgress)
+
+    private fun readSetupProgress(prefs: Preferences): SetupProgress = SetupProgress(
+        status = prefs[SETUP_STATUS]?.let { raw -> SetupStatus.entries.find { it.name == raw } }
+            ?: if (offerInitialSetup) SetupStatus.NOT_STARTED else SetupStatus.LEGACY,
+        step = prefs[SETUP_STEP]?.let { raw -> SetupStep.entries.find { it.name == raw } } ?: SetupStep.EQUIPMENT,
+        glucoseSource = prefs[SETUP_GLUCOSE]?.let { raw -> SetupGlucoseSource.entries.find { it.name == raw } }
+            ?: SetupGlucoseSource.MANUAL,
+        insulinSource = prefs[SETUP_INSULIN]?.let { raw -> SetupInsulinSource.entries.find { it.name == raw } }
+            ?: SetupInsulinSource.NONE
+    )
+
+    // Compare-and-set protects late/double taps without touching clinical or connection preferences.
+    suspend fun saveSetupProgress(expected: SetupProgress, next: SetupProgress): Boolean {
+        var saved = false
+        dataStore.edit { prefs ->
+            if (readSetupProgress(prefs) != expected) return@edit
+            prefs[SETUP_STATUS] = next.status.name
+            prefs[SETUP_STEP] = next.step.name
+            prefs[SETUP_GLUCOSE] = next.glucoseSource.name
+            prefs[SETUP_INSULIN] = next.insulinSource.name
+            saved = true
+        }
+        return saved
+    }
+
+    private val SETUP_STATUS = stringPreferencesKey("setup_status_v1")
+    private val SETUP_STEP = stringPreferencesKey("setup_step_v1")
+    private val SETUP_GLUCOSE = stringPreferencesKey("setup_glucose_v1")
+    private val SETUP_INSULIN = stringPreferencesKey("setup_insulin_v1")
 
     internal suspend fun readLegacyOpenAiCredential(): String? =
         dataStore.data.first()[KEY_LEGACY_OPENAI_CREDENTIAL]
@@ -179,6 +217,10 @@ class AppSettingsStore internal constructor(
                 storedInstallId = prefs[KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID],
                 currentInstallId = currentInstallId
             ),
+            localObservationEnabled = currentInstallId != null &&
+                prefs[KEY_LOCAL_OBSERVATION_INSTALL_ID] == currentInstallId,
+            localAlarmRuntimeEnabled = currentInstallId != null &&
+                prefs[KEY_LOCAL_ALARM_INSTALL_ID] == currentInstallId,
             powerSaveUntilMs = prefs[KEY_POWER_SAVE_UNTIL_MS] ?: 0L,
             rootExperimentalEnabled = prefs[KEY_ROOT_EXPERIMENTAL] ?: false,
             localBroadcastIngestEnabled = prefs[KEY_LOCAL_BROADCAST_INGEST] ?: true,
@@ -850,6 +892,31 @@ class AppSettingsStore internal constructor(
         }
     }
 
+    suspend fun setLocalObservationEnabled(expected: Boolean, enabled: Boolean): Boolean {
+        val installId = currentInstallId ?: return false
+        var saved = false
+        dataStore.edit { prefs ->
+            if ((prefs[KEY_LOCAL_OBSERVATION_INSTALL_ID] == installId) != expected) return@edit
+            prefs[KEY_LOCAL_OBSERVATION_DECIDED_INSTALL_ID] = installId
+            if (enabled) prefs[KEY_LOCAL_OBSERVATION_INSTALL_ID] = installId
+            else prefs.remove(KEY_LOCAL_OBSERVATION_INSTALL_ID)
+            saved = true
+        }
+        return saved
+    }
+
+    suspend fun setLocalAlarmRuntimeEnabled(expected: Boolean, enabled: Boolean): Boolean {
+        val installId = currentInstallId ?: return false
+        var saved = false
+        dataStore.edit { prefs ->
+            if ((prefs[KEY_LOCAL_ALARM_INSTALL_ID] == installId) != expected) return@edit
+            if (enabled) prefs[KEY_LOCAL_ALARM_INSTALL_ID] = installId
+            else prefs.remove(KEY_LOCAL_ALARM_INSTALL_ID)
+            saved = true
+        }
+        return saved
+    }
+
     suspend fun setTherapyActionsArmed(armed: Boolean): Boolean {
         return TherapyActionTransportGate.updateState(requestedArmed = armed) {
             val installId = currentInstallId ?: return@updateState false
@@ -879,6 +946,10 @@ class AppSettingsStore internal constructor(
                 actualArmed = prefs[KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID] == installId
                 if (prefs[KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID] == installId) {
                     result = TherapyActionBootstrapMigrationResult.ALREADY_DECIDED
+                    return@edit
+                }
+                if (prefs[KEY_LOCAL_OBSERVATION_DECIDED_INSTALL_ID] == installId) {
+                    result = TherapyActionBootstrapMigrationResult.OBSERVATION_ONLY
                     return@edit
                 }
                 prefs[KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID] = installId
@@ -1514,6 +1585,11 @@ class AppSettingsStore internal constructor(
         private val KEY_KILL_SWITCH = booleanPreferencesKey("kill_switch")
         private val KEY_THERAPY_ACTIONS_ARMED_INSTALL_ID =
             stringPreferencesKey("therapy_actions_armed_install_id_v1")
+        private val KEY_LOCAL_OBSERVATION_INSTALL_ID =
+            stringPreferencesKey("local_observation_install_id_v1")
+        private val KEY_LOCAL_OBSERVATION_DECIDED_INSTALL_ID =
+            stringPreferencesKey("local_observation_decided_install_id_v1")
+        private val KEY_LOCAL_ALARM_INSTALL_ID = stringPreferencesKey("local_alarm_install_id_v1")
         private val KEY_THERAPY_ACTION_BOOTSTRAP_EVALUATED_INSTALL_ID =
             stringPreferencesKey("therapy_action_bootstrap_evaluated_install_id_v1")
         private val KEY_POWER_SAVE_UNTIL_MS = longPreferencesKey("power_save_until_ms")
@@ -2031,6 +2107,8 @@ data class AppSettings(
     val staleDataMaxMinutes: Int,
     val exportFolderUri: String?,
     val therapyActionsArmed: Boolean = false,
+    val localObservationEnabled: Boolean = false,
+    val localAlarmRuntimeEnabled: Boolean = false,
     val energyProfile: EnergyProfileSettings = EnergyProfileSettings(),
     val mealPortions: MealPortionSettings = MealPortionSettings()
 )

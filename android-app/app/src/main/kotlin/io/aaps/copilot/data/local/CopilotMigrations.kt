@@ -788,6 +788,18 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_34_35: Migration = object : Migration(34, 35) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `local_diary_entries` (" +
+                "`entryId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `kind` TEXT NOT NULL, " +
+                "`occurredAtMs` INTEGER NOT NULL, `recordedZoneId` TEXT NOT NULL, `amountMilli` INTEGER NOT NULL, " +
+                "`insulinName` TEXT NOT NULL, `insulinKind` TEXT NOT NULL, `note` TEXT NOT NULL, " +
+                "`deleted` INTEGER NOT NULL, `recordedAtMs` INTEGER NOT NULL, `source` TEXT NOT NULL, " +
+                "PRIMARY KEY(`entryId`, `revision`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_diary_entries_occurredAtMs` ON `local_diary_entries` (`occurredAtMs`)")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -813,6 +825,7 @@ object CopilotMigrations {
         MIGRATION_30_31,
         MIGRATION_31_32,
         MIGRATION_32_33,
-        MIGRATION_33_34
+        MIGRATION_33_34,
+        MIGRATION_34_35
     )
 }

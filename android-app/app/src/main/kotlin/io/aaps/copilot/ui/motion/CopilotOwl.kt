@@ -53,8 +53,11 @@ fun CopilotOwl(
     gesture: OwlGesture = OwlGesture.STILL,
     motionKey: String = gesture.name,
     animate: Boolean = true,
-    description: String? = null
+    description: String? = null,
+    motionDurationMs: Long = gesture.durationMs,
+    poseOverride: (() -> OwlPose)? = null
 ) {
+    require(motionDurationMs in 0..gesture.durationMs)
     val paths = remember { OwlPaths() }
     val colors = remember(band) { OwlArtworkData.PALETTES.getValue(band).map(::Color) }
     val body = remember(colors) { Brush.linearGradient(*listOf(0f to colors[0], .36f to colors[1], .76f to colors[2], 1f to colors[3]).toTypedArray(), start = Offset(42f,20f), end = Offset(235f,265f)) }
@@ -62,11 +65,14 @@ fun CopilotOwl(
     val iris = remember(colors) { Brush.radialGradient(listOf(colors[6],colors[7],colors[8]),Offset(0f,0f),21f) }
     val teal = remember { Brush.linearGradient(listOf(Color(0xFF227B87),Color(0xFF075366),Color(0xFF063746)),Offset(95f,105f),Offset(175f,265f)) }
     val texture = if (size >= 96.dp) ImageBitmap.imageResource(R.drawable.owl_feather_tile) else null
-    val clock = rememberFiniteMotionClock(gesture.durationMs, motionKey, animate && gesture != OwlGesture.STILL)
+    val clock = rememberFiniteMotionClock(motionDurationMs, motionKey, animate && gesture != OwlGesture.STILL)
     val motionEnabled = animate && LocalCopilotMotionEnabled.current
     val progress = if (gesture == OwlGesture.WAITING) Modifier.progressSemantics() else Modifier
     Canvas(modifier.size(size).then(progress).then(if (description == null) Modifier else Modifier.semantics { contentDescription = description })) {
-        val pose = OwlMotionPolicy.sample(gesture, clock.value, reduced = !motionEnabled)
+        val elapsed = if (motionDurationMs == 0L) gesture.durationMs
+            else clock.value * gesture.durationMs / motionDurationMs
+        val pose = if (!motionEnabled) OwlPose() else poseOverride?.invoke()
+            ?: OwlMotionPolicy.sample(gesture, elapsed)
         fun DrawScope.feather(path: Path) {
             if (texture != null) clipPath(path) {
                 drawImage(texture, dstSize = IntSize(280,280), alpha = .36f, blendMode = BlendMode.Softlight)
@@ -96,8 +102,7 @@ fun CopilotOwl(
                                 if (pose.blink < .94f) scale(1f,(1f-pose.blink).coerceAtLeast(.05f),Offset(x,151f)) {
                                     drawPath(paths.eyes[index],Color(0xFFF4F7F3))
                                     clipPath(paths.eyes[index]) {
-                                        val target = OwlMotionPolicy.eyeTarget(pose,x)
-                                        translate(x+target.first,151f+target.second) {
+                                        translate(x+pose.gazeX,151f+pose.gazeY) {
                                             drawCircle(iris,16.8f,Offset.Zero)
                                             if (band != OwlColorBand.BRAND) drawCircle(Color(0xFF0C1113),9.4f,Offset.Zero)
                                             drawCircle(Color.White.copy(alpha=.48f),1.6f,Offset(-3.2f,-3.8f))

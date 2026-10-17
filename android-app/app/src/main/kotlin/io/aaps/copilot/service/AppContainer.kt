@@ -35,6 +35,8 @@ import io.aaps.copilot.data.repository.AlertAiProductionFactory
 import io.aaps.copilot.data.repository.AlertAiReportDatasetSource
 import io.aaps.copilot.data.repository.AndroidValidatedNetworkGate
 import io.aaps.copilot.data.repository.AiChatRepository
+import io.aaps.copilot.data.repository.ServerAiChatGateway
+import io.aaps.copilot.data.repository.ServerAiHistoryClient
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.AutomationRepository
 import io.aaps.copilot.data.repository.BroadcastIngestRepository
@@ -305,6 +307,18 @@ class AppContainer(context: Context) {
     val gson: Gson = Gson()
     val settingsStore = AppSettingsStore(context)
     val serverAiConnectionManager = ServerAiConnectionManager.create(appContext)
+    val mealPhotoGateway = io.aaps.copilot.data.repository.ServerMealPhotoGateway(serverAiConnectionManager)
+    val mealPhotoRepository = io.aaps.copilot.data.repository.MealPhotoAnalysisRepository(mealPhotoGateway)
+    val serverAiHistoryClient = ServerAiHistoryClient(serverAiConnectionManager)
+    internal val serverDailyReviewRepository by lazy {
+        io.aaps.copilot.data.repository.ServerDailyReviewRepository(
+            io.aaps.copilot.security.EncryptedServerAiHistoryPersistence(appContext,
+                io.aaps.copilot.security.ServerAiHistoryStorageSlot.DAILY_ARCHIVE),
+            serverAiConnectionManager::currentHistoryDeviceBinding,
+            serverAiConnectionManager::currentServerTimeMs, { java.time.ZoneId.systemDefault() },
+            serverAiHistoryClient::readDailyResults, serverAiHistoryClient::readDailyResult
+        )
+    }
 
     val db: CopilotDatabase = Room.databaseBuilder(
         context,
@@ -317,6 +331,23 @@ class AppContainer(context: Context) {
             1, 2, 3, 4, 5, 6, 7, 8
         )
         .build()
+
+    internal val localDiary by lazy { io.aaps.copilot.data.repository.LocalDiaryRepository(db) }
+    internal val nightlyAdviceRepository by lazy { io.aaps.copilot.data.repository.NightlyAdviceRepository(db, gson) }
+
+    internal val serverAiRoomHistorySync by lazy {
+        io.aaps.copilot.data.repository.ServerAiRoomHistorySync(
+            io.aaps.copilot.data.repository.RoomAiHistorySource(db),
+            io.aaps.copilot.data.repository.RoomAiExportIndex(
+                io.aaps.copilot.data.repository.RoomAiExportDatabase.create(appContext)),
+            io.aaps.copilot.security.EncryptedServerAiHistoryPersistence(appContext,
+                io.aaps.copilot.security.ServerAiHistoryStorageSlot.ROOM_EXPORT),
+            serverAiConnectionManager::historyDeviceBinding,
+            serverAiConnectionManager::currentServerTimeMs,
+            { serverAiHistoryClient.retryPending(); Unit },
+            { records, device -> serverAiHistoryClient.uploadRecords(records, expectedDeviceBinding = device); Unit }
+        )
+    }
 
     val apiFactory = ApiFactory { LocalNightscoutTls.loadClientIdentity(appContext) }
     internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
@@ -633,6 +664,10 @@ class AppContainer(context: Context) {
         },
         gson = gson
     )
+    internal val clinicalDisplayRepository by lazy {
+        io.aaps.copilot.data.repository.ClinicalDisplayRepository(db, gson,
+            ClinicalReportDatasetFactory(clinicalReportDatasetBuilder::build))
+    }
     val clinicalReportRepository = ClinicalReportRepository(
         datasetFactory = ClinicalReportDatasetFactory(clinicalReportDatasetBuilder::build),
         configSource = ClinicalAiConfigSource {
@@ -687,6 +722,12 @@ class AppContainer(context: Context) {
     }
 
     val glucoseAlertAudioController = GlucoseAlertAudioController(context.applicationContext)
+    val glucoseAlarmRouter = io.aaps.copilot.data.repository.GlucoseAlarmDeliveryRouter(::currentAlarmSourceClock)
+    // A process cannot survive a device reboot; avoid a Settings-provider read on every alert.
+    private val alarmSourceBootCount: Int = try {
+        android.provider.Settings.Global.getInt(appContext.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { -1 }
     private val alertAiProductionDispatcher = AlertAiProductionFactory.create(
         scope = appScope,
         settingsSource = AlertAiAnalysisSettingsSource {
@@ -717,12 +758,23 @@ class AppContainer(context: Context) {
             io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(context.applicationContext)
             io.aaps.copilot.data.repository.InfusionSetNotifier.clear(context.applicationContext)
         },
-        postCommitObserver = alertAiProductionDispatcher
+        postCommitObserver = alertAiProductionDispatcher,
+        alarmClock = ::currentAlarmSourceClock,
+        revokeAlarmSources = {
+            pumpLinkMonitor.invalidateAlarmSource()
+            deliveryDiagnostic.invalidateAlarmSource()
+        },
+        revokeRiskPlayback = {
+            glucoseAlertAudioController.stop()
+            GlucoseAlertNotifier.cancelGlucoseAlertVibration(context.applicationContext)
+            glucoseAlarmRouter.currentOwner()?.signal()
+        }
     )
     private val glucoseAlertNotifier = GlucoseAlertNotifier(
         context = context.applicationContext,
         audioController = glucoseAlertAudioController,
-        episodeDelivery = episodeAlertDelivery
+        episodeDelivery = episodeAlertDelivery,
+        alarmRouter = glucoseAlarmRouter
     )
 
     val telegramRepository = io.aaps.copilot.telegram.TelegramRepository(
@@ -738,12 +790,21 @@ class AppContainer(context: Context) {
 
     private val pumpLinkNotifier = PumpLinkNotifier(appContext)
     private val deliveryDiagnosticNotifier = io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier(appContext)
-    private val deliveryDiagnostic = io.aaps.copilot.data.repository.DeliveryDiagnosticRepository(
-        db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
-        { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) }
-    )
+    private val deliveryDiagnostic: io.aaps.copilot.data.repository.DeliveryDiagnosticRepository =
+        io.aaps.copilot.data.repository.DeliveryDiagnosticRepository(
+            db, episodeAlertDelivery, deliveryDiagnosticNotifier::post,
+            { io.aaps.copilot.data.repository.DeliveryDiagnosticNotifier.clear(appContext) },
+            alarmClock = ::currentAlarmSourceClock
+        )
     private val infusionSetNotifier = io.aaps.copilot.data.repository.InfusionSetNotifier(appContext)
     val deliveryDiagnosticDisplay get() = deliveryDiagnostic.display
+    val deliveryDiagnosticAlarmSource get() = deliveryDiagnostic.alarmSource
+    fun currentDeliveryDiagnosticAlarmSource() = deliveryDiagnostic.currentAlarmSource()
+    fun currentAlarmSourceClock(): io.aaps.copilot.data.repository.LocalAlarmSourceClock? = try {
+        io.aaps.copilot.data.repository.LocalAlarmSourceClock(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+            alarmSourceBootCount)
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
     private suspend fun currentInfusionSetEvidence() = io.aaps.copilot.data.repository.InfusionSetEvidenceReader.read(
         db.therapyDao().latestInfusionChangeCandidates(io.aaps.copilot.data.repository.InfusionSetEvidenceReader.TYPES,
             io.aaps.copilot.data.repository.InfusionSetEvidenceReader.MAX_CANDIDATES + 1), System.currentTimeMillis())
@@ -1490,7 +1551,14 @@ class AppContainer(context: Context) {
     val aiChatRepository = AiChatRepository(
         settingsStore = settingsStore,
         credentialProvider = openAiCredentialProvider,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        serverGateway = ServerAiChatGateway(
+            serverAiConnectionManager,
+            { summary, history ->
+                val coverage = serverAiRoomHistorySync.sync(maxPages = 4)
+                serverAiHistoryClient.syncChatContext(summary + "\n" + coverage.contextSummary(), history)
+            }
+        )
     )
 
     val insightsRepository = InsightsRepository(
@@ -1504,7 +1572,19 @@ class AppContainer(context: Context) {
     )
 
     init {
+        appScope.launch { serverAiConnectionManager.load() }
+        appScope.launch {
+            io.aaps.copilot.data.repository.maintainRoomAiHistory(
+                enabled = combine(serverAiConnectionManager.state, settingsStore.settings) { connection, settings ->
+                    connection.phase == io.aaps.copilot.security.ServerAiConnectionPhase.ACTIVE &&
+                        !PowerSaveController.isActive(settings)
+                },
+                synchronize = { serverAiRoomHistorySync.sync(maxPages = 16) },
+                onFailure = { android.util.Log.w("ServerAiHistory", "History synchronization unavailable") }
+            )
+        }
         clinicalReportRepository.initialize()
+        clinicalDisplayRepository.initialize(appScope)
         telegramDeliveryController.start(appScope)
 
         appScope.launch {
@@ -1597,12 +1677,12 @@ class AppContainer(context: Context) {
                 PowerSaveRuntimeState.update(settings)
                 TherapyActionRuntimeState.update(settings)
                 TherapyActionTransportGate.publishState(settings.therapyActionsArmed)
-                if (!settings.therapyActionsArmed) {
+                if (!settings.localObservationRuntimeAllowed()) {
                     WorkScheduler.cancelRuntimeWork(context.applicationContext)
-                    stopRuntimeControllers(LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED)
+                    stopRuntimeControllers(LocalNightscoutRuntimeReason.OBSERVATION_DISABLED)
                     LocalNightscoutServiceController.stop(
                         context.applicationContext,
-                        LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                        LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
                     )
                     return@collectLatest
                 }
@@ -1825,7 +1905,7 @@ class AppContainer(context: Context) {
     }
 
     fun startRuntimeControllers() {
-        if (PowerSaveRuntimeState.isActive() || !TherapyActionRuntimeState.isArmed()) return
+        if (PowerSaveRuntimeState.isActive() || !LocalObservationRuntimeState.isAllowed()) return
         if (runtimeControllersActive) return
         runtimeControllersActive = true
         startLocalActivitySensors()
@@ -1837,7 +1917,8 @@ class AppContainer(context: Context) {
                 settingsStore.settings.collectLatest { settings ->
                     localNightscoutServer.update(
                         enabled = LocalNightscoutUpgradeMigrationGate.canEnable(
-                            requestedEnabled = settings.localNightscoutEnabled,
+                            requestedEnabled = settings.localNightscoutEnabled &&
+                                settings.localObservationRuntimeAllowed() && !PowerSaveController.isActive(settings),
                             migrationAcknowledged =
                                 settings.localNightscoutLegacyMigrationAcknowledged
                         ),

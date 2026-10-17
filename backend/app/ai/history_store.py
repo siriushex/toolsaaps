@@ -11,8 +11,11 @@ import secrets
 import shutil
 import sqlite3
 import stat
+import struct
 import time
+from collections import OrderedDict
 from contextlib import closing, contextmanager
+from copy import deepcopy
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -45,6 +48,18 @@ META_FIELDS = (
     "expires_ms",
     "received_ms",
     "digest",
+)
+# All record metadata are contract-bounded ASCII identifiers or integers. SQLite
+# json_array emits the same compact array used in record AAD, without a Python
+# JSON encoder and twelve named row lookups for every decrypted record.
+CONTEXT_META = "json_array(" + ",".join("r." + key for key in META_FIELDS) + ")"
+CONTEXT_ROWS = (
+    # Context covers the retained year. A sequence scan avoids sorting every
+    # ciphertext via the narrow-window index (including a large temp B-tree).
+    " FROM history_records r NOT INDEXED WHERE r.event_ms>? AND r.event_ms<=? "
+    "AND r.observed_ms<=? AND r.received_ms<=? AND r.deleted=0 AND NOT EXISTS "
+    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
+    "AND n.sequence>r.sequence) ORDER BY r.sequence"
 )
 SCHEMA = (
     "CREATE TABLE history_manifest(id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT NOT NULL, "
@@ -99,6 +114,9 @@ class HistoryStore:
             max_bytes,
         )
         self.max_receipts, self.min_free_bytes = max_receipts, min_free_bytes
+        # At most one bounded finished context per admitted device. Never durable
+        # plaintext, and never trusted by timestamps/high-water alone.
+        self._context_cache = OrderedDict()
 
     @staticmethod
     def _private(path, *, directory=False):
@@ -234,11 +252,19 @@ class HistoryStore:
                 "sqlite_sequence",
             }
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version == 2:
+            if version in (2, 3, 4, 5, 6):
                 expected.add("server_chat")
+            if version in (3, 4, 5, 6):
+                expected.add("daily_reports")
+            if version in (4, 5, 6):
+                expected.add("daily_review_queue")
+            if version in (5, 6):
+                expected.add("daily_review_results")
+            if version == 6:
+                expected.add("daily_facts_schedule")
             if tables != expected:
                 raise ValueError("dedicated_history_database_required")
-            if version not in (1, 2):
+            if version not in (1, 2, 3, 4, 5, 6):
                 raise ValueError("unsupported_history_schema")
             manifest = db.execute("SELECT * FROM history_manifest").fetchall()
             if (
@@ -268,8 +294,15 @@ class HistoryStore:
     def _purge(db, now_ms):
         db.execute("DELETE FROM history_records WHERE expires_ms<=?", (now_ms,))
         db.execute("DELETE FROM history_receipts WHERE expires_ms<=?", (now_ms,))
-        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version >= 2:
             db.execute("DELETE FROM server_chat WHERE expires_ms<=?", (now_ms,))
+        if version >= 3:
+            db.execute("DELETE FROM daily_reports WHERE expires_ms<=?", (now_ms,))
+        if version >= 4:
+            db.execute("DELETE FROM daily_review_queue WHERE expires_ms<=?", (now_ms,))
+        if version >= 5:
+            db.execute("DELETE FROM daily_review_results WHERE expires_ms<=?", (now_ms,))
 
     @staticmethod
     def _highwater(db):
@@ -285,12 +318,37 @@ class HistoryStore:
         receipts, extra = db.execute(
             "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM history_receipts"
         ).fetchone()
-        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version >= 2:
             chats, reserved = db.execute(
                 "SELECT count(*),coalesce(sum(max(budget_bytes,length(ciphertext))),0) FROM server_chat"
             ).fetchone()
             count += chats
             extra += reserved
+        if version >= 3:
+            reports, report_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_reports"
+            ).fetchone()
+            count += reports
+            extra += report_bytes
+        if version >= 4:
+            queued, queue_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_review_queue"
+            ).fetchone()
+            count += queued
+            extra += queue_bytes
+        if version >= 5:
+            results, result_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_review_results"
+            ).fetchone()
+            count += results
+            extra += result_bytes
+        if version >= 6:
+            settings, setting_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_facts_schedule"
+            ).fetchone()
+            count += settings
+            extra += setting_bytes
         if (
             count > self.max_rows
             or size + extra > self.max_bytes
@@ -298,15 +356,33 @@ class HistoryStore:
         ):
             raise HistoryError(429, "history_capacity_reached")
 
-    def _read_record(self, owner, device, cipher, row):
+    def _read_plain(self, owner, device, cipher, row, *, aad=None):
         plain = cipher.decrypt(
             row["nonce"],
             row["ciphertext"],
-            self._aad(owner, device, "record", [row[key] for key in META_FIELDS]),
+            aad if aad is not None else self._aad(
+                owner, device, "record", [row[key] for key in META_FIELDS]),
         )
         if hashlib.sha256(plain).hexdigest() != row["digest"]:
             raise ValueError("history_digest_mismatch")
+        return plain
+
+    def _read_record(self, owner, device, cipher, row):
+        plain = self._read_plain(owner, device, cipher, row)
         return json.loads(plain)
+
+    @staticmethod
+    def _context_digest(digest, row):
+        metadata = row["aad_values"].encode("utf-8")
+        nonce, ciphertext = row["nonce"], row["ciphertext"]
+        if type(nonce) is not bytes or len(nonce) != 12 or type(ciphertext) is not bytes:
+            raise ValueError("invalid_history_ciphertext")
+        # Length-framed canonical metadata and exact binary blobs, without
+        # hex-encoding every ciphertext or keeping a second plaintext archive.
+        digest.update(struct.pack(">II", len(metadata), len(ciphertext)))
+        digest.update(metadata)
+        digest.update(nonce)
+        digest.update(ciphertext)
 
     def append(self, owner: str, device: str, body: bytes, *, now_ms: int):
         batch = decode_batch(body, now_ms=now_ms)
@@ -435,6 +511,7 @@ class HistoryStore:
                 )
                 self._check_quota(db)
                 db.commit()
+                self._context_cache.pop((owner, device), None)
                 return ack
             finally:
                 db.close()
@@ -515,6 +592,235 @@ class HistoryStore:
             finally:
                 db.close()
 
+    def daily_glucose_facts(self, owner: str, device: str, *, report_date: str,
+                            zone_id: str, ranges, now_ms: int):
+        """Internal bounded read only; no public route, cache or clinical writer."""
+        from . import daily_glucose
+        options = dict(report_date=report_date, zone_id=zone_id, ranges=ranges, now_ms=now_ms,
+                       source_binding=self._identity(owner, device))
+        empty = daily_glucose.build_daily_glucose([], snapshot_sequence=0, **options)
+        window = empty.window
+        if window.startMs <= now_ms - RETENTION_MS:
+            raise ValueError("invalid_daily_glucose_input")
+        with self._glucose_snapshot(owner, device,
+                from_ms=max(1, window.startMs - daily_glucose.MAX_GAP_MS),
+                until_ms=min(now_ms, window.endMs + daily_glucose.MAX_GAP_MS),
+                now_ms=now_ms, row_limit=daily_glucose.MAX_INPUT_RECORDS) as (records, changes, snapshot):
+            return daily_glucose.build_daily_glucose(records, snapshot_sequence=snapshot,
+                sensor_changes=changes, **options)
+
+    def daily_glucose_review(self, owner: str, device: str, *, report_date: str,
+                            zone_id: str, ranges, now_ms: int):
+        from . import daily_glucose, glucose_comparison
+
+        options = dict(report_date=report_date, zone_id=zone_id, ranges=ranges, now_ms=now_ms,
+                       source_binding=self._identity(owner, device))
+        daily_glucose.build_daily_glucose([], snapshot_sequence=0, **options)
+        windows = glucose_comparison.review_windows(report_date, zone_id, now_ms=now_ms)
+        with self._glucose_snapshot(owner, device,
+                from_ms=max(1, windows[0].startMs - daily_glucose.MAX_GAP_MS),
+                until_ms=min(now_ms, windows[-1].endMs + daily_glucose.MAX_GAP_MS),
+                now_ms=now_ms, row_limit=glucose_comparison.MAX_REVIEW_INPUT_RECORDS) as (records, changes, snapshot):
+            return glucose_comparison.build_glucose_review(records, sensor_changes=changes,
+                snapshot_sequence=snapshot, **options)
+
+    def save_daily_glucose_report(self, owner, device, facts, *, now_ms):
+        from .daily_reports import save_report
+
+        return save_report(self, owner, device, facts, now_ms=now_ms)
+
+    def get_daily_facts_schedule(self, owner, device, *, now_ms):
+        from .daily_schedule import get_schedule
+
+        return get_schedule(self, owner, device, now_ms=now_ms)
+
+    def set_daily_facts_schedule(self, owner, device, **options):
+        """Trusted opt-in only, never an authorization or model-admission API."""
+        from .daily_schedule import set_schedule
+
+        return set_schedule(self, owner, device, **options)
+
+    def produce_scheduled_daily_facts(self, owner, device, **options):
+        from .daily_schedule import produce_facts
+
+        return produce_facts(self, owner, device, **options)
+
+    def get_daily_glucose_report(self, owner, device, **options):
+        from .daily_reports import get_report
+
+        return get_report(self, owner, device, **options)
+
+    def list_daily_glucose_reports(self, owner, device, **options):
+        from .daily_reports import list_reports
+
+        return list_reports(self, owner, device, **options)
+
+    def prepare_daily_glucose_review(self, owner, device, *, report_date, zone_id,
+                                     source_digest, now_ms, report_revision=None, language="ru-RU"):
+        from .daily_review import prepare_review
+
+        report = self.get_daily_glucose_report(owner, device, report_date=report_date,
+            zone_id=zone_id, source_digest=source_digest, now_ms=now_ms, report_revision=report_revision)
+        return prepare_review(report, now_ms=now_ms, language=language)
+
+    def check_daily_glucose_report_source(self, owner, device, **options):
+        from .daily_source import check_report_source
+
+        return check_report_source(self, owner, device, **options)
+
+    def prepare_checked_daily_glucose_review(self, owner, device, **options):
+        from .checked_daily_review import prepare_checked_review
+
+        return prepare_checked_review(self, owner, device, **options)
+
+    def validate_checked_daily_glucose_review(self, owner, device, work, body, *, now_ms):
+        from .checked_daily_review import validate_checked_review
+
+        return validate_checked_review(self, owner, device, work, body, now_ms=now_ms)
+
+    def enqueue_daily_glucose_review(self, owner, device, **options):
+        from .daily_queue import enqueue
+
+        return enqueue(self, owner, device, **options)
+
+    def get_queued_daily_glucose_review(self, owner, device, queue_id, *, now_ms):
+        from .daily_queue import get_entry
+
+        return get_entry(self, owner, device, queue_id, now_ms=now_ms)
+
+    def handoff_daily_glucose_review(self, owner, device, queue_id, *, now_ms):
+        from .daily_queue import handoff
+
+        return handoff(self, owner, device, queue_id, now_ms=now_ms)
+
+    def cancel_daily_glucose_review(self, owner, device, queue_id, *, now_ms):
+        from .daily_queue import cancel
+
+        return cancel(self, owner, device, queue_id, now_ms=now_ms)
+
+    def _enable_daily_results(self, db):
+        from .daily_results import SCHEMA as RESULT_SCHEMA
+
+        self._enable_daily_queue(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] == 4:
+            db.execute("BEGIN IMMEDIATE")
+            for statement in RESULT_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=5")
+            db.commit()
+
+    def _enable_daily_schedule(self, db):
+        from .daily_queue import SCHEMA as QUEUE_SCHEMA
+        from .daily_reports import SCHEMA as REPORT_SCHEMA
+        from .daily_results import SCHEMA as RESULT_SCHEMA
+        from .daily_schedule import SCHEMA as SCHEDULE_SCHEMA
+        from .server_chat import SCHEMA as CHAT_SCHEMA
+
+        if not db.in_transaction:
+            raise ValueError("daily_schedule_transaction_required")
+        # Explicit opt-in must commit its additive schema and setting together.
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        for source, schema in enumerate(
+            (CHAT_SCHEMA, REPORT_SCHEMA, QUEUE_SCHEMA, RESULT_SCHEMA, SCHEDULE_SCHEMA), 1
+        ):
+            if version == source:
+                for statement in schema:
+                    db.execute(statement)
+                version += 1
+                db.execute("PRAGMA user_version=" + str(version))
+
+    def _enable_daily_queue(self, db):
+        from .daily_queue import SCHEMA as QUEUE_SCHEMA
+
+        self._enable_daily_reports(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] == 3:
+            db.execute("BEGIN IMMEDIATE")
+            for statement in QUEUE_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=4")
+            db.commit()
+
+    def _enable_daily_reports(self, db):
+        from .daily_reports import SCHEMA as REPORT_SCHEMA
+
+        self._enable_chat_archive(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+            db.execute("BEGIN IMMEDIATE")
+            for statement in REPORT_SCHEMA:
+                db.execute(statement)
+            db.execute("PRAGMA user_version=3")
+            db.commit()
+
+    @staticmethod
+    def _daily_budget(db):
+        stop_at, instructions = time.monotonic() + 5, 0
+
+        def budget():
+            nonlocal instructions
+            instructions += 1000
+            return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
+
+        if db is not None:
+            db.set_progress_handler(budget, 1000)
+        return stop_at
+
+    @contextmanager
+    def _daily_read_snapshot(self, owner, device):
+        """Archive selection and source reads can share one bounded transaction."""
+        with self._locked():
+            db = self._open(owner, device, create=False)
+            try:
+                stop_at = self._daily_budget(db)
+                if db is not None:
+                    db.execute("BEGIN")
+                    snapshot = self._highwater(db)
+                else:
+                    snapshot = 0
+                yield db, snapshot, stop_at
+                if time.monotonic() >= stop_at:
+                    raise HistoryError(503, "daily_glucose_unavailable")
+            finally:
+                if db is not None:
+                    db.close()
+
+    def _read_glucose_records(self, owner, device, db, *, from_ms, until_ms,
+                              now_ms, row_limit, snapshot, stop_at, include_deleted=False):
+        from .history_contract import HistoryRecord
+
+        limit = min(self.max_rows, row_limit)
+        live = "" if include_deleted else " AND r.deleted=0"
+        rows = db.execute(
+            "SELECT r.* FROM history_records r WHERE r.event_ms>=? AND r.event_ms<=? "
+            "AND r.observed_ms<=? AND r.received_ms<=? AND r.expires_ms>? "
+            "AND r.kind IN ('GLUCOSE','THERAPY')" + live + " AND r.sequence<=? AND NOT EXISTS "
+            "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
+            "AND n.sequence>r.sequence AND n.sequence<=?) "
+            "ORDER BY r.event_ms,r.record_id LIMIT ?",
+            (from_ms, until_ms, now_ms, now_ms, now_ms, snapshot, snapshot, limit + 1),
+        )
+        cipher, records, sensor_changes = self._cipher(owner, device), [], []
+        for count, row in enumerate(rows, 1):
+            if count > limit or time.monotonic() >= stop_at:
+                raise HistoryError(503, "daily_glucose_unavailable")
+            record = HistoryRecord.model_validate(self._read_record(owner, device, cipher, row))
+            if record.kind == "GLUCOSE":
+                records.append(record)
+            elif record.data == {"eventType": "SENSOR_CHANGE"}:
+                sensor_changes.append(record)
+        return records, sensor_changes
+
+    @contextmanager
+    def _glucose_snapshot(self, owner, device, *, from_ms, until_ms, now_ms, row_limit):
+        """One bounded read lifetime shared by daily and multi-day calculations."""
+        with self._daily_read_snapshot(owner, device) as (db, snapshot, stop_at):
+            if db is None:
+                yield [], [], snapshot
+            else:
+                records, changes = self._read_glucose_records(owner, device, db,
+                    from_ms=from_ms, until_ms=until_ms, now_ms=now_ms, row_limit=row_limit,
+                    snapshot=snapshot, stop_at=stop_at)
+                yield records, changes, snapshot
+
     def purge(self, *, now_ms: int):
         valid_time(now_ms)
         with self._locked():
@@ -536,6 +842,7 @@ class HistoryStore:
                     db.execute("BEGIN IMMEDIATE")
                     self._purge(db, now_ms)
                     db.commit()
+                    self._context_cache.pop((owner, device), None)
                 finally:
                     db.close()
 
@@ -561,19 +868,69 @@ class HistoryStore:
                     return int(instructions > 50_000_000 or time.monotonic() >= stop_at)
 
                 db.set_progress_handler(budget, 1000)
-                rows = db.execute(
-                    "SELECT r.* FROM history_records r WHERE r.event_ms>? AND r.event_ms<=? "
-                    "AND r.observed_ms<=? AND r.received_ms<=? AND r.deleted=0 AND NOT EXISTS "
-                    "(SELECT 1 FROM history_records n WHERE n.record_id=r.record_id "
-                    "AND n.sequence>r.sequence) ORDER BY r.sequence",
-                    (max(0, now_ms - RETENTION_MS), now_ms, now_ms, now_ms))
+                args = (max(0, now_ms - RETENTION_MS), now_ms, now_ms, now_ms)
+                identity = (owner, device)
+                cached = self._context_cache.get(identity)
+                if cached is not None:
+                    previous = cached[1]
+                    first = previous["coverage"]["firstAtMs"]
+                    if (previous["snapshotSequence"] != context.snapshot
+                            or now_ms < previous["generatedAtMs"]
+                            or first is not None and now_ms >= first + RETENTION_MS):
+                        # Known revision/retention changes need one cold pass,
+                        # rather than a fingerprint pass followed by a rebuild.
+                        cached = None
+                # Hash the complete eligible encrypted envelopes in this same
+                # SQLite read snapshot. Includes metadata/AAD and exact blobs:
+                # same sequence/count/mtime cannot conceal a corrupt ciphertext.
+                # Selection is rerun at now_ms, so expiry, future cutoffs, latest
+                # revisions and tombstones cannot use stale cached coverage.
+                fingerprint = None
+                if cached is not None:
+                    digest = hashlib.sha256()
+                    rows = db.execute("SELECT r.nonce,r.ciphertext," + CONTEXT_META
+                                      + " AS aad_values" + CONTEXT_ROWS, args)
+                    for count, row in enumerate(rows, 1):
+                        if count > self.max_rows or time.monotonic() >= stop_at:
+                            raise HistoryError(503, "history_context_unavailable")
+                        self._context_digest(digest, row)
+                    fingerprint = digest.digest()
+                if cached is not None and cached[0] == fingerprint:
+                    result = deepcopy(cached[1])
+                    result.update(generatedAtMs=now_ms, snapshotSequence=context.snapshot,
+                                  fromMs=max(1, now_ms - RETENTION_MS + 1), untilMs=now_ms + 1)
+                    for item in result["recentRecords"]:
+                        item["ageMs"] = now_ms - item["record"]["eventAtMs"]
+                    if time.monotonic() >= stop_at:
+                        raise HistoryError(503, "history_context_unavailable")
+                    self._context_cache.move_to_end(identity)
+                    return result
+                self._context_cache.pop(identity, None)
+                digest = hashlib.sha256()
+                rows = db.execute("SELECT r.sequence,r.event_ms,r.received_ms,r.kind,r.quality,"
+                                  "r.nonce,r.ciphertext,r.digest," + CONTEXT_META + " AS aad_values"
+                                  + CONTEXT_ROWS, args)
                 cipher = self._cipher(owner, device)
+                prefix = encoded([1, owner, device, "record"])[:-1] + b","
                 for count, row in enumerate(rows, 1):
                     if count > self.max_rows or time.monotonic() >= stop_at:
                         raise HistoryError(503, "history_context_unavailable")
-                    context.add(dict(sequence=row["sequence"], receivedAtMs=row["received_ms"],
-                        record=self._read_record(owner, device, cipher, row)))
-                return context.finish()
+                    plain = self._read_plain(owner, device, cipher, row,
+                        aad=prefix + row["aad_values"].encode("utf-8") + b"]")
+                    context.add_authenticated(row, plain)
+                    if fingerprint is None:
+                        self._context_digest(digest, row)
+                result = context.finish()
+                if time.monotonic() >= stop_at:
+                    raise HistoryError(503, "history_context_unavailable")
+                entry = (fingerprint if fingerprint is not None else digest.digest(), deepcopy(result))
+                if time.monotonic() >= stop_at:
+                    raise HistoryError(503, "history_context_unavailable")
+                self._context_cache[identity] = entry
+                self._context_cache.move_to_end(identity)
+                if len(self._context_cache) > self.max_devices:
+                    self._context_cache.popitem(last=False)
+                return result
             finally:
                 db.close()
 
