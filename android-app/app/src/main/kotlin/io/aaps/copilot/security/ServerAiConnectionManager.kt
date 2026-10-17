@@ -479,7 +479,10 @@ private class HttpsConnectionTransport : ServerAiConnectionTransport {
             require(body.size in 1..historyRoute.requestLimit)
             require(responseLimit == historyRoute.responseLimit)
         } else {
-            require(body.size <= 96_000)
+            val requestLimit = if (method == "POST" && path == "/api/ai/v1/meal-photo/jobs") {
+                3 * 1024 * 1024
+            } else 96_000
+            require(body.size <= requestLimit)
             require(responseLimit in 1..65_536)
         }
         val request = Request.Builder().url("https://diai.centv.ru$path").apply {

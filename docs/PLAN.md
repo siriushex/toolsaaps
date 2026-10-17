@@ -1,5 +1,17 @@
 # PLAN
 
+## Food Photo HTTP Body Repair (2026-10-17)
+
+- [x] Trace the concrete transport's conflicting 96000-byte generic limit.
+- [x] Three expected actual-HTTP REDs before the production fix; unchanged
+  negative bounds pass. No real photo or provider request is used.
+- [x] Apply the existing 3 MiB allowance to the exact photo POST only.
+- [x] Focused 59-case photo/session/HTTP/native regression suite passed.
+- [x] Full Android: 6166 passed/six existing skips, zero failures/errors;
+  lint/compile/build and private APK signature verification passed. Fixed inputs.
+- [ ] Reviewed source publication and exact-head Verify; USB acceptance separate.
+- No server rollout, photo upload, key, therapy or phone-state change.
+
 ## Authenticated Facts Host (2026-10-17)
 
 - [x] Read-only live contour inventory and approved facts/design retrieval.

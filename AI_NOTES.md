@@ -1,3 +1,26 @@
+# Food Photo HTTP Body Repair - 2026-10-17
+
+- Trace photo preparation through the signed connection to the actual HTTP
+  client. Its route allowlist admitted a 3 MiB photo POST, but a second generic
+  96000-byte check refused ordinary base64 image bodies before any network send.
+  Earlier photo/session tests substituted that HTTP boundary and missed it.
+- Four new actual-client/loopback regressions: the first 11-case run failed
+  exactly three large-photo assertions with local IllegalArgumentException.
+  Apply the already-advertised 3 MiB allowance only to the exact photo POST;
+  keep text, activation, history, response, redirect and no-replay limits intact.
+- Tests cover the largest prepared 1 MiB JPEG body unchanged on the wire, exact
+  request ceiling/overflow, foreign routes, response ceiling and a large photo
+  receiving 503/Retry-After without replay. Full verification/publication are
+  separate gates recorded in the stage receipt.
+- Read-only server projection confirms configured vision and a live socket with
+  API/text/image active; it does not prove image recognition. ADB is empty.
+  No real photo, model request, server restart, phone data or therapy change.
+- Final 59-case focused suite passed. Complete Android execution: 6166 passed,
+  six existing skips, zero failures/errors. Lint/compile/build succeeded with
+  the existing 376 warnings/eight hints and no errors. Tracked Android input
+  manifests match before/after; the private APK passes signature verification.
+  Exact-head CI and live device acceptance are separate from these local gates.
+
 # Authenticated Facts Host - 2026-10-17
 
 - Continue approved night-review work after the persisted facts producer. Safe

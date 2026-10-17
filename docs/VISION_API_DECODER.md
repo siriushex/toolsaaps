@@ -7,6 +7,13 @@ descriptor. Without that field the existing text-only configuration is unchanged
 and the photo route remains absent. HTTP still runs under a dedicated nonroot
 identity; it does not decode pixels, open the login profile or select commands.
 
+Android prepares at most 1 MiB JPEG and wraps it in base64 JSON. Both its closed
+route check and concrete HTTP client must admit the existing 3 MiB photo POST
+budget; the generic 96000-byte connection limit is not an image limit. Other
+routes and the 65536-byte photo response limit stay unchanged. Loopback tests
+exercise the concrete client with a maximum prepared image and request overflow,
+not only an injected signed transport or a tiny image fixture.
+
 SupervisorMealVisionWorker freezes canonical work metadata and the bounded JPEG
 into immutable bytes. A distinct Unix endpoint verifies kernel peer credentials,
 the fixed food-policy digest, canonical job/owner/device/deadline metadata and
