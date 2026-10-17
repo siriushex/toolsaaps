@@ -404,8 +404,6 @@
     <string name="ai_analysis_chat_start_recording_short">Голос</string>
     <string name="ai_analysis_chat_stop_recording">Остановить запись голоса</string>
     <string name="ai_analysis_chat_stop_recording_short">Стоп</string>
-    <string name="ai_analysis_chat_voice_mode_title">Голосовой режим</string>
-    <string name="ai_analysis_chat_voice_mode_body">Можно записать вопрос голосом, расшифровать его через OpenAI и при желании прослушать ответ.</string>
     <string name="ai_analysis_chat_recording_active">Идёт запись. Нажмите стоп, чтобы расшифровать и отправить.</string>
     <string name="ai_analysis_chat_voice_busy">Обрабатывается голосовой ввод или озвучка ответа.</string>
     <string name="ai_analysis_chat_speaking">Сейчас воспроизводится голосовой ответ AI.</string>
@@ -2042,6 +2040,18 @@
     <string name="ai_focus_tab_recommendations">Советы</string>
     <string name="ai_focus_tab_archive">Архив</string>
     <string name="ai_focus_diagnostics">Диагностика</string>
+    <string name="ai_focus_state_menu">Состояние ИИ и меню</string>
+    <string name="ai_focus_main_menu">Главное меню</string>
+    <string name="ai_focus_settings">Настройки ИИ</string>
+    <string name="ai_focus_back">Вернуться в AI-анализ</string>
+    <string name="ai_focus_voice_replies_label">Озвучивать ответы</string>
+    <string name="ai_focus_local_summary">Локальная сводка</string>
+    <string name="ai_focus_mean_short">Средняя</string>
+    <string name="ai_focus_updating">Сводка обновляется</string>
+    <string name="ai_focus_update_failed">Сохранён прежний разбор</string>
+    <string name="ai_focus_retry">Повторить локально</string>
+    <string name="ai_focus_report_actions">Подробности и действия</string>
+    <string name="ai_focus_display_limitations">Наблюдения по истории, не указания по дозированию. Качество сенсора, незаписанные еда и инсулин могут влиять на результат.</string>
     <string name="ai_focus_report_details">Подробнее и источники</string>
     <string name="ai_focus_coverage">Покрытие: %1$s%%</string>
     <string name="ai_focus_mmol">ммоль/л</string>

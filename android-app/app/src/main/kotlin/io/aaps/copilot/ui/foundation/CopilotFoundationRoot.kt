@@ -180,7 +180,7 @@ fun CopilotFoundationRoot(
     val headerAiWaiting = if (currentRoute == Destinations.AiAnalysis.route) {
         val waitingFlow = remember(viewModel) {
             viewModel.aiAnalysisUiState.map { state ->
-                state.chatInProgress || state.chatVoiceBusy ||
+                state.chatInProgress || state.chatVoiceBusy || state.clinicalDisplayRefreshing ||
                     state.clinicalReport.phase == ClinicalReportPhaseUi.BUILDING ||
                     state.clinicalReport.phase == ClinicalReportPhaseUi.UPLOADING
             }.distinctUntilChanged()
@@ -194,6 +194,7 @@ fun CopilotFoundationRoot(
     val messageDetailsLabel = stringResource(R.string.issue_details)
     val selectedUiStyle = UiStyle.fromRaw(uiStyleRaw)
     var drawerOpen by remember { mutableStateOf(false) }
+    var aiDiagnosticsVisible by rememberSaveable { mutableStateOf(false) }
     var chromeDetailsReady by remember { mutableStateOf(false) }
     var routeShellReady by remember { mutableStateOf(false) }
     LaunchedEffect(setupState.progress, routeShellReady, currentRoute) {
@@ -263,6 +264,7 @@ fun CopilotFoundationRoot(
     LaunchedEffect(currentRoute) {
         viewModel.setActiveRoute(currentRoute)
         drawerOpen = false
+        if (currentRoute != Destinations.AiAnalysis.route) aiDiagnosticsVisible = false
     }
 
     LaunchedEffect(navController, viewModel) {
@@ -324,6 +326,14 @@ fun CopilotFoundationRoot(
                         owlNavigationKey = currentRoute.orEmpty(),
                         owlGesture = headerOwlGesture(currentRoute),
                         owlWaiting = headerAiWaiting,
+                        onAiDiagnostics = if (currentRoute == Destinations.AiAnalysis.route) {
+                            { aiDiagnosticsVisible = true }
+                        } else null,
+                        onAiSettings = if (currentRoute == Destinations.AiAnalysis.route) {
+                            { navController.navigate(Destinations.Settings.route) { launchSingleTop = true } }
+                        } else null,
+                        aiDiagnosticsVisible = aiDiagnosticsVisible,
+                        onDismissAiDiagnostics = { aiDiagnosticsVisible = false },
                         onOpenHealth = {
                             navController.navigate(Destinations.Audit.route) {
                                 launchSingleTop = true
@@ -543,7 +553,10 @@ fun CopilotFoundationRoot(
                                 val aiAnalysis by viewModel.aiAnalysisUiState.collectAsStateWithLifecycle()
                                 AiAnalysisScreen(
                                     state = aiAnalysis,
+                                    diagnosticsVisible = aiDiagnosticsVisible,
+                                    onDismissDiagnostics = { aiDiagnosticsVisible = false },
                                     onPrepareClinicalReport = viewModel::prepareClinicalReport,
+                                    onRetryClinicalDisplay = viewModel::retryClinicalDisplay,
                                     onRetryLocalClinicalReportPreparation =
                                         viewModel::retryLocalClinicalReportPreparation,
                                     onSendClinicalReport = viewModel::sendClinicalReport,
@@ -851,7 +864,11 @@ internal fun TopBar(
     menuExpanded: Boolean = false,
     owlNavigationKey: String = title,
     owlGesture: OwlGesture = OwlGesture.STILL,
-    owlWaiting: Boolean = false
+    owlWaiting: Boolean = false,
+    onAiDiagnostics: (() -> Unit)? = null,
+    onAiSettings: (() -> Unit)? = null,
+    aiDiagnosticsVisible: Boolean = false,
+    onDismissAiDiagnostics: () -> Unit = {}
 ) {
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
@@ -890,7 +907,11 @@ internal fun TopBar(
             if (!showOverviewActions) Text(text = title)
         },
         navigationIcon = {
-            OwlMenuButton(owlBand, owlNavigationKey, owlGesture, menuExpanded, owlWaiting, onMenuClick)
+            if (onAiDiagnostics != null && onAiSettings != null) {
+                io.aaps.copilot.ui.foundation.components.AiHeaderNavigation(owlBand, owlNavigationKey,
+                    owlGesture, menuExpanded, owlWaiting, aiDiagnosticsVisible,
+                    onAiDiagnostics, onDismissAiDiagnostics, onMenuClick, onAiSettings)
+            } else OwlMenuButton(owlBand, owlNavigationKey, owlGesture, menuExpanded, owlWaiting, onMenuClick)
         },
         actions = {
             if (showOverviewActions) {

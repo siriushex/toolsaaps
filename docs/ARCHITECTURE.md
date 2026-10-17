@@ -337,6 +337,12 @@ schedule or publication/therapy admission. See DAILY_REVIEW_RESULTS.md.
 
 ## Focus AI Workspace
 
+Focus+ adds a separate bounded Room display projection and local 05:00/catch-up
+worker. Route entry observes saved data instead of preparing a live payload.
+The global owl owns diagnostics navigation; the pinned six-tool composer owns
+TTS. Display success, local refresh and action/consent state are independent.
+No server daily-model activation follows. See AI_FOCUS_PLUS.md.
+
 The approved native Focus layout separates clinical report, chat, recommendations
 and archive with retained per-panel state and no global daily-loading gate.
 Only active content is composed; the composer is pinned outside the lazy message

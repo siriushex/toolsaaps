@@ -290,6 +290,13 @@ Other unknown events and foreign/malformed envelopes still fail closed.
 
 ## Focus AI Interface (2026-10-16)
 
+Focus+ (2026-10-17): aggregate-only bounded display and attempt rows under a
+fixed local source. Real typed COMPLETE results require strict schema/provider/
+model/time validation; raw event/profile/prose fields are stripped. New display
+rows are outside the Room AI-history export allowlist. Cache cannot supply live
+send, PDF, retry or consent state. Worker is local-only; no provider/session or
+therapy capability is added. Explicit action gates remain independent.
+
 - Reuses existing state and explicit callbacks, no new route/credential/network
   capability or therapy writer. Opening panels/diagnostics never submits a job.
 - Existing exact disclosure/channel/event-preview and unknown-outcome retry

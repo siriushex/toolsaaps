@@ -2038,8 +2038,16 @@ class ClinicalReportRepository private constructor(
     }
 }
 
-private object ClinicalReportPersistenceSerializer {
+internal object ClinicalReportPersistenceSerializer {
     private val gson = Gson()
+
+    fun displaySummary(local: ClinicalLocalReport): String = JsonObject().apply {
+        addProperty("generatedAt", local.generatedAt)
+        addProperty("zoneId", local.zoneId)
+        local.summary24h?.let { add("summary24h", summary(it)) }
+        add("summary7d", summary(local.summary7d))
+        add("summary30d", summary(local.summary30d))
+    }.toString()
 
     fun coverage(
         dataset: ClinicalReportDataset,

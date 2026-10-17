@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
@@ -4605,6 +4606,11 @@ class ClinicalReportRepositoryTest {
             state.value.firstOrNull { it.requestId == requestId }
 
         override fun observeLatest(limit: Int): Flow<List<ClinicalReportEntity>> = state
+
+        override fun observeSuccessfulForDisplay(): Flow<List<ClinicalReportEntity>> = state.map { rows ->
+            rows.filter { it.status in setOf("LOCAL_READY", "COMPLETE") }
+                .sortedByDescending { it.requestedThroughTs }.take(8)
+        }
 
         override suspend fun redactUnknownOutcomeGuardsOlderThan(
             olderThan: Long,

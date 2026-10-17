@@ -2169,7 +2169,28 @@ private fun ProbableEatingWindow.toUi(): ProbableMealWindowUi? {
     )
 }
 
-private fun ClinicalReportState.Complete.toUi(): ClinicalCompleteReportUi {
+private fun ClinicalReportState.Complete.toUi(): ClinicalCompleteReportUi = mapClinicalCompleteReport(
+    report, ClinicalReportMetadataUi(
+        generatedAtTs = local.generatedAt.takeIf { it in 1L..CLINICAL_MAX_TIMESTAMP_MS },
+        providerId = metadata.providerId,
+        model = metadata.model.safeClinicalMetadata(),
+        schemaName = metadata.schemaName.safeClinicalMetadata(),
+        schemaVersion = metadata.schemaVersion.takeIf { it > 0 }
+    )
+)
+
+internal fun mapClinicalDisplay(snapshot: io.aaps.copilot.data.repository.ClinicalDisplaySnapshot?): ClinicalDisplayUi? {
+    snapshot ?: return null
+    val local = snapshot.local
+    return ClinicalDisplayUi(local.generatedAt, local.zoneId,
+        listOfNotNull(local.summary24h, local.summary7d, local.summary30d).map { it.toUi() },
+        snapshot.report?.let { report -> mapClinicalCompleteReport(report, ClinicalReportMetadataUi(
+            local.generatedAt, io.aaps.copilot.config.ClinicalAiProviderId.valueOf(snapshot.source.provider),
+            snapshot.source.model?.safeClinicalMetadata(), null, snapshot.source.schemaVersion)) })
+}
+
+private fun mapClinicalCompleteReport(report: io.aaps.copilot.data.repository.ClinicalAdvisoryReport,
+    metadata: ClinicalReportMetadataUi): ClinicalCompleteReportUi {
     val indexedPatterns = report.patterns.mapIndexedNotNull { index, finding ->
         finding.toUi()?.let { index to it }
     }
@@ -2184,15 +2205,7 @@ private fun ClinicalReportState.Complete.toUi(): ClinicalCompleteReportUi {
             recommendation.toUi(patternsBySourceIndex)
         },
         careTeamQuestions = report.careTeamQuestions.map(ClinicalCareTeamQuestion::toTextKey),
-        metadata = ClinicalReportMetadataUi(
-            generatedAtTs = local.generatedAt.takeIf {
-                it in 1L..CLINICAL_MAX_TIMESTAMP_MS
-            },
-            providerId = metadata.providerId,
-            model = metadata.model.safeClinicalMetadata(),
-            schemaName = metadata.schemaName.safeClinicalMetadata(),
-            schemaVersion = metadata.schemaVersion.takeIf { it > 0 }
-        )
+        metadata = metadata
     )
 }
 

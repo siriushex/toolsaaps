@@ -403,8 +403,6 @@
     <string name="ai_analysis_chat_start_recording_short">Voice</string>
     <string name="ai_analysis_chat_stop_recording">Stop voice recording</string>
     <string name="ai_analysis_chat_stop_recording_short">Stop</string>
-    <string name="ai_analysis_chat_voice_mode_title">Voice mode</string>
-    <string name="ai_analysis_chat_voice_mode_body">Record a question, transcribe it with OpenAI, and optionally hear the reply.</string>
     <string name="ai_analysis_chat_recording_active">Recording is active. Tap stop to transcribe and send.</string>
     <string name="ai_analysis_chat_voice_busy">Processing voice input or generating spoken reply.</string>
     <string name="ai_analysis_chat_speaking">AI voice reply is playing.</string>
@@ -2042,6 +2040,18 @@
     <string name="ai_focus_tab_recommendations">Advice</string>
     <string name="ai_focus_tab_archive">Archive</string>
     <string name="ai_focus_diagnostics">Diagnostics</string>
+    <string name="ai_focus_state_menu">AI status and menu</string>
+    <string name="ai_focus_main_menu">Main menu</string>
+    <string name="ai_focus_settings">AI settings</string>
+    <string name="ai_focus_back">Back to AI analysis</string>
+    <string name="ai_focus_voice_replies_label">Read replies aloud</string>
+    <string name="ai_focus_local_summary">Local summary</string>
+    <string name="ai_focus_mean_short">Mean</string>
+    <string name="ai_focus_updating">Updating summary</string>
+    <string name="ai_focus_update_failed">Previous summary retained</string>
+    <string name="ai_focus_retry">Retry locally</string>
+    <string name="ai_focus_report_actions">Details and report actions</string>
+    <string name="ai_focus_display_limitations">Historical observations, not dosing instructions. Sensor quality, unrecorded meals and insulin may affect these results.</string>
     <string name="ai_focus_report_details">Details and sources</string>
     <string name="ai_focus_coverage">Coverage: %1$s%%</string>
     <string name="ai_focus_mmol">mmol/L</string>

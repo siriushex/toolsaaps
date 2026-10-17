@@ -11,7 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,14 +23,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
 import io.aaps.copilot.ui.foundation.design.Spacing
-import io.aaps.copilot.ui.motion.CopilotOwl
 import io.aaps.copilot.ui.motion.NativeIconButton
-import io.aaps.copilot.ui.motion.OwlGesture
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -50,49 +48,30 @@ internal fun AiFocusWorkspace(
     state: AiAnalysisUiState,
     onDraftChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    report: @Composable () -> Unit,
+    diagnosticsVisible: Boolean = false,
+    onDismissDiagnostics: () -> Unit = {},
+    report: @Composable ((String) -> Unit) -> Unit,
     chat: @Composable () -> Unit,
     diagnostics: @Composable () -> Unit
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
-    var details by rememberSaveable { mutableStateOf(false) }
     val holder = rememberSaveableStateHolder()
     val tab = FocusTab.entries.getOrElse(tabIndex) { FocusTab.REPORT }
-    val busy = when (tab) {
-        FocusTab.REPORT -> state.clinicalReport.phase == ClinicalReportPhaseUi.BUILDING ||
-            state.clinicalReport.phase == ClinicalReportPhaseUi.UPLOADING
-        FocusTab.CHAT -> state.chatInProgress || state.chatVoiceBusy
-        FocusTab.RECOMMENDATIONS -> false
-        else -> state.loadState == ScreenLoadState.LOADING
-    }
-    BackHandler(details) { details = false }
+    BackHandler(diagnosticsVisible, onBack = onDismissDiagnostics)
     val discuss: (String) -> Unit = { question ->
         onDraftChange(if (state.chatDraft.isBlank()) question else state.chatDraft + "\n\n" + question)
         tabIndex = FocusTab.CHAT.ordinal
-        details = false
+        onDismissDiagnostics()
     }
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(if (details) R.string.ai_focus_diagnostics else tab.title),
-                Modifier.weight(1f).semantics { heading() },
-                style = MaterialTheme.typography.titleMedium
-            )
-            if (!details && !(tab == FocusTab.CHAT && state.chatInProgress)) {
-                CopilotOwl(modifier = Modifier.testTag("ai_focus_owl"), size = 28.dp,
-                    gesture = if (busy) OwlGesture.WAITING else OwlGesture.LISTEN,
-                    description = if (busy) stringResource(R.string.owl_ai_waiting) else null,
-                    motionKey = "focus-${tab.key}-$busy")
-            }
-            AiFocusAction(Icons.Default.Info, stringResource(R.string.ai_focus_diagnostics),
-                { details = !details }, modifier = Modifier.testTag("ai_focus_diagnostics"))
-        }
         val tabs: @Composable () -> Unit = {
             FocusTab.entries.forEach { item ->
+                val description = stringResource(item.title)
                 Tab(
-                    selected = !details && tab == item,
-                    onClick = { tabIndex = item.ordinal; details = false },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("ai_focus_tab_${item.key}"),
+                    selected = !diagnosticsVisible && tab == item,
+                    onClick = { tabIndex = item.ordinal; onDismissDiagnostics() },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("ai_focus_tab_${item.key}")
+                        .semantics { contentDescription = description },
                 ) { Text(stringResource(item.label), Modifier.padding(horizontal = 2.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false) }
             }
@@ -101,12 +80,12 @@ internal fun AiFocusWorkspace(
             PrimaryScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp, tabs = tabs)
         } else PrimaryTabRow(selectedTabIndex = tab.ordinal, tabs = tabs)
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            holder.SaveableStateProvider(if (details) "diagnostics" else tab.key) {
-                if (details) diagnostics() else when (tab) {
+            holder.SaveableStateProvider(if (diagnosticsVisible) "diagnostics" else tab.key) {
+                if (diagnosticsVisible) diagnostics() else when (tab) {
                     FocusTab.REPORT -> LazyColumn(
                         state = rememberLazyListState(), modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = Spacing.sm)
-                    ) { item(key = "clinical-report") { report() } }
+                    ) { item(key = "clinical-report") { report(discuss) } }
                     FocusTab.CHAT -> chat()
                     FocusTab.RECOMMENDATIONS -> AiFocusRecommendations(state, discuss)
                     FocusTab.ARCHIVE -> AiFocusArchive(state, discuss)
@@ -129,15 +108,23 @@ internal fun AiFocusAction(
 }
 
 @Composable
-internal fun AiFocusMetricSummary(summary: ClinicalPeriodSummaryUi, onDetails: () -> Unit) {
+internal fun AiFocusMetricSummary(summary: ClinicalPeriodSummaryUi, showDetailsHint: Boolean = true,
+    compact: Boolean = false, onDetails: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClickLabel = stringResource(R.string.ai_focus_report_details), onClick = onDetails)
-        .testTag("clinical_report_summary_${summary.days}").padding(vertical = Spacing.sm),
-        verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            FocusMetric(stringResource(R.string.clinical_report_in_range), summary.inRange, "%", Modifier.weight(1f))
-            FocusMetric(stringResource(R.string.clinical_report_mean), summary.meanGlucose,
-                stringResource(R.string.ai_focus_mmol), Modifier.weight(1f))
-            FocusMetric(stringResource(R.string.clinical_report_variability), summary.variability, "%", Modifier.weight(1f))
+        .testTag("clinical_report_summary_${summary.days}").padding(vertical = if (compact) Spacing.xs else Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(if (compact) Spacing.xs else Spacing.sm)) {
+        val metrics = listOf(
+            Triple(stringResource(R.string.clinical_report_in_range), summary.inRange, "%"),
+            Triple(stringResource(if (compact) R.string.ai_focus_mean_short else R.string.clinical_report_mean),
+                summary.meanGlucose, stringResource(R.string.ai_focus_mmol)),
+            Triple(if (compact) "CV" else stringResource(R.string.clinical_report_variability), summary.variability, "%")
+        )
+        if (compact && LocalDensity.current.fontScale > 1.6f) {
+            Column(Modifier.fillMaxWidth().testTag("ai_focus_large_metrics"), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                metrics.forEach { (label, value, unit) -> FocusMetric(label, value, unit, Modifier.fillMaxWidth()) }
+            }
+        } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            metrics.forEach { (label, value, unit) -> FocusMetric(label, value, unit, Modifier.weight(1f)) }
         }
         val values = listOf(summary.belowRange, summary.inRange, summary.aboveRange)
         if (values.all { it != null && it.isFinite() && it in 0.0..100.0 } &&
@@ -157,13 +144,13 @@ internal fun AiFocusMetricSummary(summary: ClinicalPeriodSummaryUi, onDetails: (
         Text(stringResource(R.string.ai_focus_coverage,
             summary.coveragePct?.let { ClinicalReportFormatter.formatNumber(it, 1, locale) } ?: "--"),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(stringResource(R.string.ai_focus_report_details), style = MaterialTheme.typography.labelMedium,
+        if (showDetailsHint) Text(stringResource(R.string.ai_focus_report_details), style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary)
     }
 }
 
 @Composable
-private fun RowScope.FocusMetric(label: String, value: Double?, unit: String, modifier: Modifier) {
+private fun FocusMetric(label: String, value: Double?, unit: String, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
@@ -176,7 +163,7 @@ private fun RowScope.FocusMetric(label: String, value: Double?, unit: String, mo
 @Composable
 private fun AiFocusRecommendations(state: AiAnalysisUiState, discuss: (String) -> Unit) {
     val latest = state.historyItems.filter { it.isUsableSavedReview() }.maxByOrNull { it.runTs }
-    val clinical = state.clinicalReport.complete
+    val clinical = state.clinicalReport.complete ?: state.clinicalDisplay?.complete
     var showOther by rememberSaveable { mutableStateOf(false) }
     val hasOther = state.localRecommendations.isNotEmpty() || !latest?.recommendations.isNullOrEmpty() ||
         !clinical?.recommendations.isNullOrEmpty()

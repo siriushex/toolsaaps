@@ -1,5 +1,19 @@
 # PLAN
 
+## Focus+ Android Display (2026-10-17)
+
+- [x] Observe initial behavioral REDs for duplicate owl, composer and route work.
+- [x] Implement global AI owl menu, six-tool composer and retained display state.
+- [x] Add local-only 05:00/catch-up worker and bounded transactional projection.
+- [x] Room/native/schedule/PDF/consent regressions and native raster inspection.
+- [x] Full6130-test execution:6123passed/six skipped; one merged-tree UI finder
+  corrected. Final121 affected tests pass, including all50 native workspace tests.
+- [x] Final Android lint/compile/build:zero errors/new issues, baseline376
+  warnings/eight hints. App source/test inputs remained fixed during the gate.
+- Reviewed source publication/exact-head CI and intended-phone USB acceptance
+  are separate post-commit gates recorded in the stage receipt, not assumed here.
+- No server daily-model activation or therapy authority. See AI_FOCUS_PLUS.md.
+
 ## Meal Preparation And Automatic GI (2026-10-17)
 
 - [x] Trace historical GI display/preview and separate timing research; identify

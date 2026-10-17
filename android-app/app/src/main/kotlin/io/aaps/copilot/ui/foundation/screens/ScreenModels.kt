@@ -1181,6 +1181,13 @@ data class ClinicalReportUiState(
     val pdfExportTicket: ClinicalPdfExportTicketUi? = null
 )
 
+data class ClinicalDisplayUi(
+    val generatedAtTs: Long,
+    val zoneId: String,
+    val summaries: List<ClinicalPeriodSummaryUi>,
+    val complete: ClinicalCompleteReportUi? = null
+)
+
 data class AiAnalysisUiState(
     val loadState: ScreenLoadState,
     val isStale: Boolean,
@@ -1220,7 +1227,10 @@ data class AiAnalysisUiState(
     val chatVoiceBusy: Boolean = false,
     val chatSpeaking: Boolean = false,
     val chatTextOnly: Boolean = false,
-    val clinicalReport: ClinicalReportUiState = ClinicalReportUiState()
+    val clinicalReport: ClinicalReportUiState = ClinicalReportUiState(),
+    val clinicalDisplay: ClinicalDisplayUi? = null,
+    val clinicalDisplayRefreshing: Boolean = false,
+    val clinicalDisplayFailed: Boolean = false
 )
 
 data class CircadianReplayMetricUi(

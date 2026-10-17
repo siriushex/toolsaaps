@@ -82,7 +82,8 @@ internal fun OwlMenuButton(
     visitGesture: OwlGesture,
     expanded: Boolean,
     waiting: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    label: String? = null
 ) {
     val motionAllowed = LocalCopilotMotionEnabled.current
     var motion by rememberSaveable(stateSaver = headerMotionSaver) {
@@ -94,14 +95,14 @@ internal fun OwlMenuButton(
         motion = motion.next(navigationKey, visitGesture, expanded, waiting, motionAllowed)
         if (closing) focus.requestFocus()
     }
-    val label = stringResource(if (expanded) R.string.menu_close else R.string.menu_open)
+    val actionLabel = label ?: stringResource(if (expanded) R.string.menu_close else R.string.menu_open)
     val disclosure = stringResource(if (expanded) R.string.menu_state_expanded else R.string.menu_state_collapsed)
     val state = if (waiting) "$disclosure. ${stringResource(R.string.owl_ai_waiting)}" else disclosure
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        tooltip = { PlainTooltip { Text(actionLabel) } }, state = rememberTooltipState()) {
         NativeIconButton(onClick, Modifier.size(48.dp).focusRequester(focus)
             .testTag("owlMenuAction").semantics {
-                contentDescription = label
+                contentDescription = actionLabel
                 stateDescription = state
                 if (waiting) progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
             }) {

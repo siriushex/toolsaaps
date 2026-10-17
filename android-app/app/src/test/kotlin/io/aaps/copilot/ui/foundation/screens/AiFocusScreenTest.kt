@@ -44,6 +44,91 @@ class AiFocusScreenTest {
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var root: View
 
+    @Test fun focusPlusHasNoInnerOwlDuplicatingTheAppHeader() = screen(ready()) {
+        compose.onNodeWithTag("ai_focus_owl").assertDoesNotExist()
+        compose.onNodeWithTag("ai_focus_diagnostics").assertDoesNotExist()
+    }
+
+    @Config(qualifiers = "w320dp-h640dp-port")
+    @Test fun voiceRepliesShareTheSixToolComposerRow() = screen(ready().copy(chatVoiceRepliesEnabled = true)) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        val voice = compose.onNodeWithTag("ai_focus_voice_replies")
+        voice.assertIsOn()
+        val controls = listOf("ai_focus_attach_photo", "ai_focus_attach_file", "ai_focus_record",
+            "ai_focus_questions", "ai_focus_voice_replies", "ai_focus_send").map { compose.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
+        controls.forEach {
+            assertEquals(controls.last().top, it.top, 0.1f)
+            assertTrue(it.width >= 48f && it.height >= 48f && it.left >= 0f && it.right <= root.width)
+        }
+    }
+
+    @Config(qualifiers = "ru-w320dp-h640dp-port")
+    @Test fun savedDisplayFitsSmallScreenAndDoesNotRestoreLiveReportActions() = screen(ready().copy(
+        clinicalDisplay = savedDisplay()
+    )) {
+        compose.onNodeWithTag("ai_focus_saved_date").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_observation_2").assertIsDisplayed()
+        compose.onNodeWithTag("clinical_report_prepare").assertDoesNotExist()
+        compose.onNodeWithTag("clinical_report_send").assertDoesNotExist()
+        saveRaster("focus-plus-saved-ru-small")
+        compose.onNodeWithTag("ai_focus_report_actions").performClick()
+        compose.onNodeWithTag("clinical_report_prepare").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun retainedDisplaySurvivesFailureAndRefreshAndDiscussionOnlyAddsDraft() {
+        var state by mutableStateOf(ready().copy(clinicalDisplay = savedDisplay(), chatDraft = "Existing draft"))
+        var sends = 0
+        screenContent({ state }, onDraft = { state = state.copy(chatDraft = it) }, onSend = { sends++ }) {
+            compose.onNodeWithTag("ai_focus_saved_period_menu").performClick()
+            compose.onNodeWithTag("ai_focus_saved_period_30").performClick()
+            compose.runOnIdle { state = state.copy(clinicalDisplayRefreshing = true) }
+            compose.onNodeWithTag("ai_focus_saved_date").assertExists()
+            compose.onNodeWithTag("ai_focus_display_refreshing").assertExists()
+            compose.runOnIdle { state = state.copy(clinicalDisplayRefreshing = false, clinicalDisplayFailed = true) }
+            compose.onNodeWithTag("ai_focus_saved_date").assertExists()
+            compose.onNodeWithTag("ai_focus_display_retry").assertExists()
+            compose.onNodeWithTag("ai_focus_observation_0").performClick()
+            compose.onNodeWithTag("ai_focus_observation_discuss").performClick()
+            compose.onNodeWithTag("ai_focus_composer").assertTextContains("Existing draft", substring = true)
+            assertTrue(state.chatDraft.contains("Asia/Tbilisi"))
+            assertTrue(state.chatDraft.contains(root.context.getString(io.aaps.copilot.R.string.ai_focus_period_days, 30)))
+            assertEquals(0, sends)
+        }
+    }
+
+    @Config(qualifiers = "ru-w320dp-h640dp-port")
+    @Test fun retainedDisplayLargeFontAndShortHeightKeepDetailsReachable() = screenContent(
+        { ready().copy(clinicalDisplay = savedDisplay()) }, fontScale = 1.8f
+    ) {
+        compose.onNodeWithTag("ai_focus_large_metrics", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("ai_focus_report_actions").performScrollTo().assertIsDisplayed()
+        saveRaster("focus-plus-saved-ru-large")
+    }
+
+    @Config(qualifiers = "ru-w320dp-h480dp-port")
+    @Test fun compactSavedDisplayKeepsAllThreeObservationsAndActionsWithinShortHeight() = screen(ready().copy(
+        clinicalDisplay = savedDisplay()
+    )) {
+        compose.onNodeWithTag("ai_focus_observation_2").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_report_actions").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_saved_period_menu").performClick()
+        compose.onNodeWithTag("ai_focus_saved_period_30").performClick()
+        compose.onNodeWithTag("clinical_report_summary_30").assertIsDisplayed()
+        compose.onNodeWithText("30 дн. · Локальная сводка").assertIsDisplayed()
+        saveRaster("focus-plus-saved-ru-short")
+    }
+
+    @Test fun cachedReportKeepsUnknownRemoteOutcomeVisibleWithoutReplacingItsRetryGuard() = screen(ready().copy(
+        clinicalDisplay = savedDisplay(), clinicalReport = ClinicalReportUiState(
+            phase = ClinicalReportPhaseUi.UNKNOWN_OUTCOME, failure = ClinicalReportFailureUi.UNKNOWN_REMOTE_OUTCOME,
+            canRequestGuardedRetry = true)
+    )) {
+        compose.onNodeWithTag("ai_focus_saved_date").assertExists()
+        compose.onNodeWithTag("ai_focus_display_retry").assertDoesNotExist()
+        compose.onNodeWithTag("ai_focus_last_request_failure").performScrollTo().performClick()
+        compose.onNodeWithTag("clinical_report_section").assertExists()
+    }
+
     @Config(qualifiers = "ru-w320dp-h640dp-port")
     @Test fun nightlyAdviceHasNativePixelsOnASmallRussianScreen() = screen(ready().copy(nightlyAdvice = advice())) {
         compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
@@ -281,7 +366,8 @@ class AiFocusScreenTest {
             failure = AiChatFailureUi.UNKNOWN_OUTCOME))
     )) {
         compose.onNodeWithTag("ai_focus_tab_chat").performClick()
-        compose.onNodeWithText("Текстовый чат").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_voice_replies").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Текстовый чат").assertExists()
         compose.onNodeWithText("Ответ не получен").assertIsDisplayed()
         compose.onNodeWithText("Private diagnostics").assertDoesNotExist()
         compose.onNodeWithTag("ai_focus_composer").assertIsDisplayed()
@@ -417,8 +503,9 @@ class AiFocusScreenTest {
         }
     }
 
-    @Test fun diagnosticsRemainReachableAndDoNotSendOrPrepareOnOpen() = screen(ready()) {
-        compose.onNodeWithTag("ai_focus_diagnostics").performClick()
+    @Test fun externallyOpenedDiagnosticsDoNotSendOrPrepareAndTabsReturnToWorkspace() = screenContent(
+        { ready() }, initialDiagnostics = true
+    ) {
         compose.onNodeWithTag("ai_focus_diagnostics_content").assertExists()
         compose.onNodeWithTag("ai_focus_tab_chat").performClick()
         compose.onNodeWithTag("ai_focus_diagnostics_content").assertDoesNotExist()
@@ -456,8 +543,9 @@ class AiFocusScreenTest {
     @Test fun reportBusyStateRemainsIndeterminateWhenMotionIsDisabled() = screen(ready().copy(
         clinicalReport = ClinicalReportUiState(phase = ClinicalReportPhaseUi.BUILDING)
     )) {
-        compose.onNodeWithTag("ai_focus_owl").assert(SemanticsMatcher.expectValue(
-            SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate))
+        compose.onNodeWithTag("ai_focus_owl").assertDoesNotExist()
+        compose.onAllNodes(SemanticsMatcher.expectValue(
+            SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate)).assertCountEquals(1)
     }
 
     @Test fun reportPeriodAndDiagnosticValuesRemainAvailable() = screen(ready().copy(
@@ -564,6 +652,9 @@ class AiFocusScreenTest {
         }
     }
 
+    private fun savedDisplay() = ClinicalDisplayUi(1_792_198_800_000, "Asia/Tbilisi",
+        listOf(summary(1), summary(7), summary(30)))
+
     private fun summary(days: Int) = ClinicalPeriodSummaryUi(days, 96.5, .965f,
         7.2, 6.8, 31.4, 2.1, 78.6, 19.3, 42.5, 315.0, 15,
         ClinicalLocalDataQualityUi.GOOD, aapsCarbs = 99.0)
@@ -587,17 +678,20 @@ class AiFocusScreenTest {
         onDraft: (String) -> Unit = {}, onSend: (String) -> Unit = {},
         onRemove: (String) -> Unit = {},
         onClinicalSend: (ClinicalReportDisclosureUi) -> Unit = {}, fontScale: Float = 1f,
+        initialDiagnostics: Boolean = false,
         test: () -> Unit
     ) {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         root = controller.get().window.decorView
         try {
             controller.get().setContent {
+                var diagnostics by androidx.compose.runtime.remember { mutableStateOf(initialDiagnostics) }
                 val density = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                     AapsCopilotTheme(darkTheme = false, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                         ProvideCopilotMotion(false) {
                             AiAnalysisScreen(state(), onChatDraftChange = onDraft, onSendChatPrompt = onSend,
+                                diagnosticsVisible = diagnostics, onDismissDiagnostics = { diagnostics = false },
                                 onRemoveChatAttachment = onRemove,
                                 onSendClinicalReport = onClinicalSend,
                                 onPrepareClinicalReport = { error("unexpected preparation") },

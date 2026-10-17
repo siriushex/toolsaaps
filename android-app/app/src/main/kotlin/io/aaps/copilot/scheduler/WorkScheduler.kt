@@ -23,6 +23,24 @@ object WorkScheduler {
 
     internal const val SYNC_PERIODIC_INTERVAL_MINUTES = 15L
 
+    internal fun clinicalDisplayRequest(now: ZonedDateTime) =
+        PeriodicWorkRequestBuilder<ClinicalDisplayWorker>(1, TimeUnit.DAYS)
+            .setNextScheduleTimeOverride(NightlyAdviceSchedule.next(now).toInstant().toEpochMilli())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
+
+    fun scheduleClinicalDisplay(context: Context, now: ZonedDateTime = ZonedDateTime.now()) {
+        val manager = WorkManager.getInstance(context)
+        manager.enqueueUniquePeriodicWork("clinical_display_daily", ExistingPeriodicWorkPolicy.UPDATE, clinicalDisplayRequest(now))
+        manager.enqueueUniqueWork("clinical_display_catchup", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<ClinicalDisplayWorker>()
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build())
+    }
+
+    internal suspend fun rescheduleClinicalDisplay(context: Context) {
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork("clinical_display_daily",
+            ExistingPeriodicWorkPolicy.UPDATE, clinicalDisplayRequest(ZonedDateTime.now())).await()
+    }
+
     internal fun nightlyAdviceRequest(now: ZonedDateTime) =
         PeriodicWorkRequestBuilder<NightlyAdviceWorker>(1, TimeUnit.DAYS)
             .setNextScheduleTimeOverride(NightlyAdviceSchedule.next(now).toInstant().toEpochMilli())

@@ -6,14 +6,14 @@ import org.junit.Test
 class ClinicalReportRoutePreparationPolicyTest {
 
     @Test
-    fun rapidOverviewClicksDoNotPrepareUntilFirstAiAnalysisRouteTransition() {
+    fun rapidOverviewClicksRefreshReadModelsOnlyOnFirstAiAnalysisRouteTransition() {
         var activeRoute = "overview"
         var preparationCount = 0
         val rapidClickDestinations = List(3) { "ai_analysis" }
 
         rapidClickDestinations.forEach {
             if (
-                MainViewModel.shouldPrepareClinicalReportOnRouteTransition(
+                MainViewModel.shouldRefreshAiReadModelsOnRouteTransition(
                     currentRoute = activeRoute,
                     nextRoute = activeRoute
                 )
@@ -25,7 +25,7 @@ class ClinicalReportRoutePreparationPolicyTest {
 
         listOf(rapidClickDestinations.last(), "ai_analysis", "ai_analysis").forEach { observedRoute ->
             if (
-                MainViewModel.shouldPrepareClinicalReportOnRouteTransition(
+                MainViewModel.shouldRefreshAiReadModelsOnRouteTransition(
                     currentRoute = activeRoute,
                     nextRoute = observedRoute
                 )
@@ -39,15 +39,15 @@ class ClinicalReportRoutePreparationPolicyTest {
     }
 
     @Test
-    fun directDrawerTransitionAlsoPreparesOnceAndSameRouteDoesNotRepeat() {
+    fun directDrawerTransitionRefreshesReadModelsOnceAndSameRouteDoesNotRepeat() {
         assertThat(
-            MainViewModel.shouldPrepareClinicalReportOnRouteTransition(
+            MainViewModel.shouldRefreshAiReadModelsOnRouteTransition(
                 currentRoute = "forecast",
                 nextRoute = "ai_analysis"
             )
         ).isTrue()
         assertThat(
-            MainViewModel.shouldPrepareClinicalReportOnRouteTransition(
+            MainViewModel.shouldRefreshAiReadModelsOnRouteTransition(
                 currentRoute = "ai_analysis",
                 nextRoute = "ai_analysis"
             )
@@ -55,10 +55,10 @@ class ClinicalReportRoutePreparationPolicyTest {
     }
 
     @Test
-    fun transitionsToOtherRoutesNeverPrepareClinicalReport() {
+    fun transitionsToOtherRoutesNeverRefreshAiReadModels() {
         listOf("overview", "forecast", "analytics", "settings").forEach { nextRoute ->
             assertThat(
-                MainViewModel.shouldPrepareClinicalReportOnRouteTransition(
+                MainViewModel.shouldRefreshAiReadModelsOnRouteTransition(
                     currentRoute = "overview",
                     nextRoute = nextRoute
                 )

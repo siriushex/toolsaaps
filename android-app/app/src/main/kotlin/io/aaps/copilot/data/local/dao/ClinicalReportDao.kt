@@ -110,6 +110,11 @@ interface ClinicalReportDao {
     @Query("SELECT * FROM clinical_reports ORDER BY createdAt DESC, requestId DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<ClinicalReportEntity>>
 
+    @Query("SELECT * FROM clinical_reports WHERE status IN ('LOCAL_READY', 'COMPLETE') " +
+        "AND length(localSummaryJson) <= 262144 " +
+        "ORDER BY requestedThroughTs DESC, createdAt DESC LIMIT 8")
+    fun observeSuccessfulForDisplay(): Flow<List<ClinicalReportEntity>>
+
     @Query(
         "UPDATE clinical_reports SET requestedFromTs = 0, requestedThroughTs = 0, " +
             "requestHash = '', coverageJson = '{}', localSummaryJson = '{}', " +

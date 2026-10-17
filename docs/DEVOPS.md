@@ -255,6 +255,12 @@ medical-data/model/phone/therapy activation. See DAILY_REVIEW_RESULTS.md.
 
 ## Focus UI Source Stage (2026-10-16)
 
+Focus+ (2026-10-17) adds two fixed Room telemetry projections and an independent
+local 05:00 WorkManager task, with no schema migration or server activation.
+Old successful display survives an unsuccessful refresh; no remote request is
+replayed. Keep package/signing identity, do not disable/clear Copilot for backup.
+See AI_FOCUS_PLUS.md; build/CI and intended-phone acceptance remain separate.
+
 Native navigation/presentation only; no database/config/provider migration.
 Source approval/build and synthetic native rasters are not intended-phone
 installation or real provider acceptance. Keep existing package/signing identity

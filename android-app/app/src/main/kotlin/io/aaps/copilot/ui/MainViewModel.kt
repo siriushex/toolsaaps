@@ -4568,6 +4568,11 @@ class MainViewModel(application: Application) :
                 )
             )
         }
+        .combine(combine(container.clinicalDisplayRepository.snapshots,
+            container.clinicalDisplayRepository.refreshing, container.clinicalDisplayRepository.failed) { snapshot, refreshing, failed ->
+            Triple(io.aaps.copilot.ui.foundation.screens.mapClinicalDisplay(snapshot), refreshing, failed)
+        }) { state, display -> state.copy(clinicalDisplay = display.first,
+            clinicalDisplayRefreshing = display.second, clinicalDisplayFailed = display.third) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -4950,10 +4955,8 @@ class MainViewModel(application: Application) :
             ensureCircadianAnalyticsHealthyAsync(reasonHint = "route:$normalized")
             refreshCircadianReplaySummaryAsync(force = false)
         }
-        if (normalized == ROUTE_AI_ANALYSIS) {
-            if (shouldPrepareClinicalReportOnRouteTransition(previousRoute, normalized)) {
-                prepareClinicalReport()
-            }
+        if (shouldRefreshAiReadModelsOnRouteTransition(previousRoute, normalized)) {
+            container.clinicalDisplayRepository.initialize(viewModelScope)
             refreshCloudJobs(silent = true)
             refreshAnalysisInsights(silent = true)
             maybeGenerateLocalDailyAnalysis(silent = true)
@@ -4963,6 +4966,12 @@ class MainViewModel(application: Application) :
     fun prepareClinicalReport() {
         viewModelScope.launch {
             clinicalReportCommands.prepare()
+        }
+    }
+
+    fun retryClinicalDisplay() {
+        viewModelScope.launch {
+            container.clinicalDisplayRepository.refreshIfDue(System.currentTimeMillis(), ZoneId.systemDefault(), force = true)
         }
     }
 
@@ -11755,7 +11764,7 @@ class MainViewModel(application: Application) :
             return value.toString()
         }
 
-        internal fun shouldPrepareClinicalReportOnRouteTransition(
+        internal fun shouldRefreshAiReadModelsOnRouteTransition(
             currentRoute: String,
             nextRoute: String
         ): Boolean = currentRoute != nextRoute && nextRoute == ROUTE_AI_ANALYSIS

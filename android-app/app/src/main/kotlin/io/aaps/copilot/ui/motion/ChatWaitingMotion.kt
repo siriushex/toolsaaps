@@ -46,7 +46,8 @@ internal object ChatWaitingMotion {
 
 /** A finite acknowledgement of real work, never a timer-based progress estimate. */
 @Composable
-internal fun AiChatWaitingIndicator(requestKey: String, modifier: Modifier = Modifier, frameClock: State<Long>? = null) {
+internal fun AiChatWaitingIndicator(requestKey: String, modifier: Modifier = Modifier, frameClock: State<Long>? = null,
+    showOwl: Boolean = true) {
     val label = stringResource(R.string.ai_chat_waiting)
     val enabled = LocalCopilotMotionEnabled.current
     val clock = frameClock ?: rememberFiniteMotionClock(ChatWaitingMotion.durationMs, requestKey, true)
@@ -56,7 +57,8 @@ internal fun AiChatWaitingIndicator(requestKey: String, modifier: Modifier = Mod
         .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(8.dp))
         .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        CopilotOwl(size = 48.dp, poseOverride = { if (enabled) ChatWaitingMotion.pose(clock.value) else OwlPose() })
+        if (showOwl) CopilotOwl(size = 48.dp,
+            poseOverride = { if (enabled) ChatWaitingMotion.pose(clock.value) else OwlPose() })
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(label, modifier = Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.bodyMedium)
             Canvas(Modifier.size(width = 36.dp, height = 8.dp)) {

@@ -13042,3 +13042,29 @@
 - Final source publication and exact-head CI remain pending. No phone, server,
   medical payload or therapy operation has been performed in this stage.
 - Details and primary-source boundaries: docs/MEAL_PREPARATION_GI.md.
+
+## Changes - Focus+ Android Display (2026-10-17)
+
+- User selected 01 Focus+ and requested enabling it. Three initial behavioral
+  assertions failed before production edits. A later focused run exposed the
+  expected clock-rollback cache defect and three obsolete inner-header checks;
+  failure evidence was retained before corrections.
+- Global AI owl now owns diagnostics/menu/settings; voice replies join the six
+  pinned composer tools. Display-only dated report and observation discussion
+  are separate from existing preparation, disclosure, PDF and guarded retry.
+- Local-only WorkManager uses 05:00/catch-up, bounded Room aggregate projection,
+  atomic claim/commit, process/clock/zone/late-result controls and explicit retry.
+  It cannot restore consent or issue a provider/therapy command. Actual typed
+  AI results keep real source metadata; local summaries are not AI-labelled.
+- Full unit execution ran6130:6123passed, six existing skips and one UI finder
+  failure. The nested large-font layout existed in the unmerged semantics tree;
+  corrected the finder and added selected-period discussion provenance.
+- Final121 affected tests pass, including all50 native workspace cases. Inspected
+  short-height/large-font/chat native rasters; no second waiting owl or broken
+  long metric labels. The ordinary report retains its source and visible period.
+- Final lint/assemble/test command exits0:zero lint errors/new issues,376 existing
+  warnings/eight hints. Source/test hashes stayed unchanged during this gate;
+  package/signing identity verified. The earlier mutable-input lint run is not
+  admitted, and no warning baseline/suppression was added.
+- Publication/exact-head CI and intended-phone USB acceptance are separate
+  post-commit checks. No new server or therapy activation. See AI_FOCUS_PLUS.md.

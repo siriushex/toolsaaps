@@ -308,6 +308,15 @@
 
 ## Focus AI Presentation
 
+- Focus+ display projection cannot restore a prepared payload, consent, PDF
+  source lease, retry or therapeutic authority. The live two-minute TTL stays.
+- Local 05:00/catch-up reserves at most one automatic current slot. Failed,
+  cancelled, late or clock-regressed work cannot replace a successful display.
+- Only two fixed aggregate display rows survive ordinary rolling cleanup;
+  they are excluded from the numeric-only server history stream.
+- One header owl, six accessible composer tools; TEXT capability does not
+  prevent stopping an already active recording.
+
 - Daily analytics loading/failure must not hide usable chat or local report.
 - A tab visit does not submit, refresh, reprepare or retry an AI job. Discuss
   appends to the unsent draft; sending and disclosure remain explicit actions.

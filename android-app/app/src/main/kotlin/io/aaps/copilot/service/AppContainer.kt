@@ -655,6 +655,10 @@ class AppContainer(context: Context) {
         },
         gson = gson
     )
+    internal val clinicalDisplayRepository by lazy {
+        io.aaps.copilot.data.repository.ClinicalDisplayRepository(db, gson,
+            ClinicalReportDatasetFactory(clinicalReportDatasetBuilder::build))
+    }
     val clinicalReportRepository = ClinicalReportRepository(
         datasetFactory = ClinicalReportDatasetFactory(clinicalReportDatasetBuilder::build),
         configSource = ClinicalAiConfigSource {
@@ -1571,6 +1575,7 @@ class AppContainer(context: Context) {
             )
         }
         clinicalReportRepository.initialize()
+        clinicalDisplayRepository.initialize(appScope)
         telegramDeliveryController.start(appScope)
 
         appScope.launch {
