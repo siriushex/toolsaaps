@@ -31,6 +31,13 @@
 - Reviewed source/exact-head publication gates are recorded separately in the
   PR receipt. No server config/service, real history/model call, phone,
   alarm, target, ISF/CR/DIA or dose operation. See DAILY_FACTS_SCHEDULE.md.
+- First exact-head Linux CI exposed a synthetic fixture error: selecting the
+  first database directory entry can select the destination device itself.
+  Bind that fixture to the exact owner/key path and cover both creation orders;
+  production source is unchanged. Final portable-input local backend run:
+  1722passed/27existing skips, one dependency warning,84.67seconds. Both input
+  manifests match; the revised test passes full Ruff. Final exact-head CI is
+  separate from the earlier failed run and remains a PR receipt gate.
 
 # Android Retained Server Audit - 2026-10-17
 

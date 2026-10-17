@@ -11,7 +11,7 @@ quota, clock, source-limit and retained-history boundaries. Analytical ranges
 are frozen before work. Recomputed facts cannot enqueue/retry a model or update
 clinical parameters; no new listener, credentials or real data are introduced.
 Settings survival across365-day medical purge does not re-age report retention.
-The full1721-case local backend gate passed,27existing skips, with matching
+The full1722-case portable local backend gate passed,27existing skips, with matching
 before/after inputs. Exact-head publication and later host admission stay separate.
 
 ## Android Daily Audit Reads

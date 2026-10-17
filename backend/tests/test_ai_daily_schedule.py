@@ -12,6 +12,7 @@ from test_ai_history_contract import body
 from test_ai_history_store import KEY, OTHER, OWNER, store
 
 from app.ai.history_contract import RETENTION_MS, HistoryError
+from app.ai.history_store import HistoryStore
 
 AT_FIVE = END + 300 * MINUTE
 
@@ -43,7 +44,7 @@ def run(value, **changes):
 
 
 def path(tmp_path):
-    return next((tmp_path / "history").glob("*.sqlite"))
+    return tmp_path / "history" / (HistoryStore._identity(OWNER, KEY) + ".sqlite")
 
 
 def test_missing_schedule_is_disabled_without_creating_or_migrating(tmp_path):
@@ -411,17 +412,25 @@ def test_source_budget_failure_keeps_optin_and_no_partial_report(tmp_path, monke
     assert value.get_daily_facts_schedule(OWNER, KEY, now_ms=AT_FIVE) == saved
 
 
-def test_foreign_device_schedule_ciphertext_cannot_grant_optin(tmp_path):
+@pytest.mark.parametrize("foreign_first", [False, True])
+def test_foreign_device_schedule_ciphertext_cannot_grant_optin(tmp_path, foreign_first):
     value = store(tmp_path)
+
+    def configure_foreign():
+        value.set_daily_facts_schedule(
+            OWNER,
+            OTHER,
+            enabled=False,
+            zone_id="UTC",
+            now_ms=NOW,
+            expected_generation=0,
+        )
+
+    if foreign_first:
+        configure_foreign()
     configure(value)
-    value.set_daily_facts_schedule(
-        OWNER,
-        OTHER,
-        enabled=False,
-        zone_id="UTC",
-        now_ms=NOW,
-        expected_generation=0,
-    )
+    if not foreign_first:
+        configure_foreign()
     with sqlite3.connect(path(tmp_path)) as db:
         row = db.execute("SELECT nonce,ciphertext FROM daily_facts_schedule").fetchone()
     other = tmp_path / "history" / (value._identity(OWNER, OTHER) + ".sqlite")

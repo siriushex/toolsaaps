@@ -8,8 +8,9 @@
 - [x] Implement atomic generation-CAS settings, schema6 and one-shot producer.
 - [x] Independent mutable-range RED reproduced and fixed by validated freeze.
 - [x] Initial expanded272-case source/report/history/queue/result gate passed.
-- [x] Final40 new schedule cases and77 affected schedule/report cases passed.
-- [x] Complete backend:1721passed/27existing skips, no failures; scoped lint and
+- [x] Final41 new schedule cases included in full backend; prior77 affected
+  schedule/report cases passed. Linux first CI's fixture path ordering fixed.
+- [x] Complete portable backend:1722passed/27existing skips, no failures; scoped lint and
   compilation passed. New files full Ruff clean; three existing unrelated
   import-order notices retained in older modules. Final input manifests match.
 - [ ] Reviewed source publication and exact-head Verify, separate PR receipt.

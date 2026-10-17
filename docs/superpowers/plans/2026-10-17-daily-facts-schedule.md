@@ -39,7 +39,7 @@ Files: `backend/app/ai/daily_schedule.py`, `history_store.py`, `daily_reports.py
 
 - [x] Exercise concurrent calls/disable, corruption, quota and interrupted writes; no partial schedule/report adoption. Independent range-freeze and legacy retry regressions reproduced before fixes.
 - [x] Run focused schedule/report/source/history/queue/result suites, scoped Ruff and Python compilation. Initial272 affected cases, final77 schedule/report cases; three unrelated legacy import-order notices retained.
-- [x] Run complete backend suite on final reviewed inputs:1721passed/27existing skips, one existing dependency warning; before/after manifests identical. Unrelated Android sources remain unchanged.
+- [x] Run complete backend suite on final reviewed portable inputs:1722passed/27existing skips, one existing dependency warning; before/after manifests identical. Linux CI first exposed a fixture directory-order dependency, now replaced with exact owner/device selection and both creation orders. Unrelated Android sources remain unchanged.
 - [x] Update `AI_NOTES.md`, architecture/invariants/plan/devops/security and `OPEN_FEATURES.md` with exact source-versus-deployment boundaries.
 - [ ] Review explicit paths, fetch/check divergence, commit/push current branch and inspect exact-head Verify. No deployment/phone/model operations are included.
 
