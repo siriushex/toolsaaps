@@ -72,6 +72,14 @@ or populated decoder units before binding its protected0660 socket. Reload may
 change independently admitted public images/egress, not private identities/policy.
 Imports, construction and --help perform no deployment or inference.
 
+An operator may supply --text-admission with the existing protected text-host
+descriptor. Each load still reads the separate vision descriptor, then adopts
+only the text source's public image and official egress. Model, API peer and
+original profile/control/cgroup bindings must match; the image listener and
+offline decoder remain independent. No missing-source fallback or credential
+copy occurs. This supports the existing public admission refresher without
+editing its policy or letting an HTTP request select a source.
+
 ## Checks And Deployment
 
 Synthetic tests cover signed API composition, actual local socket/child byte
@@ -92,3 +100,17 @@ tokens into the API/decoder or enable capabilities by editing nginx responses.
 Rollback drains only owned services/exact invocations, retains uncertain claims,
 profile and encrypted state, and restores only the owned proxy mapping. It must
 not initialize over existing private state, reset a ledger or alter AAPS/therapy.
+
+## Owner Rollout (2026-10-17)
+
+With explicit approval, the separate image host was admitted against current
+public pins, existing exact-model catalog and original guard. Actual isolated
+decoder normalization/stop passed; exactly one synthetic food request returned
+a typed four-ingredient estimate with confirmed native stop and idle guard.
+After an initial failed proxy assertion, both owned config hashes were confirmed
+restored and API/text active. Config-only activation then passed with bounded
+reload propagation checks, sustained idle before API restart, photo-only 3 MiB
+and unchanged text 128 KiB limits. Other owner configuration was unchanged.
+External HTTPS authentication refusal and enabled active image service were
+checked. No real patient image, nutrition-accuracy validation, phone installation,
+credential copy, ledger reset or therapy change is implied.

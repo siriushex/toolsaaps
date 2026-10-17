@@ -41,6 +41,90 @@ def test_configuration_keeps_decoder_identity_disjoint_from_api_and_profile(imag
             module.VisionHostConfiguration.decode(json.dumps(value).encode())
 
 
+def admission_reader(monkeypatch, image, change=None):
+    module = component()
+    value = settings(image)
+    original = module.VisionHostConfiguration.decode(json.dumps(value).encode())
+    source = configuration(image)
+    if change is not None:
+        change(source, original)
+    current = module.HostConfiguration.decode(json.dumps(source).encode())
+    vision_path, source_path = Path("/etc/personal-ai/image.json"), Path("/etc/personal-ai/text.json")
+    calls = []
+    def read(path, **kwargs):
+        calls.append(path)
+        assert path in (vision_path, source_path)
+        return original if path == vision_path else current
+    monkeypatch.setattr(module, "read_protected", read)
+    return module, original, current, vision_path, source_path, calls
+
+
+def test_vision_can_follow_verified_public_text_admission_without_changing_identity(image, monkeypatch):
+    def renew(value, original):
+        value["image"]["root"] = "/opt/personal-image/renewed"
+        value["egress"]["admitted_at"] += 100
+        value["egress"]["expires_at"] += 100
+    module, original, current, path, source, calls = admission_reader(monkeypatch, image, renew)
+    value = module.read_configuration(path, admission_source=source)
+    assert calls == [path, source]
+    assert value.fixed_identity() == original.fixed_identity()
+    assert value.decoder_image == original.decoder_image
+    assert value.native.image.root == current.image.root
+    assert value.native.image.root != original.native.image.root
+    assert value.native.egress == current.egress
+    assert value.native.egress != original.native.egress
+    assert type(value.native.image) is module.VisionRuntimeImage
+    assert value.native.socket_path == original.native.socket_path
+
+
+@pytest.mark.parametrize("field", ["model", "api", "profile", "control", "scope"])
+def test_public_admission_cannot_change_private_identity_or_model(image, monkeypatch, field):
+    def change(value, original):
+        if field == "model":
+            value[field] = "another-sample-model"
+        elif field == "api":
+            value[field]["uid"] += 1
+        elif field in {"profile", "control"}:
+            value[field]["inode"] += 1
+        else:
+            value[field]["slice_id"] = "11111111-1111-4111-8111-111111111111"
+    module, _, _, path, source, _ = admission_reader(monkeypatch, image, change)
+    with pytest.raises(module.HostError, match="vision_admission_identity_changed"):
+        module.read_configuration(path, admission_source=source)
+
+
+def test_followed_native_image_cannot_overlap_the_offline_decoder(image, monkeypatch):
+    def change(value, original):
+        value["image"]["root"] = str(original.decoder_image.root)
+    module, _, _, path, source, _ = admission_reader(monkeypatch, image, change)
+    with pytest.raises(module.HostError, match="vision_admission_layout_rejected"):
+        module.read_configuration(path, admission_source=source)
+
+
+def test_no_admission_source_preserves_explicit_fixed_descriptor(image, monkeypatch):
+    module, original, _, path, _, calls = admission_reader(monkeypatch, image)
+    assert module.read_configuration(path) is original
+    assert calls == [path]
+
+
+def test_vision_descriptor_cannot_be_its_own_text_admission(image, monkeypatch):
+    module, _, _, path, _, calls = admission_reader(monkeypatch, image)
+    with pytest.raises(module.HostError, match="vision_admission_identity_changed"):
+        module.read_configuration(path, admission_source=path)
+    assert calls == [path]
+
+
+def test_unreadable_text_admission_cannot_fall_back_to_stale_values(image, monkeypatch):
+    module, original, _, path, source, calls = admission_reader(monkeypatch, image)
+    def read(value, **kwargs):
+        if value == source:
+            raise module.HostError("host_configuration_unavailable")
+        return original
+    monkeypatch.setattr(module, "read_protected", read)
+    with pytest.raises(module.HostError, match="host_configuration_unavailable"):
+        module.read_configuration(path, admission_source=source)
+
+
 def test_host_builds_only_isolated_worker_after_both_image_admissions(image, monkeypatch):
     module = component()
     from app.ai import text_supervisor_host as text_host

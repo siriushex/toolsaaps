@@ -1,5 +1,20 @@
 # Combined Native UI And Food Photo Source
 
+## Restored Connection Follow-through (2026-10-17)
+
+Saved owner credentials no longer require an ACTIVE in-memory status before the
+signed photo capability check. The same existing private-session/refresh/proof
+checks remain authoritative; unfinished activation, real 401/403 and text-only
+servers cannot authorize image upload. This fixes a false not-configured state,
+not operational image admission. Initial live inspection found no vision
+endpoint; native tests or a working text chat cannot prove photo readiness.
+An optional protected text admission source can renew public image/egress for
+the distinct image host without changing the pinned model/private identity.
+The separate owner rollout subsequently passed actual decoder/stop checks and
+one synthetic provider estimate, followed by API/proxy admission. This does not
+validate nutritional accuracy or replace confirmation in the food form. Intended
+phone installation remains unverified while ADB is empty.
+
 ## Included
 
 The integration retains the current owner AI/Room-history source and merges

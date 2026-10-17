@@ -1,5 +1,18 @@
 # ARCHITECTURE
 
+## Restored Food Photo Session
+
+Photo readiness rejects only a known unconfigured connection before the signed
+client reads persistence. SAVED, unloaded and recoverable states reach the same
+credential/refresh/device checks as other signed routes; they are not grants.
+Real authorization refusal, unsupported image capability and transient failure
+remain distinct. This source repair does not admit a vision supervisor.
+
+The privileged image host may follow an explicit protected text admission source
+for public image/egress renewal only. Model, API peer and original profile/guard
+bindings must match the separate vision descriptor. Its image socket and decoder
+stay independent; native image modality and kernel admission are checked as before.
+
 ## Nightly Advice
 
 Advice now has an independent local 3/7/14-day CGM aggregate, fixed latest

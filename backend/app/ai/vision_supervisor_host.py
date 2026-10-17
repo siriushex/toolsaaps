@@ -82,8 +82,25 @@ class VisionHostConfiguration:
         return self.native.fixed_identity(), self.decoder_uid, self.decoder_gid
 
 
-def read_configuration(path):
-    return read_protected(path, decode=VisionHostConfiguration.decode)
+def read_configuration(path, *, admission_source=None):
+    original = read_protected(path, decode=VisionHostConfiguration.decode)
+    if admission_source is None:
+        return original
+    if admission_source == path:
+        raise HostError("vision_admission_identity_changed")
+    current = read_protected(admission_source)
+    # Only public image/egress admission may follow the existing trusted refresher.
+    if current.fixed_identity()[1:] != original.native.fixed_identity()[1:]:
+        raise HostError("vision_admission_identity_changed")
+    source = current.image
+    decoder = original.decoder_image
+    if (source.root == decoder.root or source.root in decoder.root.parents
+            or decoder.root in source.root.parents or source.binary == decoder.binary):
+        raise HostError("vision_admission_layout_rejected")
+    image = VisionRuntimeImage(source.root, source.device, source.inode, source.entries,
+                               source.binary, source.binary_pin)
+    native = replace(current, socket_path=original.native.socket_path, image=image)
+    return replace(original, native=native)
 
 
 def check_decoder_idle():
@@ -118,10 +135,13 @@ def isolated_worker(config, work, clock_ms):
                                             policy, clock_ms=clock_ms))
 
 
-async def serve(path, shutdown, *, ready=None, clock_ms=None):
+async def serve(path, shutdown, *, ready=None, clock_ms=None, admission_source=None):
     _require_host()
     clock = clock_ms if clock_ms is not None else lambda: time.time_ns() // 1_000_000
-    initial = await asyncio.to_thread(read_configuration, path)
+    def load():
+        return (read_configuration(path) if admission_source is None
+                else read_configuration(path, admission_source=admission_source))
+    initial = await asyncio.to_thread(load)
     native = initial.native
     native.egress.check_time()
     await asyncio.to_thread(native.image.verify, VisionSessionPolicy(native.policy.model), native.egress.hosts)
@@ -129,7 +149,7 @@ async def serve(path, shutdown, *, ready=None, clock_ms=None):
     await asyncio.to_thread(native.check_idle)
     await asyncio.to_thread(check_decoder_idle)
     def factory(work):
-        current = read_configuration(path)
+        current = load()
         if current.fixed_identity() != initial.fixed_identity():
             raise HostError("vision_host_identity_changed")
         return isolated_worker(current, work, clock)
@@ -145,13 +165,13 @@ async def serve(path, shutdown, *, ready=None, clock_ms=None):
     return stopped
 
 
-async def _main(path):
+async def _main(path, admission_source=None):
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(name, shutdown.set)
     try:
-        return await serve(path, shutdown)
+        return await serve(path, shutdown, admission_source=admission_source)
     finally:
         for name in (signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(name)
@@ -160,9 +180,10 @@ async def _main(path):
 def main():
     parser = argparse.ArgumentParser(description="Run the trusted local food-image supervisor.")
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--text-admission", type=Path)
     args = parser.parse_args()
     try:
-        return 0 if asyncio.run(_main(args.config)) else 1
+        return 0 if asyncio.run(_main(args.config, args.text_admission)) else 1
     except Exception:
         print("image_host_start_or_stop_unconfirmed", file=sys.stderr)
         return 1

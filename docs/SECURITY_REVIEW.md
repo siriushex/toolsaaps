@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Restored Photo Access (2026-10-17)
+
+The ACTIVE-only UI gate falsely refused an existing saved session. The repair
+does not declare SAVED trusted: signed exchange rereads private persistence,
+checks subscription/refresh/access/device proof and per-route image capability.
+Unfinished activation remains refused and a real 401/403 still requires connection.
+Eight synthetic constructor regressions reached seven expected failures before
+production changes. Full-source verification remains a release gate.
+The optional privileged admission-source path uses the existing protected reader,
+requires identical model/API/private guard identity and preserves the separate
+image socket/decoder. Only public image/egress can change, with the same image
+modality, file pins and process barriers; missing source fails closed.
+Actual vision admission remains a separately authorized operation, not a grant
+from this Android fix. Neither path changes therapy or sends a real user photo.
+
 ## Observation-Only Nightly Advice
 
 Local bounded CGM input and aggregate-only persistence; no remote inference,

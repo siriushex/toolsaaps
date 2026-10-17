@@ -69,21 +69,31 @@ internal class SignedMealPhotoJobs(private val connection: ServerAiConnectionMan
 /** Image-only server path: one immutable submission, no history upload, key fallback or replay. */
 class ServerMealPhotoGateway internal constructor(
     private val jobs: MealPhotoJobs,
-    private val connected: () -> Boolean,
+    private val canCheckConnection: () -> Boolean,
     private val serverTime: () -> Long,
     private val pause: suspend (Long) -> Unit = { delay(it) }
 ) : MealPhotoGateway {
     constructor(connection: ServerAiConnectionManager) : this(
         SignedMealPhotoJobs(connection),
-        { connection.state.value.phase == ServerAiConnectionPhase.ACTIVE },
+        {
+            val state = connection.state.value
+            // Restored or unloaded credentials must reach the signed client's checks.
+            !(state.revision > 0 && state.phase == ServerAiConnectionPhase.DISCONNECTED &&
+                !state.hasStoredSession && !state.canResume)
+        },
         connection::currentServerTimeMs
     )
 
     suspend fun availability(): MealPhotoAvailability {
-        if (!connected()) return MealPhotoAvailability.NEEDS_CONNECTION
+        if (!canCheckConnection()) return MealPhotoAvailability.NEEDS_CONNECTION
         return try {
             if (jobs.ready()) MealPhotoAvailability.READY else MealPhotoAvailability.UNSUPPORTED
         } catch (cancelled: CancellationException) { throw cancelled
+        } catch (failure: ServerAiJobFailure) {
+            when (failure.reason) {
+                ServerAiJobError.UNAUTHORIZED, ServerAiJobError.FORBIDDEN -> MealPhotoAvailability.NEEDS_CONNECTION
+                else -> MealPhotoAvailability.UNAVAILABLE
+            }
         } catch (_: Exception) { MealPhotoAvailability.UNAVAILABLE }
     }
 
@@ -119,7 +129,7 @@ class ServerMealPhotoGateway internal constructor(
                     MealPhotoAvailability.UNSUPPORTED, MealPhotoAvailability.UNAVAILABLE -> fail(MealPhotoAnalysisResult.Failure.Reason.UNAVAILABLE)
                     MealPhotoAvailability.READY -> Unit
                 }
-                if (!connected()) fail(MealPhotoAnalysisResult.Failure.Reason.NOT_CONFIGURED)
+                if (!canCheckConnection()) fail(MealPhotoAnalysisResult.Failure.Reason.NOT_CONFIGURED)
                 val prepared = jobs.prepare(request, Math.addExact(serverTime(), ServerMealPhotoProtocol.MAX_DEADLINE_MS))
                 submission = prepared
                 if (prepared.requestId != request.requestId) throw ServerAiJobFailure(ServerAiJobError.INVALID_REQUEST)

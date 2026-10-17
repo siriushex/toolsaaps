@@ -1,5 +1,23 @@
 # PLAN
 
+## Restored Food Photo Connection (2026-10-17)
+
+- [x] Trace ACTIVE-only photo gate against connection.load restoring SAVED.
+- [x] Eight real-constructor regressions before production fix: 7 expected
+  assertion failures, zero errors; no transport reached for restored sessions.
+- [x] Let signed persistence/auth/refresh checks decide restored access and
+  distinguish actual authorization refusal from unavailable photo service.
+- [x] Targeted 40 tests pass, including signed successful result after restore.
+- [x] Full Android unit suite: 6082 passed, 6 skipped, zero failures/errors.
+- [x] Complete Android test/lint/build: no errors, existing lint baseline.
+- [x] Persistent public admission renewal: scoped 61/full 1628 backend tests pass.
+- [ ] Reviewed source publication and exact-head CI.
+- [x] Explicitly authorized decoder admission/offline stop and one synthetic
+  provider test: typed four-ingredient estimate, confirmed stop/idle guard.
+- [x] Separate image host/API connected after verified owned-config rollback
+  during first probe; auth and photo-only 3 MiB/text 128 KiB barriers checked.
+- [ ] Intended Redmi installation and real UI acceptance; ADB inventory empty.
+
 ## Nightly 3-14 Day Advice (2026-10-17)
 
 - [x] Trace mixed report advice and unanchored therapy-gated daily work.

@@ -1,5 +1,30 @@
 # DEVOPS
 
+## Food Photo Saved-Session Repair (2026-10-17)
+
+Run ServerMealPhotoSessionTest with existing photo gateway/protocol/repository,
+connection, preparation and native review tests, then full Android test/lint/build.
+Check saved/unloaded/expired access, 401, text-only capability, missing session,
+pending activation and credentials removed between readiness and submission.
+Phone installation is a separate `adb install -r` on the intended existing device;
+do not disable, uninstall, clear data or send test food/targets.
+
+Read-only host projection on 2026-10-17 confirms owner descriptor v2 has no vision
+endpoint while API/text are active. This APK repair cannot enable image inference.
+No fake capabilities, text tunnel, copied login profile or replay is permitted.
+Vision rollout requires independently admitted decoder/native/channel and an
+explicit bounded synthetic provider test; preserve owned-config rollback.
+For an existing trusted text refresher, --text-admission may point to its root-
+owned protected descriptor. Only verified public image/egress follows renewal;
+model/private identity remains pinned. Keep the photo POST body allowance local
+to its exact route (3 MiB); existing text body limits must not be widened.
+
+Owner rollout was explicitly authorized and passed one synthetic provider test
+and independent API/proxy checks. Preserve owned config backups; never copy login
+tokens, reset a guard or replay that test. Graceful nginx reload is asynchronous:
+wait for observed drain before checking sustained idle and restarting API, then
+verify effective photo/text size limits. Anonymous probes must remain refused.
+
 ## Local Nightly Advice
 
 No backend deployment/schema or Room migration. A fixed local aggregate key

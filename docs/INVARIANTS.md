@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Restored Photo Connection
+
+- A restored SAVED or unloaded state cannot alone prove missing credentials.
+  The signed client rereads persistence and verifies access before image work.
+- Pending activation is not completed by photo readiness. Revoked/missing
+  credentials cannot submit an image; text readiness cannot enable vision.
+- No personal-key fallback, changed image limit or ambiguous model-job retry.
+- A trusted text admission source can renew only public image/egress. It cannot
+  change the exact model, API identity, private profile or native guard scope;
+  unreadable/mismatched source never falls back to stale admission.
+
 ## Nightly Advice
 
 - Local CGM advice never becomes a dose, target, ISF/CR, diagnosis or AI answer.

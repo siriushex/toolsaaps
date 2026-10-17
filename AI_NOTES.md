@@ -1,3 +1,41 @@
+# Food Photo Saved Session - 2026-10-17
+
+- User reports missing AI connection after photo selection. Source trace found
+  photo gateway requires ACTIVE while load restores an existing session as SAVED.
+  Eight added constructor regressions produced 7 assertion failures/0 errors before
+  production changes. Repair delegates restored/unloaded state to existing signed
+  persistence/auth/refresh checks, retaining image capability and no-replay gates.
+- First targeted 39 cases passed 38; one full signed-flow test exposed a virtual
+  clock expiring its timeout before Dispatchers.IO resumed. That test now uses
+  a real clock, without relaxing production deadlines or assertions. A ninth
+  new case verifies one signed successful estimate after saved-session restore.
+- Targeted 40 Android cases pass. Existing backend photo/native/contained/
+  supervisor/route tests: 101 passed with one existing dependency warning.
+  Complete Android unit suite: 6082 passed, 6 skipped, zero failures/errors;
+  lint/build succeeded (377 existing warnings, 8 hints, no errors). Native photo
+  picker, large-font dialog and estimate confirmation rasters were inspected.
+- The existing text admission refresher does not renew a fixed vision descriptor.
+  Optional trusted-host --text-admission follows only protected public image/
+  egress metadata, with identical model, API peer, profile and guard scope.
+  No source means the original fixed-descriptor behavior. Missing or changed
+  private identity refuses admission rather than silently falling back.
+  Seven initial regressions failed before implementation; final scoped 61 pass.
+  Full backend after this change: 1628 passed, 27 skipped, one dependency warning.
+- Initial read-only inspection found active API/text but no vision endpoint.
+  The owner subsequently approved a separate image host and exactly one
+  synthetic JPEG provider test. Preparation and actual isolated decoder test
+  succeeded with confirmed stop. One provider request returned a typed four-
+  ingredient estimate; original guard returned idle. The first API activation
+  check rolled back; verification confirmed both original config hashes and
+  active API/text. Waiting for actual graceful nginx reload propagation allowed
+  the second config-only activation to pass, without another provider request.
+- Independent final projection: API/text/image active, image enabled at boot,
+  only vision added to owner descriptor, current protected admission and idle
+  guard. Anonymous photo/capabilities requests refuse access; photo POST allows
+  3 MiB while text remains 128 KiB. External HTTPS authentication barrier checked.
+  This proves the synthetic transport/result, not nutrition accuracy or phone
+  acceptance. ADB is empty; no real photo, phone or therapy action is claimed.
+
 # Nightly 3-14 Day Advice - 2026-10-17
 
 - Trace: Advice mixed 24-hour forecast diagnostics, arbitrary clinical report
