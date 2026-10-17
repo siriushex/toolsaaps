@@ -91,6 +91,24 @@ def test_configuration_derives_policy_without_opening_stores(provisioned):
     assert not list(Path(value["roots"]["jobs"]).iterdir())
 
 
+def test_daily_reads_are_explicit_and_off_by_default(provisioned):
+    path, value = provisioned
+    assert getattr(owner.read_configuration(path), "daily_reads", None) is False
+    for enabled in (True, False):
+        value["daily_reads"] = enabled
+        config = owner.read_configuration(save(provisioned))
+        assert config.daily_reads is enabled
+        assert config.policy.allow_tools is config.policy.allow_actions is False
+
+
+@pytest.mark.parametrize("invalid", [1, "true", None, {}, []])
+def test_daily_reads_reject_non_boolean_owner_configuration(provisioned, invalid):
+    _, value = provisioned
+    value["daily_reads"] = invalid
+    with pytest.raises(owner.OwnerApiError):
+        owner.read_configuration(save(provisioned))
+
+
 def test_owner_configuration_loads_pinned_serial_snapshot(provisioned):
     _, value = provisioned
     snapshot = Path(value["attestation"]["revocation_snapshot"]["path"])
@@ -128,9 +146,11 @@ def test_owner_refuses_unpinned_or_unsafe_revocation_snapshot(provisioned, chang
 def test_optional_vision_descriptor_requires_separate_closed_socket(provisioned):
     _, value = provisioned
     value["vision"] = dict(socket="/run/personal-ai/image.sock", uid=0, gid=0)
+    value["daily_reads"] = True
     config = owner.read_configuration(save(provisioned))
     assert str(config.vision_socket_path) == value["vision"]["socket"]
     assert config.vision_peer.uid == 0
+    assert config.daily_reads is True
     value["vision"]["socket"] = value["supervisor"]["socket"]
     with pytest.raises(owner.OwnerApiError):
         owner.read_configuration(save(provisioned))
@@ -394,6 +414,24 @@ def refresh_http(run, key, tokens):
     return run.client.post(path, content=body, headers={"Content-Type": "application/json"} |
         proof_headers(signed(key, path=path, body=body, credential=tokens["refresh_token"],
                              now=run.clock()), key))
+
+
+def test_owner_composition_passes_explicit_daily_read_admission(provisioned, service, synthetic_transport):  # noqa: F811
+    path, value = provisioned
+    value["daily_reads"] = True
+    root = service[2].public_bytes(serialization.Encoding.DER)
+    value["attestation"]["trusted_root_sha256"] = [hashlib.sha256(root).hexdigest()]
+    save(provisioned)
+    app = owner.create_owner_api(path, clock_ms=MutableClock())
+    with TestClient(app) as client:
+        resources = app.resources
+        synthetic = (resources.activation, resources.auth, service[2], service[3], None)
+        _, key, tokens = activate(client, synthetic, owner_id=value["owner_id"])
+        result = signed_post(client, key, tokens, "daily-results",
+            dict(afterSequence=0, snapshotSequence=None))
+        assert result.status_code == 200 and result.json()["records"] == []
+        assert not list(resources.store.root.glob("*.sqlite"))
+        assert not synthetic_transport.requests
 
 
 def test_signed_history_context_job_and_archive_keep_existing_contracts(running, monkeypatch):

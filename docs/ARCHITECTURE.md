@@ -1,5 +1,18 @@
 # ARCHITECTURE
 
+## Protected Daily Review Reads
+
+An optional `daily_reads` boolean in the protected owner v2 descriptor mounts
+two signed POST history routes. It defaults false and does not admit daily
+execution, schedule work or widen capabilities. Both reuse HistoryService's
+current owner/subscription/device checks, exact request proof and nonce barrier.
+`server_daily_query` decodes closed 1 KiB requests and projects at most 128 KiB.
+List uses retained sequence membership and at most20 unverified summaries;
+selected detail reuses the bounded current-source reader. Frozen native input,
+queue and execution claims never enter the public projection. Historical source
+at reply and current source remain separate; all original unreviewed/glucose-only
+labels remain. See DAILY_REVIEW_RESULTS.md. Source only, not active deployment.
+
 ## Meal Preparation And Automatic GI
 
 Food and Lenta share the bounded historical estimator and coarse type GI
@@ -54,7 +67,8 @@ archival. A recorded request never obtains its claim again. The dedicated daily
 Unix contract returns strict JSON, not ChatResult-wrapped/truncated text.
 Explicit host --daily-socket shares busy/unknown-cleanup capacity with chat;
 default host behavior remains chat-only. See DAILY_DISPATCH.md. No schedule,
-public result route, recurring enrollment or clinical publication is enabled.
+recurring enrollment or clinical publication is enabled. Optional read-only
+result routes are now composed separately; they do not start this dispatcher.
 
 ## Correlated Moderation Metadata
 

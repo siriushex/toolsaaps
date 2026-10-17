@@ -85,10 +85,39 @@ infer meal, insulin, activity or delivery facts that were not analyzed.
   reconcile ledger/queue before any separately authorized restore.
 
 This is source-only trusted composition. The dedicated daily channel and owned
-internal dispatcher are described in DAILY_DISPATCH.md. No public/admin/device
-route, provider service, timer or scheduler is activated. Advisory
+internal dispatcher are described in DAILY_DISPATCH.md. No provider service,
+timer or scheduler is activated. The optional signed reads below do not execute
+that dispatcher. Advisory
 quality/publication admission remains separate. No live host,
 profile, model request, real medical payload, APK or therapy operation occurs.
+
+## Signed Read Projection
+
+Protected owner configuration version2 optionally accepts `daily_reads: true`.
+Omission/false keeps both routes absent; other types are refused. Composition
+requires HistoryService, retaining its current owner/subscription/attested-device,
+exact POST path/body, nonce and revocation checks. No capability/task kind or
+provider admission changes. These routes are not enabled on a host by source CI.
+
+- POST `/api/ai/v1/history/daily-results`: exact body
+  `{"afterSequence":0,"snapshotSequence":null}`. At most20 summaries, fixed retained
+  snapshotSequence, hasMore and nextAfterSequence. No arbitrary limit/window or
+  owner/device override. `membershipMeaning=RETAINED_ARCHIVE_ONLY`; each summary
+  stays `sourceCheck=NOT_CHECKED`, `publicationState=NOT_ADMITTED`.
+- POST `/api/ai/v1/history/daily-result`: exact body `{"jobId":"<canonical UUID>"}`.
+  Returns revision/job/date/zone/reportRevision/model/storage clocks, currentState,
+  current sourceCheck, historical sourceAtReply and complete grounded review.
+  Queue/frozenWork/requestDigest/deadline/execution claims are deliberately absent.
+- Both return `revision=daily-review-read-v1`, use no-store and reject query strings.
+  Request cap1 KiB, response cap128 KiB. Invalid grammar400, absent/expired/foreign
+  result404 `daily_review_not_found`, oversized response503
+  `daily_review_read_unavailable`; existing source/storage409/503 remain fixed.
+  No text is truncated and no read creates, migrates, replays or saves a result.
+
+All historical labels and missing-domain limitations survive. A matched retained
+source is not clinical review, a complete-source certificate or a therapy command.
+The default Android server-result bridge, persisted05:00 opt-in/facts producer,
+provider/publication admission and private admin remain separate work.
 
 ## Verification
 
@@ -98,3 +127,7 @@ unknown stop, failure/cancel/deadline, both commit crash windows, source changes
 supersession/retention, read-only reads, identity/encryption/tampering, shared
 quotas, bounded pages, cancellation draining and concurrent at-most-once claim.
 These synthetic tests do not prove live model/OS containment or medical quality.
+`tests/test_ai_daily_read_api.py` and the owner API suite additionally exercise
+closed projection grammar, encrypted signed round trips, fixed pagination,
+default-off composition, owner/device isolation, proof/revocation, source changes,
+response bounds and read-only/no-inference behavior.

@@ -269,8 +269,11 @@ def create_ai_app(auth: ClientAuth, *, requests_per_minute: int = 60,
     return _Admission(api, requests_per_minute, body_timeout_seconds)
 
 
-def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, history=None, clock_ms=None):
+def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, history=None,
+                        daily_reads=False, clock_ms=None):
     """App-bound identity with optional injected jobs; never mounts bearer-only auth."""
+    if type(daily_reads) is not bool or daily_reads and history is None:
+        raise ValueError("daily_read_history_required")
     if clock_ms is None:
         clock_ms = lambda: time.time_ns() // 1_000_000
 
@@ -390,6 +393,16 @@ def create_bound_ai_app(activation, *, jobs=None, meal_photo_jobs=None, history=
         from .ai.server_chat_query import FIELDS as CHAT_FIELDS, MAX_QUERY_BYTES
         register_history_route(BASE+"/history/conversations", CHAT_FIELDS,
                                history.store.query_chats, max_body=MAX_QUERY_BYTES)
+        if daily_reads:
+            from functools import partial
+            from .ai.server_daily_query import (
+                DETAIL_FIELDS, LIST_FIELDS, MAX_QUERY_BYTES as DAILY_QUERY_BYTES,
+                read_result, read_results,
+            )
+            register_history_route(BASE+"/history/daily-results", LIST_FIELDS,
+                partial(read_results, history.store), max_body=DAILY_QUERY_BYTES)
+            register_history_route(BASE+"/history/daily-result", DETAIL_FIELDS,
+                partial(read_result, history.store), max_body=DAILY_QUERY_BYTES)
 
     job_services = tuple(item for item in (jobs, meal_photo_jobs) if item is not None)
     detail_prefixes = []

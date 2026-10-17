@@ -172,6 +172,7 @@ class OwnerConfiguration:
     revocation_sha256: str
     vision_socket_path: Path | None = None
     vision_peer: PeerIdentity | None = None
+    daily_reads: bool = False
 
     @classmethod
     def decode(cls, raw):
@@ -180,7 +181,11 @@ class OwnerConfiguration:
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
         _fields(value, "version owner_id model roots receipt_key history_key supervisor attestation"
-                + (" vision" if "vision" in value else ""))
+                + (" vision" if "vision" in value else "")
+                + (" daily_reads" if "daily_reads" in value else ""))
+        daily_reads = value.get("daily_reads", False)
+        if type(daily_reads) is not bool:
+            raise ValueError()
         if (type(value["version"]) is not int or value["version"] != 2
                 or type(value["owner_id"]) is not str
                 or str(UUID(value["owner_id"])) != value["owner_id"]):
@@ -228,7 +233,7 @@ class OwnerConfiguration:
                 raise ValueError()
         return cls(value["owner_id"], contextual_chat_policy(value["model"]), roots,
             receipt, history, socket_path, PeerIdentity(supervisor["uid"], supervisor["gid"]), trust,
-            revocation_path, revocation_digest, vision_path, vision_peer)
+            revocation_path, revocation_digest, vision_path, vision_peer, daily_reads)
 
 
 def read_configuration(path: Path):
@@ -458,7 +463,8 @@ class _Resources:
                     policy=meal_vision_policy(config.policy.model), clock_ms=clock_ms)
             self.services = tuple(item for item in (self.jobs, self.photo_jobs) if item is not None)
             self.bound = create_bound_ai_app(self.activation, jobs=self.jobs, meal_photo_jobs=self.photo_jobs,
-                history=HistoryService(auth, proofs, store, owner_id=config.owner_id), clock_ms=clock_ms)
+                history=HistoryService(auth, proofs, store, owner_id=config.owner_id),
+                daily_reads=config.daily_reads, clock_ms=clock_ms)
             self.check()
         except BaseException:
             self.stack.close()

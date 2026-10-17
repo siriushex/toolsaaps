@@ -1,5 +1,19 @@
 # PLAN
 
+## Protected Daily Result Reads (2026-10-17)
+
+- [x] Continue approved daily-review read-projection track; distinguish stale
+  delivery-map checkboxes from current source and separate device receipts.
+- [x] Observe missing-projection/default-off REDs before production edits.
+- [x] Strict list/detail projections and explicit bool owner composition, reusing
+  signed HistoryService and encrypted bounded reads, without provider input.
+- [x] Focused205 read/owner/history/archive tests; scoped lint and compilation.
+- [x] Final full backend gate:1681 passed,27 existing skips,zero failures/errors;
+  independent proof-path and expired-access checks are included.
+- Reviewed source publication/exact-head Verify are post-commit gates, recorded
+  separately in the PR receipt. No server/APK activation or clinical authority.
+  Current source/acceptance boundaries are summarized in OPEN_FEATURES.md.
+
 ## Focus+ Android Display (2026-10-17)
 
 - [x] Observe initial behavioral REDs for duplicate owl, composer and route work.

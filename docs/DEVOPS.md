@@ -1,5 +1,18 @@
 # DEVOPS
 
+## Daily Result Read Admission (2026-10-17)
+
+Source adds optional protected owner descriptor `daily_reads` (actual bool,
+defaultfalse). No installed descriptor, unit, proxy or server is changed here.
+Before a separately approved rollout, run daily-read/owner/history/archive/source
+tests and the full backend suite; verify exact-head CI. Reuse existing protected
+owner roots and signed routes. No key, profile, new root or migration is needed.
+Enabling reads does not enable05:00 facts/dispatch or model/publication admission.
+An approved rollout must check actual signed same-device responses and denial
+after revocation, preserving current/historical source labels. Returning the
+flag to false removes the routes; do not downgrade or restore history schemas.
+Never use a real model request or copy a phone database to test this read stage.
+
 ## Meal Preparation And Automatic GI
 
 Android-only source, no Room schema, backend, provider or device settings change.

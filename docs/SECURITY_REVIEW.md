@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Protected Daily Reads (2026-10-17)
+
+The new default-off routes share existing HistoryService preauthorization and
+proof/current-revocation verification. There is no bearer-only or caller-selected
+owner/device path. Closed DTOs reject duplicate/extra fields, noncanonical UUIDs,
+boolean/negative/overflow cursors and oversized bodies before storage. Fixed
+public errors omit raw storage exceptions. Response overflow refuses the whole
+projection; no frozen provider input or execution receipt is returned.
+Signed synthetic tests cover owner/device isolation, nonce/body/path checks,
+revocation during proof, empty-store reads, source changes and no reinference.
+Selected source checks establish retained-reference consistency, not clinical
+validity or complete data. Model text remains unreviewed data, not executable
+instructions or authorized advice. Actual host admission, owner UI/auth/CSRF and
+clinical publication remain separate gates. No live medical data is used here.
+
 ## Meal Preparation And Automatic GI
 
 Existing revision-bound local metadata gains an explicitly estimated source,

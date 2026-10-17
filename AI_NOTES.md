@@ -1,3 +1,28 @@
+# Protected Daily Result Reads - 2026-10-17
+
+- User requests remaining functionality. Audit found source-backed encrypted
+  results and bounded source replays, but no protected device result routes.
+  Continue the approved daily-review design with source-only reads, not a new
+  provider/schedule or therapy stage. Updated OPEN_FEATURES separates native
+  delivery from remaining server, clinical and physical acceptance gates.
+- Initial REDs:21 missing-projection/default-flag assertions, zero errors;
+  five malformed owner values already rejected. Added closed1 KiB list/detail
+  queries, at most128 KiB projections, default-off actual-bool owner admission
+  and existing signed HistoryService routing. No new dependency/schema/root.
+- Detail excludes queue/frozen input/execution claims and retains historical
+  reply source plus independent current state. Missing/expired/foreign identity
+  is the same404; list is retained membership, at most20 unverified summaries.
+  Unreviewed/NOT_ADMITTED/glucose-only labels are not promoted to medical advice.
+- Focused205 cases and final full1681 backend cases pass,27 existing opt-in skips,
+  zero failures/errors, one existing dependency warning. A test helper refused
+  signing a URL query by design; that test now signs the canonical path before
+  adding a query to the actual HTTP request. No production proof relaxation.
+  Scoped lint/compile pass after one unused import removal and local imported-
+  fixture annotations only. Final independent expired-access and fresh wrong-path
+  proof cases are included. Exact-head CI is an independent post-commit gate.
+- No server config/service, timer, real medical upload/model request, phone/APK,
+  sound, target, ISF/CR/DIA or dose was changed by this stage.
+
 # Food Photo Saved Session - 2026-10-17
 
 - User reports missing AI connection after photo selection. Source trace found

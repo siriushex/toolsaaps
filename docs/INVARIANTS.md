@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Protected Daily Result Projection
+
+- Daily reads are off without an explicit actual-boolean owner opt-in. They
+  require HistoryService and cannot create jobs or change inference admission.
+- Owner/device are derived from current signed authorization, never the body.
+  Method/path/exact bytes/nonce and revocation are checked before store reads.
+- Closed list/detail requests are at most1 KiB. Responses are at most128 KiB;
+  overflow is an error, never truncation or partial medical text.
+- List membership is retained-archive only, at most20 rows with NOT_CHECKED
+  source. Only selected reads replay current source; absence/expiry/foreign
+  result is the same404. Reads do not create or migrate a device database.
+- Current source cannot rewrite sourceAtReply or grant clinical authority.
+  NOT_ADMITTED, REFERENCES_ONLY, UNREVIEWED_AI_INTERPRETATION, GLUCOSE_ONLY
+  and missing-domain evidence survive projection. Internal work stays private.
+
 ## Meal Preparation Presentation
 
 - Positive total IOB alone cannot establish food preparation, a food bolus,
