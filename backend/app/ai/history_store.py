@@ -252,17 +252,19 @@ class HistoryStore:
                 "sqlite_sequence",
             }
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version in (2, 3, 4, 5):
+            if version in (2, 3, 4, 5, 6):
                 expected.add("server_chat")
-            if version in (3, 4, 5):
+            if version in (3, 4, 5, 6):
                 expected.add("daily_reports")
-            if version in (4, 5):
+            if version in (4, 5, 6):
                 expected.add("daily_review_queue")
-            if version == 5:
+            if version in (5, 6):
                 expected.add("daily_review_results")
+            if version == 6:
+                expected.add("daily_facts_schedule")
             if tables != expected:
                 raise ValueError("dedicated_history_database_required")
-            if version not in (1, 2, 3, 4, 5):
+            if version not in (1, 2, 3, 4, 5, 6):
                 raise ValueError("unsupported_history_schema")
             manifest = db.execute("SELECT * FROM history_manifest").fetchall()
             if (
@@ -341,6 +343,12 @@ class HistoryStore:
             ).fetchone()
             count += results
             extra += result_bytes
+        if version >= 6:
+            settings, setting_bytes = db.execute(
+                "SELECT count(*),coalesce(sum(length(ciphertext)),0) FROM daily_facts_schedule"
+            ).fetchone()
+            count += settings
+            extra += setting_bytes
         if (
             count > self.max_rows
             or size + extra > self.max_bytes
@@ -621,6 +629,22 @@ class HistoryStore:
 
         return save_report(self, owner, device, facts, now_ms=now_ms)
 
+    def get_daily_facts_schedule(self, owner, device, *, now_ms):
+        from .daily_schedule import get_schedule
+
+        return get_schedule(self, owner, device, now_ms=now_ms)
+
+    def set_daily_facts_schedule(self, owner, device, **options):
+        """Trusted opt-in only, never an authorization or model-admission API."""
+        from .daily_schedule import set_schedule
+
+        return set_schedule(self, owner, device, **options)
+
+    def produce_scheduled_daily_facts(self, owner, device, **options):
+        from .daily_schedule import produce_facts
+
+        return produce_facts(self, owner, device, **options)
+
     def get_daily_glucose_report(self, owner, device, **options):
         from .daily_reports import get_report
 
@@ -684,6 +708,26 @@ class HistoryStore:
                 db.execute(statement)
             db.execute("PRAGMA user_version=5")
             db.commit()
+
+    def _enable_daily_schedule(self, db):
+        from .daily_queue import SCHEMA as QUEUE_SCHEMA
+        from .daily_reports import SCHEMA as REPORT_SCHEMA
+        from .daily_results import SCHEMA as RESULT_SCHEMA
+        from .daily_schedule import SCHEMA as SCHEDULE_SCHEMA
+        from .server_chat import SCHEMA as CHAT_SCHEMA
+
+        if not db.in_transaction:
+            raise ValueError("daily_schedule_transaction_required")
+        # Explicit opt-in must commit its additive schema and setting together.
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        for source, schema in enumerate(
+            (CHAT_SCHEMA, REPORT_SCHEMA, QUEUE_SCHEMA, RESULT_SCHEMA, SCHEDULE_SCHEMA), 1
+        ):
+            if version == source:
+                for statement in schema:
+                    db.execute(statement)
+                version += 1
+                db.execute("PRAGMA user_version=" + str(version))
 
     def _enable_daily_queue(self, db):
         from .daily_queue import SCHEMA as QUEUE_SCHEMA

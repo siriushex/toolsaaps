@@ -190,12 +190,8 @@ def _deadline(end):
 
 def save_report(store, owner, device, facts, *, now_ms):
     facts = _checked_facts(store, owner, device, facts, now_ms)
-    window = facts.current.window
-    key = _key(store, owner, device, window.reportDate, window.zoneId)
-    facts_plain = encoded(facts.model_dump(mode="json"))
-    if len(facts_plain) > MAX_REPORT_BYTES:
+    if len(encoded(facts.model_dump(mode="json"))) > MAX_REPORT_BYTES:
         raise ValueError("daily_report_too_large")
-    digest = hashlib.sha256(facts_plain).hexdigest()
     with store._locked():
         if shutil.disk_usage(store.root).free < store.min_free_bytes:
             raise HistoryError(503, "history_storage_unavailable")
@@ -204,83 +200,89 @@ def save_report(store, owner, device, facts, *, now_ms):
             store._enable_daily_reports(db)
             db.execute("BEGIN IMMEDIATE")
             end = _budget(db)
-            store._purge(db, now_ms)
-            row = db.execute(
-                "SELECT * FROM daily_reports WHERE report_key=? AND facts_digest=?",
-                (key, digest),
-            ).fetchone()
-            if row is not None:
-                result = _decrypt(store, owner, device, row)
-                if now_ms < result.createdAtMs:
-                    raise HistoryError(409, "daily_report_clock_regression")
-                _deadline(end)
-                db.commit()
-                return result
-            old = db.execute(
-                "SELECT * FROM daily_reports WHERE report_key=? ORDER BY report_revision DESC LIMIT 1",
-                (key,),
-            ).fetchone()
-            revision = 1
-            if old is not None:
-                previous = _decrypt(store, owner, device, old)
-                if (
-                    now_ms < previous.createdAtMs
-                    or facts.current.asOfMs < previous.facts.current.asOfMs
-                    or facts.current.snapshotSequence
-                    < previous.facts.current.snapshotSequence
-                ):
-                    raise HistoryError(409, "daily_report_source_regression")
-                revision = previous.reportRevision + 1
-            if revision > MAX_REPORT_REVISIONS:
-                raise HistoryError(429, "daily_report_revision_limit")
-            result = DailyFactsReport(
-                archiveSequence=_highwater(db) + 1,
-                reportKey=key,
-                reportRevision=revision,
-                createdAtMs=now_ms,
-                expiresAtMs=window.endMs + RETENTION_MS,
-                factsDigest=digest,
-                facts=facts,
+            result = _save_report_in_transaction(
+                store, owner, device, db, facts, now_ms=now_ms, end=end,
             )
-            plain = encoded(result.model_dump(mode="json"))
-            if len(plain) > MAX_REPORT_BYTES:
-                raise HistoryError(413, "daily_report_too_large")
-            values = dict(
-                sequence=result.archiveSequence,
-                report_key=key,
-                report_revision=revision,
-                created_ms=now_ms,
-                expires_ms=result.expiresAtMs,
-                facts_digest=digest,
-            )
-            nonce = secrets.token_bytes(12)
-            values.update(
-                nonce=nonce,
-                ciphertext=store._cipher(owner, device).encrypt(
-                    nonce,
-                    plain,
-                    store._aad(
-                        owner,
-                        device,
-                        "daily-facts-report-v1",
-                        [values[k] for k in META_FIELDS],
-                    ),
-                ),
-            )
-            db.execute(
-                "INSERT INTO daily_reports("
-                + ",".join(values)
-                + ") VALUES("
-                + ",".join("?" for _ in values)
-                + ")",
-                tuple(values.values()),
-            )
-            store._check_quota(db)
             _deadline(end)
             db.commit()
             return result
         finally:
             db.close()
+
+
+def _save_report_in_transaction(store, owner, device, db, facts, *, now_ms, end):
+    """Caller owns the protected transaction, budget and commit."""
+    facts = _checked_facts(store, owner, device, facts, now_ms)
+    if not db.in_transaction:
+        raise ValueError("daily_report_transaction_required")
+    window = facts.current.window
+    key = _key(store, owner, device, window.reportDate, window.zoneId)
+    facts_plain = encoded(facts.model_dump(mode="json"))
+    if len(facts_plain) > MAX_REPORT_BYTES:
+        raise ValueError("daily_report_too_large")
+    digest = hashlib.sha256(facts_plain).hexdigest()
+    store._purge(db, now_ms)
+    row = db.execute(
+        "SELECT * FROM daily_reports WHERE report_key=? AND facts_digest=?",
+        (key, digest),
+    ).fetchone()
+    if row is not None:
+        result = _decrypt(store, owner, device, row)
+        if now_ms < result.createdAtMs:
+            raise HistoryError(409, "daily_report_clock_regression")
+        _deadline(end)
+        return result
+    old = db.execute(
+        "SELECT * FROM daily_reports WHERE report_key=? ORDER BY report_revision DESC LIMIT 1",
+        (key,),
+    ).fetchone()
+    revision = 1
+    if old is not None:
+        previous = _decrypt(store, owner, device, old)
+        if (
+            now_ms < previous.createdAtMs
+            or facts.current.asOfMs < previous.facts.current.asOfMs
+            or facts.current.snapshotSequence < previous.facts.current.snapshotSequence
+        ):
+            raise HistoryError(409, "daily_report_source_regression")
+        revision = previous.reportRevision + 1
+    if revision > MAX_REPORT_REVISIONS:
+        raise HistoryError(429, "daily_report_revision_limit")
+    result = DailyFactsReport(
+        archiveSequence=_highwater(db) + 1,
+        reportKey=key,
+        reportRevision=revision,
+        createdAtMs=now_ms,
+        expiresAtMs=window.endMs + RETENTION_MS,
+        factsDigest=digest,
+        facts=facts,
+    )
+    plain = encoded(result.model_dump(mode="json"))
+    if len(plain) > MAX_REPORT_BYTES:
+        raise HistoryError(413, "daily_report_too_large")
+    values = dict(
+        sequence=result.archiveSequence,
+        report_key=key,
+        report_revision=revision,
+        created_ms=now_ms,
+        expires_ms=result.expiresAtMs,
+        facts_digest=digest,
+    )
+    nonce = secrets.token_bytes(12)
+    values.update(
+        nonce=nonce,
+        ciphertext=store._cipher(owner, device).encrypt(
+            nonce, plain,
+            store._aad(owner, device, "daily-facts-report-v1", [values[k] for k in META_FIELDS]),
+        ),
+    )
+    db.execute(
+        "INSERT INTO daily_reports(" + ",".join(values) + ") VALUES("
+        + ",".join("?" for _ in values) + ")", tuple(values.values()),
+    )
+    store._check_quota(db)
+    _deadline(end)
+    return result
 
 
 def _query_key(

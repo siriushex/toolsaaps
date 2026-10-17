@@ -1,3 +1,37 @@
+# Opt-In Daily Facts Preparation - 2026-10-17
+
+- Continue the unfinished daily pipeline after retained audit display. Source
+  lacked persistent facts consent and automatic-day facts production. Add an
+  internal generation-CAS opt-in and one-shot local05:00 previous-day producer,
+  not a host timer, model admission or clinical report publisher.
+- First27 missing-API/module assertions failed as expected before production
+  edits. The first199-case run passed198; its remaining test used04:59:59.999
+  while expecting post05:00 NO_DATA. Corrected that fixture instant without
+  relaxing the due-hour condition. Expanded source gate then passed272 cases.
+- Independent fault review reproduced a mutable analytical-range race; freeze
+  validated ranges before source scan. Concurrent source/archive/disable,
+  ciphertext isolation, DST, source deletion, quota/migration rollback and
+  immutable prior queue behavior are tested with synthetic data only.
+- Schema6 has one purpose-bound encrypted setting row; additive migrations and
+  opt-in share one transaction. The existing facts write body is reused inside
+  the producer's transaction, without nested file locks or an unlocked check.
+- Review reproduced a legacy idempotent-save regression after quota reduction;
+  the shared write helper now checks quota only for a new insert, preserving
+  the previous retry behavior. The resulting77 schedule/report cases pass.
+- First full backend run:1719passed/27existing skips, one pre-existing runner
+  test failed when macOS refused killpg after synthetic output overflow. No
+  fake child remained; its complete30-case suite then passed without code
+  changes or a permission relaxation. Final full verification is rerun on the
+  reviewed schedule/archive inputs, not inferred from that diagnostic rerun.
+- Final complete backend run passed1721 cases with27existing opt-in skips and
+  one existing dependency warning in80seconds. Before/after source/test/dependency
+  manifests match. All40 new schedule cases and77 affected report/schedule cases
+  pass; new files full Ruff, modified-module syntax checks and Python compilation
+  pass. Three unrelated baseline import-order notices in older modules remain.
+- Reviewed source/exact-head publication gates are recorded separately in the
+  PR receipt. No server config/service, real history/model call, phone,
+  alarm, target, ISF/CR/DIA or dose operation. See DAILY_FACTS_SCHEDULE.md.
+
 # Android Retained Server Audit - 2026-10-17
 
 - Continue unfinished owner-approved daily-review/Focus+ work. Server stored

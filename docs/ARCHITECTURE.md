@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Opt-In Facts Preparation
+
+An internal persisted facts-only schedule selects the preceding completed
+civil day after local05:00. One encrypted generation-CAS setting in history
+schema6 is explicit consent for deterministic preparation only. The one-shot
+producer joins source checks, bounded reads and the existing facts archive in
+one protected transaction; unchanged source retains original dates, late
+changes create facts revisions without inference. No host timer, public route,
+model admission or clinical publication is installed. See DAILY_FACTS_SCHEDULE.md.
+
 ## Android Daily Review Archive
 
 The existing signed history client reads retained daily reviews into a separate

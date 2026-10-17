@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Daily Facts Schedule
+
+One private, bounded AES-GCM setting is purpose/owner/device/generation/time
+bound, with strict fields and CAS. Missing is disabled; tamper and foreign
+ciphertext fail closed. Trusted storage operations are not public authorization:
+actual host composition must verify enrollment/subscription/consent independently.
+Atomic schema/setting and source/facts transactions preserve failed-edit/disable,
+quota, clock, source-limit and retained-history boundaries. Analytical ranges
+are frozen before work. Recomputed facts cannot enqueue/retry a model or update
+clinical parameters; no new listener, credentials or real data are introduced.
+Settings survival across365-day medical purge does not re-age report retention.
+The full1721-case local backend gate passed,27existing skips, with matching
+before/after inputs. Exact-head publication and later host admission stay separate.
+
 ## Android Daily Audit Reads
 
 Two closed history routes reuse connection-owned signatures, device binding and

@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Daily Facts Opt-In
+
+Source adds internal schedule read/CAS-write/one-shot producer operations only.
+No existing descriptor, host, cron, systemd timer or phone setting is changed.
+Opt-in explicitly migrates the dedicated synthetic/test store to schema6; reads
+do not migrate. Run schedule/report/source/history/queue/result and full backend
+tests plus scoped lint/compile before source publication. Actual host composition
+must verify current device/owner consent and run bounded synchronous work off the
+event loop; no timer or live model call is permitted merely by this source stage.
+All writers must understand schema6 before an actual opt-in. Binary-only rollback
+to code supporting only1-5 will refuse the database; preserve data and restore
+compatible source, never reset schema/drop tables/restore old medical history.
+Details and the separate operational gates are in DAILY_FACTS_SCHEDULE.md.
+
 ## Android Server Archive
 
 Source adds a separate encrypted DAILY_ARCHIVE slot and native Reports reader;

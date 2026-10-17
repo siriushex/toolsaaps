@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Opt-In Daily Facts
+
+- Missing settings are disabled; only explicit trusted generation-CAS edits
+  can opt into facts. Schema6 and its encrypted setting commit together.
+- Facts consent is not enrollment, current authorization or model admission.
+  Production host composition must independently check all three boundaries.
+- Saved-zone local05:00 selects only yesterday; no historical inference catchup.
+  Source/range/setting checks and archive write share one bounded transaction.
+- Unknown reporting range stays unavailable. Unchanged facts retain original
+  dates; late changes/deletions cannot silently keep old facts current or rerun AI.
+- Queue/work/results remain immutable and separately source-checked. No timer,
+  job/slot, phone, target, dose, ISF/CR/DIA or clinical publication is changed.
+
 ## Android Retained Server Audit
 
 - Server audit text never enters the primary report, Recommendations, command

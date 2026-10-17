@@ -1,5 +1,21 @@
 # PLAN
 
+## Opt-In Daily Facts Preparation (2026-10-17)
+
+- [x] Continue approved night-review design with persisted facts-only consent,
+  local05:00, latest completed day and existing encrypted archive.
+- [x] Observe27 missing-API/module assertion failures before production changes.
+- [x] Implement atomic generation-CAS settings, schema6 and one-shot producer.
+- [x] Independent mutable-range RED reproduced and fixed by validated freeze.
+- [x] Initial expanded272-case source/report/history/queue/result gate passed.
+- [x] Final40 new schedule cases and77 affected schedule/report cases passed.
+- [x] Complete backend:1721passed/27existing skips, no failures; scoped lint and
+  compilation passed. New files full Ruff clean; three existing unrelated
+  import-order notices retained in older modules. Final input manifests match.
+- [ ] Reviewed source publication and exact-head Verify, separate PR receipt.
+- No persistent host timer, enrollment, model, phone/APK or therapy operation.
+  See DAILY_FACTS_SCHEDULE.md for schema rollback and remaining admission.
+
 ## Android Server Daily Archive (2026-10-17)
 
 - [x] Continue approved daily-review/Focus+ design as separate unreviewed audit,
