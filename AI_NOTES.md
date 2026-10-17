@@ -1,3 +1,30 @@
+# Food Photo Selection And Recovery - 2026-10-17
+
+- Continue the native flow after the HTTP size repair. Seven new native
+  regressions fail before production edits: an uncaught gallery-launch exception,
+  unguarded source selection/cancellation, misleading camera/exchange errors and
+  missing connection/service recovery after a selected image is rejected.
+- One dialog-owned selection guard covers both launchers and their callbacks.
+  Launch failure keeps the dialog usable without exposing raw exception text;
+  cancellation releases controls without analysis. Existing bounded preparation,
+  one-shot jobs, model mass guards and final food confirmation are unchanged.
+- Authorization/service refusal returns to the existing readiness gate with one
+  message and an explicit connection recheck. That recheck never resubmits the
+  image. Exchange, busy, invalid-image/request/result, unknown and timeout states
+  remain distinct; no automatic retry or successful food state is fabricated.
+- Synthetic native tests and private rasters exercise this UI only. Full quality
+  and exact-head publication are separate gates. No server, real photo/model,
+  phone installation, backup, target or dose operation is performed.
+- Initial 66-case focused suite passed. Additional rapid-action, busy/rejected
+  image and actual 1.8x text cases bring the final focused gate to 70 passed with
+  no failures/errors/skips. Normal exchange and enlarged launcher-error rasters
+  were inspected. Full fixed-input Android verification is a separate gate.
+- Complete local Android: 6177 passed, six existing skips, zero failures/errors;
+  lint/compile/assemble succeeded in 18m30s with the existing 376 warnings/eight
+  hints. Android tracked-source manifests match before/after; the private APK
+  passes signature verification. Exact-head CI and real device/provider results
+  remain separate from local quality evidence.
+
 # Food Photo HTTP Body Repair - 2026-10-17
 
 - Trace photo preparation through the signed connection to the actual HTTP

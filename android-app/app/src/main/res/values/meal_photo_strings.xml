@@ -9,6 +9,10 @@
     <string name="meal_photo_connecting">Checking server…</string>
     <string name="meal_photo_analyzing">Analyzing food…</string>
     <string name="meal_photo_invalid_image">Cannot prepare this image. Select another photo.</string>
+    <string name="meal_photo_open_failed">Could not open the camera or gallery. Try the other source.</string>
+    <string name="meal_photo_invalid_request">The server rejected the image. Select another photo.</string>
+    <string name="meal_photo_exchange_failed">Could not get the result. Check the AI server connection. No automatic retry was sent.</string>
+    <string name="meal_photo_busy">Wait for the current photo analysis to finish.</string>
     <string name="meal_photo_invalid_result">The server returned an invalid estimate. Nothing was applied.</string>
     <string name="meal_photo_unknown">The server did not confirm acceptance. The result is unknown; no automatic retry was sent.</string>
     <string name="meal_photo_timeout">The analysis timed out. No food was recorded.</string>

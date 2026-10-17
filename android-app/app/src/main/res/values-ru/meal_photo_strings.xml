@@ -9,6 +9,10 @@
     <string name="meal_photo_connecting">Проверка сервера…</string>
     <string name="meal_photo_analyzing">Распознавание еды…</string>
     <string name="meal_photo_invalid_image">Не удалось подготовить изображение. Выберите другое фото.</string>
+    <string name="meal_photo_open_failed">Не удалось открыть камеру или галерею. Попробуйте другой источник.</string>
+    <string name="meal_photo_invalid_request">Сервер отклонил изображение. Выберите другое фото.</string>
+    <string name="meal_photo_exchange_failed">Не удалось получить результат. Проверьте связь с ИИ-сервером. Автоматический повтор не отправлен.</string>
+    <string name="meal_photo_busy">Дождитесь завершения текущего анализа фото.</string>
     <string name="meal_photo_invalid_result">Сервер вернул некорректную оценку. Ничего не применено.</string>
     <string name="meal_photo_unknown">Сервер не подтвердил приём запроса. Результат неизвестен, автоматический повтор не отправлен.</string>
     <string name="meal_photo_timeout">Время анализа истекло. Еда не записана.</string>

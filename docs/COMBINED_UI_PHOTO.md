@@ -1,5 +1,26 @@
 # Combined Native UI And Food Photo Source
 
+## Native Selection And Failure Recovery (2026-10-17)
+
+The photo dialog owns one camera/gallery selection at a time. Both controls
+remain disabled until its callback; cancellation does not analyze anything.
+Launcher failures are localized recoverable errors, not unhandled exceptions or
+invalid-image claims. Raw provider/URI/exception details are not displayed.
+
+Authorization or service refusal after selection returns to the existing
+readiness gate. An explicit recheck only checks capability/access; it cannot
+retry the selected image. Exchange, busy and invalid-request failures have
+distinct messages, retaining existing unknown-outcome and timeout warnings.
+Mass/profile limits, uncertain nutrition provenance and final confirmation are
+unchanged. These are foreground UI guarantees, not process-death recovery or
+proof of actual OEM camera/vision acceptance. No server or therapy admission.
+
+Verification: seven expected native failures preceded production edits. Final
+70-case focused and complete 6183-case Android runs passed (six existing skips
+in the complete suite). Actual 1.8x text/error rasters were inspected; local
+lint/compile/build and private APK signature checks passed. Public exact-head
+CI and phone recognition are separate gates, not inferred from these fixtures.
+
 ## Restored Connection Follow-through (2026-10-17)
 
 Saved owner credentials no longer require an ACTIVE in-memory status before the

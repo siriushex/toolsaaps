@@ -50,6 +50,7 @@ internal fun MealPhotoFlowDialog(
     val scope = rememberCoroutineScope()
     var ready by remember { mutableStateOf<MealPhotoAvailability?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var selecting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<Int?>(null) }
     var editor by remember { mutableStateOf<MealPhotoDraftEditorState?>(null) }
     var cameraFile by remember { mutableStateOf<File?>(null) }
@@ -95,11 +96,20 @@ internal fun MealPhotoFlowDialog(
                 else when (val result = analyze(prepared.bytes)) {
                     is MealPhotoAnalysisResult.Success -> editor = MealPhotoDraftEditor.initial(result.estimate)
                     is MealPhotoAnalysisResult.Failure -> error = when (result.reason) {
-                        MealPhotoAnalysisResult.Failure.Reason.NOT_CONFIGURED -> R.string.meal_photo_needs_connection
+                        MealPhotoAnalysisResult.Failure.Reason.NOT_CONFIGURED -> {
+                            ready = MealPhotoAvailability.NEEDS_CONNECTION
+                            null
+                        }
+                        MealPhotoAnalysisResult.Failure.Reason.UNAVAILABLE -> {
+                            ready = MealPhotoAvailability.UNAVAILABLE
+                            null
+                        }
                         MealPhotoAnalysisResult.Failure.Reason.UNKNOWN_OUTCOME -> R.string.meal_photo_unknown
                         MealPhotoAnalysisResult.Failure.Reason.TIMED_OUT -> R.string.meal_photo_timeout
                         MealPhotoAnalysisResult.Failure.Reason.INVALID_RESPONSE -> R.string.meal_photo_invalid_result
-                        else -> R.string.meal_photo_unavailable
+                        MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST -> R.string.meal_photo_invalid_request
+                        MealPhotoAnalysisResult.Failure.Reason.NETWORK -> R.string.meal_photo_exchange_failed
+                        MealPhotoAnalysisResult.Failure.Reason.BUSY -> R.string.meal_photo_busy
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled
@@ -111,8 +121,24 @@ internal fun MealPhotoFlowDialog(
             }
         }
     }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let(::process) }
+    fun launchSelection(launch: () -> Unit) {
+        if (selecting || busy) return
+        selecting = true
+        error = null
+        try { launch() }
+        catch (_: Exception) {
+            selecting = false
+            cameraFile?.delete()
+            cameraFile = null
+            error = R.string.meal_photo_open_failed
+        }
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        selecting = false
+        uri?.let(::process)
+    }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        selecting = false
         if (success) cameraUri?.let(::process)
         else { cameraFile?.delete(); cameraFile = null }
     }
@@ -136,7 +162,7 @@ internal fun MealPhotoFlowDialog(
                         FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = if (enlargedText) 1 else 2,
                             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedButton(onClick = {
-                                try {
+                                launchSelection {
                                     val directory = File(context.cacheDir, "meal-images").apply { mkdirs() }
                                     directory.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 86_400_000L }
                                         ?.forEach { it.delete() }
@@ -144,13 +170,13 @@ internal fun MealPhotoFlowDialog(
                                     cameraFile = file
                                     cameraUri = FileProvider.getUriForFile(context, "${context.packageName}.meal-photo", file)
                                     camera.launch(checkNotNull(cameraUri))
-                                } catch (_: Exception) { error = R.string.meal_photo_invalid_image }
-                            }, Modifier.weight(1f).testTag("mealPhotoCamera")) {
+                                }
+                            }, modifier = Modifier.weight(1f).testTag("mealPhotoCamera"), enabled = !selecting) {
                                 Icon(Icons.Default.PhotoCamera, contentDescription = null)
                                 Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.meal_photo_camera))
                             }
-                            OutlinedButton(onClick = { picker.launch("image/*") },
-                                Modifier.weight(1f).testTag("mealPhotoGallery")) {
+                            OutlinedButton(onClick = { launchSelection { picker.launch("image/*") } },
+                                modifier = Modifier.weight(1f).testTag("mealPhotoGallery"), enabled = !selecting) {
                                 Icon(Icons.Default.PhotoLibrary, contentDescription = null)
                                 Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.meal_photo_gallery))
                             }

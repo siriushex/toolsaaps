@@ -1,5 +1,18 @@
 # PLAN
 
+## Food Photo Selection And Recovery (2026-10-17)
+
+- [x] Trace native launch, cancellation and post-selection failure transitions.
+- [x] Seven expected native REDs before production edits; four prior cases pass.
+- [x] Guard both selectors, contain launch errors and return refused access to
+  the readiness gate without resubmitting an image or changing nutrition bounds.
+- [x] Expanded 70-case native/photo/session/HTTP suite; private ordinary/1.8x
+  error-state rasters inspected, including rapid pre-recomposition actions.
+- [x] Full fixed-input Android: 6177 passed/six existing skips, zero failures
+  or errors. Lint/compile/build and private APK signature verification passed.
+- Publication/CI are recorded after commit in the separate PR stage receipt.
+- No live inference, deployment, phone or therapy change.
+
 ## Food Photo HTTP Body Repair (2026-10-17)
 
 - [x] Trace the concrete transport's conflicting 96000-byte generic limit.
