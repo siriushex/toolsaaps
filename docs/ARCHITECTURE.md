@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Authenticated Facts Host
+
+Owner API's optional default-off `daily_facts` creates one ASGI-lifetime
+maintenance task, not a root timer or model worker. A bounded current subscribed
+attested roster, per-device consent and fresh session/key checks gate each
+local05:00 facts call. Completed-day deduplication, safe-failure backoff and
+critical thread drain reuse the existing history/teardown boundaries. Internal
+ranges=None atomically preserves an archived analytical range or leaves metrics
+unavailable; it is never a live target. See DAILY_FACTS_HOST.md. No live rollout.
+
 ## Opt-In Facts Preparation
 
 An internal persisted facts-only schedule selects the preceding completed

@@ -87,8 +87,10 @@ supersession, schema/quota rollback, foreign/tampered ciphertext, source limits,
 mutable-range freeze and concurrent producer/disable serialization. Existing
 history/report/queue/result/proof suites and the full backend suite remain gates.
 
-Still separate: authenticated owner configuration surface, actual persistent
-host scheduling with bounded retries, provisioned data/device consent, missing
+The optional default-off authenticated owner-lifespan host is now implemented
+separately in DAILY_FACTS_HOST.md, including bounded safe retries. Still separate:
+protected owner configuration surface, actual compatible host rollout and
+provisioned data/device consent, missing
 domain adapters, AI policy/provider/profile admission, dispatcher invocation,
 ordinary clinical publication and intended-device acceptance. No live05:00
 execution, provider quality or UI readback is claimed by these source tests.

@@ -1,5 +1,19 @@
 # PLAN
 
+## Authenticated Facts Host (2026-10-17)
+
+- [x] Read-only live contour inventory and approved facts/design retrieval.
+- [x] Observe16 expected missing-behavior REDs before production changes.
+- [x] Default-off owner flag, bounded current roster, per-device fresh checks,
+  off-loop producer, completion/backoff and lifecycle drain implemented.
+- [x] Preserve selected-day analytical range inside the existing transaction.
+- [x] Expanded240 affected auth/owner/service/schedule/dispatcher cases passed.
+- [x] Full fixed-input backend:1752passed/27existing skips, zero failures;
+  30 new cases included. Source manifests match, scoped lint/compile passed.
+- [ ] Explicit source publication/exact-head Verify and separate PR receipt.
+- No live config/service/consent/model, phone or therapy operation. See
+  DAILY_FACTS_HOST.md for current boundaries and deployment prerequisites.
+
 ## Opt-In Daily Facts Preparation (2026-10-17)
 
 - [x] Continue approved night-review design with persisted facts-only consent,

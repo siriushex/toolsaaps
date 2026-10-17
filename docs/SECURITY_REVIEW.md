@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Authenticated Facts Host
+
+No new public route/secret or default-on task. The owner-scoped roster is bounded,
+excludes foreign/inconsistent/revoked/expired bindings and exposes no bearer
+credentials. Pinned storage and stable grant checks are independent of persisted
+facts consent. Off-loop facts calls are drained on cancellation/ASGI shutdown;
+source errors keep fixed diagnostic codes with bounded retry, not raw text.
+Private facts commits cannot be atomically revoked across the separate identity
+database; disclose the admitted in-flight race without granting publication or
+model/therapy authority. Known analytical ranges are resolved under the source
+transaction. Full/exact-head tests and actual host admission remain separate.
+
 ## Daily Facts Schedule
 
 One private, bounded AES-GCM setting is purpose/owner/device/generation/time

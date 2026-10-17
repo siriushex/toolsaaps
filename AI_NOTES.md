@@ -1,3 +1,31 @@
+# Authenticated Facts Host - 2026-10-17
+
+- Continue approved night-review work after the persisted facts producer. Safe
+  read-only host inspection confirms API/text/image running and admission renewal
+  among the selected contour timers; this is not signed device/provider acceptance.
+- First focused RED:16 missing roster/service/owner-flag/range assertions failed,
+  seven existing cases passed. Implement a bounded owner/subscription/attested
+  roster and one default-off `daily_facts` API-lifetime task, not a new root timer,
+  HTTP endpoint, model route or clinical publisher.
+- Fresh stable grant checks surround facts work; per-device settings are still
+  required. Completed generation/day is not rescanned; expected failures or
+  missing data have capped backoff. Cancellation drains the owned thread before
+  API roots/engines close. No raw exception or medical text enters diagnostics.
+- Host ranges=None resolves the selected day's archived analytical range inside
+  the transaction, preserving known settings without extending or inventing a
+  personal target. Separate identity/history storage cannot guarantee instant
+  revocation of an already-admitted private facts transaction; no AI follows it.
+- Initial160/expanded167 and final240 affected synthetic tests passed, including
+  genuine fixture enrollment, changed grants, late data, bounds, time, source
+  failure and positive ASGI/thread drain. Final full and source publication gates
+  are recorded separately. No real enrollment, credential/profile, model call,
+  medical upload, server change, phone/APK or therapy operation.
+- Complete final backend:1752passed/27existing opt-in skips, zero failures,
+  one existing dependency warning in104.95seconds. Thirty new cases included.
+  Source/test/dependency manifests match before/after. New files full Ruff,
+  modified-module E4/E7/E9/F checks and Python compilation passed. Exact-head
+  publication/CI remain separate post-commit gates in the PR receipt.
+
 # Opt-In Daily Facts Preparation - 2026-10-17
 
 - Continue the unfinished daily pipeline after retained audit display. Source

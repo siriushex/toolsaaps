@@ -101,6 +101,90 @@ def test_daily_reads_are_explicit_and_off_by_default(provisioned):
         assert config.policy.allow_tools is config.policy.allow_actions is False
 
 
+def test_daily_facts_are_explicit_independent_and_off_by_default(provisioned):
+    path, value = provisioned
+    assert getattr(owner.read_configuration(path), "daily_facts", None) is False
+    value["daily_facts"] = True
+    config = owner.read_configuration(save(provisioned))
+    assert config.daily_facts is True and config.daily_reads is False
+    assert config.policy.allow_actions is False
+
+
+@pytest.mark.parametrize("invalid", [1, "true", None, {}, []])
+def test_daily_facts_reject_non_boolean_configuration(provisioned, invalid):
+    _, value = provisioned
+    value["daily_facts"] = invalid
+    with pytest.raises(owner.OwnerApiError):
+        owner.read_configuration(save(provisioned))
+
+
+def test_daily_facts_task_belongs_to_api_lifespan(provisioned, monkeypatch):
+    from app.ai.daily_facts_service import DailyFactsMaintenance
+
+    _, value = provisioned
+    value["daily_facts"] = True
+    seen = []
+    async def run(self, stop):
+        seen.append("started")
+        await stop.wait()
+        seen.append("drained")
+    monkeypatch.setattr(DailyFactsMaintenance, "run", run)
+    app = owner.create_owner_api(save(provisioned), clock_ms=lambda: NOW + 2)
+    with TestClient(app) as client:
+        client.portal.call(asyncio.sleep, 0)
+        assert seen == ["started"]
+        resources = app.resources
+        assert resources.daily_facts is not None and resources.jobs.inference_ready
+    assert seen == ["started", "drained"]
+    assert app.resources is None and not resources.jobs.inference_ready
+
+
+def test_daily_facts_default_does_not_construct_background_owner(provisioned, monkeypatch):
+    from app.ai.daily_facts_service import DailyFactsMaintenance
+
+    monkeypatch.setattr(DailyFactsMaintenance, "__init__",
+                        lambda *a, **kw: pytest.fail("default background owner"))
+    with TestClient(owner.create_owner_api(provisioned[0], clock_ms=lambda: NOW + 2)) as client:
+        assert client.app.resources.daily_facts is None
+
+
+def test_api_shutdown_drains_owned_facts_thread_before_closing_roots(provisioned, monkeypatch):
+    from app.ai.daily_facts_service import DailyFactsMaintenance
+
+    _, value = provisioned
+    value["daily_facts"] = True
+    entered, release = Event(), Event()
+    checked = []
+
+    async def run(self, stop):
+        def read():
+            entered.set()
+            assert release.wait(3)
+            self.storage_check()
+            checked.append(True)
+        await self._call(read)
+
+    monkeypatch.setattr(DailyFactsMaintenance, "run", run)
+    app = owner.create_owner_api(save(provisioned), clock_ms=lambda: NOW + 2)
+
+    async def scenario():
+        context = app._lifespan(app)
+        await context.__aenter__()
+        assert await asyncio.to_thread(entered.wait, 1)
+        resources = app.resources
+        closing = asyncio.create_task(context.__aexit__(None, None, None))
+        await asyncio.sleep(0)
+        assert not closing.done() and resources.jobs.inference_ready
+        release.set()
+        await closing
+        assert checked == [True] and not resources.jobs.inference_ready
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        release.set()
+
+
 @pytest.mark.parametrize("invalid", [1, "true", None, {}, []])
 def test_daily_reads_reject_non_boolean_owner_configuration(provisioned, invalid):
     _, value = provisioned

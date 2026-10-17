@@ -155,6 +155,17 @@ def test_missing_analysis_range_does_not_invent_target(tmp_path):
     assert facts.ranges == () and facts.cohorts[0].metrics.inRangePct is None
 
 
+def test_host_implicit_range_preserves_known_range_or_remains_unavailable(tmp_path):
+    value = store(tmp_path)
+    append(value, [point(0), point(10)])
+    configure(value)
+    first = run(value).report
+    assert run(value, ranges=None, now_ms=AT_FIVE + 1).report == first
+    configure(value, zone_id="Asia/Tbilisi", expected_generation=1, now_ms=AT_FIVE + 2)
+    unknown = run(value, ranges=None, now_ms=AT_FIVE + 2).report
+    assert unknown.facts.current.ranges == ()
+
+
 def test_existing_report_retry_keeps_original_behavior_after_quota_reduction(tmp_path):
     value = store(tmp_path)
     append(value, [point(0), point(10)])

@@ -1,5 +1,18 @@
 # DEVOPS
 
+## Authenticated Daily Facts Host
+
+Source adds optional actual-bool owner `daily_facts`, defaultfalse. No installed
+descriptor/unit, timer, key or database is changed by this stage. One nonroot
+API-lifetime task prepares only explicitly opted-in device facts after local05:00,
+with current grant checks, completion deduplication and bounded failure retry.
+No model/profile admission, daily_reads enablement or public settings route.
+Run new service/schedule/owner/auth/subscription/lifecycle tests and full backend,
+then inspect exact-head Verify. Before actual opt-in, every history writer must
+support schema6. Do not copy tokens, reset claims or roll back to an incompatible
+old API. A disable/restart must drain in-flight facts before resources close.
+See DAILY_FACTS_HOST.md for limits, revocation race and separate live acceptance.
+
 ## Daily Facts Opt-In
 
 Source adds internal schedule read/CAS-write/one-shot producer operations only.

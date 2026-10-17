@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Authenticated Facts Maintenance
+
+- Owner host flag defaults false and is distinct from device consent, signed
+  reads and inference. Existing HTTP/model/profile capabilities do not widen.
+- A bounded current roster never replaces fresh stable-session authorization.
+  Foreign/revoked/expired/inconsistent membership cannot start facts work.
+- Completed generation/day is not scanned each poll; failures/missing data have
+  capped backoff. Restart uses persisted facts idempotency, never model replay.
+- Source calls are off-loop and cancellation drains the owned thread before
+  storage teardown. Stop does not claim physically cancelling SQLite work.
+- Known archived analytical ranges are preserved atomically; unknown stays
+  unavailable. No source archive can become a therapy command.
+- Revocation and private facts commit are separate databases; an already-started
+  call can finish privately after revocation, but cannot publish or admit AI.
+
 ## Opt-In Daily Facts
 
 - Missing settings are disabled; only explicit trusted generation-CAS edits

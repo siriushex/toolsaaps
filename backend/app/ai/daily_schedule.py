@@ -178,17 +178,6 @@ def produce_facts(store, owner, device, *, ranges, now_ms):
             day = due_report_date(setting.zoneId, now_ms)
             if day is None:
                 return ScheduledDailyFacts("NOT_DUE", setting)
-            options = {
-                "report_date": day,
-                "zone_id": setting.zoneId,
-                "now_ms": now_ms,
-                "ranges": ranges,
-                "source_binding": store._identity(owner, device),
-            }
-            empty = daily_glucose.build_daily_glucose(
-                [], snapshot_sequence=0, **options
-            )
-            options["ranges"] = empty.ranges
             key = daily_reports._key(store, owner, device, day, setting.zoneId)
             old = daily_reports._read_report(
                 store,
@@ -199,6 +188,13 @@ def produce_facts(store, owner, device, *, ranges, now_ms):
                 now_ms=now_ms,
                 report_revision=None,
             )
+            options = {
+                "report_date": day, "zone_id": setting.zoneId, "now_ms": now_ms,
+                "ranges": (old.facts.current.ranges if old else ()) if ranges is None else ranges,
+                "source_binding": store._identity(owner, device),
+            }
+            empty = daily_glucose.build_daily_glucose([], snapshot_sequence=0, **options)
+            options["ranges"] = empty.ranges
             snapshot = store._highwater(db)
             if old is not None and old.facts.current.ranges == empty.ranges:
                 source = daily_source._check_selected_source(

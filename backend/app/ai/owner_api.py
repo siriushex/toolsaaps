@@ -8,8 +8,9 @@ allowed_signer_sha256, trusted_root_sha256, revoked_certificate_sha256,
 revocation_checked_ms, revocation_snapshot {path, sha256}}. The separate protected
 snapshot is the pinned official serial-number status JSON. All fields are
 required; no other settings are accepted. Version 1 is not deployment-ready.
-The sole optional addition is vision {socket, uid, gid} for a separately admitted
-image supervisor. It never enables a decoder or profile inside the HTTP process.
+Optional vision {socket, uid, gid} admits a separate image transport; daily_reads
+and daily_facts are independent default-off booleans for audit reads and facts
+maintenance. None enables a model/profile/decoder inside the HTTP process.
 
 Provision four separate empty/private service-owned directories and two distinct
 raw 32-byte key files before startup. Existing dedicated databases are supported;
@@ -173,6 +174,7 @@ class OwnerConfiguration:
     vision_socket_path: Path | None = None
     vision_peer: PeerIdentity | None = None
     daily_reads: bool = False
+    daily_facts: bool = False
 
     @classmethod
     def decode(cls, raw):
@@ -182,9 +184,11 @@ class OwnerConfiguration:
             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
         _fields(value, "version owner_id model roots receipt_key history_key supervisor attestation"
                 + (" vision" if "vision" in value else "")
-                + (" daily_reads" if "daily_reads" in value else ""))
+                + (" daily_reads" if "daily_reads" in value else "")
+                + (" daily_facts" if "daily_facts" in value else ""))
         daily_reads = value.get("daily_reads", False)
-        if type(daily_reads) is not bool:
+        daily_facts = value.get("daily_facts", False)
+        if type(daily_reads) is not bool or type(daily_facts) is not bool:
             raise ValueError()
         if (type(value["version"]) is not int or value["version"] != 2
                 or type(value["owner_id"]) is not str
@@ -233,7 +237,7 @@ class OwnerConfiguration:
                 raise ValueError()
         return cls(value["owner_id"], contextual_chat_policy(value["model"]), roots,
             receipt, history, socket_path, PeerIdentity(supervisor["uid"], supervisor["gid"]), trust,
-            revocation_path, revocation_digest, vision_path, vision_peer, daily_reads)
+            revocation_path, revocation_digest, vision_path, vision_peer, daily_reads, daily_facts)
 
 
 def read_configuration(path: Path):
@@ -280,6 +284,13 @@ class _OwnerAuth(ClientAuth):
         device = super().authorize_attested_session(**kwargs)
         self.require_owner(device.owner_id)
         return device
+
+    def list_authorized_attested_sessions(self, **kwargs):
+        self.require_owner(kwargs["owner_id"])
+        self.storage_check()
+        devices = super().list_authorized_attested_sessions(**kwargs)
+        self.storage_check()
+        return devices
 
 
 class _OwnerActivation(ActivationService):
@@ -462,6 +473,12 @@ class _Resources:
                 self.photo_jobs = AiJobService(auth, proofs, ledger, photo_factory,
                     policy=meal_vision_policy(config.policy.model), clock_ms=clock_ms)
             self.services = tuple(item for item in (self.jobs, self.photo_jobs) if item is not None)
+            self.daily_facts = None
+            if config.daily_facts:
+                from .daily_facts_service import DailyFactsMaintenance
+
+                self.daily_facts = DailyFactsMaintenance(auth, store, owner_id=config.owner_id,
+                    clock_ms=clock_ms, storage_check=self.check)
             self.bound = create_bound_ai_app(self.activation, jobs=self.jobs, meal_photo_jobs=self.photo_jobs,
                 history=HistoryService(auth, proofs, store, owner_id=config.owner_id),
                 daily_reads=config.daily_reads, clock_ms=clock_ms)
@@ -507,7 +524,7 @@ class _OwnerApi:
 
     @asynccontextmanager
     async def _lifespan(self, app):
-        resources = maintenance = None
+        resources = maintenance = facts_task = None
         stop = asyncio.Event()
         try:
             _require_nonroot()
@@ -525,6 +542,8 @@ class _OwnerApi:
                     raise asyncio.CancelledError
             self.resources = resources
             maintenance = asyncio.create_task(self._maintain(resources, stop))
+            if resources.daily_facts is not None:
+                facts_task = asyncio.create_task(resources.daily_facts.run(stop))
             yield
         except Exception:
             raise OwnerApiError("owner_api_start_or_stop_rejected") from None
@@ -533,8 +552,12 @@ class _OwnerApi:
             stop.set()
             async def close():
                 try:
-                    if maintenance is not None:
-                        await maintenance
+                    try:
+                        if facts_task is not None:
+                            await facts_task
+                    finally:
+                        if maintenance is not None:
+                            await maintenance
                 finally:
                     if resources is not None:
                         try:
