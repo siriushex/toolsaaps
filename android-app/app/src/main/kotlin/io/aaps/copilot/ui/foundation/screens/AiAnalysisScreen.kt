@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -79,6 +82,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -200,22 +204,10 @@ fun AiAnalysisScreen(
         }
     }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(it, flags)
-            }
-            onAttachImage(it)
-        }
+        uri?.let(onAttachImage)
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(it, flags)
-            }
-            onAttachFile(it)
-        }
+        uri?.let(onAttachFile)
     }
     val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) onStartVoiceRecording()
@@ -256,7 +248,8 @@ fun AiAnalysisScreen(
                 onDraftChange = onChatDraftChange,
                 onSend = { onSendChatPrompt(state.chatDraft) },
                 onAttachImage = { imagePicker.launch(arrayOf("image/*")) },
-                onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+                onAttachFile = { filePicker.launch(if (state.chatTextOnly)
+                    arrayOf("text/*", "application/json", "application/xml", "application/yaml") else arrayOf("*/*")) },
                 onRemoveAttachment = onRemoveChatAttachment,
                 onVoiceRepliesToggle = onVoiceRepliesToggle,
                 onStartVoiceRecording = { audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
@@ -2312,9 +2305,12 @@ private fun AiChatHeroCard(
     onStopVoiceRecording: () -> Unit
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
-    val canSend = canSubmitAiChat(state.chatDraft, state.chatInProgress, state.chatVoiceBusy, state.chatRecording) &&
-        (!state.chatTextOnly || state.chatPendingAttachments.isEmpty())
-    val mediaAvailable = !state.chatTextOnly && !state.chatInProgress && !state.chatVoiceBusy && !state.chatRecording
+    val canSend = !state.chatAttachmentBusy && canSubmitAiChat(state.chatDraft, state.chatInProgress, state.chatVoiceBusy, state.chatRecording) &&
+        (!state.chatTextOnly || state.chatPendingAttachments.all {
+            it.kind.equals("file", true) && io.aaps.copilot.data.repository.AiChatAttachmentPolicy.isText(it.name, it.mimeType)
+        })
+    val mediaAvailable = !state.chatTextOnly && !state.chatInProgress && !state.chatVoiceBusy && !state.chatRecording && !state.chatAttachmentBusy
+    val filesAvailable = !state.chatInProgress && !state.chatVoiceBusy && !state.chatRecording && !state.chatAttachmentBusy
     val voiceLabel = stringResource(R.string.ai_analysis_chat_voice_mode_title)
     var questionsOpen by remember { mutableStateOf(false) }
     val quickPrompts = listOf(
@@ -2359,26 +2355,33 @@ private fun AiChatHeroCard(
         LazyColumn(
             state = rememberLazyListState(), modifier = Modifier.weight(1f).fillMaxWidth()
                 .testTag("ai_focus_messages"),
-            reverseLayout = true, verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+            reverseLayout = true, verticalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.Bottom)
         ) {
-            items(state.chatMessages.asReversed()) { message ->
+            if (state.chatInProgress) item(key = "waiting") {
+                io.aaps.copilot.ui.motion.AiChatWaitingIndicator(
+                    requestKey = state.chatMessages.lastOrNull { it.role == "user" }?.id ?: "pending")
+            }
+            items(state.chatMessages.asReversed(), key = { it.id }) { message ->
                 AiChatMessageBubble(message = message)
             }
         }
         if (state.chatPendingAttachments.isNotEmpty()) {
-            FlowRow(
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().testTag("ai_chat_attachments"),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
-                state.chatPendingAttachments.forEach { attachment ->
+                items(state.chatPendingAttachments, key = { it.id }) { attachment ->
                     AiAttachmentChip(
                         attachment = attachment,
                         removable = true,
-                        onRemove = { onRemoveAttachment(attachment.id) }
+                        onRemove = { onRemoveAttachment(attachment.id) },
+                        modifier = Modifier.width(240.dp)
                     )
                 }
             }
         }
+        if (state.chatAttachmentBusy) LinearProgressIndicator(
+            Modifier.fillMaxWidth().testTag("ai_chat_attachment_importing"))
         TextField(
             value = state.chatDraft,
             onValueChange = onDraftChange,
@@ -2425,7 +2428,7 @@ private fun AiChatHeroCard(
             AiFocusAction(Icons.Default.AttachFile,
                 stringResource(R.string.ai_analysis_chat_attach_file_short), onAttachFile,
                 Modifier.testTag("ai_focus_attach_file"),
-                enabled = mediaAvailable)
+                enabled = filesAvailable)
             AiFocusAction(if (state.chatRecording) Icons.Default.Stop else Icons.Default.Mic,
                 stringResource(if (state.chatRecording) R.string.ai_analysis_chat_stop_recording_short
                     else R.string.ai_analysis_chat_start_recording_short),
@@ -2540,10 +2543,12 @@ private fun AiChatMessageBubble(
 private fun AiAttachmentChip(
     attachment: AiChatAttachmentUi,
     removable: Boolean,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.widthIn(max = 280.dp),
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     ) {
@@ -2559,22 +2564,24 @@ private fun AiAttachmentChip(
                 },
                 contentDescription = null
             )
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     text = attachment.name,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 val meta = listOfNotNull(attachment.previewLabel, attachment.sizeLabel).joinToString(" • ")
                 if (meta.isNotBlank()) {
                     Text(
                         text = meta,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
             if (removable) {
-                IconButton(onClick = onRemove) {
+                IconButton(onClick = onRemove, modifier = Modifier.testTag("ai_chat_remove_${attachment.id}")) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = stringResource(id = R.string.ai_analysis_chat_remove_attachment)

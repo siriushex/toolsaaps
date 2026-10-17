@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Chat Waiting And Attachments
+
+Focus has one actual-pending finite owl/typing renderer, not a fake progress timer.
+Local picker imports use bounded private cache and strict complete content checks.
+Supported personal image/PDF/text payloads carry actual bytes. Small server text
+files retain the existing signed question envelope; no personal fallback, generic
+server image route or deployment. See AI_CHAT_ATTACHMENTS.md for exact limits.
+
 ## Owned Daily Dispatch
 
 DailyDispatcher now joins encrypted one-shot handoff, fresh source checks,

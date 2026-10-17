@@ -12,6 +12,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AiChatRepositoryServerRoutingTest {
+    @Test fun textAttachmentUsesExistingSignedServerChatWithoutPersonalCredentials() = runTest {
+        val file = kotlin.io.path.createTempFile("chat-sample-", ".txt").toFile()
+        try {
+            file.writeText("Synthetic history in a file")
+            val jobs = Jobs()
+            assertEquals("Synthetic answer", repository(gateway(jobs)).askWithAttachments("Review it", "c",
+                attachments = listOf(AiChatAttachmentRequest("sample.txt", "text/plain", file.path, AiChatAttachmentRequest.Kind.FILE))))
+            assertTrue(jobs.text!!.contains("Synthetic history in a file"))
+            assertEquals(1, jobs.sends)
+        } finally { file.delete() }
+    }
+
+    @Test fun disconnectDuringAttachmentPreparationCannotFallBackToPersonalCredentials() = runTest {
+        val file = kotlin.io.path.createTempFile("chat-sample-", ".txt").toFile()
+        try {
+            file.writeText("Synthetic file")
+            val jobs = Jobs()
+            var routingReads = 0
+            val gateway = ServerAiChatGateway(jobs,
+                { if (routingReads++ == 0) ServerAiChatRouting.SERVER_REQUIRED else ServerAiChatRouting.UNCONFIGURED },
+                { _, _ -> }, { NOW })
+            assertEquals(ServerAiChatError.ROUTING_UNAVAILABLE, serverFailure {
+                repository(gateway).askWithAttachments("Review it", "c", attachments = listOf(
+                    AiChatAttachmentRequest("sample.txt", "text/plain", file.path, AiChatAttachmentRequest.Kind.FILE)))
+            }.reason)
+            assertEquals(0, jobs.sends)
+        } finally { file.delete() }
+    }
     @Test
     fun serverTextChatReadsNeitherPersonalKeyNorPersonalEndpoint() = runTest {
         var syncedContext: String? = null

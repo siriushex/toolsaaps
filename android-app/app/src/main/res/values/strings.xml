@@ -1,4 +1,8 @@
 <resources>
+    <string name="ai_chat_waiting">Preparing a reply</string>
+    <string name="ai_chat_attachment_failed">Could not attach this file. Images and PDF: up to 4 MB; UTF-8 text: 32 KB (server: 2 KB). Up to 4 files and 8 MB total.</string>
+    <string name="ai_chat_attachment_text_only">This server accepts UTF-8 text files (TXT, CSV, JSON, MD, XML, YAML), up to 2 KB total, within the question limit. Images and PDF need a multimodal connection.</string>
+    <string name="ai_chat_attachment_full">Up to 4 files and 8 MB total. Remove an attachment first.</string>
     <string name="prospective_review_title">Prospective Forecast Check</string>
     <string name="prospective_review_refresh">Refresh check</string>
     <string name="prospective_review_close">Close</string>
@@ -366,7 +370,7 @@
     <string name="ai_analysis_chat_role_user">You</string>
     <string name="ai_analysis_chat_role_ai">AI</string>
     <string name="ai_chat_text_mode">Text chat</string>
-    <string name="ai_chat_text_only">This server supports typed questions only. Remove attachments before sending.</string>
+    <string name="ai_chat_text_only">This server accepts text and small text files. Images, PDF and audio need a multimodal connection.</string>
     <string name="ai_chat_failure_title">No answer received</string>
     <string name="ai_chat_failure_connection">Connection unavailable. Check the network and server connection.</string>
     <string name="ai_chat_failure_unavailable">AI is not ready. Check the server connection in settings.</string>

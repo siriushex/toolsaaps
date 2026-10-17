@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Chat Waiting And Attachments
+
+- Pending UI follows real work only; finite motion cannot imply model progress,
+  request success, clinical evidence or therapy readiness.
+- Picker selection does not upload. Complete bounded content is rechecked on
+  send; no truncation, filename-only binary substitute or silent fifth-item loss.
+- Failed copy removes only its partial file. Import/send/removal gates preserve
+  the exact reserved draft. Private cache is not a durable message attachment store.
+- Configured server never falls back to personal credentials. Text attachments
+  keep original signature/capability/question limits; images/PDF/audio do not
+  bypass the server TEXT policy or enter food-only vision through this UI.
+
 ## Owned Daily Lifecycle
 
 - Only the executor's fresh idle ADMITTED claim invokes a factory. DEFERRED

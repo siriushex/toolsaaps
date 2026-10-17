@@ -1,3 +1,23 @@
+# Chat Motion And Bounded Attachments - 2026-10-17
+
+- One actual-pending finite owl/typing renderer; reply/failure removes it, root
+  motion limits remain, no duplicate header owl or invented progress.
+- Bounded private imports, strict complete text, exact partial/cache cleanup;
+  no silent fifth-item eviction or filename-only binary representation.
+- Actual personal image/PDF bytes and small server text files use their existing
+  routes. No server image/PDF/audio fallback, live upload or therapy change.
+- The first Gradle attempt was a cache-permission failure, not RED evidence.
+  Authorized rerun reached missing-policy compile failures before implementation.
+- Focused74 cases passed; complete Android6043passed/6existing skips, no failures
+  or errors. Lint0errors/377warnings/8hints; compile/test/lint/assemble passed.
+  Final native renderer passed separately at360x640 in CLARITY. The encoded
+  720x256/15fps/7.267s preview has109 nonblank frames and108 distinct frames;
+  opening/peak/blink/ending were inspected, no clipped text. An earlier narrow
+  fixture preview was rejected and retained privately. APK signature/package
+  identity verified. Source publication and exact-head CI have separate receipts.
+- No actual provider call, file upload, server image/PDF enablement, phone install
+  or clinical operation. Cache/provider-blocking and route limits are documented.
+
 # Owned Daily Dispatch - 2026-10-17
 
 - Fresh read-only server check confirms deployed4c52 chat repair remains healthy,

@@ -841,6 +841,7 @@ data class AiReplayUi(
 )
 
 enum class AiChatFailureUi {
+    INVALID_ATTACHMENT,
     CONNECTION, UNAVAILABLE, ACCESS, TEXT_ONLY, INVALID_REQUEST, CONTEXT, UNKNOWN_OUTCOME,
     TIMEOUT, CANCELLED, INVALID_RESPONSE, OTHER
 }
@@ -1212,6 +1213,7 @@ data class AiAnalysisUiState(
     val chatInProgress: Boolean = false,
     val chatDraft: String = "",
     val chatPendingAttachments: List<AiChatAttachmentUi> = emptyList(),
+    val chatAttachmentBusy: Boolean = false,
     val chatVoiceRepliesEnabled: Boolean = false,
     val chatRecording: Boolean = false,
     val chatVoiceBusy: Boolean = false,

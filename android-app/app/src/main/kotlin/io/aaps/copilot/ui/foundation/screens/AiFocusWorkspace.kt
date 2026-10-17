@@ -77,7 +77,7 @@ internal fun AiFocusWorkspace(
                 Modifier.weight(1f).semantics { heading() },
                 style = MaterialTheme.typography.titleMedium
             )
-            if (!details) {
+            if (!details && !(tab == FocusTab.CHAT && state.chatInProgress)) {
                 CopilotOwl(modifier = Modifier.testTag("ai_focus_owl"), size = 28.dp,
                     gesture = if (busy) OwlGesture.WAITING else OwlGesture.LISTEN,
                     description = if (busy) stringResource(R.string.owl_ai_waiting) else null,

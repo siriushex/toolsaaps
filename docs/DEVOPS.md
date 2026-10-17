@@ -1,5 +1,13 @@
 # DEVOPS
 
+## Chat Motion And Attachments
+
+Android-only source, no Room/server schema or service change. Existing server
+TEXT limits remain4096codepoints/8192bytes; no image/PDF activation. Run focused
+attachment/route/Focus/motion tests and full Android test/lint/build, then inspect
+exact-head Verify. Native raster/video evidence stays private. A built APK is
+not USB/provider acceptance. See AI_CHAT_ATTACHMENTS.md for exact route limits.
+
 ## Owned Daily Dispatch (2026-10-17)
 
 Source-only execution/transport integration. Default host CLI remains chat-only;

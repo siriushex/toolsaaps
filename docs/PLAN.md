@@ -1,5 +1,19 @@
 # PLAN
 
+## Chat Motion And Bounded Attachments (2026-10-17)
+
+- [x] Inspect Focus composer, native motion and actual provider bounds.
+- [x] Finite pending-only owl/typing renderer and stable message identities.
+- [x] Bounded imports, strict text and real personal image/PDF bytes; small text
+  files on existing signed server route, no personal fallback.
+- [x] Focused74 tests and final native raster/encoded motion inspection.
+- [x] Full Android6043passed/6skips, lint0errors/377warnings/8hints, compile/build.
+- Publication/CI is recorded by the exact-head PR receipt, not assumed here.
+- [ ] Separate server image/PDF route and actual provider/device acceptance.
+
+No live provider/medical upload, phone, server activation or therapy operation
+belongs to this Android source stage. Picker availability is not image readiness.
+
 ## Owned Daily Dispatch (2026-10-17)
 
 - [x] Revalidate actual deployed text repair without new inference.

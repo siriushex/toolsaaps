@@ -3,6 +3,7 @@ package io.aaps.copilot.ui
 import androidx.annotation.StringRes
 import io.aaps.copilot.R
 import io.aaps.copilot.data.repository.AiChatTurn
+import io.aaps.copilot.data.repository.AiChatAttachmentFailure
 import io.aaps.copilot.data.repository.ServerAiChatError
 import io.aaps.copilot.data.repository.ServerAiChatFailure
 import io.aaps.copilot.ui.foundation.screens.AiChatFailureUi
@@ -22,6 +23,7 @@ internal fun aiChatModelHistory(messages: List<AiChatMessageUi>): List<AiChatTur
         .toList().takeLast(10)
 
 internal fun aiChatFailureUi(error: Throwable): AiChatFailureUi = when (error) {
+    is AiChatAttachmentFailure -> AiChatFailureUi.INVALID_ATTACHMENT
     is ServerAiChatFailure -> if (error.outcomeUnknown) AiChatFailureUi.UNKNOWN_OUTCOME else when (error.reason) {
         ServerAiChatError.NETWORK -> AiChatFailureUi.CONNECTION
         ServerAiChatError.ROUTING_UNAVAILABLE, ServerAiChatError.DISABLED,
@@ -43,6 +45,7 @@ internal fun aiChatFailureUi(error: Throwable): AiChatFailureUi = when (error) {
 
 @StringRes
 internal fun aiChatFailureMessage(failure: AiChatFailureUi): Int = when (failure) {
+    AiChatFailureUi.INVALID_ATTACHMENT -> R.string.ai_chat_attachment_failed
     AiChatFailureUi.CONNECTION -> R.string.ai_chat_failure_connection
     AiChatFailureUi.UNAVAILABLE -> R.string.ai_chat_failure_unavailable
     AiChatFailureUi.ACCESS -> R.string.ai_chat_failure_access

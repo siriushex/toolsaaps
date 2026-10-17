@@ -85,12 +85,12 @@ class AiFocusScreenTest {
         compose.onNodeWithTag("ai_focus_send").assertIsNotEnabled()
     }
 
-    @Test fun serverTextChatDoesNotOfferUnsupportedMediaOrSpeech() = screen(
+    @Test fun serverTextChatOffersTextFilesButNotUnsupportedImagesOrSpeech() = screen(
         ready().copy(chatTextOnly = true)
     ) {
         compose.onNodeWithTag("ai_focus_tab_chat").performClick()
         compose.onNodeWithTag("ai_focus_attach_photo").assertIsNotEnabled()
-        compose.onNodeWithTag("ai_focus_attach_file").assertIsNotEnabled()
+        compose.onNodeWithTag("ai_focus_attach_file").assertIsEnabled()
         compose.onNodeWithTag("ai_focus_record").assertIsNotEnabled()
         compose.onNodeWithTag("ai_focus_voice_replies").assertIsNotEnabled()
     }
@@ -102,12 +102,63 @@ class AiFocusScreenTest {
         compose.onNodeWithTag("ai_focus_record").assertIsEnabled()
     }
 
-    @Test fun staleAttachmentMustBeRemovedBeforeSendingToTextOnlyServer() = screen(
+    @Test fun textAttachmentCanBeSentToTextOnlyServer() = screen(
         ready().copy(chatTextOnly = true, chatDraft = "Review the supplied context",
             chatPendingAttachments = listOf(AiChatAttachmentUi("sample", "notes.txt", "FILE")))
     ) {
         compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_focus_send").assertIsEnabled()
+    }
+
+    @Test fun waitingIndicatorExistsOnlyDuringTheActualRequest() {
+        var state by mutableStateOf(ready().copy(chatInProgress = true))
+        screenContent({ state }) {
+            compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+            compose.onNodeWithTag("ai_chat_waiting").assertIsDisplayed()
+            compose.onNodeWithTag("ai_focus_send").assertIsNotEnabled()
+            val waiting = compose.onNodeWithTag("ai_chat_waiting").fetchSemanticsNode().boundsInRoot
+            val composer = compose.onNodeWithTag("ai_focus_composer").fetchSemanticsNode().boundsInRoot
+            assertTrue(waiting.bottom <= composer.top && composer.top - waiting.bottom < 32f)
+            saveRaster("chat-waiting")
+            compose.runOnIdle { state = state.copy(chatInProgress = false) }
+            compose.onNodeWithTag("ai_chat_waiting").assertDoesNotExist()
+        }
+    }
+
+    @Test fun importingAFileBlocksSendAndAnotherPickerUntilComplete() = screen(
+        ready().copy(chatDraft = "Review it", chatAttachmentBusy = true)
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_chat_attachment_importing").assertIsDisplayed()
         compose.onNodeWithTag("ai_focus_send").assertIsNotEnabled()
+        compose.onNodeWithTag("ai_focus_attach_file").assertIsNotEnabled()
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun fourAttachmentsStayInOneStripAndEachCanBeRemoved() {
+        var state by mutableStateOf(ready().copy(chatDraft = "Проверь файлы", chatTextOnly = true,
+            chatPendingAttachments = (1..4).map { AiChatAttachmentUi("sample-$it", "Длинное_имя_наблюдения_$it.txt", "file", "text/plain", "200 B") }))
+        screenContent({ state }, onRemove = { id -> state = state.copy(
+            chatPendingAttachments = state.chatPendingAttachments.filterNot { it.id == id }) }) {
+            compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+            compose.onNodeWithTag("ai_focus_composer").assertIsDisplayed()
+            compose.onNodeWithTag("ai_focus_send").assertIsDisplayed().assertIsEnabled()
+            saveRaster("chat-attachments-ru-small")
+            compose.onNodeWithTag("ai_chat_attachments").performScrollToIndex(3)
+            compose.onNodeWithTag("ai_chat_remove_sample-4").performClick()
+            assertEquals(3, state.chatPendingAttachments.size)
+        }
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun waitingAtSmallWidthLeavesComposerAndFileActionUsable() = screen(
+        ready().copy(chatInProgress = true, chatTextOnly = true)
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        compose.onNodeWithTag("ai_chat_waiting").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_composer").assertIsDisplayed()
+        compose.onNodeWithTag("ai_focus_attach_file").assertIsDisplayed()
+        saveRaster("chat-waiting-ru-small")
     }
 
     @Test fun recordingCannotSubmitASecondTextQuestion() = screen(
@@ -437,6 +488,7 @@ class AiFocusScreenTest {
     private fun screenContent(
         state: () -> AiAnalysisUiState,
         onDraft: (String) -> Unit = {}, onSend: (String) -> Unit = {},
+        onRemove: (String) -> Unit = {},
         onClinicalSend: (ClinicalReportDisclosureUi) -> Unit = {}, fontScale: Float = 1f,
         test: () -> Unit
     ) {
@@ -449,6 +501,7 @@ class AiFocusScreenTest {
                     AapsCopilotTheme(darkTheme = false, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                         ProvideCopilotMotion(false) {
                             AiAnalysisScreen(state(), onChatDraftChange = onDraft, onSendChatPrompt = onSend,
+                                onRemoveChatAttachment = onRemove,
                                 onSendClinicalReport = onClinicalSend,
                                 onPrepareClinicalReport = { error("unexpected preparation") },
                                 modifier = Modifier.fillMaxSize())

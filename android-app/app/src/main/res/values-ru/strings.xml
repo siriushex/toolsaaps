@@ -1,4 +1,8 @@
 <resources>
+    <string name="ai_chat_waiting">Готовлю ответ</string>
+    <string name="ai_chat_attachment_failed">Не удалось прикрепить файл. Фото и PDF: до 4 МБ; текст UTF-8: до 32 КБ (сервер: до 2 КБ). Максимум 4 файла и 8 МБ.</string>
+    <string name="ai_chat_attachment_text_only">Этот сервер принимает текст UTF-8 (TXT, CSV, JSON, MD, XML, YAML), до 2 КБ суммарно в пределах лимита вопроса. Для фото и PDF нужно мультимодальное подключение.</string>
+    <string name="ai_chat_attachment_full">Максимум 4 файла и 8 МБ суммарно. Сначала уберите одно из вложений.</string>
     <string name="prospective_review_title">Проверка прогноза</string>
     <string name="prospective_review_refresh">Обновить проверку</string>
     <string name="prospective_review_close">Закрыть</string>
@@ -367,7 +371,7 @@
     <string name="ai_analysis_chat_role_user">Вы</string>
     <string name="ai_analysis_chat_role_ai">AI</string>
     <string name="ai_chat_text_mode">Текстовый чат</string>
-    <string name="ai_chat_text_only">Этот сервер принимает только текстовые вопросы. Удалите вложения перед отправкой.</string>
+    <string name="ai_chat_text_only">Этот сервер принимает текст и небольшие текстовые файлы. Для фото, PDF и аудио нужно мультимодальное подключение.</string>
     <string name="ai_chat_failure_title">Ответ не получен</string>
     <string name="ai_chat_failure_connection">Нет соединения. Проверьте сеть и подключение к серверу.</string>
     <string name="ai_chat_failure_unavailable">ИИ пока недоступен. Проверьте подключение к серверу в настройках.</string>

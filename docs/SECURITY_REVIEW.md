@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Bounded Chat Attachments
+
+Explicit document selection copies to unique private cache without retained URI
+grants. Type/byte/count/strict-text checks refuse invalid or missing content; no
+metadata-only binary analysis. Fixed localized errors omit paths/raw exceptions.
+Removed/consumed/failed files are scoped to their owner; process-death leftovers
+may remain in private OS cache, not a claimed durable draft or global purge.
+Configured TEXT server stays signed/bounded and cannot fall back to personal keys
+or food-only vision. Native pending motion grants no request/clinical authority.
+Focused74 tests, complete Android6043passed/6skips and final native renderer pass.
+Lint0errors/377warnings/8hints; compile/build, APK signature and encoded-frame checks
+pass. Reviewed publication and exact-head CI have separate receipts. These are
+synthetic/local checks, not live provider/upload/device or clinical acceptance.
+
 ## Owned Daily Execution And Channel (2026-10-17)
 
 - Idle admission and claim consumption occur inside JobExecutor. No caller-sent

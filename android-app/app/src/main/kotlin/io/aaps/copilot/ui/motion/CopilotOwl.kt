@@ -54,7 +54,8 @@ fun CopilotOwl(
     motionKey: String = gesture.name,
     animate: Boolean = true,
     description: String? = null,
-    motionDurationMs: Long = gesture.durationMs
+    motionDurationMs: Long = gesture.durationMs,
+    poseOverride: (() -> OwlPose)? = null
 ) {
     require(motionDurationMs in 0..gesture.durationMs)
     val paths = remember { OwlPaths() }
@@ -70,7 +71,8 @@ fun CopilotOwl(
     Canvas(modifier.size(size).then(progress).then(if (description == null) Modifier else Modifier.semantics { contentDescription = description })) {
         val elapsed = if (motionDurationMs == 0L) gesture.durationMs
             else clock.value * gesture.durationMs / motionDurationMs
-        val pose = OwlMotionPolicy.sample(gesture, elapsed, reduced = !motionEnabled)
+        val pose = if (!motionEnabled) OwlPose() else poseOverride?.invoke()
+            ?: OwlMotionPolicy.sample(gesture, elapsed)
         fun DrawScope.feather(path: Path) {
             if (texture != null) clipPath(path) {
                 drawImage(texture, dstSize = IntSize(280,280), alpha = .36f, blendMode = BlendMode.Softlight)

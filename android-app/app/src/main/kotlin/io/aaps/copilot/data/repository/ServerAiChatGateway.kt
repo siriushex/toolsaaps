@@ -39,7 +39,7 @@ class ServerAiChatFailure(
         ServerAiChatError.ROUTING_UNAVAILABLE -> "Server AI chat is not connected. Check the app's server AI setup."
         ServerAiChatError.DISABLED -> "Server AI inference is unavailable. Check the server connection and readiness."
         ServerAiChatError.UNSUPPORTED_MODALITY ->
-            "Server AI supports text chat only. Remove attachments and use typed text; audio and speech are unavailable."
+            "Server AI supports typed text and small text files only. Images, PDF, audio and speech are unavailable."
         ServerAiChatError.INVALID_REQUEST -> "The question is invalid or exceeds server limits. Edit it explicitly before sending again."
         ServerAiChatError.CONTEXT_SYNC -> "Chat context could not be synchronized. No model job was submitted. Check the server connection."
         ServerAiChatError.NETWORK -> "Server AI could not be reached. Check the connection and server conversation history before retrying."

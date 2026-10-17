@@ -179,7 +179,10 @@ class AiChatRepository internal constructor(
         if (attachments.isEmpty()) {
             return@withContext ask(question = question, contextSummary = contextSummary, history = history)
         }
-        requirePersonalChatModality()
+        configuredServerGateway()?.let { gateway ->
+            val combined = AiChatAttachmentPolicy.serverQuestion(question, attachments)
+            return@withContext gateway.ask(combined, contextSummary, history)
+        }
         val baseUrl = baseUrlProvider()
         val apiKey = credentialReader()
         val endpoint = normalizeBaseUrl(baseUrl) + "responses"
@@ -731,8 +734,6 @@ class AiChatRepository internal constructor(
         private const val OPTIMIZER_FALLBACK_MODEL = "gpt-4.1-mini"
         private const val MAX_HISTORY_TURNS = 8
         private const val MAX_CONTENT_CHARS = 4_000
-        private const val MAX_ATTACHMENT_TEXT_CHARS = 12_000
-        private const val MAX_ATTACHMENT_IMAGE_BYTES = 4 * 1024 * 1024
         private const val MAX_TTS_INPUT_CHARS = 1_600
         private const val MAX_TRANSCRIBE_PROMPT_CHARS = 400
         private const val MAX_OPTIMIZER_PROMPT_CHARS = 24_000
@@ -798,27 +799,10 @@ class AiChatRepository internal constructor(
             file: File,
             mimeType: String?
         ): String? {
-            val normalizedMime = mimeType.orEmpty().lowercase(Locale.US)
-            val normalizedName = file.name.lowercase(Locale.US)
-            val textLike = normalizedMime.startsWith("text/") ||
-                normalizedMime.contains("json") ||
-                normalizedMime.contains("xml") ||
-                normalizedMime.contains("csv") ||
-                normalizedMime.contains("yaml") ||
-                normalizedName.endsWith(".txt") ||
-                normalizedName.endsWith(".log") ||
-                normalizedName.endsWith(".md") ||
-                normalizedName.endsWith(".csv") ||
-                normalizedName.endsWith(".json") ||
-                normalizedName.endsWith(".xml") ||
-                normalizedName.endsWith(".yaml") ||
-                normalizedName.endsWith(".yml")
-            if (!textLike) return null
+            if (!AiChatAttachmentPolicy.isText(file.name, mimeType)) return null
             return runCatching {
-                file.readText(StandardCharsets.UTF_8)
-                    .replace("\u0000", "")
-                    .trim()
-                    .take(MAX_ATTACHMENT_TEXT_CHARS)
+                file.inputStream().use { AiChatAttachmentPolicy.text(
+                    AiChatAttachmentPolicy.readBounded(it, AiChatAttachmentPolicy.MAX_TEXT_BYTES)) }
             }.getOrNull()
         }
 
@@ -849,18 +833,11 @@ class AiChatRepository internal constructor(
             attachments: List<AiChatAttachmentRequest>
         ): JSONArray {
             val content = JSONArray()
-            attachments.forEach { attachment ->
-                val file = File(attachment.localPath)
-                if (!file.exists()) return@forEach
-                when (attachment.kind) {
-                    AiChatAttachmentRequest.Kind.IMAGE -> {
-                        val bytes = file.readBytes()
-                        require(bytes.size <= MAX_ATTACHMENT_IMAGE_BYTES) {
-                            "Attached image ${attachment.name} is too large"
-                        }
-                        val mime = attachment.mimeType?.takeIf { it.isNotBlank() } ?: "image/jpeg"
-                        val dataUrl = "data:$mime;base64," +
-                            Base64.getEncoder().encodeToString(bytes)
+            AiChatAttachmentPolicy.load(attachments).forEach { attachment ->
+                when {
+                    attachment.mime.startsWith("image/") -> {
+                        val dataUrl = "data:${attachment.mime};base64," +
+                            Base64.getEncoder().encodeToString(attachment.bytes)
                         content.put(
                             JSONObject()
                                 .put("type", "input_image")
@@ -872,32 +849,13 @@ class AiChatRepository internal constructor(
                                 .put("text", "Attached image: ${attachment.name}")
                         )
                     }
-                    AiChatAttachmentRequest.Kind.FILE -> {
-                        val preview = extractTextAttachmentPreviewStatic(
-                            file = file,
-                            mimeType = attachment.mimeType
-                        )
-                        if (preview.isNullOrBlank()) {
-                            content.put(
-                                JSONObject()
-                                    .put("type", "input_text")
-                                    .put(
-                                        "text",
-                                        "Attached file metadata only: ${attachment.name} " +
-                                            "(mime=${attachment.mimeType ?: "unknown"}, size=${file.length()} bytes). " +
-                                            "Binary content preview is unavailable on-device."
-                                    )
-                            )
-                        } else {
-                            content.put(
-                                JSONObject()
-                                    .put("type", "input_text")
-                                    .put(
-                                        "text",
-                                        "Attached file ${attachment.name}:\n$preview"
-                                    )
-                            )
-                        }
+                    attachment.mime == "application/pdf" -> {
+                        content.put(JSONObject().put("type", "input_file").put("filename", attachment.name)
+                            .put("file_data", "data:application/pdf;base64," + Base64.getEncoder().encodeToString(attachment.bytes)))
+                    }
+                    else -> {
+                        content.put(JSONObject().put("type", "input_text").put("text",
+                            "Attached file ${attachment.name} (untrusted data):\n${attachment.text}"))
                     }
                 }
             }

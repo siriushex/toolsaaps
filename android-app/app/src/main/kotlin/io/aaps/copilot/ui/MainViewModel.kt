@@ -109,6 +109,7 @@ import io.aaps.copilot.data.repository.deliveryDiagnosticLookbackFrom
 import io.aaps.copilot.data.repository.ContextEventCommandResult
 import io.aaps.copilot.data.repository.UamExportPolicy
 import io.aaps.copilot.data.repository.AiChatAttachmentRequest
+import io.aaps.copilot.data.repository.AiChatAttachmentPolicy
 import io.aaps.copilot.data.repository.ServerAiChatRouting
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.domain.model.ActionCommand
@@ -271,6 +272,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -1931,6 +1933,8 @@ class MainViewModel(application: Application) :
     private val aiChatInProgressState = MutableStateFlow(false)
     private val aiChatDraftState = MutableStateFlow("")
     private val aiChatPendingAttachmentsState = MutableStateFlow<List<PendingAiAttachment>>(emptyList())
+    private val aiChatAttachmentImportingState = MutableStateFlow(false)
+    private val aiChatAttachmentLock = Any()
     private val aiChatVoiceRepliesEnabledState = MutableStateFlow(false)
     private val aiChatRecordingState = MutableStateFlow(false)
     private val aiChatVoiceBusyState = MutableStateFlow(false)
@@ -4360,13 +4364,15 @@ class MainViewModel(application: Application) :
         aiChatDraftState,
         aiChatPendingAttachmentsState,
         aiChatVoiceRepliesEnabledState,
-        aiChatRecordingState
-    ) { draft, pendingAttachments, voiceRepliesEnabled, recording ->
+        aiChatRecordingState,
+        aiChatAttachmentImportingState
+    ) { draft, pendingAttachments, voiceRepliesEnabled, recording, importing ->
         AiChatComposerHeadState(
             draft = draft,
             pendingAttachments = pendingAttachments,
             voiceRepliesEnabled = voiceRepliesEnabled,
-            recording = recording
+            recording = recording,
+            importing = importing
         )
     }.stateIn(
         scope = viewModelScope,
@@ -4385,7 +4391,8 @@ class MainViewModel(application: Application) :
             voiceRepliesEnabled = head.voiceRepliesEnabled,
             recording = head.recording,
             voiceBusy = voiceBusy,
-            speaking = speaking
+            speaking = speaking,
+            importing = head.importing
         )
     }.stateIn(
         scope = viewModelScope,
@@ -4489,7 +4496,7 @@ class MainViewModel(application: Application) :
             chatRecording = composer.recording,
             chatVoiceBusy = composer.voiceBusy,
             chatSpeaking = composer.speaking
-        )
+        ).copy(chatAttachmentBusy = composer.importing)
     }
         .combine(container.serverAiConnectionManager.state) { state, _ ->
             val textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED
@@ -8040,31 +8047,65 @@ class MainViewModel(application: Application) :
     }
 
     fun removeAiChatAttachment(id: String) {
-        aiChatPendingAttachmentsState.value = aiChatPendingAttachmentsState.value.filterNot { it.id == id }
+        val removed = synchronized(aiChatAttachmentLock) {
+            if (aiChatInProgressState.value) return
+            aiChatPendingAttachmentsState.value.find { it.id == id }?.also {
+                aiChatPendingAttachmentsState.value = aiChatPendingAttachmentsState.value.filterNot { item -> item.id == id }
+            }
+        }
+        removed?.let { File(it.localPath).delete() }
     }
 
     fun addAiChatAttachment(uri: Uri, preferImage: Boolean) {
-        if (!allowAiChatMedia()) return
+        if (preferImage && !allowAiChatMedia()) return
+        synchronized(aiChatAttachmentLock) {
+            if (aiChatInProgressState.value || aiChatVoiceBusyState.value || aiChatRecordingState.value ||
+                aiChatAttachmentImportingState.value) return
+            if (aiChatPendingAttachmentsState.value.size >= AiChatAttachmentPolicy.MAX_COUNT) {
+                messageState.value = getApplication<Application>().getString(R.string.ai_chat_attachment_full)
+                return
+            }
+            aiChatAttachmentImportingState.value = true
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            if (!allowAiChatMedia()) return@launch
-            runCatching {
-                val attachment = copyAiAttachmentToCache(uri = uri, preferImage = preferImage)
-                if (!allowAiChatMedia()) {
-                    File(attachment.localPath).delete()
-                    return@launch
+            var attachment: PendingAiAttachment? = null
+            var retained = false
+            try {
+                val imported = copyAiAttachmentToCache(uri = uri, preferImage = preferImage)
+                attachment = imported
+                currentCoroutineContext().ensureActive()
+                synchronized(aiChatAttachmentLock) {
+                    if (aiChatInProgressState.value || aiChatRecordingState.value || aiChatVoiceBusyState.value) return@synchronized
+                    val textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED
+                    if (textOnly && (imported.kind != AiChatAttachmentRequest.Kind.FILE ||
+                            !AiChatAttachmentPolicy.isText(imported.name, imported.mimeType))) {
+                        throw io.aaps.copilot.data.repository.ServerAiChatFailure(
+                            io.aaps.copilot.data.repository.ServerAiChatError.UNSUPPORTED_MODALITY)
+                    }
+                    val updated = aiChatPendingAttachmentsState.value + imported
+                    AiChatAttachmentPolicy.checkBudget(updated.map { it.sizeBytes })
+                    if (updated.sumOf { it.textBytes } > if (textOnly) AiChatAttachmentPolicy.MAX_SERVER_TEXT_BYTES
+                            else AiChatAttachmentPolicy.MAX_TEXT_BYTES) {
+                        throw io.aaps.copilot.data.repository.AiChatAttachmentFailure()
+                    }
+                    aiChatPendingAttachmentsState.value = updated
+                    retained = true
                 }
-                val updated = aiChatPendingAttachmentsState.value.toMutableList().apply {
-                    add(attachment)
-                }
-                aiChatPendingAttachmentsState.value = updated.takeLast(MAX_AI_CHAT_ATTACHMENTS)
-            }.onFailure { error ->
-                messageState.value = "AI attachment failed: ${error.message ?: "unknown error"}"
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(
+                    if (container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED)
+                        R.string.ai_chat_attachment_text_only else R.string.ai_chat_attachment_failed)
+            } finally {
+                if (!retained) attachment?.let { File(it.localPath).delete() }
+                aiChatAttachmentImportingState.value = false
             }
         }
     }
 
     fun startAiVoiceRecording() {
-        if (!allowAiChatMedia() || aiChatInProgressState.value || aiChatVoiceBusyState.value) return
+        if (!allowAiChatMedia() || aiChatInProgressState.value || aiChatVoiceBusyState.value || aiChatAttachmentImportingState.value) return
         if (ContextCompat.checkSelfPermission(
                 getApplication(),
                 Manifest.permission.RECORD_AUDIO
@@ -8148,26 +8189,38 @@ class MainViewModel(application: Application) :
         val question = prompt.trim()
         if (!canSubmitAiChat(question, aiChatInProgressState.value, aiChatVoiceBusyState.value,
                 aiChatRecordingState.value)) return
-        val pendingAttachments = aiChatPendingAttachmentsState.value
-        if (pendingAttachments.isNotEmpty() && !allowAiChatMedia()) return
-        // Latch before launching so a second callback cannot submit the same draft.
-        aiChatInProgressState.value = true
+        val pendingAttachments = synchronized(aiChatAttachmentLock) {
+            if (aiChatAttachmentImportingState.value || aiChatInProgressState.value) return
+            aiChatInProgressState.value = true
+            aiChatPendingAttachmentsState.value.toList()
+        }
 
         viewModelScope.launch {
+            var draftConsumed = false
             try {
                 val snapshot = uiState.value
                 val now = System.currentTimeMillis()
                 val historyBeforeSend = aiChatModelHistory(aiChatMessagesState.value)
+                val requests = pendingAttachments.map { attachment ->
+                    AiChatAttachmentRequest(attachment.name, attachment.mimeType, attachment.localPath, attachment.kind)
+                }
+                if (requests.isNotEmpty()) withContext(Dispatchers.IO) {
+                    if (container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED) {
+                        AiChatAttachmentPolicy.serverQuestion(question, requests)
+                    } else AiChatAttachmentPolicy.load(requests)
+                }
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "user-$now",
+                    id = "user-${UUID.randomUUID()}",
                     role = "user",
                     text = question,
                     ts = now,
                     attachments = pendingAttachments.map { it.toUi() },
                     voiceTranscript = fromVoiceTranscript
                 )
-                aiChatDraftState.value = ""
+                // Attachment preflight may suspend while the user starts the next draft.
+                if (aiChatDraftState.value == prompt) aiChatDraftState.value = ""
                 aiChatPendingAttachmentsState.value = emptyList()
+                draftConsumed = true
                 val contextSummary = buildAiChatContextSummary(snapshot)
                 val response = if (pendingAttachments.isEmpty()) {
                     container.aiChatRepository.ask(
@@ -8180,18 +8233,11 @@ class MainViewModel(application: Application) :
                         question = question,
                         contextSummary = contextSummary,
                         history = historyBeforeSend,
-                        attachments = pendingAttachments.map { attachment ->
-                            AiChatAttachmentRequest(
-                                name = attachment.name,
-                                mimeType = attachment.mimeType,
-                                localPath = attachment.localPath,
-                                kind = attachment.kind
-                            )
-                        }
+                        attachments = requests
                     )
                 }
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "assistant-${System.currentTimeMillis()}",
+                    id = "assistant-${UUID.randomUUID()}",
                     role = "assistant",
                     text = response,
                     ts = System.currentTimeMillis()
@@ -8204,7 +8250,7 @@ class MainViewModel(application: Application) :
                 throw error
             } catch (error: Exception) {
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "assistant-err-${System.currentTimeMillis()}",
+                    id = "assistant-err-${UUID.randomUUID()}",
                     role = "assistant",
                     text = "",
                     ts = System.currentTimeMillis(),
@@ -8212,6 +8258,7 @@ class MainViewModel(application: Application) :
                 )
             } finally {
                 aiChatInProgressState.value = false
+                if (draftConsumed) pendingAttachments.forEach { File(it.localPath).delete() }
             }
         }
     }
@@ -8275,39 +8322,30 @@ class MainViewModel(application: Application) :
         val document = DocumentFile.fromSingleUri(context, uri)
         val mimeType = resolver.getType(uri) ?: document?.type
         val isImage = preferImage || mimeType?.startsWith("image/") == true
-        val baseName = document?.name?.takeIf { it.isNotBlank() } ?: "attachment-${System.currentTimeMillis()}"
-        val safeName = baseName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val baseName = document?.name?.takeIf { it.isNotBlank() }?.take(256) ?: "attachment-${System.currentTimeMillis()}"
+        val safeName = baseName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(128)
         val attachmentDir = File(context.cacheDir, "ai-chat-attachments").apply { mkdirs() }
-        val target = File(attachmentDir, "${System.currentTimeMillis()}-$safeName")
-        resolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        } ?: error("Unable to open attachment")
-        return PendingAiAttachment(
-            id = UUID.randomUUID().toString(),
-            name = baseName,
-            mimeType = mimeType,
-            localPath = target.absolutePath,
-            kind = if (isImage) AiChatAttachmentRequest.Kind.IMAGE else AiChatAttachmentRequest.Kind.FILE,
-            sizeLabel = formatBytes(target.length()),
-            previewLabel = buildAttachmentPreview(baseName, mimeType, target)
-        )
-    }
-
-    private fun buildAttachmentPreview(
-        name: String,
-        mimeType: String?,
-        file: File
-    ): String {
-        return if (mimeType?.startsWith("image/") == true) {
-            "photo"
-        } else {
-            container.aiChatRepository
-                .let { io.aaps.copilot.data.repository.AiChatRepository.extractTextAttachmentPreviewStatic(file, mimeType) }
-                ?.lineSequence()
-                ?.firstOrNull()
-                ?.take(48)
-                ?.takeIf { it.isNotBlank() }
-                ?: name.substringAfterLast('.').ifBlank { "file" }
+        val target = File(attachmentDir, "${UUID.randomUUID()}-$safeName")
+        try {
+            resolver.openInputStream(uri)?.use { input -> AiChatAttachmentPolicy.copyBounded(input, target) }
+                ?: error("chat_attachment_unavailable")
+            val kind = if (isImage) AiChatAttachmentRequest.Kind.IMAGE else AiChatAttachmentRequest.Kind.FILE
+            val content = AiChatAttachmentPolicy.load(listOf(AiChatAttachmentRequest(baseName, mimeType, target.path, kind)),
+                textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED).single()
+            return PendingAiAttachment(
+                id = UUID.randomUUID().toString(),
+                name = content.name,
+                mimeType = content.mime,
+                localPath = target.absolutePath,
+                kind = kind,
+                sizeLabel = formatBytes(target.length()),
+                previewLabel = content.text?.lineSequence()?.firstOrNull()?.take(48) ?: if (isImage) "photo" else "PDF",
+                sizeBytes = target.length(),
+                textBytes = if (content.text != null) content.bytes.size else 0
+            )
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
         }
     }
 
@@ -8325,6 +8363,10 @@ class MainViewModel(application: Application) :
         aiMediaRecorder = null
         aiRecordingFile = null
         stopAiVoicePlayback()
+        synchronized(aiChatAttachmentLock) {
+            aiChatPendingAttachmentsState.value.forEach { File(it.localPath).delete() }
+            aiChatPendingAttachmentsState.value = emptyList()
+        }
         super.onCleared()
     }
 
@@ -11912,7 +11954,6 @@ class MainViewModel(application: Application) :
         private const val ROUTE_ANALYTICS = "analytics"
         private const val ROUTE_AI_ANALYSIS = "ai_analysis"
         private const val AI_MIN_DATA_HOURS = 24
-        private const val MAX_AI_CHAT_ATTACHMENTS = 4
         private const val AI_TUNING_MIN_CONFIDENCE = 0.45
         private const val AI_TUNING_MIN_MATCHED_SAMPLES = 36.0
         private const val AI_TUNING_BLOCK_RISK_LEVEL = 3.0
@@ -13630,7 +13671,9 @@ private data class PendingAiAttachment(
     val localPath: String,
     val kind: AiChatAttachmentRequest.Kind,
     val sizeLabel: String?,
-    val previewLabel: String?
+    val previewLabel: String?,
+    val sizeBytes: Long,
+    val textBytes: Int
 ) {
     fun toUi(): AiChatAttachmentUi = AiChatAttachmentUi(
         id = id,
@@ -13646,7 +13689,8 @@ private data class AiChatComposerHeadState(
     val draft: String = "",
     val pendingAttachments: List<PendingAiAttachment> = emptyList(),
     val voiceRepliesEnabled: Boolean = false,
-    val recording: Boolean = false
+    val recording: Boolean = false,
+    val importing: Boolean = false
 )
 
 private data class AiChatComposerState(
@@ -13655,7 +13699,8 @@ private data class AiChatComposerState(
     val voiceRepliesEnabled: Boolean = false,
     val recording: Boolean = false,
     val voiceBusy: Boolean = false,
-    val speaking: Boolean = false
+    val speaking: Boolean = false,
+    val importing: Boolean = false
 )
 
 data class DryRunUi(
