@@ -1,5 +1,20 @@
 # PLAN
 
+## Nightly 3-14 Day Advice (2026-10-17)
+
+- [x] Trace mixed report advice and unanchored therapy-gated daily work.
+- [x] Add first metric/schedule regressions and observe missing-feature RED.
+- [x] Implement read-only canonical summaries, bounded atomic snapshot and 05:00
+  WorkManager/catch-up with no therapy or provider authority.
+- [x] Dated native advice, 3/7/14-day selector, sparse/stale status and unsent
+  discussion; keep other AI reports separately sourced.
+- [x] Synthetic/native QA and full Android test/lint/compile/build:6073 passed,
+  6 existing skips, zero failures/errors; lint0 errors and unchanged377 warnings/
+  8 hints. Final localized UI inspected, APK identity/signature checked.
+- Reviewed publication/exact-head CI are post-commit gates, recorded in the PR
+  only after their terminal results are inspected.
+- [ ] Separate intended-phone overnight acceptance; no deployment/install here.
+
 ## Chat Motion And Bounded Attachments (2026-10-17)
 
 - [x] Inspect Focus composer, native motion and actual provider bounds.

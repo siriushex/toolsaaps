@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Observation-Only Nightly Advice
+
+Local bounded CGM input and aggregate-only persistence; no remote inference,
+credential, upload allowlist or therapy-control change. Snapshot grammar/bounds
+are checked; a source overflow must retain the previous result. Quality gates
+and explicit source/period prevent sparse or stale history masquerading as a new
+clinical conclusion. Review/discussion cannot issue a command or automatic chat.
+Device execution and clinical validity remain separate acceptance boundaries.
+Actual Room/export, immutable cutoff/generation, corruption/overflow/cancellation,
+power-save and unsent-discussion cases passed. No new blocking source finding;
+clock reversal deliberately retains the later dated snapshot, not false success.
+
 ## Bounded Chat Attachments
 
 Explicit document selection copies to unique private cache without retained URI

@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Local Nightly Advice
+
+No backend deployment/schema or Room migration. A fixed local aggregate key
+and unique network-free advice worker are added; startup requests catch-up.
+05:00 uses the WorkManager next override, not a critical/system alarm. Power-save
+defers work. Test source limits, duplicate/restart/cancellation, local clock/DST,
+stale display and existing Focus/clinical report behavior. See NIGHTLY_ADVICE.md.
+Do not claim actual overnight delivery from a local synthetic test or green CI.
+
 ## Chat Motion And Attachments
 
 Android-only source, no Room/server schema or service change. Existing server

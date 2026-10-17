@@ -4498,6 +4498,7 @@ class MainViewModel(application: Application) :
             chatSpeaking = composer.speaking
         ).copy(chatAttachmentBusy = composer.importing)
     }
+        .combine(container.nightlyAdviceRepository.snapshots) { state, advice -> state.copy(nightlyAdvice = advice) }
         .combine(container.serverAiConnectionManager.state) { state, _ ->
             val textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED
             state.copy(chatTextOnly = textOnly, chatVoiceRepliesEnabled = state.chatVoiceRepliesEnabled && !textOnly)

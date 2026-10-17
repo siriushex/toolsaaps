@@ -324,6 +324,7 @@ class AppContainer(context: Context) {
         .build()
 
     internal val localDiary by lazy { io.aaps.copilot.data.repository.LocalDiaryRepository(db) }
+    internal val nightlyAdviceRepository by lazy { io.aaps.copilot.data.repository.NightlyAdviceRepository(db, gson) }
 
     internal val serverAiRoomHistorySync by lazy {
         io.aaps.copilot.data.repository.ServerAiRoomHistorySync(

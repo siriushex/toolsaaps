@@ -1,3 +1,28 @@
+# Nightly 3-14 Day Advice - 2026-10-17
+
+- Trace: Advice mixed 24-hour forecast diagnostics, arbitrary clinical report
+  periods and saved AI text. Existing daily worker required armed therapy and
+  had no 05:00 anchor. Keep it separate; this stage is local CGM observation.
+- New metric/window/schedule regressions reached expected missing-feature
+  compilation failures before implementation. Initial cache/clock regressions
+  exposed two defects; both were corrected. The test's coroutine stack-recovery
+  identity assumption was replaced by type/original-cause and no-write checks.
+- Focused81 cases passed, including actual Room/export, scheduling, source/date,
+  unsent discussion and automatic UI replacement. Native320x640 Russian and1.8x
+  font were inspected; percentage alignment and explicit range caption corrected.
+- Final cross-zone chronology and unchanged-row regressions both failed before
+  their narrow corrections. Full Android gate then passed6073 cases/6 existing
+  skips, zero failures/errors. Four added PluralsCandidate notices were corrected
+  with English/Russian plural resources, without suppressions or calculation changes.
+- Final full-source gate passed again:536 suites/6079 cases,6073 passed/6 existing
+  skips; lint0 errors/377 warnings/8 hints, the previous baseline. Kotlin compile,
+  unit tests, lint and assemble completed in22m41s; frozen input hashes matched.
+  Final native Russian320x640/1.8x text inspected. Fresh debug APK signature and
+  package verified. Publication and exact-head CI are separate post-commit receipts.
+- No live medical/model request, backend deployment, phone or therapy operation.
+  OS background delay and inconsistent device clocks remain explicit limits;
+  this source does not activate the separate server daily LLM pipeline.
+
 # Chat Motion And Bounded Attachments - 2026-10-17
 
 - One actual-pending finite owl/typing renderer; reply/failure removes it, root

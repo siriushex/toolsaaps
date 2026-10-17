@@ -1207,6 +1207,7 @@ data class AiAnalysisUiState(
     val localDayTypeGaps: List<AiDayTypeGapUi> = emptyList(),
     val circadianReplaySummary: CircadianReplaySummaryUi? = null,
     val localRecommendations: List<String> = emptyList(),
+    val nightlyAdvice: io.aaps.copilot.data.repository.NightlyAdviceSnapshot? = null,
     val rollingLines: List<String> = emptyList(),
     val aiTuningStatus: AiTuningStatusUi? = null,
     val chatMessages: List<AiChatMessageUi> = emptyList(),

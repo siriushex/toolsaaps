@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Nightly Advice
+
+Advice now has an independent local 3/7/14-day CGM aggregate, fixed latest
+telemetry identity and a network-free 05:00/catch-up worker. Existing canonical
+glucose and one-day duration metrics are reused. No therapy arming, remote AI
+job or parameter writer is involved. Saved AI reports stay separately sourced.
+See NIGHTLY_ADVICE.md for quality gates, windows, clock and scheduling limits.
+
 ## Chat Waiting And Attachments
 
 Focus has one actual-pending finite owl/typing renderer, not a fake progress timer.

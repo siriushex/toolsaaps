@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Nightly Advice
+
+- Local CGM advice never becomes a dose, target, ISF/CR, diagnosis or AI answer.
+- Missing/invalid/duplicate source rows cannot increase supported observation
+  time. Pattern claims require sufficient days and coverage; comparisons use
+  disjoint periods. The displayed 4-10 report range is not a personal target.
+- One committed cutoff/zone is reused. Failed/over-limit refreshes retain the
+  previous dated snapshot, not a falsely new success or partial source.
+- Night work is network-free, respects power-save, and cannot arm therapy.
+  Tab visits do not invoke a model; discussion only appends an unsent draft.
+
 ## Chat Waiting And Attachments
 
 - Pending UI follows real work only; finite motion cannot imply model progress,

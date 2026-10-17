@@ -2045,4 +2045,50 @@
     <string name="ai_focus_title_recommendations">Рекомендации</string>
     <string name="ai_focus_title_archive">Отчёты</string>
     <string name="ai_focus_latest_saved">Последний сохранённый разбор</string>
+    <string name="ai_advice_history">По истории сахара</string>
+    <string name="ai_advice_period">С %1$s по %2$s</string>
+    <string name="ai_advice_source">Локальные наблюдения CGM\n%1$s\nРасчёт: %2$s · %3$s</string>
+    <string name="ai_advice_updated">Обновлено %1$s</string>
+    <plurals name="ai_advice_coverage">
+        <item quantity="one">Покрытие %1$s%% · достаточно данных в %2$d из %3$d дня</item>
+        <item quantity="few">Покрытие %1$s%% · достаточно данных в %2$d из %3$d дней</item>
+        <item quantity="many">Покрытие %1$s%% · достаточно данных в %2$d из %3$d дней</item>
+        <item quantity="other">Покрытие %1$s%% · достаточно данных в %2$d из %3$d дней</item>
+    </plurals>
+    <string name="ai_advice_nightly">Ночной расчёт · около 05:00</string>
+    <string name="ai_advice_stale">Сводка не за текущий ночной период. Проверьте время устройства и фоновую работу.</string>
+    <string name="ai_advice_pending">Первый разбор истории появится после локального фонового расчёта.</string>
+    <string name="ai_advice_below">Ниже 4,0</string>
+    <string name="ai_advice_range">В диапазоне</string>
+    <string name="ai_advice_reference_range">Диапазон анализа: 4,0–10,0 ммоль/л</string>
+    <string name="ai_advice_above">Выше 10,0</string>
+    <string name="ai_advice_insufficient">Истории недостаточно для советов по повторяющимся паттернам. Нужны хотя бы три дня с достаточным покрытием CGM.</string>
+    <string name="ai_advice_low_title">Повторяющиеся снижения</string>
+    <plurals name="ai_advice_low_evidence">
+        <item quantity="one">В %1$d из %2$d дня · %3$s%% ниже 4,0 ммоль/л</item>
+        <item quantity="few">В %1$d из %2$d дней · %3$s%% ниже 4,0 ммоль/л</item>
+        <item quantity="many">В %1$d из %2$d дней · %3$s%% ниже 4,0 ммоль/л</item>
+        <item quantity="other">В %1$d из %2$d дней · %3$s%% ниже 4,0 ммоль/л</item>
+    </plurals>
+    <string name="ai_advice_low_action">Сопоставьте эпизоды с контрольными измерениями, едой и активным инсулином. Повторяющиеся снижения обсудите с лечащим врачом.</string>
+    <string name="ai_advice_high_title">Повторяющиеся повышения</string>
+    <plurals name="ai_advice_high_evidence">
+        <item quantity="one">В %1$d из %2$d дня · %3$s%% выше 10,0 ммоль/л</item>
+        <item quantity="few">В %1$d из %2$d дней · %3$s%% выше 10,0 ммоль/л</item>
+        <item quantity="many">В %1$d из %2$d дней · %3$s%% выше 10,0 ммоль/л</item>
+        <item quantity="other">В %1$d из %2$d дней · %3$s%% выше 10,0 ммоль/л</item>
+    </plurals>
+    <string name="ai_advice_high_action">Сопоставьте подъёмы с записями еды, инсулина и смены набора. По одному сахару нельзя определить, нужна ли коррекция ISF или CR.</string>
+    <string name="ai_advice_trend_title">Последние три дня</string>
+    <plurals name="ai_advice_trend_evidence">
+        <item quantity="one">Время в диапазоне: %1$s п.п. к предшествующему %2$d дню</item>
+        <item quantity="few">Время в диапазоне: %1$s п.п. к предшествующим %2$d дням</item>
+        <item quantity="many">Время в диапазоне: %1$s п.п. к предшествующим %2$d дням</item>
+        <item quantity="other">Время в диапазоне: %1$s п.п. к предшествующим %2$d дням</item>
+    </plurals>
+    <string name="ai_advice_trend_action">Проверьте, что изменилось между периодами, включая пропуски и проверки сенсора. Сравнение не устанавливает причину.</string>
+    <string name="ai_advice_no_pattern">Для этого периода не найдено достаточно подтверждений повторяющегося паттерна. Отдельные снижения или повышения не исключены.</string>
+    <string name="ai_advice_scope">Наблюдения по CGM. Причины изменений не подтверждены.</string>
+    <string name="ai_advice_recent_incomplete">За последние три дня данных недостаточно для отдельного вывода.</string>
+    <string name="ai_advice_other_reports">Советы из других отчётов</string>
 </resources>

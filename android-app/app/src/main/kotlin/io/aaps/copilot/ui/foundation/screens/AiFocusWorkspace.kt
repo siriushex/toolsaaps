@@ -62,6 +62,7 @@ internal fun AiFocusWorkspace(
         FocusTab.REPORT -> state.clinicalReport.phase == ClinicalReportPhaseUi.BUILDING ||
             state.clinicalReport.phase == ClinicalReportPhaseUi.UPLOADING
         FocusTab.CHAT -> state.chatInProgress || state.chatVoiceBusy
+        FocusTab.RECOMMENDATIONS -> false
         else -> state.loadState == ScreenLoadState.LOADING
     }
     BackHandler(details) { details = false }
@@ -176,37 +177,50 @@ private fun RowScope.FocusMetric(label: String, value: Double?, unit: String, mo
 private fun AiFocusRecommendations(state: AiAnalysisUiState, discuss: (String) -> Unit) {
     val latest = state.historyItems.filter { it.isUsableSavedReview() }.maxByOrNull { it.runTs }
     val clinical = state.clinicalReport.complete
+    var showOther by rememberSaveable { mutableStateOf(false) }
+    val hasOther = state.localRecommendations.isNotEmpty() || !latest?.recommendations.isNullOrEmpty() ||
+        !clinical?.recommendations.isNullOrEmpty()
     LazyColumn(Modifier.fillMaxSize(), state = rememberLazyListState(),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        if (state.localRecommendations.isEmpty() && latest?.recommendations.isNullOrEmpty() && clinical?.recommendations.isNullOrEmpty()) {
-            item { Text(stringResource(R.string.ai_analysis_no_recommendations), Modifier.padding(Spacing.md)) }
-        }
-        clinical?.let { complete ->
-            itemsIndexed(complete.recommendations) { index, recommendation ->
-                val topic = stringResource(R.string.clinical_report_recommendation_line,
-                    stringResource(clinicalTextString(recommendation.topic)),
-                    stringResource(clinicalTextString(recommendation.priority)),
-                    stringResource(clinicalTextString(recommendation.period)))
-                val evidence = recommendation.linkedEvidence.map { finding ->
-                    stringResource(R.string.clinical_report_recommendation_evidence_line,
-                        stringResource(clinicalTextString(finding.topic)),
-                        stringResource(clinicalTextString(finding.evidence.metric)),
-                        clinicalNumericValue(finding.evidence.value, finding.evidence.decimals, finding.evidence.unit).orEmpty())
+        state.nightlyAdvice?.let { report ->
+            item(key = "nightly-advice") { NightlyAdvicePanel(report, discuss) }
+            if (hasOther) item(key = "other-reports") {
+                TextButton({ showOther = !showOther }, Modifier.testTag("ai_advice_other_reports")) {
+                    Text(stringResource(R.string.ai_advice_other_reports))
                 }
-                FocusRecommendation((listOf(topic) + evidence).joinToString("\n"),
-                    listOf(clinicalAiProviderLabel(complete.metadata.providerId), complete.metadata.model ?: "--",
-                        complete.metadata.generatedAtTs?.let(::focusTimestamp) ?: "--").joinToString(" / "),
-                    "ai_focus_clinical_discuss_$index", discuss)
             }
         }
-        itemsIndexed(state.localRecommendations) { index, line ->
-            FocusRecommendation(line, stringResource(R.string.section_ai_local_daily),
-                "ai_focus_discuss_$index", discuss)
-        }
-        latest?.let { record ->
-            itemsIndexed(record.recommendations) { index, line ->
-                FocusRecommendation(line, "${record.date} / ${record.source} / ${record.status}",
-                    "ai_focus_history_discuss_$index", discuss)
+        if (state.nightlyAdvice == null || showOther) {
+            if (state.localRecommendations.isEmpty() && latest?.recommendations.isNullOrEmpty() && clinical?.recommendations.isNullOrEmpty()) {
+                item { Text(stringResource(R.string.ai_advice_pending), Modifier.padding(Spacing.md)) }
+            }
+            clinical?.let { complete ->
+                itemsIndexed(complete.recommendations) { index, recommendation ->
+                    val topic = stringResource(R.string.clinical_report_recommendation_line,
+                        stringResource(clinicalTextString(recommendation.topic)),
+                        stringResource(clinicalTextString(recommendation.priority)),
+                        stringResource(clinicalTextString(recommendation.period)))
+                    val evidence = recommendation.linkedEvidence.map { finding ->
+                        stringResource(R.string.clinical_report_recommendation_evidence_line,
+                            stringResource(clinicalTextString(finding.topic)),
+                            stringResource(clinicalTextString(finding.evidence.metric)),
+                            clinicalNumericValue(finding.evidence.value, finding.evidence.decimals, finding.evidence.unit).orEmpty())
+                    }
+                    FocusRecommendation((listOf(topic) + evidence).joinToString("\n"),
+                        listOf(clinicalAiProviderLabel(complete.metadata.providerId), complete.metadata.model ?: "--",
+                            complete.metadata.generatedAtTs?.let(::focusTimestamp) ?: "--").joinToString(" / "),
+                        "ai_focus_clinical_discuss_$index", discuss)
+                }
+            }
+            itemsIndexed(state.localRecommendations) { index, line ->
+                FocusRecommendation(line, stringResource(R.string.section_ai_local_daily),
+                    "ai_focus_discuss_$index", discuss)
+            }
+            latest?.let { record ->
+                itemsIndexed(record.recommendations) { index, line ->
+                    FocusRecommendation(line, "${record.date} / ${record.source} / ${record.status}",
+                        "ai_focus_history_discuss_$index", discuss)
+                }
             }
         }
     }

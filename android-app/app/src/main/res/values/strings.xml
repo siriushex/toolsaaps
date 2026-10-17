@@ -2045,4 +2045,42 @@
     <string name="ai_focus_title_recommendations">Recommendations</string>
     <string name="ai_focus_title_archive">Reports</string>
     <string name="ai_focus_latest_saved">Latest saved review</string>
+    <string name="ai_advice_history">CGM history</string>
+    <string name="ai_advice_period">%1$s to %2$s</string>
+    <string name="ai_advice_source">Local CGM observations\n%1$s\nGenerated: %2$s · %3$s</string>
+    <string name="ai_advice_updated">Updated %1$s</string>
+    <plurals name="ai_advice_coverage">
+        <item quantity="one">Coverage %1$s%% · sufficient data on %2$d of %3$d day</item>
+        <item quantity="other">Coverage %1$s%% · sufficient data on %2$d of %3$d days</item>
+    </plurals>
+    <string name="ai_advice_nightly">Nightly calculation · around 05:00</string>
+    <string name="ai_advice_stale">This review is not for the current nightly period. Check device time and background restrictions.</string>
+    <string name="ai_advice_pending">The first history review will appear after the local background calculation.</string>
+    <string name="ai_advice_below">Below 4.0</string>
+    <string name="ai_advice_range">In range</string>
+    <string name="ai_advice_reference_range">Analysis range: 4.0–10.0 mmol/L</string>
+    <string name="ai_advice_above">Above 10.0</string>
+    <string name="ai_advice_insufficient">Not enough history for repeat-pattern advice. At least three days with sufficient CGM coverage are needed.</string>
+    <string name="ai_advice_low_title">Repeated lower readings</string>
+    <plurals name="ai_advice_low_evidence">
+        <item quantity="one">On %1$d of %2$d day · %3$s%% below 4.0 mmol/L</item>
+        <item quantity="other">On %1$d of %2$d days · %3$s%% below 4.0 mmol/L</item>
+    </plurals>
+    <string name="ai_advice_low_action">Compare these episodes with meter checks, meals and active insulin. Discuss repeated lows with your diabetes care team.</string>
+    <string name="ai_advice_high_title">Repeated higher readings</string>
+    <plurals name="ai_advice_high_evidence">
+        <item quantity="one">On %1$d of %2$d day · %3$s%% above 10.0 mmol/L</item>
+        <item quantity="other">On %1$d of %2$d days · %3$s%% above 10.0 mmol/L</item>
+    </plurals>
+    <string name="ai_advice_high_action">Compare the rises with meal and insulin records and infusion-set changes. Glucose alone cannot establish whether ISF or CR needs adjustment.</string>
+    <string name="ai_advice_trend_title">The last three days</string>
+    <plurals name="ai_advice_trend_evidence">
+        <item quantity="one">Time in range: %1$s pp versus the preceding %2$d day</item>
+        <item quantity="other">Time in range: %1$s pp versus the preceding %2$d days</item>
+    </plurals>
+    <string name="ai_advice_trend_action">Review what changed between these periods, including data gaps and sensor checks. This comparison does not establish a cause.</string>
+    <string name="ai_advice_no_pattern">No repeated pattern identified with sufficient evidence in this window. This does not rule out individual low or high episodes.</string>
+    <string name="ai_advice_scope">CGM observations only. Causes of changes are unconfirmed.</string>
+    <string name="ai_advice_recent_incomplete">The last three days have insufficient data for a separate conclusion.</string>
+    <string name="ai_advice_other_reports">Advice from other reports</string>
 </resources>

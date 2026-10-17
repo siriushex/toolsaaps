@@ -44,6 +44,103 @@ class AiFocusScreenTest {
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var root: View
 
+    @Config(qualifiers = "ru-w320dp-h640dp-port")
+    @Test fun nightlyAdviceHasNativePixelsOnASmallRussianScreen() = screen(ready().copy(nightlyAdvice = advice())) {
+        compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+        compose.onNodeWithTag("ai_advice_window_3").assertIsDisplayed()
+        val metrics = (0..2).map { compose.onNodeWithTag("ai_advice_metric_$it").fetchSemanticsNode().boundsInRoot }
+        assertEquals(metrics[0].top, metrics[1].top, 0.1f)
+        assertEquals(metrics[1].top, metrics[2].top, 0.1f)
+        saveRaster("nightly-advice-ru-small")
+        compose.onNodeWithTag("ai_advice_discuss_low").performScrollTo()
+        val button = compose.onNodeWithTag("ai_advice_discuss_low").fetchSemanticsNode().boundsInRoot
+        assertTrue(button.left >= 0 && button.right <= root.width && button.bottom <= root.height)
+        saveRaster("nightly-advice-ru-small-detail")
+    }
+
+    @Test fun nightlyAdviceShowsItsPeriodAndWindowSelector() = screen(ready().copy(nightlyAdvice = advice())) {
+        compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+        compose.onNodeWithTag("ai_advice_window_14").assertIsSelected()
+        compose.onNodeWithTag("ai_advice_period").assertExists()
+        compose.onNodeWithTag("ai_advice_window_3").performClick().assertIsSelected()
+        compose.onNodeWithTag("ai_advice_metrics").assertExists()
+    }
+
+    @Config(qualifiers = "ru-w320dp-h640dp-port")
+    @Test fun nightlyAdviceLargeFontKeepsItsControlsReachable() = screenContent(
+        { ready().copy(nightlyAdvice = advice()) }, fontScale = 1.8f
+    ) {
+        compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+        compose.onNodeWithTag("ai_advice_window_7").performClick().assertIsSelected()
+        compose.onNodeWithTag("ai_advice_discuss_low").performScrollTo().assertIsDisplayed()
+        saveRaster("nightly-advice-ru-large-font")
+    }
+
+    @Test fun nightlyDiscussionRetainsEvidenceAndNeverSends() {
+        var draft = "Unsent draft"
+        var sends = 0
+        screenContent({ ready().copy(nightlyAdvice = advice(), chatDraft = draft) },
+            onDraft = { draft = it }, onSend = { sends++ }) {
+            compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+            compose.onNodeWithTag("ai_advice_discuss_low").performScrollTo().performClick()
+            assertTrue(draft.startsWith("Unsent draft"))
+            assertTrue(draft.contains("2026"))
+            assertTrue(draft.contains("4"))
+            assertEquals(0, sends)
+            compose.onNodeWithTag("ai_focus_tab_chat").assertIsSelected()
+        }
+    }
+
+    @Test fun insufficientHistoryCannotSupplyConfidentPatterns() = screen(ready().copy(
+        nightlyAdvice = advice().let { report -> report.copy(windows = report.windows.map {
+            it.copy(coveragePct = 2.0, qualityDays = 0, lowDays = 0, highDays = 0)
+        }) }
+    )) {
+        compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+        compose.onNodeWithTag("ai_advice_insufficient").assertExists()
+        compose.onNodeWithTag("ai_advice_discuss_low").assertDoesNotExist()
+    }
+
+    @Test fun olderReportsAreSeparateFromNightlyAdvice() = screen(ready().copy(
+        nightlyAdvice = advice(), localRecommendations = listOf("Older forecast diagnostics")
+    )) {
+        compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+        compose.onNodeWithText("Older forecast diagnostics").assertDoesNotExist()
+        compose.onNodeWithTag("ai_advice_other_reports").performScrollTo().performClick()
+        compose.onNodeWithText("Older forecast diagnostics").assertExists()
+    }
+
+    @Test fun missingRecentDaysAreNotHiddenByAGoodLongerWindow() = screen(ready().copy(
+        nightlyAdvice = advice().let { report -> report.copy(windows = report.windows.map {
+            if (it.days == 3) it.copy(coveragePct = 0.0, qualityDays = 0, lowDays = 0) else it
+        }) }
+    )) {
+        compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+        compose.onNodeWithTag("ai_advice_recent_incomplete").assertExists()
+    }
+
+    @Test fun aNewSavedNightAppearsWithoutARefreshTap() {
+        var state by mutableStateOf(ready().copy(nightlyAdvice = advice()))
+        screenContent({ state }) {
+            compose.onNodeWithTag("ai_focus_tab_recommendations").performClick()
+            compose.onNodeWithTag("ai_advice_discuss_low").assertExists()
+            state = state.copy(nightlyAdvice = advice().let { report -> report.copy(windows = report.windows.map {
+                it.copy(lowDays = 0, highDays = 0, inRangePct = 100.0, belowPct = 0.0, abovePct = 0.0)
+            }) })
+            compose.onNodeWithTag("ai_advice_discuss_low").assertDoesNotExist()
+            compose.onNodeWithTag("ai_advice_metrics").assertExists()
+        }
+    }
+
+    private fun advice(): io.aaps.copilot.data.repository.NightlyAdviceSnapshot {
+        val end = java.time.ZonedDateTime.parse("2026-10-17T05:00:00+04:00[Asia/Tbilisi]").toInstant().toEpochMilli()
+        return io.aaps.copilot.data.repository.NightlyAdviceSnapshot(generatedAt = end + 60_000,
+            throughTs = end, zoneId = "Asia/Tbilisi", windows = listOf(3, 7, 14).map {
+                io.aaps.copilot.data.repository.NightlyAdviceWindow(it, end - it * 86_400_000L,
+                    92.0, it, 80.0, 5.0, 15.0, 3, 0, null)
+            })
+    }
+
     @Test fun reportIsFirstAndOtherPanelsAreNotMixedIntoIt() = screen(ready()) {
         compose.onNodeWithTag("ai_focus_tab_report").assertIsSelected()
         compose.onNodeWithTag("clinical_report_section").assertIsDisplayed()
