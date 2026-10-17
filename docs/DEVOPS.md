@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Meal Preparation And Automatic GI
+
+Android-only source, no Room schema, backend, provider or device settings change.
+MODEL_ESTIMATE uses existing nullable meal metadata with an explicit reference;
+older applications ignore the unsupported source instead of treating it as a
+known GI. Run source/persistence/history/unchanged-clinical-output regressions,
+native compact/large-font and finite-frame checks, then full unit/lint/build.
+No test food, bolus, target or sound is needed. A known future meal timestamp is
+not clinical readiness; do not enable the isolated timing research via this UI.
+
 ## Food Photo Saved-Session Repair (2026-10-17)
 
 Run ServerMealPhotoSessionTest with existing photo gateway/protocol/repository,

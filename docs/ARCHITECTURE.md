@@ -1,5 +1,22 @@
 # ARCHITECTURE
 
+## Meal Preparation And Automatic GI
+
+Food and Lenta share the bounded historical estimator and coarse type GI
+priors. An explicit versioned MODEL_ESTIMATE travels through the existing
+immutable confirmation/pending/exact-revision metadata route. Only independent
+USER/CATALOG labels can influence known-GI summaries or GI research fitting.
+The optional form history read is once per opening and cannot block valid
+confirmation or turn an estimated GI into measured evidence. Existing display
+shaping consumes the annotated estimate; clinical forecast/COB/control do not.
+
+The compact preparation renderer requires recent explicit intent or one
+upcoming canonical AAPS meal, fresh glucose and fresh positive IOB. IOB remains
+context, not proof of a food bolus. A finite 2.4-second gesture reuses the root
+motion/lifecycle policy. Only an explicit future meal timestamp supplies a
+labelled plan; no inferred "safe to eat" time or background timer is added.
+See MEAL_PREPARATION_GI.md. The separate timing research is not activated.
+
 ## Restored Food Photo Session
 
 Photo readiness rejects only a known unconfigured connection before the signed
@@ -1388,11 +1405,14 @@ It covers the remaining modeled tail on a five-minute grid, bounded to720m and
 insulin, not a longer clinical glucose forecast. Clinical announced steps,
 5/30/60 forecasts, pressure, UAM, residual COB and target inputs are unchanged.
 
-Optional `MealGlycemicIndex` has explicit USER or referenced CATALOG provenance.
+Optional `MealGlycemicIndex` has explicit USER, referenced CATALOG, or separately
+versioned MODEL_ESTIMATE provenance. The last is a display estimate, never a
+known food label for research training.
 Room30->31 adds nullable metadata to canonical meal overrides and pending
 intents, preserving the existing exact-identity/revision promotion. Old meals
-remain unknown. Failed optional reads fall back without GI; cancellation is
-not swallowed. No photograph/profile/name inference or averaged mixed-meal GI.
+remain unknown unless explicitly annotated. Failed optional reads fall back;
+cancellation is not swallowed. No laboratory GI is inferred from photographs,
+body profile, names or personal CGM outcomes. Type priors are declared heuristics.
 
 `food_gi_shape_v1` redistributes each modeled remainder through a bounded
 normalized-fraction exponent. High GI moves influence earlier, low GI later;

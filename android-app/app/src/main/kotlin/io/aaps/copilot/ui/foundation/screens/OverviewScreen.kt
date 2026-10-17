@@ -344,6 +344,7 @@ fun OverviewScreen(
             maximumGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
             photoAvailability = photoAvailability,
             analyzePhoto = analyzePhoto,
+            onLoadHistory = onLoadMealEstimateHistory,
             onDismiss = { showCobDialog = false },
             onConfirm = { meal ->
                 showCobDialog = false

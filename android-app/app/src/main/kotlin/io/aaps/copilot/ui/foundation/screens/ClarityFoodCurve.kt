@@ -87,6 +87,7 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
         .atZone(java.time.ZoneId.of(zoneId)).toLocalTime().toSecondOfDay() / 60) }
     var history by remember { mutableStateOf<LentaMealHistory?>(null) }
     var loading by remember { mutableStateOf(false) }
+    val preparation = remember(state) { mealPreparationPresentation(state) }
     val modes = rememberSaveableStateHolder()
     LaunchedEffect(estimateMode, cutoff, zoneId) {
         if (estimateMode && history == null) {
@@ -166,7 +167,9 @@ internal fun ClarityFoodDetailsDialog(state: OverviewUiState, onDismiss: () -> U
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = onEatingSoon,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("clarityFoodEatingSoon")) {
-                            Icon(Icons.Default.Restaurant, null)
+                            if (preparation.status == MealPreparationStatus.IOB_PRESENT)
+                                io.aaps.copilot.ui.motion.MealPreparationGlyph(preparation.episodeKey, !state.powerSaveActive)
+                            else Icon(Icons.Default.Restaurant, null)
                             Text(clarityEatingStatusLabel(state.eatingSoon.status), Modifier.padding(start = 8.dp))
                         }
                         ClarityToolButton(Icons.Default.Add, stringResource(R.string.clarity_add_meal), "clarityFoodAddMeal", onMeal)

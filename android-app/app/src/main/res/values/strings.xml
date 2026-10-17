@@ -1,4 +1,14 @@
 <resources>
+    <string name="meal_automatic_gi">GI ≈ %1$s · estimate</string>
+    <string name="event_detail_gi_model">≈ %1$s · model estimate</string>
+    <string name="meal_preparation_iob">IOB present</string>
+    <string name="meal_preparation_time_short">Plan %1$s</string>
+    <string name="meal_preparation_wait">Waiting for IOB</string>
+    <string name="meal_preparation_check">Check current data</string>
+    <string name="meal_preparation_low">Check glucose</string>
+    <string name="meal_preparation_timing_unknown">Meal start time is unconfirmed. Active IOB alone cannot determine when to eat.</string>
+    <string name="meal_preparation_planned">Meal entry: %1$s · in %2$d min</string>
+    <string name="meal_preparation_planned_detail">This is the time in a planned AAPS meal entry, not a recommendation to wait or a confirmation that insulin was delivered for this meal.</string>
     <string name="ai_chat_waiting">Preparing a reply</string>
     <string name="ai_chat_attachment_failed">Could not attach this file. Images and PDF: up to 4 MB; UTF-8 text: 32 KB (server: 2 KB). Up to 4 files and 8 MB total.</string>
     <string name="ai_chat_attachment_text_only">This server accepts UTF-8 text files (TXT, CSV, JSON, MD, XML, YAML), up to 2 KB total, within the question limit. Images and PDF need a multimodal connection.</string>
@@ -31,10 +41,9 @@
     <string name="lenta_history_default">Type model · no comparable entries</string>
     <string name="lenta_history_unavailable">Type model · history unavailable</string>
     <string name="lenta_history_personal">History: %1$d meals · %2$d days</string>
-    <string name="lenta_history_gi">GI in similar entries: %1$s · %2$d meals</string>
     <string name="lenta_history_gi_unknown">GI: insufficient source data</string>
     <string name="lenta_estimate_info">Separate model preview, not current COB. Grams are an approximate portion estimate; time is a type-model assumption. No meal, target or insulin is sent from this view.</string>
-    <string name="lenta_estimate_history_info">Confirmed independent meals from completed days are compared by type, portion and time of day (±2 hours, last 14 days). Even one entry has limited influence. Saved GI, when present, adjusts only the modeled shape. CGM without independently qualified insulin and sensor context cannot identify food GI. Current timezone is used to group entries; travel can reduce comparability.</string>
+    <string name="lenta_estimate_history_info">A model GI starts from the selected food type. Independent known GI from similar meals in completed days (same portion, ±2 hours, last 14 days) can adjust it with limited weight. Generated estimates never train themselves. This adjusts only the display curve, not current COB, targets or doses. It is not laboratory GI or a direct measurement from CGM. Current timezone is used; travel can reduce comparability.</string>
     <string name="settings_target_timing_saved">Target Manager timing saved</string>
     <string name="settings_target_timing_failed">Could not save Target Manager timing</string>
     <string name="settings_target_diagnostics">Local target diagnostics</string>

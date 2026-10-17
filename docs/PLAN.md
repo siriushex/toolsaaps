@@ -1,5 +1,23 @@
 # PLAN
 
+## Meal Preparation And Automatic GI (2026-10-17)
+
+- [x] Trace historical GI display/preview and separate timing research; identify
+  empty manual parser in Food and missing compact preparation renderer.
+- [x] Observe three expected behavioral REDs before production changes.
+- [x] Wire a versioned MODEL_ESTIMATE through Food, immutable confirmation,
+  exact canonical metadata, Lenta and event provenance. Independent known-GI
+  history only; generated values cannot become training evidence.
+- [x] Add finite food motion for explicit intent plus fresh IOB. A future
+  canonical meal may supply a labelled plan; IOB cannot invent readiness time.
+- [x] Focused synthetic, persistence, unchanged-forecast and native UI tests;
+  full unit suite: 6102 passed, six skipped, zero failures/errors.
+- [x] Full Android unit/lint/build; after mechanical lint cleanup, repeat45
+  affected UI tests plus lint/build: zero new lint issues,376 warnings/eight hints.
+- [ ] Reviewed source publication and exact-head Verify.
+- No new therapy authority or timing-model clinical activation. See
+  MEAL_PREPARATION_GI.md for coefficients and evidence boundaries.
+
 ## Restored Food Photo Connection (2026-10-17)
 
 - [x] Trace ACTIVE-only photo gate against connection.load restoring SAVED.
@@ -11,7 +29,8 @@
 - [x] Full Android unit suite: 6082 passed, 6 skipped, zero failures/errors.
 - [x] Complete Android test/lint/build: no errors, existing lint baseline.
 - [x] Persistent public admission renewal: scoped 61/full 1628 backend tests pass.
-- [ ] Reviewed source publication and exact-head CI.
+- [x] Reviewed source7394a56b and both exact-head Verify runs succeeded;
+  receipt is attached to PR7. No public APK or private deployment data.
 - [x] Explicitly authorized decoder admission/offline stop and one synthetic
   provider test: typed four-ingredient estimate, confirmed stop/idle guard.
 - [x] Separate image host/API connected after verified owned-config rollback

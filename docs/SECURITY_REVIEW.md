@@ -1,5 +1,15 @@
 # SECURITY REVIEW
 
+## Meal Preparation And Automatic GI
+
+Existing revision-bound local metadata gains an explicitly estimated source,
+not an input-authority upgrade. Generated GI is excluded from independent
+known-GI training/summaries. Optional form history failure cannot block valid
+food confirmation; cancellation propagates. No new network/storage permissions,
+remote upload, command transport, clinical forecast or automatic target writer.
+IOB remains contextual; finite food motion cannot certify food-bolus delivery
+or a safe meal-start time. Low/stale/unknown conditions suppress the gesture.
+
 ## Restored Photo Access (2026-10-17)
 
 The ACTIVE-only UI gate falsely refused an existing saved session. The repair

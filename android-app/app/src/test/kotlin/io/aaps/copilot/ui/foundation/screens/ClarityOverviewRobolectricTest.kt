@@ -65,6 +65,40 @@ class ClarityOverviewRobolectricTest {
             futurePath = listOf(ChartPointUi(origin, 7.2)) + listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) },
             mealImpactPoints = points, mealImpactComplete = true, mealImpactGiAdjusted = true))
 
+    @Test fun explicitMealPreparationAndFreshIobShowPassiveFoodMotionWithoutInventingStartTime() {
+        var commands = 0
+        val state = ready().copy(foodDisplayNowTs = origin,
+            eatingSoon = EatingSoonUiState(EatingSoonUiStatus.CONFIRMED, "meal-intent", origin - 120_000),
+            iobDetails = IobRuntimeDetailsUi(sampleTimestamp = origin, sampleAgeMinutes = 0))
+        withUi { screen(state, { commands++ }, { commands++ }) }.use {
+            compose.onNodeWithTag("mealPreparationGlyph", useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("mealPreparationStatus", useUnmergedTree = true).assertIsDisplayed()
+            capture("meal-preparation-main-320.png")
+            compose.onNodeWithTag("clarityEatingSoon").performClick()
+            compose.onNodeWithTag("mealPreparationTimingUnknown").assertIsDisplayed()
+            assertEquals(0, commands)
+            assertNoTextOverflow()
+            capture("meal-preparation-details-320.png", true)
+        }
+    }
+
+    @Test fun enlargedDarkPreparationKeepsStatusVisibleAndInspectionNeverSends() {
+        var commands = 0
+        val state = ready().copy(foodDisplayNowTs = origin,
+            eatingSoon = EatingSoonUiState(EatingSoonUiStatus.CONFIRMED, "meal-intent", origin - 120_000),
+            iobDetails = IobRuntimeDetailsUi(sampleTimestamp = origin))
+        withUi(dark = true, fontScale = 1.8f) { screen(state, { commands++ }, { commands++ }) }.use {
+            compose.onNodeWithTag("mealPreparationStatus", useUnmergedTree = true).assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("meal-preparation-main-dark-large.png")
+            compose.onNodeWithTag("clarityEatingSoon").performClick()
+            compose.onNodeWithTag("mealPreparationTimingUnknown").assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("meal-preparation-details-dark-large.png", true)
+            assertEquals(0, commands)
+        }
+    }
+
     @Test fun lentaEstimateLoadsPersonalHistoryOnceAndAllInspectionIsPassive() {
         var reads = 0
         var commands = 0
@@ -88,7 +122,7 @@ class ClarityOverviewRobolectricTest {
             assertEquals(0, reads)
             compose.onNodeWithTag("lentaModeEstimate").performClick()
             compose.onNodeWithTag("lentaEstimateSource").assert(hasText("1", substring = true))
-            compose.onNodeWithTag("lentaEstimateGi").assert(hasText("80", substring = true))
+            compose.onNodeWithTag("lentaEstimateGi").assert(hasText("62", substring = true))
             compose.onNodeWithTag("lentaEstimateCurve").assertIsDisplayed()
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "0 - 120"))
                 .performTouchInput { click(centerRight) }
@@ -149,7 +183,8 @@ class ClarityOverviewRobolectricTest {
         }.use {
             compose.onNodeWithTag("lentaModeEstimate").performClick()
             compose.onNodeWithTag("lentaEstimateCurve").assertExists()
-            compose.onNodeWithTag("lentaEstimateGi").assert(hasText(text(R.string.lenta_history_gi_unknown)))
+            compose.onNodeWithTag("lentaEstimateGi").assertTextEquals(
+                RuntimeEnvironment.getApplication().getString(R.string.meal_automatic_gi, "60"))
             compose.onNodeWithTag("lentaEstimatePoint").assertIsDisplayed()
             val readout = compose.onNodeWithTag("lentaEstimatePoint").fetchSemanticsNode().boundsInRoot
             val footer = compose.onNodeWithTag("clarityFoodEatingSoon").fetchSemanticsNode().boundsInRoot

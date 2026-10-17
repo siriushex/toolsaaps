@@ -85,6 +85,7 @@ internal fun ClarityOverviewContent(
     var requestId by rememberSaveable { mutableStateOf("") }
     var horizon by rememberSaveable { mutableStateOf<Int?>(null) }
     var chartExpanded by rememberSaveable { mutableStateOf(false) }
+    val preparation = remember(state) { mealPreparationPresentation(state) }
     val openConfirmation = {
         requestId = UUID.randomUUID().toString()
         confirmEating = true
@@ -146,6 +147,7 @@ internal fun ClarityOverviewContent(
         stringResource(R.string.clarity_eating_status), "clarityEatingDetails", { eatingDetails = false }
     ) {
         Text(clarityEatingStatusLabel(state.eatingSoon.status), style = MaterialTheme.typography.titleMedium)
+        MealPreparationDetails(preparation)
         Text(stringResource(when (state.eatingSoon.status) {
             EatingSoonUiStatus.QUEUED -> R.string.clarity_eating_queued_detail
             EatingSoonUiStatus.AWAITING_AAPS -> R.string.clarity_eating_waiting_detail
@@ -213,10 +215,16 @@ internal fun ClarityOverviewContent(
                 shape = RoundedCornerShape(6.dp),
                 onClick = { if (state.eatingSoon.status == EatingSoonUiStatus.IDLE) openConfirmation() else eatingDetails = true }
             ) {
-                if (LocalDensity.current.fontScale < 1.3f) Icon(Icons.Default.Restaurant, null)
-                Text(if (state.eatingSoon.status == EatingSoonUiStatus.UNKNOWN) stringResource(R.string.clarity_eating_review)
-                    else clarityEatingStatusLabel(state.eatingSoon.status),
-                    Modifier.padding(start = if (LocalDensity.current.fontScale < 1.3f) 8.dp else 0.dp))
+                if (LocalDensity.current.fontScale < 1.3f) {
+                    if (preparation.status == MealPreparationStatus.IOB_PRESENT)
+                        io.aaps.copilot.ui.motion.MealPreparationGlyph(preparation.episodeKey, !state.powerSaveActive)
+                    else Icon(Icons.Default.Restaurant, null)
+                }
+                Column(Modifier.padding(start = if (LocalDensity.current.fontScale < 1.3f) 8.dp else 0.dp)) {
+                    Text(if (state.eatingSoon.status == EatingSoonUiStatus.UNKNOWN) stringResource(R.string.clarity_eating_review)
+                        else clarityEatingStatusLabel(state.eatingSoon.status))
+                    MealPreparationLabel(preparation)
+                }
             }
             Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                 IconButton(modifier = Modifier.size(48.dp).testTag("clarityAddMeal"), onClick = onMeal) {

@@ -1,4 +1,14 @@
 <resources>
+    <string name="meal_automatic_gi">ГИ ≈ %1$s · оценка</string>
+    <string name="event_detail_gi_model">≈ %1$s · модельная оценка</string>
+    <string name="meal_preparation_iob">IOB активен</string>
+    <string name="meal_preparation_time_short">План %1$s</string>
+    <string name="meal_preparation_wait">Ожидаем IOB</string>
+    <string name="meal_preparation_check">Проверьте данные</string>
+    <string name="meal_preparation_low">Проверьте сахар</string>
+    <string name="meal_preparation_timing_unknown">Время начала еды не подтверждено. По одному IOB нельзя определить, когда начинать есть.</string>
+    <string name="meal_preparation_planned">Еда по записи: %1$s · через %2$d мин</string>
+    <string name="meal_preparation_planned_detail">Это время запланированной еды в AAPS, не рекомендация ждать и не подтверждение доставки инсулина на эту еду.</string>
     <string name="ai_chat_waiting">Готовлю ответ</string>
     <string name="ai_chat_attachment_failed">Не удалось прикрепить файл. Фото и PDF: до 4 МБ; текст UTF-8: до 32 КБ (сервер: до 2 КБ). Максимум 4 файла и 8 МБ.</string>
     <string name="ai_chat_attachment_text_only">Этот сервер принимает текст UTF-8 (TXT, CSV, JSON, MD, XML, YAML), до 2 КБ суммарно в пределах лимита вопроса. Для фото и PDF нужно мультимодальное подключение.</string>
@@ -31,10 +41,9 @@
     <string name="lenta_history_default">Типовая модель · нет похожих записей</string>
     <string name="lenta_history_unavailable">Типовая модель · история недоступна</string>
     <string name="lenta_history_personal">История: %1$d приёмов · %2$d дней</string>
-    <string name="lenta_history_gi">ГИ похожих записей: %1$s · %2$d приёмов</string>
     <string name="lenta_history_gi_unknown">ГИ: недостаточно исходных данных</string>
     <string name="lenta_estimate_info">Отдельная модельная оценка, не текущий COB. Граммы являются приблизительной оценкой порции, время задано типовой моделью. Этот экран не отправляет еду, цели или инсулин.</string>
-    <string name="lenta_estimate_history_info">Сравниваются подтверждённые независимые записи завершённых дней: тип, порция и время суток (±2 часа, последние 14 дней). Даже одна запись имеет ограниченное влияние. Сохранённый ГИ, если он есть, меняет только форму модельной кривой. Без достоверного контекста инсулина и сенсора CGM не позволяет определить ГИ еды. Для группировки используется текущий часовой пояс; поездки могут снижать сопоставимость.</string>
+    <string name="lenta_estimate_history_info">Модельный ГИ начинается с выбранного типа еды. Известный ГИ похожих приёмов завершённых дней (та же порция, ±2 часа, последние 14 дней) уточняет его с ограниченным весом. Созданные оценки не обучаются на самих себе. Меняется только форма графика, не текущий COB, цели или дозы. Это не лабораторный ГИ и не прямое измерение по CGM. Используется текущий часовой пояс; поездки могут снижать сопоставимость.</string>
     <string name="settings_target_timing_saved">Интервалы Target Manager сохранены</string>
     <string name="settings_target_timing_failed">Не удалось сохранить интервалы Target Manager</string>
     <string name="settings_target_diagnostics">Локальная диагностика цели</string>

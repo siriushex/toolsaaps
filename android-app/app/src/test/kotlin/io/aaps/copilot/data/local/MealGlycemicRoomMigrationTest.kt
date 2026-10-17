@@ -15,6 +15,34 @@ import org.robolectric.annotation.SQLiteMode
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class MealGlycemicRoomMigrationTest {
+    @Test fun modelEstimateReopensWithItsOwnSourceInTheExistingRoomSchema() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "meal-model-gi.db"
+        context.deleteDatabase(name)
+        try {
+            val first = Room.databaseBuilder(context, CopilotDatabase::class.java, name).build()
+            try {
+                first.openHelper.writableDatabase.execSQL("INSERT INTO meal_profile_overrides " +
+                    "(canonicalTherapyIdentity,therapyRevisionHash,profile,durationMinutes,source,revision,updatedAtMs," +
+                    "glycemicIndexValue,glycemicIndexSource,glycemicIndexReference) " +
+                    "VALUES ('903','r1','MIXED',120,'COPILOT_UI',1,100,63,'MODEL_ESTIMATE','meal_gi_type_history_v1')")
+            } finally { first.close() }
+            val reopened = Room.databaseBuilder(context, CopilotDatabase::class.java, name).build()
+            try {
+                val event = io.aaps.copilot.domain.model.TherapyEvent(100, "carbs", mapOf("carbs" to "25"),
+                    componentTrust = io.aaps.copilot.domain.model.TherapyEventComponentTrust(903L, "r1"))
+                val gi = io.aaps.copilot.data.repository.EnergyProfileRepository(reopened.energyProfileDao())
+                    .mealGlycemicIndexContext(listOf(event)).indexFor(io.aaps.copilot.domain.profile.MealTherapyReference(
+                        "903", "r1", io.aaps.copilot.domain.profile.MealTherapyReferenceTrust.TRUSTED))
+                assertNotNull(gi)
+                assertEquals(63.0, gi!!.value, 0.0)
+                assertEquals("MODEL_ESTIMATE", gi.source.name)
+                assertEquals("meal_gi_type_history_v1", gi.reference)
+                assertEquals(35, reopened.openHelper.readableDatabase.version)
+            } finally { reopened.close() }
+        } finally { context.deleteDatabase(name) }
+    }
+
     @Test fun migration31PreservesMealAndPendingRowsAndGiSurvivesRestart() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "meal-gi-migration.db"

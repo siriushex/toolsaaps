@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -45,6 +46,75 @@ import org.robolectric.shadows.ShadowDialog
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MealEntryLayoutRobolectricTest {
     @get:Rule val compose = createEmptyComposeRule()
+
+    @Test fun comparableHistoryIsReadOnceAndTheDisplayedGiIsTheOneConfirmed() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val confirmations = mutableListOf<MealEntryConfirmation>()
+        var reads = 0
+        try {
+            controller.get().setContent {
+                AapsCopilotTheme(dynamicColor = false) {
+                    MealEntryDialog(MealPortionSettings(), MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
+                        {}, { confirmations.add(it) }, onLoadHistory = { cutoff, zone ->
+                            reads++
+                            val at = java.time.Instant.ofEpochMilli(cutoff - 86_400_000L)
+                            io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone, listOf(
+                                io.aaps.copilot.domain.nutrition.LentaMealHistoryEntry(
+                                    io.aaps.copilot.domain.nutrition.MealPortionObservation("meal-history", at, 35.0,
+                                        io.aaps.copilot.domain.profile.MealAbsorptionProfile.MIXED,
+                                        MealPortionProvenance.USER_CORRECTED,
+                                        io.aaps.copilot.domain.nutrition.MealPortion.MEDIUM,
+                                        availableAt = at.plusSeconds(1), therapyRevision = "r1"),
+                                    io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput("90"))))
+                        })
+                }
+            }
+            compose.onNodeWithTag("mealAutomaticGi").performScrollTo()
+                .assert(androidx.compose.ui.test.hasText("63", substring = true))
+            compose.onNodeWithTag("mealProfile_FAST").performScrollTo().performClick()
+            compose.onNodeWithTag("mealAutomaticGi").performScrollTo()
+                .assert(androidx.compose.ui.test.hasText("80", substring = true))
+            compose.onNodeWithTag("mealProfile_MIXED").performScrollTo().performClick()
+            compose.onNodeWithTag("overviewPrepareMeal").performClick()
+            assertEquals(1, reads)
+            assertEquals(1, confirmations.size)
+            assertEquals(60.0 + 30.0 / 9.0, confirmations.single().glycemicIndex!!.value, 1e-9)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun optionalHistoryFailureDoesNotBlockAValidFoodConfirmation() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val confirmations = mutableListOf<MealEntryConfirmation>()
+        try {
+            controller.get().setContent {
+                AapsCopilotTheme(dynamicColor = false) {
+                    MealEntryDialog(MealPortionSettings(), MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
+                        {}, { confirmations.add(it) }, onLoadHistory = { _, _ -> error("history unavailable") })
+                }
+            }
+            compose.onNodeWithTag("overviewPrepareMeal").assertIsEnabled().performClick()
+            assertEquals(60.0, confirmations.single().glycemicIndex!!.value, 0.0)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun automaticGiIsVisibleAndFrozenWithTheConfirmedFood() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val confirmations = mutableListOf<MealEntryConfirmation>()
+        try {
+            controller.get().setContent {
+                AapsCopilotTheme(dynamicColor = false) {
+                    MealEntryDialog(MealPortionSettings(), MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
+                        {}, { confirmations.add(it) })
+                }
+            }
+            compose.onNodeWithTag("mealAutomaticGi").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("mealProfile_FAST").performScrollTo().performClick()
+            compose.onNodeWithTag("overviewPrepareMeal").performClick()
+            assertEquals(1, confirmations.size)
+            assertNotNull(confirmations.single().glycemicIndex)
+            assertEquals("MODEL_ESTIMATE", confirmations.single().glycemicIndex!!.source.name)
+        } finally { controller.pause().stop().destroy() }
+    }
 
     @Test fun enlargedRussianTextUsesRealFontScaleAndSeparateCheckboxRows() = verifyAppearance(1.8f, false)
     @Test fun enlargedDarkRussianDialogKeepsLabelsAndSendReachable() = verifyAppearance(1.8f, true)
@@ -123,7 +193,7 @@ class MealEntryLayoutRobolectricTest {
                 compose.onNodeWithTag("overviewPrepareMeal").performClick()
                 assertEquals(1, confirmations.size)
                 assertEquals(80.0, confirmations.single().grams, 0.0)
-                assertNull(confirmations.single().glycemicIndex)
+                assertEquals("MODEL_ESTIMATE", confirmations.single().glycemicIndex!!.source.name)
                 assertNull(confirmations.single().energyKcal)
                 assertFalse(confirmations.single().eatingSoon)
                 assertEquals(MealPortionProvenance.USER_CORRECTED, confirmations.single().provenance)

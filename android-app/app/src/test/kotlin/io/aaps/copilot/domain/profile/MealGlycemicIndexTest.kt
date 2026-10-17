@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealGlycemicIndexTest {
+    @Test fun modelEstimateRetainsExplicitProvenanceAndCannotPretendToBeCatalogued() {
+        assertNull(MealGlycemicIndex.fromStored(60.0, "MODEL_ESTIMATE"))
+        val value = MealGlycemicIndex.fromStored(60.0, "MODEL_ESTIMATE", "meal_gi_type_history_v1")
+        assertNotNull(value)
+        assertEquals("MODEL_ESTIMATE", value!!.source.name)
+        assertEquals("meal_gi_type_history_v1", value.reference)
+    }
+
     @Test fun missingAndInvalidManualValuesDoNotInventGi() {
         for (raw in listOf("", " ", "NaN", "Infinity", "-1", "201", "bad", "1".repeat(100))) {
             assertNull(MealGlycemicIndex.fromManualInput(raw))

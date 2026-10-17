@@ -13012,3 +13012,33 @@
 1. `cd /Users/mac/Andoidaps/AAPSPredictiveCopilot/android-app && ./gradlew :app:testDebugUnitTest --tests "io.aaps.copilot.data.repository.CircadianReplaySummaryEvaluatorTest" --tests "io.aaps.copilot.domain.predict.CircadianPatternEngineTest" --tests "io.aaps.copilot.data.repository.AutomationRepositoryForecastBiasTest" --console=plain --no-daemon`
 2. `python3 -m py_compile /Users/mac/Andoidaps/AAPSPredictiveCopilot/tools/circadian_replay_eval.py`
 3. На WAL-consistent snapshot без свежей telemetry проверить, что `low_acute` становится пустым, а не копией `all`.
+
+# Meal Preparation And Automatic GI - 2026-10-17
+
+- Historical trace found88b14bc7 GI display, bb73dd62 independent history preview
+  and bde8a89a timing research. The current form passes an empty manual GI parser;
+  the compact action has no preparation renderer. Timing research is not a
+  clinically admitted meal-start recommender.
+- Before production changes, six targeted cases produced three expected REDs:
+  missing model provenance, automatic form GI and native preparation indicator.
+- Food/Lenta now share coarse80/60/45 model priors and bounded comparable known-
+  GI history. Existing exact meal metadata carries MODEL_ESTIMATE with a version
+  reference; generated values are excluded from independent GI summaries/fitting.
+  No laboratory GI, body-profile inference, target or dose adjustment is claimed.
+- Added finite fork/burger preparation gesture and passive IOB/freshness/low
+  states. A single canonical future meal may supply a recorded plan. Without
+  it, start remains unconfirmed; no readiness clock is invented from total IOB.
+- Focused checks initially passed124/125; the remaining UI assertion expected
+  absent GI instead of the intentional approximate type prior. Updated only
+  that expectation. Full unit suite passed6102 with six skipped and zero
+  failures/errors, including real Room close/reopen of model provenance.
+- Inspected native compact/large-font, light/dark Food and preparation frames.
+  Pixel tests confirm finite movement and static rest/reduced-motion output.
+- Full Android test/lint/build exited0. Removed the newly unused GI resource
+  and Long state boxing hint; repeated45 affected UI tests, lint and build
+  passed. Final lint has376 warnings/eight hints, zero errors and no new issues
+  versus the preceding stage. Main/test source checksums remained unchanged
+  during each admitted gate. APK retains the existing package and debug signer.
+- Final source publication and exact-head CI remain pending. No phone, server,
+  medical payload or therapy operation has been performed in this stage.
+- Details and primary-source boundaries: docs/MEAL_PREPARATION_GI.md.

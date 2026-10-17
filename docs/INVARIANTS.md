@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Meal Preparation Presentation
+
+- Positive total IOB alone cannot establish food preparation, a food bolus,
+  delivery confirmation or a safe meal-start recommendation.
+- Explicit recent intent and original fresh glucose/IOB are required for food
+  motion. Unknown/blocked/expired/future intents cannot become confirmed.
+- Only a single consistent future canonical meal supplies a labelled plan;
+  corrections/closed/contradictory entries cannot resurrect an old plan.
+- Native motion is finite and follows reduced-motion/lifecycle/power controls.
+  Its frames cannot alter a clinical clock, command, timer or request.
+- Automatic GI is versioned MODEL_ESTIMATE metadata. No generated GI can count
+  as an independent USER/CATALOG label or train itself into apparent confidence.
+  Type priors and bounded historical medians have no therapy authority.
+
 ## Restored Photo Connection
 
 - A restored SAVED or unloaded state cannot alone prove missing credentials.
@@ -1225,12 +1239,13 @@
 
 ## Food Display And GI
 
-- GI is optional confirmed metadata, not a clinical absorption calibration.
+- GI is optional source-labelled metadata, not a clinical absorption calibration.
   It changes only the separate display shape, never clinical5/30/60, announced
   pressure, insulin, UAM, current COB, target bounds or dispatch authority.
 - Each GI is bound to the exact trusted canonical meal identity/revision.
-  Pending, missing, conflicting and guessed values cannot become accepted GI.
-  Unknown preserves baseline; unrelated meals receive no invented shared GI.
+  Pending, missing, conflicting and guessed values cannot become measured GI.
+  An explicit model estimate retains its source/version and display-only status.
+  Unknown preserves baseline; unrelated meals receive no measured shared GI.
 - Display shaping conserves each current modeled remainder and finish time.
   Engineering coefficients cannot be described as physiologically validated.
 - The complete remaining curve is bounded to720m/145 points/16 KiB. Invalid

@@ -2,7 +2,7 @@ package io.aaps.copilot.domain.profile
 
 import java.io.Serializable
 
-enum class GlycemicIndexSource { USER, CATALOG }
+enum class GlycemicIndexSource { USER, CATALOG, MODEL_ESTIMATE }
 
 data class MealGlycemicIndex private constructor(
     val value: Double,
@@ -11,7 +11,7 @@ data class MealGlycemicIndex private constructor(
 ) : Serializable {
     init {
         require(value.isFinite() && value in 0.0..200.0)
-        require(source != GlycemicIndexSource.CATALOG || !reference.isNullOrBlank())
+        require(source == GlycemicIndexSource.USER || !reference.isNullOrBlank())
         require(reference == null || reference.length <= 256)
     }
 
@@ -24,7 +24,7 @@ data class MealGlycemicIndex private constructor(
         fun fromStored(value: Double?, source: String?, reference: String? = null): MealGlycemicIndex? {
             if (value == null || !value.isFinite() || value !in 0.0..200.0) return null
             val origin = runCatching { GlycemicIndexSource.valueOf(source.orEmpty()) }.getOrNull() ?: return null
-            val ref = if (origin == GlycemicIndexSource.CATALOG) {
+            val ref = if (origin != GlycemicIndexSource.USER) {
                 reference?.trim()?.takeIf { it.isNotEmpty() && it.length <= 256 } ?: return null
             } else null
             return MealGlycemicIndex(value, origin, ref)
