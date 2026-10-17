@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Android Daily Audit Reads
+
+Two closed history routes reuse connection-owned signatures, device binding and
+request/response caps. The audit renderer checks fixed admission/scope labels,
+identity/expiry/digest/source bindings and qualitative display text; unused cohort
+metrics are not presented as medical validation. No action/therapy DTO is added.
+Cache has its own no-backup AES-GCM/AtomicFile identity, size/time/row budgets and
+current-device/session gate. Known refusal removes visible data and attempts a
+small durable denial marker. Failed storage is not durable cleanup success;
+offline cache cannot establish current server revocation. Original expiry is
+pruned when the app can run, not claimed as guaranteed wall-clock erasure.
+All QA payloads are synthetic, including a stopped fake-runner/backend golden
+projection. No medical data, credential, model request or remote activation is
+needed. Public/source and actual operational acceptance stay separate.
+
 ## Protected Daily Reads (2026-10-17)
 
 The new default-off routes share existing HistoryService preauthorization and

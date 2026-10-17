@@ -52,7 +52,8 @@ internal fun AiFocusWorkspace(
     onDismissDiagnostics: () -> Unit = {},
     report: @Composable ((String) -> Unit) -> Unit,
     chat: @Composable () -> Unit,
-    diagnostics: @Composable () -> Unit
+    diagnostics: @Composable () -> Unit,
+    serverArchive: (@Composable (String) -> Unit)? = null
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
     val holder = rememberSaveableStateHolder()
@@ -88,7 +89,7 @@ internal fun AiFocusWorkspace(
                     ) { item(key = "clinical-report") { report(discuss) } }
                     FocusTab.CHAT -> chat()
                     FocusTab.RECOMMENDATIONS -> AiFocusRecommendations(state, discuss)
-                    FocusTab.ARCHIVE -> AiFocusArchive(state, discuss)
+                    FocusTab.ARCHIVE -> AiFocusArchive(state, discuss, serverArchive)
                 }
             }
         }
@@ -225,7 +226,8 @@ private fun FocusRecommendation(line: String, source: String, tag: String, discu
 }
 
 @Composable
-private fun AiFocusArchive(state: AiAnalysisUiState, discuss: (String) -> Unit) {
+private fun AiFocusArchive(state: AiAnalysisUiState, discuss: (String) -> Unit,
+    serverArchive: (@Composable (String) -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var opened by remember { mutableStateOf<AiAnalysisHistoryItemUi?>(null) }
     val records = remember(state.historyItems) { state.historyItems.sortedByDescending { it.runTs } }
@@ -248,6 +250,13 @@ private fun AiFocusArchive(state: AiAnalysisUiState, discuss: (String) -> Unit) 
                 color = MaterialTheme.colorScheme.error)
         }
         LazyColumn(state = rememberLazyListState(), modifier = Modifier.weight(1f)) {
+            if (serverArchive != null) {
+                item(key = "server-daily-reviews") { serverArchive(query) }
+                item(key = "other-reviews-title") {
+                    Text(stringResource(R.string.ai_server_archive_other), Modifier.padding(Spacing.md).semantics { heading() },
+                        style = MaterialTheme.typography.titleSmall)
+                }
+            }
             latest?.let { record ->
                 item(key = "latest-saved-review") {
                     Column(Modifier.fillMaxWidth().testTag("ai_focus_latest_report").padding(Spacing.md),

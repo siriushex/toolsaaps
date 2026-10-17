@@ -1,5 +1,21 @@
 # INVARIANTS
 
+## Android Retained Server Audit
+
+- Server audit text never enters the primary report, Recommendations, command
+  pipeline or automatic chat; NOT_ADMITTED and glucose-only scope remain visible.
+- Signed read routes/proof limits do not authorize upload, job or model work.
+- Cache/selected detail are bound to the current device and locally valid session.
+  Offline storage is not current revocation proof; known refusal hides data.
+- Only a complete bounded index replaces the last successful snapshot. Failure,
+  cancellation or source change cannot invent a new success or retrieval date.
+- Current selected source status is separate from original reply evidence. Cached
+  checks display their original time, never a live or clinical validity claim.
+- Expiry is original, not refresh-relative. Restore/read validation rejects
+  foreign/future-clock cache and prunes expired records before adoption. Visible
+  snapshots and lifecycle wakes are not instant wall-clock erasure guarantees;
+  physical cleanup requires app/storage availability.
+
 ## Protected Daily Result Projection
 
 - Daily reads are off without an explicit actual-boolean owner opt-in. They

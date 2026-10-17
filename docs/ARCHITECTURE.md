@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Android Daily Review Archive
+
+The existing signed history client reads retained daily reviews into a separate
+device-bound encrypted cache and native Reports block. A complete bounded frozen
+summary index and one selected audit detail survive navigation/restart; failed
+reads retain dated content. Current-vs-original source checks and unreviewed
+labels cannot become primary clinical advice or control inputs. Unused numeric
+cohorts remain inert. No provider/schedule admission, worker, Room migration,
+new dependency or live rollout. See ANDROID_SERVER_DAILY_ARCHIVE.md.
+
 ## Protected Daily Review Reads
 
 An optional `daily_reads` boolean in the protected owner v2 descriptor mounts

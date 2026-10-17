@@ -20,7 +20,9 @@ import kotlinx.coroutines.withContext
 internal enum class ServerAiHistoryRoute(val path: String, val requestLimit: Int, val responseLimit: Int) {
     BATCHES("/api/ai/v1/history/batches", 131_072, 65_536),
     QUERY("/api/ai/v1/history/query", 131_072, 65_536),
-    CONVERSATIONS("/api/ai/v1/history/conversations", 4_096, 131_072)
+    CONVERSATIONS("/api/ai/v1/history/conversations", 4_096, 131_072),
+    DAILY_RESULTS("/api/ai/v1/history/daily-results", 1_024, 131_072),
+    DAILY_RESULT("/api/ai/v1/history/daily-result", 1_024, 131_072)
 }
 
 internal interface ServerAiHistoryPersistence {
@@ -36,7 +38,8 @@ internal object UnavailableHistoryPersistence : ServerAiHistoryPersistence {
 /** Atomic encrypted checkpoint, separate from credential storage and its unchanged limits. */
 internal enum class ServerAiHistoryStorageSlot(val fileName: String, val alias: String, val aad: String) {
     TRANSPORT("server_ai_history_pending_v1.bin", "io.aaps.predictivecopilot.server_ai.history_pending.aes_gcm.v1", "server-ai-history-pending-v1"),
-    ROOM_EXPORT("server_ai_room_export_pending_v1.bin", "io.aaps.predictivecopilot.server_ai.room_export.aes_gcm.v1", "server-ai-room-export-pending-v1")
+    ROOM_EXPORT("server_ai_room_export_pending_v1.bin", "io.aaps.predictivecopilot.server_ai.room_export.aes_gcm.v1", "server-ai-room-export-pending-v1"),
+    DAILY_ARCHIVE("server_ai_daily_archive_v1.bin", "io.aaps.predictivecopilot.server_ai.daily_archive.aes_gcm.v1", "server-ai-daily-archive-v1")
 }
 
 internal class EncryptedServerAiHistoryPersistence(context: Context,

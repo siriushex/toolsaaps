@@ -310,6 +310,15 @@ class AppContainer(context: Context) {
     val mealPhotoGateway = io.aaps.copilot.data.repository.ServerMealPhotoGateway(serverAiConnectionManager)
     val mealPhotoRepository = io.aaps.copilot.data.repository.MealPhotoAnalysisRepository(mealPhotoGateway)
     val serverAiHistoryClient = ServerAiHistoryClient(serverAiConnectionManager)
+    internal val serverDailyReviewRepository by lazy {
+        io.aaps.copilot.data.repository.ServerDailyReviewRepository(
+            io.aaps.copilot.security.EncryptedServerAiHistoryPersistence(appContext,
+                io.aaps.copilot.security.ServerAiHistoryStorageSlot.DAILY_ARCHIVE),
+            serverAiConnectionManager::currentHistoryDeviceBinding,
+            serverAiConnectionManager::currentServerTimeMs, { java.time.ZoneId.systemDefault() },
+            serverAiHistoryClient::readDailyResults, serverAiHistoryClient::readDailyResult
+        )
+    }
 
     val db: CopilotDatabase = Room.databaseBuilder(
         context,

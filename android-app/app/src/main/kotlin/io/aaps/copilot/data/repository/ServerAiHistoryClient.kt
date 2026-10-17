@@ -123,6 +123,18 @@ class ServerAiHistoryClient(private val connection: ServerAiConnectionManager) {
         response { HistoryCodec.conversationPage(result, query, connection.currentServerTimeMs()) }
     }
 
+    internal suspend fun readDailyResults(query: DailyReviewQuery, expectedDeviceBinding: String): DailyReviewPage = guarded {
+        val body = input { DailyReviewCodec.listQuery(query) }
+        val result = exchange(ServerAiHistoryRoute.DAILY_RESULTS, body, expectedDeviceBinding)
+        response { DailyReviewCodec.page(result, query, connection.currentServerTimeMs()) }
+    }
+
+    internal suspend fun readDailyResult(jobId: String, expectedDeviceBinding: String): DailyReviewDetail = guarded {
+        val body = input { DailyReviewCodec.detailQuery(jobId) }
+        val result = exchange(ServerAiHistoryRoute.DAILY_RESULT, body, expectedDeviceBinding)
+        response { DailyReviewCodec.detail(result, jobId, connection.currentServerTimeMs()) }
+    }
+
     private suspend fun statusPage(device: String): ServerAiHistoryPage {
         val now = connection.currentServerTimeMs()
         // Highwater is global regardless of the selected event window. A short

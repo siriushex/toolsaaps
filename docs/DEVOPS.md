@@ -1,5 +1,17 @@
 # DEVOPS
 
+## Android Server Archive
+
+Source adds a separate encrypted DAILY_ARCHIVE slot and native Reports reader;
+no clinical database migration or server descriptor/unit change. Existing owner
+daily_reads admission remains false unless separately reviewed and enabled.
+Run focused client/cache/security/Focus/native tests, then full Android quality
+and actual native raster inspection. Verify the exact pushed SHA, not only local
+success. Do not use a real model request, patient upload or database copy for QA.
+No APK installation is implied; existing alerts/services must not be disabled.
+Cutoff refresh is visible read-only work, not actual server05:00 dispatch.
+See ANDROID_SERVER_DAILY_ARCHIVE.md for cache/retention/rollback limitations.
+
 ## Daily Result Read Admission (2026-10-17)
 
 Source adds optional protected owner descriptor `daily_reads` (actual bool,

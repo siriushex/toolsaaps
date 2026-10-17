@@ -1,5 +1,23 @@
 # PLAN
 
+## Android Server Daily Archive (2026-10-17)
+
+- [x] Continue approved daily-review/Focus+ design as separate unreviewed audit,
+  not ordinary clinical publication. Inspect current signed API/native boundaries.
+- [x] Initial codec and independent cache/native missing-feature REDs observed.
+- [x] Signed client/codec plus existing history suite:37 cases passed before
+  cache/native work. Actual synthetic backend golden projection is included.
+- [x] Implement bounded cache, current-session binding and native Reports slot.
+- [x] Expanded38-case fault/native gate and ordinary/actual1.8x long-text
+  raster inspection; disk-read identity and expiry/clock regressions included.
+- [x] Full6168-test execution on reviewed inputs:6162 passed, six existing skips,
+  zero failures/errors. Final lint/compile/assemble are a separate gate below.
+- [x] Final Android lint/compile/build passed, zero errors/new lint issues;
+  existing376 warnings/eight hints. Reviewed input manifests match byte-for-byte.
+- Reviewed source/exact-head CI are post-commit gates in the PR receipt.
+  No server/provider/schedule/phone/therapy activation. See
+  ANDROID_SERVER_DAILY_ARCHIVE.md and OPEN_FEATURES.md.
+
 ## Protected Daily Result Reads (2026-10-17)
 
 - [x] Continue approved daily-review read-projection track; distinguish stale

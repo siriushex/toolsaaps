@@ -248,11 +248,19 @@ class ServerAiConnectionManager internal constructor(
         return exchangeSigned(method, path, body.copyOf(), requestId, deadlineMs, 65_536)
     }
 
-    internal suspend fun historyDeviceBinding(): String {
+    internal suspend fun historyDeviceBinding(): String = historyDeviceBinding(requireCurrent = false)
+
+    internal suspend fun currentHistoryDeviceBinding(): String = historyDeviceBinding(requireCurrent = true)
+
+    private suspend fun historyDeviceBinding(requireCurrent: Boolean): String {
         mutex.lock()
         try {
             record = read()
-            if (record.session == null) throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            val session = record.session ?: throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            if (requireCurrent && (session.subscriptionExpires <= serverNow() || session.refreshExpires <= serverNow() ||
+                    record.pending?.let { it.refresh == null } == true)) {
+                throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            }
             return keyCall { identity.fingerprint().also { check(Regex("[0-9a-f]{64}").matches(it)) } }
         } finally {
             mutex.unlock()

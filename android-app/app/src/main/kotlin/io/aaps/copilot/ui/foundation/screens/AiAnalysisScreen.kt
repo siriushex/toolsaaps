@@ -171,7 +171,8 @@ fun AiAnalysisScreen(
     modifier: Modifier = Modifier,
     diagnosticsVisible: Boolean = false,
     onDismissDiagnostics: () -> Unit = {},
-    onRetryClinicalDisplay: () -> Unit = {}
+    onRetryClinicalDisplay: () -> Unit = {},
+    serverArchive: (@Composable (String) -> Unit)? = null
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val context = LocalContext.current
@@ -236,6 +237,7 @@ fun AiAnalysisScreen(
         modifier = modifier,
         diagnosticsVisible = diagnosticsVisible,
         onDismissDiagnostics = onDismissDiagnostics,
+        serverArchive = serverArchive,
         report = { discuss ->
             var showActions by rememberSaveable { mutableStateOf(false) }
             val display = state.clinicalDisplay

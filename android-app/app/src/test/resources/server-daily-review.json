@@ -1,0 +1,401 @@
+{
+  "currentState": "SOURCE_MATCHED",
+  "expiresAtMs": 1823472000000,
+  "jobId": "6cb430ca-63da-4deb-ada4-4eaa755bc342",
+  "model": "sample-model",
+  "reportDate": "2026-10-13",
+  "reportRevision": 1,
+  "review": {
+    "cohorts": [
+      {
+        "cohortId": "c0a3f3daf4de1a19a0a135624ea1c7d3ce79e10ec8310113cbdca9f81422701e",
+        "comparison": {
+          "baselines": [
+            {
+              "deltaInRangePercentagePoints": null,
+              "deltaMeanMmol": null,
+              "glucoseDays": 0,
+              "glucoseExclusions": [
+                {
+                  "count": 2,
+                  "reason": "LOW_DAY_COVERAGE"
+                },
+                {
+                  "count": 5,
+                  "reason": "NO_UPLOADED_GLUCOSE"
+                }
+              ],
+              "lookbackDays": 7,
+              "metrics": {
+                "abovePct": null,
+                "belowPct": null,
+                "coveredMinutes": 0.0,
+                "cvPct": null,
+                "inRangePct": null,
+                "meanMmol": null,
+                "rangeComparableMinutes": 0.0,
+                "sdMmol": null
+              },
+              "missingDates": [
+                "2026-10-06",
+                "2026-10-07",
+                "2026-10-08",
+                "2026-10-09",
+                "2026-10-10"
+              ],
+              "omittedDayDetailCount": 7,
+              "rangeDays": 0,
+              "rangeExclusions": [
+                {
+                  "count": 2,
+                  "reason": "LOW_DAY_COVERAGE"
+                },
+                {
+                  "count": 5,
+                  "reason": "NO_UPLOADED_GLUCOSE"
+                }
+              ]
+            },
+            {
+              "deltaInRangePercentagePoints": null,
+              "deltaMeanMmol": null,
+              "glucoseDays": 0,
+              "glucoseExclusions": [
+                {
+                  "count": 2,
+                  "reason": "LOW_DAY_COVERAGE"
+                },
+                {
+                  "count": 19,
+                  "reason": "NO_UPLOADED_GLUCOSE"
+                }
+              ],
+              "lookbackDays": 21,
+              "metrics": {
+                "abovePct": null,
+                "belowPct": null,
+                "coveredMinutes": 0.0,
+                "cvPct": null,
+                "inRangePct": null,
+                "meanMmol": null,
+                "rangeComparableMinutes": 0.0,
+                "sdMmol": null
+              },
+              "missingDates": [
+                "2026-09-22",
+                "2026-09-23",
+                "2026-09-24",
+                "2026-09-25",
+                "2026-09-26",
+                "2026-09-27",
+                "2026-09-28",
+                "2026-09-29",
+                "2026-09-30",
+                "2026-10-01",
+                "2026-10-02",
+                "2026-10-03",
+                "2026-10-04",
+                "2026-10-05",
+                "2026-10-06",
+                "2026-10-07",
+                "2026-10-08",
+                "2026-10-09",
+                "2026-10-10"
+              ],
+              "omittedDayDetailCount": 21,
+              "rangeDays": 0,
+              "rangeExclusions": [
+                {
+                  "count": 2,
+                  "reason": "LOW_DAY_COVERAGE"
+                },
+                {
+                  "count": 19,
+                  "reason": "NO_UPLOADED_GLUCOSE"
+                }
+              ]
+            }
+          ],
+          "cohortId": "c0a3f3daf4de1a19a0a135624ea1c7d3ce79e10ec8310113cbdca9f81422701e",
+          "limitations": [
+            "LOW_CURRENT_DAY_COVERAGE"
+          ]
+        },
+        "metrics": {
+          "aboveMinutes": 0.0,
+          "abovePct": 0.0,
+          "belowMinutes": 120.0,
+          "belowPct": 100.0,
+          "coveredMinutes": 120.0,
+          "cvPct": 0.0,
+          "inRangeMinutes": 0.0,
+          "inRangePct": 0.0,
+          "meanMmol": 3.0,
+          "rangeCoveredMinutes": 120.0,
+          "rangeMissingMinutes": 0.0,
+          "sdMmol": 0.0
+        },
+        "quality": "OK",
+        "source": "CGM"
+      }
+    ],
+    "day": {
+      "asOfMs": 1791939600000,
+      "conflictingTimestamps": 0,
+      "coveragePct": 8.333333333333334,
+      "coveredMinutes": 120.0,
+      "maxUncoveredMinutes": 1320.0,
+      "missingMinutes": 1320.0,
+      "qualityCounts": {
+        "OK": 9,
+        "SUSPECT": 0,
+        "UNKNOWN": 0
+      },
+      "qualityOkCoveredMinutes": 120.0,
+      "ranges": [
+        {
+          "endMs": 1791936000000,
+          "highMmol": 8.0,
+          "lowMmol": 4.0,
+          "startMs": 1790035200000,
+          "version": "range-1"
+        }
+      ],
+      "snapshotSequence": 27,
+      "unverifiedCoveredMinutes": 0.0,
+      "window": {
+        "endMs": 1791936000000,
+        "reportDate": "2026-10-13",
+        "startMs": 1791849600000,
+        "zoneId": "UTC"
+      }
+    },
+    "factsDigest": "436e70ae91e1ad09dd27d7e73e8dbffbb2db40df677af0e2f92ca46af42452e4",
+    "findings": [
+      {
+        "action": "REVIEW_MEASUREMENT_AND_RECORDED_CONTEXT",
+        "alternativeCodes": [
+          "MEASUREMENT_ERROR_NOT_EXCLUDED"
+        ],
+        "interpretation": "Observed exposure warrants reviewing the recorded context.",
+        "pattern": {
+          "allowedAction": "REVIEW_MEASUREMENT_AND_RECORDED_CONTEXT",
+          "band": "BELOW_RANGE",
+          "candidateId": "0914db2d0d3fbdfbd9fb7f7fbd33cfd7d1fede0404c0afc9db9b676ee3918301",
+          "cohortId": "c0a3f3daf4de1a19a0a135624ea1c7d3ce79e10ec8310113cbdca9f81422701e",
+          "eligibleWindows": 3,
+          "endHour": 2,
+          "excludedDays": [
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-22"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-23"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-24"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-25"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-26"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-27"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-28"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-29"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-09-30"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-01"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-02"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-03"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-04"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-05"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-06"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-07"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-08"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-09"
+            },
+            {
+              "reason": "NO_UPLOADED_GLUCOSE",
+              "reportDate": "2026-10-10"
+            }
+          ],
+          "highMmol": 8.0,
+          "lookbackDays": 21,
+          "lowMmol": 4.0,
+          "omittedEvidenceWindows": 0,
+          "qualifyingDays": 3,
+          "rangeVersion": "range-1",
+          "startHour": 0,
+          "status": "PROVISIONAL_RECURRENCE",
+          "windowEvidence": [
+            {
+              "cohortId": "c0a3f3daf4de1a19a0a135624ea1c7d3ce79e10ec8310113cbdca9f81422701e",
+              "coveredMinutes": 120.0,
+              "endMs": 1791684000000,
+              "episodeIds": [
+                "dac282cf7410ff43bc369efe5f9a720aa2f75312f35b0239f38d70a03028640a"
+              ],
+              "exposureMinutes": 120.0,
+              "missingMinutes": 0.0,
+              "omittedEndpointReferences": 0,
+              "omittedEpisodes": 0,
+              "reportDate": "2026-10-11",
+              "sourceDigest": "e74a3b87825369b3e089db5e80e62be68f0db11c17a37e1e096f28c94489d901",
+              "startMs": 1791676800000
+            },
+            {
+              "cohortId": "c0a3f3daf4de1a19a0a135624ea1c7d3ce79e10ec8310113cbdca9f81422701e",
+              "coveredMinutes": 120.0,
+              "endMs": 1791770400000,
+              "episodeIds": [
+                "0ca7d24450fe4f4b5b5727e4c2caf33287187b80db3c12932fd893536dc54752"
+              ],
+              "exposureMinutes": 120.0,
+              "missingMinutes": 0.0,
+              "omittedEndpointReferences": 0,
+              "omittedEpisodes": 0,
+              "reportDate": "2026-10-12",
+              "sourceDigest": "e8d578d455881ecd434e9a3dc9244b820295ad2f947597c90cf9ded2fafa10eb",
+              "startMs": 1791763200000
+            },
+            {
+              "cohortId": "c0a3f3daf4de1a19a0a135624ea1c7d3ce79e10ec8310113cbdca9f81422701e",
+              "coveredMinutes": 120.0,
+              "endMs": 1791856800000,
+              "episodeIds": [
+                "eddc4d2398996b075d325dcefd59c2012cc8d170fe24839da217703a4665c361"
+              ],
+              "exposureMinutes": 120.0,
+              "missingMinutes": 0.0,
+              "omittedEndpointReferences": 0,
+              "omittedEpisodes": 0,
+              "reportDate": "2026-10-13",
+              "sourceDigest": "1574ce7c56fa576ef2fc8f6de80bacdc3214da6603c2dc52cb8128cc7dcb92a5",
+              "startMs": 1791849600000
+            }
+          ]
+        }
+      }
+    ],
+    "missingInputCodes": [
+      "ALERTS_NOT_ANALYZED",
+      "CONTROLLER_NOT_ANALYZED",
+      "INSULIN_NOT_ANALYZED",
+      "LOW_CURRENT_DAY_COVERAGE",
+      "MEALS_NOT_ANALYZED",
+      "PHYSIOLOGY_NOT_ANALYZED",
+      "SOURCE_COMPLETENESS_UNKNOWN"
+    ],
+    "omissions": {
+      "calculatorEpisodes": 0,
+      "calculatorPatterns": 0,
+      "inputCohorts": 0,
+      "inputEpisodes": 0,
+      "inputPatterns": 0,
+      "selectedCandidateEvidenceWindows": 0
+    },
+    "packetDigest": "d7604b7d56027dc080a1f7e048f5948097ced88fcec9a1f3b99e28cb9e030043",
+    "publicationState": "NOT_ADMITTED",
+    "scope": "GLUCOSE_ONLY",
+    "sourceFreshness": "NOT_INDEPENDENTLY_VERIFIED",
+    "status": "LIMITED_DATA",
+    "summary": "Review the supplied observations and data limitations.",
+    "textMeaning": "UNREVIEWED_AI_INTERPRETATION",
+    "validation": "REFERENCES_ONLY"
+  },
+  "revision": "daily-review-read-v1",
+  "sourceAtReply": {
+    "checkedAtMs": 1791939600000,
+    "checkedSnapshotSequence": 27,
+    "dataCompleteness": "UNKNOWN",
+    "factsDigest": "436e70ae91e1ad09dd27d7e73e8dbffbb2db40df677af0e2f92ca46af42452e4",
+    "meaning": "RETAINED_HISTORY_AT_CHECK",
+    "modelState": "NOT_REQUESTED",
+    "originalAsOfMs": 1791939600000,
+    "originalSnapshotSequence": 27,
+    "originalWindowEndMs": 1791936900000,
+    "provenance": "DEVICE_DECLARED",
+    "reason": "SOURCE_MATCHED",
+    "replayedFactsDigest": "436e70ae91e1ad09dd27d7e73e8dbffbb2db40df677af0e2f92ca46af42452e4",
+    "replayedSourceDigest": "e66dcbc8d5c0d5999a8e5cae79c5d784eae71fa4e9885f1047add580c2fda740",
+    "reportKey": "e8a002bee4e437ee3f188d9a5dc895531f71227e588214648356b946084080e0",
+    "reportRevision": 1,
+    "revision": "daily-source-check-v1",
+    "scope": "GLUCOSE_ONLY",
+    "sourceBinding": "9f8fe81efe442618574d69c81d08a1f6ecb7377db461d9325e09f216a724c69e",
+    "sourceDigest": "e66dcbc8d5c0d5999a8e5cae79c5d784eae71fa4e9885f1047add580c2fda740",
+    "status": "MATCHED",
+    "windowEndMs": 1791936900000,
+    "windowStartMs": 1790034300000
+  },
+  "sourceCheck": {
+    "checkedAtMs": 1791939600000,
+    "checkedSnapshotSequence": 27,
+    "dataCompleteness": "UNKNOWN",
+    "factsDigest": "436e70ae91e1ad09dd27d7e73e8dbffbb2db40df677af0e2f92ca46af42452e4",
+    "meaning": "RETAINED_HISTORY_AT_CHECK",
+    "modelState": "NOT_REQUESTED",
+    "originalAsOfMs": 1791939600000,
+    "originalSnapshotSequence": 27,
+    "originalWindowEndMs": 1791936900000,
+    "provenance": "DEVICE_DECLARED",
+    "reason": "SOURCE_MATCHED",
+    "replayedFactsDigest": "436e70ae91e1ad09dd27d7e73e8dbffbb2db40df677af0e2f92ca46af42452e4",
+    "replayedSourceDigest": "e66dcbc8d5c0d5999a8e5cae79c5d784eae71fa4e9885f1047add580c2fda740",
+    "reportKey": "e8a002bee4e437ee3f188d9a5dc895531f71227e588214648356b946084080e0",
+    "reportRevision": 1,
+    "revision": "daily-source-check-v1",
+    "scope": "GLUCOSE_ONLY",
+    "sourceBinding": "9f8fe81efe442618574d69c81d08a1f6ecb7377db461d9325e09f216a724c69e",
+    "sourceDigest": "e66dcbc8d5c0d5999a8e5cae79c5d784eae71fa4e9885f1047add580c2fda740",
+    "status": "MATCHED",
+    "windowEndMs": 1791936900000,
+    "windowStartMs": 1790034300000
+  },
+  "storedAtMs": 1791939600000,
+  "zoneId": "UTC"
+}

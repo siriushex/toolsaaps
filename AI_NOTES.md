@@ -1,3 +1,51 @@
+# Android Retained Server Audit - 2026-10-17
+
+- Continue unfinished owner-approved daily-review/Focus+ work. Server stored
+  reviews are still NOT_ADMITTED; connect a separate Reports audit block rather
+  than promote them into primary clinical advice, Recommendations or therapy.
+- Initial missing-codec RED, then37 signed-client/codec/history cases passed.
+  Missing cache/native types were independently observed before implementation.
+  The first expanded compile exposed only a test motion-provider argument;
+  its explicit disabled-motion fixture was corrected without production change.
+- Added strict signed reads, fixed original expiry/source bindings, complete
+  bounded frozen index and one selected detail in independent encrypted storage.
+  Cache-first navigation and visible cutoff refresh cannot create model jobs.
+  Denial/device/session checks hide old content; offline/current-revocation and
+  physical-cleanup limitations remain explicit. Ordinary clinical output is unchanged.
+- Native Reports integration uses plain text, existing icon controls, local
+  search/pagination, dated unreviewed/source state and retained content on failure.
+  Actual synthetic backend projection comes only from an encrypted fixture with
+  a stopped fake Runner, not real provider/profile/medical data.
+- The expanded132-case client/security/cache/native/visibility gate passed. Its
+  first lint run found one new screen-height heuristic warning; the new dialog
+  now follows existing platform-constrained scrolling, without suppression.
+  An initial LocalDensity-only test was not evidence of real dialog font scaling.
+  The fixture now applies/restores Android resources, checks actual1.8x text
+  layout and uses Clarity. The subsequent35-case cache/native gate passed with
+  constrained scrolling/title coverage. Native ordinary/1.8x rasters were
+  inspected independently: no text overlap/clipping and close remains reachable.
+- Review added independent REDs for clock reversal with loaded memory and an
+  explicit refresh after expiry; both failed before shared retained validation.
+  A response crossing selected-result expiry also failed independently. Restored
+  data is validated before adoption; all refresh paths prune first and a selected
+  response cannot reintroduce expired rows. These regressions are included in
+  the final full fixed-input gate below.
+- A6167-case full unit pass was inspected (6161passed/six existing skips), but
+  its remaining lint/build invocation was intentionally stopped for an additional
+  independently reproduced disk-read device-change race. Revalidate device
+  identity before/after retained validation and before final adoption. All38
+  focused tests then passed, including the real1.8x long-summary/five-finding
+  scroll test. Final full quality was rerun on the reviewed fixed inputs; the
+  earlier unit pass is not claimed as verification of this later guard.
+- Final local6168-case execution:6162passed, six existing skips, zero failures/
+  errors. Lint/compile/assemble exit0 in30m5s, existing376 warnings/eight hints,
+  zero new lint issues. Reviewed app/Gradle manifests match byte-for-byte before/
+  after the gate. The debug APK package and signature are independently checked;
+  its binary and raster/log evidence stay private, outside the source tree.
+- Reviewed source/exact-head publication receipts are separate post-commit gates.
+  No server config/service, scheduler, key,
+  enrollment, real upload/model request, phone install, alarm or therapy operation.
+
 # Protected Daily Result Reads - 2026-10-17
 
 - User requests remaining functionality. Audit found source-backed encrypted
