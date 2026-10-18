@@ -1,5 +1,38 @@
 # Native Motion Refinement
 
+## Choreography Follow-Up (2026-10-18)
+
+The current native owl adds a brief gather/lift/landing on the first overview,
+a wing greeting on return, eyes-leading-head Forecast gaze, an Analytics nod and
+an attentive AI tilt. Delayed secondary movement uses the same asymmetric easing
+family as the existing native controls. All scenes start and finish in the exact
+rest geometry; body travel stays inside the artwork viewport (<=8 vertical and
+3.5 horizontal model units, <=1.3 degrees tilt). Artwork and palettes are unchanged.
+Below 48dp only body-channel intensity is optically reduced to 20% to preserve a
+clear edge gutter; eye/head/wing expressiveness is retained.
+
+Header and chat now share one waiting pose and staggered marks. Three 2400ms
+attention phrases diminish to 82% and 64% energy, then stop at 7200ms. Dots settle to
+static indeterminate presentation; real busy state, not elapsed animation, owns
+accessibility and completion. First launch lasts 480ms, ordinary header visits
+remain capped at 720ms, and menu glance remains 480ms. These choices supersede the
+older 2400ms waiting behavior recorded below.
+
+No perpetual clock, new listener, dependency, network/data operation or clinical
+action is introduced. Frame sampling stays in draw; small owls still do not
+decode the feather bitmap. Existing urgent/reduced-motion/power/lifecycle gates,
+fixed 48dp menu target, static notifications and no-replay semantics remain.
+This is bounded behavior, not measured physical-device CPU/RAM performance.
+
+`OwlChoreographyTest` covers neutral endpoints and layered movement;
+`OwlMotionPolicyTest` checks bounds, adjacent-millisecond continuity and blink
+budgets; `OwlMotionStudioTest` rasterizes actual native Compose at 38dp and 144dp,
+checks clear edges throughout every scene and proves reduced motion is static.
+Optional `OWL_MOTION_RENDER_DIR` writes a 14.4-second 30fps silent native frame reel.
+Preview captions exist only in test code, never as explanatory app UI.
+Delayed initial navigation resolution also receives LAUNCH once; later overview
+returns keep GREET. Current quality results are in the dated AI_NOTES.md entry.
+
 Date: 2026-10-15. Presentation-only follow-up to Feather 01.
 
 The2026-10-16 approved navigation follow-up moves the owl into the existing48dp

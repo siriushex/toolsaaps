@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.semantics.contentDescription
@@ -65,6 +66,7 @@ fun CopilotOwl(
     val iris = remember(colors) { Brush.radialGradient(listOf(colors[6],colors[7],colors[8]),Offset(0f,0f),21f) }
     val teal = remember { Brush.linearGradient(listOf(Color(0xFF227B87),Color(0xFF075366),Color(0xFF063746)),Offset(95f,105f),Offset(175f,265f)) }
     val texture = if (size >= 96.dp) ImageBitmap.imageResource(R.drawable.owl_feather_tile) else null
+    val bodyIntensity = if (size < 48.dp) .2f else 1f
     val clock = rememberFiniteMotionClock(motionDurationMs, motionKey, animate && gesture != OwlGesture.STILL)
     val motionEnabled = animate && LocalCopilotMotionEnabled.current
     val progress = if (gesture == OwlGesture.WAITING) Modifier.progressSemantics() else Modifier
@@ -79,7 +81,12 @@ fun CopilotOwl(
             }
         }
         scale(this.size.width / 280f, this.size.height / 280f, Offset.Zero) {
-            scale(pose.bodyScale,pose.bodyScale,Offset(140f,140f)) {
+            withTransform({
+                translate(pose.bodyX * bodyIntensity, pose.bodyY * bodyIntensity)
+                rotate(pose.bodyAngle * bodyIntensity, Offset(140f, 220f))
+                val scale = 1f + (pose.bodyScale - 1f) * bodyIntensity
+                scale(scale, scale, Offset(140f, 140f))
+            }) {
                 drawPath(paths.body,body);feather(paths.body)
                 clipPath(paths.body) {
                     fun DrawScope.foldedWing() {

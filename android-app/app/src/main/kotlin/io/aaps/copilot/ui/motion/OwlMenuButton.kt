@@ -48,7 +48,8 @@ internal data class OwlHeaderMotionState(
         val nextGesture = when {
             menuExpanded && !this.menuExpanded -> OwlGesture.MENU
             waiting && (!this.waiting || routeKey != this.routeKey) -> OwlGesture.WAITING
-            routeKey != this.routeKey -> visitGesture
+            routeKey != this.routeKey -> if (this.routeKey.isEmpty() && visitGesture == OwlGesture.GREET)
+                OwlGesture.LAUNCH else visitGesture
             !waiting && this.waiting && gesture == OwlGesture.WAITING -> OwlGesture.STILL
             else -> null
         }
@@ -62,7 +63,8 @@ internal data class OwlHeaderMotionState(
         fun start(routeKey: String, visitGesture: OwlGesture, menuExpanded: Boolean,
             waiting: Boolean, motionAllowed: Boolean) = OwlHeaderMotionState(
             routeKey, menuExpanded, waiting,
-            if (menuExpanded) OwlGesture.MENU else if (waiting) OwlGesture.WAITING else visitGesture,
+            if (menuExpanded) OwlGesture.MENU else if (waiting) OwlGesture.WAITING
+            else if (visitGesture == OwlGesture.GREET) OwlGesture.LAUNCH else visitGesture,
             0, motionAllowed
         )
     }

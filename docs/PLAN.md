@@ -1,5 +1,14 @@
 # PLAN
 
+## Owl Motion Craft (2026-10-18)
+
+- [x] Observe RED-first endpoint, layered-action and shared-waiting regressions.
+- [x] Add bounded coordinated body/head/wing poses and shared finite waiting.
+- [x] Inspect actual native small/large frames and silent motion reel (52 motion tests pass).
+- [x] Pass focused/full Android quality: 6288 tests, no failures/errors, 6 skips; compile/lint/APK pass.
+- [ ] Inspect scoped exact-head source delivery and Verify CI after publication.
+- No phone, server, therapy, alert audio or palette change in this stage.
+
 ## Trusted Compact Chat Adapter (2026-10-18)
 
 - [x] Add RED-first trusted archive/receipt/worker tests and immutable device/question binding.

@@ -1,3 +1,25 @@
+# Owl Motion Craft - 2026-10-18
+
+- Added coordinated native gather/lift/landing, wing greeting, forward gaze,
+  nod and attentive tilt. Every scene begins/ends at exact rest; body translation
+  and rotation remain bounded inside the existing fixed-size artwork.
+- Header and chat share three diminishing attention phrases over 7200ms, then
+  static indeterminate waiting. Eyes follow staggered marks; real busy state owns
+  semantics. First overview launches once; return visits keep the wing greeting.
+- Preserved artwork/palettes, 48dp targets, no-replay and existing urgent/reduced/
+  power/lifecycle gates. No new dependency, permanent clock or header bitmap decode.
+- Initial three new tests failed on the original behavior as expected. All 52
+  motion cases pass, including actual native small/large raster frames. Edge
+  checks allow only an antialias fringe of <=1.2%; visible contours stay inside.
+- Delayed initial navigation resolution reproduced GREET instead of LAUNCH on
+  actual production bytecode; fixed and verified GREEN with a JUnit regression.
+- Inspected the native contact sheet and action frame; silent H.264 proof is
+  360x640, 30fps, 432 frames / 14.4s. The combined local tree runs 6288 unit
+  tests: 6282 passed, 6 existing private-fixture skips, zero failures/errors.
+- Kotlin compile, lint and debug APK pass. Lint reports 0 errors, 378 warnings
+  and 8 hints outside ui/motion; no checks disabled. Exact-head CI is separate.
+- No therapy, alert audio, phone, host, provider or APK publication change.
+
 # Trusted Compact Chat Adapter - 2026-10-18
 
 - Added opt-in compact CHAT preparation under one existing encrypted device

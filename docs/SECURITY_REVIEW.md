@@ -1,5 +1,13 @@
 # SECURITY REVIEW
 
+## Owl Motion Craft (2026-10-18)
+
+- Presentation-only deterministic poses; no new input, storage, API or permissions.
+- Existing reduced-motion/urgent/power/lifecycle gates suppress the new channels.
+- Finite waiting cannot imply request success or replay from a glucose refresh.
+- Raster evidence uses native artwork and synthetic UI state, not medical data.
+- No added sound/vibration, provider calls, phone operation or treatment change.
+
 ## Trusted Compact Chat Adapter (2026-10-18)
 
 - One authenticated device transaction pins latest source and accepted question,

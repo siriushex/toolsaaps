@@ -10,8 +10,8 @@ class OwlHeaderMotionStateTest {
 
     @Test fun routeVisitsAreFiniteAndRepeatedInputsDoNotReplay() {
         val first = start()
-        assertEquals(OwlGesture.GREET, first.gesture)
-        assertEquals(720L, first.durationMs)
+        assertEquals(OwlGesture.LAUNCH, first.gesture)
+        assertEquals(480L, first.durationMs)
         assertEquals(first, first.next("overview", OwlGesture.GREET, false, false, true))
         val forecast = first.next("forecast", OwlGesture.GAZE, false, false, true)
         assertEquals(OwlGesture.GAZE, forecast.gesture)
@@ -20,6 +20,7 @@ class OwlHeaderMotionStateTest {
         assertEquals(forecast, forecast.next("forecast", OwlGesture.GAZE, false, false, true))
         val back = forecast.next("overview", OwlGesture.GREET, false, false, true)
         assertEquals(2L, back.generation)
+        assertEquals(OwlGesture.GREET, back.gesture)
     }
 
     @Test fun closingMenuNeverRestartsTheRouteGesture() {
@@ -37,7 +38,7 @@ class OwlHeaderMotionStateTest {
         assertEquals(OwlGesture.LISTEN, entered.gesture)
         val waiting = entered.next("ai", OwlGesture.LISTEN, false, true, true)
         assertEquals(OwlGesture.WAITING, waiting.gesture)
-        assertEquals(2_400L, waiting.durationMs)
+        assertEquals(7_200L, waiting.durationMs)
         assertEquals(waiting, waiting.next("ai", OwlGesture.LISTEN, false, true, true))
         assertTrue(waiting.waiting)
         val finished = waiting.next("ai", OwlGesture.LISTEN, false, false, true)
@@ -69,5 +70,15 @@ class OwlHeaderMotionStateTest {
     @Test fun temporaryUnresolvedRouteDoesNotCreateAnotherVisit() {
         val first = start()
         assertEquals(first, first.next("", OwlGesture.STILL, false, false, true))
+    }
+
+    @Test fun delayedFirstRouteResolutionStillLaunchesOnceThenGreetsOnReturn() {
+        val unresolved = OwlHeaderMotionState.start("", OwlGesture.STILL, false, false, true)
+        val resolved = unresolved.next("overview", OwlGesture.GREET, false, false, true)
+        assertEquals(OwlGesture.LAUNCH, resolved.gesture)
+        assertEquals(480L, resolved.durationMs)
+        assertEquals(resolved, resolved.next("overview", OwlGesture.GREET, false, false, true))
+        val away = resolved.next("forecast", OwlGesture.GAZE, false, false, true)
+        assertEquals(OwlGesture.GREET, away.next("overview", OwlGesture.GREET, false, false, true).gesture)
     }
 }

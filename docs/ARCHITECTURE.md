@@ -1,5 +1,12 @@
 # ARCHITECTURE
 
+## Owl Choreography (2026-10-18)
+
+Native owl poses now include bounded body travel/tilt with coordinated head,
+eyes and wings. One deterministic 7200ms waiting choreography drives header and
+chat; existing draw-only clocks and safety/power/lifecycle gates remain owners.
+No new data, action or network boundary. See NATIVE_MOTION_REFINEMENT.md.
+
 ## Trusted Compact Chat Adapter
 
 An optional trusted compact worker selects history and server exchanges in one

@@ -17,10 +17,12 @@ class OwlMotionPolicyTest {
             assertTrue(gesture.durationMs in 0..8_000)
             for (time in 0L..9_000L step 7) {
                 val p=OwlMotionPolicy.sample(gesture,time)
-                assertTrue(listOf(p.blink,p.gazeX,p.gazeY,p.headAngle,p.headY,p.wingAngle,p.bodyScale).all(Float::isFinite))
+                assertTrue(listOf(p.blink,p.gazeX,p.gazeY,p.headAngle,p.headY,p.wingAngle,p.bodyScale,p.bodyX,p.bodyY,p.bodyAngle).all(Float::isFinite))
                 assertTrue(p.blink in 0f..1f);assertTrue(abs(p.headAngle)<=4f)
                 assertTrue(p.wingAngle in 0f..6f);assertTrue(p.headY in 0f..4f)
-                assertTrue(hypot(p.gazeX,p.gazeY)<=4.201f)
+                assertTrue(hypot(p.gazeX,p.gazeY)<=9.01f)
+                assertTrue(abs(p.bodyX)<=3.5f);assertTrue(p.bodyY in -8f..2f)
+                assertTrue(abs(p.bodyAngle)<=1.3f);assertTrue(p.bodyScale in .98f..1.01f)
                 if(time>=gesture.durationMs)assertFalse(p.active)
             }
         }
@@ -43,23 +45,34 @@ class OwlMotionPolicyTest {
         assertEquals(ended,OwlMotionPolicy.sample(OwlGesture.WAITING,86_400_000))
         assertEquals(OwlPose(),ended)
     }
-    @Test fun exactlyOneBlinkAndNoPermanentFacialOrWingMotion() {
+    @Test fun singleVisitBlinkAndThreeFiniteWaitingBlinks() {
         OwlGesture.entries.filter { it!=OwlGesture.STILL }.forEach { gesture ->
             var spans=0;var closed=false
             for(t in 0..gesture.durationMs) { val next=OwlMotionPolicy.sample(gesture,t).blink>.94f
                 if(next&&!closed)spans++;closed=next }
-            assertEquals(gesture.name,1,spans)
+            assertEquals(gesture.name,if(gesture==OwlGesture.WAITING)3 else 1,spans)
         }
     }
-    @Test fun waitingUsesOneSmallParallelGlanceThenReturnsToNeutral() {
-        for(t in 0L..2_399L step 13) {
-            val p=OwlMotionPolicy.sample(OwlGesture.WAITING,t)
-            assertTrue(p.gazeX in 0f..1.8f)
-            assertEquals(0f,p.gazeY)
-            assertTrue(p.headAngle in -.8f..0f)
-            if(t>=1_440)assertEquals(0f,p.gazeX)
+    @Test fun everyWaitingPhraseHasARestAndDiminishingEnergy() {
+        val maxima = (0L..2L).map { phrase ->
+            val offset = phrase*2_400
+            val end = OwlMotionPolicy.sample(OwlGesture.WAITING, offset+2_300).copy(active=false)
+            assertEquals(OwlPose(),end)
+            (0L..2_399L step 13).maxOf { OwlMotionPolicy.sample(OwlGesture.WAITING,offset+it).gazeX }
         }
-        assertEquals(OwlPose(),OwlMotionPolicy.sample(OwlGesture.WAITING,2_400))
+        assertTrue(maxima[0]>maxima[1] && maxima[1]>maxima[2])
+        assertEquals(OwlPose(),OwlMotionPolicy.sample(OwlGesture.WAITING,7_200))
+    }
+    @Test fun bodyAndFaceChannelsNeverJumpBetweenAdjacentMilliseconds() {
+        OwlGesture.entries.forEach { gesture ->
+            fun channels(p:OwlPose)=listOf(p.gazeX,p.gazeY,p.headAngle,p.headY,p.wingAngle,p.bodyX,p.bodyY,p.bodyAngle)
+            var previous=channels(OwlMotionPolicy.sample(gesture,0))
+            for(t in 1..gesture.durationMs) {
+                val next=channels(OwlMotionPolicy.sample(gesture,t))
+                next.zip(previous).forEach { (a,b)->assertTrue("${gesture.name} at $t",abs(a-b)<.25f) }
+                previous=next
+            }
+        }
     }
     @Test fun accentsArriveQuicklyAndSettleWithoutOvershoot() {
         assertEquals(0f,NativeMotion.accent(0f))

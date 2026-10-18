@@ -1,5 +1,13 @@
 # INVARIANTS
 
+## Owl Choreography
+
+- Every scene starts/ends at exact rest; body movement stays in the fixed viewport.
+- Shared waiting ends decorative movement at 7200ms without implying completion.
+- Real busy state retains indeterminate semantics after motion stops.
+- Existing urgency/reduced/power/lifecycle suppression and no-replay gates remain.
+- Clinical actions/colors, static notifications and 48dp hit targets are unchanged.
+
 ## Trusted Compact Chat
 
 - Trusted server identity, accepted question and exact model/policy must match.

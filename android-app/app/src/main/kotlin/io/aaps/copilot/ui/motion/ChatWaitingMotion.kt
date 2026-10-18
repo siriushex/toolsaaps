@@ -1,5 +1,6 @@
 package io.aaps.copilot.ui.motion
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,26 +22,13 @@ import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
 
 internal object ChatWaitingMotion {
-    const val durationMs = 7_200L
-    fun pose(elapsedMs: Long): OwlPose {
-        require(elapsedMs >= 0)
-        if (elapsedMs >= durationMs) return OwlPose()
-        val cycle = (elapsedMs % 2_400).toFloat()
-        val energy = 1f - .15f * (elapsedMs / 2_400)
-        fun beat(start: Float, end: Float): Float =
-            NativeMotion.accent(((cycle - start) / (end - start)).coerceIn(0f, 1f))
-        return OwlPose(
-            gazeX = 9f * energy * beat(120f, 1_640f),
-            headAngle = -2.4f * energy * beat(360f, 1_920f),
-            headY = .7f * beat(480f, 2_040f),
-            blink = beat(1_920f, 2_160f), active = true
-        )
-    }
+    val durationMs = OwlGesture.WAITING.durationMs
+    fun pose(elapsedMs: Long): OwlPose = OwlMotionPolicy.sample(OwlGesture.WAITING, elapsedMs)
     fun dotAlpha(index: Int, elapsedMs: Long): Float {
         require(index in 0..2 && elapsedMs >= 0)
         if (elapsedMs >= durationMs) return .45f
-        val phase = ((elapsedMs % 2_400) - index * 240).toFloat() / 960f
-        return .28f + .72f * NativeMotion.accent(phase.coerceIn(0f, 1f))
+        val settle = FastOutSlowInEasing.transform(((elapsedMs - 6_800L) / 400f).coerceIn(0f, 1f))
+        return .28f + .17f * settle + .72f * OwlMotionPolicy.waitingEnergy(elapsedMs) * OwlMotionPolicy.waitingAccent(index, elapsedMs)
     }
 }
 
