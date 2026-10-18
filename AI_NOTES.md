@@ -1,3 +1,21 @@
+# Matched Photo Decoder Rollout - 2026-10-18
+
+- Completed the compatible image-host rollout for source f814e0f6, whose six
+  exact-head CI checks passed. API, text and image now use the same source tree.
+- A fresh immutable public decoder retains the accepted interpreter/libraries
+  and replaces only the three source-pinned modules. The original decoder and
+  descriptor remain intact; no source-pin check was weakened.
+- Fifteen operator copy/rollback tests and scoped fatal lint passed. The actual
+  network-free decoder test normalized a synthetic 32x24 JPEG, stripped metadata,
+  passed kernel admission and independently confirmed process stop.
+- Sequential image-listener/API startup, exact proxy restoration and external
+  authentication refusal passed. All three services were active with no restarts.
+- Existing model, ChatGPT login bindings, private stores and database schemas
+  were preserved. No provider turn, medical image, phone or therapy action.
+- Offline normalization and API readiness do not validate food recognition,
+  nutrition accuracy or model responses. Compact context and daily host flags
+  remain disabled; post-response usage is not exact preflight tokenization.
+
 # Provider Token Usage - 2026-10-18
 
 - Owner retained current model and ChatGPT login. Public tiktoken 0.14.0 has no

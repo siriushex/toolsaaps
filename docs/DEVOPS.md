@@ -1,5 +1,33 @@
 # DEVOPS
 
+## Matched Photo Decoder Updates
+
+Photo source and decoder must be released together. DecoderRuntimeImage verifies
+the exact decoder entry, JPEG normalizer and meal schema hashes, not just Python
+and Pillow. A complete backend source update with an older decoder correctly
+fails with decoder_source_rejected. Never bypass or replace that check with a
+generic runtime-health assertion.
+
+Prepare a new root-owned immutable decoder directory from the verified public
+inventory, retaining binary/library pins and changing only the reviewed source
+files. Validate both old and new inventories. Use a new protected vision
+descriptor, preserving native model/profile/control/API identities and the
+existing text-admission source. Test a synthetic JPEG in the actual offline
+contained decoder and require independently confirmed stop before activation.
+
+For switching, close only the dedicated AI proxy routes, drain workers and
+require idle jobs plus expired in-memory result TTL. Keep text running. Stop API
+before image; start image and wait for its PID-bound listener before API. Listener
+readiness must not acquire the native profile guard concurrently with startup.
+On failure restore only the owned image override and original proxy after the
+previous image/API pair is healthy. Retain all uncertain claims and private data.
+
+On 2026-10-18 this flow passed for source f814e0f6: 15 operator tests, a real
+offline synthetic decoder check, exact live source/descriptor verification,
+unchanged model/login/schema checks and external HTTPS authentication refusal.
+No provider turn or medical image was submitted. This is decoder/host readiness,
+not food-recognition accuracy or a signed-device end-to-end inference test.
+
 ## Provider Usage Source Integration
 
 The new local text client requests provider-token-usage-v1 receipts. Upgrade the
