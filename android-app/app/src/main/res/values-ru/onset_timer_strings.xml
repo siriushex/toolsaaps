@@ -1,0 +1,7 @@
+<resources>
+    <string name="onset_timer_model">Инсулин</string>
+    <string name="onset_timer_elapsed">Истекло</string>
+    <string name="onset_timer_finished">Модельное время истекло</string>
+    <string name="onset_timer_remaining">Модельное начало действия: осталось %1$s</string>
+    <string name="onset_timer_details">Оценка начала действия: %1$s мин. Отсчёт от записи инсулина к еде в %2$s, не от подтверждённой доставки. Это не рекомендация ждать или начинать еду. При обновлении модели оценка может измениться.</string>
+</resources>

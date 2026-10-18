@@ -208,6 +208,133 @@ class MealPhotoFlowRobolectricTest {
         } finally { controller.pause().stop().destroy(); image.delete() }
     }
 
+    @Test fun reopeningPhotoKeepsEditsWithoutRecheckingOrUploadingAgain() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        var calls = 0
+        var checks = 0
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val owner = object : ActivityResultRegistryOwner { override val activityResultRegistry = registry }
+        try {
+            controller.get().setContent {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                    AapsCopilotTheme(dynamicColor = false) {
+                        MealEntryDialog(MealPortionSettings(), 80.0, {}, { error("No food submission") },
+                            { checks++; MealPhotoAvailability.READY }, { calls++; MealPhotoAnalysisResult.Success(estimate()) })
+                    }
+                }
+            }
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("999")
+            compose.onNodeWithTag("mealPhotoEaten_rice").performScrollTo().performTextReplacement("125")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("55")
+            compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.action_cancel)).performClick()
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().assertTextContains("999")
+            compose.onNodeWithTag("mealPhotoMassError_rice", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoEaten_rice").performScrollTo().assertTextContains("125")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().assertTextContains("55")
+            compose.onNodeWithTag("mealPhotoEstimateTotals").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            assertEquals(1, calls)
+            assertEquals(1, checks)
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoEaten_rice").performScrollTo().performTextReplacement("50")
+            compose.onNodeWithTag("mealPhotoTotals").performScrollTo().assertTextContains("25,0 - 30,0", substring = true)
+            compose.onNodeWithTag("mealPhotoChooseAnother").performScrollTo().performClick()
+            compose.onNodeWithTag("mealPhotoGallery").assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoUse").assertDoesNotExist()
+            assertEquals(1, calls)
+            assertEquals(2, checks)
+            selectPhoto(registry, image)
+            assertEquals(2, calls)
+            assertEquals("", compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo()
+                .fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text)
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun transferredReviewCanBeAdjustedButNeverLeaksIntoANewFoodForm() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        var calls = 0
+        var checks = 0
+        var open by mutableStateOf(true)
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val owner = object : ActivityResultRegistryOwner { override val activityResultRegistry = registry }
+        try {
+            controller.get().setContent {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                    AapsCopilotTheme(dynamicColor = false) {
+                        if (open) MealEntryDialog(MealPortionSettings(), 80.0, { open = false }, { error("No food submission") },
+                            { checks++; MealPhotoAvailability.READY }, { calls++; MealPhotoAnalysisResult.Success(estimate()) })
+                    }
+                }
+            }
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("55")
+            compose.onNodeWithTag("mealPhotoUse").performClick()
+            compose.onNodeWithTag("mealConfirmGrams").performScrollTo().assertTextContains("55.0")
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().assertTextContains("200")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("54")
+            compose.onNodeWithTag("mealPhotoUse").performClick()
+            compose.onNodeWithTag("mealConfirmGrams").performScrollTo().assertTextContains("54.0")
+            assertEquals(1, checks)
+            assertEquals(1, calls)
+            compose.onNodeWithTag("mealEntryClose").performClick()
+            compose.onNodeWithTag("mealPhotoOpen").assertDoesNotExist()
+            compose.runOnIdle { open = true }
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            compose.onNodeWithTag("mealPhotoGallery").assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoMass_rice").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertDoesNotExist()
+            assertEquals(2, checks)
+            assertEquals(1, calls)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun lateAnalysisAfterClosingCannotRepopulateTheRetainedReview() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val finish = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var calls = 0
+        var returned = false
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val owner = object : ActivityResultRegistryOwner { override val activityResultRegistry = registry }
+        try {
+            controller.get().setContent {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                    AapsCopilotTheme(dynamicColor = false) {
+                        MealEntryDialog(MealPortionSettings(), 80.0, {}, { error("No food submission") },
+                            { MealPhotoAvailability.READY }, {
+                                calls++
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { finish.await() }
+                                returned = true
+                                MealPhotoAnalysisResult.Success(estimate())
+                            })
+                    }
+                }
+            }
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            compose.onNodeWithTag("mealPhotoGallery").performClick()
+            compose.runOnIdle { registry.deliver(Uri.fromFile(image)) }
+            compose.waitUntil(10_000) { calls == 1 }
+            compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.action_cancel)).performClick()
+            compose.onNodeWithTag("mealPhotoOpen").assertIsDisplayed()
+            compose.runOnIdle { finish.complete(Unit) }
+            compose.waitUntil(10_000) { returned }
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            compose.onNodeWithTag("mealPhotoGallery").assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoMass_rice").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertDoesNotExist()
+            assertEquals(1, calls)
+        } finally { finish.complete(Unit); controller.pause().stop().destroy(); image.delete() }
+    }
+
     private class CameraContext : android.content.ContextWrapper(RuntimeEnvironment.getApplication()) {
         val revoked = mutableListOf<Pair<Uri, Int>>()
         override fun revokeUriPermission(uri: Uri, modeFlags: Int) {
@@ -843,6 +970,59 @@ class MealPhotoFlowRobolectricTest {
             compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("999")
             compose.onNodeWithTag("mealPhotoTotals").assertDoesNotExist()
         } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun successfulPhotoShowsEstimatedTotalsBeforeAnyMassIsEntered() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        var calls = 0
+        val controller = showPhoto(registry, analyze = { calls++; MealPhotoAnalysisResult.Success(estimate()) })
+        try {
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoEstimateTotals").assertIsDisplayed()
+                .assertTextContains("45,0 - 66,0", substring = true)
+                .assertTextContains("180,0 - 264,0", substring = true)
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            assertEquals("", compose.onNodeWithTag("mealPhotoMass_rice").fetchSemanticsNode()
+                .config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text)
+            assertEquals(1, calls)
+            saveEvidence("meal-photo-estimated-totals", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("999")
+            compose.onNodeWithTag("mealPhotoEstimateTotals").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoTotals").performScrollTo().assertTextContains("50,0 - 60,0", substring = true)
+            compose.onNodeWithTag("mealPhotoEstimateTotals").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun enlargedPreviewPreservesUnknownNutritionAndExplicitConfirmation() {
+        val app = RuntimeEnvironment.getApplication()
+        val before = android.content.res.Configuration(app.resources.configuration)
+        @Suppress("DEPRECATION")
+        app.resources.updateConfiguration(android.content.res.Configuration(before).apply { fontScale = 1.8f },
+            app.resources.displayMetrics)
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        var controller: ActivityController<ComponentActivity>? = null
+        try {
+            val incomplete = estimate().copy(ingredients = estimate().ingredients.map { it.copy(protein = null) })
+            controller = showPhoto(registry, analyze = { MealPhotoAnalysisResult.Success(incomplete) })
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoEstimateTotals").performScrollTo().assertIsDisplayed()
+                .assertTextContains("Белки: Неизвестно", substring = true)
+                .assertTextContains("45,0 - 66,0", substring = true)
+            saveEvidence("meal-photo-preview-large", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+            compose.onNodeWithTag("mealPhotoIncomplete").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoTotals").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+        } finally {
+            controller?.pause()?.stop()?.destroy()
+            image.delete()
+            @Suppress("DEPRECATION")
+            app.resources.updateConfiguration(before, app.resources.displayMetrics)
+        }
     }
 
     private fun saveEvidence(name: String, view: android.view.View) {

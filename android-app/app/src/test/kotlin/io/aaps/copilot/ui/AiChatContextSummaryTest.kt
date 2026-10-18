@@ -7,6 +7,26 @@ import java.nio.charset.StandardCharsets
 
 class AiChatContextSummaryTest {
     @Test
+    fun selectedProfileAndFittedEvidenceAreNotLostOrCalledAMealDelay() {
+        val summary = buildAiChatContextSummary(MainUiState().apply {
+            insulinProfileId = "FIASP"
+            insulinRealOnsetMinutes = 27.5
+            insulinRealProfileOnsetMinutes = 26.0
+            insulinRealProfileUpdatedTs = 1000L
+            insulinRealProfileConfidence = 0.7
+            insulinRealProfileSamples = 12
+            insulinRealProfileStatus = "estimated_daily"
+        }, 1234L)
+        assertTrue(summary.contains("configured_insulin_profile_id=FIASP"))
+        assertTrue(summary.contains("configured_insulin_profile_label=Fiasp"))
+        assertTrue(summary.contains("insulin_profile_estimated_onset_minutes=26.00"))
+        assertTrue(summary.contains("insulin_profile_updated_at_ms=1000"))
+        assertTrue(summary.contains("insulin_profile_sample_count=12"))
+        assertTrue(summary.contains("insulin_onset_is_not_meal_waiting_interval=true"))
+        assertTrue(summary.contains("current_settings_do_not_identify_historical_bolus_insulin=true"))
+    }
+
+    @Test
     fun limitedAndMissingDataStayExplicitInsteadOfBlockingChatOrInventingNormality() {
         val summary = buildAiChatContextSummary(MainUiState(), 1234L)
         assertTrue(summary.contains("context_generated_at_ms=1234"))

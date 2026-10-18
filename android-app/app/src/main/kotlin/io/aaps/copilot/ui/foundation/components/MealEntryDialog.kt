@@ -55,6 +55,7 @@ internal fun MealEntryDialog(
     var correction by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf(false) }
     var showPhoto by remember { mutableStateOf(false) }
+    val photoReview = remember(submissionId) { MealPhotoReviewSession() }
     val cutoff by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
     val zoneId by rememberSaveable { mutableStateOf(java.time.ZoneId.systemDefault().id) }
     var history by remember { mutableStateOf<LentaMealHistory?>(null) }
@@ -72,7 +73,7 @@ internal fun MealEntryDialog(
                 correction = it.grams.toString()
                 it.profile?.let { selected -> profile = selected }
                 showPhoto = false
-            })
+            }, reviewSession = photoReview)
         return
     }
     val proposedGrams = settings.range(portion).defaultGrams
@@ -99,7 +100,10 @@ internal fun MealEntryDialog(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.meal_entry_title), modifier = Modifier.weight(1f))
                 if (photoAvailability != null && analyzePhoto != null) {
-                    IconButton(onClick = { showPhoto = true }, modifier = Modifier.testTag("mealPhotoOpen")) {
+                    IconButton(onClick = {
+                        photoReview.applied.value = false
+                        showPhoto = true
+                    }, modifier = Modifier.testTag("mealPhotoOpen")) {
                         Icon(Icons.Default.PhotoCamera, contentDescription = stringResource(R.string.meal_photo_title))
                     }
                 }

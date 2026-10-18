@@ -1,5 +1,36 @@
 # Combined Native UI And Food Photo Source
 
+## Immediate Nutrition Preview (2026-10-18)
+
+A successful estimate with uncertain ingredient masses previously displayed no
+meal totals until every mass was entered. Review now shows a separate labelled
+photo-based range immediately, before any confirmation. The existing nutrition
+calculator evaluates lower/upper portion endpoints, preserving per-100g facts,
+kJ conversion, eaten fractions, missing values and carbohydrate-basis rules.
+No midpoint is selected. A true zero lower mass remains zero in the display.
+
+The open food form now owns the in-memory review and raw edit strings. Returning
+from photo review and reopening it restores the same result without another
+capability check or upload. An explicit different-photo command discards that
+review and checks current availability before selection. Successful transfer
+keeps the one-shot apply guard until disposal; only explicitly reopening review
+permits another edit/transfer without reinference. Closing the whole form discards
+the session. A cancellation check rejects late provider responses after dismissal.
+No image/request,
+disk cache, saved-state Bundle or process-death/configuration recovery is added.
+
+Entered masses progressively replace only their own uncertainty. Invalid mass
+or eaten-fraction edits suppress the preview; correction restores it. Missing
+facts never become zero or a complete meal total. The display projection cannot
+build a confirmed draft: every ingredient mass and explicit carbohydrate entry
+are still required before transferring to the food form, which retains its own
+confirmation. No model, prompt, provider setting, API contract or therapy change.
+
+Local native reproduction and synthetic tests cover this UI boundary. A separate
+owner-approved live synthetic image check confirms a typed estimate and stopped
+worker, not accuracy of portions or successful use on the user's phone. Historical
+job failure metadata cannot recover the discarded private result or its cause.
+
 ## Terminal Failure Recovery (2026-10-18)
 
 Photo job failure is not proof that the server lacks image support. A correlated

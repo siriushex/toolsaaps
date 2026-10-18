@@ -329,6 +329,7 @@ fun CopilotFoundationRoot(
                         owlNavigationKey = currentRoute.orEmpty(),
                         owlGesture = headerOwlGesture(currentRoute),
                         owlWaiting = headerAiWaiting,
+                        insulinOnsetCountdown = overview.insulinOnsetCountdown,
                         onAiDiagnostics = if (currentRoute == Destinations.AiAnalysis.route) {
                             { aiDiagnosticsVisible = true }
                         } else null,
@@ -876,8 +877,13 @@ internal fun TopBar(
     onAiDiagnostics: (() -> Unit)? = null,
     onAiSettings: (() -> Unit)? = null,
     aiDiagnosticsVisible: Boolean = false,
-    onDismissAiDiagnostics: () -> Unit = {}
+    onDismissAiDiagnostics: () -> Unit = {},
+    insulinOnsetCountdown: io.aaps.copilot.ui.InsulinOnsetCountdown? = null
 ) {
+    val onsetNow = io.aaps.copilot.ui.foundation.components.rememberOnsetNow(insulinOnsetCountdown)
+    val onset = insulinOnsetCountdown?.takeIf { it.visibleAt(onsetNow) }
+    val completionKey = onset?.takeIf { it.remainingSeconds(onsetNow) == 0L }
+        ?.let { "${it.recordKey}:${it.estimatedAtMs}" }
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
         glucoseAlertMutedUntilTs
@@ -912,14 +918,19 @@ internal fun TopBar(
             navigationIconContentColor = contentColor
         ),
         title = {
-            if (!showOverviewActions) Text(text = title)
+            if (!showOverviewActions) Text(text = title, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         },
         navigationIcon = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
             if (onAiDiagnostics != null && onAiSettings != null) {
                 io.aaps.copilot.ui.foundation.components.AiHeaderNavigation(owlBand, owlNavigationKey,
                     owlGesture, menuExpanded, owlWaiting, aiDiagnosticsVisible,
-                    onAiDiagnostics, onDismissAiDiagnostics, onMenuClick, onAiSettings)
-            } else OwlMenuButton(owlBand, owlNavigationKey, owlGesture, menuExpanded, owlWaiting, onMenuClick)
+                    onAiDiagnostics, onDismissAiDiagnostics, onMenuClick, onAiSettings, completionKey)
+            } else OwlMenuButton(owlBand, owlNavigationKey, owlGesture, menuExpanded, owlWaiting, onMenuClick,
+                onsetCompletionKey = completionKey)
+            if (onset != null) io.aaps.copilot.ui.foundation.components.InsulinOnsetTimer(onset, onsetNow)
+            }
         },
         actions = {
             if (showOverviewActions) {

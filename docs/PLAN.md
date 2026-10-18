@@ -114,6 +114,41 @@
 - [ ] Verify intended phone identity and existing failure receipt before device acceptance.
 - Existing eligibility, confirmed30-minute hold and protective arbitration remain.
 
+## Meal Timing History Audit (2026-10-18)
+
+- [x] Trace12h onset heuristic versus isolated research timing planner.
+- [x] Add completed3/7/14-day source audit and existing nightly AI-context integration.
+- [x] Complete full Android test/lint/compile/assemble:6272 passed,six skipped,zero errors.
+- [ ] Capture verified bolus-to-actual-meal linkage and qualify historical context.
+- [ ] Validate personal response and counterfactual timing before clinical UI admission.
+- No automatic meal-start recommendation or new therapy influence is enabled.
+
+## Model Onset Header and Context (2026-10-18)
+
+- [x] Add explicit approximate countdown from usable recorded meal insulin.
+- [x] Show elapsed model time and finite owl/burger gesture without therapy actions.
+- [x] Add configured insulin, DIA and model evidence to chat and daily observed history snapshots.
+- [x] Pass152 focused tests, then five repeated header checks after the label edit; inspect native320px/2x-font layouts and assemble the signed candidate.
+- [ ] Establish explicit meal association for insulin-only premeal records without treating correction/SMB/IOB as a meal.
+- [ ] Validate independent nightly model refresh and any proposed therapeutic influence before activation.
+- [x] Complete combined local Android quality for build4:6305 passed,six skips; compile/lint/build pass.
+- Exact-head CI, internet publication and device installation are separate receipts.
+
+## Food Photo Immediate Preview (2026-10-18)
+
+- [x] Reproduce missing nutrition totals for a successful uncertain-mass result.
+- [x] Add a labelled display-only interval using the existing calculator.
+- [x] Check live image channel once with an explicitly approved synthetic image.
+- [x] Reproduce lost review on close/reopen and add form-scoped memory retention.
+- [x] Inspect native preview with normal and enlarged text.
+- [x] Reproduce and reject late responses after review dismissal.
+- [x] Finish final100 focused tests and candidate APK rebuild; signer unchanged.
+- [x] Complete full Android regression and lint with the combined local candidate on2026-10-18.
+- [ ] Prepare versioned APK, verify exact-head source CI and publish through the existing updater.
+- On2026-10-18 the user authorized the combined internet APK release; installation
+  still requires Android confirmation and is not inferred from publication.
+- No live server replacement or real-photo/device acceptance is inferred.
+
 ## APK Update Failure Recovery (2026-10-18)
 
 - [x] Reproduce late cancelled results and incorrect disk-error classification.

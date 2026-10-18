@@ -70,6 +70,15 @@ coverage, a stable native registry and exact per-answer context manifests are
 separate missing integrations. See AI_DEVICE_CONTEXT.md for the audited limits
 and required design; no new runtime persistence or retrieval tools are enabled.
 
+## Meal Timing Evidence Windows
+
+MealTimingHistoryReport projects the existing qualified absorption source into
+completed local3/7/14-day windows. It retains source/cohort/missingness distinctions,
+independent GI provenance and unknown confirmed-bolus-to-actual-meal linkage.
+The due insulin-context maintenance loads it only for a new device/day/profile
+snapshot. Counts do not train a timer or authorize notifications. No new Room
+schema, worker, provider request or therapy writer. See MEAL_TIMING_EVIDENCE.md.
+
 ## APK Distribution
 
 About uses an isolated fixed-origin HTTPS update client and route-scoped state.
@@ -138,6 +147,13 @@ labelled plan; no inferred "safe to eat" time or background timer is added.
 See MEAL_PREPARATION_GI.md. The separate timing research is not activated.
 
 ## Restored Food Photo Session
+
+The current food form owns a bounded in-memory typed photo review and raw edit
+strings. Closing only photo review retains them without another request; closing
+the whole form releases them. A separate display-only nutrition envelope evaluates
+mass endpoints with the existing calculator. It cannot populate confirmed masses
+or carbohydrate commands. No photo bytes, request replay or disk/Bundle persistence
+is added. See COMBINED_UI_PHOTO.md for scope and confirmation boundaries.
 
 Photo readiness rejects only a known unconfigured connection before the signed
 client reads persistence. SAVED, unloaded and recoverable states reach the same
@@ -2305,6 +2321,15 @@ AAPS Predictive Copilot is a two-part system:
 - Real-profile insulin fit is not recomputed every cycle:
   - a stable estimate is recomputed on a `72h` cadence (or earlier on version mismatch / empty fallback),
   - telemetry keepalive may still republish the latest estimate hourly so UI/runtime diagnostics stay fresh without re-running the expensive fit.
+
+## Model Onset Header and AI Context
+- The shared header derives a model clock from a recent, unambiguous `meal_bolus` record and finite, fresh onset telemetry from the local runtime. IOB alone, corrections, broadcasts, invalid records and mismatched model profiles cannot start it.
+- The clock marks an approximate model deadline, not confirmed insulin delivery or a safe eating interval. Completion shows a finite owl/meal gesture, then a static elapsed state for up to 15 minutes. It never calls therapy actions; foreground ticks stop with the lifecycle.
+- The primary UI has a bounded 32-row meal-insulin stream, so the header does not depend on opening the expensive analytics projection first.
+- Selected insulin profile, effective DIA, onset, fitted shape, sample count, confidence and evidence times are included in the device chat snapshot. Fixed-source, fixed-key telemetry is used; unknown values are not replaced with a guessed drug.
+- Existing authenticated history maintenance also uploads an observed profile snapshot once per local 05:00 day, on profile/model change, or after process restart. It catches up when active; this is not an exact alarm and is not an AI inference request. History incompleteness and unconfirmed delivery remain explicit.
+- The therapeutic fitter's existing 72-hour cadence is unchanged. Nightly retraining and any new Target Manager effect require a separate validated model/control integration; UI animation does not authorize therapy.
+- `insulin_real_onset_min` is a different, current runtime estimate: `estimateLocalCobIob` passes it to `modelSameCycleActiveInsulinStatic` and the prediction engine. Its existing insulin/forecast effect is preserved. The timer does not freeze it until the next night or replace it with the long-term fitted-profile onset.
 
 ## Open architecture questions
 - Formal plugin contract for adding new prediction engines without touching automation repository.

@@ -1,0 +1,7 @@
+<resources>
+    <string name="onset_timer_model">Insulin</string>
+    <string name="onset_timer_elapsed">Elapsed</string>
+    <string name="onset_timer_finished">Model time elapsed</string>
+    <string name="onset_timer_remaining">Model onset: %1$s remaining</string>
+    <string name="onset_timer_details">Estimated onset: %1$s min. Counted from the meal insulin record at %2$s, not confirmed delivery. This is not a recommendation to wait or start eating. The estimate may change as the model updates.</string>
+</resources>

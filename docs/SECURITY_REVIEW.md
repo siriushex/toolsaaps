@@ -109,6 +109,30 @@
 - No new target values, safety bypass, automatic renewal, endpoint fallback,
   clinical settings, permissions or backend route are introduced.
 
+## Meal Timing History Audit (2026-10-18)
+
+- Reuses bounded canonical history and qualified evidence, not arbitrary database
+  export. Summary contains fixed counters/reasons, no raw meal notes or identities.
+- Existing authenticated device-bound history channel remains authoritative.
+  Daily context export does not authorize new inference, timer alerts or therapy.
+- Audit cutoff/zone must match the outgoing snapshot; errors are fixed UNAVAILABLE
+  and cancellation propagates. A missing optional audit cannot fabricate training.
+
+## Model Onset Context (2026-10-18)
+
+- Fixed known insulin identifiers and fixed telemetry keys/sources only; unknown
+  drug names, wrong units, invalid quality, future timestamps and conflicting
+  latest values are not guessed into a timer. Current settings never label
+  historical boluses as a verified medication or delivery.
+- Profile snapshots use the existing authenticated, device-bound history client
+  and pending-upload recovery. They are observational CHAT context, not system
+  instructions, arbitrary database export or new LLM requests. Existing history
+  completeness limitations remain explicit.
+- UI completion has no action gateway, alarm, sound or therapy side effect.
+  Model fitting and Target Manager behavior remain unchanged in this stage.
+- No remote changes, private data reads, production inference or new credential
+  handling are needed for local verification.
+
 ## Internet APK Updates (2026-10-18)
 
 Follow-up recovery audit: terminal outcomes are operation-scoped, so a cancelled
@@ -125,6 +149,17 @@ manifest signature. Existing test-build signer is retained; key rotation is reje
 This is a user-requested sideload channel, not a Play distribution policy claim.
 
 ## Food Photo Failure Recovery (2026-10-18)
+
+Immediate preview is local and display-only. It evaluates bounded model mass
+endpoints through the existing calculator, not a new therapy/nutrition writer.
+Invalid edits suppress it; unknown facts cannot masquerade as zero/whole totals.
+Model mass confirmation and final food confirmation are unchanged. No raw photo,
+model output or operational diagnostics are added to public source or telemetry.
+Form-scoped memory retention contains the typed estimate and edit strings only,
+not image bytes, server credentials or a request that could be replayed. Reopening
+is read-only; explicit replacement still checks current access before selection.
+The session is not persisted to disk or Android saved state and is discarded with
+the whole food form. Apply remains one-shot across the closing composition frame.
 
 Validate enum types before membership checks and contain numeric conversion
 overflow at the schema boundary. Whitespace-only text cannot pass server decoding

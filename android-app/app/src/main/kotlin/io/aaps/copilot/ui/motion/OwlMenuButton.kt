@@ -85,7 +85,8 @@ internal fun OwlMenuButton(
     expanded: Boolean,
     waiting: Boolean,
     onClick: () -> Unit,
-    label: String? = null
+    label: String? = null,
+    onsetCompletionKey: String? = null
 ) {
     val motionAllowed = LocalCopilotMotionEnabled.current
     var motion by rememberSaveable(stateSaver = headerMotionSaver) {
@@ -108,7 +109,8 @@ internal fun OwlMenuButton(
                 stateDescription = state
                 if (waiting) progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
             }) {
-            CopilotOwl(size = 38.dp, band = band, gesture = motion.gesture,
+            if (onsetCompletionKey != null) OwlMealCompletion(band, onsetCompletionKey)
+            else CopilotOwl(size = 38.dp, band = band, gesture = motion.gesture,
                 motionKey = "header-${motion.generation}", animate = motion.animate,
                 motionDurationMs = motion.durationMs,
                 modifier = Modifier.clearAndSetSemantics { })

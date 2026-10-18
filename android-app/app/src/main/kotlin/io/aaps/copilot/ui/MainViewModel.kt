@@ -2117,7 +2117,8 @@ class MainViewModel(application: Application) :
             key = CALIBRATION_AUTHORITY_TOKEN_KEY
         ),
         container.sensitivityRuntimeRepository.current,
-        calibrationSessionEvidence
+        calibrationSessionEvidence,
+        db.therapyDao().observeMealInsulinTimerCandidates()
     ) { values ->
         buildPrimaryUiState(values)
     }
@@ -3329,6 +3330,8 @@ class MainViewModel(application: Application) :
             this.latestExternalCobGrams = externalCob?.valueDouble
             this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
+            this.aiInsulinContext = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(settings.insulinProfileId, telemetry, now)
+            this.insulinOnsetCountdown = insulinOnsetCountdown(therapy, this.aiInsulinContext!!, now)
             this.insulinRealProfileCurveCompact = insulinRealProfileCurveCompact
             this.insulinRealProfileUpdatedTs = insulinRealProfileUpdatedTs
             this.insulinRealProfileConfidence = insulinRealProfileConfidence
@@ -3674,6 +3677,8 @@ class MainViewModel(application: Application) :
         val activeCalibrationModel = values[7] as GlucoseCalibrationModel?
         val calibrationAuthorityTokenRow = values[8] as TelemetrySampleEntity?
         val sensitivityRuntime = values[9] as SensitivityRuntimeSnapshot?
+        @Suppress("UNCHECKED_CAST")
+        val mealInsulinRows = values[11] as List<TherapyEventEntity>
 
         val now = System.currentTimeMillis()
         val sortedGlucose = glucose.sortedBy { it.timestamp }
@@ -3936,6 +3941,9 @@ class MainViewModel(application: Application) :
             this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
             this.latestActivityRatio = latestActivityRatio
+            this.insulinProfileId = settings.insulinProfileId
+            this.aiInsulinContext = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(settings.insulinProfileId, telemetry, now)
+            this.insulinOnsetCountdown = insulinOnsetCountdown(mealInsulinRows, this.aiInsulinContext!!, now)
             this.latestStepsCount = latestStepsCount
             this.forecast5m = latestForecast5Row?.valueMmol
             this.forecast5mCiLow = latestForecast5Row?.ciLow
@@ -12130,7 +12138,7 @@ internal fun buildPrimaryTelemetryKeysForUi(): List<String> = listOf(
     "cr_runtime_selected_value",
     "isf_runtime_fallback_active",
     "cr_runtime_fallback_active"
-)
+).plus(io.aaps.copilot.data.repository.AiInsulinContext.KEYS).distinct()
 
 private fun buildIsfCrHistoryPoints(
     profileHistory: List<ProfileEstimateEntity>,
@@ -13145,6 +13153,8 @@ class MainUiState {
     var latestEffectiveCobGrams: Double? = null
     var latestEffectiveCobTimestamp: Long? = null
     var insulinRealOnsetMinutes: Double? = null
+    internal var aiInsulinContext: io.aaps.copilot.data.repository.AiInsulinContext? = null
+    var insulinOnsetCountdown: InsulinOnsetCountdown? = null
     var insulinRealProfileCurveCompact: String? = null
     var insulinRealProfileUpdatedTs: Long? = null
     var insulinRealProfileConfidence: Double? = null

@@ -10,6 +10,11 @@ import org.junit.Test
 
 class MainViewModelPrimaryTelemetryKeysTest {
 
+    @Test fun primaryHeaderHasInsulinModelEvidenceWithoutOpeningAnalytics() {
+        assertThat(buildPrimaryTelemetryKeysForUi())
+            .containsAtLeastElementsIn(io.aaps.copilot.data.repository.AiInsulinContext.KEYS)
+    }
+
     @Test
     fun primaryOverviewTelemetryIncludesGlucoseAlertRuntimeContract() {
         val keys = buildPrimaryTelemetryKeysForUi()

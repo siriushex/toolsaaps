@@ -322,6 +322,7 @@ data class OverviewUiState(
     val targetEditMinMmol: Double = 4.0,
     val targetEditMaxMmol: Double = 10.0,
     val currentIobUnits: Double? = null,
+    val insulinOnsetCountdown: io.aaps.copilot.ui.InsulinOnsetCountdown? = null,
     val iobDetails: IobRuntimeDetailsUi = IobRuntimeDetailsUi(),
     val currentCobGrams: Double? = null,
     val externalCobGrams: Double? = null,

@@ -32,10 +32,32 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal data class PhotoMealSelection(val grams: Double, val profile: MealAbsorptionProfile?)
+
+internal class MealPhotoReviewInputs {
+    val masses = mutableStateMapOf<String, String>()
+    val fractions = mutableStateMapOf<String, String>()
+}
+
+/** In-memory review owned by one open food form; never retains an image or request. */
+internal class MealPhotoReviewSession {
+    val editor = mutableStateOf<MealPhotoDraftEditorState?>(null)
+    val grams = mutableStateOf("")
+    val applied = mutableStateOf(false)
+    val inputs = MealPhotoReviewInputs()
+
+    fun clear() {
+        editor.value = null
+        grams.value = ""
+        applied.value = false
+        inputs.masses.clear()
+        inputs.fractions.clear()
+    }
+}
 
 /** Foreground photo review. Only explicit user input can populate the existing meal form. */
 @Composable
@@ -45,20 +67,22 @@ internal fun MealPhotoFlowDialog(
     availability: suspend () -> MealPhotoAvailability,
     analyze: suspend (ByteArray) -> MealPhotoAnalysisResult,
     onDismiss: () -> Unit,
-    onUse: (PhotoMealSelection) -> Unit
+    onUse: (PhotoMealSelection) -> Unit,
+    reviewSession: MealPhotoReviewSession? = null
 ) {
     val context = LocalContext.current
     val enlargedText = LocalDensity.current.fontScale > 1.3f
     val scope = rememberCoroutineScope()
+    val review = reviewSession ?: remember { MealPhotoReviewSession() }
     var ready by remember { mutableStateOf<MealPhotoAvailability?>(null) }
     var busy by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<Int?>(null) }
-    var editor by remember { mutableStateOf<MealPhotoDraftEditorState?>(null) }
+    var editor by review.editor
     var cameraFile by remember { mutableStateOf<File?>(null) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    var grams by remember { mutableStateOf("") }
-    var applied by remember { mutableStateOf(false) }
+    var grams by review.grams
+    var applied by review.applied
     suspend fun checkReady() {
         ready = null
         ready = try { availability() } catch (cancelled: CancellationException) { throw cancelled
@@ -75,7 +99,7 @@ internal fun MealPhotoFlowDialog(
                 android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
         }
     }
-    LaunchedEffect(Unit) { checkReady() }
+    LaunchedEffect(Unit) { if (editor == null) checkReady() }
     DisposableEffect(Unit) {
         onDispose { releaseCamera() }
     }
@@ -104,7 +128,7 @@ internal fun MealPhotoFlowDialog(
                 // Prepared bytes no longer depend on the camera file or its URI grant.
                 releaseCamera()
                 if (prepared == null) error = R.string.meal_photo_invalid_image
-                else when (val result = analyze(prepared.bytes)) {
+                else when (val result = analyze(prepared.bytes).also { ensureActive() }) {
                     is MealPhotoAnalysisResult.Success -> editor = MealPhotoDraftEditor.initial(result.estimate)
                     is MealPhotoAnalysisResult.Failure -> error = when (result.reason) {
                         MealPhotoAnalysisResult.Failure.Reason.NOT_CONFIGURED -> {
@@ -162,12 +186,23 @@ internal fun MealPhotoFlowDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val draft = editor
                 when {
-                    busy || ready == null -> {
+                    busy || (ready == null && draft == null) -> {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                         Text(stringResource(if (busy) R.string.meal_photo_analyzing else R.string.meal_photo_connecting))
                     }
                     draft != null -> {
-                        MealPhotoReview(draft, { editor = it }, grams, { grams = it }, maximumGrams)
+                        MealPhotoReview(draft, { editor = it }, grams, { grams = it }, maximumGrams, review.inputs)
+                        TextButton(onClick = {
+                            if (editor != null && !busy) {
+                                review.clear()
+                                error = null
+                                scope.launch { checkReady() }
+                            }
+                        }, modifier = Modifier.testTag("mealPhotoChooseAnother")) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text(stringResource(R.string.meal_photo_choose_another))
+                        }
                     }
                     ready == MealPhotoAvailability.READY -> {
                         Text(stringResource(R.string.meal_photo_consent))
@@ -233,9 +268,24 @@ private fun confirmedPhotoCarbs(raw: String, maximumGrams: Double): Double? =
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPhotoDraftEditorState) -> Unit,
-    grams: String, onGrams: (String) -> Unit, maximumGrams: Double) {
+    grams: String, onGrams: (String) -> Unit, maximumGrams: Double, inputs: MealPhotoReviewInputs? = null) {
+    val fields = inputs ?: remember { MealPhotoReviewInputs() }
     Text(state.estimate.mealName, style = MaterialTheme.typography.titleMedium)
     Text(stringResource(R.string.meal_photo_estimate_note), style = MaterialTheme.typography.bodySmall)
+    val preview = remember(state) { MealPhotoDraftEditor.preview(state) }
+    preview?.let { value ->
+        val missing = stringResource(R.string.meal_photo_unknown_value)
+        fun range(item: NutritionRange?) = item?.let(::photoRange) ?: missing
+        Text(stringResource(if (value.hasEstimatedMass) R.string.meal_photo_estimated_totals
+            else R.string.meal_photo_portion_totals), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.meal_photo_totals, range(value.energyKilocalories),
+            range(value.proteinGrams), range(value.fatGrams), range(value.carbohydrateGrams)),
+            modifier = Modifier.testTag(if (value.hasEstimatedMass) "mealPhotoEstimateTotals" else "mealPhotoTotals"))
+        if (listOf(value.energyKilocalories, value.proteinGrams, value.fatGrams, value.carbohydrateGrams).any { it == null }) {
+            Text(stringResource(R.string.meal_photo_incomplete), color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("mealPhotoIncomplete"))
+        }
+    }
     state.profile?.let { profile ->
         io.aaps.copilot.ui.foundation.screens.FoodProfileSelector(profile, { selected ->
             val duration = when (selected) {
@@ -248,8 +298,8 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
         }, compact = true)
     }
     state.estimate.ingredients.forEach { ingredient ->
-        var raw by remember(ingredient.id) { mutableStateOf(state.confirmedMassesGrams[ingredient.id]?.toString().orEmpty()) }
-        var fraction by remember(ingredient.id) { mutableStateOf("100") }
+        val raw = fields.masses[ingredient.id] ?: state.confirmedMassesGrams[ingredient.id]?.toString().orEmpty()
+        val fraction = fields.fractions[ingredient.id] ?: "100"
         val massInvalid = raw.isNotBlank() && state.confirmedMassesGrams[ingredient.id] == null
         val fractionInvalid = state.eatenFractions[ingredient.id]?.let { !it.isFinite() || it !in 0.0..1.0 } ?: true
         Text(ingredient.name, style = MaterialTheme.typography.titleSmall)
@@ -258,11 +308,13 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
         FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = if (LocalDensity.current.fontScale > 1.3f) 1 else 2,
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             OutlinedTextField(raw, { value ->
-                raw = value
+                fields.masses[ingredient.id] = value
                 val number = value.replace(',', '.').toDoubleOrNull()
                 val result = number?.let { MealPhotoDraftEditor.setMass(state, ingredient.id, it) }
                 onChange((result as? MealPhotoDraftEditResult.Updated)?.state ?: state.copy(
-                    confirmedMassesGrams = state.confirmedMassesGrams + (ingredient.id to null)))
+                    confirmedMassesGrams = state.confirmedMassesGrams + (ingredient.id to null),
+                    invalidMassIds = if (value.isBlank()) state.invalidMassIds - ingredient.id
+                        else state.invalidMassIds + ingredient.id))
             }, label = { Text(stringResource(R.string.meal_photo_mass)) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 isError = massInvalid,
@@ -272,7 +324,7 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
                     modifier = Modifier.testTag("mealPhotoMassError_${ingredient.id}")) }} else null,
                 modifier = Modifier.weight(1f).testTag("mealPhotoMass_${ingredient.id}"))
             OutlinedTextField(fraction, { value ->
-                fraction = value
+                fields.fractions[ingredient.id] = value
                 val number = value.replace(',', '.').toDoubleOrNull()
                 val updated = number?.let { MealPhotoDraftEditor.setEatenFraction(state, ingredient.id, it / 100) }
                 onChange((updated as? MealPhotoDraftEditResult.Updated)?.state ?: state.copy(
@@ -293,17 +345,6 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
             }
         }
         HorizontalDivider()
-    }
-    val nutrition = photoCalculation(state)
-    val missing = stringResource(R.string.meal_photo_unknown_value)
-    fun range(value: NutritionRange?) = value?.let(::photoRange) ?: missing
-    if (nutrition != null) {
-        Text(stringResource(R.string.meal_photo_totals,
-            range(nutrition.declaredEnergy.completeTotalKilocalories), range(nutrition.protein.completeTotalGrams),
-            range(nutrition.fat.completeTotalGrams), range(nutrition.carbohydrates.completeTotalGrams)),
-            modifier = Modifier.testTag("mealPhotoTotals"))
-        if (nutrition.carbohydrates.completeTotalGrams == null) Text(stringResource(R.string.meal_photo_incomplete),
-            color = MaterialTheme.colorScheme.error)
     }
     val carbsInvalid = grams.isNotBlank() && confirmedPhotoCarbs(grams, maximumGrams) == null
     val maximumLabel = UiFormatters.formatExactGrams(maximumGrams, LocalConfiguration.current.locales[0])

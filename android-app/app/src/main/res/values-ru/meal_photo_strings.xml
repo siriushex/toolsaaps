@@ -2,6 +2,7 @@
     <string name="meal_photo_title">Еда по фото</string>
     <string name="meal_photo_camera">Камера</string>
     <string name="meal_photo_gallery">Галерея</string>
+    <string name="meal_photo_choose_another">Другое фото</string>
     <string name="meal_photo_consent">Выбранное фото еды будет отправлено на ваш ИИ-сервер для анализа.</string>
     <string name="meal_photo_estimate_note">Оценка модели. Уточните массу и съеденную долю.</string>
     <string name="meal_photo_needs_connection">Подключите ИИ-сервер в разделе «Настройки → Серверный Copilot».</string>
@@ -30,6 +31,8 @@
     <string name="meal_photo_cooked">Готовое</string>
     <string name="meal_photo_unknown_value">Неизвестно</string>
     <string name="meal_photo_totals">Калории: %1$s ккал\nБелки: %2$s г\nЖиры: %3$s г\nУглеводы: %4$s г</string>
+    <string name="meal_photo_estimated_totals">По фото, масса не подтверждена</string>
+    <string name="meal_photo_portion_totals">По указанной порции</string>
     <string name="meal_photo_incomplete">Часть значений неизвестна. Неполная сумма не равна итогу всего блюда.</string>
     <string name="meal_photo_confirm_carbs">Углеводы, г</string>
     <string name="meal_photo_carb_limit">От 1 до %1$s г. Еда пока не записывается.</string>

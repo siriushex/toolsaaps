@@ -18,6 +18,9 @@ data class ClinicalTherapyProjection(
 @Dao
 interface TherapyDao {
 
+    @Query("SELECT * FROM therapy_events WHERE type = 'meal_bolus' ORDER BY timestamp DESC, id DESC LIMIT 32")
+    fun observeMealInsulinTimerCandidates(): Flow<List<TherapyEventEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(events: List<TherapyEventEntity>)
 

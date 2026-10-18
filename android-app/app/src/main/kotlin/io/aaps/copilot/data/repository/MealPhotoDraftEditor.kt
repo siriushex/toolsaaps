@@ -3,6 +3,10 @@ package io.aaps.copilot.data.repository
 import io.aaps.copilot.domain.nutrition.IngredientAmount
 import io.aaps.copilot.domain.nutrition.MealIngredient
 import io.aaps.copilot.domain.nutrition.MealNutritionDraft
+import io.aaps.copilot.domain.nutrition.MealNutritionCalculation
+import io.aaps.copilot.domain.nutrition.MealNutritionCalculationResult
+import io.aaps.copilot.domain.nutrition.MealNutritionCalculator
+import io.aaps.copilot.domain.nutrition.NutritionRange
 import io.aaps.copilot.domain.nutrition.OriginalAiMealEstimate
 import io.aaps.copilot.domain.nutrition.PreparationState
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
@@ -15,7 +19,16 @@ data class MealPhotoDraftEditorState(
     val preparationStates: Map<String, PreparationState>,
     val profile: MealAbsorptionProfile?,
     val durationMinutes: Int?,
-    val revision: Long = 0L
+    val revision: Long = 0L,
+    val invalidMassIds: Set<String> = emptySet()
+)
+
+data class MealPhotoNutritionPreview(
+    val hasEstimatedMass: Boolean,
+    val energyKilocalories: NutritionRange?,
+    val proteinGrams: NutritionRange?,
+    val fatGrams: NutritionRange?,
+    val carbohydrateGrams: NutritionRange?
 )
 
 sealed interface MealPhotoDraftEditResult {
@@ -73,6 +86,7 @@ object MealPhotoDraftEditor {
         return MealPhotoDraftEditResult.Updated(
             state.copy(
                 confirmedMassesGrams = state.confirmedMassesGrams + (ingredientId to grams),
+                invalidMassIds = state.invalidMassIds - ingredientId,
                 revision = nextRevision(state.revision)
             )
         )
@@ -139,6 +153,7 @@ object MealPhotoDraftEditor {
     }
 
     fun build(state: MealPhotoDraftEditorState): MealPhotoDraftBuildResult {
+        if (state.invalidMassIds.isNotEmpty()) return MealPhotoDraftBuildResult.MissingMass
         val masses = state.confirmedMassesGrams.mapValues { (_, value) -> value ?: return MealPhotoDraftBuildResult.MissingMass }
         val original = state.estimate.toOriginalEstimate(masses)
             ?: return MealPhotoDraftBuildResult.MissingMass
@@ -157,6 +172,37 @@ object MealPhotoDraftEditor {
         return MealPhotoDraftBuildResult.Ready(
             draft = draft,
             absorptionSelection = state.profile?.let { MealAbsorptionSelection(it, state.durationMinutes) }
+        )
+    }
+
+    /** Display-only envelope; neither endpoint becomes a confirmed mass or food entry. */
+    fun preview(state: MealPhotoDraftEditorState): MealPhotoNutritionPreview? {
+        if (state.invalidMassIds.isNotEmpty()) return null
+        fun endpoint(lower: Boolean): MealNutritionCalculation? {
+            val ingredients = state.estimate.ingredients.map { estimate ->
+                val confirmed = state.confirmedMassesGrams[estimate.id]
+                val mass = confirmed ?: estimate.massGrams.maximum
+                val ingredient = estimate.toMealIngredient(mass) ?: return null
+                val fraction = state.eatenFractions[estimate.id] ?: return null
+                if (!fraction.isFinite() || fraction !in 0.0..1.0) return null
+                // Scaling the upper endpoint supports a genuine zero lower bound.
+                val scale = if (lower && confirmed == null) estimate.massGrams.minimum / mass else 1.0
+                val preparation = state.preparationStates[estimate.id] ?: estimate.preparationState
+                ingredient.copy(amount = IngredientAmount(mass, fraction * scale, preparation),
+                    facts = ingredient.facts.copy(preparationState = preparation))
+            }
+            return (MealNutritionCalculator.calculate(ingredients) as? MealNutritionCalculationResult.Calculated)?.value
+        }
+        val lower = endpoint(true) ?: return null
+        val upper = endpoint(false) ?: return null
+        fun envelope(low: NutritionRange?, high: NutritionRange?): NutritionRange? =
+            if (low == null || high == null) null else NutritionRange(low.minimum, high.maximum)
+        return MealPhotoNutritionPreview(
+            hasEstimatedMass = state.estimate.ingredients.any { state.confirmedMassesGrams[it.id] == null },
+            energyKilocalories = envelope(lower.declaredEnergy.completeTotalKilocalories, upper.declaredEnergy.completeTotalKilocalories),
+            proteinGrams = envelope(lower.protein.completeTotalGrams, upper.protein.completeTotalGrams),
+            fatGrams = envelope(lower.fat.completeTotalGrams, upper.fat.completeTotalGrams),
+            carbohydrateGrams = envelope(lower.carbohydrates.completeTotalGrams, upper.carbohydrates.completeTotalGrams)
         )
     }
 

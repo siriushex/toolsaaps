@@ -38,10 +38,16 @@ internal fun buildAiChatContextSummary(state: MainUiState, generatedAtMs: Long):
         appendLine("forecast_accepted_generation_ms=${state.forecastAcceptedGenerationTs ?: "unknown"}")
         appendLine("iob_positive_units=${number(state.latestIobUnits)} iob_net_units=${number(state.latestIobRealUnits)}")
         appendLine("iob_source=${state.latestIobRuntimeSource ?: "unknown"} iob_evidence_timestamp_ms=${state.latestIobEvidenceTimestamp ?: "unknown"}")
-        appendLine("cob_grams=${number(state.latestCobGrams)} insulin_onset_minutes=${number(state.insulinRealOnsetMinutes)}")
+        appendLine("cob_grams=${number(state.latestCobGrams)}")
+        appendLine((state.aiInsulinContext ?: io.aaps.copilot.data.repository.AiInsulinContext(
+            configuredProfileId = state.insulinProfileId, onsetMinutes = state.insulinRealOnsetMinutes,
+            fittedOnsetMinutes = state.insulinRealProfileOnsetMinutes,
+            fittedPeakMinutes = state.insulinRealProfilePeakMinutes, fittedScale = state.insulinRealProfileScale,
+            updatedAtMs = state.insulinRealProfileUpdatedTs, confidence = state.insulinRealProfileConfidence,
+            sampleCount = state.insulinRealProfileSamples, status = state.insulinRealProfileStatus
+        )).summary())
         appendLine("cob_external_grams=${number(state.latestExternalCobGrams)} timestamp_ms=${state.latestExternalCobTimestamp ?: "unknown"}")
         appendLine("cob_effective_grams=${number(state.latestEffectiveCobGrams)} timestamp_ms=${state.latestEffectiveCobTimestamp ?: "unknown"}")
-        appendLine("insulin_action_duration_hours=not_provided")
         appendLine("isf_real=${number(state.isfCrRealtimeIsfEff)} isf_base=${number(state.isfCrRealtimeIsfBase)}")
         appendLine("cr_real=${number(state.isfCrRealtimeCrEff)} cr_base=${number(state.isfCrRealtimeCrBase)}")
         appendLine("isfcr_conf=${number(state.isfCrRealtimeConfidence)} quality=${number(state.isfCrRealtimeQualityScore)} mode=${state.isfCrRealtimeMode ?: "--"}")

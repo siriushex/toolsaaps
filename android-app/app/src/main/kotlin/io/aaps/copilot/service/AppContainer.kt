@@ -334,6 +334,11 @@ class AppContainer(context: Context) {
 
     internal val localDiary by lazy { io.aaps.copilot.data.repository.LocalDiaryRepository(db) }
     internal val nightlyAdviceRepository by lazy { io.aaps.copilot.data.repository.NightlyAdviceRepository(db, gson) }
+    private val aiInsulinContextSync by lazy {
+        io.aaps.copilot.data.repository.AiInsulinContextSync { summary ->
+            serverAiHistoryClient.syncChatContext(summary, emptyList())
+        }
+    }
 
     internal val serverAiRoomHistorySync by lazy {
         io.aaps.copilot.data.repository.ServerAiRoomHistorySync(
@@ -1579,7 +1584,22 @@ class AppContainer(context: Context) {
                     connection.phase == io.aaps.copilot.security.ServerAiConnectionPhase.ACTIVE &&
                         !PowerSaveController.isActive(settings)
                 },
-                synchronize = { serverAiRoomHistorySync.sync(maxPages = 16) },
+                synchronize = {
+                    val coverage = serverAiRoomHistorySync.sync(maxPages = 16)
+                    val now = System.currentTimeMillis()
+                    val rows = db.telemetryDao().latestBySourceAndKeyBetweenForKeys(
+                        now - 7 * 24 * 60 * 60_000L, now,
+                        io.aaps.copilot.data.repository.AiInsulinContext.KEYS)
+                    val zone = java.time.ZoneId.systemDefault()
+                    aiInsulinContextSync.sync(serverAiConnectionManager.historyDeviceBinding(),
+                        io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(
+                            settingsStore.settings.first().insulinProfileId, rows, now),
+                        now, zone) {
+                        io.aaps.copilot.data.repository.PersonalAbsorptionRepository(db, gson,
+                            java.time.Clock.fixed(java.time.Instant.ofEpochMilli(now), zone)).timingHistory(zone)
+                    }
+                    coverage
+                },
                 onFailure = { android.util.Log.w("ServerAiHistory", "History synchronization unavailable") }
             )
         }

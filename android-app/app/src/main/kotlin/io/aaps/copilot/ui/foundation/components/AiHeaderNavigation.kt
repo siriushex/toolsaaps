@@ -20,7 +20,7 @@ import io.aaps.copilot.ui.motion.*
 internal fun AiHeaderNavigation(band: OwlColorBand, navigationKey: String, gesture: OwlGesture,
     drawerExpanded: Boolean, waiting: Boolean, diagnosticsVisible: Boolean,
     onDiagnostics: () -> Unit, onDismissDiagnostics: () -> Unit,
-    onMenu: () -> Unit, onSettings: () -> Unit) {
+    onMenu: () -> Unit, onSettings: () -> Unit, onsetCompletionKey: String? = null) {
     var expanded by remember { mutableStateOf(false) }
     if (diagnosticsVisible) {
         NativeIconButton(onDismissDiagnostics, Modifier.size(48.dp).testTag("ai_header_back")) {
@@ -30,7 +30,8 @@ internal fun AiHeaderNavigation(band: OwlColorBand, navigationKey: String, gestu
     }
     Box {
         OwlMenuButton(band, navigationKey, gesture, expanded || drawerExpanded, waiting,
-            { expanded = !expanded }, label = stringResource(R.string.ai_focus_state_menu))
+            { expanded = !expanded }, label = stringResource(R.string.ai_focus_state_menu),
+            onsetCompletionKey = onsetCompletionKey)
         DropdownMenu(expanded, { expanded = false }) {
             DropdownMenuItem(text = { Text(stringResource(R.string.ai_focus_diagnostics)) },
                 onClick = { expanded = false; onDiagnostics() }, modifier = Modifier.testTag("ai_header_diagnostics"))

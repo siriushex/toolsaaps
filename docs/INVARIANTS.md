@@ -64,6 +64,17 @@
 - Missing trusted token accounting cannot claim model-window admission.
 - The pure projector cannot persist, infer, deploy or perform a clinical action.
 
+## Meal Timing Evidence Windows
+
+- 3/7/14 days describe completed local calendar windows, not clinical validation.
+- Episode counts cannot substitute for distinct days or merge incompatible cohorts.
+- Current insulin/ISF/CR cannot backfill unrecorded historical treatment context.
+- Estimated GI and approximate declared grams are not independent measured truth.
+- Qualified absorption is not a confirmed bolus-to-meal timing label; source
+  readiness cannot produce a recommended waiting interval or notification.
+- Optional audit failures preserve fixed UNAVAILABLE, not raw errors or false
+  successful empty history. Cancellation propagates before any new upload.
+
 ## APK Update Boundary
 
 - Only explicit check/download/install actions; no silent update or downgrade.
@@ -75,6 +86,17 @@
   reset consent, overwrite configuration or disable AAPS.
 
 ## Food Photo Failure Recovery
+
+- Display-only nutrition intervals cannot choose a midpoint, confirm a mass,
+  populate therapy carbohydrates or submit food. Unknown facts stay unknown.
+- Invalid portion edits hide preview totals; confirmed and estimated masses
+  retain distinct labels. Existing domain nutrition rules are reused.
+- Reopening the same food form's photo review does not recheck or reinfer. Only
+  explicit replacement discards it; a different food form never inherits it.
+- Retained review contains no image, request or credential and never enters
+  saved-state storage. Each explicit review opening has one transfer allowance.
+- A response from a cancelled review cannot mutate retained state even when its
+  provider ignores cancellation. Accept the result only while its coroutine is active.
 
 - A correlated terminal analysis failure/cancellation/deadline/result expiry
   cannot imply missing authorization or image capability. Those actual refusals
@@ -148,7 +170,9 @@
 - Positive total IOB alone cannot establish food preparation, a food bolus,
   delivery confirmation or a safe meal-start recommendation.
 - Explicit recent intent and original fresh glucose/IOB are required for food
-  motion. Unknown/blocked/expired/future intents cannot become confirmed.
+  preparation motion. Unknown/blocked/expired/future intents cannot become confirmed.
+  The separate model-clock completion gesture is labelled as model time elapsed,
+  never as a confirmed meal plan or permission to eat.
 - Only a single consistent future canonical meal supplies a labelled plan;
   corrections/closed/contradictory entries cannot resurrect an old plan.
 - Native motion is finite and follows reduced-motion/lifecycle/power controls.
@@ -1770,3 +1794,8 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 12. Daily replay must persist per-horizon weekday/weekend gap diagnostics (`daily_report_replay_daytype_gap_json`) and quick keys (`daily_report_replay_daytype_gap_{5|30|60}m`, `daily_report_replay_daytype_gap_hint_{5|30|60}m`) so UI can expose asymmetric day-type error windows.
 13. In OpenAI mode, daily analysis must still produce local report; optimizer failure must degrade safely to local-only behavior and persist explicit failure telemetry (`daily_report_ai_opt_error`).
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
+
+## Model Onset Clock
+- A completed model countdown is not delivery confirmation, permission to eat, or a target/dose command. The status and its detail text must preserve that distinction even when the owl shows the requested food animation.
+- No timer from positive IOB alone; require a usable meal-insulin record and matching configured/model profile. Nonfinite, future, stale, wrong-unit or conflicting onset evidence cannot create a clock.
+- Profile exports are observed current settings. Never retroactively label historical boluses with the currently selected insulin; no credentials, arbitrary payloads or new provider calls accompany the snapshot.

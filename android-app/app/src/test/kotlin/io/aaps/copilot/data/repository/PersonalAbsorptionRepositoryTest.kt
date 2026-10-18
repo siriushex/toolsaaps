@@ -105,6 +105,19 @@ class PersonalAbsorptionRepositoryTest {
         assertThat(db.glucoseDao().since(0)).hasSize(1)
     }
 
+    @Test fun timingHistoryReportsWindowSupportWithoutTherapyWritesOrInventedEvidence() = runBlocking {
+        populate()
+        val before = db.therapyDao().since(0)
+        val legacy = repository().timingHistory(ZoneOffset.UTC)
+        assertThat(legacy.windows.map { it.candidateMeals }).containsExactly(3, 5, 5).inOrder()
+        assertThat(legacy.windows.all { it.qualifiedAbsorptionEpisodes == 0 }).isTrue()
+        val qualified = repository().timingHistory(ZoneOffset.UTC, (1..5).map { prepared(it) })
+        assertThat(qualified.windows.map { it.qualifiedDays }).containsExactly(3, 5, 5).inOrder()
+        assertThat(qualified.recommendedWaitMinutes).isNull()
+        assertThat(qualified.notificationAllowed).isFalse()
+        assertThat(db.therapyDao().since(0)).isEqualTo(before)
+    }
+
     @Test fun sourceQualifiesExplicitPreparedEvidenceOnlyAgainstActualRoomLabels() = runBlocking {
         populate()
         val before = db.therapyDao().since(0)

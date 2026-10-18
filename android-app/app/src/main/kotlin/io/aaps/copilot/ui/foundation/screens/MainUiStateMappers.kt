@@ -806,6 +806,7 @@ internal fun MainUiState.toOverviewUiState(
         acceptedFoodDisplay = foodSnapshot,
         foodDisplayScopeReset = forecastTupleError != null && forecastTupleError != "forecast_tuple_freshness_invalid",
         foodDisplayNowTs = now,
+        insulinOnsetCountdown = insulinOnsetCountdown,
         foodCobTimestamp = latestEffectiveCobTimestamp.takeIf { displayedCob != null },
         eatingSoon = eatingSoonPresentation(eatingSoonReceipt, eatingSoonObservedTarget, now),
         calibrationGain = glucoseCalibrationGain,

@@ -1,3 +1,19 @@
+# Internet Update Candidate 0.1.3 - 2026-10-18
+
+- User now requests publication through the existing in-app internet updater.
+  Candidate build 4 combines the reviewed pending food-photo preview/retention,
+  approximate onset header and observed insulin/history context with the already
+  committed chat, motion and activity-recovery fixes. No new clinical permission.
+- Local full Android quality succeeds with unchanged accepted inputs: 6311 tests,
+  6305 passed and six existing skips, zero failures/errors; Kotlin compile,
+  lint and APK assembly pass. Lint retains 378 warnings/eight hints, no errors.
+  Gradle reused up-to-date results. Nine release-publication tests also pass.
+- Preserve the existing APK signer and require a higher public version, exact
+  source CI, bounded static publication and independent HTTPS APK verification.
+  Publication and installation are separate receipts, not inferred from build.
+- AI services, model/login, clinical database schema, therapy safeguards and
+  runtime host feature flags are unchanged by this APK release operation.
+
 # Matched Photo Decoder Rollout - 2026-10-18
 
 - Completed the compatible image-host rollout for source f814e0f6, whose six
@@ -277,6 +293,100 @@
   warnings/eight hints, with no findings in this stage's changed files. Android
   inputs match the captured manifest and the candidate retains the prior signer.
 - Device acceptance is separate; no live target, carb, bolus or test sound was sent.
+
+# Meal Timing History Audit - 2026-10-18
+
+- User requests a genuine meal-start recommendation using current glucose, GI,
+  insulin profile and3/7/14-day history. Current runtime onset instead uses12h;
+  no claim was made that renaming it or detecting a CGM drop solves timing.
+- Added bounded completed-day evidence windows through the existing qualified
+  absorption producer, with distinct day/cohort support, exact-revision independent
+  GI coverage and structured missing/confounded input counts. No invented past
+  insulin profile, zero-insulin assumption or automatic training admission.
+- Existing due insulin-context maintenance now includes this read-only audit;
+  no per-second/per-CGM scan, new provider request, clinical writer or schema.
+- See MEAL_TIMING_EVIDENCE.md for the remaining confirmed delivery/actual meal
+  linkage, causal validation, scenario uncertainty and clinical acceptance work.
+- Initial80 focused cases and assembly passed. A subsequent regression reproduced
+  a cancellation-ignoring audit sending context after cancellation; an explicit
+  coroutine activity check before upload fixes it without consuming the day.
+- Full Android test/lint/compile/assemble succeeded in27m1s:6278 cases across553
+  suites,6272 passed/six skipped,zero failures/errors. Lint has zero errors,
+  378 warnings/eight hints; none in the new audit/context files. The candidate
+  retains the prior signing certificate. Only a stale class comment and docs were
+  corrected after these checks; runtime behavior did not change.
+- Existing timer, targets, doses, phone, server and deferred publication remain
+  unchanged. No live medical database was read or assessed in this stage, and
+  no clinical accuracy or recommended meal-start interval is claimed.
+
+# Model Onset Header and Insulin Context - 2026-10-18
+
+- User clarified that 27.5 minutes is model onset, not an agreed meal delay, and
+  requested an elapsed label plus owl/burger animation. Implemented locally as
+  an approximate, recorded-meal-insulin clock with a separate explanation.
+- Selected insulin profile, effective DIA and fitted-model evidence were missing
+  from the AI chat summary. They now travel as bounded observational context;
+  existing authenticated history maintenance uploads a daily snapshot after the
+  local 05:00 boundary, including catch-up when maintenance resumes.
+- Header uses the lightweight primary state and a 32-candidate DAO stream, not
+  analytics activation. IOB alone and correction entries cannot start it.
+- Latest user also requested therapeutic influence. No deadline-to-target/dose
+  path was introduced. Existing therapeutic fitter cadence and protections are
+  unchanged; nightly model retraining/admission remains separate pending work.
+- The current runtime onset already affects modeled IOB/prediction; this is not
+  a new timer-driven control input. It is separate from the fitted profile with
+  its unchanged 72-hour refresh cadence. The daily snapshot is not retraining.
+- Latest label request was not mapped to a meal recommendation: the compact
+  caption is now "Insulin" / "Инсулин", not "Model". The elapsed state remains
+  explicit and its explanation distinguishes a record from confirmed delivery.
+- Focused152 tests across14 suites pass with zero failures/errors/skips. After
+  the label edit, all five native header checks pass again; normal and2x-font
+  320px rasters were inspected. Kotlin compilation and APK assembly succeed.
+  Candidate0.1.3/build4 retains the existing signing certificate. Full combined
+  regression/lint and clinical acceptance remain pending. No remote deployment,
+  publication, device installation or provider request was made.
+- Insulin-only corrections/SMB and IOB alone are not evidence of an intended
+  meal; the timer currently requires an unambiguous meal_bolus record. Broader
+  meal association and independently validated nightly fitting remain open.
+
+# Food Photo Immediate Preview - 2026-10-18
+
+- User reports long waits, empty or incorrect results. Bounded live metadata
+  confirms one failed photo job and one successful job; raw private outputs were
+  neither read nor retained. The failed job's exact cause is not recoverable from
+  this metadata-only ledger, so no claim is made that the UI defect caused it.
+- A new native regression reproduces missing totals before every model mass is
+  manually confirmed. Add a distinct labelled interval preview, progressively
+  using entered masses and eaten fractions. Existing calculator and unknown/basis
+  rules remain authoritative; neither mass midpoint nor therapy grams are chosen.
+- Invalid mass/fraction edits suppress totals and corrections restore them. Final
+  transfer still requires explicit carbohydrates and the separate food form.
+- Exactly one owner-approved synthetic request on the existing image channel
+  returned four plausible visible ingredients, complete macro fields, and passed
+  current strict decoding in24.225s. Stop and shared guard idle were confirmed.
+  This is transport/schema evidence, not measured nutritional accuracy. No replay,
+  service/config/profile change, real photo upload, phone or therapy operation.
+- First focused82 cases pass; ordinary native preview raster inspected. After
+  user deferred publication and requested further work, the preliminary full
+  run was deliberately interrupted (exit130), not counted as passed.
+- A second native RED confirms closing/reopening photo review loses the result.
+  The current food form now owns the in-memory editor, raw invalid/valid input,
+  explicit carbs and apply guard. Reopening a retained result does not recheck or
+  reinfer; explicit different-photo selection resets it. No image/request is kept,
+  no Bundle/disk storage or process-death recovery is claimed. Native normal and
+  1.8x-font rasters inspected;99 focused cases pass before the final response guard.
+- A third native RED reproduces a late, cancellation-ignoring provider response
+  repopulating the retained editor after dismissal. Check coroutine activity before
+  applying any analysis result. Final focused100 cases/11 suites pass with zero
+  failures/errors/skips. Kotlin compilation and APK assembly pass; source hashes
+  match the checked inputs and the signing certificate is unchanged.
+- The intermediate lint/build run was deliberately interrupted after18 minutes
+  during Kotlin UAST test analysis (exit130). Its99 completed tests are retained;
+  lint is not counted as passed. Full regression, final lint and source CI remain
+  pending for the later combined stage. No source commit/push has occurred.
+- User deferred APK publication until remaining refinements are checked together;
+  the public version remains0.1.2. Local version0.1.3/build4 is only a candidate,
+  not published or installed. Full acceptance is still pending.
 
 # APK Update Failure Recovery - 2026-10-18
 
