@@ -1,3 +1,26 @@
+# Trusted Compact Chat Adapter - 2026-10-18
+
+- Added opt-in compact CHAT preparation under one existing encrypted device
+  transaction, with exact accepted question/policy binding and authenticated
+  latest-version/tombstone reads. Defaults and installed host factories stay legacy.
+- A bounded contextReceipt inside the reserved encrypted server_chat entry records
+  exact frame/source hashes, snapshot, resolutions and token evidence before
+  dispatch. No schema migration or plaintext archive; settled outcomes retain it.
+- Preparation is not model delivery. Prepared jobs cannot be rewritten/replayed;
+  failure rolls back and cancellation joins the reader before independent stop.
+- Nonglucose context retains explicit bounded counts/examples; requested focus
+  events are exact. Full profile/trajectory export and persistent native threads
+  are not implied by glucose compaction or previous server conversation excerpts.
+- 120 focused cases pass, including synthetic signed API/native frame/result
+  receipt binding. Full backend on Python3.12 passes1862 tests with27 skips and
+  one dependency warning. New-module E/F and touched-module F/E9 lint, Python
+  compilation and diff checks pass. Previous projector exact-head Verify passed.
+- Synthetic minute-history adapter checks:4321/20161 records prepare in0.610/2.932s
+  with21107/87642-byte frames and1070/1073-byte encrypted-entry receipt payloads.
+  This measures local synthetic preparation, not host performance or model tokens.
+- No real model call, host/config/service change, phone/APK update, raw upload or
+  therapy change. Real token accounting and protected host opt-in remain required.
+
 # Pure Compact AI Context - 2026-10-18
 
 - Implemented the approved standalone projector. Shared daily-glucose continuity

@@ -119,3 +119,24 @@ def context_entry(entry):
         result[key] = excerpt
         result[key + "Truncated"] = text != excerpt
     return result
+
+
+def read_context(store, owner, device, db, *, now_ms, exclude_job_id=None):
+    """Caller holds the bounded device transaction; no nested store lock."""
+    result = dict(origin="SERVER_ARCHIVE", generatedAtMs=now_ms, exchanges=[],
+                  hasMore=False, outcomeMeaning="Recorded server outcome, not clinical validation")
+    if db is None or db.execute("PRAGMA user_version").fetchone()[0] == 1:
+        return result
+    rows = db.execute(
+        "SELECT * FROM server_chat WHERE created_ms<=? AND updated_ms<=? "
+        "AND expires_ms>? AND job_id!=? ORDER BY created_ms DESC,job_id DESC LIMIT 13",
+        (now_ms, now_ms, now_ms, exclude_job_id or "")).fetchall()
+    for row in rows:
+        item = context_entry(decrypt_entry(store, owner, device, row))
+        if (len(result["exchanges"]) >= 12
+                or len(encoded(result)) + len(encoded(item)) + 64 > MAX_CONTEXT_BYTES):
+            result["hasMore"] = True
+            break
+        result["exchanges"].append(item)
+    result["exchanges"].reverse()
+    return result

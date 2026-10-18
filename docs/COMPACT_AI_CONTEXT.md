@@ -1,7 +1,9 @@
 # Pure Compact AI Context
 
 Status: locally implemented first stage of the approved compact-context design.
-This module is not yet connected to the authenticated archive reader or CHAT.
+The pure module remains free of storage/inference. A separate trusted opt-in
+archive/CHAT adapter and encrypted receipt are in COMPACT_CHAT_ADAPTER.md; no
+installed host factory enables them by default.
 It does not change uploads, raw history, model settings, therapy or a running host.
 
 ## Contract
@@ -113,9 +115,9 @@ environment finding rather than claiming it was fixed by context compaction.
 
 ## Remaining Integration
 
-The next adapter must perform authenticated bounded latest-version archive reads,
-select question-relevant focus and nonglucose facts, account for actual model
-tokens/framing, and persist the encrypted immutable receipt bound to its answer.
+The opt-in adapter performs bounded selected-version reads and receipt persistence.
+Actual model token/framing admission, automatic question-specific focus and full
+nonglucose/profile coverage remain separately required before host activation.
 Cancellation/unknown-outcome handling and native framing/echo/independent-stop
 checks remain required before CHAT integration and deployment. No native thread
 persistence, complete profile export, nightly model activation or live clinical

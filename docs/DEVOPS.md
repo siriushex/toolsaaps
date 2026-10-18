@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Compact Chat Source Integration
+
+The compact adapter is source-only and opt-in. No installed descriptor, service,
+model, login, phone or HTTP route changes. Trusted factory must select the separate
+compact prompt, attach the existing HistoryStore as chat_archive, and provide an
+explicit window/focus plus independently admitted model token accounting. Do not
+use synthetic test counters for production admission. Default factories remain
+legacy. Existing encrypted chat schema/budgets retain an optional bounded receipt;
+there is no migration or archive replacement. Verify all writer compatibility and
+exact-head backend/native/source CI before any separately reviewed host opt-in.
+Disable by restoring trusted factory/policy composition, preserving receipts and
+unknown outcomes; do not replay jobs, reset guards or restore old medical history.
+See COMPACT_CHAT_ADAPTER.md for remaining coverage, dense-load and rollout gates.
+
 ## Internet APK Distribution
 
 The dedicated static HTTPS update route, verified release preparation, atomic

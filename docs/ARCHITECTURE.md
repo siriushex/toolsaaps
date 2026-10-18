@@ -1,12 +1,23 @@
 # ARCHITECTURE
 
+## Trusted Compact Chat Adapter
+
+An optional trusted compact worker selects history and server exchanges in one
+bounded device transaction and stores a <=16KiB contextReceipt in the already
+reserved encrypted chat entry before dispatch. Exact accepted question/policy and
+frame digest remain bound through result archival. No schema change or default
+host activation. The new prompt separates time-weighted glucose facts from partial
+nonglucose examples; complete profile/trajectory export is still separate.
+See COMPACT_CHAT_ADAPTER.md for opt-in, limits and remaining operational admission.
+
 ## Pure Compact Context
 
-An unconnected pure projector accepts selected decoded glucose versions and
+A pure projector accepts selected decoded glucose versions and
 caller-prepared observational sections. It reuses daily-glucose preparation and
 original-segment moments/episodes, encodes adaptive statistical grids and exact
 extrema offsets, then freezes bounded frame/manifest bytes. No archive selection,
-authentication, persistent receipt or model dispatch occurs here. Token admission
+authentication, persistent receipt or model dispatch occurs inside the projector.
+Token admission
 requires an injected trusted counter; absent accounting stays UNVERIFIED.
 See COMPACT_AI_CONTEXT.md for limits and the remaining trusted CHAT adapter.
 

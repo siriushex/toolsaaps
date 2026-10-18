@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Trusted Compact Chat Adapter (2026-10-18)
+
+- One authenticated device transaction pins latest source and accepted question,
+  request/route/model/prompt/instructions before encrypted receipt persistence.
+- AEAD validates selected tombstones; malformed or unavailable data cannot become
+  a successful empty context. Bounded row/byte/SQL/time and fresh disk/quota checks
+  refuse without inference or a partial receipt. No caller-selected SQL or path.
+- Receipt is an optional bounded encrypted entry field, not an ingestion DTO or
+  public route. Existing projection/expiry and pending quota are unchanged.
+- New policy/worker path requires trusted explicit settings and token counter.
+  Defaults remain unchanged; tests use synthetic accounting and fake model frames,
+  not real medical data or provider inference. Host admission is still required.
+
 ## Pure Compact Context (2026-10-18)
 
 - Strict decoded-record revalidation, unique identities, explicit time bounds,

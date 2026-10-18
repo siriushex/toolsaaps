@@ -1,5 +1,16 @@
 # PLAN
 
+## Trusted Compact Chat Adapter (2026-10-18)
+
+- [x] Add RED-first trusted archive/receipt/worker tests and immutable device/question binding.
+- [x] Reuse bounded latest-version reads and encrypted existing server_chat storage without migration.
+- [x] Wire explicit trusted compact policy/settings; preserve default host and native stop gates.
+- [x] Pass120 focused and1862 full Python3.12 cases; scoped lint/compile/diff checks pass.
+- [x] Inspect synthetic minute-history preparation for3/14days:0.610/2.932s,21107/87642-byte frames.
+- [ ] Inspect reviewed exact-head source delivery and Verify CI.
+- [ ] Admit real token accounting and protected host opt-in separately.
+- Complete profile/trajectory export, native persistence and public receipt UI remain separate.
+
 ## Pure Compact Context Projector (2026-10-18)
 
 - [x] Approve model-context-only format and write an isolated implementation plan.
@@ -7,8 +18,9 @@
 - [x] Reuse daily preparation/raw integration; build immutable frames/manifests.
 - [x] Pass155 focused cases and measure actual synthetic3/7/14-day packets.
 - [x] Pass full backend on CI-matching Python3.12:1840 passed,27 skipped; scoped lint/format/compile pass.
-- [ ] Inspect reviewed source publication and exact-head Verify CI.
-- [ ] Connect authenticated archive selection, CHAT and encrypted per-answer receipts separately.
+- [x] Inspect reviewed source publication and exact-head Verify CI.
+- [x] Connect trusted source selection and encrypted per-answer receipt through an opt-in worker.
+- [ ] Complete operational host/token and full-profile/domain coverage admission.
 - No upload/archive, native-thread persistence, phone or therapy change.
 
 ## Compact Model Context Design (2026-10-18)

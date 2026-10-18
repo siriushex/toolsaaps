@@ -10,6 +10,7 @@ from dataclasses import replace
 from typing import Protocol
 
 from .history_contract import encoded
+from .compact_chat import CompactChatSettings, compact_chat_policy
 from .history_store import HistoryStore
 from .job_policy import CHAT_POLICY
 from .job_service import JobWork
@@ -80,9 +81,12 @@ class NativeTextRunner:
 
 class ContextualChatWorker:
     def __init__(self, work: JobWork, history: HistoryStore, process: ContainedTextProcess | None = None,
-                 *, clock_ms, runner: TextTurnRunner | None = None):
+                 *, clock_ms, runner: TextTurnRunner | None = None,
+                 compact_context: CompactChatSettings | None = None):
         if (not isinstance(work.request, ChatRequest)
-                or work.policy != contextual_chat_policy(work.policy.model)
+                or compact_context is not None and type(compact_context) is not CompactChatSettings
+                or work.policy != (compact_chat_policy(work.policy.model) if compact_context is not None
+                                   else contextual_chat_policy(work.policy.model))
                 or not isinstance(history, HistoryStore) or not callable(clock_ms)
                 or (process is None) == (runner is None)):
             raise ValueError("invalid_contextual_chat_worker")
@@ -91,6 +95,7 @@ class ContextualChatWorker:
         self.route_revision, self.request_digest = work.route_revision, work.request_digest
         self._used = False
         self._context_task = None
+        self.compact_context = compact_context
 
     async def run(self):
         if self._used:
@@ -101,12 +106,15 @@ class ContextualChatWorker:
             raise ValueError("contextual_chat_deadline")
         identity = self.work.identity
         def collect():
+            if self.compact_context is not None:
+                return self.history.prepare_compact_chat(self.work, self.compact_context,
+                                                          now_ms=now).input_body
             context = self.history.context_snapshot(identity.owner_id, identity.key_fingerprint, now_ms=now)
             chat = self.history.chat_context(identity.owner_id, identity.key_fingerprint,
                                              now_ms=now, exclude_job_id=self.work.job_id)
-            return dict(question=self.work.request.text, deviceHistory=context, serverConversation=chat)
+            return encoded(dict(question=self.work.request.text, deviceHistory=context, serverConversation=chat))
         self._context_task = asyncio.create_task(asyncio.to_thread(collect))
-        prompt = encoded(await asyncio.shield(self._context_task)).decode()
+        prompt = (await asyncio.shield(self._context_task)).decode()
         if self.clock_ms() >= self.work.deadline_ms:
             raise ValueError("contextual_chat_deadline")
         policy = TextSessionPolicy(self.work.policy.model, self.work.policy.system_prompt)

@@ -5,8 +5,10 @@ uploads or the detailed archive. The approved ten-minute statistical and adaptiv
 background format is specified in
 [Compact AI Context](superpowers/specs/2026-10-18-compact-ai-context-design.md).
 The pure first-stage projector is implemented in source; see COMPACT_AI_CONTEXT.md.
-It is not connected to CHAT, authenticated archive reads or persistent per-answer
-receipts. Its synthetic byte measurements are not a model-token benchmark.
+A separate trusted opt-in source adapter now connects selected archive reads,
+CHAT and encrypted per-answer composition receipts; see COMPACT_CHAT_ADAPTER.md.
+Default host factories remain unchanged. Synthetic byte measurements and test
+token counters are not a production model-token benchmark or full-profile export.
 
 Status: source/deployment audit and required design delta, not activation of a
 persistent native conversation. The device owner requested an independent chat
@@ -67,8 +69,9 @@ in active model context. Durable structured storage must remain authoritative.
    unlisted tables are explicitly excluded by the source adapter.
 4. Generic whole-archive counts plus recent examples do not expose every meal's
    glucose/insulin/ISF/CR sequence over a requested3/7/14-day interval.
-5. The encrypted chat archive records question/result/policy binding, but not an
-   immutable manifest of the exact assembled history frame given to the model.
+5. The default deployed chat path lacks an exact composition receipt. An opt-in
+   source adapter now persists a bounded encrypted manifest before dispatch;
+   operational/token admission remains required. PREPARED does not prove receipt.
 6. Implemented nightly source components and opt-in flags must not be described
    as an active05:00 model review without verified target-host admission/results.
 

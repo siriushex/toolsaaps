@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Trusted Compact Chat
+
+- Trusted server identity, accepted question and exact model/policy must match.
+- Source selection and receipt write share one bounded device transaction.
+- Selected tombstones are authenticated before omission; no old-version revival.
+- PREPARED receipt is immutable composition evidence, not model receipt or validity.
+- Prepared jobs cannot be re-prepared/replayed; failure cannot leave partial success.
+- Required token admission, cancellation/deadline checks and independent stop remain.
+- Partial nonglucose examples and missing profiles cannot become complete history.
+- Default worker/host, raw history, expiry, model settings and therapy stay unchanged.
+
 ## Pure Compact Context
 
 - Compaction changes model representation only, not uploads or raw archives.

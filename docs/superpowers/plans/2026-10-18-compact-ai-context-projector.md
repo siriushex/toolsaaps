@@ -85,7 +85,7 @@ assert hashlib.sha256(prepared.input_body).hexdigest() == prepared.input_digest
 - [x] Record stage1 completion and explicit unconnected stages: authenticated
   archive reader, production CHAT assembly, persistent manifest, complete profile
   export and operational rollout. No synthetic result proves clinical accuracy.
-- [ ] Inspect diff and secret/private-data scope, fetch origin, commit only reviewed
+- [x] Inspect diff and secret/private-data scope, fetch origin, commit only reviewed
   paths, push existing feature branch, verify exact PR head and inspect Verify CI.
   Preserve all prior dirty Android/photo/timer work. No APK/server deployment.
 

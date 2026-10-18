@@ -1015,21 +1015,17 @@ class HistoryStore:
 
     def chat_context(self, owner: str, device: str, *, now_ms: int, exclude_job_id=None):
         """Bounded recent server exchanges; missing outcomes remain explicitly unknown."""
-        from .server_chat import MAX_CONTEXT_BYTES, context_entry, decrypt_entry
+        from .server_chat import read_context
 
         valid_time(now_ms)
         if exclude_job_id is not None:
             canonical_uuid(exclude_job_id)
-        result = dict(origin="SERVER_ARCHIVE", generatedAtMs=now_ms, exchanges=[],
-                      hasMore=False, outcomeMeaning="Recorded server outcome, not clinical validation")
         with self._locked():
             db = self._open(owner, device, create=False)
             if db is None:
-                return result
+                return read_context(self, owner, device, db, now_ms=now_ms)
             try:
                 db.execute("BEGIN")
-                if db.execute("PRAGMA user_version").fetchone()[0] == 1:
-                    return result
                 # Bounded SQL work, including scans over expired idle files.
                 remaining = 2000
 
@@ -1039,21 +1035,18 @@ class HistoryStore:
                     return int(remaining <= 0)
 
                 db.set_progress_handler(budget, 1000)
-                rows = db.execute(
-                    "SELECT * FROM server_chat WHERE created_ms<=? AND updated_ms<=? "
-                    "AND expires_ms>? AND job_id!=? ORDER BY created_ms DESC,job_id DESC LIMIT 13",
-                    (now_ms, now_ms, now_ms, exclude_job_id or "")).fetchall()
-                for row in rows:
-                    item = context_entry(decrypt_entry(self, owner, device, row))
-                    if (len(result["exchanges"]) >= 12
-                            or len(encoded(result)) + len(encoded(item)) + 64 > MAX_CONTEXT_BYTES):
-                        result["hasMore"] = True
-                        break
-                    result["exchanges"].append(item)
-                result["exchanges"].reverse()
-                return result
+                return read_context(self, owner, device, db, now_ms=now_ms,
+                                    exclude_job_id=exclude_job_id)
             finally:
                 db.close()
+
+    def prepare_compact_chat(self, work, settings, *, now_ms):
+        from .compact_chat import prepare_chat
+        return prepare_chat(self, work, settings, now_ms=now_ms)
+
+    def chat_context_receipt(self, owner, device, job_id, *, now_ms):
+        from .compact_chat import read_receipt
+        return read_receipt(self, owner, device, job_id, now_ms=now_ms)
 
     def query_chats(self, owner: str, device: str, body: bytes, *, now_ms: int):
         """Full-text read pages. Membership is fixed; outcomes are current per page."""
