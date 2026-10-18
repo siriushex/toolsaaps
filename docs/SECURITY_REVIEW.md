@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Concise Chat Presentation (2026-10-18)
+
+- UI-only role visibility does not remove failure titles or sender accessibility.
+- Concise policy preserves evidence/source restrictions and urgent uncertainty;
+  untrusted context cannot become instructions. No new action or therapy path.
+- No response truncation, model/settings changes or new input/storage/permissions.
+- Synthetic local HTTP requests verify both personal request bodies and unchanged
+  detailed responses. Native raster tests contain synthetic messages only.
+- Prompt revision changes retain exact request binding. Deployment must drain or
+  preserve accepted policies for in-flight jobs, never relabel or replay them.
+- No provider request, login, server state, medical data or phone operation changed.
+
 ## Physical Activity Recovery Chronology (2026-10-18)
 
 - No new network, permissions, schema, archive upload or clinical writer.

@@ -1,5 +1,15 @@
 # INVARIANTS
 
+## Concise Chat Presentation
+
+- Sender roles remain available to accessibility, without normal visible captions.
+- Errors, voice metadata, attachments and accepted answer text are preserved.
+- Brevity cannot hide relevant uncertainty, missing evidence or urgent warnings.
+- Requested detail may exceed the prompt default; no new local text cutoff exists.
+- Concise style never changes therapy authority, model selection, deadlines,
+  hard limits, untrusted-context boundaries or action/tool restrictions.
+- Prompt adherence and latency need separate live evidence; tests alone prove neither.
+
 ## Owl Choreography
 
 - Every scene starts/ends at exact rest; body movement stays in the fixed viewport.

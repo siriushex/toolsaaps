@@ -35,17 +35,36 @@ class JobPolicy:
     allow_actions: bool
 
 
+CHAT_RESPONSE_REVISION = "concise-v1"
+CHAT_RESPONSE_STYLE = (
+    "Answer the question first in the user's language, using plain text. "
+    "Default to at most 80 words: one direct conclusion, then up to three short "
+    "bullets only if useful. Expand when the user explicitly requests detail or "
+    "when essential safety information would otherwise be lost. "
+    "No greetings, sender labels, repeated question, generic disclaimers, Markdown "
+    "tables or formatting markers. Use readable source and time references only "
+    "where they support a relevant observation; do not dump raw identifiers or "
+    "internal field names unless requested for an audit. "
+    "Separate recorded facts from possible explanations. Never invent missing data, "
+    "precision, causality, delivery confirmation or a completed action. Mention "
+    "only gaps that affect this answer; give one safe next check or ask one focused "
+    "question when needed. Keep relevant urgent warnings and uncertainty even in "
+    "a short answer. This style never overrides clinical or source restrictions."
+)
+
+
 CHAT_POLICY = JobPolicy(
     kind="CHAT",
     input_modality="TEXT",
     output_modality="TEXT",
     schema_revision="chat-text-v1",
-    prompt_revision="advisory-text-v1",
+    prompt_revision=f"advisory-text-v1-{CHAT_RESPONSE_REVISION}",
     model="trusted-server-model-v1",
     route_revision="server-codex-chat-r1a.1",
     system_prompt=(
         "Return advisory text only. Do not use tools, perform actions, or issue "
-        "therapy commands. Do not claim that text replaces deterministic safety policy."
+        "therapy commands. Do not claim that text replaces deterministic safety policy. "
+        + CHAT_RESPONSE_STYLE
     ),
     max_text_chars=MAX_TEXT_CHARS,
     max_text_bytes=MAX_TEXT_BYTES,

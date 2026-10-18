@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Concise Chat Presentation (2026-10-18)
+
+Chat bubbles retain roles for accessibility without visible sender captions.
+Native personal chat and attachment requests share one system instruction; server
+CHAT, contextual and optional compact policies share answer-first plain-text style.
+The 80-word default has requested-detail and essential-safety exceptions, with no
+response truncation or history rewrite. Prompt revisions remain part of request
+binding. Source changes do not activate a new server worker or change models.
+
 ## Owl Choreography (2026-10-18)
 
 Native owl poses now include bounded body travel/tilt with coordinated head,

@@ -22,6 +22,40 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class AiChatAttachmentRequestTest {
+    @Test fun bothPersonalChatRoutesRequestConciseGroundedRepliesWithoutTruncatingThem() = runTest {
+        val text = Files.createTempFile("chat-style-", ".txt").toFile()
+        val answer = "Detailed requested answer. ".repeat(30).trim()
+        try {
+            text.writeText("Synthetic observations")
+            MockWebServer().use { server ->
+                server.enqueue(MockResponse().setBody(Gson().toJson(mapOf("choices" to listOf(
+                    mapOf("message" to mapOf("content" to answer)))))))
+                server.enqueue(MockResponse().setBody(Gson().toJson(mapOf("output_text" to answer))))
+                val repository = repository(server)
+                assertEquals(answer, repository.ask("Explain in detail", "Synthetic context"))
+                assertEquals(answer, repository.askWithAttachments("Explain in detail", "Synthetic context",
+                    attachments = listOf(request(text, "text/plain"))))
+                val plain = JsonParser.parseString(server.takeRequest().body.readUtf8()).asJsonObject
+                val attached = JsonParser.parseString(server.takeRequest().body.readUtf8()).asJsonObject
+                val instructions = listOf(
+                    plain.getAsJsonArray("messages")[0].asJsonObject.get("content").asString,
+                    attached.getAsJsonArray("input")[0].asJsonObject.getAsJsonArray("content")[0]
+                        .asJsonObject.get("text").asString
+                )
+                assertEquals(instructions[0], instructions[1])
+                instructions.forEach {
+                    assertTrue(it.contains("Answer the question first"))
+                    assertTrue(it.contains("80 words"))
+                    assertTrue(it.contains("explicitly requests detail"))
+                    assertTrue(it.contains("Do not prescribe medication doses"))
+                    assertTrue(it.contains("Never invent missing data"))
+                    assertTrue(it.contains("plain text"))
+                }
+                assertEquals(2, server.requestCount)
+            }
+        } finally { text.delete() }
+    }
+
     @Test fun personalRequestContainsRealPdfImageAndCompleteTextContent() = runTest {
         val dir = Files.createTempDirectory("chat-request-").toFile()
         try {

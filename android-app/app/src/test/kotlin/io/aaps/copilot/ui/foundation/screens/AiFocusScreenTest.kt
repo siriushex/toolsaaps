@@ -44,6 +44,41 @@ class AiFocusScreenTest {
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var root: View
 
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun chatRolesAreHiddenButRemainAccessible() = screen(ready().copy(
+        chatMessages = listOf(
+            AiChatMessageUi("question", "user", "Проверить свежесть данных", 1000),
+            AiChatMessageUi("reply", "assistant", "Нет свежих данных. Проверьте связь с сенсором.", 2000)
+        )
+    )) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        assertNoVisibleRoleCaptions()
+        compose.onNodeWithContentDescription("Вы").assertExists()
+        compose.onNodeWithContentDescription("AI").assertExists()
+        compose.onNodeWithText("Проверить свежесть данных").assertIsDisplayed()
+        compose.onNodeWithText("Нет свежих данных. Проверьте связь с сенсором.").assertIsDisplayed()
+        saveRaster("chat-no-role-captions-ru-small")
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun chatRolesStayHiddenWithLargeFontAndVoiceMetadata() = screenContent({ ready().copy(
+        chatMessages = listOf(AiChatMessageUi("spoken", "user", "Проверить данные", 1000, voiceTranscript = true))
+    ) }, fontScale = 1.8f) {
+        compose.onNodeWithTag("ai_focus_tab_chat").performClick()
+        assertNoVisibleRoleCaptions()
+        compose.onNodeWithText(root.context.getString(io.aaps.copilot.R.string.ai_analysis_chat_voice_transcript))
+            .assertIsDisplayed()
+        val text = compose.onNodeWithText("Проверить данные").fetchSemanticsNode().boundsInRoot
+        assertTrue(text.left >= 0 && text.right <= root.width)
+        compose.onNodeWithTag("ai_focus_send").assertIsDisplayed()
+        saveRaster("chat-no-role-captions-ru-large")
+    }
+
+    private fun assertNoVisibleRoleCaptions() {
+        compose.onAllNodesWithText("Вы", useUnmergedTree = true).assertCountEquals(0)
+        compose.onAllNodesWithText("AI", useUnmergedTree = true).assertCountEquals(0)
+    }
+
     @Test fun focusPlusHasNoInnerOwlDuplicatingTheAppHeader() = screen(ready()) {
         compose.onNodeWithTag("ai_focus_owl").assertDoesNotExist()
         compose.onNodeWithTag("ai_focus_diagnostics").assertDoesNotExist()

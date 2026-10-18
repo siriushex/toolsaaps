@@ -29,7 +29,7 @@ from .history_contract import (
     encoded,
     valid_time,
 )
-from .job_policy import CHAT_POLICY
+from .job_policy import CHAT_POLICY, CHAT_RESPONSE_REVISION
 from .native_text import TextSessionPolicy
 from .server_chat import decrypt_entry, encrypt_entry, read_context
 
@@ -64,7 +64,7 @@ def compact_chat_policy(model):
     policy = replace(
         CHAT_POLICY,
         model=model,
-        prompt_revision="advisory-compact-context-v2",
+        prompt_revision=f"advisory-compact-context-v2-{CHAT_RESPONSE_REVISION}",
         system_prompt=CHAT_POLICY.system_prompt + " " + INSTRUCTIONS,
     )
     TextSessionPolicy(policy.model, policy.system_prompt)

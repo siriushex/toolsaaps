@@ -2500,7 +2500,11 @@ private fun AiChatMessageBubble(
         stringResource(id = R.string.ai_analysis_chat_role_ai)
     }
     Card(
-        modifier = if (message.failure != null) Modifier.testTag("ai_chat_failure") else Modifier,
+        modifier = if (message.failure != null) {
+            Modifier.testTag("ai_chat_failure")
+        } else {
+            Modifier.semantics(mergeDescendants = true) { contentDescription = roleLabel }
+        },
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
@@ -2513,26 +2517,30 @@ private fun AiChatMessageBubble(
                 .padding(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = roleLabel,
-                    style = MaterialTheme.typography.labelLarge
-                )
-                if (message.voiceTranscript) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
+            if (message.failure != null || message.voiceTranscript) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (message.failure != null) Arrangement.SpaceBetween else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (message.failure != null) {
                         Text(
-                            text = stringResource(id = R.string.ai_analysis_chat_voice_transcript),
-                            style = MaterialTheme.typography.labelSmall
+                            text = roleLabel,
+                            style = MaterialTheme.typography.labelLarge
                         )
+                    }
+                    if (message.voiceTranscript) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            Text(
+                                text = stringResource(id = R.string.ai_analysis_chat_voice_transcript),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
                 }
             }

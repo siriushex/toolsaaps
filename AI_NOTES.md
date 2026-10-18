@@ -1,3 +1,26 @@
+# Concise Chat Presentation - 2026-10-18
+
+- Hide normal sender captions in native chat, retaining the existing color cues
+  and merged sender accessibility semantics. Error titles, voice metadata,
+  attachments and message content remain intact; old history is not rewritten.
+- Share the same answer-first instructions across both Android personal text
+  routes. Server plain/contextual/compact CHAT policies inherit one concise style
+  and an explicit revision suffix for request binding. Other job kinds are unchanged.
+- Default to at most 80 words, with requested detail and essential safety exceptions.
+  Prefer readable source/time references and relevant missing evidence; distinguish
+  observations from possible explanations without invented precision or actions.
+  This is a prompt default, never local truncation of an accepted answer.
+- Models, deadlines, response limits, action/tool restrictions and therapy remain
+  unchanged. No provider request, server deployment, phone update or APK publication.
+- RED checks reproduced role captions and missing prompt instructions. Focused
+  Android 65/server 112 tests pass; native 320x640 normal/large-font rasters inspected.
+- Combined local tree: 6311 Android tests, 6305 passed/six existing skips, no errors
+  or failures. Compile, lint and debug APK pass in 8m23s; lint has zero errors,
+  378 warnings/eight hints. Backend: 1882 passed/27 skipped; scoped fatal lint passes.
+  Exact-head CI is separate from these local results and APK remains unpublished.
+- No measured latency or clinical answer-quality improvement is claimed. Source
+  verification cannot prove that a live model follows every response instruction.
+
 # Physical Activity Recovery Chronology - 2026-10-18
 
 - Reproduced premature recovery after six minute-rate evaluations and activation

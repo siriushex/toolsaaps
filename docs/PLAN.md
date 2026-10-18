@@ -1,5 +1,16 @@
 # PLAN
 
+## Concise Chat Presentation (2026-10-18)
+
+- [x] Reproduce visible captions and missing concise instructions with synthetic tests.
+- [x] Hide normal roles without losing accessibility, errors or voice metadata.
+- [x] Share grounded answer-first style across personal and server text-chat routes.
+- [x] Pass 65 focused Android/112 backend checks; inspect native normal/large rasters.
+- [x] Complete full local checks: Android 6305 passed/six skips; backend 1882 passed/27 skips.
+- [x] Compile, lint and build debug APK; no lint errors. Scoped fatal Python lint passes.
+- [ ] Inspect reviewed exact-head source delivery and Verify CI.
+- Live provider latency/quality and server/device rollout remain separate acceptance.
+
 ## Physical Activity Recovery Chronology (2026-10-18)
 
 - [x] Reproduce minute-cadence recovery and sensitivity-alias failures.
