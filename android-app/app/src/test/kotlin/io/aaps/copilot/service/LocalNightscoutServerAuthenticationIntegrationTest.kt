@@ -269,6 +269,71 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun directFallbackAlsoRejectsStockGlucoseOnlyReceiver() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        settings.update { it.copy(localNightscoutEnabled = false,
+            localCommandFallbackEnabled = true, localCommandPackage = "info.nightscout.androidaps") }
+        installAapsRelayReceiver(supportsTreatments = false)
+        val base = managerTempTargetCommand("stock-fallback")
+        val command = base.copy(idempotencyKey = "manual:target-editor:stock-fallback")
+
+        val result = repository(settings) { error("No HTTP target configured") }
+            .submitTempTarget(command) { null }
+
+        assertThat(result).isFalse()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
+            .isEqualTo(NightscoutActionRepository.STATUS_FAILED)
+        assertThat(db.therapyDao().since(0L)).isEmpty()
+        assertThat(shadowOf(context as android.app.Application).broadcastIntents
+            .filter { it.`package` == "info.nightscout.androidaps" }).isEmpty()
+    }
+
+    @Test
+    fun directFallbackPreservesExplicitLegacyTreatmentExtension() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        settings.update { it.copy(localNightscoutEnabled = false,
+            localCommandFallbackEnabled = true, localCommandPackage = "info.nightscout.androidaps") }
+        installAapsRelayReceiver()
+        val base = managerTempTargetCommand("legacy-fallback")
+        val command = base.copy(idempotencyKey = "manual:target-editor:legacy-fallback")
+
+        val result = repository(settings) { error("No HTTP target configured") }
+            .submitTempTarget(command) { null }
+
+        assertThat(result).isTrue()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
+            .isEqualTo(NightscoutActionRepository.STATUS_SENT)
+        assertThat(shadowOf(context as android.app.Application).broadcastIntents
+            .filter { it.`package` == "info.nightscout.androidaps" }).hasSize(1)
+    }
+
+    @Test
+    fun stockAapsGlucoseReceiverCannotAcknowledgeTreatmentDelivery() = runBlocking {
+        val port = freePort()
+        val settings = configuredLocalSettings(port)
+        installAapsRelayReceiver(supportsTreatments = false)
+        server = newServer(MutableLocalNightscoutRuntimeState(), settingsStore = settings)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        authorizeLocalServer(port)
+        val command = managerTempTargetCommand("stock-aaps-glucose-only")
+
+        val result = runCatching {
+            withTimeout(5_000L) {
+                repository(settings) { LocalNightscoutClientIdentity(caCertificate, apiSecretSha1) }
+                    .submitOrRetryTempTarget(command) { null }
+            }
+        }
+
+        assertThat(result.exceptionOrNull())
+            .isInstanceOf(NightscoutActionRepository.TempTargetDeliveryUnknownException::class.java)
+        assertThat(db.therapyDao().since(0L)).isEmpty()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
+            .isEqualTo(NightscoutActionRepository.STATUS_PENDING)
+        assertThat(shadowOf(context as android.app.Application).broadcastIntents
+            .filter { it.action == "com.eveningoutpost.dexdrip.NS_EMULATOR" }).isEmpty()
+    }
+
+    @Test
     fun successfulManagedLocalRelayDoesNotDeadlockOnTransportLease() {
         runBlocking {
             val port = freePort()
@@ -1529,7 +1594,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             .contains("\"read\":true")
     }
 
-    private fun installAapsRelayReceiver() {
+    private fun installAapsRelayReceiver(supportsTreatments: Boolean = true) {
         val packageName = "info.nightscout.androidaps"
         val relayIntent = Intent("com.eveningoutpost.dexdrip.NS_EMULATOR").setPackage(packageName)
         val receiver = ResolveInfo().apply {
@@ -1537,11 +1602,18 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 this.packageName = packageName
                 name = "$packageName.TestNightscoutReceiver"
                 exported = true
+                enabled = true
             }
         }
         shadowOf(context.packageManager).apply {
             installPackage(PackageInfo().apply { this.packageName = packageName })
             addResolveInfoForIntent(relayIntent, receiver)
+            if (supportsTreatments) {
+                addResolveInfoForIntent(
+                    Intent("info.nightscout.androidaps.action.LOCAL_TREATMENTS").setPackage(packageName),
+                    receiver
+                )
+            }
         }
     }
 

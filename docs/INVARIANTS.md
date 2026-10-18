@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## AAPS Treatment Transport Capability
+
+- Never infer treatment support from an installed AAPS package or an
+  `NS_EMULATOR` glucose receiver alone, regardless of version name.
+- Legacy fallback must have an explicit destination. Generic glucose transport
+  additionally requires the same enabled, exported component to declare the
+  treatment extension. Package-manager failure cannot become permission to send.
+- A rejected local relay cannot create a treatment row, claim application by
+  AAPS or clear uncertain command ownership. Existing reconciliation remains.
+- API v3 compatibility requires authentication, durable modification history,
+  exact filters and stock-client verification, not merely matching route names.
+
 ## Provider Token Usage
 
 - Only correlated raw upstream usage is provider evidence, not thread estimates.

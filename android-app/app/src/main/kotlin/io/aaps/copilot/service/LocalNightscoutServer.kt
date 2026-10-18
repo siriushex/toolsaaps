@@ -1914,7 +1914,7 @@ class LocalNightscoutServer internal constructor(
                     putExtra("data", payload)
                 }
 
-                if (resolveReceiverCount(intent) <= 0) return@forEach
+                if (!AapsTreatmentBroadcastCapability.canSend(context, intent)) return@forEach
                 runCatching {
                     context.sendBroadcast(intent)
                     delivered++
@@ -1957,20 +1957,6 @@ class LocalNightscoutServer internal constructor(
                     }
                 }.isSuccess
             }
-        }
-
-        private fun resolveReceiverCount(intent: Intent): Int {
-            return runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    context.packageManager.queryBroadcastReceivers(
-                        intent,
-                        PackageManager.ResolveInfoFlags.of(0)
-                    ).size
-                } else {
-                    @Suppress("DEPRECATION")
-                    context.packageManager.queryBroadcastReceivers(intent, 0).size
-                }
-            }.getOrDefault(0)
         }
 
         private fun handlePostDeviceStatus(session: IHTTPSession): Response {

@@ -1,5 +1,18 @@
 # PLAN
 
+## Stock AAPS 4.0 Compatibility (2026-10-18)
+
+- [x] Follow owner direction: adapt Copilot first, leave AAPS source unchanged.
+- [x] Inspect official RC1 data, authentication and incoming-treatment contracts.
+- [x] Reproduce and fix false legacy treatment delivery through glucose-only receivers.
+- [x] Pass focused/full Android tests, lint and build for the capability gate.
+- [ ] Inspect reviewed exact-head CI before integrating this stage.
+- [ ] Implement authenticated loopback v3 with durable collection revisions.
+- [ ] Verify native paired Client Control and signed application ACKs before
+      considering any AAPS command-bridge changes.
+- [ ] Verify stock RC1 client and actual data/command reconciliation before update.
+- Details and remaining gates: AAPS4_COMPATIBILITY.md. No device acceptance yet.
+
 ## Provider Token Usage (2026-10-18)
 
 - [x] Preserve selected model/login; inspect public mapping and pinned usage schema.

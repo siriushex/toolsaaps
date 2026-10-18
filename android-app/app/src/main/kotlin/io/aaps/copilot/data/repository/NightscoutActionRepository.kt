@@ -23,6 +23,7 @@ import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.security.TherapyActionTransportGate
 import io.aaps.copilot.security.TherapyActionsNotArmedException
 import io.aaps.copilot.service.ApiFactory
+import io.aaps.copilot.service.AapsTreatmentBroadcastCapability
 import io.aaps.copilot.service.isOwnedLocalNightscoutEndpoint
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
@@ -1041,7 +1042,7 @@ class NightscoutActionRepository(
                         putExtra("secret", apiSecret)
                     }
                 }
-                if (resolveReceiverCount(intent) == 0) {
+                if (!AapsTreatmentBroadcastCapability.canSend(context, intent)) {
                     false
                 } else {
                     context.sendBroadcast(intent)
@@ -1119,18 +1120,6 @@ class NightscoutActionRepository(
             context.packageManager.getPackageInfo(packageName, 0)
         }
     }.isSuccess
-
-    private fun resolveReceiverCount(intent: Intent): Int = runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.packageManager.queryBroadcastReceivers(
-                intent,
-                PackageManager.ResolveInfoFlags.of(0)
-            ).size
-        } else {
-            @Suppress("DEPRECATION")
-            context.packageManager.queryBroadcastReceivers(intent, 0).size
-        }
-    }.getOrDefault(0)
 
     private fun buildTreatmentId(prefix: String, idempotencyKey: String): String {
         val suffix = idempotencyKey.replace(Regex("[^a-zA-Z0-9_-]"), "").take(48)

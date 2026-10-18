@@ -1,3 +1,31 @@
+# Stock AAPS 4.0 Compatibility - 2026-10-18
+
+- Owner redirected adaptation to Copilot with minimal AAPS changes. The isolated
+  official RC1 checkout remains unchanged; its baseline quality run is separate.
+- Source audit found that upstream NS_EMULATOR accepts glucose, not treatments,
+  while both Copilot legacy paths previously counted any receiver as support.
+- Reproduced false delivery success in a synthetic real-loopback/Room regression
+  before the fix. Both send paths now share an explicit treatment-capability
+  check; stock glucose-only receivers are rejected without local therapy writes.
+- Focused checks: 109 discovered, 108 passed, zero failures/errors, one optional
+  disposable-phone-database test skipped because no phone copy was supplied.
+- Full Android quality run passed: 6330 tests discovered, 6324 passed, six optional
+  private-data/phone-copy checks skipped, zero failures/errors; lint has zero
+  errors (378 warnings and eight hints); assembleDebug succeeded. Commands:
+  `./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
+  with Java 17. The original RED regression failed for false delivery success,
+  not compilation. No source changes after these verification runs.
+- Pristine RC1 app tests passed (128); its full baseline lint/build assessment is
+  independent of this Copilot stage. It is not device migration acceptance.
+- Upstream source also exposes paired Client Control with signed prepare/commit
+  and ACK messages over v3 settings. Prefer verifying this stock capability
+  before considering AAPS-side command patches. It is not connected here.
+- Protocol/migration plan: docs/AAPS4_COMPATIBILITY.md. Full local API v3,
+  stock-client integration and device update remain separate acceptance gates.
+- No phone, pump, server, signing identity or therapy settings changed.
+- Publication is source/tests/docs only. Inspect Verify on the pushed commit;
+  an APK was built locally but is not an AAPS 4.0-compatible deployment claim.
+
 # Internet Update Candidate 0.1.3 - 2026-10-18
 
 - User now requests publication through the existing in-app internet updater.

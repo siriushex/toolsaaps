@@ -1,5 +1,18 @@
 # ARCHITECTURE
 
+## Stock AAPS 4.0 Integration Direction
+
+Keep AAPS source stock where possible and implement its Nightscout v3 contract in
+Copilot's loopback TLS server. Existing v1/Socket.IO and custom 3.x extensions
+remain separate capabilities, not evidence of stock RC1 compatibility. The
+generic `NS_EMULATOR` receiver is glucose-only in upstream AAPS; legacy treatment
+relay requires a matching explicit treatment-extension receiver. See
+AAPS4_COMPATIBILITY.md for inspected contracts and remaining implementation gates.
+Stock RC1's paired Client Control over v3 settings is the candidate for command
+acknowledgements; its signed prepare/commit protocol must be verified rather than
+replaced with new AAPS broadcast handlers. Neither v3 nor Client Control is wired
+into Copilot in this stage.
+
 ## Provider Token Usage (2026-10-18)
 
 Bounded raw upstream response counts are correlated to native thread/turn and

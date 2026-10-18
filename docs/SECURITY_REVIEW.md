@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## AAPS 4.0 Legacy Capability Gate (2026-10-18)
+
+- Scope: both existing treatment broadcast send paths only. No new receiver,
+  permission, authentication credential, endpoint or therapy authority.
+- An explicit destination is required. Glucose-only `NS_EMULATOR` support cannot
+  authorize treatment transport; the same enabled, exported component must also
+  declare the legacy treatment action. Package-manager errors fail closed.
+- Component declarations are capability evidence, not sender authentication or
+  delivery confirmation. Existing transport leases, idempotency, unknown-result
+  reconciliation and local TLS authentication remain required.
+- Synthetic tests cover stock AAPS rejection, preserved legacy exchange, API 31
+  and 35, unscoped destinations, other packages and disabled/private receivers.
+- Full stock RC1 support is not established. Native paired Client Control needs
+  separate interoperability checks for HMAC/counters/expiry and signed ACKs;
+  preparing a command is not permission to commit it or proof of application.
+
 ## Provider Token Usage (2026-10-18)
 
 - Native correlation plus exact frame/model/instruction hashes prevent cross-turn
