@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Pure Compact Context
+
+- Compaction changes model representation only, not uploads or raw archives.
+- Raw eligible segments determine metrics; rounded/decimated bins never do.
+- Source/quality/context/sensor cohorts, unknown ranges and gaps remain distinct.
+- Required supplied sections and admitted current question cannot be truncated.
+- Protected focus and recent72hours retain their declared resolution.
+- Exception/capacity overflow refuses rather than silently hiding critical detail.
+- Frame/manifest bytes are immutable; a hash does not authenticate a caller.
+- Missing trusted token accounting cannot claim model-window admission.
+- The pure projector cannot persist, infer, deploy or perform a clinical action.
+
 ## APK Update Boundary
 
 - Only explicit check/download/install actions; no silent update or downgrade.

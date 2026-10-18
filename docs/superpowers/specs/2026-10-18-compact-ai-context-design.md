@@ -1,6 +1,8 @@
 # Compact AI Context
 
-Status: proposed format, awaiting written design review before implementation.
+Status: written format approved by the owner; pure first-stage implementation
+is documented in ../../COMPACT_AI_CONTEXT.md. Authenticated CHAT integration and
+persisted per-answer receipts remain separate, unconnected work.
 The owner explicitly selected model-context-only compaction. Phone collection,
 phone-to-server upload, original encrypted archive, revisions/deletions and
 retention remain unchanged. This design does not activate a native conversation,
@@ -163,7 +165,7 @@ ownership remain separately versioned work from AI_DEVICE_CONTEXT.md.
 ## Sizing Evidence
 
 Local canonical compact-JSON layout calculation for one cohort, ordinary24-hour
-days, seven columns and maximally wide valid positive integer glucose values:
+days, seven columns and illustrative integer glucose values up to50mmol/L:
 
 | Period | Minute Samples | Ten-Minute Rows | Ten-Minute Bytes | Adaptive Rows | Adaptive Bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -200,5 +202,8 @@ bounded evidence projection; they do not validate a new ten-minute compactor.
 - Native echo/framing, cancellation, independent stop, full backend gates and
   exact-source CI pass before an operational rollout or actual model acceptance.
 
-Written-format approval is still required. No runtime implementation or server
-change is part of this design stage.
+The owner approved implementation after selecting model-context-only compaction.
+The pure first stage now implements statistical projection, capacity checks and
+immutable manifest bytes. Authenticated selection, receipt persistence, complete
+domain export and live/native acceptance are not implied by its local tests.
+No server change is part of this stage.

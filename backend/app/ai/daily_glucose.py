@@ -336,6 +336,82 @@ def _add_segment(accumulator, start, end, value_at, ranges, range_starts):
     return parts
 
 
+@dataclass
+class _PreparedSeries:
+    counts: dict
+    groups: dict
+    points: list
+    conflicts: int
+    unusable: list
+
+
+def _prepare_series(rows, changes, start_ms, end_ms, *, max_unusable=0):
+    """Shared original-observation continuity; callers validate scope/identity."""
+    change_times = sorted({r.eventAtMs for r in changes if not r.deleted})
+    change_boundaries = set(change_times)
+    rows = sorted(
+        (r for r in rows if not r.deleted), key=lambda r: (r.eventAtMs, r.recordId)
+    )
+    counts = dict(OK=0, UNKNOWN=0, SUSPECT=0)
+    groups, buckets = {}, {}
+    for row in rows:
+        in_window = start_ms <= row.eventAtMs < end_ms
+        if in_window:
+            counts[row.quality] += 1
+        context = row.context.model_dump(exclude_none=True) if row.context else None
+        epoch = bisect_right(change_times, row.eventAtMs)
+        key = hashlib.sha256(
+            encoded([row.source, row.quality, context, epoch])
+        ).hexdigest()
+        buckets.setdefault(row.eventAtMs, []).append((key, row))
+        if row.quality != "SUSPECT":
+            if key not in groups:
+                groups[key] = [row, 0, _Accumulator(), epoch]
+            groups[key][1] += int(in_window)
+    if len(groups) > MAX_COHORTS:
+        raise ValueError("daily_glucose_capacity")
+    points, conflicts, unusable = [], 0, []
+    for timestamp, bucket in sorted(buckets.items()):
+        conflict = len({(key, row.data["glucoseMmol"]) for key, row in bucket}) != 1
+        if conflict and start_ms <= timestamp < end_ms:
+            conflicts += 1
+        usable = (
+            not conflict
+            and bucket[0][1].quality != "SUSPECT"
+            and timestamp not in change_boundaries
+        )
+        refs = (
+            tuple(
+                EvidenceReference(
+                    recordId=r.recordId, revision=r.revision, eventAtMs=r.eventAtMs
+                )
+                for _, r in bucket
+            )
+            if usable
+            else ()
+        )
+        if max_unusable and not usable and start_ms <= timestamp < end_ms:
+            reason = (
+                "CONFLICT"
+                if conflict
+                else "SUSPECT"
+                if bucket[0][1].quality == "SUSPECT"
+                else "SENSOR_BOUNDARY"
+            )
+            unusable.append((timestamp, reason, tuple(r for _, r in bucket)))
+            if len(unusable) > max_unusable:
+                raise ValueError("daily_glucose_capacity")
+        points.append(
+            (
+                timestamp,
+                bucket[0][0] if usable else None,
+                bucket[0][1].data["glucoseMmol"] if usable else None,
+                refs,
+            )
+        )
+    return _PreparedSeries(counts, groups, points, conflicts, unusable)
+
+
 def build_daily_glucose(
     records,
     *,
@@ -425,59 +501,13 @@ def build_daily_glucose(
     changes = sorted(
         (r for r in changes if not r.deleted), key=lambda r: (r.eventAtMs, r.recordId)
     )
-    change_times = sorted({r.eventAtMs for r in changes})
-    change_boundaries = set(change_times)
-    rows = sorted(
-        (r for r in rows if not r.deleted), key=lambda r: (r.eventAtMs, r.recordId)
+    prepared = _prepare_series(rows, changes, window.startMs, window.endMs)
+    counts, groups, points, conflicts = (
+        prepared.counts,
+        prepared.groups,
+        prepared.points,
+        prepared.conflicts,
     )
-    counts = dict(OK=0, UNKNOWN=0, SUSPECT=0)
-    groups, buckets = {}, {}
-    for row in rows:
-        in_day = window.startMs <= row.eventAtMs < window.endMs
-        if in_day:
-            counts[row.quality] += 1
-        context = row.context.model_dump(exclude_none=True) if row.context else None
-        epoch = bisect_right(change_times, row.eventAtMs)
-        key = hashlib.sha256(
-            encoded([row.source, row.quality, context, epoch])
-        ).hexdigest()
-        buckets.setdefault(row.eventAtMs, []).append((key, row))
-        if row.quality != "SUSPECT":
-            if key not in groups:
-                groups[key] = [row, 0, _Accumulator(), epoch]
-            groups[key][1] += int(in_day)
-    if len(groups) > MAX_COHORTS:
-        raise ValueError("daily_glucose_capacity")
-
-    points, conflicts = [], 0
-    for timestamp, bucket in sorted(buckets.items()):
-        values = {(key, row.data["glucoseMmol"]) for key, row in bucket}
-        conflict = len(values) != 1
-        if conflict and window.startMs <= timestamp < window.endMs:
-            conflicts += 1
-        usable = (
-            not conflict
-            and bucket[0][1].quality != "SUSPECT"
-            and timestamp not in change_boundaries
-        )
-        refs = (
-            tuple(
-                EvidenceReference(
-                    recordId=r.recordId, revision=r.revision, eventAtMs=r.eventAtMs
-                )
-                for _, r in bucket
-            )
-            if usable
-            else ()
-        )
-        points.append(
-            (
-                timestamp,
-                bucket[0][0] if usable else None,
-                bucket[0][1].data["glucoseMmol"] if usable else None,
-                refs,
-            )
-        )
 
     starts = [r.startMs for r in settings]
     hourly_enabled = _regular_clock(window)

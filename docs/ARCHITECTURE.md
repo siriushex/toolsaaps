@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Pure Compact Context
+
+An unconnected pure projector accepts selected decoded glucose versions and
+caller-prepared observational sections. It reuses daily-glucose preparation and
+original-segment moments/episodes, encodes adaptive statistical grids and exact
+extrema offsets, then freezes bounded frame/manifest bytes. No archive selection,
+authentication, persistent receipt or model dispatch occurs here. Token admission
+requires an injected trusted counter; absent accounting stays UNVERIFIED.
+See COMPACT_AI_CONTEXT.md for limits and the remaining trusted CHAT adapter.
+
 ## Device Conversation Versus Native Thread
 
 Per-device encrypted history and server exchange archival do not imply a durable

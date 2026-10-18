@@ -1,3 +1,27 @@
+# Pure Compact AI Context - 2026-10-18
+
+- Implemented the approved standalone projector. Shared daily-glucose continuity
+  and original-segment integration retain raw metrics, extrema times, cohorts,
+  gaps and exception/episode evidence without selecting every tenth point.
+- Exact required sections/question, adaptive10/30/60-minute background and
+  protected1/5/10-minute focus obey canonical byte limits. Old assistant turns
+  are removed individually; each glucose resolution is calculated once per call.
+- Frozen frame and external manifest bind source/settings/highwater/cutoff and
+  actual omissions/resolutions. Missing model token accounting stays UNVERIFIED.
+- Synthetic minute-history frames for3/7/14days use19781/43962/86314bytes.
+  A two-source14-day case with old one-minute focus uses89048bytes. These are
+  projector frame measurements, not full-profile/live-device or token benchmarks.
+- 155 focused tests pass after RED regressions for chat retention, bounded daily
+  preparation, ordering and redundant recomputation. Full backend on CI-matching
+  Python3.12 passes1840 cases with27 skips and one dependency warning; scoped
+  E/F lint, format check, Python compilation and diff checks pass.
+- Two final Python3.13 runs exposed EPERM in existing process-group teardown;
+  that adapter was not changed. Its30 tests and full suite pass on Python3.12.
+  This is an environment-specific residual finding, not a repaired runtime claim.
+- COMPACT_AI_CONTEXT.md documents API, bounds and remaining trusted adapter work.
+  No CHAT wiring, persistent receipt, archive/upload change, inference, server,
+  phone, APK, native thread persistence or therapy change is introduced.
+
 # Compact AI Context Design - 2026-10-18
 
 - Owner selected compaction only in the model context; raw phone/server history

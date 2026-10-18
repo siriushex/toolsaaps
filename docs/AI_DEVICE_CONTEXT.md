@@ -1,10 +1,12 @@
 # Device AI Conversation And Context Audit
 
 The owner subsequently selected compaction only of model context, not phone
-uploads or the detailed archive. The proposed ten-minute statistical and adaptive
+uploads or the detailed archive. The approved ten-minute statistical and adaptive
 background format is specified in
 [Compact AI Context](superpowers/specs/2026-10-18-compact-ai-context-design.md).
-Its design-stage sizing is not an implemented runtime feature or token benchmark.
+The pure first-stage projector is implemented in source; see COMPACT_AI_CONTEXT.md.
+It is not connected to CHAT, authenticated archive reads or persistent per-answer
+receipts. Its synthetic byte measurements are not a model-token benchmark.
 
 Status: source/deployment audit and required design delta, not activation of a
 persistent native conversation. The device owner requested an independent chat

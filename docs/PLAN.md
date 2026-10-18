@@ -1,13 +1,25 @@
 # PLAN
 
+## Pure Compact Context Projector (2026-10-18)
+
+- [x] Approve model-context-only format and write an isolated implementation plan.
+- [x] Add RED-first projection, coverage, mutation, limits and resource regressions.
+- [x] Reuse daily preparation/raw integration; build immutable frames/manifests.
+- [x] Pass155 focused cases and measure actual synthetic3/7/14-day packets.
+- [x] Pass full backend on CI-matching Python3.12:1840 passed,27 skipped; scoped lint/format/compile pass.
+- [ ] Inspect reviewed source publication and exact-head Verify CI.
+- [ ] Connect authenticated archive selection, CHAT and encrypted per-answer receipts separately.
+- No upload/archive, native-thread persistence, phone or therapy change.
+
 ## Compact Model Context Design (2026-10-18)
 
 - [x] Confirm model-context-only scope; keep detailed uploads/archive unchanged.
 - [x] Inspect reusable daily glucose facts, continuity/cohort rules and packet boundaries.
 - [x] Size synthetic3/7/14-day JSON layouts and pass118 existing calculator tests.
 - [x] Specify proposed adaptive buckets, mandatory events, packet budgets and context receipts.
-- [ ] Obtain written-format review before implementation.
-- [ ] Implement isolated projection and regressions; complete backend/native/CI acceptance before rollout.
+- [x] Obtain written-format review before implementation.
+- [x] Implement isolated pure projection and regressions.
+- [ ] Complete authenticated CHAT/native/receipt acceptance before operational rollout.
 
 ## Per-Device AI Context Audit (2026-10-18)
 

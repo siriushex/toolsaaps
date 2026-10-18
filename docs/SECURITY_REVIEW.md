@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Pure Compact Context (2026-10-18)
+
+- Strict decoded-record revalidation, unique identities, explicit time bounds,
+  canonical section bytes and finite resource limits reject malformed inputs.
+- All sections/chat are untrusted data, not instructions. Pure input hashes are
+  reproducibility bindings, not authenticated owner/device identity.
+- Mandatory exception/question/profile evidence is never silently truncated;
+  saturation returns fixed error codes without raw payload or inference replay.
+- Projection reuse is limited to one call. No new global personal-data cache,
+  database, external tool, model call, route or native-session permission.
+- Trusted archive access, receipt encryption/persistence and real token accounting
+  are deliberately unconnected and required before production CHAT integration.
+
 ## Eating Soon Across Concurrent Meals (2026-10-18)
 
 - A short immutable-input reservation precedes target dispatch; per-operation
