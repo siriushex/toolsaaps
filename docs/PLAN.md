@@ -1,5 +1,14 @@
 # PLAN
 
+## Compact Model Context Design (2026-10-18)
+
+- [x] Confirm model-context-only scope; keep detailed uploads/archive unchanged.
+- [x] Inspect reusable daily glucose facts, continuity/cohort rules and packet boundaries.
+- [x] Size synthetic3/7/14-day JSON layouts and pass118 existing calculator tests.
+- [x] Specify proposed adaptive buckets, mandatory events, packet budgets and context receipts.
+- [ ] Obtain written-format review before implementation.
+- [ ] Implement isolated projection and regressions; complete backend/native/CI acceptance before rollout.
+
 ## Per-Device AI Context Audit (2026-10-18)
 
 - [x] Trace Android export, authenticated archive, bounded model context and ephemeral native thread.

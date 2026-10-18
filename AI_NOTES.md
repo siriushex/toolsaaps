@@ -1,3 +1,16 @@
+# Compact AI Context Design - 2026-10-18
+
+- Owner selected compaction only in the model context; raw phone/server history
+  and upload/clinical paths remain unchanged. Proposed multiresolution statistical
+  bins preserve source, coverage, extrema and exact question-relevant events.
+- Canonical JSON layout sizing for one cohort:3/7/14-day ten-minute curves use
+  14977/34561/68833bytes; fourteen-day adaptive layout uses33541bytes. These are
+  format fixtures, not an implemented compressor, full packets or measured tokens.
+- 118 existing daily glucose/comparison/review tests pass. Detailed proposed
+  budgets, overflow semantics and acceptance checks are in the2026-10-18 compact
+  AI context design. Written-format approval and implementation remain pending.
+- No production source, model request, deployment, archive, phone or therapy change.
+
 # Device AI Conversation Audit - 2026-10-18
 
 - Read-only source/host audit distinguishes encrypted per-device history from a

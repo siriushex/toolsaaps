@@ -1,5 +1,11 @@
 # Device AI Conversation And Context Audit
 
+The owner subsequently selected compaction only of model context, not phone
+uploads or the detailed archive. The proposed ten-minute statistical and adaptive
+background format is specified in
+[Compact AI Context](superpowers/specs/2026-10-18-compact-ai-context-design.md).
+Its design-stage sizing is not an implemented runtime feature or token benchmark.
+
 Status: source/deployment audit and required design delta, not activation of a
 persistent native conversation. The device owner requested an independent chat
 with complete application context for each device. Existing archival isolation
