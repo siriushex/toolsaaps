@@ -1,5 +1,24 @@
 # PLAN
 
+## Food Photo Nutrition Response Guard (2026-10-18)
+
+- [x] Trace parsed results through editor and existing nutrition validation;
+  reproduce impossible facts and wholly unusable portions before production edits.
+- [x] Validate response feasibility before review on Android and backend; keep
+  uncertain intervals and unknown/subfraction semantics unchanged.
+- [x] Align explicit mass editing/conversion with existing calculator bounds;
+  explain the usable lower bound without auto-selecting or clamping grams.
+- [x] Focused gates:113 Android cases including30 native photo cases;87 backend
+  contract/vision/transport cases, zero failures/errors/skips.
+- [x] Full fixed-input backend:1763 passed/27 existing skips. An initial macOS
+  process-group PermissionError is retained; isolated runner30 and unchanged
+  full repeat pass without weakening lifecycle checks.
+- [x] Full fixed-input Android:6197 passed/six existing skips; lint/compile/build
+  succeeded in34m24s, baseline376 warnings/eight hints and zero errors. No issue
+  in changed photo files. Source manifests match and private APK verifies.
+- Source publication/exact-head CI require separate receipts. No deployment,
+  model, actual photo, phone or therapy operation belongs to this stage.
+
 ## Food Photo Camera Ownership (2026-10-18)
 
 - [x] Trace camera result, prepared bytes, owned file/URI cleanup and food cancel.

@@ -11,6 +11,7 @@ import io.aaps.copilot.domain.nutrition.IngredientAmount
 import io.aaps.copilot.domain.nutrition.KnownNutrient
 import io.aaps.copilot.domain.nutrition.MealIngredient
 import io.aaps.copilot.domain.nutrition.MealNutritionBounds
+import io.aaps.copilot.domain.nutrition.MealNutritionValidator
 import io.aaps.copilot.domain.nutrition.NutrientFacts
 import io.aaps.copilot.domain.nutrition.NutrientReferenceType
 import io.aaps.copilot.domain.nutrition.NutrientSource
@@ -79,10 +80,12 @@ data class MealPhotoIngredientEstimate(
     val polyols: NutritionRange?,
     val energy: PhotoEnergyEstimate?
 ) {
+    fun acceptsConfirmedMass(grams: Double): Boolean = grams.isFinite() &&
+        grams in MealNutritionBounds.MIN_QUANTITY_GRAMS..MealNutritionBounds.MAX_QUANTITY_GRAMS &&
+        grams in massGrams.minimum..massGrams.maximum
+
     fun toMealIngredient(confirmedMassGrams: Double): MealIngredient? {
-        if (!confirmedMassGrams.isFinite() || confirmedMassGrams !in massGrams.minimum..massGrams.maximum) {
-            return null
-        }
+        if (!acceptsConfirmedMass(confirmedMassGrams)) return null
         return MealIngredient(
             id = id,
             name = name,
@@ -157,6 +160,13 @@ object MealPhotoEstimateParser {
                 reader.strictness = Strictness.STRICT
                 val value = readTopLevel(reader)
                 if (reader.peek() != JsonToken.END_DOCUMENT) throw ParseException(Reason.MALFORMED)
+                // Validate a range endpoint only; the editor still requires explicit mass selection.
+                val validationIngredients = value.ingredients.map {
+                    it.toMealIngredient(it.massGrams.maximum) ?: throw ParseException(Reason.INVALID_VALUE)
+                }
+                if (!MealNutritionValidator.validateIngredients(validationIngredients).isValid) {
+                    throw ParseException(Reason.INVALID_VALUE)
+                }
                 MealPhotoParseResult.Valid(value)
             }
         } catch (exception: ParseException) {

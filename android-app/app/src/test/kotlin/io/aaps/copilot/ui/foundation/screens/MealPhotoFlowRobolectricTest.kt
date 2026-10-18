@@ -516,6 +516,68 @@ class MealPhotoFlowRobolectricTest {
         assertAnalysisError(MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST, R.string.meal_photo_invalid_request)
     }
 
+    @Test fun unusableNutritionShowsAnErrorAndRequiresExplicitNewSelection() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        var calls = 0
+        val repository = MealPhotoAnalysisRepository(MealPhotoGateway {
+            calls++
+            """{
+                "schemaVersion": 1, "estimateId": "review-estimate", "mealName": "Rice",
+                "ingredients": [{
+                    "id": "rice", "name": "Rice", "massGrams": {"min": 180, "max": 220},
+                    "preparationState": "COOKED", "carbohydrateBasis": "TOTAL",
+                    "carbohydrates": {"min": 25, "max": ${if (calls == 1) 134 else 30}},
+                    "protein": null, "fat": null, "fiber": null, "sugar": null,
+                    "polyols": null, "energy": null
+                }], "suggestedProfile": null, "suggestedDurationMinutes": null
+            }""".trimIndent()
+        })
+        val controller = showPhoto(registry, analyze = { bytes ->
+            repository.analyze(java.util.UUID.randomUUID().toString(), bytes)
+        })
+        try {
+            compose.onNodeWithTag("mealPhotoGallery").performClick()
+            compose.runOnIdle { registry.deliver(Uri.fromFile(image)) }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("mealPhotoError").fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithTag("mealPhotoMass_rice").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("mealPhotoError").assertIsDisplayed().assertTextEquals(
+                RuntimeEnvironment.getApplication().getString(R.string.meal_photo_invalid_result))
+            compose.onNodeWithTag("mealPhotoUse").assertDoesNotExist()
+            compose.waitForIdle()
+            assertEquals(1, calls)
+
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoError").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("50")
+            compose.onNodeWithTag("mealPhotoUse").assertIsEnabled()
+            assertEquals(2, calls)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun massBelowCalculatorMinimumHasACorrectableFieldError() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val wideEstimate = estimate().copy(ingredients = estimate().ingredients.map {
+            it.copy(massGrams = NutritionRange(0.0, 220.0))
+        })
+        val controller = showPhoto(registry, analyze = { MealPhotoAnalysisResult.Success(wideEstimate) })
+        try {
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("0.05")
+            compose.onNodeWithTag("mealPhotoMassError_rice", useUnmergedTree = true)
+                .assertExists().assertTextContains("0,1", substring = true)
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("1")
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("0.1")
+            compose.onNodeWithTag("mealPhotoMassError_rice", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertIsEnabled()
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
     private fun assertAnalysisError(reason: MealPhotoAnalysisResult.Failure.Reason, message: Int) {
         val registry = PhotoRegistry()
         val image = syntheticPhoto()

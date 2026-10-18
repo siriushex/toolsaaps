@@ -535,6 +535,9 @@
 - Never use an uncorrelated receipt to poll/cancel another job.
 - Schema-v1 nutrients/energy are per 100 g, mass is selected explicitly,
   missing facts are unknown, and the existing final meal confirmation remains.
+- A parsed photo result must pass the existing nutrition-domain feasibility
+  rules before review. Range validation never selects a portion; confirmed mass
+  must satisfy both the model interval and the calculator's quantity bounds.
 - No photo-derived GI, target/dose action, Room migration or history upload.
 - Full eligible encrypted-envelope fingerprints are mandatory for context
   reuse; revisions, retention, AEAD/digests and resource budgets stay intact.

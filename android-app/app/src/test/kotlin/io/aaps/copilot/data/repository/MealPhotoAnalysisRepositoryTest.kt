@@ -109,6 +109,25 @@ class MealPhotoAnalysisRepositoryTest {
         assertThat(calls.get()).isEqualTo(1)
     }
 
+    @Test
+    fun unusableNutritionFailsWithoutRetryAndReleasesTheNextExplicitRequest() = runTest {
+        val calls = AtomicInteger(0)
+        val repository = MealPhotoAnalysisRepository(MealPhotoGateway {
+            if (calls.incrementAndGet() == 1) validJson().replace(
+                "{\"min\": 28, \"max\": 34}", "{\"min\": 28, \"max\": 134}"
+            ) else validJson()
+        })
+
+        assertThat(repository.analyze(UUID.randomUUID().toString(), byteArrayOf(1))).isEqualTo(
+            MealPhotoAnalysisResult.Failure(MealPhotoAnalysisResult.Failure.Reason.INVALID_RESPONSE)
+        )
+        testScheduler.runCurrent()
+        assertThat(calls.get()).isEqualTo(1)
+        assertThat(repository.analyze(UUID.randomUUID().toString(), byteArrayOf(2)))
+            .isInstanceOf(MealPhotoAnalysisResult.Success::class.java)
+        assertThat(calls.get()).isEqualTo(2)
+    }
+
     private fun validJson(): String = """
         {
           "schemaVersion": 1,

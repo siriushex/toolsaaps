@@ -36,6 +36,26 @@ class MealPhotoDraftEditorTest {
     }
 
     @Test
+    fun massInsideEstimateStillMustBeSupportedByTheNutritionCalculator() {
+        val estimate = estimate().copy(ingredients = estimate().ingredients.map {
+            it.copy(massGrams = NutritionRange(0.0, 80.0))
+        })
+        val state = MealPhotoDraftEditor.initial(estimate)
+        listOf(0.0, 0.05).forEach { grams ->
+            assertEquals(MealPhotoDraftEditResult.Rejected(MealPhotoDraftEditResult.Rejected.Reason.INVALID_MASS),
+                MealPhotoDraftEditor.setMass(state, "bread", grams))
+            assertEquals(null, estimate.toOriginalEstimate(mapOf("bread" to grams)))
+        }
+        val confirmed = updated(state, MealPhotoDraftEditor.setMass(state, "bread", 0.1))
+        assertTrue(MealPhotoDraftEditor.build(confirmed) is MealPhotoDraftBuildResult.Ready)
+        assertEquals(0.0, estimate.ingredients.single().massGrams.minimum, 0.0)
+        val invalidExact = estimate.copy(ingredients = estimate.ingredients.map {
+            it.copy(massGrams = NutritionRange.exact(0.05))
+        })
+        assertEquals(null, MealPhotoDraftEditor.initial(invalidExact).confirmedMassesGrams["bread"])
+    }
+
+    @Test
     fun editedEatenFractionAndPreparationStayInDraftOnly() {
         val estimate = estimate().copy(
             ingredients = estimate().ingredients.map {

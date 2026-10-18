@@ -1,5 +1,36 @@
 # Combined Native UI And Food Photo Source
 
+## Reviewable Nutrition Responses (2026-10-18)
+
+Photo response parsing now applies the existing nutrition-domain validation
+before opening review. Backend result decoding mirrors the same per-100g physical
+mass rules, including the existing 1g label-rounding tolerance. TOTAL/UNKNOWN
+carbohydrates do not add fiber twice; AVAILABLE includes fiber in physical mass.
+Sugar and polyols are subfractions, not extra macros in that check. Missing facts
+remain unknown and energy retains its original unit; no arithmetic is changed.
+
+A mass interval wholly below the existing 0.1g calculator minimum is unusable.
+An uncertain interval beginning at zero remains valid when it contains supported
+nonzero masses. Validation uses its upper endpoint only for a feasibility check,
+never as a selected mass. The editor and original-estimate conversion independently
+reject unsupported confirmed masses; the field error shows the usable lower bound
+without modifying or clamping the model interval or the user's input.
+
+Android rejects an otherwise successful response with malformed nutrition using
+the existing localized invalid-result error, rather than opening an editor with
+permanently unavailable totals. Terminal server-job failure wording is unchanged.
+There is no automatic retry;
+the user can explicitly select another image. Source tests use synthetic replies
+and images only. Actual device/provider acceptance and nutritional accuracy remain
+separate; no therapy, GI, command, schema migration or operational rollout is added.
+
+Verification:113 affected Android cases including30 native photo cases and87
+backend cases passed. Full fixed-input Android6203 cases passed with six existing
+skips; lint/compile/build succeeded and the private APK signature verifies. Full
+backend1763 passed/27 existing skips on unchanged inputs; the initial macOS
+process-group PermissionError and passing isolated30-case runner/full repeat are
+retained separately. Source CI and any device update are independent receipts.
+
 ## Camera Ownership (2026-10-18)
 
 Once bounded preparation returns independent JPEG bytes, the owned camera file

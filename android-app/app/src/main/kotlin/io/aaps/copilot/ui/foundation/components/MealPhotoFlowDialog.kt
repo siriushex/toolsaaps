@@ -264,7 +264,8 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 isError = massInvalid,
                 supportingText = if (massInvalid) {{ Text(
-                    stringResource(R.string.meal_photo_mass_invalid, photoRange(ingredient.massGrams)),
+                    stringResource(R.string.meal_photo_mass_invalid, photoRange(ingredient.massGrams.copy(
+                        minimum = maxOf(ingredient.massGrams.minimum, MealNutritionBounds.MIN_QUANTITY_GRAMS)))),
                     modifier = Modifier.testTag("mealPhotoMassError_${ingredient.id}")) }} else null,
                 modifier = Modifier.weight(1f).testTag("mealPhotoMass_${ingredient.id}"))
             OutlinedTextField(fraction, { value ->

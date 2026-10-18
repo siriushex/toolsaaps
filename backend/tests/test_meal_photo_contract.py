@@ -106,3 +106,47 @@ def test_meal_photo_estimate_rejects_commands_unknown_fields_and_invalid_ranges(
 
     with pytest.raises(MealPhotoSchemaError, match="^invalid_result$"):
         MealPhotoEstimate.decode(mutator(estimate_value()))
+
+
+@pytest.mark.parametrize("changes", [
+    {"massGrams": {"min": 0, "max": 0}},
+    {"massGrams": {"min": 0, "max": 0.05}},
+    {"carbohydrates": {"min": 28, "max": 102}},
+    {"protein": {"min": 2, "max": 80}},
+    {"sugar": {"min": 0, "max": 102}},
+    {"polyols": {"min": 0, "max": 102}},
+    {"carbohydrateBasis": "AVAILABLE", "carbohydrates": {"min": 90, "max": 90},
+     "fiber": {"min": 10, "max": 10}},
+    {"carbohydrates": {"min": 97.01, "max": 97.01}},
+])
+def test_meal_photo_estimate_rejects_results_that_android_cannot_calculate(changes):
+    from app.ai.meal_photo import MealPhotoEstimate, MealPhotoSchemaError
+
+    value = estimate_value()
+    value["ingredients"][0].update(changes)
+    with pytest.raises(MealPhotoSchemaError, match="^invalid_result$"):
+        MealPhotoEstimate.decode(value)
+
+
+@pytest.mark.parametrize("basis", ["TOTAL", "UNKNOWN"])
+def test_meal_photo_estimate_does_not_double_count_fiber_sugar_or_polyols(basis):
+    from app.ai.meal_photo import MealPhotoEstimate
+
+    value = estimate_value()
+    value["ingredients"][0].update({
+        "massGrams": {"min": 0.1, "max": 0.1},
+        "carbohydrateBasis": basis,
+        "carbohydrates": {"min": 97, "max": 97},
+        "fiber": {"min": 10, "max": 10},
+        "sugar": {"min": 20, "max": 20},
+        "polyols": {"min": 30, "max": 30},
+    })
+    assert MealPhotoEstimate.decode(value).as_dict() == value
+
+
+def test_meal_photo_estimate_keeps_uncertainty_that_includes_zero_when_mass_is_reviewable():
+    from app.ai.meal_photo import MealPhotoEstimate
+
+    value = estimate_value()
+    value["ingredients"][0]["massGrams"]["min"] = 0
+    assert MealPhotoEstimate.decode(value).as_dict() == value

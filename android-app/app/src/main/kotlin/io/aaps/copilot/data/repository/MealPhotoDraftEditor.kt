@@ -47,7 +47,7 @@ object MealPhotoDraftEditor {
         return MealPhotoDraftEditorState(
             estimate = estimate,
             confirmedMassesGrams = estimate.ingredients.associate { ingredient ->
-                ingredient.id to ingredient.massGrams.singleValueOrNull()
+                ingredient.id to ingredient.massGrams.singleValueOrNull()?.takeIf(ingredient::acceptsConfirmedMass)
             },
             eatenFractions = ids.associateWith { 1.0 },
             preparationStates = estimate.ingredients.associate { it.id to it.preparationState },
@@ -65,7 +65,7 @@ object MealPhotoDraftEditor {
             ?: return MealPhotoDraftEditResult.Rejected(
                 MealPhotoDraftEditResult.Rejected.Reason.UNKNOWN_INGREDIENT
             )
-        if (!grams.isFinite() || grams !in ingredient.massGrams.minimum..ingredient.massGrams.maximum) {
+        if (!ingredient.acceptsConfirmedMass(grams)) {
             return MealPhotoDraftEditResult.Rejected(
                 MealPhotoDraftEditResult.Rejected.Reason.INVALID_MASS
             )

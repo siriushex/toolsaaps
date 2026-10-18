@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Food Photo Nutrition Response Guard (2026-10-18)
+
+The untrusted photo result must pass existing nutrition feasibility rules before
+entering the Android editor. Backend decoding mirrors those rules and rejects
+unusable results with the existing fixed invalid_result code. No raw reply,
+image or provider error text is surfaced. Unsupported confirmed masses cannot
+bypass the domain through a wider model interval; no automatic clamping or
+portion selection is introduced. Synthetic repository/native tests cover error
+recovery without an automatic inference replay. No auth/route, model admission,
+history, GI, target/dose or device operation is added; deployment is separate.
+
 ## Camera-Owned Photo Cleanup (2026-10-18)
 
 - Release only the camera capture's generated private file and exact URI grant

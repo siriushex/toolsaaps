@@ -1,3 +1,30 @@
+# Food Photo Nutrition Response Guard - 2026-10-18
+
+- The schema accepted per100g facts or mass intervals that existing domain
+  validation could not calculate. The UI entered review instead of showing its
+  existing invalid-result error. Initial Android42-case RED: five expected
+  failures,37 passes, zero errors; final backend24-case RED: eight failures,
+  16 passes. A separate mass-specific RED confirms missing field feedback and
+  acceptance below the existing0.1g quantity minimum.
+- Reuse MealNutritionValidator on a validation-only range endpoint; never choose
+  a portion for the editor. Mirror its physical-mass rules in backend decoding.
+  Preserve intervals that include zero if a supported nonzero mass exists.
+  Confirmed mass must satisfy model and calculator bounds; show the usable range
+  in the field error. Unknowns, carbohydrate bases and1g rounding are unchanged.
+- New synthetic tests cover schema rejection, existing rounding/subfraction
+  semantics, repository release without replay, native error/new-selection recovery
+  and correction of an unsupported mass. No server, provider, phone, credentials,
+  real images or therapy actions. Full quality/publication remain separate gates.
+- Focused Android113 cases including30 native photo cases and backend87 cases
+  pass. Full backend:1763 passed/27 existing skips, matching input manifests.
+  First full run had an unchanged process-group PermissionError on macOS;
+  isolated runner30 and the unchanged full repeat pass. Retain both records;
+  no lifecycle check or test is skipped/relaxed to obtain that result.
+- Full Android:6197 passed/six existing skips, zero failures/errors; fixed-input
+  lint/compile/build succeeded in34m24s. Baseline376 warnings/eight hints, no
+  issue in changed photo files; private APK signature/package/hash verified.
+  Source CI and separately authorized USB installation have independent receipts.
+
 # Food Photo Camera Ownership - 2026-10-18
 
 - Continue with the actual camera contract and post-recognition cancellation.
