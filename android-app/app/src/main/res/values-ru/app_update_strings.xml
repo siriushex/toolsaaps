@@ -15,7 +15,7 @@
     <string name="app_update_error_network">Сервер недоступен. Проверьте интернет и повторите попытку.</string>
     <string name="app_update_error_release">Описание обновления некорректно. Установка заблокирована.</string>
     <string name="app_update_error_incompatible">Для этой версии нужен более новый Android.</string>
-    <string name="app_update_error_storage">Недостаточно свободного места для загрузки.</string>
+    <string name="app_update_error_storage">Не удалось сохранить APK. Проверьте свободное место и повторите попытку.</string>
     <string name="app_update_error_apk">APK не прошёл проверку целостности или подписи. Установка заблокирована.</string>
     <string name="app_update_error_installer">Не удалось открыть установщик или разрешения Android. Повторите попытку.</string>
     <string name="app_update_install_notice">Установку подтвердит Android. Если потребуется, разрешите установку из Copilot, вернитесь сюда и нажмите «Установить». На время установки оповещения Copilot могут прерваться; AAPS не меняется.</string>

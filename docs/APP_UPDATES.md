@@ -7,6 +7,8 @@ fetches a small public manifest; a newer compatible version offers Download,
 progress and Cancel. Only a verified download offers Install. Android retains
 its installation permission and confirmation. If permission is absent, the
 user returns from Android settings and explicitly taps Install again.
+Cancelled operations cannot publish late success or failure over a newer check.
+Storage write failures show a local-storage error, not a network retry prompt.
 There is no background update, silent install, downgrade or database migration
 introduced by this feature. Installation briefly interrupts Copilot itself,
 including its alerts. AAPS is neither stopped nor updated.

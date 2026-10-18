@@ -80,6 +80,21 @@ class AboutScreenTest {
         } finally { activity.pause().stop().destroy() }
     }
 
+    @Test fun storageFailureExplainsRecoveryAndOnlyRetriesExplicitly() {
+        var checks = 0
+        val activity = show(AppUpdateState(UpdatePhase.ERROR, failure = UpdateFailure.STORAGE),
+            onCheck = { checks++ })
+        try {
+            compose.onNodeWithText("Не удалось сохранить APK.", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Проверьте свободное место", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Установить", substring = false).assertDoesNotExist()
+            assertEquals(0, checks)
+            compose.onNodeWithText("Проверить обновление").performScrollTo().performClick()
+            assertEquals(1, checks)
+            saveRaster("about-storage-error.png", activity.get().window.decorView)
+        } finally { activity.pause().stop().destroy() }
+    }
+
     @Test fun installerOnlyGrantsReadAccessToTheVerifiedApkDirectory() {
         val app = RuntimeEnvironment.getApplication()
         org.robolectric.util.ReflectionHelpers.getStaticField<MutableMap<String, Any>>(

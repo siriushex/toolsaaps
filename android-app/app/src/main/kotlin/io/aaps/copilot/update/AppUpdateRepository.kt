@@ -72,12 +72,13 @@ class AppUpdateRepository(
                 throw AppUpdateException(UpdateFailure.INVALID_APK)
             }
             // Unverified bytes never enter the FileProvider-visible directory.
-            val partial = File.createTempFile("download-", ".part", root)
+            val partial = updateStorage { File.createTempFile("download-", ".part", root) }
             try {
                 response.body.byteStream().use { input ->
-                    partial.outputStream().use { output ->
+                    val output = updateStorage { partial.outputStream() }
+                    try {
                         copyVerifiedUpdate(input, output, release, active, progress)
-                    }
+                    } finally { updateStorage { output.close() } }
                 }
                 verifyArchive(partial, release)
                 if (!active()) throw IOException("cancelled")
@@ -145,6 +146,10 @@ class AppUpdateRepository(
         }
 }
 
+private inline fun <T> updateStorage(block: () -> T): T = try { block() }
+catch (_: IOException) { throw AppUpdateException(UpdateFailure.STORAGE) }
+catch (_: SecurityException) { throw AppUpdateException(UpdateFailure.STORAGE) }
+
 internal fun copyVerifiedUpdate(
     input: java.io.InputStream, output: java.io.OutputStream, release: AppUpdateManifest,
     active: () -> Boolean, progress: (Int) -> Unit
@@ -159,7 +164,7 @@ internal fun copyVerifiedUpdate(
         if (read < 0) break
         total += read
         if (total > release.sizeBytes || total > MAX_APK_BYTES) throw AppUpdateException(UpdateFailure.INVALID_APK)
-        output.write(buffer, 0, read)
+        updateStorage { output.write(buffer, 0, read) }
         digest.update(buffer, 0, read)
         val next = (total * 100 / release.sizeBytes).toInt()
         if (next != percent) { progress(next); percent = next }

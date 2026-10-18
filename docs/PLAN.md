@@ -1,5 +1,15 @@
 # PLAN
 
+## APK Update Failure Recovery (2026-10-18)
+
+- [x] Reproduce late cancelled results and incorrect disk-error classification.
+- [x] Guard terminal state by operation identity; separate write/read failures.
+- [x] Complete focused and full Android test/lint/build checks:6231 passes,
+  six unchanged skips, zero failures; no new lint issues.
+- [x] Prepare higher-version signed APK and inspect native recovery UI.
+- Reviewed source, exact-head CI and public APK readback use separate PR receipts.
+- No phone installation or therapy changes are part of this repair.
+
 ## Internet APK Update (2026-10-18)
 
 - [x] Inspect existing HTTPS host, Android identity, versioning and navigation.

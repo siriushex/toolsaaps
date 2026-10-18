@@ -2,6 +2,10 @@
 
 ## Internet APK Updates (2026-10-18)
 
+Follow-up recovery audit: terminal outcomes are operation-scoped, so a cancelled
+source cannot replace newer state. File-write failures retain a local-storage
+classification. No change to origin, hash/signature, provider or install gates.
+
 Dedicated HTTPS static files contain no device or AI credentials. Requests carry
 no medical context; strict origin/size/hash/package/version/current-signer checks
 precede the system installer. Partial files are not exposed by the FileProvider;

@@ -2,8 +2,10 @@ package io.aaps.copilot.update
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
@@ -11,6 +13,8 @@ import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.io.OutputStream
 
 internal const val UPDATE_TEST_PACKAGE = "io.aaps.predictivecopilot"
 internal fun sampleRelease(bytes: ByteArray = "sample apk".toByteArray()) = AppUpdateManifest(
@@ -64,6 +68,36 @@ class AppUpdateTest {
         assertThrows(java.io.IOException::class.java) {
             copyVerifiedUpdate("sample apk".byteInputStream(), ByteArrayOutputStream(), release, { false }, {})
         }
+    }
+
+    @Test fun failedDiskWriteIsStorageFailureNotNetworkFailure() {
+        val output = object : OutputStream() {
+            override fun write(value: Int) { throw IOException("disk write failed") }
+        }
+        val failure = assertThrows(AppUpdateException::class.java) {
+            copyVerifiedUpdate("sample apk".byteInputStream(), output, sampleRelease(), { true }, {})
+        }
+        assertEquals(UpdateFailure.STORAGE, failure.reason)
+    }
+
+    @Test fun deniedDiskWriteIsStorageFailure() {
+        val output = object : OutputStream() {
+            override fun write(value: Int) { throw SecurityException("write denied") }
+        }
+        val failure = assertThrows(AppUpdateException::class.java) {
+            copyVerifiedUpdate("sample apk".byteInputStream(), output, sampleRelease(), { true }, {})
+        }
+        assertEquals(UpdateFailure.STORAGE, failure.reason)
+    }
+
+    @Test fun failedNetworkReadIsNotReclassifiedAsStorageFailure() {
+        val input = object : java.io.InputStream() {
+            override fun read(): Int = throw IOException("network read failed")
+        }
+        val failure = assertThrows(IOException::class.java) {
+            copyVerifiedUpdate(input, ByteArrayOutputStream(), sampleRelease(), { true }, {})
+        }
+        assertEquals(IOException::class.java, failure.javaClass)
     }
 
     @Test fun signaturePackageVersionAndSdkMustAllMatch() {
@@ -151,6 +185,34 @@ class AppUpdateTest {
         controller.cancel(); source.waitForCheck?.complete(Unit); runCurrent()
         assertEquals(UpdatePhase.IDLE, controller.state.value.phase)
     }
+
+    @Test fun cancelledCheckCannotReplaceNewerCheckWithLateSuccess() = runTest {
+        val oldCheck = CompletableDeferred<Unit>()
+        val source = FakeUpdates().apply { waitForCheck = oldCheck; ignoreCancellation = true }
+        val controller = AppUpdateController(source, 2, 35, backgroundScope)
+        controller.check(); runCurrent(); controller.cancel()
+        source.waitForCheck = null
+        controller.check(); runCurrent()
+        val current = controller.state.value
+        source.release = sampleRelease().copy(versionCode = 99)
+        oldCheck.complete(Unit); runCurrent()
+        assertEquals(current, controller.state.value)
+    }
+
+    @Test fun cancelledDownloadCannotPublishLateFileOrFailure() = runTest {
+        for (failure in listOf(null, UpdateFailure.NETWORK)) {
+            val oldDownload = CompletableDeferred<Unit>()
+            val source = FakeUpdates().apply { waitForDownload = oldDownload; ignoreCancellation = true }
+            val controller = AppUpdateController(source, 2, 35, backgroundScope)
+            controller.check(); runCurrent(); controller.download(); runCurrent(); controller.cancel()
+            controller.check(); runCurrent()
+            val current = controller.state.value
+            source.failure = failure
+            oldDownload.complete(Unit); runCurrent()
+            assertEquals(current, controller.state.value)
+            assertNull(controller.state.value.file)
+        }
+    }
 }
 
 private class FakeUpdates : AppUpdateSource {
@@ -161,12 +223,16 @@ private class FakeUpdates : AppUpdateSource {
     var failure: UpdateFailure? = null
     var waitForCheck: CompletableDeferred<Unit>? = null
     var waitForDownload: CompletableDeferred<Unit>? = null
+    var ignoreCancellation = false
     var progress: ((Int) -> Unit)? = null
     val file = File("sample.apk")
     private fun fail() { failure?.let { throw AppUpdateException(it) } }
-    override suspend fun check(): AppUpdateManifest { checks++; waitForCheck?.await(); fail(); return release }
+    private suspend fun await(wait: CompletableDeferred<Unit>?) {
+        if (ignoreCancellation) withContext(NonCancellable) { wait?.await() } else wait?.await()
+    }
+    override suspend fun check(): AppUpdateManifest { checks++; await(waitForCheck); fail(); return release }
     override suspend fun download(release: AppUpdateManifest, progress: (Int) -> Unit): File {
-        downloads++; this.progress = progress; waitForDownload?.await(); fail(); progress(100); return file
+        downloads++; this.progress = progress; await(waitForDownload); fail(); progress(100); return file
     }
     override suspend fun verify(file: File, release: AppUpdateManifest) { verifications++; fail() }
 }

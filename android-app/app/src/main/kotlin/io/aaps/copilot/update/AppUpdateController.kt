@@ -41,9 +41,9 @@ class AppUpdateController(
                 if (release.versionCode > installedVersion && release.minSdk > sdk) {
                     throw AppUpdateException(UpdateFailure.INCOMPATIBLE)
                 }
-                mutableState.value = AppUpdateState(
+                publishIfCurrent(AppUpdateState(
                     if (release.versionCode > installedVersion) UpdatePhase.AVAILABLE else UpdatePhase.CURRENT,
-                    release, operation = operation)
+                    release, operation = operation))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) { fail(e, operation) }
         }
@@ -62,7 +62,7 @@ class AppUpdateController(
                             value.copy(percent = percent.coerceIn(0, 100)) else value
                     }
                 }
-                mutableState.value = current.copy(phase = UpdatePhase.READY, file = file, percent = 100)
+                publishIfCurrent(current.copy(phase = UpdatePhase.READY, file = file, percent = 100))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) { fail(e, current.operation) }
         }
@@ -92,8 +92,12 @@ class AppUpdateController(
 
     fun installerFailed() { mutableState.update { it.copy(failure = UpdateFailure.INSTALLER) } }
 
+    private fun publishIfCurrent(next: AppUpdateState) {
+        mutableState.update { current -> if (current.operation == next.operation) next else current }
+    }
+
     private fun fail(e: Exception, operation: Long) {
-        mutableState.value = AppUpdateState(UpdatePhase.ERROR,
-            failure = (e as? AppUpdateException)?.reason ?: UpdateFailure.NETWORK, operation = operation)
+        publishIfCurrent(AppUpdateState(UpdatePhase.ERROR,
+            failure = (e as? AppUpdateException)?.reason ?: UpdateFailure.NETWORK, operation = operation))
     }
 }

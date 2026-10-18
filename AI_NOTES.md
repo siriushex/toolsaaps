@@ -1,3 +1,26 @@
+# APK Update Failure Recovery - 2026-10-18
+
+- A follow-up audit reproduced four failures: a cancelled check/download could
+  replace newer controller state when a source completed non-cooperatively;
+  disk-write IO and access errors were reported as network failures.
+- Gate terminal state publication by operation identity, including errors.
+  Classify only local file creation/open/write/close errors as storage errors;
+  remote read failures retain the network path. No automatic retry or install.
+- Add deterministic cancellation and stream regression coverage. VersionCode3,
+  versionName0.1.2 is reserved for this repair; signing/manifest/provider rules,
+  clinical logic, AI and phone data are unchanged.
+- Initial17-case reproduction:13 passed/four expected failures; repaired focused
+  suite27 passed. Added native storage-recovery coverage, then full6237 cases:
+  6231 passed/six unchanged skips, zero failures/errors. All28 updater/native
+  cases pass; the new320px raster was inspected without overlap or clipped text.
+- Full test/lint/compile/build succeeded in17m34s with unchanged Android input
+  hashes. Lint has zero errors,378 warnings/eight hints, no additions relative to
+  the preceding release. No baseline, suppression or unrelated changes.
+- Prepared version3/0.1.2 APK:110932555bytes, verified previous signing identity,
+  SHA2568068d3aab2ccac1d957c6e59b0cc77e4ba0b905cf1aa215758d3903964feba77.
+  Exact-head CI and HTTPS publication/readback are tracked in the PR receipt.
+  No phone installation, app disabling, database copy or therapy operation.
+
 # Internet APK Updates - 2026-10-18
 
 - User requested updates from the existing server and an About/update entry.
