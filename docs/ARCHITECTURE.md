@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Compact Budget Binding (2026-10-18)
+
+Optional compact CHAT binds accounting to the exact accepted model and instruction
+digest before archive access. Instructions are counted inside the configured
+reserve, leaving explicit native/output headroom. Receipts distinguish supplied
+counts from independent model verification and retain window/reserve/remainder.
+No host tokenizer is selected or enabled; see COMPACT_TOKEN_BUDGET.md.
+
 ## Concise Chat Presentation (2026-10-18)
 
 Chat bubbles retain roles for accessibility without visible sender captions.

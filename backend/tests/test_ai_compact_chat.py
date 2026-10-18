@@ -35,6 +35,7 @@ def module():
 
 
 def settings(**changes):
+    policy = module().compact_chat_policy(MODEL)
     return module().CompactChatSettings(
         **(
             dict(
@@ -42,7 +43,14 @@ def settings(**changes):
                 until_ms=NOW,
                 zone_id="UTC",
                 token_budget=TokenBudget(
-                    500_000, 100_000, "synthetic-byte-counter", len
+                    500_000,
+                    100_000,
+                    "synthetic-byte-counter",
+                    len,
+                    model=policy.model,
+                    instructions_digest=hashlib.sha256(
+                        policy.system_prompt.encode()
+                    ).hexdigest(),
                 ),
             )
             | changes
@@ -231,7 +239,7 @@ def test_compact_worker_persists_exact_frame_before_native_turn(tmp_path):
     text = process.transport.sent[-1]["params"]["input"][0]["text"]
     saved = json.loads(receipt(value, entry))
     assert saved["manifest"]["frameDigest"] == hashlib.sha256(text.encode()).hexdigest()
-    assert saved["manifest"]["tokenStatus"] == "VERIFIED_BY_SUPPLIED_COUNTER"
+    assert saved["manifest"]["tokenStatus"] == "COUNTED_BY_SUPPLIED_COUNTER"
     assert len(process.started) == process.stops == 1
     assert "time-weighted" in process.started[0].instructions
 
@@ -403,7 +411,9 @@ def test_storage_pressure_or_token_failure_never_commits_a_receipt(tmp_path):
     value.min_free_bytes = 0
     with pytest.raises(HistoryError, match="compact_context_budget_exceeded"):
         prepare(
-            value, work, token_budget=TokenBudget(100, 99, "synthetic-accounting", len)
+            value,
+            work,
+            token_budget=replace(settings().token_budget, window_tokens=102_000),
         )
     assert receipt(value, entry) is None
 

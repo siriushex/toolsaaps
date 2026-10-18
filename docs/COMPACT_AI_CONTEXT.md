@@ -76,8 +76,12 @@ not a successful partial view and never triggers inference or automatic replay.
 Optional `TokenBudget` accepts a trusted synchronous counter and reserves tokens
 for system/native history/output. The caller must account for all framing and
 use the admitted model's accounting. Without that evidence the manifest says
-`UNVERIFIED`; a byte-fitting frame is not proof of token-window fit. Test counters
-are synthetic dependency checks, not measured token or cost savings.
+`UNVERIFIED` when no counter is present; a supplied counter says
+`COUNTED_BY_SUPPLIED_COUNTER`, never model verification. The manifest records
+window/reserve/total/remainder and optional model/instruction binding. CHAT
+requires that binding and counts the instructions within the reserve; see
+COMPACT_TOKEN_BUDGET.md. A byte-fitting frame and synthetic test counters do not
+prove token-window fit or measured token/cost savings.
 
 ## Verification
 

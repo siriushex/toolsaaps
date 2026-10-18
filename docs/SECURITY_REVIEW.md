@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Compact Budget Binding (2026-10-18)
+
+- Exact model/instruction binding fails before archive access. Neither is public
+  request input; injected counters remain trusted bounded host dependencies.
+- Fixed counter errors do not echo payloads; frame failures roll back receipts.
+- Counter status no longer implies independent token verification. Window,
+  reserve, total and remainder are auditable, not provider usage claims.
+- Remaining native/reasoning/output reserve is explicitly unverified; a positive
+  remainder is necessary, not sufficient for host admission. No maximum-window
+  override, guessed mapping, runtime configuration or live service change.
+
 ## Compact Meal And Therapy Tables (2026-10-18)
 
 - Preserve authenticated latest-revision, deletion, owner/device and time selection;

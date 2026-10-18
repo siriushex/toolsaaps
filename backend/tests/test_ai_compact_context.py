@@ -283,7 +283,7 @@ def test_token_budget_is_explicit_and_counter_errors_cannot_admit_a_frame():
     budget = module().TokenBudget(20_000, 10_000, "synthetic-byte-counter", len)
     prepared = prepare([point(0), point(1)], token_budget=budget)
     manifest = json.loads(prepared.manifest_body)
-    assert manifest["tokenStatus"] == "VERIFIED_BY_SUPPLIED_COUNTER"
+    assert manifest["tokenStatus"] == "COUNTED_BY_SUPPLIED_COUNTER"
     assert manifest["inputTokens"] == len(prepared.input_body) <= 10_000
     with pytest.raises(ValueError, match="compact_context_budget_exceeded"):
         prepare(

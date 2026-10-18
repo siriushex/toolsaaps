@@ -2,9 +2,17 @@ import hashlib
 import json
 from dataclasses import replace
 
-from app.ai.compact_context import FocusWindow, TokenBudget
+from app.ai.compact_context import FocusWindow
 from app.ai.schemas import ChatRequest, ChatResult
-from test_ai_compact_chat import MINUTE, START, accepted, module, point, prepare
+from test_ai_compact_chat import (
+    MINUTE,
+    START,
+    accepted,
+    module,
+    point,
+    prepare,
+    settings,
+)
 from test_ai_history_contract import NOW, body, record
 from test_ai_history_store import KEY, OWNER, store
 from test_ai_native_text import MODEL
@@ -68,7 +76,7 @@ def test_token_pressure_prunes_old_answers_not_exact_focus_events(tmp_path):
         value,
         work,
         focus_windows=(FocusWindow(START, START + 10 * MINUTE, 1),),
-        token_budget=TokenBudget(14_000, 1_000, "synthetic-byte-count", len),
+        token_budget=replace(settings().token_budget, window_tokens=113_000),
     )
     doc = json.loads(result.input_body)
     assert len(result.input_body) <= 13_000

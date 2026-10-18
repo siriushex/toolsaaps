@@ -1,3 +1,21 @@
+# Compact Budget Binding - 2026-10-18
+
+- Pinned native history counting is a byte-based heuristic; its catalog does not
+  identify the exact selected tokenizer. No model mapping/window is guessed.
+- Synthetic REDs reproduced false verified status, zero-count admission and
+  unbound budgets. Optional CHAT now binds model/instructions before archive
+  access and counts instructions within the configured reserve.
+- Manifests record supplied-count status and window/reserve/total/remainder;
+  encrypted receipts retain instruction count and explicitly unverified remaining
+  native/reasoning/output reserve. Old records are not rewritten.
+- Counter errors are fixed/redacted and cannot leave a receipt. No new package,
+  provider request, server deployment, phone/APK or therapy change.
+- First focused gate: 101 passed; final full backend: 1907 passed, 27 existing
+  skips, one dependency deprecation warning. Six-file scoped fatal Ruff, format,
+  compilation and diff checks pass. Real tokenizer, native framing and protected
+  host admission remain; no live window-fit or latency claim.
+- Contract and local source findings: docs/COMPACT_TOKEN_BUDGET.md.
+
 # Concise Chat Presentation - 2026-10-18
 
 - Hide normal sender captions in native chat, retaining the existing color cues

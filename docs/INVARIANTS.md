@@ -1,5 +1,14 @@
 # INVARIANTS
 
+## Compact Budget Binding
+
+- A supplied counter is not proof of the selected model's tokenizer or window.
+- CHAT budget model/instruction mismatch fails before personal archive access.
+- Instructions count within the reserve, never twice or without remaining headroom.
+- Nonempty input cannot be admitted with a zero, boolean or invalid count.
+- Failed counting cannot persist a partial receipt or dispatch a native turn.
+- Old receipts remain unchanged; no guessed tokenizer or host activation follows.
+
 ## Concise Chat Presentation
 
 - Sender roles remain available to accessibility, without normal visible captions.

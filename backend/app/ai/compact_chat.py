@@ -102,14 +102,8 @@ class CompactChatSettings:
             ):
                 raise ValueError()
             budget = self.token_budget
-            if (
-                type(budget.window_tokens) is not int
-                or type(budget.reserved_tokens) is not int
-                or not 0 <= budget.reserved_tokens < budget.window_tokens <= 10_000_000
-                or type(budget.revision) is not str
-                or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", budget.revision)
-                or not callable(budget.counter)
-            ):
+            budget.validate()
+            if budget.model is None:
                 raise ValueError()
             # Reuse projector validation before any database read; no token call yet.
             prepare_compact_context(
@@ -282,9 +276,25 @@ def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
 
 
 def prepare_chat(store, work, settings, *, now_ms):
+    from .job_service import JobWork
+
     valid_time(now_ms)
     if type(settings) is not CompactChatSettings or settings.until_ms > now_ms:
         raise ValueError("invalid_compact_chat_settings")
+    budget = settings.token_budget
+    if (
+        type(work) is not JobWork
+        or budget.model != work.policy.model
+        or budget.instructions_digest
+        != hashlib.sha256(work.policy.system_prompt.encode()).hexdigest()
+    ):
+        raise HistoryError(409, "compact_chat_budget_binding")
+    try:
+        instruction_tokens = budget.count(work.policy.system_prompt.encode())
+    except ValueError:
+        raise HistoryError(503, "compact_token_accounting_failed") from None
+    if instruction_tokens >= budget.reserved_tokens:
+        raise HistoryError(503, "compact_chat_instruction_budget")
     owner, device = work.identity.owner_id, work.identity.key_fingerprint
     with store._locked():
         if shutil.disk_usage(store.root).free < store.min_free_bytes:
@@ -330,6 +340,11 @@ def prepare_chat(store, work, settings, *, now_ms):
                 preparedAtMs=now_ms,
                 meaning="PREPARED_NOT_DELIVERY_CONFIRMATION",
                 manifest=json.loads(prepared.manifest_body),
+                tokenReserve=dict(
+                    instructionTokens=instruction_tokens,
+                    remainingReservedTokens=budget.reserved_tokens - instruction_tokens,
+                    meaning="NATIVE_FRAMING_AND_REASONING_OUTPUT_NOT_INDEPENDENTLY_VERIFIED",
+                ),
             )
             if len(encoded(receipt)) > MAX_RECEIPT_BYTES or time.monotonic() >= stop_at:
                 raise HistoryError(503, "compact_chat_unavailable")

@@ -41,6 +41,37 @@ class TokenBudget:
     reserved_tokens: int
     revision: str
     counter: Callable[[bytes], int]
+    model: str | None = None
+    instructions_digest: str | None = None
+
+    def validate(self):
+        if (
+            type(self.window_tokens) is not int
+            or type(self.reserved_tokens) is not int
+            or not 0 <= self.reserved_tokens < self.window_tokens <= 10_000_000
+            or type(self.revision) is not str
+            or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", self.revision)
+            or not callable(self.counter)
+        ):
+            raise ValueError("invalid_compact_token_budget")
+        if self.model is None and self.instructions_digest is None:
+            return
+        if (
+            type(self.model) is not str
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", self.model)
+            or type(self.instructions_digest) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", self.instructions_digest)
+        ):
+            raise ValueError("invalid_compact_token_budget")
+
+    def count(self, body: bytes) -> int:
+        try:
+            count = self.counter(body)
+            if type(count) is not int or not 1 <= count <= 10_000_000:
+                raise ValueError()
+            return count
+        except Exception:
+            raise ValueError("compact_token_accounting_failed") from None
 
 
 @dataclass(frozen=True)
@@ -194,19 +225,10 @@ def prepare_compact_context(
             raise ValueError()
         if sum(len(t.text.encode()) for t in turns) > 128 * 1024:
             raise ValueError()
-        if token_budget is not None and (
-            type(token_budget) is not TokenBudget
-            or type(token_budget.window_tokens) is not int
-            or type(token_budget.reserved_tokens) is not int
-            or not 0
-            <= token_budget.reserved_tokens
-            < token_budget.window_tokens
-            <= 10_000_000
-            or type(token_budget.revision) is not str
-            or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", token_budget.revision)
-            or not callable(token_budget.counter)
-        ):
-            raise ValueError()
+        if token_budget is not None:
+            if type(token_budget) is not TokenBudget:
+                raise ValueError()
+            token_budget.validate()
         sections = dict(
             profile=_section(profile_body),
             events=_section(events_body),
@@ -319,12 +341,7 @@ def prepare_compact_context(
                 continue
             tokens = None
             if token_budget is not None:
-                try:
-                    tokens = token_budget.counter(body)
-                    if type(tokens) is not int or tokens < 0:
-                        raise ValueError()
-                except Exception:
-                    raise ValueError("compact_token_accounting_failed") from None
+                tokens = token_budget.count(body)
                 if tokens + token_budget.reserved_tokens > token_budget.window_tokens:
                     continue
             frame_digest = hashlib.sha256(body).hexdigest()
@@ -359,11 +376,24 @@ def prepare_compact_context(
                     },
                     tokenStatus="UNVERIFIED"
                     if token_budget is None
-                    else "VERIFIED_BY_SUPPLIED_COUNTER",
+                    else "COUNTED_BY_SUPPLIED_COUNTER",
+                    tokenAccountingRevision="supplied-counter-v2",
                     tokenCounterRevision=None
                     if token_budget is None
                     else token_budget.revision,
                     inputTokens=tokens,
+                    tokenBudget=None
+                    if token_budget is None
+                    else dict(
+                        windowTokens=token_budget.window_tokens,
+                        reservedTokens=token_budget.reserved_tokens,
+                        totalTokens=tokens + token_budget.reserved_tokens,
+                        remainingTokens=token_budget.window_tokens
+                        - tokens
+                        - token_budget.reserved_tokens,
+                        model=token_budget.model,
+                        instructionsDigest=token_budget.instructions_digest,
+                    ),
                 )
             )
             return PreparedCompactContext(body, frame_digest, source_digest, manifest)

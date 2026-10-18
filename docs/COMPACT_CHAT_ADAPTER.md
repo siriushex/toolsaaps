@@ -19,6 +19,10 @@ facts from statistical bins and partial nonglucose examples, and inherits the
 shared concise CHAT style. System/native/output reserve and the counter must correspond
 to the admitted model and framing; synthetic byte counters in tests prove only
 dependency/admission behavior, not production token fit or cost savings.
+Settings require exact model/instruction-digest binding before archive access.
+The same counter measures instructions within the reserve; no zero count or
+instruction-exhausted reserve is accepted. New receipts distinguish counted
+values from independent model verification. See COMPACT_TOKEN_BUDGET.md.
 
 ## Atomic Preparation
 
@@ -68,6 +72,8 @@ frame/source hashes, selected settings/highwater, actual resolution, section
 digests and token-accounting state. Existing encrypted entry fields bind it to
 the accepted question, model/policy and request, not an activation code label.
 It proves frozen input composition, not that a model received/read every value.
+New additive accounting fields retain the budget and instruction count/remainder
+with an explicit unverified native/output reserve. Old receipts are not rewritten.
 
 `HistoryStore.chat_context_receipt(owner, device, job_id, now_ms=...)` is an internal
 trusted read returning immutable canonical bytes or None. No new public route or

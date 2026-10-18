@@ -1,5 +1,14 @@
 # PLAN
 
+## Compact Budget Binding (2026-10-18)
+
+- [x] Inspect pinned native source: heuristic estimate is not exact token accounting.
+- [x] Reproduce false verification/zero-count/unbound-budget gaps in synthetic tests.
+- [x] Bind budget to model/instructions and record actual reserve accounting.
+- [x] Complete full backend: 1907 passed/27 skipped; scoped lint/format/compile/diff pass.
+- [ ] Publish reviewed source and inspect exact-head CI.
+- Real tokenizer/framing/host admission remains separate; no provider or therapy action.
+
 ## Compact Meal And Therapy Review (2026-10-18)
 
 - [x] Review selected-event tables, provenance, capacity refusal and cohort reuse.
