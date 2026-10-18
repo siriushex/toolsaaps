@@ -18,6 +18,13 @@ No new data, action or network boundary. See NATIVE_MOTION_REFINEMENT.md.
 
 ## Trusted Compact Chat Adapter
 
+The v3 compact path also carries bounded lossless tables of all selected latest
+MEAL/THERAPY events. Shared columns/codebooks retain exact source timestamps,
+revisions and declared GI/quantity provenance. Focus/examples are overlapping
+views, not additional meals/doses. This is not complete client-domain export.
+Source cohorts are prepared once per request and each resolution receives fresh
+moment accumulators. See COMPACT_MEAL_THERAPY.md; no host activation follows.
+
 An optional trusted compact worker selects history and server exchanges in one
 bounded device transaction and stores a <=16KiB contextReceipt in the already
 reserved encrypted chat entry before dispatch. Exact accepted question/policy and

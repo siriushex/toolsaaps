@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Compact Meal And Therapy Tables (2026-10-18)
+
+- Preserve authenticated latest-revision, deletion, owner/device and time selection;
+  the table builder does not authenticate caller-supplied records itself.
+- Required selected events are exact or preparation refuses. Budget exhaustion
+  poisons the builder and cannot leave a partial success or persisted receipt.
+- Null/absent payload fields, source, quality, original times and GI/quantity
+  provenance survive. Views are not additional doses or verified meal linkage.
+- Cohort preparation is request-local and each resolution owns fresh accumulators;
+  no persistent cross-device cache or resource-limit increase is introduced.
+- Synthetic store tests remain local with fake credentials/counters. No real
+  model, secret, medical upload, profile access, deployment or treatment action.
+- Five-minute basal density still exceeds capacity. Token admission and host
+  workload acceptance cannot be inferred from smaller successful synthetic cases.
+
 ## Concise Chat Presentation (2026-10-18)
 
 - UI-only role visibility does not remove failure titles or sender accessibility.

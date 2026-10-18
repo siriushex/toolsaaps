@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 
-from .compact_glucose import project_glucose
+from .compact_glucose import prepare_glucose_series, project_glucose
 from .daily_glucose import MAX_GAP_MS, MAX_RANGES, MINUTE_MS, AnalysisRange
 from .history_contract import RETENTION_MS, HistoryRecord, _unique, encoded, valid_time
 
@@ -258,7 +258,7 @@ def prepare_compact_context(
             if turn.role == role:
                 current.remove(turn)
                 chat_options.append(tuple(current))
-    projections = {}
+    projections, prepared_series = {}, None
     for retained in dict.fromkeys(chat_options):
         backgrounds = (
             (10,) if any(t.role == "assistant" for t in retained) else (10, 30, 60)
@@ -266,6 +266,10 @@ def prepare_compact_context(
         for background in backgrounds:
             if background not in projections:
                 try:
+                    if prepared_series is None:
+                        prepared_series = prepare_glucose_series(
+                            rows, changes, from_ms, until_ms
+                        )
                     projections[background] = project_glucose(
                         rows,
                         changes,
@@ -275,6 +279,7 @@ def prepare_compact_context(
                         background,
                         focus,
                         source_digest,
+                        prepared_series,
                     )
                 except ValueError as error:
                     if str(error) not in (

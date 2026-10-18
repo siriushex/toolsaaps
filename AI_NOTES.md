@@ -61,6 +61,34 @@
   pattern or clinical safety of a lower post-activity target. Diff checks pass.
 - No server, APK, phone or model request is part of this documentation stage.
 
+# Compact Meal And Therapy Evidence - 2026-10-18
+
+- Extended opt-in compact CHAT v3 with lossless tables of all selected latest
+  MEAL/THERAPY events, rather than only twelve recent examples. Exact source,
+  quality/context, UUID/revision, event/observed/received times and payload survive.
+- Keep declared approximate grams and GI provenance. Focus/examples overlap the
+  same records; MEAL and CARBS cannot be summed without independent linkage.
+  Uploaded boluses do not prove physical delivery or an intended meal.
+- Corrected nonglucose summary bounds to the requested window. Bounded builders
+  refuse saturation without a partial receipt and return independent copies.
+- A RED regression exposed repeated cohort preparation under coarsening. Reuse
+  original source preparation once per request, with fresh moments per layout.
+  No persistent cache or increase to existing resource limits.
+- 19 event tests pass, including all therapy payloads, full field round trips,
+  >12 events, revision/deletion/device selection, mutation and capacity refusal,
+  combined 3/7/14-day packets and a dense basal refusal. Source formatting and
+  scoped Ruff E4/E7/E9/F pass; broad inherited stylistic findings are not rewritten.
+- Synthetic store packets for 3/7/14 days retain 90/210/420 meal/therapy events in
+  36092/70194/89276 bytes, prepared in 0.431/1.041/2.309 seconds with original limits.
+  No model request or production token accounting. See COMPACT_MEAL_THERAPY.md.
+  Full backend: 1886 passed/27 skipped, one dependency warning in 77.85 seconds.
+  Source compile and diff checks pass; exact-head CI is separate.
+- Earlier trusted synthetic 14-day preparation exceeded the five-second bound;
+  a seven-day read also exceeded it during Mac load averages around 76. Limits were
+  not bypassed. Pure frame sizing is distinct from admitted store/host latency.
+- No default-host, model/token admission, upload/schema, phone, APK or therapy
+  change. Complete profiles and other domain trajectories remain separate.
+
 # Compact Chat Conversation Pruning - 2026-10-18
 
 - Confirmed that the archive adapter put prior server prose in mandatory facts,

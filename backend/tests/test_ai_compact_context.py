@@ -205,7 +205,19 @@ def test_dense_minute_history_fits_without_changing_raw_fact_counts(days):
     )
 
 
-def test_focus_preserves_old_requested_window_when_other_background_coarsens():
+def test_focus_preserves_old_requested_window_when_other_background_coarsens(
+    monkeypatch,
+):
+    from app.ai import compact_glucose
+
+    original = compact_glucose._prepare_series
+    calls = []
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(compact_glucose, "_prepare_series", counted)
     start = END - 14 * 1440 * MINUTE
     rows = [
         HistoryRecord.model_validate(
@@ -231,6 +243,8 @@ def test_focus_preserves_old_requested_window_when_other_background_coarsens():
         for s in series
     )
     assert any(s["stepMinutes"] in (30, 60) for s in series)
+    assert document(prepared)["glucose"]["coveredMinutes"] == 14 * 1440
+    assert len(calls) == 1
 
 
 def test_exact_supplied_sections_and_question_survive_old_assistant_removal():

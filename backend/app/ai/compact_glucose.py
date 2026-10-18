@@ -1,7 +1,7 @@
 """Pure statistical view using the original daily-glucose continuity and moments."""
 
 from bisect import bisect_right
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .daily_glucose import (
     MAX_GAP_MS,
@@ -77,8 +77,26 @@ def grids(start, end, background, focus):
     return result
 
 
-def project_glucose(rows, changes, ranges, start, end, background, focus, digest):
-    series = _prepare_series(rows, changes, start, end, max_unusable=MAX_DETAILS)
+def prepare_glucose_series(rows, changes, start, end):
+    return _prepare_series(rows, changes, start, end, max_unusable=MAX_DETAILS)
+
+
+def project_glucose(
+    rows, changes, ranges, start, end, background, focus, digest, prepared_series=None
+):
+    seed = (
+        prepare_glucose_series(rows, changes, start, end)
+        if prepared_series is None
+        else prepared_series
+    )
+    # Reuse source preparation, never accumulated moments from another layout.
+    series = replace(
+        seed,
+        groups={
+            key: [row, count, _Accumulator(), epoch]
+            for key, (row, count, _, epoch) in seed.groups.items()
+        },
+    )
     layout = grids(start, end, background, focus)
     cell_count = sum(
         (b - a + step * MINUTE_MS - 1) // (step * MINUTE_MS) for a, b, step in layout

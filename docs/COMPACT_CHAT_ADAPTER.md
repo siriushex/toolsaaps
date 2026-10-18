@@ -14,9 +14,9 @@ It must also select `compact_chat_policy(model)` for the accepted job and inject
 or caller-selectable owner, SQL query, native thread, runtime path or tool.
 No installed host factory, descriptor or actual token counter is enabled here.
 
-The compact v2 prompt distinguishes original-segment time-weighted glucose
-facts from statistical bins and partial nonglucose examples. Existing prompts
-remain unchanged. System/native/output reserve and the counter must correspond
+The compact v3 prompt distinguishes original-segment time-weighted glucose
+facts from statistical bins and partial nonglucose examples, and inherits the
+shared concise CHAT style. System/native/output reserve and the counter must correspond
 to the admitted model and framing; synthetic byte counters in tests prove only
 dependency/admission behavior, not production token fit or cost savings.
 
@@ -31,11 +31,15 @@ dependency/admission behavior, not production token fit or cost savings.
    selects unique latest versions with received/observed/expiry limits and glucose
    boundary guards. Authenticates selected tombstones before excluding deletion
    payloads. No older version is resurrected to manufacture coverage.
-3. Reuses the pure compact glucose projector and original metrics. Nonglucose
-   records use the existing bounded counts/examples accumulator, explicitly
-   `BOUNDED_EXAMPLES_NOT_COMPLETE_TRAJECTORIES`. Requested focus events are exact
-   mandatory observations with time, revision, source and server receive time.
-   Complete typed profile remains NOT_SUPPLIED; imported chat is not a profile.
+3. Reuses the pure compact glucose projector and original metrics. All selected
+   MEAL/THERAPY events additionally enter a bounded lossless column table in
+   `suppliedFacts.mealTherapyEvents`, not just recent examples. Exact UUID/revision,
+   event/observation/receive times, source, quality, context and payload survive.
+   The generic counts/examples remain explicitly partial and declare the selected
+   requested period, not an implicit whole-retention window. Requested focus
+   records remain exact overlapping views, never additional food/doses. Complete
+   typed profile remains NOT_SUPPLIED; imported chat is not a profile. See
+   COMPACT_MEAL_THERAPY.md for table semantics and limits.
 4. Reads recent server exchanges inside that same transaction, excluding the
    current question. Text excerpts become referenced `conversation` turns so the
    projector can discard older assistant prose under byte/token pressure before
@@ -100,7 +104,7 @@ protected host configuration; run exact-head backend/native/owner tests and CI,
 validate dense uploaded workloads and affected same-device surfaces. No actual
 model call, SSH change, real medical upload or phone action was used for this stage.
 
-Full versioned profile export, broad exact meal/basal/SMB trajectories, automatic
+Full versioned profile export, complete automatic client-domain export, automatic
 question-to-focus selection, public per-answer completeness UI, persistent native
 threads and05:00 model review remain separate work. This adapter does not turn
 bounded nonglucose examples into complete coverage or causal/clinical evidence.

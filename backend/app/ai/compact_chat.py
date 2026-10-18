@@ -20,6 +20,7 @@ from .compact_context import (
     TokenBudget,
     prepare_compact_context,
 )
+from .compact_events import MealTherapyEvents
 from .daily_glucose import MAX_GAP_MS, MINUTE_MS
 from .history_context import HistoryContext
 from .history_contract import (
@@ -45,6 +46,11 @@ INSTRUCTIONS = (
     "Do not bridge missing, suspect or conflicting data or pool incompatible cohorts. "
     "Range exposure is meaningful only for supplied historical analytical ranges. "
     "Nonglucose summaries and server conversation excerpts are explicitly partial. "
+    "suppliedFacts.mealTherapyEvents retains exact selected uploaded MEAL/THERAPY "
+    "events in column tables, not hourly dose sums. Use its shared columns, payload "
+    "fields, cohort codebook and millisecond offsets to read source records. "
+    "Focus records and recent examples can repeat these same record identities. "
+    "MEAL and CARBS records may overlap; never add them without verified linkage. "
     "Conversation turns reference exchange metadata in "
     "suppliedFacts.serverConversation. "
     "A referenced turn absent from conversation was omitted for context capacity, "
@@ -64,7 +70,7 @@ def compact_chat_policy(model):
     policy = replace(
         CHAT_POLICY,
         model=model,
-        prompt_revision=f"advisory-compact-context-v2-{CHAT_RESPONSE_REVISION}",
+        prompt_revision=f"advisory-compact-context-v3-{CHAT_RESPONSE_REVISION}",
         system_prompt=CHAT_POLICY.system_prompt + " " + INSTRUCTIONS,
     )
     TextSessionPolicy(policy.model, policy.system_prompt)
@@ -217,6 +223,7 @@ def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
     glucose, changes, exact_events = [], [], []
     source_bytes, event_bytes = 0, 2
     nonglucose = HistoryContext(now_ms=now_ms, snapshot=snapshot)
+    meal_therapy = MealTherapyEvents(settings.from_ms, settings.until_ms)
     for count, row in enumerate(rows, 1):
         if count > MAX_INPUT_RECORDS or time.monotonic() >= stop_at:
             raise HistoryError(503, "compact_chat_unavailable")
@@ -242,6 +249,10 @@ def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
                 sequence=row["sequence"], receivedAtMs=row["received_ms"], record=raw
             )
             nonglucose.add(item)
+            if record.kind in ("MEAL", "THERAPY"):
+                meal_therapy.add(
+                    record, sequence=row["sequence"], received_ms=row["received_ms"]
+                )
             if any(
                 f.start_ms <= record.eventAtMs < f.end_ms
                 for f in settings.focus_windows
@@ -255,9 +266,12 @@ def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
             store, owner, device, db, now_ms=now_ms, exclude_job_id=work.job_id
         )
     )
+    summary = nonglucose.finish()
+    summary.update(fromMs=settings.from_ms, untilMs=settings.until_ms)
     facts = dict(
-        nonglucose=nonglucose.finish(),
+        nonglucose=summary,
         nonglucoseDetail="BOUNDED_EXAMPLES_NOT_COMPLETE_TRAJECTORIES",
+        mealTherapyEvents=meal_therapy.finish(),
         profileExport="NOT_COMPLETE",
         exactEventScope=[
             dict(fromMs=f.start_ms, untilMs=f.end_ms) for f in settings.focus_windows

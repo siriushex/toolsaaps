@@ -1,5 +1,16 @@
 # PLAN
 
+## Compact Meal And Therapy Review (2026-10-18)
+
+- [x] Review selected-event tables, provenance, capacity refusal and cohort reuse.
+- [x] Add combined 3/7/14-day and dense basal-history regressions (19 event tests pass).
+- [x] Measure pure/store packets with unchanged limits; preserve exact events and extrema.
+- [x] Verify scoped Ruff E4/E7/E9/F, formatting and diff checks.
+- [x] Finish full backend checks: 1886 passed/27 skipped; source compilation passes.
+- [ ] Inspect reviewed exact-head source delivery and Verify CI.
+- Host activation, real token accounting, dense-workload admission and complete
+  profile/activity/sensitivity export remain separate. No therapy change.
+
 ## Concise Chat Presentation (2026-10-18)
 
 - [x] Reproduce visible captions and missing concise instructions with synthetic tests.

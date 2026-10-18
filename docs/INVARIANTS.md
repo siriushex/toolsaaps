@@ -20,6 +20,11 @@
 
 ## Trusted Compact Chat
 
+- Every selected latest MEAL/THERAPY event fits the table or preparation refuses.
+- Exact times, null/absent payload fields and quantity/GI provenance survive.
+- Repeated views and unlinked MEAL/CARBS observations cannot become extra intake.
+- Shared cohort preparation never shares mutable moments across resolutions.
+- Generic counts declare their actual selected period; no whole-retention claim.
 - Trusted server identity, accepted question and exact model/policy must match.
 - Source selection and receipt write share one bounded device transaction.
 - Selected tombstones are authenticated before omission; no old-version revival.
