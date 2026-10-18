@@ -516,6 +516,75 @@ class MealPhotoFlowRobolectricTest {
         assertAnalysisError(MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST, R.string.meal_photo_invalid_request)
     }
 
+    @Test fun failedJobKeepsNewPhotoSelectionAvailable() {
+        assertTerminalRecovery(ServerAiJobState.FAILED,
+            "Не удалось завершить анализ фото. Выберите снимок ещё раз или введите еду вручную.")
+    }
+
+    @Test fun cancelledJobKeepsNewPhotoSelectionAvailable() {
+        assertTerminalRecovery(ServerAiJobState.CANCELLED, "Анализ отменён. Можно выбрать новое фото.")
+    }
+
+    @Test fun expiredJobShowsTimeoutAndKeepsNewPhotoSelectionAvailable() {
+        assertTerminalRecovery(ServerAiJobState.EXPIRED,
+            RuntimeEnvironment.getApplication().getString(R.string.meal_photo_timeout))
+    }
+
+    @Test fun unavailableResultDoesNotImplyUnavailableServer() {
+        assertTerminalRecovery(ServerAiJobState.SUCCEEDED,
+            "Результат больше недоступен. Выберите снимок ещё раз или введите еду вручную.")
+    }
+
+    private fun assertTerminalRecovery(state: ServerAiJobState, message: String) {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val now = 1_800_000_000_000L
+        var sends = 0
+        val jobs = object : MealPhotoJobs {
+            override suspend fun ready() = true
+            override fun prepare(request: MealPhotoGatewayRequest, deadlineMs: Long) =
+                ServerMealPhotoProtocol.prepare(request, now, deadlineMs)
+            override suspend fun submit(submission: MealPhotoSubmission): MealPhotoJobSnapshot {
+                sends++
+                return MealPhotoJobSnapshot(java.util.UUID.randomUUID().toString(), submission.requestId,
+                    state, now, submission.deadlineMs, now + 1, now + 2, false, null, null)
+            }
+            override suspend fun status(submission: MealPhotoSubmission, jobId: String): MealPhotoJobSnapshot =
+                error("A terminal job must not be polled")
+            override suspend fun cancel(submission: MealPhotoSubmission, jobId: String): MealPhotoJobSnapshot =
+                error("A terminal job must not be cancelled again")
+        }
+        val gateway = ServerMealPhotoGateway(jobs, { true }, { now }, {})
+        val repository = MealPhotoAnalysisRepository(gateway)
+        val controller = showPhoto(registry, availability = gateway::availability,
+            analyze = { repository.analyze(it) })
+        try {
+            compose.onNodeWithTag("mealPhotoGallery").performClick()
+            compose.runOnIdle { registry.deliver(Uri.fromFile(image)) }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("mealPhotoError").fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithText(RuntimeEnvironment.getApplication()
+                        .getString(R.string.meal_photo_unavailable)).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("mealPhotoError").assertIsDisplayed().assertTextEquals(message)
+            compose.onNodeWithTag("mealPhotoGallery").assertIsEnabled()
+            compose.onNodeWithTag("mealPhotoCamera").assertIsEnabled()
+            compose.onNodeWithTag("mealPhotoUse").assertDoesNotExist()
+            compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.meal_photo_recheck))
+                .assertDoesNotExist()
+            compose.waitForIdle()
+            assertEquals(1, sends)
+            if (state == ServerAiJobState.FAILED)
+                saveEvidence("meal-photo-analysis-failed", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+            compose.onNodeWithTag("mealPhotoGallery").performClick()
+            compose.runOnIdle { registry.deliver(Uri.fromFile(image)) }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("mealPhotoError").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(2, sends)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
     @Test fun unusableNutritionShowsAnErrorAndRequiresExplicitNewSelection() {
         val registry = PhotoRegistry()
         val image = syntheticPhoto()

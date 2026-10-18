@@ -150,3 +150,42 @@ def test_meal_photo_estimate_keeps_uncertainty_that_includes_zero_when_mass_is_r
     value = estimate_value()
     value["ingredients"][0]["massGrams"]["min"] = 0
     assert MealPhotoEstimate.decode(value).as_dict() == value
+
+
+@pytest.mark.parametrize("encoded", [False, True], ids=["object", "json"])
+@pytest.mark.parametrize("field", ["suggestedProfile", "preparationState", "carbohydrateBasis", "unit"])
+@pytest.mark.parametrize("invalid", [[], {}], ids=["array", "object"])
+def test_meal_photo_enum_types_fail_with_fixed_schema_error(encoded, field, invalid):
+    from app.ai.meal_photo import MealPhotoEstimate, MealPhotoSchemaError
+
+    value = estimate_value()
+    target = value if field == "suggestedProfile" else value["ingredients"][0]
+    if field == "unit":
+        target = target["energy"]
+    target[field] = invalid
+    with pytest.raises(MealPhotoSchemaError, match="^invalid_result$"):
+        MealPhotoEstimate.decode(json.dumps(value).encode() if encoded else value)
+
+
+@pytest.mark.parametrize("encoded", [False, True], ids=["object", "json"])
+@pytest.mark.parametrize("field", ["massGrams", "carbohydrates", "energy"])
+@pytest.mark.parametrize("endpoint", ["min", "max"])
+def test_meal_photo_large_integer_rejects_without_float_overflow(encoded, field, endpoint):
+    from app.ai.meal_photo import MealPhotoEstimate, MealPhotoSchemaError
+
+    value = estimate_value()
+    value["ingredients"][0][field][endpoint] = 10 ** 400
+    with pytest.raises(MealPhotoSchemaError, match="^invalid_result$"):
+        MealPhotoEstimate.decode(json.dumps(value).encode() if encoded else value)
+
+
+@pytest.mark.parametrize("field", ["estimateId", "mealName", "id", "name"])
+@pytest.mark.parametrize("blank", ["   ", "\u00a0\u2003"])
+def test_meal_photo_blank_labels_reject_before_android_review(field, blank):
+    from app.ai.meal_photo import MealPhotoEstimate, MealPhotoSchemaError
+
+    value = estimate_value()
+    target = value if field in {"estimateId", "mealName"} else value["ingredients"][0]
+    target[field] = blank
+    with pytest.raises(MealPhotoSchemaError, match="^invalid_result$"):
+        MealPhotoEstimate.decode(json.dumps(value).encode())

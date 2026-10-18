@@ -141,13 +141,14 @@ class ServerMealPhotoGateway internal constructor(
                         ServerAiJobState.SUCCEEDED -> {
                             if (!current.resultAvailable || current.estimateJson == null ||
                                 current.resultExpiresMs?.let { it > serverTime() } != true) {
-                                fail(MealPhotoAnalysisResult.Failure.Reason.UNAVAILABLE)
+                                fail(MealPhotoAnalysisResult.Failure.Reason.RESULT_UNAVAILABLE)
                             }
                             return@withTimeoutOrNull current.estimateJson
                         }
                         ServerAiJobState.UNKNOWN -> fail(MealPhotoAnalysisResult.Failure.Reason.UNKNOWN_OUTCOME)
-                        ServerAiJobState.FAILED, ServerAiJobState.CANCELLED, ServerAiJobState.EXPIRED ->
-                            fail(MealPhotoAnalysisResult.Failure.Reason.UNAVAILABLE)
+                        ServerAiJobState.FAILED -> fail(MealPhotoAnalysisResult.Failure.Reason.ANALYSIS_FAILED)
+                        ServerAiJobState.CANCELLED -> fail(MealPhotoAnalysisResult.Failure.Reason.CANCELLED)
+                        ServerAiJobState.EXPIRED -> fail(MealPhotoAnalysisResult.Failure.Reason.TIMED_OUT)
                         else -> Unit
                     }
                     if (serverTime() >= prepared.deadlineMs) fail(MealPhotoAnalysisResult.Failure.Reason.TIMED_OUT)

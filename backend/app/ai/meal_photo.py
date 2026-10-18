@@ -70,7 +70,7 @@ def _json_object(body: bytes, *, maximum: int, error: str) -> dict[str, Any]:
 
 
 def _string(value: object, *, maximum: int, error: str) -> str:
-    if (not isinstance(value, str) or not value or len(value) > maximum
+    if (not isinstance(value, str) or not value.strip() or len(value) > maximum
             or any(ord(char) < 0x20 for char in value)):
         raise MealPhotoSchemaError(error)
     return value
@@ -79,7 +79,10 @@ def _string(value: object, *, maximum: int, error: str) -> str:
 def _number(value: object, *, maximum: float, error: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MealPhotoSchemaError(error)
-    converted = float(value)
+    try:
+        converted = float(value)
+    except OverflowError:
+        raise MealPhotoSchemaError(error) from None
     if not math.isfinite(converted) or converted < 0.0 or converted > maximum:
         raise MealPhotoSchemaError(error)
     return converted
@@ -212,7 +215,7 @@ class MealPhotoEstimate:
             ids.add(ingredient.ingredient_id)
             ingredients.append(ingredient)
         profile = value["suggestedProfile"]
-        if profile is not None and profile not in _PROFILE_DURATIONS:
+        if profile is not None and (not isinstance(profile, str) or profile not in _PROFILE_DURATIONS):
             raise MealPhotoSchemaError("invalid_result")
         duration = value["suggestedDurationMinutes"]
         if duration is not None:
@@ -240,7 +243,8 @@ class MealPhotoEstimate:
                        error="invalid_result")
         preparation = value["preparationState"]
         basis = value["carbohydrateBasis"]
-        if preparation not in _PREPARATION_STATES or basis not in _CARBOHYDRATE_BASES:
+        if (not isinstance(preparation, str) or preparation not in _PREPARATION_STATES
+                or not isinstance(basis, str) or basis not in _CARBOHYDRATE_BASES):
             raise MealPhotoSchemaError("invalid_result")
         ingredient = MealPhotoIngredient(
             ingredient_id=ingredient_id,
@@ -296,7 +300,7 @@ class MealPhotoEstimate:
         if not isinstance(value, dict) or set(value) != {"min", "max", "unit"}:
             raise MealPhotoSchemaError("invalid_result")
         unit = value["unit"]
-        if unit not in _ENERGY_UNITS:
+        if not isinstance(unit, str) or unit not in _ENERGY_UNITS:
             raise MealPhotoSchemaError("invalid_result")
         return cls._range({"min": value["min"], "max": value["max"]}, MAX_ENERGY), unit
 

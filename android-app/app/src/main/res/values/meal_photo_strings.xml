@@ -14,7 +14,10 @@
     <string name="meal_photo_exchange_failed">Could not get the result. Check the AI server connection. No automatic retry was sent.</string>
     <string name="meal_photo_busy">Wait for the current photo analysis to finish.</string>
     <string name="meal_photo_invalid_result">The server returned an invalid estimate. Nothing was applied.</string>
-    <string name="meal_photo_unknown">The server did not confirm acceptance. The result is unknown; no automatic retry was sent.</string>
+    <string name="meal_photo_analysis_failed">Could not complete photo analysis. Select the photo again or enter food manually.</string>
+    <string name="meal_photo_cancelled">Analysis was cancelled. You can select a new photo.</string>
+    <string name="meal_photo_result_unavailable">The result is no longer available. Select the photo again or enter food manually.</string>
+    <string name="meal_photo_unknown">The request outcome is unknown. No automatic retry was sent.</string>
     <string name="meal_photo_timeout">The analysis timed out. No food was recorded.</string>
     <string name="meal_photo_recheck">Check connection</string>
     <string name="meal_photo_use">Use in food form</string>

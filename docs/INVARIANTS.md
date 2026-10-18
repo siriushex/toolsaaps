@@ -1,5 +1,15 @@
 # INVARIANTS
 
+## Food Photo Failure Recovery
+
+- A correlated terminal analysis failure/cancellation/deadline/result expiry
+  cannot imply missing authorization or image capability. Those actual refusals
+  retain their readiness gate; unknown acceptance remains unknown.
+- Terminal outcomes do not replay, poll or cancel a finished job. Only an
+  explicit new selection creates another photo request; no cached image retry.
+- Untrusted enum types, numeric overflow and blank labels fail with fixed
+  schema errors. Neither worker internals nor rejected model data reach the UI.
+
 ## Authenticated Facts Maintenance
 
 - Owner host flag defaults false and is distinct from device consent, signed

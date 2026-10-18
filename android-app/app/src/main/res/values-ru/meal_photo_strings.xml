@@ -14,7 +14,10 @@
     <string name="meal_photo_exchange_failed">Не удалось получить результат. Проверьте связь с ИИ-сервером. Автоматический повтор не отправлен.</string>
     <string name="meal_photo_busy">Дождитесь завершения текущего анализа фото.</string>
     <string name="meal_photo_invalid_result">Сервер вернул некорректную оценку. Ничего не применено.</string>
-    <string name="meal_photo_unknown">Сервер не подтвердил приём запроса. Результат неизвестен, автоматический повтор не отправлен.</string>
+    <string name="meal_photo_analysis_failed">Не удалось завершить анализ фото. Выберите снимок ещё раз или введите еду вручную.</string>
+    <string name="meal_photo_cancelled">Анализ отменён. Можно выбрать новое фото.</string>
+    <string name="meal_photo_result_unavailable">Результат больше недоступен. Выберите снимок ещё раз или введите еду вручную.</string>
+    <string name="meal_photo_unknown">Результат запроса неизвестен. Автоматический повтор не отправлен.</string>
     <string name="meal_photo_timeout">Время анализа истекло. Еда не записана.</string>
     <string name="meal_photo_recheck">Проверить связь</string>
     <string name="meal_photo_use">В форму еды</string>

@@ -118,6 +118,9 @@ internal fun MealPhotoFlowDialog(
                         MealPhotoAnalysisResult.Failure.Reason.UNKNOWN_OUTCOME -> R.string.meal_photo_unknown
                         MealPhotoAnalysisResult.Failure.Reason.TIMED_OUT -> R.string.meal_photo_timeout
                         MealPhotoAnalysisResult.Failure.Reason.INVALID_RESPONSE -> R.string.meal_photo_invalid_result
+                        MealPhotoAnalysisResult.Failure.Reason.ANALYSIS_FAILED -> R.string.meal_photo_analysis_failed
+                        MealPhotoAnalysisResult.Failure.Reason.CANCELLED -> R.string.meal_photo_cancelled
+                        MealPhotoAnalysisResult.Failure.Reason.RESULT_UNAVAILABLE -> R.string.meal_photo_result_unavailable
                         MealPhotoAnalysisResult.Failure.Reason.INVALID_REQUEST -> R.string.meal_photo_invalid_request
                         MealPhotoAnalysisResult.Failure.Reason.NETWORK -> R.string.meal_photo_exchange_failed
                         MealPhotoAnalysisResult.Failure.Reason.BUSY -> R.string.meal_photo_busy

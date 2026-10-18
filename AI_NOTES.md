@@ -1,3 +1,35 @@
+# Food Photo Failure Recovery - 2026-10-18
+
+- A terminal failed/cancelled/expired photo job was treated as service
+  unavailability, hiding selection behind a connection recheck. Distinct
+  terminal reasons must retain readiness and allow only explicit new selection;
+  real authorization/capability refusal keeps its existing readiness gate.
+- Backend enum membership accepted unhashable values into a TypeError, large
+  JSON integers overflowed float conversion, and blank labels passed server
+  decoding but failed Android review. Synthetic RED:36 expected failures,
+  24 passes. Type guards, bounded conversion failure and blank checks return
+  the existing fixed invalid_result code without exposing model output.
+- Initial153 focused backend cases pass, including signed API failure/stop/new
+  job recovery. Full fixed-input backend:1803 passed/27 existing skips, zero
+  failures. Source manifests match before/after the full run.
+- Android RED initially exposed a test-clock mismatch; fix the fixture before
+  production changes. Corrected RED has five expected failures: gateway reason
+  and four actual native terminal error/recovery states. Terminal statuses now
+  keep choices available with separate localized messages; deadline and retained
+  result expiry are checked independently. Unknown outcomes, authorization and
+  real service refusal keep their gates; unknown-outcome wording no longer
+  incorrectly claims a missing acceptance receipt for a correlated UNKNOWN job.
+- Focused Android119 cases pass after creating the omitted private screenshot
+  directory. The initial15 file-output failures are retained; no assertion was
+  weakened. The new failure-state raster was inspected at320px with both choices
+  and complete text visible. Full Android including final wording:6203 passed,
+  six existing skips, zero failures/errors. Lint/compile/build completed in20m50s;
+  376 baseline warnings/eight hints, zero errors or changed-file issues. Source
+  manifests match; private APK signature/package verified. Android/backend skip
+  identities match the prior stage. Publication/exact-head CI have separate receipts.
+- No new schema, provider request, route, automatic retry, credentials, image
+  persistence, GI, target, dose, server deployment or phone operation.
+
 # Food Photo Nutrition Response Guard - 2026-10-18
 
 - The schema accepted per100g facts or mass intervals that existing domain

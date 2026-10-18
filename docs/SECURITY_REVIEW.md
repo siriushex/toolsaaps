@@ -1,5 +1,15 @@
 # SECURITY REVIEW
 
+## Food Photo Failure Recovery (2026-10-18)
+
+Validate enum types before membership checks and contain numeric conversion
+overflow at the schema boundary. Whitespace-only text cannot pass server decoding
+and later fail Android review. Public errors remain fixed; no model text, photo
+or worker failure detail is exposed. Signed synthetic tests retain terminal stop,
+capability availability and new-request isolation. Android presentation uses only
+existing correlated public job states, not a new diagnostic channel. Readiness
+and unknown-outcome gates remain authoritative; no replay or therapy change.
+
 ## Food Photo Nutrition Response Guard (2026-10-18)
 
 The untrusted photo result must pass existing nutrition feasibility rules before

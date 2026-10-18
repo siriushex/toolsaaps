@@ -1,5 +1,29 @@
 # Combined Native UI And Food Photo Source
 
+## Terminal Failure Recovery (2026-10-18)
+
+Photo job failure is not proof that the server lacks image support. A correlated
+FAILED job now shows an analysis failure, CANCELLED shows cancellation, EXPIRED
+shows timeout, and a SUCCEEDED job whose retained result is unavailable/expired
+shows result unavailability. These outcomes retain the camera/gallery choices.
+They do not trigger another request; a fresh selection is still required.
+Unknown acceptance/outcome retains its existing warning and no-replay behavior.
+Actual authentication/capability refusal still requires the readiness recheck.
+No private worker error detail is added to the public wire protocol or UI.
+
+Backend decoding rejects arrays/objects in enum fields, numeric overflow and
+blank identifiers/names with the existing fixed invalid_result error. It does
+not coerce these into an estimate or rewrite any nutrition value. Signed synthetic
+API tests verify failed-job stop and successful next explicit job independently
+of the Android presentation checks. Provider/device acceptance is separate.
+
+Verification:153 focused backend cases and119 affected Android cases pass,
+including34 native photo cases. Full backend1803 passed/27 existing skips; full
+Android6203 passed/six existing skips, with the same skip identities as before.
+Lint/compile/build and private APK signature passed on matching source manifests.
+Lint has no errors or changed-file issues; the new native error raster was
+inspected at320px. Source CI and operational acceptance remain separate receipts.
+
 ## Reviewable Nutrition Responses (2026-10-18)
 
 Photo response parsing now applies the existing nutrition-domain validation
@@ -18,7 +42,8 @@ without modifying or clamping the model interval or the user's input.
 
 Android rejects an otherwise successful response with malformed nutrition using
 the existing localized invalid-result error, rather than opening an editor with
-permanently unavailable totals. Terminal server-job failure wording is unchanged.
+permanently unavailable totals. Terminal server-job failures are handled separately
+as described above.
 There is no automatic retry;
 the user can explicitly select another image. Source tests use synthetic replies
 and images only. Actual device/provider acceptance and nutritional accuracy remain

@@ -1,5 +1,21 @@
 # PLAN
 
+## Food Photo Failure Recovery (2026-10-18)
+
+- [x] Reproduce malformed result enum types, numeric overflow and blank labels;
+  36 expected failures precede decoder changes, with 24 prior cases passing.
+- [x] Reject those values with fixed schema errors; signed synthetic API tests
+  confirm one stopped failed job and a successful new explicit job. Focused
+  decoder/native-vision/API coverage:153 passed.
+- [x] Distinguish terminal photo-job failure/cancellation/deadline/result expiry
+  from server capability or authentication loss in Android and native UI.
+- [x] Full fixed-input backend:1803 passed/27 existing skips, zero failures.
+- [x] Full fixed-input Android:6203 passed/six existing skips; lint/compile/build
+  succeeded in20m50s. Lint has376 baseline warnings/eight hints, zero errors or
+  changed-file issues. Private APK signature verified; source manifests match.
+- Reviewed source publication and exact-head CI have independent PR receipts.
+- No model/image upload, server deployment, phone or therapy operation.
+
 ## Food Photo Nutrition Response Guard (2026-10-18)
 
 - [x] Trace parsed results through editor and existing nutrition validation;
