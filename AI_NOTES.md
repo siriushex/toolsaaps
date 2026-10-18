@@ -1,3 +1,23 @@
+# Post-Activity Response Design Audit - 2026-10-18
+
+- Audited current physical episode detection, activity protection/recovery,
+  planned-target evidence gates and activity history export. No device episode
+  or personal glucose response was reconstructed in this source-only review.
+- Found that recovery counts six evaluations; its existing test assumes a
+  five-minute cadence. This does not prove elapsed rest at other cadences.
+  Server activity counters also lack original collector/counter/coverage
+  semantics needed to establish multiday inactivity or completed exercise.
+- Specified separate recent and usual baselines, both rise/fall outcomes,
+  delayed follow-up, explicit missing evidence and compact AI episode context:
+  docs/superpowers/specs/2026-10-18-post-activity-response-design.md.
+- No prospective fixed low target is admitted. Existing Target Manager,
+  Eating Soon, forecasts and therapy behavior remain unchanged. Implementation
+  and clinical validation of the new observational feature are still pending.
+- All 46 existing cases in six activity/controller suites passed with no
+  failures, errors or skips. These verify existing behavior, not the proposed
+  pattern or clinical safety of a lower post-activity target. Diff checks pass.
+- No server, APK, phone or model request is part of this documentation stage.
+
 # Compact Chat Conversation Pruning - 2026-10-18
 
 - Confirmed that the archive adapter put prior server prose in mandatory facts,
