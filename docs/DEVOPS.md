@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Provider Usage Source Integration
+
+The new local text client requests provider-token-usage-v1 receipts. Upgrade the
+text supervisor before the API in a separately approved idle-window rollout;
+old clients remain compatible with the new supervisor. Reverse that order for
+rollback. No automatic request replay or token/history restoration is permitted.
+No services are changed by source publication. See PROVIDER_TOKEN_USAGE.md for
+binding, optional encrypted archival and the unresolved preflight-count boundary.
+
 ## Compact Chat Source Integration
 
 The compact adapter is source-only and opt-in. No installed descriptor, service,

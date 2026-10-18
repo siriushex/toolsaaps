@@ -1,3 +1,23 @@
+# Provider Token Usage - 2026-10-18
+
+- Owner retained current model and ChatGPT login. Public tiktoken 0.14.0 has no
+  matching selected-model mapping; no guessed encoding or separate API was added.
+- Pinned raw response usage now passes through native text, explicitly negotiated
+  local supervisor, contextual worker and settled job into encrypted device chat.
+- Exact input/model/instruction binding, null semantics, duplicate/capacity checks
+  and independent stop remain enforced. Raw IDs/metadata are not archived; public
+  results and model conversation do not include internal usage receipts.
+- This is post-response accounting, not preflight tokenization or proof of full
+  history retention. Default compact admission, current model, login, phone and
+  therapy remain unchanged. No provider request or host deployment was performed.
+- Focused transport/compact/provider checks: 125 passed. Full backend: 1940
+  passed, 27 existing skips, one dependency deprecation warning. Twelve-file
+  scoped fatal Ruff and compilation pass; three formatted files and diff check
+  pass. Reviewed publication and new exact-head CI remain the next gate.
+- Previous head d6d24c34 has successful Backend, Session storage and Android
+  test/lint/build checks in its Verify run. One duplicate Android run was pending.
+- Contract and rollout order: docs/PROVIDER_TOKEN_USAGE.md.
+
 # Compact Budget Binding - 2026-10-18
 
 - Pinned native history counting is a byte-based heuristic; its catalog does not

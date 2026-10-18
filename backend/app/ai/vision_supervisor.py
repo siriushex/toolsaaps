@@ -62,6 +62,7 @@ class _Payload:
 
 class SupervisorMealVisionWorker(SupervisorTextRunner):
     """API-side worker sends raw bounded JPEG, never decodes or reads a profile."""
+    usage_receipts = False
     max_request, max_response, run_seconds = MAX_REQUEST, MAX_RESPONSE, 60
     response_fields = SupervisorTextRunner.response_fields | {"bindingSha256"}
     _policy_digest = staticmethod(policy_digest)
@@ -94,6 +95,7 @@ class SupervisorMealVisionWorker(SupervisorTextRunner):
 
 class VisionSupervisor(TextSupervisor):
     """Trusted-side fixed photo policy; factories must supply isolated workers."""
+    usage_receipts = False
     max_request, max_response = MAX_REQUEST, MAX_RESPONSE
     _policy_digest = staticmethod(policy_digest)
     _result = staticmethod(_result)

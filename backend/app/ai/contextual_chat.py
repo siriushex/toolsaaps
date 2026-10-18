@@ -15,6 +15,7 @@ from .history_store import HistoryStore
 from .job_policy import CHAT_POLICY, CHAT_RESPONSE_REVISION
 from .job_service import JobWork
 from .native_text import NativeTextSession, TextSessionPolicy, TextTransport
+from .provider_usage import UsageReceipt
 from .schemas import ChatRequest
 
 CONTEXT_INSTRUCTIONS = (
@@ -67,6 +68,7 @@ class NativeTextRunner:
     def __init__(self, process: ContainedTextProcess):
         self.process = process
         self._attempted = False
+        self.usage_receipt = None
 
     async def run(self, text: str, policy: TextSessionPolicy):
         if self._attempted:
@@ -74,7 +76,12 @@ class NativeTextRunner:
         # Cancellation after OS creation must still require independent teardown.
         self._attempted = True
         transport = await self.process.start(policy)
-        return await NativeTextSession(transport, policy, containment_verified=True).run(text)
+        session = NativeTextSession(transport, policy, containment_verified=True)
+        result = await session.run(text)
+        if session.provider_responses:
+            self.usage_receipt = UsageReceipt.create(policy.model, policy.instructions, text,
+                [dict(responseDigest=key, usage=value) for key, value in session.provider_responses.items()])
+        return result
 
     async def stop_and_confirm(self):
         return not self._attempted or await self.process.stop_and_confirm() is True
@@ -97,6 +104,7 @@ class ContextualChatWorker:
         self._used = False
         self._context_task = None
         self.compact_context = compact_context
+        self.usage_receipt = None
 
     async def run(self):
         if self._used:
@@ -121,7 +129,14 @@ class ContextualChatWorker:
         policy = TextSessionPolicy(self.work.policy.model, self.work.policy.system_prompt)
         if len(prompt.encode()) > policy.max_input_bytes:
             raise ValueError("contextual_chat_input_limit")
-        return await self.runner.run(prompt, policy)
+        result = await self.runner.run(prompt, policy)
+        receipt = getattr(self.runner, "usage_receipt", None)
+        if receipt is not None:
+            if type(receipt) is not UsageReceipt:
+                raise ValueError("invalid_provider_usage_receipt")
+            receipt.verify_binding(policy.model, policy.instructions, prompt)
+            self.usage_receipt = receipt
+        return result
 
     async def stop_and_confirm(self):
         # Do not leave a context reader behind after cancellation. Its store work

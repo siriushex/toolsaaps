@@ -979,7 +979,7 @@ class HistoryStore:
             finally:
                 db.close()
 
-    def finish_chat(self, job, result, *, now_ms: int):
+    def finish_chat(self, job, result, *, now_ms: int, usage_receipt=None):
         """Record only the executor's settled outcome. Never reconstruct an answer."""
         from .server_chat import binding, decrypt_entry, encrypt_entry, final_entry
 
@@ -998,7 +998,7 @@ class HistoryStore:
                 if now_ms < old["updated_ms"] or now_ms >= old["expires_ms"]:
                     raise ValueError("chat_archive_clock_regression")
                 previous = decrypt_entry(self, owner, device, old)
-                final = final_entry(previous, job, result)
+                final = final_entry(previous, job, result, usage_receipt=usage_receipt)
                 if now_ms < job.finished_ms:
                     raise ValueError("chat_archive_clock_regression")
                 if previous["state"] != "OUTCOME_NOT_RECORDED":

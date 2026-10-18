@@ -306,11 +306,14 @@ def test_receipt_capacity_does_not_silently_drop_manifest_detail(tmp_path, monke
     assert receipt(value, entry) is None
 
 
-def test_signed_compact_turn_keeps_receipt(service, tmp_path):  # noqa: F811
+@pytest.mark.parametrize("provider_usage", [False, True])
+def test_signed_compact_turn_keeps_receipt(service, tmp_path, provider_usage):  # noqa: F811
     from uuid import uuid4
     from app.ai.job_ledger import JobLedger
     from app.ai.job_service import AiJobService
     from app.ai_server import create_bound_ai_app
+    from app.ai.server_chat import decrypt_entry
+    from test_ai_provider_usage import event, frames, usage
     from test_ai_job_transport import (
         NOW as API_NOW,
         MutableClock,
@@ -325,7 +328,7 @@ def test_signed_compact_turn_keeps_receipt(service, tmp_path):  # noqa: F811
     processes = []
 
     def factory(work):
-        process = Process()
+        process = Process(frames(event())) if provider_usage else Process()
         processes.append(process)
         return ContextualChatWorker(
             work,
@@ -369,6 +372,20 @@ def test_signed_compact_turn_keeps_receipt(service, tmp_path):  # noqa: F811
             response = wait_for_terminal(client, key, tokens, job_id)
             assert response.json()["state"] == "SUCCEEDED"
             assert processes[0].stops == 1
+            with value._locked():
+                db = value._open(owner, fingerprint, create=False)
+                try:
+                    row = db.execute(
+                        "SELECT * FROM server_chat WHERE job_id=?", (job_id,)
+                    ).fetchone()
+                    archived = decrypt_entry(value, owner, fingerprint, row)
+                finally:
+                    db.close()
+            if provider_usage:
+                assert archived["providerUsage"]["responses"][0]["usage"] == usage()
+            else:
+                assert "providerUsage" not in archived
+            assert "providerUsage" not in response.text
             text = processes[0].transport.sent[-1]["params"]["input"][0]["text"]
             saved = json.loads(
                 value.chat_context_receipt(owner, fingerprint, job_id, now_ms=clock())

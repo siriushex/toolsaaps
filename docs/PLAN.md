@@ -1,5 +1,14 @@
 # PLAN
 
+## Provider Token Usage (2026-10-18)
+
+- [x] Preserve selected model/login; inspect public mapping and pinned usage schema.
+- [x] Wire bounded post-response usage through local text and encrypted CHAT archive.
+- [x] Check native, transport, compact, signed-job and isolation regressions.
+- [x] Complete full backend: 1940 passed/27 skipped; scoped lint/compile/diff pass.
+- [ ] Publish reviewed source and inspect exact-head CI.
+- Separate admission remains for exact preflight accounting and protected rollout.
+
 ## Compact Budget Binding (2026-10-18)
 
 - [x] Inspect pinned native source: heuristic estimate is not exact token accounting.

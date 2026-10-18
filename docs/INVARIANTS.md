@@ -1,5 +1,14 @@
 # INVARIANTS
 
+## Provider Token Usage
+
+- Only correlated raw upstream usage is provider evidence, not thread estimates.
+- Missing usage is unknown; repeated response identity cannot double count.
+- Model/input/instruction mismatch cannot be stored as the accepted turn's usage.
+- Unconfirmed stop or unsuccessful outcome cannot publish a successful receipt.
+- Per-device encrypted archival and immutable compact frame receipts are preserved.
+- Provider usage does not infer full window fit, widen limits or change therapy.
+
 ## Compact Budget Binding
 
 - A supplied counter is not proof of the selected model's tokenizer or window.

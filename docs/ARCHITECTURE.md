@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Provider Token Usage (2026-10-18)
+
+Bounded raw upstream response counts are correlated to native thread/turn and
+bound to submitted input/model/instructions. Text supervisor negotiates optional
+receipts, returns them only after confirmed stop, and the settled CHAT job stores
+them in its existing encrypted device entry. Public answers and model history
+remain unchanged. This is post-response evidence, not a preflight tokenizer or
+permission to activate compact context. See PROVIDER_TOKEN_USAGE.md.
+
 ## Compact Budget Binding (2026-10-18)
 
 Optional compact CHAT binds accounting to the exact accepted model and instruction

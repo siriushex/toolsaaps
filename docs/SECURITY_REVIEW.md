@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Provider Token Usage (2026-10-18)
+
+- Native correlation plus exact frame/model/instruction hashes prevent cross-turn
+  usage attachment. Compact archival additionally checks its saved frameDigest.
+- At most 16 upstream responses and 8192 receipt bytes; strict signed-int bounds,
+  relationships and duplicate checks reject malformed metadata with fixed errors.
+- Raw provider IDs and arbitrary metadata are discarded. Counts stay inside the
+  encrypted device archive, outside public results and model conversation input.
+- Receipt delivery follows independent stop and settled success. Local opt-in
+  is versioned; old clients keep old fields, and no ambiguous retry is added.
+- No model mapping is guessed. Post-response counts do not authorize higher
+  limits, clinical actions, host deployment or a change of login/model.
+
 ## Compact Budget Binding (2026-10-18)
 
 - Exact model/instruction binding fails before archive access. Neither is public

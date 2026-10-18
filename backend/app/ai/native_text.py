@@ -92,6 +92,7 @@ class _NativeSession:
         self._observed_thread = self._observed_turn = None
         self._final = None
         self._completed = False
+        self.provider_responses = {}
 
     async def _run(self, inputs):
         if self._used:
@@ -246,7 +247,27 @@ class _NativeSession:
                     or settings.get("approvalPolicy") != "never"
                     or settings.get("sandboxPolicy") != {"type": "readOnly", "networkAccess": False}):
                 raise NativeTextError("text_configuration_rejected")
-        elif method in {"thread/status/changed", "thread/tokenUsage/updated", "thread/name/updated"}:
+        elif method == "rawResponse/completed":
+            from .provider_usage import MAX_RESPONSES, counts
+
+            if set(params) != {"threadId", "turnId", "responseId", "usage", "usageMetadata"}:
+                raise NativeTextError("text_envelope_rejected")
+            self._correlate(params, turn=True)
+            digest = hashlib.sha256(self._identifier(params["responseId"]).encode()).hexdigest()
+            try:
+                usage = counts(params["usage"])
+                if digest in self.provider_responses:
+                    if self.provider_responses[digest] != usage:
+                        raise ValueError
+                elif len(self.provider_responses) >= MAX_RESPONSES:
+                    raise ValueError
+                else:
+                    self.provider_responses[digest] = usage
+            except ValueError:
+                raise NativeTextError("text_usage_rejected") from None
+        elif method == "thread/tokenUsage/updated":
+            self._correlate(params, turn=True)
+        elif method in {"thread/status/changed", "thread/name/updated"}:
             self._correlate(params)
         elif method not in {"account/rateLimits/updated", "skills/changed", "account/updated"}:
             raise NativeTextError("text_notification_rejected")

@@ -59,6 +59,7 @@ class _Payload:
 
 
 class SupervisorDailyReviewRunner(SupervisorTextRunner):
+    usage_receipts = False
     max_request, max_response = MAX_REQUEST, MAX_RESPONSE
     response_fields = SupervisorTextRunner.response_fields | {"bindingSha256"}
     _policy_digest = staticmethod(daily_policy_digest)
@@ -102,6 +103,7 @@ class SupervisorDailyReviewRunner(SupervisorTextRunner):
 
 
 class DailySupervisor(TextSupervisor):
+    usage_receipts = False
     max_request, max_response = MAX_REQUEST, MAX_RESPONSE
     _policy_digest = staticmethod(daily_policy_digest)
     _result = staticmethod(_result_dict)

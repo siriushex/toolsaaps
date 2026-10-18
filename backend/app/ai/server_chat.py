@@ -54,7 +54,9 @@ def accepted_entry(job: Job, request: ChatRequest, policy: JobPolicy):
                 startedAtMs=None, finishedAtMs=None)
 
 
-def final_entry(entry: dict, job: Job, result: ChatResult | None):
+def final_entry(entry: dict, job: Job, result: ChatResult | None, *, usage_receipt=None):
+    from .provider_usage import final_usage
+
     if any(entry.get(key) != value for key, value in binding(job).items()):
         raise ValueError("chat_archive_binding_mismatch")
     if job.state not in FINAL_STATES:
@@ -72,10 +74,11 @@ def final_entry(entry: dict, job: Job, result: ChatResult | None):
             raise ValueError("chat_result_not_settled")
         answer = ChatResult.decode(result.as_dict()).text
     else:
-        if result is not None:
+        if result is not None or usage_receipt is not None:
             raise ValueError("chat_result_not_settled")
         answer = None
-    return entry | dict(state=job.state, answer=answer, startedAtMs=job.started_ms,
+    extra = {"providerUsage": final_usage(entry, usage_receipt)} if usage_receipt is not None else {}
+    return entry | extra | dict(state=job.state, answer=answer, startedAtMs=job.started_ms,
                         finishedAtMs=job.finished_ms)
 
 

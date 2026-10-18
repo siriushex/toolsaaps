@@ -556,7 +556,8 @@ def test_signed_history_context_job_and_archive_keep_existing_contracts(running,
     assert len(run.channel.requests) == len(run.channel.peers) == 1
     assert all(writer.closed for writer in run.channel.connections)
     request = run.channel.requests[0]
-    assert set(request) == {"version", "runId", "policySha256", "text"}
+    assert set(request) == {"version", "runId", "policySha256", "text", "usageReceiptRevision"}
+    assert request["usageReceiptRevision"] == "provider-token-usage-v1"
     config = owner.read_configuration(run.path)
     policy = owner.TextSessionPolicy(config.policy.model, config.policy.system_prompt)
     assert request["policySha256"] == policy_digest(policy)

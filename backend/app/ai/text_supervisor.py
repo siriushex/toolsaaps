@@ -18,10 +18,11 @@ from uuid import UUID, uuid4
 from .contextual_chat import NativeTextRunner
 from .job_executor import _complete_critical
 from .native_text import TextSessionPolicy
+from .provider_usage import MAX_RECEIPT_BYTES, REVISION, UsageReceipt
 from .schemas import ChatResult
 
 MAX_REQUEST = 6 * 131_072 + 1024
-MAX_RESPONSE = 6 * 16_384 + 1024
+MAX_RESPONSE = 6 * 16_384 + 1024 + MAX_RECEIPT_BYTES
 HANDSHAKE_SECONDS = 5
 STOP_SECONDS = 15
 CLIENT_STOP_SECONDS = 18
@@ -131,6 +132,7 @@ class SupervisorTextRunner:
 
     max_request, max_response, run_seconds = MAX_REQUEST, MAX_RESPONSE, RUN_SECONDS
     response_fields = frozenset({"version", "runId", "state", "stopped", "result"})
+    usage_receipts = True
     _policy_digest = staticmethod(policy_digest)
 
     def __init__(self, path: str, peer: PeerIdentity, policy: TextSessionPolicy):
@@ -142,6 +144,7 @@ class SupervisorTextRunner:
         self.run_id = str(uuid4())
         self._task = self._writer = None
         self._submitted = self._cancel = self._cancel_sent = self._stopped = False
+        self.usage_receipt = None
 
     async def run(self, text: str, policy: TextSessionPolicy):
         if self._task is not None or self._cancel:
@@ -163,7 +166,8 @@ class SupervisorTextRunner:
                 await _write(self._writer, self._request(text), self.max_request)
             async with asyncio.timeout(self.run_seconds + STOP_SECONDS + HANDSHAKE_SECONDS):
                 value = await _read(reader, self.max_response)
-            if (set(value) != self.response_fields
+            fields = self.response_fields | ({"usageReceipt"} if self.usage_receipts and "usageReceipt" in value else set())
+            if (set(value) != fields
                     or type(value["version"]) is not int or value["version"] != 1
                     or value["runId"] != self.run_id or type(value["stopped"]) is not bool
                     or value["state"] not in {"SUCCEEDED", "FAILED", "CANCELLED", "REJECTED"}):
@@ -176,6 +180,13 @@ class SupervisorTextRunner:
             self._stopped = value["stopped"]
             if value["state"] != "SUCCEEDED":
                 raise SupervisorError("supervisor_turn_failed")
+            if "usageReceipt" in value:
+                try:
+                    receipt = UsageReceipt(_encode(value["usageReceipt"]))
+                    receipt.verify_binding(self.policy.model, self.policy.instructions, text)
+                except (TypeError, ValueError, UnicodeError):
+                    raise SupervisorError("supervisor_usage_rejected") from None
+                self.usage_receipt = receipt
             return result
         except SupervisorError:
             raise
@@ -186,7 +197,8 @@ class SupervisorTextRunner:
                 await _close(self._writer)
 
     def _request(self, text):
-        return dict(version=1, runId=self.run_id, policySha256=self.digest, text=text)
+        return dict(version=1, runId=self.run_id, policySha256=self.digest, text=text,
+                    usageReceiptRevision=REVISION)
 
     def _validate_extra(self, value):
         pass
@@ -225,6 +237,7 @@ class TextSupervisor:
     """
 
     max_request, max_response = MAX_REQUEST, MAX_RESPONSE
+    usage_receipts = True
     _policy_digest = staticmethod(policy_digest)
 
     def __init__(self, policy: TextSessionPolicy, peer: PeerIdentity, process_factory,
@@ -273,7 +286,12 @@ class TextSupervisor:
             raise SupervisorError("supervisor_request_rejected")
 
     def _parse_request(self, value):
-        self._header(value, {"version", "runId", "policySha256", "text"})
+        fields = {"version", "runId", "policySha256", "text"}
+        if "usageReceiptRevision" in value:
+            if value["usageReceiptRevision"] != REVISION:
+                raise SupervisorError("supervisor_request_rejected")
+            fields.add("usageReceiptRevision")
+        self._header(value, fields)
         if not isinstance(value["text"], str) or not 1 <= len(value["text"].encode()) <= self.policy.max_input_bytes:
             raise SupervisorError("supervisor_request_rejected")
         return value["runId"], value["text"]
@@ -303,12 +321,14 @@ class TextSupervisor:
         stopped = True
         run_id = None
         payload = None
+        include_usage = False
         state, result = "REJECTED", None
         try:
             self.peer.check(writer)
             async with asyncio.timeout(HANDSHAKE_SECONDS):
                 value = await _read(reader, self.max_request)
             run_id, payload = self._parse_request(value)
+            include_usage = self.usage_receipts and value.get("usageReceiptRevision") == REVISION
             if self._active or self._poisoned or self._closing:
                 return
             self._active = claimed = True
@@ -362,9 +382,14 @@ class TextSupervisor:
                 result = None
             try:
                 if run_id is not None:
+                    extra = self._receipt_extra(payload)
+                    if include_usage and state == "SUCCEEDED" and runner.usage_receipt is not None:
+                        receipt = runner.usage_receipt
+                        receipt.verify_binding(self.policy.model, self.policy.instructions, payload)
+                        extra["usageReceipt"] = receipt.as_dict()
                     async with asyncio.timeout(1):
                         await _write(writer, dict(version=1, runId=run_id, state=state,
-                            stopped=stopped, result=result, **self._receipt_extra(payload)), self.max_response)
+                            stopped=stopped, result=result, **extra), self.max_response)
             except Exception:
                 pass
             await _close(writer)
