@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Eating Soon Across Concurrent Meals (2026-10-18)
+
+- A short immutable-input reservation precedes target dispatch; per-operation
+  completion coalesces duplicate callers. Only finished entries can be evicted.
+- Carbohydrate writes retain their serial lock, preserving throttle/write ordering.
+  A busy capacity result is known-not-sent, visible and never a false success.
+- Cancellation publishes the owner's partial state without reissuing uncertain
+  actions. Existing durable idempotency, eligibility and AAPS readback still apply.
+- No new target values, safety bypass, automatic renewal, endpoint fallback,
+  clinical settings, permissions or backend route are introduced.
+
 ## Internet APK Updates (2026-10-18)
 
 Follow-up recovery audit: terminal outcomes are operation-scoped, so a cancelled

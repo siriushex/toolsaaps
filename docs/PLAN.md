@@ -1,5 +1,15 @@
 # PLAN
 
+## Eating Soon Across Concurrent Meals (2026-10-18)
+
+- [x] Reproduce a new explicit target waiting behind an earlier carb POST.
+- [x] Separate short operation reservation from serial carbohydrate delivery.
+- [x] Preserve one owner/result per input, cancelled partial outcomes and bounded cache ownership.
+- [x] Pass80 focused delivery/policy/ownership/presentation cases and assemble candidate.
+- [x] Complete final combined Android tests/lint/compile/assemble:6276 passed,six skipped,zero failures/errors; no lint findings in changed files.
+- [ ] Verify intended phone identity and existing failure receipt before device acceptance.
+- Existing eligibility, confirmed30-minute hold and protective arbitration remain.
+
 ## APK Update Failure Recovery (2026-10-18)
 
 - [x] Reproduce late cancelled results and incorrect disk-error classification.

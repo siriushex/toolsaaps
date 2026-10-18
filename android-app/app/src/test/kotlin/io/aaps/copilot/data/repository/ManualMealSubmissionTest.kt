@@ -11,10 +11,139 @@ import io.aaps.copilot.domain.profile.MealAbsorptionSelection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class ManualMealSubmissionTest {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun newEatingSoonDoesNotWaitForAnotherMealsCarbTransport() = runTest {
+        val firstCarbsEntered = CompletableDeferred<Unit>()
+        val releaseFirstCarbs = CompletableDeferred<Unit>()
+        val targets = mutableListOf<String>()
+        val carbs = mutableListOf<String>()
+        val firstCommand = command.copy(idempotencyKey = "manual:meal:slow-carbs")
+        val nextCommand = command.copy(idempotencyKey = "manual:meal:priority-target")
+        val subject = ManualMealSubmission(
+            { request ->
+                carbs += request.idempotencyKey
+                if (request.idempotencyKey == firstCommand.idempotencyKey) {
+                    firstCarbsEntered.complete(Unit)
+                    releaseFirstCarbs.await()
+                }
+                true
+            }, { _, _, _ -> },
+            { key -> targets += key; EatingSoonResult(MealDeliveryStatus.SENT) }
+        )
+        val first = async { subject.submit(firstCommand, selection, null, false) }
+        firstCarbsEntered.await()
+        val next = async { subject.submit(nextCommand, selection, null, true) }
+        try {
+            runCurrent()
+            assertThat(targets).containsExactly(nextCommand.idempotencyKey)
+            assertThat(carbs).containsExactly(firstCommand.idempotencyKey)
+        } finally {
+            releaseFirstCarbs.complete(Unit)
+            first.await()
+            next.await()
+        }
+        assertThat(carbs).containsExactly(firstCommand.idempotencyKey, nextCommand.idempotencyKey).inOrder()
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun priorityRequestAndItsDuplicateShareOneOwnerWhileCarbsAreQueued() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val targets = mutableListOf<String>()
+        val carbs = mutableListOf<String>()
+        val firstCommand = command.copy(idempotencyKey = "manual:meal:first-queued")
+        val nextCommand = command.copy(idempotencyKey = "manual:meal:next-queued")
+        val subject = ManualMealSubmission(
+            { request ->
+                carbs += request.idempotencyKey
+                if (request.idempotencyKey == firstCommand.idempotencyKey) {
+                    entered.complete(Unit); release.await()
+                }
+                true
+            }, { _, _, _ -> },
+            { targets += it; EatingSoonResult(MealDeliveryStatus.SENT) }
+        )
+        val first = async { subject.submit(firstCommand, selection, null, false) }
+        entered.await()
+        val next = async { subject.submit(nextCommand, selection, null, true) }
+        val duplicate = async { subject.submit(nextCommand, selection, null, true) }
+        try {
+            runCurrent()
+            val changed = subject.submit(nextCommand.copy(params = mapOf("carbsGrams" to "40.0")),
+                selection, null, true)
+            assertThat(changed.eatingSoon.reason).isEqualTo("submission_changed")
+            assertThat(targets).containsExactly(nextCommand.idempotencyKey)
+            assertThat(carbs).containsExactly(firstCommand.idempotencyKey)
+        } finally { release.complete(Unit) }
+        first.await()
+        assertThat(next.await()).isEqualTo(duplicate.await())
+        assertThat(carbs).containsExactly(firstCommand.idempotencyKey, nextCommand.idempotencyKey).inOrder()
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun cancellationWhileWaitingForCarbsRetainsThePriorityTargetAndNeverReplays() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var targets = 0
+        val carbs = mutableListOf<String>()
+        val firstCommand = command.copy(idempotencyKey = "manual:meal:cancel-owner")
+        val nextCommand = command.copy(idempotencyKey = "manual:meal:cancel-waiting")
+        val subject = ManualMealSubmission(
+            { request ->
+                carbs += request.idempotencyKey
+                if (request.idempotencyKey == firstCommand.idempotencyKey) {
+                    entered.complete(Unit); release.await()
+                }
+                true
+            }, { _, _, _ -> },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) }
+        )
+        val first = async { subject.submit(firstCommand, selection, null, false) }
+        entered.await()
+        val next = async { subject.submit(nextCommand, selection, null, true) }
+        try {
+            runCurrent()
+            assertThat(targets).isEqualTo(1)
+            next.cancelAndJoin()
+            val retained = subject.submit(nextCommand, selection, null, true)
+            assertThat(retained.eatingSoon.status).isEqualTo(MealDeliveryStatus.SENT)
+            assertThat(retained.carbs).isEqualTo(MealDeliveryStatus.NOT_REQUESTED)
+            assertThat(targets).isEqualTo(1)
+            assertThat(carbs).containsExactly(firstCommand.idempotencyKey)
+        } finally { release.complete(Unit); first.await() }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun fullReservationSetDoesNotEvictAnInFlightOwner() = runTest {
+        val release = CompletableDeferred<Unit>()
+        var carbs = 0
+        var targets = 0
+        val subject = ManualMealSubmission(
+            { carbs++; release.await(); true }, { _, _, _ -> },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) }
+        )
+        val entries = (1..64).map { command.copy(idempotencyKey = "manual:meal:entry-$it") }
+        val running = entries.map { request -> async { subject.submit(request, selection, null, false) } }
+        try {
+            runCurrent()
+            val overflow = subject.submit(command, selection, null, true)
+            assertThat(overflow.eatingSoon.reason).isEqualTo("submission_busy")
+            assertThat(targets).isEqualTo(0)
+            assertThat(carbs).isEqualTo(1)
+        } finally { release.complete(Unit) }
+        running.forEach { it.await() }
+        assertThat(subject.submit(command, selection, null, true).eatingSoon.status)
+            .isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(targets).isEqualTo(1)
+        assertThat(carbs).isEqualTo(65)
+    }
+
     @Test fun checkedTargetDoesNotWaitForResearchHistoryPersistence() = runTest {
         val observerEntered = CompletableDeferred<Unit>()
         val releaseObserver = CompletableDeferred<Unit>()

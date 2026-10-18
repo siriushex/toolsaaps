@@ -781,7 +781,12 @@ superpowers/specs/2026-10-14-personal-history-api-design.md.
 The checked Eating Soon option is an independent explicit manual target, like
 the standalone button. ManualMealSubmission freezes/reserves both intentions,
 then attempts the existing guarded target before carbohydrate transport and
-profile annotation. The target also precedes the optional research intent write;
+profile annotation. Reservation uses a short lock and one completion per input;
+duplicate callers share the owner's final or cancellation outcome. The target
+attempt precedes waiting for any earlier meal's carbohydrate I/O. Carbohydrate
+transport and annotation retain their own serial lock. At most64 reservations
+are retained; only finished owners can be evicted, otherwise admission returns
+a visible busy result without sending. The target also precedes the optional research intent write;
 that write remains before carbohydrate transport, not on the priority-reservation
 path. Carb/annotation failure cannot prevent the target attempt
 or overwrite its result. Cancellation/duplicates retain separate statuses with

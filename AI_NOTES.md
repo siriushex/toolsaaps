@@ -1,3 +1,22 @@
+# Eating Soon Across Concurrent Meals - 2026-10-18
+
+- Reproduced an explicit checked target not being invoked while another meal's
+  carbohydrate callback was still waiting. The shared submission mutex covered
+  both unrelated transport operations, so the earlier within-meal priority repair
+  did not protect a later meal's target.
+- Reserve immutable input under a short lock, share one completion per owner,
+  dispatch the existing guarded target, then enter the serial carbohydrate lock.
+  Completed result eviction cannot displace an in-flight owner; capacity refusal
+  is visible and performs no sends. Cancellation retains the partial outcome.
+- Initial RED fails as expected;80 focused cases across7 suites pass, including
+  queued target priority, duplicates, cancellation, unchanged input, capacity and
+  existing manager-mode/safety/readback cases. Candidate assembly passes.
+- Full combined working-tree Android test/lint/compile/assemble passed in19m25s:
+  6282 cases,6276 passed,six skipped,zero failures/errors. Lint retains378
+  warnings/eight hints, with no findings in this stage's changed files. Android
+  inputs match the captured manifest and the candidate retains the prior signer.
+- Device acceptance is separate; no live target, carb, bolus or test sound was sent.
+
 # APK Update Failure Recovery - 2026-10-18
 
 - A follow-up audit reproduced four failures: a cancelled check/download could

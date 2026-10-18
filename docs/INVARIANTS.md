@@ -813,6 +813,10 @@
 
 ## Independent Explicit Eating Soon
 
+- Another meal's in-flight carbohydrate transport cannot delay reservation or
+  dispatch of a newly checked explicit target. Carb writes remain serialized.
+- A same-input duplicate shares its existing owner's result. Cancellation records
+  the partial outcome; in-flight owners cannot be evicted to admit a duplicate.
 - A checked meal target is independent of carb transport/annotation success.
   Attempt the existing guarded canonical target before optional research
   persistence as well as carbs/annotation; preserve both outcomes. Research input
