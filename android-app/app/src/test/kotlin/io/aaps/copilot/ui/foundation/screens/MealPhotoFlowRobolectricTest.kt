@@ -43,6 +43,179 @@ import org.robolectric.annotation.LooperMode
 class MealPhotoFlowRobolectricTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun successfulPhotoTransfersOnlyExplicitCarbsAndRequiresFinalFoodConfirmation() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val meals = mutableListOf<MealEntryConfirmation>()
+        var calls = 0
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val owner = object : ActivityResultRegistryOwner { override val activityResultRegistry = registry }
+        try {
+            controller.get().setContent {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                    AapsCopilotTheme(dynamicColor = false) {
+                        MealEntryDialog(MealPortionSettings(), 80.0, {}, { meals.add(it) },
+                            { MealPhotoAvailability.READY }, {
+                                calls++
+                                assertTrue(it.isNotEmpty())
+                                MealPhotoAnalysisResult.Success(estimate().copy(
+                                    suggestedProfile = MealAbsorptionProfile.FAST, suggestedDurationMinutes = 45))
+                            })
+                    }
+                }
+            }
+            compose.onNodeWithTag("overviewEatingSoon").performScrollTo().performClick()
+            compose.onNodeWithTag("mealPhotoOpen").performClick()
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            assertEquals("", compose.onNodeWithTag("mealPhotoMass_rice").fetchSemanticsNode().config[
+                androidx.compose.ui.semantics.SemanticsProperties.EditableText].text)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("200")
+            compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.meal_photo_eaten))
+                .performScrollTo().performTextReplacement("50")
+            compose.onNodeWithTag("mealPhotoTotals").performScrollTo().assertTextContains("25,0 - 30,0", substring = true)
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo()
+                .performTextReplacement("27,5")
+            val use = compose.onNodeWithTag("mealPhotoUse").assertIsEnabled().fetchSemanticsNode().config[
+                androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
+            compose.runOnIdle { use(); use() }
+            assertTrue(meals.isEmpty())
+            compose.onNodeWithTag("mealConfirmGrams").performScrollTo().assertTextContains("27.5")
+            compose.onNodeWithTag("overviewEatingSoon").assertIsOff()
+            val confirm = compose.onNodeWithTag("overviewPrepareMeal").assertIsEnabled().fetchSemanticsNode().config[
+                androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
+            compose.runOnIdle { confirm(); confirm() }
+            assertEquals(1, meals.size)
+            assertEquals(27.5, meals.single().grams, 0.0)
+            assertEquals(MealAbsorptionProfile.FAST, meals.single().profile)
+            assertFalse(meals.single().eatingSoon)
+            assertEquals(1, calls)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun photoCarbsBelowFoodMinimumCannotLeaveReview() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val controller = showPhoto(registry, analyze = { MealPhotoAnalysisResult.Success(estimate()) })
+        try {
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("0,5")
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").assert(
+                SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.Error))
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun invalidEatenPercentageIsExplainedAndCorrectable() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val controller = showPhoto(registry, analyze = { MealPhotoAnalysisResult.Success(estimate()) })
+        try {
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("30")
+            compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.meal_photo_eaten))
+                .performScrollTo().performTextReplacement("101")
+            compose.onNodeWithTag("mealPhotoEaten_rice").assert(
+                SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.Error))
+            compose.onNodeWithTag("mealPhotoEatenError_rice", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            compose.onNodeWithTag("mealPhotoTotals").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoEaten_rice").performScrollTo().performTextReplacement("50")
+            compose.onNodeWithTag("mealPhotoEatenError_rice", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertIsEnabled()
+            compose.onNodeWithTag("mealPhotoTotals").performScrollTo().assertTextContains("25,0 - 30,0", substring = true)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun massOutsideModelRangeIsExplainedWithoutRelaxingTheRange() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        val controller = showPhoto(registry, analyze = { MealPhotoAnalysisResult.Success(estimate()) })
+        try {
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("230")
+            compose.onNodeWithTag("mealPhotoMassError_rice", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("mealPhotoTotals").assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("220")
+            compose.onNodeWithTag("mealPhotoMassError_rice", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("mealPhotoTotals").performScrollTo().assertIsDisplayed()
+            saveEvidence("meal-photo-confirmation", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun explicitCarbsBoundsAndInvalidNumbersRecoverWithoutAnotherAnalysis() {
+        val registry = PhotoRegistry()
+        val image = syntheticPhoto()
+        var calls = 0
+        val controller = showPhoto(registry, analyze = { calls++; MealPhotoAnalysisResult.Success(estimate()) })
+        try {
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("200")
+            listOf("0", "-1", "80,1", "NaN", "Infinity", "abc").forEach { value ->
+                compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement(value)
+                compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+                compose.onNodeWithTag("mealPhotoConfirmedCarbs").assert(
+                    SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.Error))
+            }
+            listOf("1", "80", "27,5").forEach { value ->
+                compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement(value)
+                compose.onNodeWithTag("mealPhotoUse").assertIsEnabled()
+                compose.onNodeWithTag("mealPhotoConfirmedCarbs").assert(
+                    SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Error))
+            }
+            assertEquals(1, calls)
+        } finally { controller.pause().stop().destroy(); image.delete() }
+    }
+
+    @Test fun enlargedReviewErrorsAndCorrectionsRemainReachable() {
+        val app = RuntimeEnvironment.getApplication()
+        val before = android.content.res.Configuration(app.resources.configuration)
+        @Suppress("DEPRECATION")
+        app.resources.updateConfiguration(android.content.res.Configuration(before).apply { fontScale = 1.8f },
+            app.resources.displayMetrics)
+        val image = syntheticPhoto()
+        var controller: ActivityController<ComponentActivity>? = null
+        try {
+            val registry = PhotoRegistry()
+            controller = showPhoto(registry, analyze = { MealPhotoAnalysisResult.Success(estimate()) })
+            selectPhoto(registry, image)
+            compose.onNodeWithTag("mealPhotoMass_rice").performTextReplacement("230")
+            compose.onNodeWithTag("mealPhotoMassError_rice", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            saveEvidence("meal-photo-mass-error-large", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+            compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().performTextReplacement("200")
+            compose.onNodeWithTag("mealPhotoEaten_rice").performScrollTo().performTextReplacement("-1")
+            compose.onNodeWithTag("mealPhotoEatenError_rice", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            saveEvidence("meal-photo-eaten-error-large", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+            compose.onNodeWithTag("mealPhotoEaten_rice").performScrollTo().performTextReplacement("50")
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("81")
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            compose.onNodeWithText(app.getString(R.string.meal_photo_confirm_carbs), useUnmergedTree = true)
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals(1, layouts.single().lineCount)
+            compose.onNodeWithTag("mealPhotoCarbsHint", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+            saveEvidence("meal-photo-carbs-error-large", org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView)
+            compose.onNodeWithTag("mealPhotoUse").assertIsNotEnabled()
+            compose.onNodeWithTag("mealPhotoConfirmedCarbs").performScrollTo().performTextReplacement("27,5")
+            compose.onNodeWithTag("mealPhotoUse").assertIsEnabled()
+        } finally {
+            controller?.pause()?.stop()?.destroy(); image.delete()
+            @Suppress("DEPRECATION")
+            app.resources.updateConfiguration(before, app.resources.displayMetrics)
+        }
+    }
+
+    private fun selectPhoto(registry: PhotoRegistry, image: java.io.File) {
+        compose.onNodeWithTag("mealPhotoGallery").performClick()
+        compose.runOnIdle { registry.deliver(Uri.fromFile(image)) }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("mealPhotoMass_rice").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("mealPhotoMass_rice").performScrollTo().assertIsDisplayed()
+    }
+
     @Test fun galleryLaunchFailureIsRecoverableAndDoesNotAnalyze() {
         val registry = PhotoRegistry().apply { failLaunch = true }
         val controller = showPhoto(registry)

@@ -20,12 +20,15 @@
     <string name="meal_photo_use">В форму еды</string>
     <string name="meal_photo_mass_range">Оценка массы: %1$s г</string>
     <string name="meal_photo_mass">Масса, г</string>
+    <string name="meal_photo_mass_invalid">Укажите массу в пределах %1$s г.</string>
     <string name="meal_photo_eaten" formatted="false">Съедено, %</string>
+    <string name="meal_photo_eaten_invalid" formatted="false">Введите значение от 0 до 100%.</string>
     <string name="meal_photo_raw">Сырое</string>
     <string name="meal_photo_cooked">Готовое</string>
     <string name="meal_photo_unknown_value">Неизвестно</string>
     <string name="meal_photo_totals">Калории: %1$s ккал\nБелки: %2$s г\nЖиры: %3$s г\nУглеводы: %4$s г</string>
     <string name="meal_photo_incomplete">Часть значений неизвестна. Неполная сумма не равна итогу всего блюда.</string>
-    <string name="meal_photo_confirm_carbs">Подтвердите углеводы, г</string>
-    <string name="meal_photo_carb_limit">До %1$d г. Еда пока не записывается.</string>
+    <string name="meal_photo_confirm_carbs">Углеводы, г</string>
+    <string name="meal_photo_carb_limit">От 1 до %1$s г. Еда пока не записывается.</string>
+    <string name="meal_photo_carbs_invalid">Введите углеводы от 1 до %1$s г.</string>
 </resources>

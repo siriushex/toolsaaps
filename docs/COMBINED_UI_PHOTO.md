@@ -1,5 +1,28 @@
 # Combined Native UI And Food Photo Source
 
+## Native Review And Confirmation (2026-10-18)
+
+The photo review and parent food form share the existing 1..maximum carbohydrate
+entry range. A value below the parent's minimum no longer reaches an unusable
+food form. Nothing is rounded/clamped or automatically chosen from an AI range.
+Entered invalid mass, eaten percentage and carbohydrate fields now expose
+localized field errors and correction guidance. Missing mass remains blank;
+model mass bounds, finite-number checks and uncertain facts are unchanged.
+The carbohydrate label is kept short at enlarged font sizes; the hint and
+separate parent confirmation retain the explicit-entry boundary.
+
+Successful photo analysis still leads only to an editable review. Explicit
+carbohydrate entry transfers to the existing form; only that form's separate
+confirmation invokes its callback. Eating Soon selection is retained. These
+foreground synthetic UI guarantees are not device/provider acceptance, durable
+photo session recovery or nutritional accuracy. No new action/channel is added.
+
+Verification: final focused99 including21 native cases, and complete6189 Android
+cases (6183 passed/six existing skips), with zero failures/errors. Lint/compile/
+build and private APK signature verification passed on matching input manifests.
+Actual1.8x error rasters and the single-line carbohydrate label were inspected.
+Public exact-head CI is recorded separately in the post-commit PR receipt.
+
 ## Native Selection And Failure Recovery (2026-10-17)
 
 The photo dialog owns one camera/gallery selection at a time. Both controls

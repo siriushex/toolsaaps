@@ -20,12 +20,15 @@
     <string name="meal_photo_use">Use in food form</string>
     <string name="meal_photo_mass_range">Estimated mass: %1$s g</string>
     <string name="meal_photo_mass">Mass, g</string>
+    <string name="meal_photo_mass_invalid">Enter a mass within %1$s g.</string>
     <string name="meal_photo_eaten" formatted="false">Eaten, %</string>
+    <string name="meal_photo_eaten_invalid" formatted="false">Enter a value from 0 to 100%.</string>
     <string name="meal_photo_raw">Raw</string>
     <string name="meal_photo_cooked">Cooked</string>
     <string name="meal_photo_unknown_value">Unknown</string>
     <string name="meal_photo_totals">Energy: %1$s kcal\nProtein: %2$s g\nFat: %3$s g\nCarbs: %4$s g</string>
     <string name="meal_photo_incomplete">Some values are unknown. The subtotal is not a complete meal total.</string>
-    <string name="meal_photo_confirm_carbs">Confirm carbohydrates, g</string>
-    <string name="meal_photo_carb_limit">Up to %1$d g. Does not record food yet.</string>
+    <string name="meal_photo_confirm_carbs">Carbohydrates, g</string>
+    <string name="meal_photo_carb_limit">1 to %1$s g. Does not record food yet.</string>
+    <string name="meal_photo_carbs_invalid">Enter carbohydrates from 1 to %1$s g.</string>
 </resources>

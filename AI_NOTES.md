@@ -1,3 +1,35 @@
+# Food Photo Review And Confirmation - 2026-10-18
+
+- Continue the successful native path, not only selection failures. The photo
+  review accepted positive carbohydrates below 1 g, but the parent food form
+  rejects them. Align photo handoff with that existing minimum/maximum without
+  clamping user input or changing any clinical bounds.
+- Invalid eaten percentages previously hid totals without a field error.
+  Add localized accessible percentage, model-mass-range and carbohydrate errors;
+  correction restores totals/availability without another analysis. Empty mass
+  remains explicitly unconfirmed, not a prefilled estimate or an immediate error.
+- Initial native execution: 19 cases, three expected missing-behavior failures
+  plus one incorrect substring test assertion; 15 prior cases pass. Correct the
+  matcher rather than changing the actual numeric expectation. Expanded success,
+  bounds, one-shot/final-confirmation and actual 1.8x cases are separate gates.
+- Initial expanded 99-case execution exposed three unmerged supporting-text
+  finders in the tests; correcting those gives 99 passed. Raster review then
+  found the long carbohydrate floating label wrapping at actual 1.8x font scale.
+  Shorten that label in both languages and assert a single rendered label line.
+  Stop the first full gate before these input edits; it is not a passing result.
+- Final label-fixed focused gate: 99 passed, zero failures/errors/skips. Inspect
+  updated normal/actual1.8x rasters; the carbohydrate label now stays on one line
+  and complete correction text remains reachable. Full Android remains separate.
+- Nutrition/provenance/domain mass constraints, photo request identity and
+  no-replay boundaries remain unchanged. No real image/model, server, phone,
+  backup, target, dose or sound operation. Local full and publication evidence
+  are recorded after inspection, not assumed from source changes.
+- Final full gate: 6183 passed/six existing skips, zero failures/errors;
+  lint/compile/build succeeded in 15m37s with the baseline 376 warnings/eight
+  hints and no errors. Tracked Android input manifests match before/after;
+  the private APK passes signature verification. Source publication/exact-head
+  CI are separate post-commit gates in the PR receipt, not device acceptance.
+
 # Food Photo Selection And Recovery - 2026-10-17
 
 - Continue the native flow after the HTTP size repair. Seven new native

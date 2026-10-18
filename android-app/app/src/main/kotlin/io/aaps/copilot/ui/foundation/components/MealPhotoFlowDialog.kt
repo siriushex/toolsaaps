@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -26,6 +27,7 @@ import io.aaps.copilot.domain.nutrition.*
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.ui.MealPhotoPreparation
 import io.aaps.copilot.ui.MealPhotoPreparationResult
+import io.aaps.copilot.ui.foundation.format.UiFormatters
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -196,7 +198,7 @@ internal fun MealPhotoFlowDialog(
         },
         dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.action_cancel)) } },
         confirmButton = {
-            val selected = grams.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 && it <= maximumGrams }
+            val selected = confirmedPhotoCarbs(grams, maximumGrams)
             val draft = editor
             if (draft != null) Button(enabled = !applied && selected != null && photoCalculation(draft) != null,
                 modifier = Modifier.testTag("mealPhotoUse"), onClick = {
@@ -211,6 +213,11 @@ internal fun MealPhotoFlowDialog(
 private fun photoCalculation(state: MealPhotoDraftEditorState): MealNutritionCalculation? =
     (MealPhotoDraftEditor.build(state) as? MealPhotoDraftBuildResult.Ready)?.let {
         (MealNutritionCalculator.calculate(it.draft) as? MealNutritionCalculationResult.Calculated)?.value
+    }
+
+private fun confirmedPhotoCarbs(raw: String, maximumGrams: Double): Double? =
+    raw.trim().replace(',', '.').toDoubleOrNull()?.takeIf {
+        maximumGrams.isFinite() && it.isFinite() && it in 1.0..maximumGrams
     }
 
 @Composable
@@ -233,6 +240,8 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
     state.estimate.ingredients.forEach { ingredient ->
         var raw by remember(ingredient.id) { mutableStateOf(state.confirmedMassesGrams[ingredient.id]?.toString().orEmpty()) }
         var fraction by remember(ingredient.id) { mutableStateOf("100") }
+        val massInvalid = raw.isNotBlank() && state.confirmedMassesGrams[ingredient.id] == null
+        val fractionInvalid = state.eatenFractions[ingredient.id]?.let { !it.isFinite() || it !in 0.0..1.0 } ?: true
         Text(ingredient.name, style = MaterialTheme.typography.titleSmall)
         Text(stringResource(R.string.meal_photo_mass_range, photoRange(ingredient.massGrams)),
             style = MaterialTheme.typography.bodySmall)
@@ -246,7 +255,10 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
                     confirmedMassesGrams = state.confirmedMassesGrams + (ingredient.id to null)))
             }, label = { Text(stringResource(R.string.meal_photo_mass)) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                isError = state.confirmedMassesGrams[ingredient.id] == null,
+                isError = massInvalid,
+                supportingText = if (massInvalid) {{ Text(
+                    stringResource(R.string.meal_photo_mass_invalid, photoRange(ingredient.massGrams)),
+                    modifier = Modifier.testTag("mealPhotoMassError_${ingredient.id}")) }} else null,
                 modifier = Modifier.weight(1f).testTag("mealPhotoMass_${ingredient.id}"))
             OutlinedTextField(fraction, { value ->
                 fraction = value
@@ -256,7 +268,10 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
                     eatenFractions = state.eatenFractions + (ingredient.id to Double.NaN)))
             }, label = { Text(stringResource(R.string.meal_photo_eaten)) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f))
+                isError = fractionInvalid,
+                supportingText = if (fractionInvalid) {{ Text(stringResource(R.string.meal_photo_eaten_invalid),
+                    modifier = Modifier.testTag("mealPhotoEatenError_${ingredient.id}")) }} else null,
+                modifier = Modifier.weight(1f).testTag("mealPhotoEaten_${ingredient.id}"))
         }
         if (ingredient.preparationState == PreparationState.UNKNOWN) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(PreparationState.RAW, PreparationState.COOKED).forEach { candidate ->
@@ -279,8 +294,13 @@ internal fun MealPhotoReview(state: MealPhotoDraftEditorState, onChange: (MealPh
         if (nutrition.carbohydrates.completeTotalGrams == null) Text(stringResource(R.string.meal_photo_incomplete),
             color = MaterialTheme.colorScheme.error)
     }
+    val carbsInvalid = grams.isNotBlank() && confirmedPhotoCarbs(grams, maximumGrams) == null
+    val maximumLabel = UiFormatters.formatExactGrams(maximumGrams, LocalConfiguration.current.locales[0])
     OutlinedTextField(grams, onGrams, label = { Text(stringResource(R.string.meal_photo_confirm_carbs)) },
-        supportingText = { Text(stringResource(R.string.meal_photo_carb_limit, maximumGrams.toInt())) },
+        isError = carbsInvalid,
+        supportingText = { Text(stringResource(if (carbsInvalid) R.string.meal_photo_carbs_invalid
+            else R.string.meal_photo_carb_limit, maximumLabel),
+            modifier = Modifier.testTag("mealPhotoCarbsHint")) },
         singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = Modifier.fillMaxWidth().testTag("mealPhotoConfirmedCarbs"))
 }

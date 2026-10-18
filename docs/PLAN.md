@@ -1,5 +1,20 @@
 # PLAN
 
+## Food Photo Review And Confirmation (2026-10-18)
+
+- [x] Trace photo review through the parent food form and retain model mass bounds.
+- [x] Native RED: three missing-behavior assertions fail before production edits;
+  a fourth failure is a test substring matcher corrected without relaxing values.
+- [x] Align photo carbohydrate entry with the existing 1..maximum food bounds;
+  add localized, accessible invalid mass/percentage/carbohydrate feedback.
+- [x] Successful one-shot photo transfer, final confirmation and large-text review;
+  final 99-case focused gate and actual 1.8x label/error rasters pass.
+- [x] Full fixed-input Android: 6183 passed/six existing skips, zero failures
+  or errors. Lint/compile/build and private APK signature verification passed.
+- Publication/CI are recorded after commit in the separate PR stage receipt;
+  phone/provider acceptance remains separate.
+- No model request, server, phone, nutrition domain or therapy change.
+
 ## Food Photo Selection And Recovery (2026-10-17)
 
 - [x] Trace native launch, cancellation and post-selection failure transitions.
