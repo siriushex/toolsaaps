@@ -1,8 +1,9 @@
 # Compact AI Context
 
 Status: written format approved by the owner; pure first-stage implementation
-is documented in ../../COMPACT_AI_CONTEXT.md. Authenticated CHAT integration and
-persisted per-answer receipts remain separate, unconnected work.
+is documented in ../../COMPACT_AI_CONTEXT.md. The opt-in authenticated CHAT
+adapter and encrypted per-answer receipts are documented in
+../../COMPACT_CHAT_ADAPTER.md. Actual host/token admission remains separate.
 The owner explicitly selected model-context-only compaction. Phone collection,
 phone-to-server upload, original encrypted archive, revisions/deletions and
 retention remain unchanged. This design does not activate a native conversation,
@@ -203,7 +204,8 @@ bounded evidence projection; they do not validate a new ten-minute compactor.
   exact-source CI pass before an operational rollout or actual model acceptance.
 
 The owner approved implementation after selecting model-context-only compaction.
-The pure first stage now implements statistical projection, capacity checks and
-immutable manifest bytes. Authenticated selection, receipt persistence, complete
-domain export and live/native acceptance are not implied by its local tests.
+The pure first stage implements statistical projection, capacity checks and
+immutable manifest bytes. The opt-in adapter adds authenticated selection and
+receipt persistence. Complete domain export and live/native acceptance are not
+implied by these local tests.
 No server change is part of this stage.

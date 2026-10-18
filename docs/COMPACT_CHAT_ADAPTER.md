@@ -14,7 +14,7 @@ It must also select `compact_chat_policy(model)` for the accepted job and inject
 or caller-selectable owner, SQL query, native thread, runtime path or tool.
 No installed host factory, descriptor or actual token counter is enabled here.
 
-The new prompt revision distinguishes original-segment time-weighted glucose
+The compact v2 prompt distinguishes original-segment time-weighted glucose
 facts from statistical bins and partial nonglucose examples. Existing prompts
 remain unchanged. System/native/output reserve and the counter must correspond
 to the admitted model and framing; synthetic byte counters in tests prove only
@@ -37,7 +37,13 @@ dependency/admission behavior, not production token fit or cost savings.
    mandatory observations with time, revision, source and server receive time.
    Complete typed profile remains NOT_SUPPLIED; imported chat is not a profile.
 4. Reads recent server exchanges inside that same transaction, excluding the
-   current question. These retain existing excerpt/hasMore/unknown-outcome labels.
+   current question. Text excerpts become referenced `conversation` turns so the
+   projector can discard older assistant prose under byte/token pressure before
+   reducing source resolution. Exchange metadata remains mandatory in
+   `suppliedFacts.serverConversation`: dates, outcomes, excerpt-truncation flags,
+   `hasMore` and question/answer references survive even if a turn is omitted.
+   A null answer reference still means no recorded answer, not an empty success.
+   `omittedChatTurns` counts removed admitted turns, not all older archive turns.
    A source-binding digest covers selected record bytes, device binding and pinned
    snapshot even when a nonglucose row contributes only to summary counts.
 5. Freezes the canonical frame and verifies byte/token admission, then stores a

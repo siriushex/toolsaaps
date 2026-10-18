@@ -61,3 +61,12 @@ settings stay unchanged. A persisted PREPARED receipt proves only the frozen inp
 composition, not that the model accepted/read it or that its answer is correct.
 Full typed profile and dense nonglucose trajectory compaction, public receipt UI,
 native-thread persistence and operational rollout remain separate integrations.
+
+## Follow-Up: Prunable Server Conversation
+
+- [x] Reproduce immutable server prose exhausting context despite available pruning.
+- [x] Project server text into referenced turns; keep metadata and excerpt flags mandatory.
+- [x] Verify byte/token pressure preserves the exact question, focus events and receipt binding.
+- [x] Pass full backend (1865 tests,27 skips), scoped lint/format/compile and diff checks.
+- [ ] Inspect reviewed exact-head source publication and Verify CI.
+- Host activation, real token admission, phone and APK publication remain separate.

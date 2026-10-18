@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from .compact_context import (
     MAX_INPUT_RECORDS,
     MAX_SOURCE_BYTES,
+    ContextTurn,
     FocusWindow,
     TokenBudget,
     prepare_compact_context,
@@ -44,6 +45,10 @@ INSTRUCTIONS = (
     "Do not bridge missing, suspect or conflicting data or pool incompatible cohorts. "
     "Range exposure is meaningful only for supplied historical analytical ranges. "
     "Nonglucose summaries and server conversation excerpts are explicitly partial. "
+    "Conversation turns reference exchange metadata in "
+    "suppliedFacts.serverConversation. "
+    "A referenced turn absent from conversation was omitted for context capacity, "
+    "not deleted from the archive. Truncation flags describe original excerpts. "
     "Missing uploads, absent profile fields and omitted examples "
     "do not establish normality. "
     "Recorded insulin is not confirmed delivery. Estimated GI, approximate grams and "
@@ -59,7 +64,7 @@ def compact_chat_policy(model):
     policy = replace(
         CHAT_POLICY,
         model=model,
-        prompt_revision="advisory-compact-context-v1",
+        prompt_revision="advisory-compact-context-v2",
         system_prompt=CHAT_POLICY.system_prompt + " " + INSTRUCTIONS,
     )
     TextSessionPolicy(policy.model, policy.system_prompt)
@@ -159,6 +164,20 @@ def _bound_entry(store, work, db, now_ms):
     return entry
 
 
+def _conversation(context):
+    metadata, turns = dict(context, exchanges=[]), []
+    for exchange in context["exchanges"]:
+        item = dict(exchange)
+        for field, role in (("question", "user"), ("answer", "assistant")):
+            text = item.pop(field)
+            reference = None if text is None else f"{item['jobId']}:{field}"
+            item[field + "Reference"] = reference
+            if text is not None:
+                turns.append(ContextTurn(role, text, reference))
+        metadata["exchanges"].append(item)
+    return metadata, tuple(turns)
+
+
 def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
     owner, device = work.identity.owner_id, work.identity.key_fingerprint
     lower, upper = (
@@ -231,6 +250,11 @@ def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
                 if event_bytes > 64 * 1024:
                     raise ValueError("compact_context_budget_exceeded")
                 exact_events.append(item)
+    conversation, turns = _conversation(
+        read_context(
+            store, owner, device, db, now_ms=now_ms, exclude_job_id=work.job_id
+        )
+    )
     facts = dict(
         nonglucose=nonglucose.finish(),
         nonglucoseDetail="BOUNDED_EXAMPLES_NOT_COMPLETE_TRAJECTORIES",
@@ -238,11 +262,9 @@ def _select(store, work, settings, db, *, now_ms, snapshot, stop_at):
         exactEventScope=[
             dict(fromMs=f.start_ms, untilMs=f.end_ms) for f in settings.focus_windows
         ],
-        serverConversation=read_context(
-            store, owner, device, db, now_ms=now_ms, exclude_job_id=work.job_id
-        ),
+        serverConversation=conversation,
     )
-    return glucose, changes, exact_events, facts, digest.hexdigest()
+    return glucose, changes, exact_events, facts, turns, digest.hexdigest()
 
 
 def prepare_chat(store, work, settings, *, now_ms):
@@ -263,7 +285,7 @@ def prepare_chat(store, work, settings, *, now_ms):
             stop_at = store._daily_budget(db)
             entry = _bound_entry(store, work, db, now_ms)
             snapshot = store._highwater(db)
-            glucose, changes, events, facts, source = _select(
+            glucose, changes, events, facts, turns, source = _select(
                 store,
                 work,
                 settings,
@@ -286,6 +308,7 @@ def prepare_chat(store, work, settings, *, now_ms):
                 focus_windows=settings.focus_windows,
                 events_body=encoded(events),
                 facts_body=encoded(facts),
+                chat_turns=turns,
                 token_budget=settings.token_budget,
             )
             receipt = dict(

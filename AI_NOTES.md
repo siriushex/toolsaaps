@@ -1,3 +1,18 @@
+# Compact Chat Conversation Pruning - 2026-10-18
+
+- Confirmed that the archive adapter put prior server prose in mandatory facts,
+  bypassing projector pruning and refusing an otherwise representable context.
+- Compact prompt v2 separates referenced excerpts from mandatory exchange metadata.
+  Older assistant prose can be removed before source coarsening; original dates,
+  outcomes, truncation/hasMore and null-answer meaning remain explicit.
+- Original encrypted questions/answers are unchanged. Context receipts retain the
+  exact final frame hash and omitted admitted-turn count. No default host, token
+  accounting, model, nightly worker, upload, phone or therapy change.
+- Three new regressions fail on the old adapter; all62 focused compact cases pass.
+- Full Python3.12 backend passes1865 tests with27 skips. Scoped lint/format/
+  compilation and diff checks pass; one existing dependency warning remains.
+  Exact-head CI is separate; no deployment or APK publication is implied.
+
 # Owl Motion Craft - 2026-10-18
 
 - Added coordinated native gather/lift/landing, wing greeting, forward gaze,
