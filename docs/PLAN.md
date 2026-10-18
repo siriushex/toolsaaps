@@ -1,5 +1,15 @@
 # PLAN
 
+## Per-Device AI Context Audit (2026-10-18)
+
+- [x] Trace Android export, authenticated archive, bounded model context and ephemeral native thread.
+- [x] Inspect deployed source/configuration and private read-only coverage metadata; pass254 local synthetic tests.
+- [x] Record the required integration and acceptance boundaries in AI_DEVICE_CONTEXT.md.
+- [ ] Add complete versioned typed profile/data coverage with explicit omissions and compatible sync receipts.
+- [ ] Implement and validate encrypted per-device conversation/native-session ownership and recovery.
+- [ ] Add question-specific history selection and immutable per-answer context manifests.
+- [ ] Validate nightly ownership, actual deployment and intended-device end-to-end behavior separately.
+
 ## Eating Soon Across Concurrent Meals (2026-10-18)
 
 - [x] Reproduce a new explicit target waiting behind an earlier carb POST.

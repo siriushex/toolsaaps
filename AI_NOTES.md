@@ -1,3 +1,20 @@
+# Device AI Conversation Audit - 2026-10-18
+
+- Read-only source/host audit distinguishes encrypted per-device history from a
+  persistent native chat. The existing worker starts a new ephemeral thread;
+  bounded historical summaries and recent server exchanges accompany each turn.
+- Documented context budgets, partial automatic field coverage, missing durable
+  thread/turn registry and exact per-answer context manifest. No claim is made
+  that an archived whole history is present in a model's active context.
+- AI_DEVICE_CONTEXT.md specifies the remaining profile/export, native persistence,
+  question-specific retrieval, nightly ownership and completeness-receipt work.
+  These are requirements, not newly activated runtime features.
+- 254 existing local synthetic context/owner/native/archive tests pass with one
+  dependency deprecation warning. Installed core context sources and native
+  lifecycle were inspected; other deployed modules differ from the local tree.
+- Private host counts/identifiers and medical metadata stay outside public source.
+  No new inference, data upload, login change, restart, phone or therapy action.
+
 # Eating Soon Across Concurrent Meals - 2026-10-18
 
 - Reproduced an explicit checked target not being invoked while another meal's

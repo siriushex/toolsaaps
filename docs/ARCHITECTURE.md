@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Device Conversation Versus Native Thread
+
+Per-device encrypted history and server exchange archival do not imply a durable
+native conversation. The current context worker assembles bounded summaries and
+recent exchanges, then starts one ephemeral native thread. Full user/settings
+coverage, a stable native registry and exact per-answer context manifests are
+separate missing integrations. See AI_DEVICE_CONTEXT.md for the audited limits
+and required design; no new runtime persistence or retrieval tools are enabled.
+
 ## APK Distribution
 
 About uses an isolated fixed-origin HTTPS update client and route-scoped state.
