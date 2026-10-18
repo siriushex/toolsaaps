@@ -1966,8 +1966,11 @@ AAPS Predictive Copilot is a two-part system:
   - materially changed targets may pass immediately,
   - manual commands may bypass the throttle only via explicit manual idempotency prefix.
 - Activity-protection override in adaptive rule:
-  - if `activity_ratio`/`steps_count` spike indicates active load, temp target is overridden to `7.7..8.7 mmol/L` (load-scaled),
-  - after sustained low-load period (`~30 min`) the rule sends recovery back to pre-activity base target.
+  - a timestamp-bound `PhysicalActivityObservation` from one trusted physical collector carries co-timed `activity_ratio`/`steps_count`, source and counter-day identity; generic telemetry aliases and daily maxima cannot activate this branch,
+  - supported activity spikes retain the existing load-scaled `7.7..8.7 mmol/L` proposal and downstream arbitration,
+  - recovery requires thirty minutes between supported low-load acquisitions, independent of evaluation cadence, then proposes the current effective base target,
+  - duplicates do not advance rest; invalid/missing evidence, reversed clocks, discontinuity, source/day/basis changes and new load restart it. Step deltas require at least one minute and a nondecreasing same-source/day counter,
+  - acquisition freshness/continuity is bounded at ten minutes for local input and twenty for Health Connect's fifteen-minute unchanged heartbeat. Active protection with unavailable evidence makes no new proposal. Counter coverage/wear semantics and multiday response analysis remain separate.
 - Timestamps written to local DB must be normalized and non-zero (`>0`) before persist.
 - `cob_grams` and `iob_units` telemetry are allowed to bias local runtime forecasts before rule arbitration.
 - Runtime context factors from physiology-aware ISF/CR snapshot (`set/sensor/activity/dawn/stress/hormone/steroid`) are exported to telemetry and applied as bounded forecast context-bias + CI widening before rule arbitration.

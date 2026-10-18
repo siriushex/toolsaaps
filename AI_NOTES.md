@@ -1,3 +1,23 @@
+# Physical Activity Recovery Chronology - 2026-10-18
+
+- Reproduced premature recovery after six minute-rate evaluations and activation
+  from a sensitivity ratio. Added original-acquisition physical observations and
+  elapsed thirty-minute rest instead of an evaluation counter.
+- Preserve one trusted collector, original timestamp, co-timed values and local
+  counter-day identity before generic aliases or daily maxima. Handle duplicates,
+  conflicts, counter resets, source/day changes, missing data and clock reversal.
+- Room-to-rule integration verifies the actual production context retains these
+  values and excludes sensitivity-only input, with no command dispatch.
+- Three additional RED cases exposed the fifteen-minute Health Connect heartbeat
+  and sub-minute step extrapolation. Collector-specific freshness and the existing
+  one-minute step-rate minimum now pass all35 focused cases.
+- Final combined local tree:6308 tests across556 suites,6302 passed/six existing
+  skips,zero failures/errors. Kotlin compile, lint and debug APK succeeded in8m36s.
+  Lint retains378 warnings/eight hints and zero errors; exact-head CI is separate.
+- This is a prerequisite bug fix, not the personal post-activity pattern. No new
+  fixed low target or numeric target/trigger adjustment, multi-day inference,
+  server export, model request, phone update or APK publication is included.
+
 # Post-Activity Response Design Audit - 2026-10-18
 
 - Audited current physical episode detection, activity protection/recovery,

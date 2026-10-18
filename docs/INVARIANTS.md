@@ -1471,7 +1471,7 @@ A durable pre-send claim prevents automatic retry after an uncertain HTTP outcom
 3. Every outbound action must have idempotency semantics.
 4. Temp target values are always clamped to configured hard safety bounds.
 5. Adaptive runtime base target is forced to `4.2 mmol/L` when `cob_grams >= 20`.
-6. Activity spike protection may temporarily override adaptive temp target into `7.7..8.7 mmol/L`; recovery back to base is allowed only after sustained low-load signal.
+6. Activity spike protection may temporarily override adaptive temp target into `7.7..8.7 mmol/L`; recovery back to the current effective base requires thirty minutes between supported low-load acquisitions from the same physical source/day and metric basis, not a count of evaluations. Duplicates cannot advance rest. Invalid/missing/conflicting evidence, clock reversal, discontinuity or new load restart it; unavailable evidence during active protection creates no replacement proposal. Sensitivity aliases and daily counter maxima cannot serve as physical observations. Existing downstream clinical gates and expiry remain authoritative.
 7. Automatic outbound `temp_target` writes must obey a repository-level duplicate throttle:
    - repeated or near-identical targets are blocked inside `30 minutes`,
    - materially changed targets may pass immediately,

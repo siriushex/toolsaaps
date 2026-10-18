@@ -1,5 +1,17 @@
 # PLAN
 
+## Physical Activity Recovery Chronology (2026-10-18)
+
+- [x] Reproduce minute-cadence recovery and sensitivity-alias failures.
+- [x] Preserve physical acquisition identity through the actual Room-to-rule path.
+- [x] Replace evaluation counts with supported elapsed rest and reset discontinuities.
+- [x] Verify collector-specific heartbeat and sub-minute intensity boundaries (35 focused cases).
+- [x] Complete final full Android tests, lint, compile and debug APK:6302 passed,six skips,zero failures/errors.
+- [ ] Publish only reviewed source and inspect exact-head Verify CI.
+- Personal multiday baselines, versioned coverage/export and observational UI/AI
+  integration remain separate, as specified in the post-activity design.
+- No fixed lower target, phone update or APK publication is authorized here.
+
 ## Owl Motion Craft (2026-10-18)
 
 - [x] Observe RED-first endpoint, layered-action and shared-waiting regressions.

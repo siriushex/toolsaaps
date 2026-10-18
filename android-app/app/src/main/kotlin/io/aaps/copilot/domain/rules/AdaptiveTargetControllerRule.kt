@@ -5,6 +5,7 @@ import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.RuleDecision
 import io.aaps.copilot.domain.model.RuleState
+import io.aaps.copilot.domain.activity.PhysicalActivityObservation
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
@@ -23,13 +24,19 @@ class AdaptiveTargetControllerRule : TargetRule {
     private var rapidFallCandidateGlucoseTs: Long? = null
 
     @Volatile
-    private var previousStepsCount: Double? = null
+    private var previousActivityObservation: PhysicalActivityObservation? = null
 
     @Volatile
-    private var previousActivityRatio: Double? = null
+    private var activityConflictAtTs: Long? = null
 
     @Volatile
-    private var previousTelemetryTs: Long? = null
+    private var lastActivityEvaluationTs: Long? = null
+
+    @Volatile
+    private var activityLowSinceTs: Long? = null
+
+    @Volatile
+    private var activityLowBasis: String? = null
 
     @Volatile
     private var activityProtectionActive: Boolean = false
@@ -53,16 +60,23 @@ class AdaptiveTargetControllerRule : TargetRule {
 
         if (!context.dataFresh) {
             resetRapidFallConfirmation()
+            resetActivityRest()
             return RuleDecision(id, RuleState.BLOCKED, listOf("stale_data"), null)
         }
         if (context.sensorBlocked) {
             resetRapidFallConfirmation()
+            resetActivityRest()
             return RuleDecision(id, RuleState.BLOCKED, listOf("sensor_blocked"), null)
         }
 
         val activitySignal = evaluateActivitySignal(context)
         val base = context.baseTargetMmol.coerceIn(adaptiveMinTarget, adaptiveMaxTarget)
         val baseRounded = roundToStep(base, TARGET_STEP_MMOL)
+
+        if (activitySignal.active && !activitySignal.usable) {
+            resetRapidFallConfirmation()
+            return RuleDecision(id, RuleState.NO_MATCH, listOf("activity_evidence_unavailable"), null)
+        }
 
         if (activitySignal.recoveryToBase) {
             resetRapidFallConfirmation()
@@ -88,6 +102,7 @@ class AdaptiveTargetControllerRule : TargetRule {
                     activitySignal.activityRatio?.let { add("activityRatio=${format2(it)}") }
                     activitySignal.stepsDelta5?.let { add("stepsDelta5=${format2(it)}") }
                     add("lowCycles=${activitySignal.lowCycles}")
+                    add("restMinutes=${format2(activitySignal.restMinutes)}")
                 },
                 actionProposal = ActionProposal(
                     type = "temp_target",
@@ -115,6 +130,7 @@ class AdaptiveTargetControllerRule : TargetRule {
                         activitySignal.activityRatio?.let { add("activityRatio=${format2(it)}") }
                         activitySignal.stepsDelta5?.let { add("stepsDelta5=${format2(it)}") }
                         add("lowCycles=${activitySignal.lowCycles}")
+                        add("restMinutes=${format2(activitySignal.restMinutes)}")
                     },
                     null
                 )
@@ -275,42 +291,41 @@ class AdaptiveTargetControllerRule : TargetRule {
 
     private fun evaluateActivitySignal(context: RuleContext): ActivitySignal {
         val nowTs = context.nowTs
-        val stepsCount = resolveTelemetryMetric(
-            context.latestTelemetry,
-            "steps_count",
-            "steps",
-            "step_count"
-        )?.coerceAtLeast(0.0)
-        val activityRatio = resolveTelemetryMetric(
-            context.latestTelemetry,
-            "activity_ratio",
-            "activity",
-            "activityratio",
-            "sensitivity_ratio",
-            "sensitivityratio"
-        )?.coerceAtLeast(0.0)
-
-        val previousTs = previousTelemetryTs
-        val dtMin = if (previousTs != null && nowTs > previousTs) {
-            (nowTs - previousTs).toDouble() / 60_000.0
-        } else {
-            null
+        val previous = previousActivityObservation
+        val observed = context.physicalActivity?.takeIf { it.usableAt(nowTs) }
+        val clockReversed = lastActivityEvaluationTs?.let { nowTs < it } == true
+        lastActivityEvaluationTs = maxOf(lastActivityEvaluationTs ?: nowTs, nowTs)
+        if (clockReversed || observed == null || previous != null && observed.timestamp < previous.timestamp) {
+            resetActivityRest()
+            return retainedActivitySignal(usable = false)
         }
+        if (previous != null && observed.timestamp == previous.timestamp) {
+            if (observed != previous) {
+                activityConflictAtTs = observed.timestamp
+                resetActivityRest()
+            }
+            return retainedActivitySignal(usable = observed == previous && activityConflictAtTs != observed.timestamp)
+        }
+        activityConflictAtTs = null
 
+        val gapMs = previous?.let { observed.timestamp - it.timestamp }
+        val continuous = previous != null && previous.source == observed.source &&
+            previous.counterDay == observed.counterDay && gapMs != null &&
+            gapMs in 1..observed.maxAgeMs
+        val stepsCount = observed.stepsCount
+        val activityRatio = observed.activityRatio
         val stepsDelta5 = if (
-            stepsCount != null &&
-            previousStepsCount != null &&
-            dtMin != null &&
-            dtMin in ACTIVITY_DT_MIN_ALLOWED_MIN..ACTIVITY_DT_MIN_ALLOWED_MAX
+            continuous && requireNotNull(gapMs) >= STEP_RATE_MIN_WINDOW_MS &&
+            stepsCount != null && previous?.stepsCount != null &&
+            stepsCount >= previous.stepsCount
         ) {
-            val rawDelta = (stepsCount - previousStepsCount!!).coerceAtLeast(0.0)
-            (rawDelta * (5.0 / dtMin)).coerceAtLeast(0.0)
+            (stepsCount - previous.stepsCount) * (5 * 60_000.0 / requireNotNull(gapMs))
         } else {
             null
         }
 
-        val activityRatioDelta = if (activityRatio != null && previousActivityRatio != null) {
-            activityRatio - previousActivityRatio!!
+        val activityRatioDelta = if (continuous && activityRatio != null && previous?.activityRatio != null) {
+            activityRatio - previous.activityRatio
         } else {
             null
         }
@@ -323,10 +338,12 @@ class AdaptiveTargetControllerRule : TargetRule {
         val triggerBySteps = stepsDelta5 != null && stepsDelta5 >= STEPS_DELTA5_TRIGGER
 
         var recoveryToBase = false
+        var observedRestMinutes = 0.0
+        var observedLowCycles = 0
 
         if (!activityProtectionActive && (triggerByRatio || triggerByRatioDelta || triggerBySteps)) {
             activityProtectionActive = true
-            activityProtectionLowCycles = 0
+            resetActivityRest()
             activityProtectionTargetMmol = mapActivityTarget(activityRatio, stepsDelta5)
             val adaptiveMin = context.adaptiveMinTargetMmol.coerceIn(MIN_TARGET_MMOL, MAX_TARGET_MMOL)
             val adaptiveMax = context.adaptiveMaxTargetMmol.coerceIn(adaptiveMin, MAX_TARGET_MMOL)
@@ -337,21 +354,27 @@ class AdaptiveTargetControllerRule : TargetRule {
             val lowLoad = hasLoadSignal &&
                 (activityRatio?.let { it <= ACTIVITY_RATIO_END_MAX } ?: true) &&
                 (stepsDelta5?.let { it <= STEPS_DELTA5_END_MAX } ?: true)
-            activityProtectionLowCycles = if (lowLoad) {
-                activityProtectionLowCycles + 1
+            val basis = "${observed.source}:${observed.counterDay}:${activityRatio != null}:${stepsDelta5 != null}"
+            if (lowLoad) {
+                if (!continuous || activityLowBasis != basis || activityLowSinceTs == null) {
+                    activityLowSinceTs = observed.timestamp
+                    activityProtectionLowCycles = 0
+                }
+                activityLowBasis = basis
+                activityProtectionLowCycles = (activityProtectionLowCycles + 1).coerceAtMost(Int.MAX_VALUE - 1)
+                observedRestMinutes = (observed.timestamp - requireNotNull(activityLowSinceTs)) / 60_000.0
+                observedLowCycles = activityProtectionLowCycles
             } else {
-                0
+                resetActivityRest()
             }
-            if (activityProtectionLowCycles >= ACTIVITY_END_LOW_CYCLES) {
+            if (observedRestMinutes >= ACTIVITY_END_REST_MINUTES) {
                 activityProtectionActive = false
-                activityProtectionLowCycles = 0
+                resetActivityRest()
                 recoveryToBase = true
             }
         }
 
-        previousTelemetryTs = nowTs
-        if (stepsCount != null) previousStepsCount = stepsCount
-        if (activityRatio != null) previousActivityRatio = activityRatio
+        previousActivityObservation = observed
 
         if (recoveryToBase) {
             val target = activityProtectionRestoreBaseMmol ?: context.baseTargetMmol
@@ -366,7 +389,8 @@ class AdaptiveTargetControllerRule : TargetRule {
                 triggerByRatio = triggerByRatio,
                 triggerByRatioDelta = triggerByRatioDelta,
                 triggerBySteps = triggerBySteps,
-                lowCycles = ACTIVITY_END_LOW_CYCLES
+                lowCycles = observedLowCycles,
+                restMinutes = observedRestMinutes
             )
         }
 
@@ -380,9 +404,33 @@ class AdaptiveTargetControllerRule : TargetRule {
             triggerByRatio = triggerByRatio,
             triggerByRatioDelta = triggerByRatioDelta,
             triggerBySteps = triggerBySteps,
-            lowCycles = activityProtectionLowCycles
+            lowCycles = activityProtectionLowCycles,
+            restMinutes = observedRestMinutes
         )
     }
+
+    private fun resetActivityRest() {
+        activityLowSinceTs = null
+        activityLowBasis = null
+        activityProtectionLowCycles = 0
+    }
+
+    private fun retainedActivitySignal(usable: Boolean) = ActivitySignal(
+        active = activityProtectionActive,
+        targetMmol = if (activityProtectionActive) activityProtectionTargetMmol else null,
+        recoveryToBase = false,
+        stepsDelta5 = null,
+        activityRatio = null,
+        activityRatioDelta = null,
+        triggerByRatio = false,
+        triggerByRatioDelta = false,
+        triggerBySteps = false,
+        lowCycles = activityProtectionLowCycles,
+        restMinutes = activityLowSinceTs?.let { since ->
+            previousActivityObservation?.let { (it.timestamp - since).coerceAtLeast(0L) / 60_000.0 }
+        } ?: 0.0,
+        usable = usable
+    )
 
     private fun observedDelta5(glucose: List<GlucosePoint>): Double? {
         val latest = glucose.maxByOrNull { it.ts } ?: return null
@@ -514,7 +562,9 @@ class AdaptiveTargetControllerRule : TargetRule {
         val triggerByRatio: Boolean,
         val triggerByRatioDelta: Boolean,
         val triggerBySteps: Boolean,
-        val lowCycles: Int
+        val lowCycles: Int,
+        val restMinutes: Double = 0.0,
+        val usable: Boolean = true
     )
 
     companion object {
@@ -556,9 +606,8 @@ class AdaptiveTargetControllerRule : TargetRule {
         private const val STEPS_DELTA5_TARGET_MAX = 220.0
         private const val ACTIVITY_RATIO_END_MAX = 1.05
         private const val STEPS_DELTA5_END_MAX = 20.0
-        private const val ACTIVITY_END_LOW_CYCLES = 6
-        private const val ACTIVITY_DT_MIN_ALLOWED_MIN = 1.0
-        private const val ACTIVITY_DT_MIN_ALLOWED_MAX = 30.0
+        private const val ACTIVITY_END_REST_MINUTES = 30.0
+        private const val STEP_RATE_MIN_WINDOW_MS = 60_000L
         private const val RAPID_FALL_CONFIRMATION_MAX_GAP_MS = 6 * 60_000L
     }
 }

@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Physical Activity Recovery Chronology (2026-10-18)
+
+- No new network, permissions, schema, archive upload or clinical writer.
+- Reuse trusted physical source/quality policy; reject future, stale, nonfinite,
+  wrong-unit and conflicting acquisitions before rule use. Generic sensitivity
+  aliases and cross-source counter totals cannot become physical evidence.
+- Duplicate/replayed calls cannot accumulate rest; unavailable evidence does not
+  create a replacement target. Existing downstream safety gates remain mandatory.
+- In-memory synthetic Room integration checks original source/time/value context
+  and zero HTTP/action dispatch. No real medical payload enters tests or source.
+- Collector heartbeat is not wear coverage. Personal response inference and
+  any prospective target decrease are not admitted by this prerequisite fix.
+
 ## Owl Motion Craft (2026-10-18)
 
 - Presentation-only deterministic poses; no new input, storage, API or permissions.

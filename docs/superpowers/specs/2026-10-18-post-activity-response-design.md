@@ -1,6 +1,7 @@
 # Post-Activity Response Review
 
-Status: source audit and proposed observational design. No clinical activation.
+Status: observational design with the elapsed-time/source prerequisite implemented
+and locally verified. Exact-head CI is separate. No new clinical pattern is activated.
 
 ## Decision
 
@@ -13,7 +14,7 @@ Activity-related hyperglycemia and delayed hypoglycemia can coexist. Illness,
 food, insulin delivery, current IOB and measurement uncertainty can explain an
 apparent response. The system must retain both upward and downward outcomes.
 
-## Verified Source Behavior
+## Initial Source Audit
 
 - `domain/rules/AdaptiveTargetControllerRule.kt` detects immediate activity
   ratio/step changes and proposes protection. It has no multiday inactivity
@@ -42,6 +43,45 @@ apparent response. The system must retain both upward and downward outcomes.
   activity or the end of a walk. They must not be summed as interval increments.
 
 These are source findings, not a reconstruction of a particular device episode.
+
+## Elapsed-Time And Source Prerequisite
+
+The first implementation replaces six-cycle recovery with thirty minutes between
+supported low-load acquisitions. Repeated evaluations do not advance that clock.
+Missing, invalid, conflicting or out-of-order acquisitions, reversed clocks,
+changed sources/day identities, metric-basis changes and new load restart rest.
+Counter resets cannot provide a step delta. Sub-minute step updates cannot be
+extrapolated into five-minute intensity; the existing one-minute minimum remains.
+
+`PhysicalActivityObservationResolver` selects a single physical collector's
+latest acquisition before generic aliases and daily maximum aggregation. Original
+timestamps, co-timed values, source and local counter-day identity reach the rule
+through the production Room-to-rule context. Autosensitivity aliases cannot
+activate physical protection. Conflicting duplicate rows and invalid newest
+acquisitions cannot fall back to older values from that source.
+
+Freshness is bounded by the existing collector cadence: ten minutes for local
+sensor input, twenty for Health Connect's fifteen-minute unchanged heartbeat and
+five-minute polling. This is a software acquisition bound, not proof of wearing
+or carrying a device. The versioned coverage work below is still required.
+
+Unavailable physical evidence during an active protection state makes this rule
+produce no replacement proposal; it does not invent rest or renew stale evidence.
+Existing downstream arbitration, target expiry, numeric target/trigger thresholds
+and Eating Soon/low-glucose ownership remain unchanged. Generic forecast telemetry
+normalization is outside this fix, so this is not a claim that every sensitivity
+alias consumer has been corrected.
+
+The multi-day comparator, outcome follow-up, event UI, export and AI episode
+integration below remain unimplemented. Synthetic software tests cannot establish
+an individual exercise response or qualify a lower post-activity target.
+
+Verification on 2026-10-18: five new RED cases reproduced cadence, alias,
+heartbeat and step-rate faults before their respective fixes. Final35 focused
+cases pass, including the actual Room-to-rule provenance boundary. The combined
+local tree completes6308 cases (6302 passed,six existing skips), with no failures
+or errors; Kotlin compile, lint and debug APK pass. Lint retains378 warnings and
+eight hints, with zero errors. No device or clinical acceptance is inferred.
 
 ## Input Contract
 

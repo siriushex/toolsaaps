@@ -46,6 +46,7 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.isfcr.IsfCrRealtimeSnapshot
 import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
 import io.aaps.copilot.domain.activity.PhysicalActivityTelemetryPolicy
+import io.aaps.copilot.domain.activity.PhysicalActivityObservation
 import io.aaps.copilot.domain.alerts.AlertCauseAnalysis
 import io.aaps.copilot.domain.alerts.AlertCauseAnalyzer
 import io.aaps.copilot.domain.alerts.AlertCauseDirection
@@ -1417,6 +1418,7 @@ class AutomationRepository(
                     currentProfileSegment = currentSegment,
                     latestTelemetry = latestTelemetry,
                     safetyIobUnits = targetInsulinCycle.safetyIobUnits,
+                    physicalActivity = calibrationRuntime.physicalActivity,
                     retargetCooldownMinutes = settings.adaptiveControllerRetargetMinutes,
                     adaptiveMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
                     adaptiveMinTargetMmol = settings.safetyMinTargetMmol,
@@ -2458,6 +2460,7 @@ class AutomationRepository(
             sensorLagRuntimeContext = sensorLagRuntimeContext,
             latestTelemetry = latestTelemetry,
             deliveryTrustTelemetry = resolvedTelemetry.deliveryTrustTelemetry,
+            physicalActivity = resolvedTelemetry.physicalActivity,
             latestResolved = latestResolved,
             latestCheck = latestCheck
         )
@@ -2473,13 +2476,15 @@ class AutomationRepository(
         val sensorLagRuntimeContext: SensorLagRuntimeContext,
         val latestTelemetry: MutableMap<String, Double?>,
         val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        val physicalActivity: PhysicalActivityObservation?,
         val latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
         val latestCheck: io.aaps.copilot.domain.model.BloodGlucoseCheck?
     )
 
     private data class ResolvedLatestTelemetry(
         val values: Map<String, Double?>,
-        val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>
+        val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        val physicalActivity: PhysicalActivityObservation? = null
     )
 
     private data class CumulativeActivityDayCache(
@@ -4782,7 +4787,8 @@ class AutomationRepository(
         }
         return ResolvedLatestTelemetry(
             values = latestByKey,
-            deliveryTrustTelemetry = deliveryTrustTelemetry
+            deliveryTrustTelemetry = deliveryTrustTelemetry,
+            physicalActivity = PhysicalActivityObservationResolver.resolve(baseRows, readCompletedAt, ZoneId.systemDefault())
         )
     }
 
