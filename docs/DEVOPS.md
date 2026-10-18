@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Local AAPS4 Authentication Stage
+
+This is Copilot source only. The local TLS listener now accepts RC1-style token
+refresh, but v3 collections explicitly return 501 and cannot set runtime READY.
+Do not migrate AAPS settings, enroll its client or publish a compatible-device
+claim yet. No new remote service, database schema, secret file or dependency is
+introduced. Restart/rollback discards ephemeral bearers; it must preserve the
+existing private TLS identity and local/remote settings. Full stock-client trust,
+revisioned collections and acknowledged commands remain acceptance gates in
+AAPS4_COMPATIBILITY.md and LOCAL_NS_V3_AUTH.md.
+
 ## Matched Photo Decoder Updates
 
 Photo source and decoder must be released together. DecoderRuntimeImage verifies

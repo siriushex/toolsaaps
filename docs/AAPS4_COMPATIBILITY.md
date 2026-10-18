@@ -84,8 +84,11 @@ commit d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0. It is a prerelease.
 
 ## Acceptance Boundary
 
-Legacy capability checks do not implement API v3 and do not establish complete
-stock-AAPS compatibility. An APK build or HTTP success is not device acceptance.
+Legacy capability checks and the bounded refresh/bearer exchange do not establish
+complete stock-AAPS compatibility. The auth-only stage is specified separately in
+LOCAL_NS_V3_AUTH.md. Authenticated collection requests explicitly return 501 until
+their revisioned data contract is implemented. An APK build or HTTP success is
+not device acceptance.
 For this stage AAPS source, phone settings and therapy remain unchanged. Existing
 custom 3.x exchange must keep working. Baseline RC1 compilation is a separate
 check from Copilot's regression suite and from the eventual on-device migration.

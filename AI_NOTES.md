@@ -1,3 +1,24 @@
+# Local V3 Authentication - 2026-10-18
+
+- Continue adapting Copilot, with AAPS RC1 source unchanged. Implement the stock
+  refresh response shape and ephemeral bearer gate in the existing TLS server.
+- The two new loopback tests first failed on the missing protocol, not compilation.
+  Added pure coverage for credential separation, clock/expiry, terminal close,
+  bounded concurrency, invalid-request flood and entropy collision handling.
+- Authentication is not synchronization or applied therapy: collection routes
+  return explicit 501 and runtime stays SETUP until existing v1 authorization.
+  New sessions never enter the database; all old v1/socket routes stay separate.
+- Full Android verification passed: 6349 discovered, 6343 passed, six optional
+  private-data/phone-copy skips, no failures/errors. All 19 new checks passed.
+  One focused run had an existing listener-start failure; its unchanged isolated
+  repeat and the full suite passed. Preserve that diagnostic as a transient,
+  unconfirmed cause rather than claiming it was fixed.
+- `./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
+  succeeded with Java 17 in 18m59s. Lint has zero errors, 378 existing warnings
+  and eight hints; none in changed auth/server files. Debug APK assembled.
+- Contract: docs/LOCAL_NS_V3_AUTH.md. Exact-head source CI remains the next gate.
+  No phone update, server rollout, AAPS patch or therapy command.
+
 # Stock AAPS 4.0 Compatibility - 2026-10-18
 
 - Owner redirected adaptation to Copilot with minimal AAPS changes. The isolated

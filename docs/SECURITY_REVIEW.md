@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Local V3 Authentication (2026-10-18)
+
+- Only existing local loopback TLS identity is used; no new trust exception,
+  plaintext listener, remote credential or dependency. Raw local refresh-secret
+  comparison uses SHA-256 and constant-time digest comparison; v1 stays SHA-1.
+- Bearers use 256 random bits and are held as bounded in-memory SHA-256 digests.
+  Fixed 15-minute expiry checks elapsed and wall clocks. Stop/restart revokes
+  sessions. Thirty-two live slots and 60 refresh attempts/minute bound work;
+  refusal does not evict another live session or invalidate legacy exchange.
+- Refresh URLs contain credentials by protocol. They are excluded from access
+  auditing; no header, supplied token or rejected payload is logged/echoed.
+  All responses are no-store, with fixed errors and bounded credential parsing.
+- V3 authentication grants no clinical action or ready state in this stage.
+  All collection requests still fail explicitly; no success-shaped empty data.
+  See LOCAL_NS_V3_AUTH.md for tests and remaining stock-client/TLS gates.
+
 ## AAPS 4.0 Legacy Capability Gate (2026-10-18)
 
 - Scope: both existing treatment broadcast send paths only. No new receiver,

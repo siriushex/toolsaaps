@@ -489,8 +489,10 @@ class LocalNightscoutServer internal constructor(
         private val hotPathExternalRequests = AtomicLong(0L)
         private val hotPathSocketAuthorizations = AtomicLong(0L)
         private val invalidationPolicy = LocalNightscoutInvalidationPolicy()
+        private val v3Authentication = LocalNightscoutV3Authentication(authenticator)
 
         fun stopAndClear() {
+            v3Authentication.close()
             try {
                 socketSessions.values.forEach(::closeSocketSession)
                 stop()
@@ -503,6 +505,12 @@ class LocalNightscoutServer internal constructor(
             val path = session.uri.trim().substringBefore('?')
             maybeAuditExternalRequest(session, path)
             return runCatching {
+                if (path.startsWith(LocalNightscoutV3Authentication.REFRESH_PREFIX, ignoreCase = true)) {
+                    return@runCatching handleV3TokenRequest(session, session.uri)
+                }
+                if (path.equals("/api/v3", ignoreCase = true) || path.startsWith("/api/v3/", ignoreCase = true)) {
+                    return@runCatching handleV3Request(session)
+                }
                 when (
                     LocalNightscoutRequestAuthorization.evaluate(
                         path = path,
@@ -564,6 +572,37 @@ class LocalNightscoutServer internal constructor(
                     )
                 }
             }
+        }
+
+        private fun handleV3TokenRequest(session: IHTTPSession, path: String): Response {
+            if (session.method != Method.GET) {
+                return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, CONTENT_TYPE_JSON,
+                    gson.toJson(mapOf("message" to "get_required"))).withStandardApiHeaders().apply {
+                    addHeader("Allow", "GET")
+                }
+            }
+            val candidate = path.substring(LocalNightscoutV3Authentication.REFRESH_PREFIX.length)
+                .takeIf { it.length in 1..256 && !it.contains('/') }
+            return when (val result = v3Authentication.issue(candidate)) {
+                is LocalNightscoutTokenIssue.Issued -> jsonOk(result)
+                LocalNightscoutTokenIssue.Refused.UNAUTHORIZED -> jsonUnauthorized("invalid_access_token")
+                LocalNightscoutTokenIssue.Refused.UNAVAILABLE -> jsonServiceUnavailable("authentication_unavailable")
+                LocalNightscoutTokenIssue.Refused.LIMITED ->
+                    newFixedLengthResponse(Response.Status.TOO_MANY_REQUESTS, CONTENT_TYPE_JSON,
+                        gson.toJson(mapOf("message" to "token_request_limit"))).withStandardApiHeaders().apply {
+                        addHeader("Retry-After", "60")
+                    }
+            }
+        }
+
+        private fun handleV3Request(session: IHTTPSession): Response = when (
+            v3Authentication.authorize(session.headers["authorization"], session.headers["date"])
+        ) {
+            LocalNightscoutBearerAccess.UNAUTHORIZED -> jsonUnauthorized("invalid_bearer_token")
+            LocalNightscoutBearerAccess.CLOCK_SKEW -> jsonUnauthorized("Date header out of tolerance")
+            LocalNightscoutBearerAccess.ALLOW ->
+                newFixedLengthResponse(Response.Status.NOT_IMPLEMENTED, CONTENT_TYPE_JSON,
+                    gson.toJson(mapOf("message" to "v3_collections_not_implemented"))).withStandardApiHeaders()
         }
 
         private fun maybeAuditExternalRequest(session: IHTTPSession, path: String) {

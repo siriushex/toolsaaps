@@ -65,6 +65,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     private lateinit var storage: MemoryAtomicStorage
     private lateinit var caCertificate: X509Certificate
     private lateinit var apiSecretSha1: String
+    private lateinit var localAccessToken: String
     private var server: LocalNightscoutServer? = null
     private var importedDatabaseName: String? = null
 
@@ -78,6 +79,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         try {
             caCertificate = loaded.caCertificate
             apiSecretSha1 = sha1Hex(loaded.apiSecretBytes)
+            localAccessToken = loaded.apiSecretBytes.toString(Charsets.US_ASCII)
         } finally {
             loaded.clearSecrets()
         }
@@ -88,6 +90,102 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         server?.stop()
         db.close()
         importedDatabaseName?.let(context::deleteDatabase)
+    }
+
+    @Test
+    fun v3AuthenticationCannotBeBypassedByLegacySecretOrQuery() {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        listOf("/api/v3/status", "/api/v3/treatments", "/API/V3/settings").forEach { path ->
+            assertThat(getCode(peer, port, path)).isEqualTo(401)
+            assertThat(getCode(peer, port, path, apiSecretSha1)).isEqualTo(401)
+            assertThat(getCode(peer, port, "$path?token=$localAccessToken")).isEqualTo(401)
+        }
+    }
+
+    @Test
+    fun v3RefreshRequiresExactDecodedCredentialAndGet() {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val refresh = "/api/v2/authorization/request/"
+        listOf("", "$localAccessToken%20", "$localAccessToken%3Fextra", "$localAccessToken%2Fextra",
+            "$localAccessToken/extra", "x".repeat(257)).forEach { suffix ->
+            get(peer, port, refresh + suffix).use {
+                assertThat(it.code).isEqualTo(401)
+                assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+                assertThat(it.body!!.string()).doesNotContain(localAccessToken)
+            }
+        }
+        peer.newCall(Request.Builder().url("https://127.0.0.1:$port$refresh$localAccessToken")
+            .post("{}".toRequestBody("application/json".toMediaType())).build()).execute().use {
+            assertThat(it.code).isEqualTo(405)
+            assertThat(it.header("Allow")).isEqualTo("GET")
+        }
+    }
+
+    @Test
+    fun v3RefreshBudgetReturnsRetryWithoutBlockingLegacyExchange() {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val refresh = "/api/v2/authorization/request/"
+        repeat(60) { assertThat(getCode(peer, port, refresh + "invalid-budget-fixture")).isEqualTo(401) }
+        get(peer, port, refresh + localAccessToken).use {
+            assertThat(it.code).isEqualTo(429)
+            assertThat(it.header("Retry-After")).isEqualTo("60")
+            assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+        }
+        authorizeLocalServer(port)
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.READY)
+        assertThat(getCode(peer, port, "/api/v1/status.json", apiSecretSha1)).isEqualTo(200)
+    }
+
+    @Test
+    fun stockV3RefreshShapeDoesNotClaimSynchronizationOrAuthorizeV1() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val refresh = "/api/v2/authorization/request/"
+        assertThat(getCode(peer, port, refresh + apiSecretSha1)).isEqualTo(401)
+        assertThat(getCode(peer, port, refresh + "invalid-local-access")).isEqualTo(401)
+        val token = get(peer, port, refresh + localAccessToken).use { response ->
+            assertThat(response.code).isEqualTo(200)
+            assertThat(response.header("Cache-Control")).isEqualTo("no-store")
+            val body = JsonParser.parseString(response.body!!.string()).asJsonObject
+            assertThat(body.keySet()).containsExactly("token", "iat", "exp")
+            assertThat(body["exp"].asLong - body["iat"].asLong).isEqualTo(900L)
+            body["token"].asString
+        }
+        val headers = mapOf("Authorization" to "Bearer $token", "Date" to System.currentTimeMillis().toString())
+        get(peer, port, "/api/v3/status", headers = headers).use {
+            assertThat(it.code).isEqualTo(501)
+            assertThat(it.body!!.string()).contains("v3_collections_not_implemented")
+        }
+        get(peer, port, "/api/v3/status", headers = headers + ("Date" to "1")).use {
+            assertThat(it.code).isEqualTo(401)
+            assertThat(it.body!!.string()).contains("Date header out of tolerance")
+        }
+        peer.newCall(Request.Builder().url("https://127.0.0.1:$port/api/v3/treatments")
+            .header("Authorization", "Bearer $token")
+            .post("{\"eventType\":\"Carb Correction\",\"carbs\":10}".toRequestBody("application/json".toMediaType()))
+            .build()).execute().use { assertThat(it.code).isEqualTo(501) }
+        assertThat(getCode(peer, port, "/api/v1/entries.json", headers = headers)).isEqualTo(401)
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(db.therapyDao().since(0L)).isEmpty()
+        val audit = Gson().toJson(db.auditLogDao().observeLatest(100).first())
+        assertThat(audit).doesNotContain(localAccessToken)
+        assertThat(audit).doesNotContain(token)
+        server?.stop()
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        assertThat(getCode(peer, port, "/api/v3/status", headers = headers)).isEqualTo(401)
     }
 
     @Test

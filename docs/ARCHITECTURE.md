@@ -10,8 +10,10 @@ relay requires a matching explicit treatment-extension receiver. See
 AAPS4_COMPATIBILITY.md for inspected contracts and remaining implementation gates.
 Stock RC1's paired Client Control over v3 settings is the candidate for command
 acknowledgements; its signed prepare/commit protocol must be verified rather than
-replaced with new AAPS broadcast handlers. Neither v3 nor Client Control is wired
-into Copilot in this stage.
+replaced with new AAPS broadcast handlers. The v3 refresh/bearer boundary is now
+implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md); authenticated v3
+collection calls still return an explicit 501. No v3 sync, storage subscription,
+Client Control or READY transition follows from issuing a token.
 
 ## Provider Token Usage (2026-10-18)
 

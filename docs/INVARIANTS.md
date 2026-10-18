@@ -11,6 +11,12 @@
   AAPS or clear uncertain command ownership. Existing reconciliation remains.
 - API v3 compatibility requires authentication, durable modification history,
   exact filters and stock-client verification, not merely matching route names.
+- Refresh uses the local raw identity secret, while v1 uses its SHA-1 header.
+  Neither credential nor a query parameter can replace a v3 session bearer.
+- V3 sessions have bounded issuance/capacity, fixed elapsed/wall expiry and no
+  persistence. Stop/restart revokes them; authorization cannot mark sync ready,
+  create clinical evidence or report unimplemented collections as successful.
+- Credential-bearing refresh paths and tokens must never enter request logs.
 
 ## Provider Token Usage
 

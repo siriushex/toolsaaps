@@ -6,7 +6,10 @@
 - [x] Inspect official RC1 data, authentication and incoming-treatment contracts.
 - [x] Reproduce and fix false legacy treatment delivery through glucose-only receivers.
 - [x] Pass focused/full Android tests, lint and build for the capability gate.
-- [ ] Inspect reviewed exact-head CI before integrating this stage.
+- [x] Verify capability-gate source 74fcf331 with both exact-head Verify runs.
+- [x] Add bounded local refresh/bearer authentication without enabling v3 data.
+- [x] Complete local v3 authentication checks: 6343 passed/six skips, lint/build pass.
+- [ ] Inspect exact-head CI for the v3 authentication stage before integration.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.
