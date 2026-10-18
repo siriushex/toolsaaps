@@ -15,6 +15,13 @@ implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md); authenticated v3
 collection calls still return an explicit 501. No v3 sync, storage subscription,
 Client Control or READY transition follows from issuing a token.
 
+Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
+tombstones, compare-and-set updates and bounded revision/time paging. It has no
+clinical consumer or HTTP caller yet. The existing strict bounded JSON helper is
+reused without the AI archive's retention or identity semantics. No old clinical
+rows are backfilled as wire evidence. See LOCAL_NS_V3_STORE.md for cursor, capacity,
+equal-time page boundaries and remaining adapter/retention admission.
+
 ## Provider Token Usage (2026-10-18)
 
 Bounded raw upstream response counts are correlated to native thread/turn and

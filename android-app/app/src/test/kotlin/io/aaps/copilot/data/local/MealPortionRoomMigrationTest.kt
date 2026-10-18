@@ -47,7 +47,7 @@ class MealPortionRoomMigrationTest {
                 .allowMainThreadQueries().build()
             try {
                     val sqlite = migrated.openHelper.writableDatabase
-                    assertThat(sqlite.version).isEqualTo(35)
+                    assertThat(sqlite.version).isEqualTo(36)
                     sqlite.query("SELECT profile,portion,portionProvenance,confirmedCarbsGrams FROM meal_profile_overrides").use {
                         assertThat(it.moveToFirst()).isTrue()
                         assertThat(it.getString(0)).isEqualTo("MIXED")

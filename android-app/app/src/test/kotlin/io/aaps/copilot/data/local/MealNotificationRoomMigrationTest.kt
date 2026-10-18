@@ -36,7 +36,7 @@ class MealNotificationRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sqlite = migrated.openHelper.writableDatabase
-                assertEquals(35, sqlite.version)
+                assertEquals(36, sqlite.version)
                 sqlite.query("SELECT canonicalTherapyIdentity,profile FROM meal_profile_overrides").use {
                     assertTrue(it.moveToFirst())
                     assertEquals("retained-meal", it.getString(0))

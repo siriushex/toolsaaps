@@ -84,6 +84,12 @@ commit d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0. It is a prerelease.
 
 ## Acceptance Boundary
 
+Persistent document storage is now separate from the route adapter; see
+LOCAL_NS_V3_STORE.md. Room 36 contains revisioned latest-state documents, not
+backfilled clinical records or immutable snapshots of every intermediate update.
+No clinical ingestion, collection route or storage notification is enabled by
+this persistence stage.
+
 Legacy capability checks and the bounded refresh/bearer exchange do not establish
 complete stock-AAPS compatibility. The auth-only stage is specified separately in
 LOCAL_NS_V3_AUTH.md. Authenticated collection requests explicitly return 501 until

@@ -17,6 +17,14 @@
   persistence. Stop/restart revokes them; authorization cannot mark sync ready,
   create clinical evidence or report unimplemented collections as successful.
 - Credential-bearing refresh paths and tokens must never enter request logs.
+- V3 wire document, revision and counters commit together. Event time never serves
+  as a modification revision; clock rollback/restart cannot reuse a cursor.
+- Normalized identical writes do not create a new revision. Conflicts, read-only
+  documents and deleted identities cannot be silently overwritten or resurrected.
+- History includes tombstones and advances only through returned records. A
+  chronological page must finish its equal-time boundary or refuse explicitly.
+- Capacity failure cannot discard another identity/tombstone, issue a successful
+  empty page or change clinical/command state. No automatic store purge is enabled.
 
 ## Provider Token Usage
 

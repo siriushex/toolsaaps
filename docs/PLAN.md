@@ -9,7 +9,10 @@
 - [x] Verify capability-gate source 74fcf331 with both exact-head Verify runs.
 - [x] Add bounded local refresh/bearer authentication without enabling v3 data.
 - [x] Complete local v3 authentication checks: 6343 passed/six skips, lint/build pass.
-- [ ] Inspect exact-head CI for the v3 authentication stage before integration.
+- [x] Inspect exact-head CI for auth aafcfdce: PR/push Verify both succeeded.
+- [x] Implement an isolated persistent v3 document/revision store and Room 35->36.
+- [x] Complete store/migration checks:6367 passed,six optional skips; lint/build pass.
+- [ ] Publish the verified store stage and inspect its exact-head CI.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.

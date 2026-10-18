@@ -38,7 +38,7 @@ class MealGlycemicRoomMigrationTest {
                 assertEquals(63.0, gi!!.value, 0.0)
                 assertEquals("MODEL_ESTIMATE", gi.source.name)
                 assertEquals("meal_gi_type_history_v1", gi.reference)
-                assertEquals(35, reopened.openHelper.readableDatabase.version)
+                assertEquals(36, reopened.openHelper.readableDatabase.version)
             } finally { reopened.close() }
         } finally { context.deleteDatabase(name) }
     }
@@ -75,7 +75,7 @@ class MealGlycemicRoomMigrationTest {
                 .addMigrations(*CopilotMigrations.ALL).allowMainThreadQueries().build()
             try {
                 val sql = migrated.openHelper.writableDatabase
-                assertEquals(35, sql.version)
+                assertEquals(36, sql.version)
                 sql.query("SELECT profile,durationMinutes,glycemicIndexValue,glycemicIndexSource,glycemicIndexReference FROM meal_profile_overrides").use {
                     assertTrue(it.moveToFirst())
                     assertEquals("MIXED", it.getString(0)); assertEquals(120, it.getInt(1))

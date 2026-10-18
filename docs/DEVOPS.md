@@ -1,5 +1,20 @@
 # DEVOPS
 
+## Local V3 Store Migration
+
+Room 35->36 creates only `local_ns_v3_documents` and `local_ns_v3_clock` plus their
+indexes. It neither rewrites clinical tables nor imports data into the new store.
+The production builder already registers the complete migration chain; no new
+destructive fallback is added. Tests cover a synthetic 35 database and existing
+migration paths; no real phone database is opened or copied for this stage.
+
+This source/build stage does not authorize a device update or activate v3 routes.
+Before a later device rollout, account for the irreversible forward schema step:
+an APK expecting 35 cannot open a migrated 36 database without an explicit
+compatible migration. Preserve medical history; never uninstall, reset or use
+destructive fallback as rollback. No pruning/reset API is available in the store.
+Runtime bounds and remaining retention/admission gates: LOCAL_NS_V3_STORE.md.
+
 ## Local AAPS4 Authentication Stage
 
 This is Copilot source only. The local TLS listener now accepts RC1-style token

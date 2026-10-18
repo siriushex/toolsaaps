@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Local V3 Persistence (2026-10-19)
+
+- New store is inert: no public endpoint, authenticated permission, subscription,
+  clinical projection or therapy side effect follows from its existence.
+- Reuses strict bounded JSON/UTF-8 parsing with duplicate/depth checks, separately
+  validates identity/time, rejects server-owned metadata in payloads, and preserves
+  source identity. Input/entity string representations redact payloads.
+- CAS, deleted-identity refusal and atomic clock/capacity accounting prevent stale
+  replacement and cursor reuse. DB failure/cancellation must roll back all writes.
+- History/time pages inspect bounded metadata first, before loading body bytes.
+  Oversized tied timestamps and full capacity are errors, never silent omission.
+- Tombstones remain until a separately reviewed retention/resync protocol exists.
+  Local commit evidence cannot be promoted to AAPS application/delivery evidence.
+- No new dependency, remote service, credential, logging route or TLS policy.
+  Collection-specific validation/authentication remains the future adapter's duty.
+
 ## Local V3 Authentication (2026-10-18)
 
 - Only existing local loopback TLS identity is used; no new trust exception,

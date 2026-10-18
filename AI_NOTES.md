@@ -1,3 +1,28 @@
+# Local V3 Document Persistence - 2026-10-19
+
+- Continue the Copilot-first AAPS4 adaptation without modifying AAPS. Add Room
+  migration 35->36 for a separate latest-document feed and persistent clock.
+  Existing clinical rows and legacy transport remain unchanged; v3 routes stay501.
+- New store provides normalized retry deduplication, CAS updates, read-only and
+  deleted-identity guards, atomic revision/capacity accounting, tombstones and
+  bounded revision/chronological paging. It does not claim an immutable version
+  audit or deduplication across unrelated source IDs. No clinical consumer exists.
+- Metadata-first page admission avoids loading all candidate JSON bodies before
+  checking the byte budget. Same-time page boundaries are returned whole or
+  rejected explicitly. No pruning/cursor reset or unbounded growth policy.
+- The migration regression first failed on schema35 versus expected36. Initial
+  test scaffolding used Room as Closeable; corrected that compile error before
+  the valid RED run. Focused checks passed:74 discovered,73 passed,one optional
+  disposable-phone-copy check skipped; all24 new store/migration cases passed.
+- Full Android verification passed in8m58s:6373 discovered,6367 passed,six optional
+  skips,zero failures/errors. All24 new cases and legacy TLS/auth regressions pass.
+  Lint has zero errors,378 existing warnings/eight hints,none in new store files;
+  assembleDebug succeeds. No executable source changed after the full run.
+- Command with Java17: `./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`.
+  Exact-head source CI is the next gate. Contract/limits/rollback:
+  docs/LOCAL_NS_V3_STORE.md. No phone/remote deployment,
+  pump command, settings export, source backfill or treatment change.
+
 # Local V3 Authentication - 2026-10-18
 
 - Continue adapting Copilot, with AAPS RC1 source unchanged. Implement the stock
