@@ -1,5 +1,27 @@
 # Combined Native UI And Food Photo Source
 
+## Camera Ownership (2026-10-18)
+
+Once bounded preparation returns independent JPEG bytes, the owned camera file
+and its exact URI grant are released before inference waits. Failure, cancellation
+and disposal share the same idempotent release. State is cleared before cleanup,
+so a later disposal cannot revoke the URI again. A new capture has a new URI.
+The selected gallery file/URI is not owned by this flow and is never deleted or
+revoked by its cleanup. No parent directory grant is touched.
+
+The implementation uses Android's [exact URI grant revocation](https://developer.android.com/reference/android/content/Context#revokeUriPermission(android.net.Uri,%20int))
+for the owned capture only. Synthetic native tests verify call arguments and
+private fixture files, not OEM permission enforcement or a live image model.
+Cancellation after recognition leaves the existing food draft, calories, profile
+and Eating Soon unchanged; only explicit final food confirmation invokes its
+callback. This is not photo process-death/rotation recovery or a nutrition archive.
+
+Verification: four expected native REDs preceded production edits. Final106-case
+focused gate, including28 native cases, and full6196-case Android run passed
+(six existing skips in the full run). Lint/compile/build and private APK signature
+checks passed on matching source manifests. Source CI is a separate post-commit
+receipt; actual OEM camera/grant and live recognition acceptance remain open.
+
 ## Native Review And Confirmation (2026-10-18)
 
 The photo review and parent food form share the existing 1..maximum carbohydrate

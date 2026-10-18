@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Camera-Owned Photo Cleanup (2026-10-18)
+
+- Release only the camera capture's generated private file and exact URI grant
+  once independent prepared bytes exist, before waiting for model completion.
+  Launch refusal, cancellation/read failure and disposal use the same idempotent
+  cleanup; gallery sources and grants to other paths are not touched.
+- Native synthetic tests track the actual revocation call and file ownership,
+  including cancellation/duplicate cleanup. They do not prove actual OEM grant
+  enforcement, secure erasure, no open external file descriptor or live vision.
+  No new provider, permission, endpoint, persistence or clinical action is added.
+
 ## Authenticated Facts Host
 
 No new public route/secret or default-on task. The owner-scoped roster is bounded,

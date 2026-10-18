@@ -64,13 +64,20 @@ internal fun MealPhotoFlowDialog(
         ready = try { availability() } catch (cancelled: CancellationException) { throw cancelled
         } catch (_: Exception) { MealPhotoAvailability.UNAVAILABLE }
     }
-    LaunchedEffect(Unit) { checkReady() }
-    DisposableEffect(Unit) {
-        onDispose {
-            cameraFile?.delete()
-            cameraUri?.let { context.revokeUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+    fun releaseCamera() {
+        val file = cameraFile
+        val uri = cameraUri
+        cameraFile = null
+        cameraUri = null
+        try { file?.delete() }
+        finally {
+            uri?.let { context.revokeUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
         }
+    }
+    LaunchedEffect(Unit) { checkReady() }
+    DisposableEffect(Unit) {
+        onDispose { releaseCamera() }
     }
     fun process(uri: Uri) {
         if (busy) return
@@ -94,6 +101,8 @@ internal fun MealPhotoFlowDialog(
                     if (input.size > MealPhotoPreparation.MAX_INPUT_BYTES) null
                     else (MealPhotoPreparation.prepare(input) as? MealPhotoPreparationResult.Success)?.image
                 }
+                // Prepared bytes no longer depend on the camera file or its URI grant.
+                releaseCamera()
                 if (prepared == null) error = R.string.meal_photo_invalid_image
                 else when (val result = analyze(prepared.bytes)) {
                     is MealPhotoAnalysisResult.Success -> editor = MealPhotoDraftEditor.initial(result.estimate)
@@ -118,8 +127,7 @@ internal fun MealPhotoFlowDialog(
             } catch (_: Exception) { error = R.string.meal_photo_invalid_image
             } finally {
                 busy = false
-                cameraFile?.delete()
-                cameraFile = null
+                releaseCamera()
             }
         }
     }
@@ -130,8 +138,7 @@ internal fun MealPhotoFlowDialog(
         try { launch() }
         catch (_: Exception) {
             selecting = false
-            cameraFile?.delete()
-            cameraFile = null
+            releaseCamera()
             error = R.string.meal_photo_open_failed
         }
     }
@@ -142,7 +149,7 @@ internal fun MealPhotoFlowDialog(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         selecting = false
         if (success) cameraUri?.let(::process)
-        else { cameraFile?.delete(); cameraFile = null }
+        else releaseCamera()
     }
     val dismiss = { onDismiss() }
     AlertDialog(onDismissRequest = dismiss,

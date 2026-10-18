@@ -1,3 +1,33 @@
+# Food Photo Camera Ownership - 2026-10-18
+
+- Continue with the actual camera contract and post-recognition cancellation.
+  The camera file remained until inference finished, and its grant was revoked
+  only on dialog disposal. Launch refusal/cancellation could retain old URI state.
+- First native run: one genuine early-file cleanup failure and five fixture
+  failures from AndroidX's cached FileProvider roots across fresh Robolectric
+  applications. Reset only this camera authority in the test fixture. Final
+  pre-production RED: four expected cleanup failures, 24 passed, zero errors.
+- One idempotent dialog-local release function clears only its owned file/URI.
+  Prepared bytes no longer need the capture file: release it before inference.
+  Reuse the same cleanup on failure, cancellation/finally and disposal; gallery
+  sources are never deleted or revoked. No grant to a parent directory is revoked.
+- Native synthetic coverage includes a suspended analysis after successful
+  camera preparation, repeated cancellation/new capture, failed launch, malformed
+  capture, disposal, gallery ownership and cancellation after a recognized result.
+  The last scenario preserves manual grams, calories, profile and Eating Soon,
+  and does not invoke the final food callback until explicitly confirmed.
+- Tests observe production cleanup calls and owned synthetic files, not actual
+  OEM permission enforcement or a provider/model. Full quality and source CI are
+  separate gates. No phone, real image, server, credentials or therapy operation.
+- Final focused 106-case gate passed, including all 28 native cases and four
+  previously failing cleanup assertions. No failures/errors/skips; full Android
+  checks and APK verification remain separate from this affected-surface gate.
+- Final full Android: 6190 passed/six existing skips, zero failures/errors;
+  lint/compile/build succeeded in16m25s with baseline376 warnings/eight hints,
+  zero errors/affected photo-file issues. Input manifests match before/after;
+  the private APK signature verifies. Source/exact-head CI remain separate
+  post-commit receipts, not device/provider acceptance.
+
 # Food Photo Review And Confirmation - 2026-10-18
 
 - Continue the successful native path, not only selection failures. The photo

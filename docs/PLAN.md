@@ -1,5 +1,19 @@
 # PLAN
 
+## Food Photo Camera Ownership (2026-10-18)
+
+- [x] Trace camera result, prepared bytes, owned file/URI cleanup and food cancel.
+- [x] Isolate the native fixture's per-application FileProvider root; final RED
+  has four expected cleanup failures, 24 passed, before production edits.
+- [x] Centralize idempotent exact-owned camera cleanup before inference and on
+  launch failure, cancellation, read failure/finally and disposal.
+- [x] Focused camera/gallery/form/session/transport gate: 106 passed, including
+  all 28 native cases, zero failures/errors/skips.
+- [x] Full fixed-input Android: 6190 passed/six existing skips, zero failures
+  or errors; lint/compile/build and private APK signature checks passed.
+- Publication/exact-head CI are separate post-commit PR receipts. No device,
+  real image/model, server, nutrition, target or dose operation.
+
 ## Food Photo Review And Confirmation (2026-10-18)
 
 - [x] Trace photo review through the parent food form and retain model mass bounds.
