@@ -55,6 +55,8 @@ jobs:
       - name: Test
         working-directory: backend
         run: python -m pytest -q tests
+      - name: APK release publication tests
+        run: python -m unittest discover -s tools/app_updates -p 'test_*.py'
 
   android:
     name: Android tests, lint and build

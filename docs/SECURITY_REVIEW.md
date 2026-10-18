@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Internet APK Updates (2026-10-18)
+
+Dedicated HTTPS static files contain no device or AI credentials. Requests carry
+no medical context; strict origin/size/hash/package/version/current-signer checks
+precede the system installer. Partial files are not exposed by the FileProvider;
+only read access is granted. No automatic install or downgrade. Tests cover invalid
+metadata, corrupt/truncated streams, cancellation, changed identities and guarded
+publication. Manifest integrity relies on HTTPS plus APK signing, not an independent
+manifest signature. Existing test-build signer is retained; key rotation is rejected.
+This is a user-requested sideload channel, not a Play distribution policy claim.
+
 ## Food Photo Failure Recovery (2026-10-18)
 
 Validate enum types before membership checks and contain numeric conversion

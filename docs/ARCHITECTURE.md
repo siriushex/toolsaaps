@@ -1,5 +1,12 @@
 # ARCHITECTURE
 
+## APK Distribution
+
+About uses an isolated fixed-origin HTTPS update client and route-scoped state.
+Bounded manifest/download validation and installed-package signer comparison
+precede the standard Android installer. Static nginx release files are separate
+from the AI API, device identity and clinical storage. See APP_UPDATES.md.
+
 ## Authenticated Facts Host
 
 Owner API's optional default-off `daily_facts` creates one ASGI-lifetime

@@ -1,5 +1,13 @@
 # INVARIANTS
 
+## APK Update Boundary
+
+- Only explicit check/download/install actions; no silent update or downgrade.
+- An APK must match the advertised hash, package, version and installed signer.
+- Unverified bytes, medical context and credentials never enter the update route.
+- Android permission/confirmation remains required. Updating cannot arm therapy,
+  reset consent, overwrite configuration or disable AAPS.
+
 ## Food Photo Failure Recovery
 
 - A correlated terminal analysis failure/cancellation/deadline/result expiry

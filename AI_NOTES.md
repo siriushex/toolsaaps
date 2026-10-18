@@ -1,3 +1,33 @@
+# Internet APK Updates - 2026-10-18
+
+- User requested updates from the existing server and an About/update entry.
+  Added a separate fixed-origin transport, private staged download, explicit
+  version/SDK/package/hash/signing checks and standard Android installer flow.
+- VersionCode now2, versionName0.1.1. No silent update, downgrade, clinical
+  changes, credential sharing or AI route/service changes. Initial installation
+  of this updater requires the verified bootstrap APK; old apps lack the UI.
+- Added focused controller/stream/manifest/native UI tests and a static release
+  preparer/publisher with monotonic publication, process lock and atomic pointer.
+- Focused22 Android and nine publisher/route tests pass. The first test compile
+  found two incorrect test API type arguments; a subsequent raster capture used
+  unsupported PixelCopy under Robolectric. Corrected test plumbing to the existing
+  native view-draw method without weakening assertions. Both320px rasters inspected.
+- The requested HTTPS route was installed with an original-host checksum guard,
+  affected-host backup, nginx validation and graceful reload. Independent readback
+  confirms only the include changed; existing AI services remain active.
+- Initial full6231-case run caught the new permission missing from inert uiTest
+  exclusions. Corrected that manifest; the complete repeat has6225passes/six
+  existing skips, no failures/errors. Full lint/compile/build completed in34m47s,
+  frozen Android input hashes match. Lint:zero errors,378 warnings/eight hints;
+  two new nonblocking suggestions are conservative usable-space checking and
+  optional Uri KTX syntax. No baseline or suppression was added.
+- Published version2/0.1.1 over the requested HTTPS host. Independently downloaded
+  110932491bytes match SHA256532ddccf048523e6fa0cd78b5d04da5642403aae96eec642c76272a3914099ac,
+  compiled package/minSdk/version and the prior APK signer. Manifest matches exact
+  local bytes, has no-store; APK has immutable caching and APK MIME. Hidden-file
+  reads return404 and POST403. Bootstrap page inspected in the browser. No phone
+  installation or therapy operation; source publication/exact-head CI have separate receipts.
+
 # Food Photo Failure Recovery - 2026-10-18
 
 - A terminal failed/cancelled/expired photo job was treated as service

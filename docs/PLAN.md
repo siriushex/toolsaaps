@@ -1,5 +1,16 @@
 # PLAN
 
+## Internet APK Update (2026-10-18)
+
+- [x] Inspect existing HTTPS host, Android identity, versioning and navigation.
+- [x] Add About, explicit check/download/install, bounded integrity validation.
+- [x] Add isolated static release publisher, monotonic version checks and tests.
+- [x] Complete Android native/regression/lint/build verification:6225passes,
+  six existing skips, no errors; two new nonblocking lint suggestions retained.
+- [x] Publish APK over HTTPS and independently verify served bytes and routing.
+- Reviewed source publication and exact-head CI are tracked by the PR receipts.
+- Phone installation is separate from server publication and not assumed.
+
 ## Food Photo Failure Recovery (2026-10-18)
 
 - [x] Reproduce malformed result enum types, numeric overflow and blank labels;

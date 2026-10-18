@@ -1,5 +1,11 @@
 # DEVOPS
 
+## Internet APK Distribution
+
+The dedicated static HTTPS update route, verified release preparation, atomic
+publication and affected-nginx-only rollback are documented in APP_UPDATES.md.
+This route does not restart or replace the AI API or its authenticated profile.
+
 ## Authenticated Daily Facts Host
 
 Source adds optional actual-bool owner `daily_facts`, defaultfalse. No installed

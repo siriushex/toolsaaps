@@ -117,6 +117,8 @@ import io.aaps.copilot.ui.foundation.screens.EventsDialog
 import io.aaps.copilot.ui.foundation.screens.remainingGlucoseAlertMuteMinutes
 import io.aaps.copilot.ui.foundation.screens.SafetyScreen
 import io.aaps.copilot.ui.foundation.screens.SettingsScreen
+import io.aaps.copilot.ui.foundation.screens.AboutScreen
+import androidx.compose.material.icons.filled.Info
 import io.aaps.copilot.ui.foundation.screens.IssueDestination
 import io.aaps.copilot.ui.foundation.screens.IssueHelpDialog
 import io.aaps.copilot.ui.foundation.screens.UiIssueKind
@@ -142,11 +144,12 @@ private object Destinations {
     object AiAnalysis : MoreDestination("ai_analysis", R.string.menu_ai_analysis, Icons.Default.Assessment)
     object Alerts : MoreDestination("alerts", R.string.nav_alerts, Icons.Default.Notifications)
     object Settings : MoreDestination("settings", R.string.menu_settings, Icons.Default.Tune)
+    object About : MoreDestination("about", R.string.menu_about, Icons.Default.Info)
     object Setup : RootDestination("setup")
     object Diary : MoreDestination("diary", R.string.diary_title, Icons.Default.History)
 
     val bottom = listOf(Overview, Forecast, Analytics)
-    val more = listOf(Diary, Uam, Safety, Audit, AiAnalysis, Alerts, Settings)
+    val more = listOf(Diary, Uam, Safety, Audit, AiAnalysis, Alerts, Settings, About)
 }
 
 internal data class ClinicalAiSettingsRootCallbacks(
@@ -628,6 +631,7 @@ fun CopilotFoundationRoot(
                                     }
                                 )
                             }
+                            composable(Destinations.About.route) { AboutScreen() }
                             composable(Destinations.Settings.route) {
                                 val settings by viewModel.settingsUiState.collectAsStateWithLifecycle()
                                 val serverAiConnection by
@@ -1228,6 +1232,7 @@ private fun screenTitle(route: String?): String {
         Destinations.AiAnalysis.route -> stringResource(id = R.string.menu_ai_analysis)
         Destinations.Alerts.route -> stringResource(id = R.string.nav_alerts)
         Destinations.Settings.route -> stringResource(id = R.string.menu_settings)
+        Destinations.About.route -> stringResource(id = R.string.menu_about)
         Destinations.Diary.route -> stringResource(id = R.string.diary_title)
         else -> stringResource(id = R.string.nav_overview)
     }
