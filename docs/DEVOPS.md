@@ -11,6 +11,11 @@ Entry and immutable device-status routes remain partial wire integration, not
 whole-app or device admission. Device-status SDK checks use the same isolated
 driver; no extra AAPS source patch or credential is introduced.
 
+The external Android JSON packaging recipe and its synthetic Gradle regression
+checks are documented in AAPS4_BUILD.md. Recipe CI is not a full upstream APK
+build: the latter currently requires local Android platform 37. It must not be
+reported as stock-client/device acceptance or permission to install unsigned APKs.
+
 ## Local V3 Store Migration
 
 Room 35->36 creates only `local_ns_v3_documents` and `local_ns_v3_clock` plus their

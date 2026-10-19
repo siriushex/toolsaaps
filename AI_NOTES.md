@@ -1,3 +1,29 @@
+# External RC1 Packaging Repair - 2026-10-19
+
+- Finish the real RC1 build assessment without editing upstream source. The first
+  instrumented-test-only exclusion failed; main Release also inherits Socket.IO's
+  old org.json implementation. Preserve the failed assessment, not a pass label.
+- Add the identical opt-in external recipe assessed locally: remove platform JSON
+  duplicates from app full compile/runtime consumers, retaining the JVM test fork.
+  Runtime graph hashes show only the four intended single-module removals.
+- Real build passed6m01s:128 tests with zero failures/errors/skips, instrumented
+  Kotlin compiled, release lint zero errors/29 existing warnings, unsigned APK
+  140452156bytes and86789 defined classes without org/json; all321 compiled app
+  module classes retained. Source remains pristine. A Copilot-only APK guard first
+  refused this app's smaller321-class module against its1000-class minimum; the
+  direct set comparison confirms zero missing classes, not a packaging omission.
+  This is not a signed or installed therapy release. Details: docs/AAPS4_BUILD.md.
+- Add offline real-Gradle synthetic graph regressions and run them in Verify using
+  its pinned Java21 upstream wrapper. Missing required inputs cannot silently skip.
+  All six local recipe regressions passed13.2s, including unresolved dependencies
+  and explicit opt-out. Exact-head CI remains the next gate.
+- Device-status67c31893 exact-head PR/push Verify both passed, including real SDK.
+  Redmi briefly appeared: installed AAPS3.4.2.3/build1500 and Copilot0.1.3/build4
+  are enabled; installed AAPS signer matches the existing local Android debug key.
+  USB disappeared before installation; neither app was stopped, reset or replaced.
+  Full v3 clinical ingestion, storage subscriptions, native control and phone
+  CGM/trust/settings migration remain gates, not waived by a successful build.
+
 # Immutable V3 Device Status - 2026-10-19
 
 - Continue Copilot-first AAPS4 compatibility; upstream remains pristine at RC1

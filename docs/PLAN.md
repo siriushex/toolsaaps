@@ -32,7 +32,10 @@
 - [x] Reproduce unsupported device status and add immutable typed create/read/history.
 - [x] Verify device-status/full regressions and unchanged SDK round trip:
       6401 passed/six skips,lint/build,APK class/size guard passed.
-- [ ] Publish reviewed device-status source and inspect exact-head CI.
+- [x] Publish device-status67c31893; PR39220180297/push39220174285 both passed.
+- [x] Resolve upstream JSON packaging conflict externally, retaining pristine source;
+      real128 app tests, instrumented Kotlin compilation and release lint/build pass.
+- [ ] Verify published external JSON recipe regression checks in exact-head CI.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.
