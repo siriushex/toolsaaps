@@ -15,7 +15,8 @@
 - [x] Publish store f387fb77; PR/push Verify39165726990/39165723595 succeeded.
 - [x] Connect typed entries/status/lastModified to authenticated wire storage.
 - [x] Check entry replay, partial updates, tombstones, filters and bounded paging.
-- [x] Verify unchanged RC1 SDK over loopback TLS; full6380 passed/six skips,lint/build.
+- [x] Verify unchanged RC1 SDK over TLS including device-less calibration;
+      full6381 passed/six skips,lint/build. Check SDK build without Android37.
 - [ ] Publish entries stage and verify exact-head CI, including the stock SDK test.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before

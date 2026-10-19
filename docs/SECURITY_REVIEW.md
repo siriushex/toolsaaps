@@ -8,6 +8,9 @@
   Unknown or repeated filters refuse; no silent fallback to unfiltered data.
 - Stable producer/type/acquisition identity, conflicts, immutable acquisition
   fields, CAS and tombstones prevent retry duplication or old data resurrection.
+- Stock marked calibrations omit device: owner/time/marker identity is allowed
+  only with explicit mg/dl and a positive paired sensor value. Ordinary device-less
+  measurements remain refused. This is format recognition, not sender attestation.
 - No payload/token logging. SDK fixture uses temporary public-CA trust, not a
   hostname/certificate bypass; its access secret exists only in child environment.
 - Full app sync, Android trust, clinical source arbitration and command acceptance

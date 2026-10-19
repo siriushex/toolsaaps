@@ -1,3 +1,21 @@
+# RC1 Calibration And CI SDK Prerequisite - 2026-10-19
+
+- Initial entries CI failed before tests: SDK manager could not find the requested
+  platforms;android-37 package. Remove that unnecessary JVM-SDK prerequisite.
+  Rebuilt the pristine upstream SDK with an isolated Android36-only SDK directory;
+  preparation passed in41s. No AAPS Gradle/source or global SDK changes.
+- Audited the actual CAL.toNSMbgV3 producer and timestamp reconciliation: native
+  calibration uploads omit device. Reproduced rejection (expected201/actual400)
+  and added owner/type/time/marker identity for this exact marked format. Require
+  explicit mg/dl and a positive sensor pair. Ordinary missing-device inputs remain
+  refused; changed values conflict until explicit PATCH. No calibration is applied.
+- Extended the real RC1 SDK driver through calibration create/retry/read/update/
+  delete. Full local suite passed in9m51s:6387 discovered,6381 passed,six optional
+  skips,zero failures/errors. All12 API cases and stock TLS driver ran successfully.
+  Lint:zero errors,378 existing warnings/eight hints; APK built,not deployed.
+- Exact-head corrected CI remains the next gate. The failed initial CI is retained,
+  not relabelled as a pass. Wire-only and no-READY/no-therapy boundaries remain.
+
 # Local V3 Entries And Stock SDK - 2026-10-19
 
 - Connect authenticated status/lastModified/entries to the persistent wire store.

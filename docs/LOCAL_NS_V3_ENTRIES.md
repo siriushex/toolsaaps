@@ -41,6 +41,12 @@ type and acquisition time, never glucose value. Missing producer without explici
 identity is refused, not replaced with server time/random IDs. Conflicting POSTs
 return409. This identity rule is only for entries, not meals or insulin.
 
+RC1's CAL.toNSMbgV3 intentionally omits device, while its calibration sync
+reconciles owner entries by timestamp. A marked calibration with explicit mg/dl
+and positive sensorMgdlAtPairing therefore uses owner/type/acquisition time plus
+a calibration discriminator. A changed pair at that time is a conflict until
+explicit PATCH, never silently merged. Unmarked missing-device MBG remains refused.
+
 The parser requires one <=64KiB JSON object, valid UTF-8, bounded depth, no duplicate
 keys, known fields, finite unquoted numbers and valid metadata. Conflicting
 dateString/date, unknown units/filters, duplicate query parameters and overflowing
@@ -66,7 +72,9 @@ AAPS_INTEROP_JAVA_HOME=/path/to/java21 AAPS_INTEROP_CLASSPATH="$PWD/build/aaps4-
 ```
 
 The real SDK uses the Copilot TLS listener/Room store: refresh, status, create and
-retry, paging, latest, PATCH without date, delete and lastModified. A temporary
+retry, paging, latest, PATCH without date, delete and lastModified. The
+calibration sequence also verifies the stock device-less upload, retry, read,
+update and tombstone. A temporary
 trust store contains the synthetic test CA; certificate/hostname checks remain
 enabled. Access credentials are passed only in the child environment, not logs.
 The bounded child process and temporary files are cleaned up. CI requires this

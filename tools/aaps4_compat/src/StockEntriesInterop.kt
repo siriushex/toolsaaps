@@ -3,6 +3,7 @@ package integration.entries
 import app.aaps.core.nssdk.NSAndroidClientImpl
 import app.aaps.core.nssdk.localmodel.entry.Direction
 import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
+import app.aaps.core.nssdk.localmodel.entry.NSMbgV3
 import app.aaps.core.nssdk.localmodel.entry.NsUnits
 import kotlinx.coroutines.runBlocking
 import java.net.URI
@@ -55,6 +56,22 @@ fun main() {
                 check(client.getLastModified().collections.entries == deleted.lastServerModified)
                 check(client.getSgvsNewerThan(0, 10).values!!.single().date == at + 60_000)
                 check(client.getSgvsModifiedSince(deleted.lastServerModified!!, 10).values!!.isEmpty())
+                stage = "calibration"
+                val calibration = NSMbgV3(at + 120_000, identifier = null, utcOffset = 0,
+                    isValid = true, mbg = 130.0, sensorMgdlAtPairing = 120.0, units = NsUnits.MG_DL)
+                val calibrationCreated = client.createCalibration(calibration)
+                check(calibrationCreated.response == 201)
+                val calibrationRetry = client.createCalibration(calibration)
+                check(calibrationRetry.isDeduplication == true && calibrationRetry.identifier == calibrationCreated.identifier)
+                val calibrationPage = client.getSgvsModifiedSince(deleted.lastServerModified!!, 1)
+                check(calibrationPage.values!!.isEmpty() && calibrationPage.calibrations.single().mbg == 130.0)
+                check(client.getSgvs().values!!.single().date == at + 60_000)
+                check(client.updateCalibration(calibrationPage.calibrations.single().copy(mbg = 135.0)).response == 200)
+                val calibrationUpdated = client.getSgvsModifiedSince(calibrationPage.lastServerModified!!, 1)
+                check(calibrationUpdated.calibrations.single().date == at + 120_000)
+                check(calibrationUpdated.calibrations.single().mbg == 135.0)
+                check(client.updateCalibration(calibrationUpdated.calibrations.single().copy(isValid = false)).response == 200)
+                check(!client.getSgvsModifiedSince(calibrationUpdated.lastServerModified!!, 1).calibrations.single().isValid)
             } finally {
                 client.close()
             }

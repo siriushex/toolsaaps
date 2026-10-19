@@ -186,20 +186,30 @@ internal class LocalNightscoutV3EntriesApi(
             payload[name]?.takeUnless { it == JsonNull }?.let { require(HistoryJson.double(it) >= 0) }
         }
         payload["isCalibration"]?.takeUnless { it == JsonNull }?.let {
-            HistoryJson.bool(it)
+            val calibration = HistoryJson.bool(it)
             require(type == "mbg")
+            if (calibration) {
+                require(optionalString(payload, "units") == "mg/dl")
+                require(HistoryJson.double(payload.getValue("sensorMgdlAtPairing")) > 0)
+            }
         }
+        if (payload.containsKey("sensorMgdlAtPairing")) require(type == "mbg")
         return payload
     }
 
     private fun stableIdentifier(payload: JsonObject): String {
         // A CGM sample is keyed by producer, type and acquisition time, never its glucose value.
-        require(!optionalString(payload, "device").isNullOrBlank())
+        val device = optionalString(payload, "device")
+        // RC1 CAL.toNSMbgV3 omits device and reconciles its own calibration by timestamp.
+        val ownerCalibration = device == null && payload["type"] == JsonPrimitive("mbg") &&
+            payload["isCalibration"] == JsonPrimitive(true)
+        require(!device.isNullOrBlank() || ownerCalibration)
         val identity = buildJsonObject {
             put("owner", SOURCE)
             put("device", payload["device"] ?: JsonNull)
             put("type", payload.getValue("type"))
             put("date", payload.getValue("date"))
+            if (ownerCalibration) put("calibration", true)
         }
         return MessageDigest.getInstance("SHA-256").digest(HistoryJson.bytes(identity))
             .joinToString("") { "%02x".format(it.toInt() and 255) }

@@ -121,7 +121,7 @@ class LocalNightscoutV3EntriesApiTest {
     @Test fun chronologicalPageFinishesTimeTiesAndLatestFiltersManualMeasurements() = runBlocking {
         call("POST", body = sample(device = "sensor-a"))
         call("POST", body = sample(device = "sensor-b"))
-        call("POST", body = """{"type":"mbg","date":${at + 60_000},"device":"meter-a","mbg":130.0,"isCalibration":true,"sensorMgdlAtPairing":120}""")
+        call("POST", body = """{"type":"mbg","date":${at + 60_000},"device":"meter-a","mbg":130.0,"units":"mg/dl","isCalibration":true,"sensorMgdlAtPairing":120}""")
         val page = call(query = query("sort" to "date", "date\$gt" to "0", "limit" to "1"))
         assertEquals(2, rows(page).size)
         assertNull(page.revision)
@@ -155,6 +155,21 @@ class LocalNightscoutV3EntriesApiTest {
         invalid.forEach { assertEquals(400, call("POST", body = it).status) }
         assertEquals(400, api.handle("POST", "/api/v3/entries", emptyMap()) { byteArrayOf(0xc3.toByte(), 0x28) }.status)
         assertEquals(0, db.localNightscoutV3Dao().count())
+    }
+
+    @Test fun stockCalibrationWithoutDeviceUsesOwnerTimeIdentityAndDoesNotMergeCorrections() = runBlocking {
+        val calibration = """{"type":"mbg","date":$at,"mbg":130.0,"units":"mg/dl","isCalibration":true,"sensorMgdlAtPairing":120.0}"""
+        val first = call("POST", body = calibration)
+        assertEquals(201, first.status)
+        val retry = call("POST", body = calibration)
+        assertEquals(200, retry.status)
+        assertEquals(id(first), id(retry))
+        assertEquals(first.revision, retry.revision)
+        assertEquals(409, call("POST", body = calibration.replace("130.0", "135.0")).status)
+        assertEquals(400, call("POST", body = calibration.replace("\"isCalibration\":true,", "")).status)
+        assertEquals(400, call("POST", body = calibration.replace("\"sensorMgdlAtPairing\":120.0", "\"sensorMgdlAtPairing\":0")).status)
+        assertEquals(400, call("POST", body = calibration.replace("mg/dl", "mmol/l")).status)
+        assertTrue(db.glucoseDao().since(0).isEmpty())
     }
 
     @Test fun queryValidationNeverSilentlyDropsFiltersOrOverflowsLimits() = runBlocking {

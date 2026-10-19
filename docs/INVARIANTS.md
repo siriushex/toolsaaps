@@ -28,7 +28,7 @@
 - V3 entry HTTP receipts prove wire persistence only, not clinical ingestion or
   therapy. Unimplemented collections must have empty permissions and fail501.
 - Entry PATCH retains omitted acquisition fields; server metadata cannot become
-  payload. Stable producer/type/time identity prevents POST replay duplicates;
+  payload. Stable owner/producer/type/time identity prevents POST replay duplicates;
   conflicting content is refused, not merged by value.
 - Stock SDK TLS tests do not prove Android CA trust or whole-app readiness.
 
