@@ -12,7 +12,7 @@
     <string name="app_update_verifying">Verifying before installation…</string>
     <string name="app_update_failed">Update not completed</string>
     <string name="app_update_release">%1$s · %2$.1f MB</string>
-    <string name="app_update_error_network">Cannot reach the server. Check your connection and try again.</string>
+    <string name="app_update_error_network">Could not retrieve the update. Check your connection and try again.</string>
     <string name="app_update_error_release">The update description is invalid. Installation is blocked.</string>
     <string name="app_update_error_incompatible">This update requires a newer Android version.</string>
     <string name="app_update_error_storage">Cannot save the APK. Check free storage and try again.</string>
@@ -21,6 +21,7 @@
     <string name="app_update_install_notice">Android will ask you to confirm. If prompted, allow installations from Copilot, return here and tap Install. Copilot alerts may briefly pause during installation; AAPS is not changed.</string>
     <string name="app_update_cancel">Cancel</string>
     <string name="app_update_download">Download update</string>
+    <string name="app_update_resume">Resume download</string>
     <string name="app_update_install">Install</string>
     <string name="app_update_check">Check for update</string>
 </resources>

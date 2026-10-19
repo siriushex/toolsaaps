@@ -199,6 +199,15 @@
 
 ## Internet APK Updates (2026-10-18)
 
+2026-10-19: an explicit immutable-APK transfer now allows three bounded GET attempts
+and hash-addressed Range recovery. Exact range/length/encoding checks and full hash
+plus installed-signer validation remain mandatory. Partials stay outside the URI
+provider; an exclusive lock spans callback cancellation/drain and cleanup. The
+20-minute overall deadline and30-second idle timeout bound stalled reads. Paused
+download state can only restart through an explicit user action after exhaustion.
+Icon-only shrinking keeps other inputs; a build gate rejects real non-icon input
+removal while distinguishing transient compiler desugaring artifacts.
+
 Follow-up recovery audit: terminal outcomes are operation-scoped, so a cancelled
 source cannot replace newer state. File-write failures retain a local-storage
 classification. No change to origin, hash/signature, provider or install gates.

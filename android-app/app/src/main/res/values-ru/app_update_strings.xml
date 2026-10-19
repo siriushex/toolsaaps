@@ -12,7 +12,7 @@
     <string name="app_update_verifying">Проверяем перед установкой…</string>
     <string name="app_update_failed">Обновление не завершено</string>
     <string name="app_update_release">%1$s · %2$.1f МБ</string>
-    <string name="app_update_error_network">Сервер недоступен. Проверьте интернет и повторите попытку.</string>
+    <string name="app_update_error_network">Не удалось получить обновление. Проверьте интернет и повторите попытку.</string>
     <string name="app_update_error_release">Описание обновления некорректно. Установка заблокирована.</string>
     <string name="app_update_error_incompatible">Для этой версии нужен более новый Android.</string>
     <string name="app_update_error_storage">Не удалось сохранить APK. Проверьте свободное место и повторите попытку.</string>
@@ -21,6 +21,7 @@
     <string name="app_update_install_notice">Установку подтвердит Android. Если потребуется, разрешите установку из Copilot, вернитесь сюда и нажмите «Установить». На время установки оповещения Copilot могут прерваться; AAPS не меняется.</string>
     <string name="app_update_cancel">Отмена</string>
     <string name="app_update_download">Загрузить обновление</string>
+    <string name="app_update_resume">Продолжить загрузку</string>
     <string name="app_update_install">Установить</string>
     <string name="app_update_check">Проверить обновление</string>
 </resources>

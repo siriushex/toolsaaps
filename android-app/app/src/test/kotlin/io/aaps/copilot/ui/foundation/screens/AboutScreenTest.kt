@@ -80,6 +80,19 @@ class AboutScreenTest {
         } finally { activity.pause().stop().destroy() }
     }
 
+    @Test fun interruptedTransferOffersResumeWithRetainedProgress() {
+        var downloads = 0
+        val activity = show(AppUpdateState(UpdatePhase.ERROR, sampleRelease(), percent = 75,
+            failure = UpdateFailure.NETWORK), onDownload = { downloads++ })
+        try {
+            compose.onNodeWithText("75%").assertIsDisplayed()
+            compose.onNodeWithText("Продолжить загрузку").performScrollTo().performClick()
+            assertEquals(1, downloads)
+            compose.onNodeWithText("Установить", substring = false).assertDoesNotExist()
+            saveRaster("about-resume.png", activity.get().window.decorView)
+        } finally { activity.pause().stop().destroy() }
+    }
+
     @Test fun storageFailureExplainsRecoveryAndOnlyRetriesExplicitly() {
         var checks = 0
         val activity = show(AppUpdateState(UpdatePhase.ERROR, failure = UpdateFailure.STORAGE),

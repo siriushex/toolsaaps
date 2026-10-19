@@ -95,7 +95,7 @@ internal fun AboutContent(state: AppUpdateState, onCheck: () -> Unit, onDownload
                 state.release.sizeBytes / (1024.0 * 1024)), style = MaterialTheme.typography.bodyMedium)
             if (state.release.notes.isNotBlank()) Text(state.release.notes, style = MaterialTheme.typography.bodyMedium)
         }
-        if (state.phase == UpdatePhase.DOWNLOADING) {
+        if (state.phase == UpdatePhase.DOWNLOADING || state.canResume) {
             LinearProgressIndicator(progress = { state.percent / 100f }, modifier = Modifier.fillMaxWidth())
             Text("${state.percent}%", Modifier.testTag("updateProgress"))
         } else if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -118,18 +118,18 @@ internal fun AboutContent(state: AppUpdateState, onCheck: () -> Unit, onDownload
             else -> Button(onClick = when (state.phase) {
                 UpdatePhase.AVAILABLE -> onDownload
                 UpdatePhase.READY -> onInstall
-                else -> onCheck
+                else -> if (state.canResume) onDownload else onCheck
             }, modifier = Modifier.fillMaxWidth().testTag("updateAction")) {
                 Icon(when (state.phase) {
                     UpdatePhase.AVAILABLE -> Icons.Default.Download
                     UpdatePhase.READY -> Icons.Default.SystemUpdate
-                    else -> Icons.Default.Refresh
+                    else -> if (state.canResume) Icons.Default.Download else Icons.Default.Refresh
                 }, null)
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(when (state.phase) {
                     UpdatePhase.AVAILABLE -> R.string.app_update_download
                     UpdatePhase.READY -> R.string.app_update_install
-                    else -> R.string.app_update_check
+                    else -> if (state.canResume) R.string.app_update_resume else R.string.app_update_check
                 }))
             }
         }

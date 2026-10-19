@@ -9,6 +9,11 @@ its installation permission and confirmation. If permission is absent, the
 user returns from Android settings and explicitly taps Install again.
 Cancelled operations cannot publish late success or failure over a newer check.
 Storage write failures show a local-storage error, not a network retry prompt.
+An interrupted transfer retains its percentage and offers Resume download.
+Only the explicit APK download allows at most three GET attempts, with bounded
+backoff, a 20-minute overall deadline and the existing 30-second idle-read timeout.
+The small manifest keeps its separate five-minute call deadline. Cancellation
+closes the active HTTP call and waits for its writer before releasing the file lock.
 There is no background update, silent install, downgrade or database migration
 introduced by this feature. Installation briefly interrupts Copilot itself,
 including its alerts. AAPS is neither stopped nor updated.
@@ -29,9 +34,14 @@ the Android versionCode and retain the installed signing identity.
   and complete current signing-certificate set must match. Check hash and archive
   again before offering the file to Android's verifying package installer.
 - Only private `cache/app-updates/verified/` is shared by a read-only URI grant.
-  Partial files are outside the FileProvider root. Cancellation does not install;
-  abandoned partial files are cleaned on the next explicit download. Process
-  death requires a new check/download; it cannot automatically resume installation.
+  Partial files are outside the FileProvider root and named by the exact release
+  hash. A locked writer retains bytes on interruption/cancellation; a later
+  explicit download resumes them using Range and identity encoding. Exact
+  Content-Range, remaining length and full-file SHA-256 are mandatory. A server
+  returning200 instead of206 restarts cleanly. Bad ranges, hashes or archive
+  metadata remove the partial. Unrelated stale partials are cleared only while
+  holding the writer lock. Process death requires a new explicit check/download;
+  it cannot automatically resume installation.
 - Rotation/navigation state uses the route ViewModel. No application controller,
   target, dose, alert permission or AI consent is changed by update checks.
 - HTTPS/server integrity and the existing signing key are trusted. The manifest
@@ -40,6 +50,21 @@ the Android versionCode and retain the installed signing identity.
   rotation and split APKs are deliberately unsupported and fail closed.
 
 ## Prepare and publish
+
+The distributed debug build prunes unused Material icon classes only. All other
+classes/members/names/attributes are kept; optimization and obfuscation are off.
+The one missing-class exception is Error Prone's compile-time reference to the JDK
+compiler enum javax.lang.model.element.Modifier, already absent from Android.
+DEX is compressed for download. Resources, audio, native libraries and clinical
+code are retained. analyze_apk.py checks that compiled application classes remain,
+the R8 removal report contains only Material icons and temporary desugaring
+artifacts (synthetic lambda classes/bridges), and the APK stays below80MiB.
+An original non-icon class or member removal fails the gate.
+An unverified/unshrunk APK cannot pass that CI gate.
+
+Incremental local packaging can retain unused ZIP blocks. For distribution,
+recreate only the generated app-debug.apk with assembleDebug, then repeat artifact
+size/class/signature/metadata checks. Do not post-process an already signed ZIP.
 
 `tools/app_updates/release.py prepare` requires the local APK, aapt, apksigner,
 the independently checked expected signer SHA-256 and a new output directory.

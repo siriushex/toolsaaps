@@ -114,6 +114,12 @@
 - Unverified bytes, medical context and credentials never enter the update route.
 - Cancelled operation results, including errors, cannot replace newer state.
 - Local APK write errors remain distinct from remote read/network failures.
+- APK resume accepts only the same content-addressed release, an exact byte range
+  and the verified complete hash. Partial bytes remain outside FileProvider access.
+- Only the locked transfer owns cleanup/writes; cancelled HTTP callbacks finish
+  before lock release. Retry count, idle reads and total duration remain bounded.
+- APK shrinking may remove only Material icon classes. All other application
+  classes/members, reflection names, resources and clinical behavior are retained.
 - Android permission/confirmation remains required. Updating cannot arm therapy,
   reset consent, overwrite configuration or disable AAPS.
 

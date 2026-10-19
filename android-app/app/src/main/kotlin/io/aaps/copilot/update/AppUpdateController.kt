@@ -19,6 +19,7 @@ data class AppUpdateState(
     internal val operation: Long = 0
 ) {
     val busy: Boolean get() = phase in setOf(UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.VERIFYING)
+    val canResume: Boolean get() = phase == UpdatePhase.ERROR && failure == UpdateFailure.NETWORK && release != null
 }
 
 class AppUpdateController(
@@ -51,9 +52,9 @@ class AppUpdateController(
 
     fun download() {
         val current = state.value
-        if (current.phase != UpdatePhase.AVAILABLE) return
+        if (current.phase != UpdatePhase.AVAILABLE && !current.canResume) return
         val release = current.release ?: return
-        mutableState.value = current.copy(phase = UpdatePhase.DOWNLOADING)
+        mutableState.value = current.copy(phase = UpdatePhase.DOWNLOADING, failure = null)
         task = scope.launch {
             try {
                 val file = source.download(release) { percent ->
@@ -62,7 +63,7 @@ class AppUpdateController(
                             value.copy(percent = percent.coerceIn(0, 100)) else value
                     }
                 }
-                publishIfCurrent(current.copy(phase = UpdatePhase.READY, file = file, percent = 100))
+                publishIfCurrent(current.copy(phase = UpdatePhase.READY, file = file, percent = 100, failure = null))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) { fail(e, current.operation) }
         }
@@ -97,7 +98,12 @@ class AppUpdateController(
     }
 
     private fun fail(e: Exception, operation: Long) {
-        publishIfCurrent(AppUpdateState(UpdatePhase.ERROR,
-            failure = (e as? AppUpdateException)?.reason ?: UpdateFailure.NETWORK, operation = operation))
+        val failure = (e as? AppUpdateException)?.reason ?: UpdateFailure.NETWORK
+        mutableState.update { current ->
+            if (current.operation != operation) current
+            else if (current.phase == UpdatePhase.DOWNLOADING && failure == UpdateFailure.NETWORK)
+                current.copy(phase = UpdatePhase.ERROR, file = null, failure = failure)
+            else AppUpdateState(UpdatePhase.ERROR, failure = failure, operation = operation)
+        }
     }
 }

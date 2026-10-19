@@ -186,6 +186,28 @@ class AppUpdateTest {
         assertEquals(UpdatePhase.IDLE, controller.state.value.phase)
     }
 
+    @Test fun interruptedDownloadRetainsReleaseAndProgressAndResumesOnlyWhenAsked() = runTest {
+        val wait = CompletableDeferred<Unit>()
+        val source = FakeUpdates().apply { waitForDownload = wait }
+        val controller = AppUpdateController(source, 2, 35, backgroundScope)
+        controller.check(); runCurrent(); controller.download(); runCurrent()
+        source.progress!!.invoke(75)
+        source.failure = UpdateFailure.NETWORK
+        wait.complete(Unit); runCurrent()
+        assertTrue(controller.state.value.canResume)
+        assertEquals(75, controller.state.value.percent)
+        assertEquals(source.release, controller.state.value.release)
+        assertEquals(1, source.downloads)
+        assertNull(controller.verifiedFile())
+        source.failure = null
+        source.waitForDownload = null
+        controller.download(); runCurrent()
+        assertEquals(2, source.downloads)
+        assertEquals(1, source.checks)
+        assertEquals(UpdatePhase.READY, controller.state.value.phase)
+        assertNull(controller.state.value.failure)
+    }
+
     @Test fun cancelledCheckCannotReplaceNewerCheckWithLateSuccess() = runTest {
         val oldCheck = CompletableDeferred<Unit>()
         val source = FakeUpdates().apply { waitForCheck = oldCheck; ignoreCancellation = true }

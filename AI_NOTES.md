@@ -1,3 +1,41 @@
+# Update Transfer Recovery And APK Size - 2026-10-19
+
+- Public0.1.3/build4 is119236555 bytes. A complete HTTPS GET matched its advertised
+  SHA-256 in23.18s; a GET from75% returned the exact remaining range with206.
+  The old client imposes a five-minute total deadline and deletes partials after
+  interruption. A synthetic75% interruption first reproduced NETWORK failure.
+  No phone was available; this does not establish the exact device failure cause.
+- Add three bounded immutable-APK GET attempts, exact Range/length checks,
+  identity encoding, full-file hash verification and a20-minute total deadline
+  with30-second idle reads. A locked hash-addressed partial survives interruption;
+  cancellation drains the callback before unlocking. The UI retains percentage
+  and offers explicit Resume. Invalid ranges/hashes/archive metadata discard bytes.
+- Initial38 focused transport/controller/native UI cases and the additional
+  positive archive-verification case passed. They cover75% recovery, cross-instance
+  explicit resume, server200 fallback, corrupt prefix/range, real HTTP deadlines,
+  lock ownership and the final verified-file boundary. Full regression passed:
+  6398 cases,6392 passed,six unchanged private-input skips,zero failures/errors.
+  Stock RC1 interoperability ran; lint/build passed in13m37s. Lint retains
+  378 warnings/eight hints,no errors or added notices.
+- Candidate0.1.4/build5 is39375081 bytes,66.98% smaller. Compressed DEX contributes
+  24996160 bytes versus96717876 in the public build. All6856 compiled app classes
+  remain;11334 unused Material icon classes are removed,66 remain. The audit also
+  distinguishes nine transient R8 desugaring classes and seven synthetic bridges.
+  Other classes/members/names/attributes are kept, with optimization/obfuscation off.
+  Resources/audio/native assets remain; binary resource IDs may be re-encoded.
+- First R8 attempt refused an existing Error Prone annotation's JDK-only Modifier
+  reference; the exact compile-time exception is documented. The removal guard
+  initially rejected transient compiler artifacts, then gained a narrow checked
+  exception. Five guard regressions and all14 publication/helper tests pass.
+  CI enforces retained compiled classes, icon-only input removal and80MiB maximum.
+- Incremental packaging left an extra1.93MB unreferenced ZIP block. Recreating only
+  the generated APK and assembling again passed in20s (one task executed); artifact
+  class/removal/size checks pass. No code/tests changed after the full run.
+- Existing APK signature matches the public signer. No server configuration,
+  AI login/model/service, phone installation or therapy operation changed.
+  Public release remains0.1.3 until full checks/CI and independent publication
+  verification. Commands and cache/trust behavior: docs/APP_UPDATES.md.
+
 # RC1 Calibration And CI SDK Prerequisite - 2026-10-19
 
 - Initial entries CI failed before tests: SDK manager could not find the requested

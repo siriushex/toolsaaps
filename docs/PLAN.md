@@ -1,5 +1,16 @@
 # PLAN
 
+## Internet Update Recovery And Size (2026-10-19)
+
+- [x] Verify public APK bytes, hash, HTTPS transfer and Range support.
+- [x] Reproduce75% interruption; add bounded recovery and explicit Resume.
+- [x] Verify focused transport/controller/native UI and positive archive paths.
+- [x] Measure APK contents and reduce119.24MB to39.38MB with preserved app classes.
+- [x] Add CI size/removal/class-retention gate and its boundary regressions.
+- [x] Complete full Android checks:6392 passed/six skips,lint/build,review/artifact gate.
+- [ ] Publish reviewed source and inspect its CI before release publication.
+- [ ] Verify the prepared internet APK and independently fetch published bytes.
+
 ## Stock AAPS 4.0 Compatibility (2026-10-18)
 
 - [x] Follow owner direction: adapt Copilot first, leave AAPS source unchanged.

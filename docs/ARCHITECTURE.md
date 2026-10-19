@@ -108,6 +108,10 @@ About uses an isolated fixed-origin HTTPS update client and route-scoped state.
 Bounded manifest/download validation and installed-package signer comparison
 precede the standard Android installer. Static nginx release files are separate
 from the AI API, device identity and clinical storage. See APP_UPDATES.md.
+The hash-addressed partial cache supports bounded HTTP Range recovery, serialized
+writers and full-file verification; interrupted downloads expose explicit Resume.
+The debug distribution prunes unused Material icons and compresses DEX, with a CI
+check preserving all compiled application classes and limiting removal to icons.
 
 ## Authenticated Facts Host
 

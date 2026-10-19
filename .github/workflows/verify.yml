@@ -99,6 +99,14 @@ jobs:
           AAPS_INTEROP_JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-interop/classpath.txt
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2 --console=plain
+      - name: Verify APK size and preserved application classes
+        run: >-
+          python3 tools/app_updates/analyze_apk.py
+          android-app/app/build/outputs/apk/debug/app-debug.apk
+          --compiled-dir android-app/app/build/tmp/kotlin-classes/debug
+          --compiled-dir android-app/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes
+          --usage android-app/app/build/outputs/mapping/debug/usage.txt
+          --max-bytes 83886080
       - name: Preserve synthetic unit-test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

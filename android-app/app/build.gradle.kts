@@ -17,14 +17,18 @@ android {
         applicationId = "io.aaps.predictivecopilot"
         minSdk = 31
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.1.4"
 
         testInstrumentationRunner = "io.aaps.copilot.CopilotTestRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
     buildTypes {
+        getByName("debug") {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
         create("uiTest") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".uitest"
@@ -54,6 +58,9 @@ android {
     }
 
     packaging {
+        dex {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
