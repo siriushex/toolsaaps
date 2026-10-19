@@ -1,3 +1,20 @@
+# Narrow Periodic Client History - 2026-10-19
+
+- Owner requested main integration of only the periodic upload feature and its
+  necessary dependencies. Isolated main-based port excludes the rest of PR #7.
+- Import signed history transport, bounded core Room exporter and their existing
+  tests; add 60/120/180/240-minute settings, background switch and manual queue.
+- Current insulin profile/onset/DIA context is observational. No meal-timing
+  research, chat/photo redesign, clinical rule or database migration imported.
+- Main-based focused tests: 83 passed. Full local Android gate: 5625 tests,
+  5619 passed, six optional private-data checks skipped, zero failures/errors.
+  Lint: zero errors, 362 warnings and eight hints; no added-source issues.
+  Debug APK assembly passed; full test/lint/build took 23m58s with Java 17 and
+  one worker. Native 320dp/1.8x font rasters fit; source hashes stayed unchanged.
+  Exact-head CI and main integration remain separate gates. No server or phone
+  operation, APK publication or clinical activation is implied.
+- Scope and remaining advisory work: docs/AI_HISTORY_UPLOAD_SCHEDULE.md.
+
 # Feather 01 Native Presentation - 2026-10-15
 
 - User selected the first feathered family and explicitly approved Git main

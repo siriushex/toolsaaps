@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Periodic History Upload
+
+A dedicated WorkManager schedule owns optional 60/120/180/240-minute signed
+history uploads and explicit manual requests. It restores existing activation,
+respects power policy and uses a separate metadata index plus encrypted pending
+plans for exact receipt recovery. Core Room history and observed insulin settings
+are read-only projections. Existing chat, clinical rules and medical schema stay
+unchanged. See AI_HISTORY_UPLOAD_SCHEDULE.md for the narrow dependency manifest.
+
 ## Feather 01 Native Presentation
 
 `ui/motion` owns presentation-only owl paths, palettes and 52 finite glyph records

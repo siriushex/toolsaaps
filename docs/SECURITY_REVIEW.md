@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Periodic Client History Integration
+
+- Closed signed history routes retain separate body/response limits and
+  device-bound exact pending recovery. Credentials stay connection-owned.
+- Core export reads fixed tables/columns, bounded payloads and an allowlist of
+  telemetry. Payload plans are encrypted; the separate index is metadata-only.
+- No clinical command, model request, provider configuration or new public host
+  is introduced. UI queue acknowledgement must not claim delivery or analysis.
+- Initial-backfill resource use and device/Doze behavior require separate device
+  verification; synthetic tests cannot prove clinical completeness or efficacy.
+
 ## Native Artwork (2026-10-15)
 
 - Static local assets and pure native recipes, no remote loading or medical

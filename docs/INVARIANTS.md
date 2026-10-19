@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Periodic History Transport
+
+- Signed device binding, fresh access and explicit power/background admission
+  still gate every upload. Scheduling grants no model or therapy authority.
+- Receipt success alone advances the durable export plan. Cancellation and
+  ambiguous transport outcomes preserve exact pending bytes and record identity.
+- Initial empty connection UI cannot cancel a restoring worker before session
+  loading. Background OFF does not cancel an explicit manual upload.
+- Partial source coverage and observed insulin configuration remain labelled;
+  recorded insulin is not confirmed delivery, onset is not a meal-wait interval.
+- The 1-4 hour transport schedule never replaces urgent local alerts.
+
 ## Native Artwork Isolation
 
 - No therapy, database, network, permission, acknowledgement or risk mutation

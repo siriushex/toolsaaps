@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Narrow Periodic Client Upload
+
+Main integration imports only client transport/export/configuration/scheduler
+dependencies. No server unit, credentials, API routes or medical schema change.
+Full Android test/lint/assemble and exact-head Verify are required on the narrow
+tree; the development-branch APK is not its verification. Do not install over a
+newer-schema device as part of a source merge. Preserve pending encrypted plans
+and export metadata across rollback; never restore an old medical database.
+This does not activate server model jobs or publish an APK update.
+
 ## Trusted Supervisor Entry Point
 
 PYTHONPATH=backend python -m app.ai.text_supervisor_host --help describes the
