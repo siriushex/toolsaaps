@@ -1,5 +1,15 @@
 # PLAN
 
+## Narrow Periodic History Integration (2026-10-19)
+
+- [x] Isolate on main and import only signed history/export dependencies.
+- [x] Connect persisted upload settings, durable scheduler and current profile.
+- [x] Verify main-based Android tests/lint/build and compact native UI locally.
+- [ ] Verify exact-head CI before integration.
+- [ ] Merge only the reviewed narrow PR after fresh main divergence checks.
+- Server recurring advisory reviews and recommendation acceptance are not part
+  of this client integration. See AI_HISTORY_UPLOAD_SCHEDULE.md.
+
 ## Feather 01 Main Integration (2026-10-15)
 
 - User approved native artwork plus Git main. Isolated integration reconciles

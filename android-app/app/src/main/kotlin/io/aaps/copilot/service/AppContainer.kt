@@ -181,6 +181,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class ClinicalAiProviderCredentialState(
@@ -305,6 +306,7 @@ class AppContainer(context: Context) {
     val gson: Gson = Gson()
     val settingsStore = AppSettingsStore(context)
     val serverAiConnectionManager = ServerAiConnectionManager.create(appContext)
+    private val serverAiHistoryClient = io.aaps.copilot.data.repository.ServerAiHistoryClient(serverAiConnectionManager)
 
     val db: CopilotDatabase = Room.databaseBuilder(
         context,
@@ -317,6 +319,20 @@ class AppContainer(context: Context) {
             1, 2, 3, 4, 5, 6, 7, 8
         )
         .build()
+
+    private val serverAiRoomHistorySync by lazy {
+        io.aaps.copilot.data.repository.ServerAiRoomHistorySync(
+            io.aaps.copilot.data.repository.RoomAiHistorySource(db),
+            io.aaps.copilot.data.repository.RoomAiExportIndex(
+                io.aaps.copilot.data.repository.RoomAiExportDatabase.create(appContext)),
+            io.aaps.copilot.security.EncryptedServerAiHistoryPersistence(appContext,
+                io.aaps.copilot.security.ServerAiHistoryStorageSlot.ROOM_EXPORT),
+            serverAiConnectionManager::historyDeviceBinding,
+            serverAiConnectionManager::currentServerTimeMs,
+            { serverAiHistoryClient.retryPending(); Unit },
+            { records, device -> serverAiHistoryClient.uploadRecords(records, expectedDeviceBinding = device); Unit }
+        )
+    }
 
     val apiFactory = ApiFactory { LocalNightscoutTls.loadClientIdentity(appContext) }
     internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
@@ -1503,7 +1519,47 @@ class AppContainer(context: Context) {
         glucoseCalibrationRepository = glucoseCalibrationRepository
     )
 
+    private val historyUploadMutex = kotlinx.coroutines.sync.Mutex()
+    internal val serverAiConnectionInitialization = appScope.async { serverAiConnectionManager.load() }
+
+    internal suspend fun synchronizeServerAiHistory(): io.aaps.copilot.data.repository.RoomAiExportStatus {
+        historyUploadMutex.lock()
+        try {
+            val coverage = serverAiRoomHistorySync.sync(maxPages = 64)
+            val now = System.currentTimeMillis()
+            val rows = db.telemetryDao().latestBySourceAndKeyBetweenForKeys(
+                now - 7 * 24 * 60 * 60_000L, now,
+                io.aaps.copilot.data.repository.AiInsulinContext.KEYS)
+            val context = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(
+                settingsStore.settings.first().insulinProfileId, rows, now)
+            serverAiHistoryClient.syncChatContext(
+                "context_kind=OBSERVED_INSULIN_SETTINGS\ncontext_generated_at_ms=$now\n" +
+                    "snapshot_is_complete_history=false\n" + context.summary() +
+                    "\nmeal_timing_history_status=UNAVAILABLE\n" + coverage.contextSummary(),
+                emptyList())
+            return coverage
+        } finally {
+            historyUploadMutex.unlock()
+        }
+    }
+
     init {
+        appScope.launch {
+            // Restore access before the initial empty UI state can cancel durable work.
+            serverAiConnectionInitialization.await()
+            combine(serverAiConnectionManager.state, settingsStore.settings) { connection, settings ->
+                settings.aiHistoryUpload.copy(enabled = settings.aiHistoryUpload.enabled && connection.hasStoredSession) to
+                    (connection.hasStoredSession && !PowerSaveController.isActive(settings))
+            }.distinctUntilChanged().collect { (configuration, manualAllowed) ->
+                try {
+                    io.aaps.copilot.scheduler.ServerAiHistoryUploadSchedule.apply(appContext, configuration, manualAllowed)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    android.util.Log.w("ServerAiHistory", "History schedule unavailable")
+                }
+            }
+        }
         clinicalReportRepository.initialize()
         telegramDeliveryController.start(appScope)
 

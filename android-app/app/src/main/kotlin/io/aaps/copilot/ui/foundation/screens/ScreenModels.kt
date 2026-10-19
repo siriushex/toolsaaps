@@ -1591,6 +1591,7 @@ data class SettingsUiState(
     val baseTargetAutoReason: String? = null,
     val nightscoutUrl: String,
     val aiApiUrl: String,
+    val aiHistoryUpload: io.aaps.copilot.config.AiHistoryUploadSettings = io.aaps.copilot.config.AiHistoryUploadSettings(),
     val aiCredential: AiCredentialUiState = AiCredentialUiState(),
     val energyProfile: EnergyProfileSettingsUiState = EnergyProfileSettingsUiState(),
     val mealPortions: io.aaps.copilot.domain.nutrition.MealPortionSettings =
