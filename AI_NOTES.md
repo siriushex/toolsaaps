@@ -1,3 +1,32 @@
+# Local V3 Entries And Stock SDK - 2026-10-19
+
+- Connect authenticated status/lastModified/entries to the persistent wire store.
+  Exact SGV/MBG validation, stable producer/time/type identity, partial PATCH,
+  immutable acquisition fields, read-only/tombstone checks and bounded queries.
+  Preserve asymmetric RC1 response wrappers and weak modification ETags.
+- Initial real-TLS regression failed with expected201/actual501, then passed.
+  Focused API/store/auth checks passed. Eleven new API cases cover malformed
+  JSON/metadata/queries, replay, concurrency, time ties, late edits and bounds.
+- Compile the exact pristine official RC1 SDK at d5e7f5bd with an external driver;
+  no tracked AAPS files changed. SDK uses its actual auth and HTTP stack against
+  Copilot TLS/Room: create/retry/read/history/patch/delete all passed (one test,
+  zero skips). Temporary synthetic CA trust retains normal hostname validation.
+- Driver scaffolding first hit a buildSrc project lookup and nullable-Boolean
+  compiler error; corrected before the successful interoperability run. These
+  were harness defects, not AAPS production failures. No medical payloads used.
+- CI now prepares the pinned SDK with Java21 and requires its interoperability
+  test in the Java17 Android suite. Missing fixture cannot silently skip in CI.
+- Full Android test/lint/build passed in11m37s:6386 discovered,6380 passed,six
+  optional private-data skips,zero failures/errors,561 suites. The stock SDK
+  exchange ran without a skip. Lint has zero errors,378 existing warnings/eight
+  hints,none in the new adapter. Debug APK assembled, not installed/published.
+  Final SDK preparation script also passed. Exact-head CI is the next gate.
+  See docs/LOCAL_NS_V3_ENTRIES.md for commands/limits.
+- Wire records do not enter clinical glucose/therapy tables or trigger prediction.
+  Empty permissions and501 for other domains intentionally prevent RC1 whole-app
+  readiness. No storage events, signed Client Control, phone/server deployment,
+  therapy command or claim of Android on-device TLS trust. Room stays36.
+
 # Local V3 Document Persistence - 2026-10-19
 
 - Continue the Copilot-first AAPS4 adaptation without modifying AAPS. Add Room

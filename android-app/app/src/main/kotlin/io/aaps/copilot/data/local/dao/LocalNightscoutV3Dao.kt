@@ -52,6 +52,16 @@ interface LocalNightscoutV3Dao {
         WHERE collection = :collection AND deleted = 0 AND eventAtMs > :after)""")
     suspend fun hasAfterTime(collection: String, after: Long): Boolean
 
+    @Query("""SELECT eventAtMs, modifiedRevision, payloadBytes FROM local_ns_v3_documents
+        WHERE collection = :collection AND deleted = 0 AND eventAtMs IS NOT NULL
+        ORDER BY eventAtMs DESC, identifier DESC LIMIT :limit""")
+    suspend fun latestPositions(collection: String, limit: Int): List<LocalV3DocumentPosition>
+
+    @Query("""SELECT * FROM local_ns_v3_documents
+        WHERE collection = :collection AND deleted = 0 AND eventAtMs IS NOT NULL
+        ORDER BY eventAtMs DESC, identifier DESC LIMIT :limit""")
+    suspend fun latest(collection: String, limit: Int): List<LocalNightscoutV3DocumentEntity>
+
     @Upsert suspend fun put(document: LocalNightscoutV3DocumentEntity)
     @Upsert suspend fun putClock(clock: LocalNightscoutV3ClockEntity)
 }

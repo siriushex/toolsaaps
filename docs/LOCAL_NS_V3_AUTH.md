@@ -26,8 +26,8 @@ authorization remain unchanged.
 - Every v3 path requires a bearer. Do not accept v1 api-secret, query tokens,
   refresh credentials or anonymous requests. Supplied Date must be epoch
   milliseconds within five minutes, matching the SDK's clock-skew error contract.
-- Until collections exist, authenticated v3 requests explicitly return 501,
-  `v3_collections_not_implemented`. No empty results or fake synchronization.
+- Status/entries now use the typed adapter in LOCAL_NS_V3_ENTRIES.md. Remaining
+  collections return501 with empty permissions, never fake synchronization.
 - Credential responses/errors are no-store. Credential-bearing refresh paths,
   request headers and response tokens must not enter access/audit logs.
 

@@ -166,8 +166,11 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         }
         val headers = mapOf("Authorization" to "Bearer $token", "Date" to System.currentTimeMillis().toString())
         get(peer, port, "/api/v3/status", headers = headers).use {
-            assertThat(it.code).isEqualTo(501)
-            assertThat(it.body!!.string()).contains("v3_collections_not_implemented")
+            assertThat(it.code).isEqualTo(200)
+            val status = JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonObject
+            assertThat(status["apiVersion"].asString).isEqualTo("3.0.0")
+            assertThat(status["apiPermissions"].asJsonObject["entries"].asString).isEqualTo("crud")
+            assertThat(status["apiPermissions"].asJsonObject["settings"].asString).isEmpty()
         }
         get(peer, port, "/api/v3/status", headers = headers + ("Date" to "1")).use {
             assertThat(it.code).isEqualTo(401)
@@ -186,6 +189,115 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         server?.stop()
         assertThat(server?.update(true, port)).isEqualTo(port)
         assertThat(getCode(peer, port, "/api/v3/status", headers = headers)).isEqualTo(401)
+    }
+
+    @Test
+    fun v3EntriesRoundTripKeepsRevisionAndNeverBecomesTherapyEvidence() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        val invalidations = AtomicInteger()
+        server = newServer(runtime, onClinicalInputPersisted = { invalidations.incrementAndGet() })
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val token = get(peer, port, "/api/v2/authorization/request/$localAccessToken").use {
+            JsonParser.parseString(it.body!!.string()).asJsonObject["token"].asString
+        }
+        fun call(method: String, path: String, body: String? = null) = peer.newCall(
+            Request.Builder().url("https://127.0.0.1:$port/api/v3/$path")
+                .header("Authorization", "Bearer $token")
+                .method(method, body?.toRequestBody("application/json".toMediaType())).build()
+        ).execute()
+        val payload = """{"type":"sgv","date":1800000000000,"sgv":110.0,"device":"test-sensor","units":"mg/dl","utcOffset":0,"isValid":true,"isReadOnly":false}"""
+        val created = call("POST", "entries", payload).use {
+            assertThat(it.code).isEqualTo(201)
+            assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+            JsonParser.parseString(it.body!!.string()).asJsonObject
+        }
+        val id = created["identifier"].asString
+        val revision = created["lastModified"].asLong
+        call("POST", "entries", payload).use {
+            assertThat(it.code).isEqualTo(200)
+            val retry = JsonParser.parseString(it.body!!.string()).asJsonObject
+            assertThat(retry["identifier"].asString).isEqualTo(id)
+            assertThat(retry["lastModified"].asLong).isEqualTo(revision)
+            assertThat(retry["isDeduplication"].asBoolean).isTrue()
+        }
+        call("GET", "entries?sort=date&date%24gt=0&limit=1").use {
+            assertThat(it.code).isEqualTo(200)
+            assertThat(JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonArray.single()
+                .asJsonObject["sgv"].asDouble).isEqualTo(110.0)
+        }
+        call("PATCH", "entries/$id", """{"identifier":"$id","sgv":115.0}""").use {
+            assertThat(it.code).isEqualTo(200)
+            assertThat(JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonObject
+                ["identifier"].asString).isEqualTo(id)
+        }
+        call("DELETE", "entries/$id").use { assertThat(it.code).isEqualTo(200) }
+        call("GET", "entries/history/$revision?limit=1").use {
+            assertThat(it.code).isEqualTo(200)
+            val row = JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonArray.single().asJsonObject
+            assertThat(row["isValid"].asBoolean).isFalse()
+            assertThat(row["date"].asLong).isEqualTo(1800000000000L)
+            assertThat(it.header("ETag")).isEqualTo("W/\"${row["srvModified"].asLong}\"")
+        }
+        call("GET", "entries?sort=date&date%24gt=0&limit=1&limit=2").use {
+            assertThat(it.code).isEqualTo(400)
+        }
+        call("POST", "entries", payload).use { assertThat(it.code).isEqualTo(409) }
+        assertThat(db.glucoseDao().since(0)).isEmpty()
+        assertThat(db.therapyDao().since(0)).isEmpty()
+        assertThat(invalidations.get()).isEqualTo(0)
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+    }
+
+    @Test
+    fun pristineRc1SdkUsesRealTlsAuthenticationAndEntryExchange() = runBlocking {
+        val classpathFile = System.getenv("AAPS_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") {
+            check(classpathFile?.isFile == true && !javaHome.isNullOrBlank()) { "Missing required stock SDK fixture" }
+        }
+        Assume.assumeTrue("Run tools/aaps4_compat/prepare.sh for stock SDK interoperability",
+            classpathFile?.isFile == true && !javaHome.isNullOrBlank())
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val trustFile = File.createTempFile("entry-trust-", ".p12")
+        val outputFile = File.createTempFile("entry-client-", ".log")
+        var process: Process? = null
+        try {
+            val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                setCertificateEntry("test-ca", caCertificate)
+            }
+            trustFile.outputStream().use { trust.store(it, "test-trust".toCharArray()) }
+            process = ProcessBuilder("$javaHome/bin/java",
+                "-Djavax.net.ssl.trustStore=${trustFile.absolutePath}",
+                "-Djavax.net.ssl.trustStorePassword=test-trust",
+                "-cp", classpathFile!!.readText(), "integration.entries.StockEntriesInteropKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    redirectErrorStream(true)
+                    redirectOutput(outputFile)
+                }.start()
+            assertThat(process.waitFor(90, TimeUnit.SECONDS)).isTrue()
+            assertThat(outputFile.length()).isLessThan(8192)
+            val result = outputFile.readLines().singleOrNull { it.startsWith("STOCK_RC1_ENTRIES_") }
+            assertThat(result).isEqualTo("STOCK_RC1_ENTRIES_OK")
+            assertThat(process.exitValue()).isEqualTo(0)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(2)
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+            assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        } finally {
+            process?.let {
+                if (it.isAlive) { it.destroyForcibly(); check(it.waitFor(10, TimeUnit.SECONDS)) }
+            }
+            trustFile.delete()
+            outputFile.delete()
+        }
     }
 
     @Test

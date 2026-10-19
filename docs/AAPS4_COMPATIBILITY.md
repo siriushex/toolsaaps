@@ -87,14 +87,15 @@ commit d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0. It is a prerelease.
 Persistent document storage is now separate from the route adapter; see
 LOCAL_NS_V3_STORE.md. Room 36 contains revisioned latest-state documents, not
 backfilled clinical records or immutable snapshots of every intermediate update.
-No clinical ingestion, collection route or storage notification is enabled by
-this persistence stage.
+The typed entries adapter now exposes wire storage over authenticated TLS; see
+LOCAL_NS_V3_ENTRIES.md. Other collections still fail501. Clinical ingestion,
+storage notifications and native control remain unconnected.
 
 Legacy capability checks and the bounded refresh/bearer exchange do not establish
 complete stock-AAPS compatibility. The auth-only stage is specified separately in
-LOCAL_NS_V3_AUTH.md. Authenticated collection requests explicitly return 501 until
-their revisioned data contract is implemented. An APK build or HTTP success is
-not device acceptance.
+LOCAL_NS_V3_AUTH.md. RC1 requires permissions across all collections for its
+whole-app uploader; partial entry permissions intentionally do not claim readiness.
+An APK build or an SDK-level TLS test is not device acceptance.
 For this stage AAPS source, phone settings and therapy remain unchanged. Existing
 custom 3.x exchange must keep working. Baseline RC1 compilation is a separate
 check from Copilot's regression suite and from the eventual on-device migration.

@@ -46,7 +46,7 @@ internal data class LocalV3StoreLimits(
     }
 }
 
-/** Inert wire storage: no HTTP, clinical projection, command dispatch or background owner. */
+/** Wire storage only: no clinical projection, command dispatch or background owner. */
 internal class LocalNightscoutV3Store(
     private val db: CopilotDatabase,
     private val now: () -> Long = System::currentTimeMillis,
@@ -132,6 +132,15 @@ internal class LocalNightscoutV3Store(
             val cursor = positions.lastOrNull()?.eventAtMs ?: after
             val rows = dao.chronological(collection.wireName, after, cursor, positions.size)
             LocalV3Page(rows, cursor, head, dao.hasAfterTime(collection.wireName, cursor))
+        }
+    }
+
+    suspend fun latest(collection: LocalV3Collection, limit: Int): LocalV3Page {
+        pageArguments(0, limit)
+        return db.withTransaction {
+            val candidates = dao.latestPositions(collection.wireName, limit + 1)
+            checkPageBytes(candidates.take(limit))
+            LocalV3Page(dao.latest(collection.wireName, limit), 0, dao.head(collection.wireName), candidates.size > limit)
         }
     }
 

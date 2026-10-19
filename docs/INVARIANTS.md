@@ -25,6 +25,12 @@
   chronological page must finish its equal-time boundary or refuse explicitly.
 - Capacity failure cannot discard another identity/tombstone, issue a successful
   empty page or change clinical/command state. No automatic store purge is enabled.
+- V3 entry HTTP receipts prove wire persistence only, not clinical ingestion or
+  therapy. Unimplemented collections must have empty permissions and fail501.
+- Entry PATCH retains omitted acquisition fields; server metadata cannot become
+  payload. Stable producer/type/time identity prevents POST replay duplicates;
+  conflicting content is refused, not merged by value.
+- Stock SDK TLS tests do not prove Android CA trust or whole-app readiness.
 
 ## Provider Token Usage
 

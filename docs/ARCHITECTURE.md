@@ -11,13 +11,14 @@ AAPS4_COMPATIBILITY.md for inspected contracts and remaining implementation gate
 Stock RC1's paired Client Control over v3 settings is the candidate for command
 acknowledgements; its signed prepare/commit protocol must be verified rather than
 replaced with new AAPS broadcast handlers. The v3 refresh/bearer boundary is now
-implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md); authenticated v3
-collection calls still return an explicit 501. No v3 sync, storage subscription,
-Client Control or READY transition follows from issuing a token.
+implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md). Status and entries
+now have a typed wire adapter (LOCAL_NS_V3_ENTRIES.md); other collections still
+return501 with empty permissions. Whole-app sync, storage subscription, Client
+Control and READY remain unconnected.
 
 Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
-tombstones, compare-and-set updates and bounded revision/time paging. It has no
-clinical consumer or HTTP caller yet. The existing strict bounded JSON helper is
+tombstones, compare-and-set updates and bounded revision/time paging. The entries
+HTTP caller is connected, but no clinical consumer exists. The strict JSON helper is
 reused without the AI archive's retention or identity semantics. No old clinical
 rows are backfilled as wire evidence. See LOCAL_NS_V3_STORE.md for cursor, capacity,
 equal-time page boundaries and remaining adapter/retention admission.

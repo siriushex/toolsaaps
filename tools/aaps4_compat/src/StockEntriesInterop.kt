@@ -1,0 +1,68 @@
+package integration.entries
+
+import app.aaps.core.nssdk.NSAndroidClientImpl
+import app.aaps.core.nssdk.localmodel.entry.Direction
+import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
+import app.aaps.core.nssdk.localmodel.entry.NsUnits
+import kotlinx.coroutines.runBlocking
+import java.net.URI
+import kotlin.system.exitProcess
+
+/** Uses the unchanged RC1 SDK, including its real auth interceptor and HTTP engine. */
+fun main() {
+    var stage = "setup"
+    try {
+        runBlocking {
+            val url = System.getenv("ENTRY_TEST_URL")
+            val uri = URI(url)
+            check(uri.scheme == "https" && uri.host == "127.0.0.1" && uri.port > 0)
+            val client = NSAndroidClientImpl(url, System.getenv("ENTRY_TEST_ACCESS"), false, {})
+            try {
+                stage = "status"
+                check(client.getStatus().apiVersion == "3.0.0")
+                check(client.getLastModified().collections.entries == 0L)
+                val at = 1_800_000_000_000L
+                fun sample(time: Long = at) = NSSgvV3(time, "sdk-test-sensor", null,
+                    utcOffset = 0, isValid = true, sgv = 120.0, units = NsUnits.MG_DL,
+                    direction = Direction.FLAT, noise = null, filtered = null, unfiltered = null)
+                stage = "create"
+                val created = client.createSgv(sample())
+                check(created.response == 201 && !created.identifier.isNullOrEmpty())
+                val retry = client.createSgv(sample())
+                check(retry.response == 200 && retry.isDeduplication == true && retry.identifier == created.identifier)
+                check(retry.lastModified == created.lastModified)
+                check(client.createSgv(sample(at + 60_000)).response == 201)
+                stage = "chronological"
+                val first = client.getSgvsNewerThan(0, 1)
+                check(first.values!!.single().date == at)
+                check(client.getSgvsNewerThan(at, 1).values!!.single().date == at + 60_000)
+                check(client.getSgvs().values!!.map { it.date } == listOf(at + 60_000, at))
+                stage = "history"
+                val page1 = client.getSgvsModifiedSince(0, 1)
+                check(page1.lastServerModified == created.lastModified)
+                val page2 = client.getSgvsModifiedSince(page1.lastServerModified!!, 1)
+                check(page2.values!!.single().date == at + 60_000)
+                val beforeEdit = page2.lastServerModified!!
+                stage = "patch"
+                val edit = first.values!!.single().copy(sgv = 125.0)
+                check(client.updateSvg(edit).response == 200)
+                val updated = client.getSgvsModifiedSince(beforeEdit, 1)
+                check(updated.values!!.single().date == at && updated.values!!.single().sgv == 125.0)
+                stage = "delete"
+                check(client.updateSvg(updated.values!!.single().copy(isValid = false)).response == 200)
+                val deleted = client.getSgvsModifiedSince(updated.lastServerModified!!, 1)
+                check(!deleted.values!!.single().isValid && deleted.values!!.single().date == at)
+                check(client.getLastModified().collections.entries == deleted.lastServerModified)
+                check(client.getSgvsNewerThan(0, 10).values!!.single().date == at + 60_000)
+                check(client.getSgvsModifiedSince(deleted.lastServerModified!!, 10).values!!.isEmpty())
+            } finally {
+                client.close()
+            }
+        }
+        println("STOCK_RC1_ENTRIES_OK")
+    } catch (failure: Throwable) {
+        // No response payload, URL, token or stack trace may enter a CI log.
+        println("STOCK_RC1_ENTRIES_FAILED:$stage:${failure.javaClass.simpleName}")
+        exitProcess(1)
+    }
+}

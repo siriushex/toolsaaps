@@ -1,9 +1,22 @@
 # SECURITY REVIEW
 
+## Local V3 Entries (2026-10-19)
+
+- Authenticated loopback-only status/entries; other permissions are empty and
+  collections fail501. No clinical writer, action dispatch or READY transition.
+- Raw bounded body bytes retain strict UTF-8/duplicate/metadata validation.
+  Unknown or repeated filters refuse; no silent fallback to unfiltered data.
+- Stable producer/type/acquisition identity, conflicts, immutable acquisition
+  fields, CAS and tombstones prevent retry duplication or old data resurrection.
+- No payload/token logging. SDK fixture uses temporary public-CA trust, not a
+  hostname/certificate bypass; its access secret exists only in child environment.
+- Full app sync, Android trust, clinical source arbitration and command acceptance
+  remain gates. Details and reproducible fixture: LOCAL_NS_V3_ENTRIES.md.
+
 ## Local V3 Persistence (2026-10-19)
 
-- New store is inert: no public endpoint, authenticated permission, subscription,
-  clinical projection or therapy side effect follows from its existence.
+- Store membership alone grants no permission, subscription, clinical projection
+  or therapy side effect. The later entries caller is separately bounded above.
 - Reuses strict bounded JSON/UTF-8 parsing with duplicate/depth checks, separately
   validates identity/time, rejects server-owned metadata in payloads, and preserves
   source identity. Input/entity string representations redact payloads.
@@ -28,8 +41,8 @@
 - Refresh URLs contain credentials by protocol. They are excluded from access
   auditing; no header, supplied token or rejected payload is logged/echoed.
   All responses are no-store, with fixed errors and bounded credential parsing.
-- V3 authentication grants no clinical action or ready state in this stage.
-  All collection requests still fail explicitly; no success-shaped empty data.
+- V3 authentication grants no clinical action or ready state. Unsupported
+  collections still fail explicitly; no success-shaped empty data.
   See LOCAL_NS_V3_AUTH.md for tests and remaining stock-client/TLS gates.
 
 ## AAPS 4.0 Legacy Capability Gate (2026-10-18)

@@ -2,11 +2,11 @@
 
 ## Boundary
 
-This stage prepares persistence for the stock AAPS 4.0 RC1 protocol inside
-Copilot. It does not expose collection HTTP routes, authenticate a new client,
-import clinical evidence, send a treatment, or announce storage notifications.
-The existing authenticated v3 routes still return 501. Collection membership in
-the store is not a declaration of API permissions or clinical support.
+This store provides persistence for the stock AAPS 4.0 RC1 protocol inside
+Copilot. The entries HTTP caller is described in LOCAL_NS_V3_ENTRIES.md. It does
+not import clinical evidence, send treatments or announce storage notifications.
+Other collections remain501. Collection membership alone is not a declaration
+of API permissions or clinical support.
 
 ## Storage Contract
 
@@ -17,7 +17,7 @@ store shares the existing private database, but has no clinical consumers.
 
 Documents have an explicit collection, stable identifier, source identity,
 optional event time, validated JSON body, created/modified revision, read-only
-flag and deletion flag. The future protocol adapter must resolve stable source
+flag and deletion flag. Each protocol adapter must resolve stable source
 identity and validate collection-specific schemas before calling the store.
 The store cannot deduplicate two unrelated identifiers by guessing that similar
 food or insulin records describe the same event.
@@ -71,17 +71,18 @@ full-resync protocol; never discard tombstones behind an old client cursor.
 
 ## Remaining Admission
 
-Local verification: 24 new native-SQLite/Room cases pass, covering migration,
+Persistence-stage verification: 24 new native-SQLite/Room cases passed, covering migration,
 restart, rollback, cancellation, concurrent writers, deduplication, CAS, deleted
 and read-only identities, time ties, cursor boundaries, parser and capacity
 limits. Focused store/migration run: 73 passed, one optional phone-copy skip.
 Full Android run: 6,367 passed, six optional skips, no failures/errors; lint has
-no errors and assembleDebug passes. Existing TLS tests still verify v3 is not
-enabled by authentication. These are synthetic local results, not device tests.
+no errors and assembleDebug passed. Authentication cannot imply clinical READY.
+These are synthetic local results, not device tests.
 
-Typed collection validation, exact HTTP filters/envelopes/weak ETags, source
-deduplication, clinical projection, storage subscriptions, native paired Client
-Control, TLS trust and stock-client/device acceptance remain separate stages.
+The entries adapter now implements typed validation, HTTP filters/envelopes/weak
+ETags and source deduplication; see LOCAL_NS_V3_ENTRIES.md. Other collections,
+clinical projection, storage subscriptions, native paired Client Control,
+Android TLS trust and whole-app/device acceptance remain separate stages.
 Do not enable an unfinished route on the strength of local persistence tests.
 Rollback to an older APK after schema 36 is not supported without an explicit
 compatible migration; never use destructive Room fallback to bypass this.

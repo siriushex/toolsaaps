@@ -490,6 +490,7 @@ class LocalNightscoutServer internal constructor(
         private val hotPathSocketAuthorizations = AtomicLong(0L)
         private val invalidationPolicy = LocalNightscoutInvalidationPolicy()
         private val v3Authentication = LocalNightscoutV3Authentication(authenticator)
+        private val v3Entries = LocalNightscoutV3EntriesApi(db)
 
         fun stopAndClear() {
             v3Authentication.close()
@@ -600,9 +601,28 @@ class LocalNightscoutServer internal constructor(
         ) {
             LocalNightscoutBearerAccess.UNAUTHORIZED -> jsonUnauthorized("invalid_bearer_token")
             LocalNightscoutBearerAccess.CLOCK_SKEW -> jsonUnauthorized("Date header out of tolerance")
-            LocalNightscoutBearerAccess.ALLOW ->
-                newFixedLengthResponse(Response.Status.NOT_IMPLEMENTED, CONTENT_TYPE_JSON,
-                    gson.toJson(mapOf("message" to "v3_collections_not_implemented"))).withStandardApiHeaders()
+            LocalNightscoutBearerAccess.ALLOW -> {
+                val result = runBlocking {
+                    v3Entries.handle(session.method.name, session.uri, session.parameters) { readV3Body(session) }
+                }
+                val status = object : Response.IStatus {
+                    override fun getRequestStatus() = result.status
+                    override fun getDescription() = "${result.status} ${Response.Status.lookup(result.status)?.name ?: "Rejected"}"
+                }
+                newFixedLengthResponse(status, CONTENT_TYPE_JSON, result.body).withStandardApiHeaders().apply {
+                    result.revision?.let { addHeader("ETag", "W/\"$it\"") }
+                }
+            }
+        }
+
+        private fun readV3Body(session: IHTTPSession): ByteArray {
+            val contentType = session.headers["content-type"]?.lowercase(java.util.Locale.ROOT)?.replace(" ", "")
+            require(contentType in setOf("application/json", "application/json;charset=utf-8"))
+            require(LocalNightscoutRequestBodyPolicy.evaluate(session.headers) == LocalNightscoutRequestBodyDecision.ALLOWED)
+            val size = session.headers["content-length"]!!.toLong()
+            require(size in 1..io.aaps.copilot.data.repository.LocalNightscoutV3Store.MAX_PAYLOAD_BYTES)
+            // Preserve bytes for strict UTF-8 validation; NanoHTTPD parseBody would replace malformed input.
+            return ByteArray(size.toInt()).also { java.io.DataInputStream(session.inputStream).readFully(it) }
         }
 
         private fun maybeAuditExternalRequest(session: IHTTPSession, path: String) {

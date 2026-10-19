@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Stock SDK Interoperability
+
+Verify now pins a pristine AAPS RC1 checkout and compiles its JVM SDK with an
+external test driver using Java21, then runs Copilot tests/lint/build on Java17.
+The driver uses the real local TLS listener and synthetic Room data. CI fails
+if the required SDK fixture is absent. No APK/signing files or credentials from
+the user's device enter this check. See LOCAL_NS_V3_ENTRIES.md for local commands.
+Entry routes remain a partial wire integration, not whole-app or device admission.
+
 ## Local V3 Store Migration
 
 Room 35->36 creates only `local_ns_v3_documents` and `local_ns_v3_clock` plus their
@@ -8,7 +17,7 @@ The production builder already registers the complete migration chain; no new
 destructive fallback is added. Tests cover a synthetic 35 database and existing
 migration paths; no real phone database is opened or copied for this stage.
 
-This source/build stage does not authorize a device update or activate v3 routes.
+The persistence stage alone does not authorize a device update or v3 routes.
 Before a later device rollout, account for the irreversible forward schema step:
 an APK expecting 35 cannot open a migrated 36 database without an explicit
 compatible migration. Preserve medical history; never uninstall, reset or use
@@ -17,8 +26,9 @@ Runtime bounds and remaining retention/admission gates: LOCAL_NS_V3_STORE.md.
 
 ## Local AAPS4 Authentication Stage
 
-This is Copilot source only. The local TLS listener now accepts RC1-style token
-refresh, but v3 collections explicitly return 501 and cannot set runtime READY.
+This is Copilot source only. The local TLS listener accepts RC1-style token
+refresh; entries now have a typed adapter, but other collections explicitly
+return501 and cannot set runtime READY.
 Do not migrate AAPS settings, enroll its client or publish a compatible-device
 claim yet. No new remote service, database schema, secret file or dependency is
 introduced. Restart/rollback discards ephemeral bearers; it must preserve the

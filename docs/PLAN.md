@@ -12,7 +12,11 @@
 - [x] Inspect exact-head CI for auth aafcfdce: PR/push Verify both succeeded.
 - [x] Implement an isolated persistent v3 document/revision store and Room 35->36.
 - [x] Complete store/migration checks:6367 passed,six optional skips; lint/build pass.
-- [ ] Publish the verified store stage and inspect its exact-head CI.
+- [x] Publish store f387fb77; PR/push Verify39165726990/39165723595 succeeded.
+- [x] Connect typed entries/status/lastModified to authenticated wire storage.
+- [x] Check entry replay, partial updates, tombstones, filters and bounded paging.
+- [x] Verify unchanged RC1 SDK over loopback TLS; full6380 passed/six skips,lint/build.
+- [ ] Publish entries stage and verify exact-head CI, including the stock SDK test.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.
