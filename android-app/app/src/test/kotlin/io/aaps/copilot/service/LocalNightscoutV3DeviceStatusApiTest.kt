@@ -96,8 +96,8 @@ class LocalNightscoutV3DeviceStatusApiTest {
         assertEquals(1, rows(call()).size)
         val permissions = body(call(path = "status"))["result"]!!.jsonObject["apiPermissions"]!!.jsonObject
         assertEquals("cr", permissions["devicestatus"]!!.jsonPrimitive.content)
-        assertEquals("", permissions["settings"]!!.jsonPrimitive.content)
-        assertEquals(501, call("POST", "settings", "{}").status)
+        assertEquals("crud", permissions["settings"]!!.jsonPrimitive.content)
+        assertEquals(400, call("POST", "settings", "{}").status)
     }
 
     @Test fun malformedIdentityTimeTypesAndServerFieldsNeverWrite() = runBlocking {

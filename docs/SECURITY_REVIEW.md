@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Native Settings And Target Codec (2026-10-19)
+
+- Existing authenticated TLS and bounded strict JSON only. Named upserts retain
+  immutable common fields and metadata; internal controller sources cannot be
+  overwritten by HTTP. Search/history never silently omit pending controls.
+- Raw pairing QR secrets are refused. A one-use offer cleanup clears its wrapped
+  payload but retains non-secret deletion metadata/counters, not physical erasure.
+- Target-only HMAC codec verifies exact canonical bytes, counter/client, ACK phase
+  and timestamp. Preview/HTTP/executing is not application; a commit has no dose,
+  advisor, profile or running-mode request. Keys are copied/erased and not logged.
+- Actual SDK fixture checks both crypto directions and typed messages without
+  a master action or clinical projection. Pairing, durable counters/ownership,
+  subscription, live policy admission and Android trust remain separate gates.
+
 ## Local V3 Device Status (2026-10-19)
 
 - Existing authenticated loopback listener only; no new trust policy or secret.
@@ -16,7 +30,7 @@
 
 ## Local V3 Entries (2026-10-19)
 
-- Authenticated loopback-only status/entries and device status above; other permissions are empty and
+- Authenticated loopback-only status/entries,device status and settings above; other permissions are empty and
   collections fail501. No clinical writer, action dispatch or READY transition.
 - Raw bounded body bytes retain strict UTF-8/duplicate/metadata validation.
   Unknown or repeated filters refuse; no silent fallback to unfiltered data.

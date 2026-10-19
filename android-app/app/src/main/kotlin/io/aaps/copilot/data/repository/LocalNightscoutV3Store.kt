@@ -98,6 +98,18 @@ internal class LocalNightscoutV3Store(
         return dao.get(collection.wireName, id)
     }
 
+    /** One-use PIN offers must not retain wrapped secrets in a readable deletion record. */
+    suspend fun erasePairingOfferPayload(id: String): LocalV3Write = db.withTransaction {
+        if (!Regex("aaps_clientcontrol_offer_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").matches(id)) {
+            fail(LocalV3StoreError.INVALID)
+        }
+        val previous = dao.get(LocalV3Collection.SETTINGS.wireName, id) ?: fail(LocalV3StoreError.NOT_FOUND)
+        if (previous.source != "local-v3-owner" || previous.readOnly) fail(LocalV3StoreError.READ_ONLY)
+        if (previous.deleted && previous.payloadJson == "{}") return@withTransaction LocalV3Write(previous, false)
+        // Retain only a non-secret tombstone so collection revision and restart replay cannot regress.
+        commit(previous.copy(payloadJson = "{}", payloadBytes = 2, deleted = true), previous)
+    }
+
     suspend fun lastModified(): Map<LocalV3Collection, Long> = db.withTransaction {
         LocalV3Collection.entries.associateWith { dao.head(it.wireName) }
     }

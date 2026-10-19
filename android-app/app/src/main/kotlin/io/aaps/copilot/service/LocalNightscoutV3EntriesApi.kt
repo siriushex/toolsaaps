@@ -27,6 +27,7 @@ internal class LocalNightscoutV3EntriesApi(
     private val store = LocalNightscoutV3Store(db, now)
     private val entries = LocalV3Collection.ENTRIES
     private val deviceStatus = LocalNightscoutV3DeviceStatusApi(db, now)
+    private val settings = LocalNightscoutV3SettingsApi(db, now)
 
     suspend fun handle(method: String, path: String, parameters: Map<String, List<String>>,
                        readBody: () -> ByteArray = { byteArrayOf() }): LocalV3HttpResult = try {
@@ -36,6 +37,8 @@ internal class LocalNightscoutV3EntriesApi(
         }
         require(query.size <= 8 && query.keys.all { it.length <= 64 })
         when {
+            path == "/api/v3/settings" || path.startsWith("/api/v3/settings/") ->
+                settings.handle(method, path, query, readBody)
             path == "/api/v3/devicestatus" || path.startsWith("/api/v3/devicestatus/") ->
                 deviceStatus.handle(method, path, query, readBody)
             path == "/api/v3/status" -> {
@@ -111,6 +114,7 @@ internal class LocalNightscoutV3EntriesApi(
                     put(it.wireName, when (it) {
                         entries -> "crud"
                         LocalV3Collection.DEVICE_STATUS -> "cr"
+                        LocalV3Collection.SETTINGS -> "crud"
                         else -> ""
                     })
                 }

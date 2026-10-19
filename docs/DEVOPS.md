@@ -2,6 +2,12 @@
 
 ## Stock SDK Interoperability
 
+The existing real-SDK fixture now also exercises settings and native target-only
+envelope/ACK codecs. A bounded child/parent handshake verifies native preview
+before commit publication. This is a synthetic wire peer, not the master executor
+or an AAPS device rollout. No clinical rows or READY transition follow. See
+LOCAL_NS_V3_SETTINGS.md and AAPS4_TARGET_PROTOCOL.md; durable/live admission remains.
+
 Verify now pins a pristine AAPS RC1 checkout and compiles its JVM SDK with an
 external test driver using Java21, then runs Copilot tests/lint/build on Java17.
 The driver uses the real local TLS listener and synthetic Room data. CI fails

@@ -170,7 +170,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             val status = JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonObject
             assertThat(status["apiVersion"].asString).isEqualTo("3.0.0")
             assertThat(status["apiPermissions"].asJsonObject["entries"].asString).isEqualTo("crud")
-            assertThat(status["apiPermissions"].asJsonObject["settings"].asString).isEmpty()
+            assertThat(status["apiPermissions"].asJsonObject["settings"].asString).isEqualTo("crud")
         }
         get(peer, port, "/api/v3/status", headers = headers + ("Date" to "1")).use {
             assertThat(it.code).isEqualTo(401)
@@ -267,6 +267,31 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val outputFile = File.createTempFile("entry-client-", ".log")
         var process: Process? = null
         try {
+            val targetKey = ByteArray(32) { it.toByte() }
+            val targetClient = "11111111-2222-4333-8444-555555555555"
+            val targetAt = 1_800_000_000_000L
+            val protocol = AapsV3TargetProtocol(targetKey)
+            val prepare = protocol.prepare(targetClient, 7, targetAt, AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"))
+            val store = io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
+            suspend fun publishTarget(type: String, request: AapsV3TargetRequest) {
+                val doc = kotlinx.serialization.json.buildJsonObject {
+                    put("date", kotlinx.serialization.json.JsonPrimitive(946684800001L))
+                    put("utcOffset", kotlinx.serialization.json.JsonPrimitive(0))
+                    put("app", kotlinx.serialization.json.JsonPrimitive("AAPS"))
+                    put("schemaVersion", kotlinx.serialization.json.JsonPrimitive(1))
+                    put("envelope", request.json)
+                }
+                store.create(io.aaps.copilot.data.repository.LocalV3DocumentInput(
+                    io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
+                    "aaps_clientcontrol_cmd_${type}_$targetClient", "local-v3-target", 946684800001L, doc.toString()))
+            }
+            suspend fun readTargetAck(): kotlinx.serialization.json.JsonObject {
+                val record = store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
+                    "aaps_clientcontrol_ack_$targetClient")!!
+                val doc = kotlinx.serialization.json.Json.parseToJsonElement(record.payloadJson) as kotlinx.serialization.json.JsonObject
+                return doc.getValue("ack") as kotlinx.serialization.json.JsonObject
+            }
+            publishTarget("batch_prepare", prepare)
             val trust = java.security.KeyStore.getInstance("PKCS12").apply {
                 load(null, null)
                 setCertificateEntry("test-ca", caCertificate)
@@ -282,12 +307,28 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                     redirectErrorStream(true)
                     redirectOutput(outputFile)
                 }.start()
+            val running = process
+            kotlinx.coroutines.withTimeout(60_000) {
+                while ("STOCK_RC1_TARGET_PREVIEW_READY" !in outputFile.readLines()) {
+                    check(running.isAlive) { "Stock SDK exited before target preview" }
+                    kotlinx.coroutines.delay(25)
+                }
+            }
+            val previewAck = readTargetAck()
+            assertThat(protocol.classify(prepare, previewAck, targetAt + 2)).isEqualTo(AapsV3TargetAck.PREVIEW)
+            val commit = protocol.commit(prepare, previewAck, 8, targetAt + 2)
+            publishTarget("bolus_commit", commit)
+            running.outputStream.write("COMMIT_READY\n".toByteArray())
+            running.outputStream.flush()
             assertThat(process.waitFor(90, TimeUnit.SECONDS)).isTrue()
             assertThat(outputFile.length()).isLessThan(8192)
             val result = outputFile.readLines().singleOrNull { it.startsWith("STOCK_RC1_ENTRIES_") }
             assertThat(result).isEqualTo("STOCK_RC1_ENTRIES_OK")
             assertThat(process.exitValue()).isEqualTo(0)
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(5)
+            assertThat(protocol.classify(commit, readTargetAck(), targetAt + 4)).isEqualTo(AapsV3TargetAck.APPLIED)
+            protocol.close()
+            targetKey.fill(0)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(11)
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

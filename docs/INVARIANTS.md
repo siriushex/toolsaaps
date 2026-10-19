@@ -2,6 +2,14 @@
 
 ## AAPS Treatment Transport Capability
 
+- Settings HTTP success is wire persistence, not target application. Only the
+  target codec's correlated signed Done/Ok COMMIT is an application receipt;
+  signed preparation remains a preview. Durable dispatch admission is separate.
+- The one-use pairing-offer cleanup may erase its wrapped payload while keeping
+  a non-secret tombstone; no other wire payload is purged or clock regressed.
+- Native target-only commit cannot carry advisor correction, bolus/carbs,
+  profile or running-mode actions. Existing clinical/armed ownership gates remain.
+
 - Never infer treatment support from an installed AAPS package or an
   `NS_EMULATOR` glucose receiver alone, regardless of version name.
 - Legacy fallback must have an explicit destination. Generic glucose transport

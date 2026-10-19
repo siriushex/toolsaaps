@@ -1,3 +1,24 @@
+# Native Settings And Target Wire Codec - 2026-10-19
+
+- Add stock settings CRUD/upsert/history with strict common-field/metadata rules,
+  CAS/idempotency and complete-or-error search. Preserve internal source ownership.
+  One-use permanent offer cleanup scrubs wrapped payload, retaining only a
+  non-secret tombstone. Other hard-deletes unsupported; no schema or therapy change.
+- Add JCA target-only native signed prepare/commit codec. Only correlated signed
+  Done/Ok commit is APPLIED; preparation/executing/HTTP cannot be. No dose/advisor/
+  profile/running-mode payloads. Exact fields/types/clock/counter checks,8s expiry,
+  redacted request text and copied/erased key. Persistent/live control is not wired.
+- Initial settings8 RED501 failures retained; first codec assessment exposed two
+  malformed-type exceptions, now normalized to unconfirmed. Focused41 passed33s.
+- Extend unchanged RC1 SDK driver through settings and real native DTO/crypto.
+  It uploads a signed preview; parent verifies it before separately publishing
+  zero-dose target commit. SDK signs final fixture ACK. Focused115 passed/one prior
+  private-input skip,zero failures/errors,in34s; real SDK ran,clinical tables empty,
+  runtime SETUP. This is synthetic wire proof,not master executor/device admission.
+- Full checks/source CI remain next. No AAPS patch,live channel,phone update,
+  enrollment,therapy command or server AI change in this source stage. Remaining
+  gates and contracts: docs/LOCAL_NS_V3_SETTINGS.md,docs/AAPS4_TARGET_PROTOCOL.md.
+
 # External RC1 Packaging Repair - 2026-10-19
 
 - Finish the real RC1 build assessment without editing upstream source. The first

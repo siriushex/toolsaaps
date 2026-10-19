@@ -13,9 +13,12 @@ acknowledgements; its signed prepare/commit protocol must be verified rather tha
 replaced with new AAPS broadcast handlers. The v3 refresh/bearer boundary is now
 implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md). Status and entries
 now have a typed wire adapter (LOCAL_NS_V3_ENTRIES.md). Immutable device-status
-create/read is specified in LOCAL_NS_V3_DEVICE_STATUS.md; other collections still
-return501 with empty permissions. Whole-app sync, storage subscription, Client
-Control and READY remain unconnected.
+create/read is specified in LOCAL_NS_V3_DEVICE_STATUS.md. Settings wire storage
+supports native upsert/ACK/offer lifecycles (LOCAL_NS_V3_SETTINGS.md). The separate
+target-only signed codec verifies prepare/commit ACKs (AAPS4_TARGET_PROTOCOL.md),
+but is not a live dispatcher. Other collections still return501 with empty
+permissions. Whole-app sync, storage subscription, live Client Control and READY
+remain unconnected; stored documents cannot grant clinical authority.
 
 Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
 tombstones, compare-and-set updates and bounded revision/time paging. The entries

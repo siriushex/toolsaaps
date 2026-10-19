@@ -6,6 +6,8 @@ import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
 import app.aaps.core.nssdk.localmodel.entry.NSMbgV3
 import app.aaps.core.nssdk.localmodel.entry.NsUnits
 import app.aaps.core.nssdk.localmodel.devicestatus.NSDeviceStatus
+import app.aaps.core.nssdk.localmodel.clientcontrol.*
+import app.aaps.core.nssdk.utils.ClientControlCrypto
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.net.URI
@@ -93,6 +95,66 @@ fun main() {
                 check(client.createDeviceStatus(status.copy(date = at + 60_000)).response == 201)
                 check(client.getDeviceStatusModifiedSince(statusCreated.lastModified!!).single().date == at + 60_000)
                 check(client.getLastModified().collections.devicestatus > statusCreated.lastModified!!)
+                stage = "settings"
+                fun document(value: String) = buildJsonObject {
+                    put("date", 946684800001L); put("utcOffset", 0); put("app", "AAPS")
+                    put("schemaVersion", 1); put("opaque", value)
+                }
+                val settingsCreated = client.updateSettings("sdk-settings-wire", document("one"))
+                check(settingsCreated.response == 201)
+                check(client.updateSettings("sdk-settings-wire", document("one")).lastModified == settingsCreated.lastModified)
+                check(client.patchSettings("sdk-settings-wire", buildJsonObject { put("opaque", "two") }).response == 200)
+                val setting = client.getSettings("sdk-settings-wire").values!!
+                check(setting["opaque"] == JsonPrimitive("two"))
+                check(client.getSettingsModifiedSince(settingsCreated.lastModified!!, 100).values!!
+                    .any { it["identifier"] == JsonPrimitive("sdk-settings-wire") })
+                check(client.deleteSettings("sdk-settings-wire").response == 200)
+                check(client.getSettings("sdk-settings-wire").code == 404)
+                check(client.updateSettings("sdk-settings-wire", document("three")).response == 410)
+                check(client.createSettings(document("post")).response == 201)
+                val owner = "11111111-2222-4333-8444-555555555555"
+                val offerId = "aaps_clientcontrol_offer_$owner"
+                check(client.updateSettings(offerId, JsonObject(document("offer") +
+                    ("offer" to buildJsonObject { put("wrappedB64", "synthetic-ciphertext") }))).response == 201)
+                check(client.deleteSettingsPermanent(offerId).response == 200)
+                check(client.getSettings(offerId).code == 404)
+                check(client.searchSettings(100).values!!.none { it["identifier"] == JsonPrimitive(offerId) })
+                stage = "target-envelope"
+                val codec = Json { ignoreUnknownKeys = false }
+                val secret = ByteArray(32) { it.toByte() }
+                suspend fun envelope(type: String): SignedEnvelope {
+                    val doc = client.getSettings("aaps_clientcontrol_cmd_${type}_$owner").values!!
+                    return codec.decodeFromJsonElement(SignedEnvelope.serializer(), doc.getValue("envelope"))
+                        .also { check(ClientControlCrypto.verifyEnvelope(secret, it)) }
+                }
+                val prepare = envelope("batch_prepare")
+                check(prepare.clientId == owner && prepare.counter == 7L && prepare.wantsAck)
+                check(prepare.validUntil == prepare.timestamp + 8000)
+                val batch = codec.decodeFromString(ClientControlMessage.serializer(), prepare.payload) as ClientControlMessage.BatchPrepare
+                check(batch.actions == listOf(BatchActionDto(type = "temp_target", reason = "Eating Soon",
+                    lowMgdl = 90.0, highMgdl = 99.0, durationMinutes = 30, startOffsetMinutes = 0)))
+                suspend fun publishAck(counter: Long, payload: String?, timestamp: Long) {
+                    val ack = ClientControlCrypto.signAck(secret, AckEnvelope(owner, counter, AckPhase.Done,
+                        AckStatus.Ok, payload = payload, timestamp = timestamp, signature = ""))
+                    val doc = buildJsonObject {
+                        put("date", 946684800001L); put("utcOffset", 0); put("app", "AAPS"); put("schemaVersion", 1)
+                        put("ack", codec.encodeToJsonElement(AckEnvelope.serializer(), ack))
+                    }
+                    check(client.updateSettings("aaps_clientcontrol_ack_$owner", doc).response in 200..299)
+                }
+                val preview = codec.encodeToString(BolusPreview.serializer(),
+                    BolusPreview(321, listOf(ConfirmationLineDto("Normal", "synthetic target"))))
+                publishAck(prepare.counter, preview, prepare.timestamp + 1)
+                println("STOCK_RC1_TARGET_PREVIEW_READY")
+                System.out.flush()
+                check(readlnOrNull() == "COMMIT_READY")
+                val commit = envelope("bolus_commit")
+                check(commit.counter == 8L && commit.clientId == owner && commit.wantsAck)
+                check(commit.validUntil == commit.timestamp + 8000)
+                val confirmation = codec.decodeFromString(ClientControlMessage.serializer(), commit.payload) as ClientControlMessage.BolusCommit
+                check(confirmation == ClientControlMessage.BolusCommit(321, asAdvisor = false, correctionU = 0.0))
+                publishAck(commit.counter, null, commit.timestamp + 1)
+                secret.fill(0)
                 check(!client.getStatus().apiPermissions.isFull())
             } finally {
                 client.close()

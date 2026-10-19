@@ -36,6 +36,10 @@
 - [x] Resolve upstream JSON packaging conflict externally, retaining pristine source;
       real128 app tests, instrumented Kotlin compilation and release lint/build pass.
 - [ ] Verify published external JSON recipe regression checks in exact-head CI.
+- [x] Add typed settings upsert/history/cleanup and target-only native ACK codec.
+- [x] Verify actual RC1 SDK wire/crypto both directions; focused115 passed/one prior skip.
+- [ ] Complete full checks/CI for settings and target codec before live integration.
+- [ ] Add durable pairing/counter/command journal and interrupted-commit reconciliation.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.

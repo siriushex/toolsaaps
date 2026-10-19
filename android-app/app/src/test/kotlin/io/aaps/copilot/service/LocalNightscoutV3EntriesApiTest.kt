@@ -46,9 +46,10 @@ class LocalNightscoutV3EntriesApiTest {
         val permissions = status["apiPermissions"]!!.jsonObject
         assertEquals("crud", permissions["entries"]!!.jsonPrimitive.content)
         assertEquals("cr", permissions["devicestatus"]!!.jsonPrimitive.content)
-        assertTrue(permissions.filterKeys { it !in setOf("entries", "devicestatus") }.values.all { it.jsonPrimitive.content.isEmpty() })
+        assertEquals("crud", permissions["settings"]!!.jsonPrimitive.content)
+        assertTrue(permissions.filterKeys { it !in setOf("entries", "devicestatus", "settings") }.values.all { it.jsonPrimitive.content.isEmpty() })
         assertEquals(405, call("POST", "status").status)
-        listOf("treatments", "profile", "food", "settings").forEach {
+        listOf("treatments", "profile", "food").forEach {
             assertEquals(501, call("POST", it, sample()).status)
         }
         assertEquals(0, db.localNightscoutV3Dao().count())
