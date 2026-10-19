@@ -7,7 +7,9 @@ external test driver using Java21, then runs Copilot tests/lint/build on Java17.
 The driver uses the real local TLS listener and synthetic Room data. CI fails
 if the required SDK fixture is absent. No APK/signing files or credentials from
 the user's device enter this check. See LOCAL_NS_V3_ENTRIES.md for local commands.
-Entry routes remain a partial wire integration, not whole-app or device admission.
+Entry and immutable device-status routes remain partial wire integration, not
+whole-app or device admission. Device-status SDK checks use the same isolated
+driver; no extra AAPS source patch or credential is introduced.
 
 ## Local V3 Store Migration
 
@@ -27,7 +29,7 @@ Runtime bounds and remaining retention/admission gates: LOCAL_NS_V3_STORE.md.
 ## Local AAPS4 Authentication Stage
 
 This is Copilot source only. The local TLS listener accepts RC1-style token
-refresh; entries now have a typed adapter, but other collections explicitly
+refresh; entries and immutable device status have typed adapters, but other collections explicitly
 return501 and cannot set runtime READY.
 Do not migrate AAPS settings, enroll its client or publish a compatible-device
 claim yet. No new remote service, database schema, secret file or dependency is

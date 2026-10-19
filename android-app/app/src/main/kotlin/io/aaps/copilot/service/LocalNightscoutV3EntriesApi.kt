@@ -26,6 +26,7 @@ internal class LocalNightscoutV3EntriesApi(
 ) {
     private val store = LocalNightscoutV3Store(db, now)
     private val entries = LocalV3Collection.ENTRIES
+    private val deviceStatus = LocalNightscoutV3DeviceStatusApi(db, now)
 
     suspend fun handle(method: String, path: String, parameters: Map<String, List<String>>,
                        readBody: () -> ByteArray = { byteArrayOf() }): LocalV3HttpResult = try {
@@ -35,6 +36,8 @@ internal class LocalNightscoutV3EntriesApi(
         }
         require(query.size <= 8 && query.keys.all { it.length <= 64 })
         when {
+            path == "/api/v3/devicestatus" || path.startsWith("/api/v3/devicestatus/") ->
+                deviceStatus.handle(method, path, query, readBody)
             path == "/api/v3/status" -> {
                 require(query.isEmpty())
                 if (method != "GET") errorResponse(405) else status()
@@ -99,12 +102,18 @@ internal class LocalNightscoutV3EntriesApi(
 
     private fun status() = response(200, buildJsonObject {
         put("result", buildJsonObject {
-            put("version", "local-v3-entries-1")
+            put("version", "local-v3-wire-2")
             put("apiVersion", "3.0.0")
             put("srvDate", now())
             put("storage", buildJsonObject { put("storage", "sqlite"); put("version", "36") })
             put("apiPermissions", buildJsonObject {
-                LocalV3Collection.entries.forEach { put(it.wireName, if (it == entries) "crud" else "") }
+                LocalV3Collection.entries.forEach {
+                    put(it.wireName, when (it) {
+                        entries -> "crud"
+                        LocalV3Collection.DEVICE_STATUS -> "cr"
+                        else -> ""
+                    })
+                }
             })
         })
     })

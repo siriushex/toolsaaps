@@ -1,8 +1,22 @@
 # SECURITY REVIEW
 
+## Local V3 Device Status (2026-10-19)
+
+- Existing authenticated loopback listener only; no new trust policy or secret.
+- Stable owner/device/time identity, immutable content and exact existing metadata
+  prevent a retry from replacing IOB/pump state or inventing a delivery receipt.
+- Strict bounded/depth/duplicate parsing and recursive finite-number checks also
+  cover opaque objects. Known SDK wrappers normalize without interpreting them.
+- Nonpaged history refuses row/serialized-byte overflow; internal tombstones
+  cannot be shown as live status. No eviction, silent truncation or resurrection.
+- Only create/read is advertised. Unsupported domains/actions cannot mark READY,
+  write clinical tables, trigger prediction or issue a command. Actual SDK
+  interoperability does not establish Android trust or device migration readiness.
+- See LOCAL_NS_V3_DEVICE_STATUS.md for exact producer/consumer and remaining gates.
+
 ## Local V3 Entries (2026-10-19)
 
-- Authenticated loopback-only status/entries; other permissions are empty and
+- Authenticated loopback-only status/entries and device status above; other permissions are empty and
   collections fail501. No clinical writer, action dispatch or READY transition.
 - Raw bounded body bytes retain strict UTF-8/duplicate/metadata validation.
   Unknown or repeated filters refuse; no silent fallback to unfiltered data.

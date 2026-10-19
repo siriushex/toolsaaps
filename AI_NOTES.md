@@ -1,3 +1,29 @@
+# Immutable V3 Device Status - 2026-10-19
+
+- Continue Copilot-first AAPS4 compatibility; upstream remains pristine at RC1
+  d5e7f5bd. IOKit detects the target and its ADB interface, although system_profiler
+  omitted it. ADB remains empty after both backends and a user debug toggle;
+  original host backend restored. No installation/export/therapy command attempted.
+- Seven initial status regressions failed against the existing501 boundary.
+  Add authenticated create/read/history, stable owner/device/time identity and
+  atomic immutable replay deduplication in the existing Room36 store.
+- Stock date-only producer and ISO-dependent receiver now have consistent times.
+  SDK-created empty optional wrappers normalize; opaque pump/IOB content and signed
+  IOB remain exact. Typed/finite/metadata validation refuses malformed records.
+- History is all-or-error because the stock SDK has no page-loop contract for
+  device status. Refuse row/serialized-byte overflow, and never turn a store
+  tombstone into live status. Advertise onlycr; full sync and therapy remain closed.
+- Extended unchanged upstream SDK TLS driver through status create/retry/read and
+  reconstructed DTO replay. SDK preparation passed in43s; focused74 passed/one
+  existing private-input skip in1m48s, including all9 status cases and real SDK.
+  Full test/lint/assemble passed in19m30s:6407 cases,6401 passed,six existing private
+  skips,zero failures/errors,562 suites. Lint:zero errors,378 prior warnings/eight
+  hints,no new adapter issue. APK audit:40109881 bytes,all6863 compiled app classes
+  retained,66 icons and11334 unused icons pruned. Exact-head source CI remains
+  pending; source verification is not device migration readiness.
+- Contract, verification and remaining installation gates:
+  docs/LOCAL_NS_V3_DEVICE_STATUS.md. No new schema, dependency or AAPS source edit.
+
 # Update Transfer Recovery And APK Size - 2026-10-19
 
 - Public0.1.3/build4 is119236555 bytes. A complete HTTPS GET matched its advertised

@@ -287,7 +287,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             val result = outputFile.readLines().singleOrNull { it.startsWith("STOCK_RC1_ENTRIES_") }
             assertThat(result).isEqualTo("STOCK_RC1_ENTRIES_OK")
             assertThat(process.exitValue()).isEqualTo(0)
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(3)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(5)
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

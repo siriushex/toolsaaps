@@ -7,7 +7,8 @@ loopback TLS listener. SGV and MBG support create, get-by-id, PATCH, soft deleti
 chronological first load, latest SGV and revision history. AAPS source is unchanged.
 
 This is wire persistence, not clinical ingestion. Current glucose sources,
-prediction and therapy remain unchanged. Other collections return501 with empty
+prediction and therapy remain unchanged. Device status additionally advertises
+create/read (LOCAL_NS_V3_DEVICE_STATUS.md). Other collections return501 with empty
 permissions; only entries advertises crud. RC1 ApiPermissions.isFull() requires
 all collections, so the whole-app uploader is NOT admitted by this partial status.
 There is no READY transition, device migration or command-delivery claim.

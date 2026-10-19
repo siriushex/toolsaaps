@@ -88,7 +88,8 @@ Persistent document storage is now separate from the route adapter; see
 LOCAL_NS_V3_STORE.md. Room 36 contains revisioned latest-state documents, not
 backfilled clinical records or immutable snapshots of every intermediate update.
 The typed entries adapter now exposes wire storage over authenticated TLS; see
-LOCAL_NS_V3_ENTRIES.md. Other collections still fail501. Clinical ingestion,
+LOCAL_NS_V3_ENTRIES.md. Immutable device-status create/read is described in
+LOCAL_NS_V3_DEVICE_STATUS.md. Other collections still fail501. Clinical ingestion,
 storage notifications and native control remain unconnected.
 
 Legacy capability checks and the bounded refresh/bearer exchange do not establish

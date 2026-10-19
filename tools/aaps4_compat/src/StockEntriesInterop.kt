@@ -5,7 +5,9 @@ import app.aaps.core.nssdk.localmodel.entry.Direction
 import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
 import app.aaps.core.nssdk.localmodel.entry.NSMbgV3
 import app.aaps.core.nssdk.localmodel.entry.NsUnits
+import app.aaps.core.nssdk.localmodel.devicestatus.NSDeviceStatus
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.*
 import java.net.URI
 import kotlin.system.exitProcess
 
@@ -72,6 +74,26 @@ fun main() {
                 check(calibrationUpdated.calibrations.single().mbg == 135.0)
                 check(client.updateCalibration(calibrationUpdated.calibrations.single().copy(isValid = false)).response == 200)
                 check(!client.getSgvsModifiedSince(calibrationUpdated.lastServerModified!!, 1).calibrations.single().isValid)
+                stage = "device-status"
+                val status = NSDeviceStatus(date = at, device = "sdk-test-pump", uploaderBattery = 99,
+                    isCharging = true, pump = NSDeviceStatus.Pump(reservoir = 60.5),
+                    openaps = NSDeviceStatus.OpenAps(iob = buildJsonObject { put("iob", -0.2) }))
+                val statusCreated = client.createDeviceStatus(status)
+                check(statusCreated.response == 201 && !statusCreated.identifier.isNullOrEmpty())
+                val statusRetry = client.createDeviceStatus(status)
+                check(statusRetry.response == 200 && statusRetry.identifier == statusCreated.identifier)
+                check(statusRetry.lastModified == statusCreated.lastModified)
+                val statuses = client.getDeviceStatusModifiedSince(0)
+                check(statuses.single().date == at && statuses.single().createdAt == java.time.Instant.ofEpochMilli(at).toString())
+                check(statuses.single().pump?.reservoir == 60.5)
+                check(statuses.single().openaps?.iob?.get("iob") == JsonPrimitive(-0.2))
+                // SDK reconstruction inserts empty optional battery/status/uploader objects.
+                val roundTrip = client.createDeviceStatus(statuses.single())
+                check(roundTrip.response == 200 && roundTrip.lastModified == statusCreated.lastModified)
+                check(client.createDeviceStatus(status.copy(date = at + 60_000)).response == 201)
+                check(client.getDeviceStatusModifiedSince(statusCreated.lastModified!!).single().date == at + 60_000)
+                check(client.getLastModified().collections.devicestatus > statusCreated.lastModified!!)
+                check(!client.getStatus().apiPermissions.isFull())
             } finally {
                 client.close()
             }

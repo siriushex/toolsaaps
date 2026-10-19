@@ -31,6 +31,10 @@
   payload. Stable owner/producer/type/time identity prevents POST replay duplicates;
   conflicting content is refused, not merged by value.
 - Stock SDK TLS tests do not prove Android CA trust or whole-app readiness.
+- Device status is immutable owner/device/time wire evidence, not insulin-delivery
+  confirmation. Both date formats must agree; known empty SDK wrappers normalize
+  without rewriting opaque IOB/pump content. Nonpaged history is complete or507,
+  including serialized metadata bytes; unsupported tombstones cannot appear live.
 
 ## Provider Token Usage
 

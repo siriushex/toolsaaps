@@ -12,7 +12,8 @@ Stock RC1's paired Client Control over v3 settings is the candidate for command
 acknowledgements; its signed prepare/commit protocol must be verified rather than
 replaced with new AAPS broadcast handlers. The v3 refresh/bearer boundary is now
 implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md). Status and entries
-now have a typed wire adapter (LOCAL_NS_V3_ENTRIES.md); other collections still
+now have a typed wire adapter (LOCAL_NS_V3_ENTRIES.md). Immutable device-status
+create/read is specified in LOCAL_NS_V3_DEVICE_STATUS.md; other collections still
 return501 with empty permissions. Whole-app sync, storage subscription, Client
 Control and READY remain unconnected.
 
