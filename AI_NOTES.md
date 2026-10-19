@@ -1,3 +1,22 @@
+# Periodic Client History - 2026-10-18
+
+- Implement the first scoped stage of periodic advisory review in an isolated
+  checkout. Add persisted upload interval/background controls and manual queue,
+  replace the process-owned maintenance loop with bounded WorkManager work.
+- Reuse signed transport and durable exact export recovery, preserve observed
+  insulin context and cancellation. No new medical payload or clinical model.
+- Settings, request/policy and small/large-font native UI regressions added.
+  All 18 new checks pass. The final unchanged-source Android quality run passes:
+  6345 tests discovered, 6339 passed, six optional private-data checks skipped,
+  zero failures/errors. Lint has zero errors, 378 warnings and eight hints;
+  no issues reported in the seven new source/test files. assembleDebug succeeds.
+- The final run used Java 17 and one Gradle worker; test/lint/assemble completed
+  in 26m31s. Earlier snapshot/exception-identity test failures were corrected;
+  final source manifests match. Native Russian 320dp and 1.8x font rasters fit.
+  This is local debug verification, not device/Doze acceptance or a release.
+- Main AAPS worktree, server, model/login, phone and therapy remain untouched.
+  Remaining server/recommendation stages: docs/AI_HISTORY_UPLOAD_SCHEDULE.md.
+
 # Stock AAPS 4.0 Compatibility - 2026-10-18
 
 - Owner redirected adaptation to Copilot with minimal AAPS changes. The isolated

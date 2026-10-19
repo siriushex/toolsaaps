@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Durable Client History Schedule
+
+The core Room history exporter is now owned by a separate WorkManager task,
+with persisted 60/120/180/240-minute settings and an explicit coalesced manual
+request. It is independent of therapy arming and uses existing signed upload
+ledgers. The old process-owned 15-minute loop is removed. Scheduling does not
+authorize inference or change the glucose-only daily report contract. See
+AI_HISTORY_UPLOAD_SCHEDULE.md for admission, recovery and remaining review work.
+
 ## Stock AAPS 4.0 Integration Direction
 
 Keep AAPS source stock where possible and implement its Nightscout v3 contract in

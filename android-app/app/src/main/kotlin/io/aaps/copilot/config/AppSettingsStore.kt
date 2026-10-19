@@ -208,6 +208,9 @@ class AppSettingsStore internal constructor(
                 ?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_CLOUD_BASE_URL,
             clinicalAiConfigState = resolveClinicalAiConfigState(prefs),
+            aiHistoryUpload = AiHistoryUploadSettings.fromStored(
+                prefs[KEY_AI_HISTORY_UPLOAD_ENABLED], prefs[KEY_AI_HISTORY_UPLOAD_INTERVAL]
+            ),
             automaticEventAiAnalysisEnabled =
                 prefs[KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED] ?: true,
             uiStyle = resolveUiStyle(prefs[KEY_UI_STYLE]),
@@ -458,6 +461,15 @@ class AppSettingsStore internal constructor(
         updateInternal(allowSensitivityRuntimeChange = false, updater = updater)
     }
 
+    suspend fun setAiHistoryUploadEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_AI_HISTORY_UPLOAD_ENABLED] = enabled }
+    }
+
+    suspend fun setAiHistoryUploadInterval(minutes: Int) {
+        require(minutes in AiHistoryUploadSettings.INTERVALS)
+        dataStore.edit { it[KEY_AI_HISTORY_UPLOAD_INTERVAL] = minutes }
+    }
+
     private suspend fun updateInternal(
         allowSensitivityRuntimeChange: Boolean,
         updater: (AppSettings) -> AppSettings
@@ -487,6 +499,8 @@ class AppSettingsStore internal constructor(
             prefs[KEY_NS_URL] = next.nightscoutUrl
             prefs[KEY_NS_SECRET] = next.apiSecret
             prefs[KEY_CLOUD_URL] = next.cloudBaseUrl
+            prefs[KEY_AI_HISTORY_UPLOAD_ENABLED] = next.aiHistoryUpload.enabled
+            prefs[KEY_AI_HISTORY_UPLOAD_INTERVAL] = next.aiHistoryUpload.intervalMinutes
             prefs[KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED] =
                 next.automaticEventAiAnalysisEnabled
             prefs[KEY_UI_STYLE] = next.uiStyle.name
@@ -1578,6 +1592,8 @@ class AppSettingsStore internal constructor(
         private val KEY_CLINICAL_AI_ENDPOINT = stringPreferencesKey("clinical_ai_endpoint")
         private val KEY_CLINICAL_AI_PROTOCOL =
             stringPreferencesKey("clinical_ai_compatible_protocol")
+        private val KEY_AI_HISTORY_UPLOAD_ENABLED = booleanPreferencesKey("ai_history_upload_enabled")
+        private val KEY_AI_HISTORY_UPLOAD_INTERVAL = intPreferencesKey("ai_history_upload_interval_minutes")
         private val KEY_AUTOMATIC_EVENT_AI_ANALYSIS_ENABLED =
             booleanPreferencesKey("automatic_event_ai_analysis_enabled")
         private val KEY_UI_STYLE = stringPreferencesKey("ui_style")
@@ -1946,6 +1962,7 @@ data class AppSettings(
     val clinicalAiConfigState: ClinicalAiConfigState =
         ClinicalAiConfigState.UnconfiguredDefault(ClinicalAiProviderConfig.defaultOpenAi()),
     val automaticEventAiAnalysisEnabled: Boolean = true,
+    val aiHistoryUpload: AiHistoryUploadSettings = AiHistoryUploadSettings(),
     val uiStyle: UiStyle = UiStyle.MIDNIGHT_GLASS,
     val showEventsOnGraph: Boolean = true,
     val killSwitch: Boolean,

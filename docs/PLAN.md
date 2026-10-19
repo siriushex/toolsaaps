@@ -1,5 +1,16 @@
 # PLAN
 
+## Periodic Client History (2026-10-18, Isolated Stage)
+
+- [x] Inspect client export, session admission and glucose-only server review.
+- [x] Implement persisted 60/120/180/240-minute settings and manual enqueue.
+- [x] Replace in-process polling with bounded durable background work.
+- [x] Complete focused/native/Room recovery and full Android quality checks.
+- [ ] Separate integration/release/device verification; no deployment here.
+- Server clinical adapters, numerical candidate validation, recurring model
+  work and the recommendation inbox remain separate stages. See
+  AI_HISTORY_UPLOAD_SCHEDULE.md. No therapy change or inference admission.
+
 ## Stock AAPS 4.0 Compatibility (2026-10-18)
 
 - [x] Follow owner direction: adapt Copilot first, leave AAPS source unchanged.

@@ -183,6 +183,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class ClinicalAiProviderCredentialState(
@@ -1576,32 +1577,49 @@ class AppContainer(context: Context) {
         glucoseCalibrationRepository = glucoseCalibrationRepository
     )
 
+    private val historyUploadMutex = kotlinx.coroutines.sync.Mutex()
+    internal val serverAiConnectionInitialization = appScope.async { serverAiConnectionManager.load() }
+
+    internal suspend fun synchronizeServerAiHistory(): io.aaps.copilot.data.repository.RoomAiExportStatus {
+        historyUploadMutex.lock()
+        try {
+            val coverage = serverAiRoomHistorySync.sync(maxPages = 64)
+            val now = System.currentTimeMillis()
+            val rows = db.telemetryDao().latestBySourceAndKeyBetweenForKeys(
+                now - 7 * 24 * 60 * 60_000L, now,
+                io.aaps.copilot.data.repository.AiInsulinContext.KEYS)
+            val zone = java.time.ZoneId.systemDefault()
+            aiInsulinContextSync.sync(serverAiConnectionManager.historyDeviceBinding(),
+                io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(
+                    settingsStore.settings.first().insulinProfileId, rows, now), now, zone) {
+                io.aaps.copilot.data.repository.PersonalAbsorptionRepository(db, gson,
+                    java.time.Clock.fixed(java.time.Instant.ofEpochMilli(now), zone)).timingHistory(zone)
+            }
+            return coverage
+        } finally {
+            historyUploadMutex.unlock()
+        }
+    }
+
     init {
-        appScope.launch { serverAiConnectionManager.load() }
         appScope.launch {
-            io.aaps.copilot.data.repository.maintainRoomAiHistory(
-                enabled = combine(serverAiConnectionManager.state, settingsStore.settings) { connection, settings ->
-                    connection.phase == io.aaps.copilot.security.ServerAiConnectionPhase.ACTIVE &&
-                        !PowerSaveController.isActive(settings)
-                },
-                synchronize = {
-                    val coverage = serverAiRoomHistorySync.sync(maxPages = 16)
-                    val now = System.currentTimeMillis()
-                    val rows = db.telemetryDao().latestBySourceAndKeyBetweenForKeys(
-                        now - 7 * 24 * 60 * 60_000L, now,
-                        io.aaps.copilot.data.repository.AiInsulinContext.KEYS)
-                    val zone = java.time.ZoneId.systemDefault()
-                    aiInsulinContextSync.sync(serverAiConnectionManager.historyDeviceBinding(),
-                        io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(
-                            settingsStore.settings.first().insulinProfileId, rows, now),
-                        now, zone) {
-                        io.aaps.copilot.data.repository.PersonalAbsorptionRepository(db, gson,
-                            java.time.Clock.fixed(java.time.Instant.ofEpochMilli(now), zone)).timingHistory(zone)
-                    }
-                    coverage
-                },
-                onFailure = { android.util.Log.w("ServerAiHistory", "History synchronization unavailable") }
-            )
+            // Restore the session before observing it: the initial empty UI state must not
+            // cancel the persistent worker that just started this process.
+            serverAiConnectionInitialization.await()
+            combine(serverAiConnectionManager.state, settingsStore.settings) { connection, settings ->
+                // Keep the periodic clock during power save; workers pause cooperatively.
+                // It can resume after a timed pause even with local monitoring disabled.
+                settings.aiHistoryUpload.copy(enabled = settings.aiHistoryUpload.enabled && connection.hasStoredSession) to
+                    (connection.hasStoredSession && !PowerSaveController.isActive(settings))
+            }.distinctUntilChanged().collect { (configuration, manualAllowed) ->
+                try {
+                    io.aaps.copilot.scheduler.ServerAiHistoryUploadSchedule.apply(appContext, configuration, manualAllowed)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    android.util.Log.w("ServerAiHistory", "History schedule unavailable")
+                }
+            }
         }
         clinicalReportRepository.initialize()
         clinicalDisplayRepository.initialize(appScope)

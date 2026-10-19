@@ -1669,6 +1669,14 @@
     <string name="therapy_action_bootstrap_enable">Разрешить действия</string>
     <string name="settings_clinical_ai_section">Клинический ИИ</string>
     <string name="settings_server_ai_section">Серверный Copilot</string>
+    <string name="settings_history_background">Фоновая отправка истории</string>
+    <string name="settings_history_interval">Интервал отправки</string>
+    <string name="settings_history_minutes">%1$d мин</string>
+    <string name="settings_history_send">Отправить историю сейчас</string>
+    <string name="settings_history_queued">Отправка истории запланирована</string>
+    <string name="settings_history_paused">Отправка истории приостановлена энергосбережением</string>
+    <string name="settings_history_save_failed">Не удалось сохранить настройки отправки истории</string>
+    <string name="settings_history_queue_failed">Не удалось запланировать отправку истории</string>
     <string name="settings_server_ai_access_code">Код доступа</string>
     <string name="settings_server_ai_activate">Активировать</string>
     <string name="settings_server_ai_connecting">Подключение...</string>

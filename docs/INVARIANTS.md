@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Scheduled History Transport
+
+- Persisted session, current signed authorization and power policy still gate
+  background history. Schedule settings cannot enable model or therapy actions.
+- Restore session before schedule observation; initial empty UI state is not
+  evidence of lost access. Explicit background OFF keeps explicit manual upload.
+- Only successful existing transport receipts advance export cursors. Timeout,
+  cancellation and process death retain exact pending plans for recovery.
+- Retry partial scans without claiming completion. Never reclassify revoked,
+  malformed, storage or wrong-device failures as temporary network failures.
+- The selected interval is deferrable Android work, not an urgent alert deadline.
+
 ## AAPS Treatment Transport Capability
 
 - Never infer treatment support from an installed AAPS package or an
