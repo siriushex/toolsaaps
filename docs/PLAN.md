@@ -40,6 +40,9 @@
 - [x] Verify actual RC1 SDK wire/crypto both directions; focused115 passed/one prior skip.
 - [ ] Complete full checks/CI for settings and target codec before live integration.
 - [ ] Add durable pairing/counter/command journal and interrupted-commit reconciliation.
+- [x] Add encrypted Room37 command journal with atomic wire outbox and no replay.
+- [x] Check focused encryption/lifecycle/cancellation/capacity/reopen and migrations.
+- [ ] Complete full local checks/CI for journal; finish pairing and live ACK owner.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.

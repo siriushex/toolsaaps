@@ -36,7 +36,7 @@ class MealForecastJournalMigrationTest {
             for (migrate in listOf(true, false)) {
                 val db = open(migrate)
                 try {
-                    assertEquals(36, db.openHelper.writableDatabase.version)
+                    assertEquals(37, db.openHelper.writableDatabase.version)
                     assertEquals(6.0, db.glucoseDao().since(0).single().mmol, 0.0)
                     if (migrate) db.mealForecastJournalDao().insert(receipt)
                     assertEquals(receipt, db.mealForecastJournalDao().between(0, 1_000, 10).single())

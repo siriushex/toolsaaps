@@ -41,7 +41,7 @@ class LocalNightscoutV3MigrationTest {
             val db = open()
             try {
                 val sql = db.openHelper.writableDatabase
-                assertEquals(36, sql.version)
+                assertEquals(37, sql.version)
                 for (table in listOf("local_ns_v3_documents", "local_ns_v3_clock")) {
                     sql.query("SELECT COUNT(*) FROM $table").use {
                         assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0))

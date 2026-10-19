@@ -19,6 +19,10 @@ target-only signed codec verifies prepare/commit ACKs (AAPS4_TARGET_PROTOCOL.md)
 but is not a live dispatcher. Other collections still return501 with empty
 permissions. Whole-app sync, storage subscription, live Client Control and READY
 remain unconnected; stored documents cannot grant clinical authority.
+Room37 adds an encrypted single-owner target journal and atomic command outbox
+(AAPS4_TARGET_JOURNAL.md), not a registered controller. Receipt/counter allocation
+and wire publication commit together; unknown commit holds ownership across restart.
+It is excluded from clinical/AI projections and cannot grant pairing permission.
 
 Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
 tombstones, compare-and-set updates and bounded revision/time paging. The entries

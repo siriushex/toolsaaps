@@ -1,5 +1,6 @@
 import base64
 import json
+import time
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -93,11 +94,33 @@ def submit_photo(client, key, tokens, body, *, request_id, deadline_ms, now=NOW 
 
 def wait_for_photo(client, key, tokens, job_id):
     path = f"/api/ai/v1/meal-photo/jobs/{job_id}"
-    for _ in range(100):
+    for _ in range(20):
         response = signed_get(client, key, tokens, path)
+        assert response.status_code == 200, f"photo status HTTP {response.status_code}"
         if response.json()["state"] not in {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}:
             return response
+        time.sleep(0.25)
     raise AssertionError("photo job did not reach terminal state")
+
+
+def test_photo_wait_yields_between_pending_responses(monkeypatch):
+    from types import SimpleNamespace
+    sleeps = []
+    states = iter(["QUEUED", "RUNNING", "SUCCEEDED"])
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    monkeypatch.setattr(__import__(__name__), "signed_get", lambda *args:
+                        SimpleNamespace(status_code=200, json=lambda: {"state": next(states)}))
+    result = wait_for_photo(None, None, None, "synthetic-job")
+    assert result.status_code == 200
+    assert sleeps == [0.25, 0.25]
+
+
+def test_photo_wait_reports_rejection_without_parsing_it_as_job(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(__import__(__name__), "signed_get", lambda *args:
+                        SimpleNamespace(status_code=429, json=lambda: {"error": "rate_limited"}))
+    with pytest.raises(AssertionError, match="429"):
+        wait_for_photo(None, None, None, "synthetic-job")
 
 
 def test_meal_photo_job_is_separate_from_chat_and_returns_typed_estimate(service, tmp_path):

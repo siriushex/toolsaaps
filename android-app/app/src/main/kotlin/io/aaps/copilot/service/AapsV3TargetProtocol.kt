@@ -11,7 +11,8 @@ internal data class AapsV3TargetSpec(
     val lowMgdl: Double,
     val highMgdl: Double,
     val durationMinutes: Int,
-    val reason: String
+    val reason: String,
+    val notes: String = ""
 )
 
 internal class AapsV3TargetRequest internal constructor(val json: JsonObject) {
@@ -31,6 +32,7 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
             put("type", "temp_target"); put("reason", target.reason)
             put("lowMgdl", target.lowMgdl); put("highMgdl", target.highMgdl)
             put("durationMinutes", target.durationMinutes); put("startOffsetMinutes", 0)
+            if (target.notes.isNotEmpty()) put("notes", target.notes)
         }
         return signed(clientId, counter, issuedAtMs, "batch_prepare", buildJsonObject {
             put("type", "batch_prepare"); put("actions", JsonArray(listOf(action)))
@@ -132,12 +134,14 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
                 val actions = HistoryJson.array(payload.getValue("actions"))
                 require(actions.size == 1)
                 val action = HistoryJson.obj(actions.single())
-                require(action.keys == TARGET_FIELDS && string(action, "type") == "temp_target")
+                require(action.keys == TARGET_FIELDS || action.keys == TARGET_FIELDS + "notes")
+                require(string(action, "type") == "temp_target")
                 require(number(action, "startOffsetMinutes") == 0L)
                 val duration = number(action, "durationMinutes")
                 require(duration in 0..1440)
                 validateTarget(AapsV3TargetSpec(HistoryJson.double(action.getValue("lowMgdl")),
-                    HistoryJson.double(action.getValue("highMgdl")), duration.toInt(), string(action, "reason")))
+                    HistoryJson.double(action.getValue("highMgdl")), duration.toInt(), string(action, "reason"),
+                    action["notes"]?.let(HistoryJson::string) ?: ""))
             }
             "bolus_commit" -> {
                 require(payload.keys == setOf("type", "bolusId", "asAdvisor", "correctionU"))
@@ -151,6 +155,7 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
 
     private fun validateTarget(target: AapsV3TargetSpec) {
         require(target.reason in REASONS && target.durationMinutes in 0..1440)
+        require(target.notes.length <= 512 && target.notes.none { it.isISOControl() })
         require(target.lowMgdl.isFinite() && target.highMgdl.isFinite())
         if (target.durationMinutes == 0) {
             require(target.lowMgdl == 0.0 && target.highMgdl == 0.0)

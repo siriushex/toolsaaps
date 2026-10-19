@@ -52,6 +52,12 @@ commit d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0. It is a prerelease.
   DataReceiver do not. Confirm the actual phone CGM source and a supported input
   route before migration. Do not remove an active custom CGM route merely because
   the new APK compiles.
+  For JugglucoNG compatibility, stock DataReceiver accepts
+  `com.eveningoutpost.dexdrip.BgEstimate` through XdripInbox/XdripSourceWorker and
+  its source resolver includes JugglucoNG labels. This is a stock candidate, not
+  proof that the phone currently emits that action or has selected that plugin.
+  Verify the actual enabled sender/output and fresh AAPS reading before migration;
+  do not silently replace the CGM route or infer it from stale preference keys.
 
 ## Implementation Sequence
 

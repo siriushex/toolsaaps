@@ -128,11 +128,12 @@ fun main() {
                         .also { check(ClientControlCrypto.verifyEnvelope(secret, it)) }
                 }
                 val prepare = envelope("batch_prepare")
-                check(prepare.clientId == owner && prepare.counter == 7L && prepare.wantsAck)
+                check(prepare.clientId == owner && prepare.counter == 1L && prepare.wantsAck)
                 check(prepare.validUntil == prepare.timestamp + 8000)
                 val batch = codec.decodeFromString(ClientControlMessage.serializer(), prepare.payload) as ClientControlMessage.BatchPrepare
                 check(batch.actions == listOf(BatchActionDto(type = "temp_target", reason = "Eating Soon",
-                    lowMgdl = 90.0, highMgdl = 99.0, durationMinutes = 30, startOffsetMinutes = 0)))
+                    lowMgdl = 90.0, highMgdl = 99.0, durationMinutes = 30, startOffsetMinutes = 0,
+                    notes = "copilot:synthetic-meal")))
                 suspend fun publishAck(counter: Long, payload: String?, timestamp: Long) {
                     val ack = ClientControlCrypto.signAck(secret, AckEnvelope(owner, counter, AckPhase.Done,
                         AckStatus.Ok, payload = payload, timestamp = timestamp, signature = ""))
@@ -149,7 +150,7 @@ fun main() {
                 System.out.flush()
                 check(readlnOrNull() == "COMMIT_READY")
                 val commit = envelope("bolus_commit")
-                check(commit.counter == 8L && commit.clientId == owner && commit.wantsAck)
+                check(commit.counter == 2L && commit.clientId == owner && commit.wantsAck)
                 check(commit.validUntil == commit.timestamp + 8000)
                 val confirmation = codec.decodeFromString(ClientControlMessage.serializer(), commit.payload) as ClientControlMessage.BolusCommit
                 check(confirmation == ClientControlMessage.BolusCommit(321, asAdvisor = false, correctionU = 0.0))

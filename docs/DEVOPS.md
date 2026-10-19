@@ -1,5 +1,23 @@
 # DEVOPS
 
+## Native RC1 Master Regression
+
+With Java21 and the pinned unchanged RC1 checkout, these local mock-only tasks
+passed173 tests on2026-10-19. No device or therapy command is involved:
+
+```sh
+./gradlew :plugins:sync:testAndroidHostTest \
+  --tests '*.clientcontrol.ClientControlReceiverTest' \
+  --tests '*.clientcontrol.ClientControlRoundTripTest' \
+  --tests '*.clientcontrol.BatchActionMappingTest' \
+  --tests '*.clientcontrol.ClientControlUplinkIntegrationTest' \
+  :implementation:testAndroidHostTest --tests '*.WizardBolusExecutorImplTest' \
+  --no-daemon --max-workers=2 --console=plain
+```
+
+This complements, not replaces, the real SDK TLS fixture and Copilot's full
+test/lint/build/size assessment. See AAPS4_TARGET_JOURNAL.md for live admission.
+
 ## Stock SDK Interoperability
 
 The existing real-SDK fixture now also exercises settings and native target-only

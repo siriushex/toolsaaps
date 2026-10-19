@@ -35,7 +35,7 @@ class LocalDiaryMigrationTest {
             }
             val migrated = open()
             try {
-                assertEquals(36, migrated.openHelper.writableDatabase.version)
+                assertEquals(37, migrated.openHelper.writableDatabase.version)
                 val store = LocalDiaryRepository(migrated) { 1000L }
                 val row = (store.save(DiaryDraft("meal", kind = DiaryKind.MEAL, occurredAtMs = 100,
                     zoneId = "UTC", amount = "42")) as DiarySaveResult.Saved).entry

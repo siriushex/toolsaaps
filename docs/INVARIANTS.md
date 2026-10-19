@@ -2,6 +2,13 @@
 
 ## AAPS Treatment Transport Capability
 
+- Native target counter, private receipt and wire publication commit atomically.
+  Repeated IDs cannot republish; changed payloads and competing owners are refused.
+  An unknown published commit holds ownership across restart with no fallback.
+  Prepare-only expiry is distinct from application. No counter reset/rebind/purge.
+- Journal reads never regenerate missing encryption keys; corrupt/unknown state
+  blocks dispatch. Binding a client is not native pairing approval. The journal
+  table is not an AI/clinical source and does not register a live action owner.
 - Settings HTTP success is wire persistence, not target application. Only the
   target codec's correlated signed Done/Ok COMMIT is an application receipt;
   signed preparation remains a preview. Durable dispatch admission is separate.

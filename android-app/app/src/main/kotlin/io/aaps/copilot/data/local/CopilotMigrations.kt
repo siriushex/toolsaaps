@@ -819,6 +819,13 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_36_37: Migration = object : Migration(36, 37) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `aaps_v3_target_journal` (" +
+                "`row` TEXT NOT NULL PRIMARY KEY, `revision` INTEGER NOT NULL, `sealed` BLOB NOT NULL)")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -846,6 +853,7 @@ object CopilotMigrations {
         MIGRATION_32_33,
         MIGRATION_33_34,
         MIGRATION_34_35,
-        MIGRATION_35_36
+        MIGRATION_35_36,
+        MIGRATION_36_37
     )
 }

@@ -42,7 +42,7 @@ class LocalAlarmRoomMigrationTest {
                 val db = open(migrate)
                 try {
                     val sql = db.openHelper.writableDatabase
-                    assertEquals(36, sql.version)
+                    assertEquals(37, sql.version)
                     sql.query("SELECT mmol FROM glucose_samples").use { assertTrue(it.moveToFirst()); assertEquals(7.5, it.getDouble(0), 0.0) }
                     sql.query("SELECT lastSyncedTimestamp FROM sync_state").use { assertTrue(it.moveToFirst()); assertEquals(100L, it.getLong(0)) }
                     sql.query("SELECT suppressionUntil,revision FROM alert_events").use {

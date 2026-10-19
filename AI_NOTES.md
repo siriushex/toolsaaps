@@ -1,3 +1,24 @@
+# Durable Native Target Journal - 2026-10-19
+
+- Room36->37 adds private encrypted rows only. Separate Keystore AES-GCM format
+  binds row/revision; existing state never generates a replacement key. Retain
+  counter/idempotency receipts,one unresolved owner and atomic settings outbox.
+- Guard preparation and commit separately; signed preview never means applied.
+  Preparation can expire without commit,unknown commit holds ownership across
+  actual database reopen. Repeated IDs never publish; no reset/rebind/prune/fallback.
+  Correlation notes survive native DTO transport without adding any dose action.
+- Initial journal RED missing implementation; first implementation assessment
+  exposed RoomDatabase lacking Closeable.use in migration test,now try/finally.
+  Focused lifecycle/cipher/protocol/migration regressions passed. Full Android
+  passed6438/six prior skips,zero test/lint errors,build6m48s;40109883-byte APK
+  retained all6913 app classes. Stock master tests173/173 passed in1m56s,source
+  unchanged. Exact-source CI still required. No live controller or phone update.
+- Protocol/settings48f4d096 passed full Android:6419 passed/six skips,lint/build,
+  40109881-byte APK,all6874 classes retained. Its CI39312709017 exposed an unrelated
+  photo test busy-poll; two RED helper tests reproduce no yield and KeyError429.
+  Test-only bounded polling fix leaves server limits unchanged. Backend full now
+  1942 passed/27 skipped. No server AI deployment or medical upload was performed.
+
 # Native Settings And Target Wire Codec - 2026-10-19
 
 - Add stock settings CRUD/upsert/history with strict common-field/metadata rules,

@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Private Native Target Journal (2026-10-19)
+
+- Room37 adds one private table only. AES256-GCM, separate Android Keystore alias,
+  versioned format and row/revision AAD. Read never creates a replacement key.
+  Existing database backup exclusions and AI export whitelist remain restrictive.
+- One owner, persistent counter, durable idempotency receipts and atomic v3 outbox;
+  separate guard before prepare/commit. Denial, cancellation, capacity or either
+  encrypted write failure rolls back command publication too. No automatic retry,
+  rebind/reset or legacy fallback. Unknown commit cannot release ownership.
+- Correlation notes persist but do not prove clinical application. Terminal
+  receipts compact bodies without dropping replay identity. Full database/key
+  snapshot rollback is not prevented by row AAD; native replay checks still apply.
+- Cipher tests use an injected synthetic key with the production envelope format;
+  no claim of real device Keystore or master-executor acceptance. Pairing UI,
+  background ACK owner, storage subscription and live controller remain unconnected.
+
 ## Native Settings And Target Codec (2026-10-19)
 
 - Existing authenticated TLS and bounded strict JSON only. Named upserts retain

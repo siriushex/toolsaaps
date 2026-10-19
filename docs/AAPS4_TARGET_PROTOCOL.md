@@ -40,9 +40,11 @@ uploads a final fixture ACK. Clinical tables stay empty and runtime stays SETUP.
 This is synthetic peer/wire proof, NOT execution of the master's domain handler
 or a real therapy command.
 
-The codec does not enroll a pairing, allocate durable counters, publish commands
-or control Target Manager. Before live use: durable ownership and replay bounds,
-secure pairing/revocation, restart/timeout/unknown reconciliation, authenticated
+The codec itself does not enroll a pairing or control Target Manager. The separate
+Room37 journal provides durable counters, encrypted ownership/receipts and atomic
+settings publication; see AAPS4_TARGET_JOURNAL.md. This is not a live controller
+integration. Before live use: secure pairing/revocation, background
+restart/timeout/unknown reconciliation, authenticated
 storage events, clinical v3/source arbitration, Android TLS trust, actual CGM/pump
 compatibility, settings export and device acceptance. Preserve armed/ownership/
 freshness/safety checks before prepare and again before commit. Unknown published

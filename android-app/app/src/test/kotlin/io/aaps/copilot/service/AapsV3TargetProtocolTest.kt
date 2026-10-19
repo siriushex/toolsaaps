@@ -66,6 +66,19 @@ class AapsV3TargetProtocolTest {
         }
     }
 
+    @Test fun correlationNotesAreSignedAndCannotCarryControlCharactersOrOversizedText() {
+        AapsV3TargetProtocol(key).use { protocol ->
+            val request = protocol.prepare(client, 1, at, target.copy(notes = "copilot:meal-1"))
+            assertEquals(AapsV3TargetAck.PREVIEW, protocol.classify(request, ack(1, payload = preview), at + 2))
+            val action = Json.parseToJsonElement(request.json.getValue("payload").jsonPrimitive.content)
+                .jsonObject.getValue("actions").jsonArray.single().jsonObject
+            assertEquals("copilot:meal-1", action.getValue("notes").jsonPrimitive.content)
+            listOf("line\nbreak", "x".repeat(513)).forEach { note ->
+                assertThrows(IllegalArgumentException::class.java) { protocol.prepare(client, 2, at, target.copy(notes = note)) }
+            }
+        }
+    }
+
     @Test fun executingOrHttpReceiptCannotBeReportedAsApplication() {
         AapsV3TargetProtocol(key).use { protocol ->
             val request = protocol.prepare(client, 1, at, target)

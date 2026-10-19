@@ -271,27 +271,21 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             val targetClient = "11111111-2222-4333-8444-555555555555"
             val targetAt = 1_800_000_000_000L
             val protocol = AapsV3TargetProtocol(targetKey)
-            val prepare = protocol.prepare(targetClient, 7, targetAt, AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"))
+            val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+                javax.crypto.spec.SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+            })
+            journal.bind(targetClient)
             val store = io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
-            suspend fun publishTarget(type: String, request: AapsV3TargetRequest) {
-                val doc = kotlinx.serialization.json.buildJsonObject {
-                    put("date", kotlinx.serialization.json.JsonPrimitive(946684800001L))
-                    put("utcOffset", kotlinx.serialization.json.JsonPrimitive(0))
-                    put("app", kotlinx.serialization.json.JsonPrimitive("AAPS"))
-                    put("schemaVersion", kotlinx.serialization.json.JsonPrimitive(1))
-                    put("envelope", request.json)
-                }
-                store.create(io.aaps.copilot.data.repository.LocalV3DocumentInput(
-                    io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
-                    "aaps_clientcontrol_cmd_${type}_$targetClient", "local-v3-target", 946684800001L, doc.toString()))
-            }
             suspend fun readTargetAck(): kotlinx.serialization.json.JsonObject {
                 val record = store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
                     "aaps_clientcontrol_ack_$targetClient")!!
                 val doc = kotlinx.serialization.json.Json.parseToJsonElement(record.payloadJson) as kotlinx.serialization.json.JsonObject
                 return doc.getValue("ack") as kotlinx.serialization.json.JsonObject
             }
-            publishTarget("batch_prepare", prepare)
+            val prepared = journal.prepare("synthetic-meal", AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"),
+                protocol, targetAt) {}
+            assertThat(prepared.phase).isEqualTo(AapsV3TargetPhase.PREPARED)
+            assertThat(prepared.publication).isNotNull()
             val trust = java.security.KeyStore.getInstance("PKCS12").apply {
                 load(null, null)
                 setCertificateEntry("test-ca", caCertificate)
@@ -315,9 +309,11 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 }
             }
             val previewAck = readTargetAck()
-            assertThat(protocol.classify(prepare, previewAck, targetAt + 2)).isEqualTo(AapsV3TargetAck.PREVIEW)
-            val commit = protocol.commit(prepare, previewAck, 8, targetAt + 2)
-            publishTarget("bolus_commit", commit)
+            assertThat(journal.acknowledge("synthetic-meal", protocol, previewAck, targetAt + 2).phase)
+                .isEqualTo(AapsV3TargetPhase.PREVIEW)
+            val committed = journal.commit("synthetic-meal", protocol, targetAt + 2) {}
+            assertThat(committed.phase).isEqualTo(AapsV3TargetPhase.COMMITTED)
+            assertThat(committed.publication).isNotNull()
             running.outputStream.write("COMMIT_READY\n".toByteArray())
             running.outputStream.flush()
             assertThat(process.waitFor(90, TimeUnit.SECONDS)).isTrue()
@@ -325,7 +321,9 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             val result = outputFile.readLines().singleOrNull { it.startsWith("STOCK_RC1_ENTRIES_") }
             assertThat(result).isEqualTo("STOCK_RC1_ENTRIES_OK")
             assertThat(process.exitValue()).isEqualTo(0)
-            assertThat(protocol.classify(commit, readTargetAck(), targetAt + 4)).isEqualTo(AapsV3TargetAck.APPLIED)
+            assertThat(journal.acknowledge("synthetic-meal", protocol, readTargetAck(), targetAt + 4).phase)
+                .isEqualTo(AapsV3TargetPhase.APPLIED)
+            assertThat(journal.pending()).isNull()
             protocol.close()
             targetKey.fill(0)
             assertThat(db.localNightscoutV3Dao().count()).isEqualTo(11)
