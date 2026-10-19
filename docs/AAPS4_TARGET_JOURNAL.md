@@ -53,12 +53,14 @@ the cross-process SDK fixture. They are not real pump/device acceptance.
 Full local Copilot test/lint/build passed in6m48s:6438 passed,six prior skips,
 zero failures/errors,zero lint errors. The40109883-byte APK retained all6913
 compiled app classes. Full backend passed1942 cases with27 optional skips after
-the isolated test-helper polling correction. Exact-source CI remains separate.
+the isolated test-helper polling correction. Exact-source87ce15e8 Verify run
+39315169287 subsequently passed all jobs.
 
 ## Live Admission
 
-The journal is not yet wired to Target Manager, a pairing UI, a background ACK
-owner or authenticated `/storage` notifications. Keystore provisioning still needs
+The journal is not yet wired to Target Manager, a pairing UI or a background ACK
+owner. Authenticated `/storage` notifications now cover its committed outbox;
+see LOCAL_NS_V3_STORAGE.md. Keystore provisioning still needs
 device verification. Whole-client v3 exchange, TLS trust and JugglucoNG continuity
 must pass before the AAPS USB upgrade. No live therapy test is authorized by a
 synthetic fixture or by successful compilation.

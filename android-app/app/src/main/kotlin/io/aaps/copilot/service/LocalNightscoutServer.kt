@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import androidx.room.InvalidationTracker
 import androidx.room.withTransaction
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -23,6 +24,8 @@ import io.aaps.copilot.data.remote.nightscout.NightscoutTreatment
 import io.aaps.copilot.data.remote.nightscout.NightscoutTreatmentRequest
 import io.aaps.copilot.config.AppSettingsStore
 import io.aaps.copilot.data.repository.AuditLogger
+import io.aaps.copilot.data.repository.LocalNightscoutV3Store
+import io.aaps.copilot.data.repository.LocalV3Collection
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.GlucoseValueResolver
 import io.aaps.copilot.data.repository.SyncRepository
@@ -491,10 +494,25 @@ class LocalNightscoutServer internal constructor(
         private val invalidationPolicy = LocalNightscoutInvalidationPolicy()
         private val v3Authentication = LocalNightscoutV3Authentication(authenticator)
         private val v3Entries = LocalNightscoutV3EntriesApi(db)
+        private val v3Store = LocalNightscoutV3Store(db)
+        private val storageGeneration = AtomicLong(0)
+        private val storageObserver = object : InvalidationTracker.Observer("local_ns_v3_documents") {
+            override fun onInvalidated(tables: Set<String>) {
+                storageGeneration.incrementAndGet()
+                socketSessions.values.forEach { session ->
+                    synchronized(session.monitor) { session.monitor.notifyAll() }
+                }
+            }
+        }
+
+        init {
+            db.invalidationTracker.addObserver(storageObserver)
+        }
 
         fun stopAndClear() {
             v3Authentication.close()
             try {
+                db.invalidationTracker.removeObserver(storageObserver)
                 socketSessions.values.forEach(::closeSocketSession)
                 stop()
             } finally {
@@ -725,13 +743,18 @@ class LocalNightscoutServer internal constructor(
                         }
                         val now = socketNowMs()
                         val pendingPong = active.awaitingPongSince
-                        if (active.authorized) active.lastSeenAt = now
+                        if (active.authorized || active.storageCursors.isNotEmpty()) active.lastSeenAt = now
+                        collectStorageChangesLocked(active)
+                        if (!socketUsableLocked(active)) {
+                            return textResponse(Response.Status.BAD_REQUEST, "unknown sid")
+                        }
                         if (pendingPong == null && now - active.lastPingAt >= SOCKET_PING_INTERVAL_MS) {
                             active.lastPingAt = now
                             active.awaitingPongSince = now
                             return@synchronized drainSocketPackets(active, heartbeat = true)
                         }
-                        if (active.outboundPackets.any { !it.startsWith("42") } ||
+                        if (active.outboundPackets.any { !it.startsWith("42") ||
+                                (it.startsWith("42/storage,") && active.storageCursors.isNotEmpty()) } ||
                             (active.authorized && (active.outboundPackets.isNotEmpty() || active.initialPackets.isNotEmpty()))) {
                             return@synchronized drainSocketPackets(active)
                         }
@@ -757,9 +780,9 @@ class LocalNightscoutServer internal constructor(
             val packets = ArrayList<String>()
             if (heartbeat) packets += ENGINE_PACKET_PING.toString()
             var bytes = if (heartbeat) 1 else 0
-            fun drain(queue: MutableList<String>, controlOnly: Boolean = false) {
+            fun drain(queue: MutableList<String>, accepts: (String) -> Boolean = { true }) {
                 while (queue.isNotEmpty() && packets.size < socketLimits.maxOutboundPackets) {
-                    val index = if (controlOnly) queue.indexOfFirst { !it.startsWith("42") } else 0
+                    val index = queue.indexOfFirst(accepts)
                     if (index < 0) break
                     val next = queue[index]
                     val addedBytes = next.toByteArray(Charsets.UTF_8).size + if (packets.isEmpty()) 0 else 1
@@ -768,11 +791,14 @@ class LocalNightscoutServer internal constructor(
                     bytes += addedBytes
                 }
             }
-            drain(session.outboundPackets, controlOnly = true)
+            drain(session.outboundPackets) { !it.startsWith("42") }
             if (session.authorized) {
                 drain(session.initialPackets)
                 // Live deltas must not advance the client's resume cursor ahead of initial history.
-                if (session.initialPackets.isEmpty()) drain(session.outboundPackets)
+                if (session.initialPackets.isEmpty()) drain(session.outboundPackets) { !isStoragePacket(it) }
+            }
+            if (session.storageCursors.isNotEmpty()) {
+                drain(session.outboundPackets) { it.startsWith("42/storage,") }
             }
             session.outboundBytes = session.outboundPackets.sumOf { it.toByteArray(Charsets.UTF_8).size } +
                 (session.outboundPackets.size - 1).coerceAtLeast(0)
@@ -825,7 +851,7 @@ class LocalNightscoutServer internal constructor(
                 }
                 synchronized(active.monitor) {
                     if (!socketUsableLocked(active)) return textResponse(Response.Status.BAD_REQUEST, "unknown sid")
-                    if (active.authorized) active.lastSeenAt = socketNowMs()
+                    if (active.authorized || active.storageSubscribed) active.lastSeenAt = socketNowMs()
                 }
                 return textResponse(Response.Status.OK, "ok")
             } finally {
@@ -910,7 +936,7 @@ class LocalNightscoutServer internal constructor(
         private fun pruneStaleSocketSessionsLocked(now: Long) {
             socketSessions.entries.forEach { entry ->
                 val session = entry.value
-                val expiryBase = if (session.authorized) session.lastSeenAt else session.createdAt
+                val expiryBase = if (session.authorized || session.storageSubscribed) session.lastSeenAt else session.createdAt
                 if (now - expiryBase > socketLimits.sessionTtlMs) {
                     closeSocketSession(session)
                 }
@@ -956,6 +982,10 @@ class LocalNightscoutServer internal constructor(
 
         private fun handleSocketPacket(session: SocketSession, raw: String) {
             val packet = parseSocketPacket(raw) ?: return
+            if (packet.namespace == "/storage") {
+                handleStoragePacket(session, packet)
+                return
+            }
             if (packet.namespace != "/" && packet.namespace.isNotBlank()) return
 
             when (packet.type) {
@@ -976,6 +1006,107 @@ class LocalNightscoutServer internal constructor(
 
                 SOCKET_PACKET_EVENT -> handleSocketEvent(session, packet)
             }
+        }
+
+        private fun handleStoragePacket(session: SocketSession, packet: ParsedSocketPacket) {
+            synchronized(session.monitor) {
+                if (!socketUsableLocked(session)) return
+                when (packet.type) {
+                    SOCKET_PACKET_CONNECT -> {
+                        clearStorageLocked(session)
+                        session.storageConnected = true
+                        enqueueSocketPacket(session, SOCKET_PACKET_CONNECT, null,
+                            JsonObject().apply { addProperty("sid", session.socketSid) }, "/storage")
+                    }
+                    SOCKET_PACKET_DISCONNECT -> {
+                        clearStorageLocked(session)
+                        session.storageConnected = false
+                    }
+                    SOCKET_PACKET_EVENT -> {
+                        val args = packet.payload?.asJsonArrayOrNull() ?: return
+                        if (args.size() == 0 || args[0].asStringOrNull() != "subscribe") return
+                        clearStorageLocked(session)
+                        if (packet.packetId == null) return
+                        val body = if (args.size() == 2) args[1].asJsonObjectOrNull() else null
+                        val token = body?.get("accessToken")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+                        val requested = body?.get("collections")?.asJsonArrayOrNull()
+                        val names = requested?.mapNotNull { value ->
+                            value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+                        }.orEmpty()
+                        val allowed = LocalV3Collection.entries.associateBy { storageCollectionName(it) }
+                        val valid = session.storageConnected && body?.keySet() == setOf("accessToken", "collections") &&
+                            names.isNotEmpty() && names.size <= allowed.size && names.size == requested?.size() &&
+                            names.distinct().size == names.size && names.all { it in allowed } && authenticator.acceptsRawSecret(token)
+                        val heads = if (valid) runCatching { runBlocking { v3Store.lastModified() } }.getOrNull() else null
+                        if (heads != null) {
+                            session.storageCursors.putAll(names.associate { allowed.getValue(it) to heads.getValue(allowed.getValue(it)) })
+                            session.storageSubscribed = true
+                            session.storageSeenGeneration = -1
+                            session.lastSeenAt = socketNowMs()
+                        }
+                        val response = JsonObject().apply {
+                            addProperty("success", heads != null)
+                            if (heads != null) add("collections", gson.toJsonTree(names))
+                        }
+                        enqueueSocketAck(session, packet.packetId, listOf(response), "/storage")
+                    }
+                }
+            }
+        }
+
+        private fun clearStorageLocked(session: SocketSession) {
+            session.storageCursors.clear()
+            session.storageSubscribed = false
+            session.storageSeenGeneration = -1
+            session.outboundPackets.removeAll(::isStoragePacket)
+            updateOutboundBytes(session)
+        }
+
+        // Invalidation only wakes readers. Revisions are read after commit, including internal
+        // journal writes; no HTTP callback or volatile notification is the source of truth.
+        private fun collectStorageChangesLocked(session: SocketSession) {
+            if (session.storageCursors.isEmpty()) return
+            val generation = storageGeneration.get()
+            if (session.storageSeenGeneration == generation) return
+            try {
+                session.storageCursors.toMap().forEach { (collection, after) ->
+                    val page = runBlocking { v3Store.history(collection, after, minOf(socketLimits.maxOutboundPackets, 1000)) }
+                    if (page.hasMore) throw IllegalStateException("storage_backlog")
+                    page.documents.forEach { row ->
+                        val payload = JsonObject().apply {
+                            addProperty("colName", storageCollectionName(collection))
+                            if (row.deleted) addProperty("identifier", row.identifier)
+                            else add("doc", JsonParser.parseString(row.payloadJson).asJsonObject.apply {
+                                addProperty("identifier", row.identifier)
+                                addProperty("srvCreated", row.createdRevision)
+                                addProperty("srvModified", row.modifiedRevision)
+                                addProperty("subject", row.source)
+                                addProperty("modifiedBy", row.source)
+                                addProperty("isReadOnly", row.readOnly)
+                                addProperty("isValid", true)
+                            })
+                        }
+                        val event = if (row.deleted) "delete" else if (row.createdRevision == row.modifiedRevision) "create" else "update"
+                        enqueueSocketEvent(session, event, payload, "/storage")
+                        if (session.closedStatus != null) return
+                    }
+                    session.storageCursors[collection] = page.nextCursor
+                }
+                session.storageSeenGeneration = generation
+            } catch (_: Exception) {
+                // A fresh connection performs native HTTP catch-up; never silently skip a revision.
+                closeSocketSession(session, Response.Status.SERVICE_UNAVAILABLE)
+            }
+        }
+
+        private fun storageCollectionName(collection: LocalV3Collection) =
+            if (collection == LocalV3Collection.FOOD) "foods" else collection.wireName
+
+        private fun isStoragePacket(packet: String) = packet.length > 2 && packet.substring(2).startsWith("/storage,")
+
+        private fun updateOutboundBytes(session: SocketSession) {
+            session.outboundBytes = session.outboundPackets.sumOf { it.toByteArray(Charsets.UTF_8).size } +
+                (session.outboundPackets.size - 1).coerceAtLeast(0)
         }
 
         private fun parseSocketPacket(raw: String): ParsedSocketPacket? {
@@ -1051,8 +1182,8 @@ class LocalNightscoutServer internal constructor(
                 session.authorized = false
                 session.initializing = authorization.authorized
                 session.initialPackets.clear()
-                session.outboundPackets.clear()
-                session.outboundBytes = 0
+                session.outboundPackets.removeAll { !isStoragePacket(it) }
+                updateOutboundBytes(session)
             }
 
             fun acknowledge() {
@@ -1474,7 +1605,8 @@ class LocalNightscoutServer internal constructor(
         private fun enqueueSocketEvent(
             session: SocketSession,
             eventName: String,
-            payload: JsonObject
+            payload: JsonObject,
+            namespace: String = "/"
         ) {
             val data = JsonArray().apply {
                 add(eventName)
@@ -1484,21 +1616,24 @@ class LocalNightscoutServer internal constructor(
                 session = session,
                 packetType = SOCKET_PACKET_EVENT,
                 packetId = null,
-                payload = data
+                payload = data,
+                namespace = namespace
             )
         }
 
         private fun enqueueSocketAck(
             session: SocketSession,
             ackId: Int,
-            args: List<JsonElement>
+            args: List<JsonElement>,
+            namespace: String = "/"
         ) {
             val payload = JsonArray().apply { args.forEach { add(it) } }
             enqueueSocketPacket(
                 session = session,
                 packetType = SOCKET_PACKET_ACK,
                 packetId = ackId,
-                payload = payload
+                payload = payload,
+                namespace = namespace
             )
         }
 
@@ -1506,9 +1641,11 @@ class LocalNightscoutServer internal constructor(
             session: SocketSession,
             packetType: Int,
             packetId: Int?,
-            payload: JsonElement?
+            payload: JsonElement?,
+            namespace: String = "/"
         ) {
             val builder = StringBuilder().append(packetType)
+            if (namespace != "/") builder.append(namespace).append(',')
             packetId?.let { builder.append(it) }
             payload?.let { builder.append(gson.toJson(it)) }
             enqueueEnginePacket(session, "$ENGINE_PACKET_MESSAGE${builder}")
@@ -1539,6 +1676,9 @@ class LocalNightscoutServer internal constructor(
                 session.outboundBytes = 0
                 if (session.closedStatus == null) session.closedStatus = status
                 session.authorized = false
+                session.storageConnected = false
+                session.storageSubscribed = false
+                session.storageCursors.clear()
                 session.initializing = false
                 session.monitor.notifyAll()
                 if (session.activePacketHandlers == 0) {
@@ -2485,6 +2625,10 @@ class LocalNightscoutServer internal constructor(
             val source: String,
             @Volatile var connected: Boolean = false,
             @Volatile var authorized: Boolean = false,
+            var storageConnected: Boolean = false,
+            @Volatile var storageSubscribed: Boolean = false,
+            val storageCursors: MutableMap<LocalV3Collection, Long> = linkedMapOf(),
+            var storageSeenGeneration: Long = -1,
             @Volatile var fromTs: Long = 0L,
             @Volatile var outboundBytes: Int = 0,
             var closedStatus: Response.Status? = null,

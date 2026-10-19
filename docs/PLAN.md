@@ -35,14 +35,20 @@
 - [x] Publish device-status67c31893; PR39220180297/push39220174285 both passed.
 - [x] Resolve upstream JSON packaging conflict externally, retaining pristine source;
       real128 app tests, instrumented Kotlin compilation and release lint/build pass.
-- [ ] Verify published external JSON recipe regression checks in exact-head CI.
+- [x] Verify published external JSON recipe regression checks in exact-head CI.
 - [x] Add typed settings upsert/history/cleanup and target-only native ACK codec.
 - [x] Verify actual RC1 SDK wire/crypto both directions; focused115 passed/one prior skip.
-- [ ] Complete full checks/CI for settings and target codec before live integration.
+- [x] Complete full checks/CI for settings and target codec before live integration.
 - [ ] Add durable pairing/counter/command journal and interrupted-commit reconciliation.
 - [x] Add encrypted Room37 command journal with atomic wire outbox and no replay.
 - [x] Check focused encryption/lifecycle/cancellation/capacity/reopen and migrations.
-- [ ] Complete full local checks/CI for journal; finish pairing and live ACK owner.
+- [x] Complete full local checks/CI for journal:87ce15e8 Verify39315169287 succeeded.
+- [x] Add isolated /storage subscriptions and postcommit persistent live events.
+- [x] Check focused authentication/isolation/journal/rollback/restart/bounds cases.
+- [x] Complete full local storage checks and unchanged SDK push fixture:
+      6450 passed/six prior skips,lint/build/class-retention guard passed.
+- [ ] Inspect exact-source storage CI.
+- [ ] Finish owner pairing, shared Hello counter and live ACK owner.
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.

@@ -22,9 +22,13 @@ test/lint/build/size assessment. See AAPS4_TARGET_JOURNAL.md for live admission.
 
 The existing real-SDK fixture now also exercises settings and native target-only
 envelope/ACK codecs. A bounded child/parent handshake verifies native preview
-before commit publication. This is a synthetic wire peer, not the master executor
+before commit publication, then receives the commit through authenticated
+`/storage` polling before native DTO/HMAC verification. The same peer subscribes
+with the six unchanged stock collection names and verifies a settings update.
+This is a synthetic wire peer, not the actual Android socket/master executor
 or an AAPS device rollout. No clinical rows or READY transition follow. See
-LOCAL_NS_V3_SETTINGS.md and AAPS4_TARGET_PROTOCOL.md; durable/live admission remains.
+LOCAL_NS_V3_SETTINGS.md, LOCAL_NS_V3_STORAGE.md and AAPS4_TARGET_PROTOCOL.md;
+durable pairing/live admission remains.
 
 Verify now pins a pristine AAPS RC1 checkout and compiles its JVM SDK with an
 external test driver using Java21, then runs Copilot tests/lint/build on Java17.

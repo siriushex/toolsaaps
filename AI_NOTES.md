@@ -1,3 +1,25 @@
+# Isolated V3 Storage Notifications - 2026-10-20
+
+- Three initial TLS regressions reproduced missing /storage. Separate native raw
+  token subscribe, namespace state/queues and revocation now preserve root access
+  isolation without marking READY. Accept stock notification names, not unsupported
+  collection HTTP permissions. Root reauthorization retains storage packets.
+- A listener-scoped Room observer wakes long polls; postcommit history supplies
+  bounded per-collection ordered events, including internal journal transactions.
+  Deletion carries no executable settings payload. Overflow/read failure closes
+  instead of skipping; reconnect catch-up remains native HTTP-owned. No timer or
+  new database schema. Stop unregisters observer and revokes all sessions.
+- Twelve storage cases passed, covering rollback, journal no-replay,
+  reauthorization, order, deletion, reconnect, restart/TTL and backlog overflow.
+  The unchanged SDK fixture verifies settings and signed target commit through
+  the polling namespace; actual fixture ran4.305s,not skipped. Full local Android
+  test/lint/build passed8m31s:6450 passed/six prior skips,zero failures/errors,
+  zero lint errors. APK40109873bytes retained all6917 compiled app classes;
+  icon-only shrinking/size guard passed. Exact-source CI remains next.
+- Pairing, background ACK ownership, Target Manager, typed remaining collections
+  and clinical promotion remain unconnected. AAPS source and phone unchanged;
+  current escalated ADB list empty. No live therapy commands or AI changes.
+
 # Durable Native Target Journal - 2026-10-19
 
 - Room36->37 adds private encrypted rows only. Separate Keystore AES-GCM format

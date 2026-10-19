@@ -2,6 +2,14 @@
 
 ## AAPS Treatment Transport Capability
 
+- Storage namespace authentication cannot authorize root or mark READY. Root
+  authorization cannot release storage events; its reauthorization preserves
+  separately authorized storage packets. Failed storage resubscribe revokes it.
+- Storage notifications read postcommit persistent revisions, including internal
+  outbox writes. No rolled-back event, cursor regression or silent backlog skip.
+  Overflow/read failure closes the session; reconnect catch-up remains HTTP-owned.
+- Deleted settings have no executable document in their notification. Service
+  stop unregisters the database observer and revokes every namespace/session.
 - Native target counter, private receipt and wire publication commit atomically.
   Repeated IDs cannot republish; changed payloads and competing owners are refused.
   An unknown published commit holds ownership across restart with no fallback.

@@ -82,6 +82,7 @@ The bounded child process and temporary files are cleaned up. CI requires this
 test instead of silently skipping an unavailable SDK fixture.
 
 This is not Android CA trust, worker scheduling or pump acceptance. Other typed
-collections, clinical projection/source arbitration, storage notifications,
-paired signed Client Control, initial-load recovery and retention UX remain gates.
+collections, clinical projection/source arbitration, paired signed Client Control,
+initial-load recovery and retention UX remain gates. Storage notifications are
+implemented separately in LOCAL_NS_V3_STORAGE.md and do not grant those capabilities.
 Do not migrate the device or advertise full stock compatibility on this result.

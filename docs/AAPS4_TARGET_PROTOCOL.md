@@ -43,9 +43,9 @@ or a real therapy command.
 The codec itself does not enroll a pairing or control Target Manager. The separate
 Room37 journal provides durable counters, encrypted ownership/receipts and atomic
 settings publication; see AAPS4_TARGET_JOURNAL.md. This is not a live controller
-integration. Before live use: secure pairing/revocation, background
-restart/timeout/unknown reconciliation, authenticated
-storage events, clinical v3/source arbitration, Android TLS trust, actual CGM/pump
+integration. Authenticated storage events now include journal publication; see
+LOCAL_NS_V3_STORAGE.md. Before live use: secure pairing/revocation, background
+restart/timeout/unknown reconciliation, clinical v3/source arbitration, Android TLS trust, actual CGM/pump
 compatibility, settings export and device acceptance. Preserve armed/ownership/
 freshness/safety checks before prepare and again before commit. Unknown published
 commands must not be automatically re-sent or fall back to a legacy channel.

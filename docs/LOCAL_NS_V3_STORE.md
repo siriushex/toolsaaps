@@ -81,8 +81,9 @@ These are synthetic local results, not device tests.
 
 The entries adapter now implements typed validation, HTTP filters/envelopes/weak
 ETags and source deduplication; see LOCAL_NS_V3_ENTRIES.md. Other collections,
-clinical projection, storage subscriptions, native paired Client Control,
+clinical projection, native paired Client Control,
 Android TLS trust and whole-app/device acceptance remain separate stages.
+Storage subscriptions now read committed revisions; see LOCAL_NS_V3_STORAGE.md.
 Do not enable an unfinished route on the strength of local persistence tests.
 Rollback to an older APK after schema 36 is not supported without an explicit
 compatible migration; never use destructive Room fallback to bypass this.

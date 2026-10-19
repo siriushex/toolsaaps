@@ -17,8 +17,10 @@ create/read is specified in LOCAL_NS_V3_DEVICE_STATUS.md. Settings wire storage
 supports native upsert/ACK/offer lifecycles (LOCAL_NS_V3_SETTINGS.md). The separate
 target-only signed codec verifies prepare/commit ACKs (AAPS4_TARGET_PROTOCOL.md),
 but is not a live dispatcher. Other collections still return501 with empty
-permissions. Whole-app sync, storage subscription, live Client Control and READY
-remain unconnected; stored documents cannot grant clinical authority.
+permissions. The isolated storage subscription now reads committed revisions and
+wakes polling clients through Room invalidation (LOCAL_NS_V3_STORAGE.md).
+Whole-app sync, live Client Control and READY remain unconnected; stored
+documents and subscription credentials cannot grant clinical authority.
 Room37 adds an encrypted single-owner target journal and atomic command outbox
 (AAPS4_TARGET_JOURNAL.md), not a registered controller. Receipt/counter allocation
 and wire publication commit together; unknown commit holds ownership across restart.

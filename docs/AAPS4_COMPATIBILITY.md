@@ -98,8 +98,10 @@ LOCAL_NS_V3_ENTRIES.md. Immutable device-status create/read is described in
 LOCAL_NS_V3_DEVICE_STATUS.md. Settings wire CRUD is now available; see
 LOCAL_NS_V3_SETTINGS.md. The native target codec has a real SDK DTO/crypto and
 TLS/settings fixture in AAPS4_TARGET_PROTOCOL.md. That fixture is not execution
-of the master handler. Treatments/profile/food still fail501. Clinical ingestion,
-storage notifications and live native control remain unconnected.
+of the master handler. Treatments/profile/food still fail501. Clinical ingestion
+and live native control remain unconnected. Authenticated storage notifications
+now read committed revisions, including direct journal writes; see
+LOCAL_NS_V3_STORAGE.md. This does not activate pairing or clinical routing.
 
 Legacy capability checks and the bounded refresh/bearer exchange do not establish
 complete stock-AAPS compatibility. The auth-only stage is specified separately in

@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Isolated Storage Namespace (2026-10-20)
+
+- Existing loopback TLS only. Exact raw-token comparison, closed collection
+  names/schema and bounded packets; no token/payload logging or new credential.
+- Namespace authorization, queues, disconnect and reauthorization are separate
+  from legacy root. Root cannot release storage events or lose them on reauth.
+  Invalid subscription replacement revokes prior access, including malformed
+  subscribe requests. Neither successful subscribe nor wire rows grant READY.
+- Listener-scoped Room invalidation wakes polls; transactional revision reads
+  supply postcommit ordered documents, including the target journal's outbox.
+  Rollbacks have no event. Deleted settings never carry an executable payload.
+- Backlog/read/byte failure closes before partial delivery, retaining durable
+  HTTP catch-up. No cache eviction, new timer, clinical writer or control owner.
+  Stop unregisters the observer and revokes sessions; idle expiry includes active
+  storage peers. Native Android trust/master acceptance remain unproved.
+- Pairing, shared Hello counter and authorized roster, background ACK owner,
+  clinical projection and Target Manager policy admission remain required.
+
 ## Private Native Target Journal (2026-10-19)
 
 - Room37 adds one private table only. AES256-GCM, separate Android Keystore alias,
@@ -14,7 +32,7 @@
   snapshot rollback is not prevented by row AAD; native replay checks still apply.
 - Cipher tests use an injected synthetic key with the production envelope format;
   no claim of real device Keystore or master-executor acceptance. Pairing UI,
-  background ACK owner, storage subscription and live controller remain unconnected.
+  background ACK owner and live controller remain unconnected; storage is above.
 
 ## Native Settings And Target Codec (2026-10-19)
 
@@ -28,7 +46,7 @@
   advisor, profile or running-mode request. Keys are copied/erased and not logged.
 - Actual SDK fixture checks both crypto directions and typed messages without
   a master action or clinical projection. Pairing, durable counters/ownership,
-  subscription, live policy admission and Android trust remain separate gates.
+  live policy admission and Android trust remain separate gates; storage is above.
 
 ## Local V3 Device Status (2026-10-19)
 

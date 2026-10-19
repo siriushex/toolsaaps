@@ -6,6 +6,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageInfo
 import android.content.pm.ResolveInfo
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.google.gson.Gson
@@ -16,6 +17,9 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.repository.AuditLogger
+import io.aaps.copilot.data.repository.LocalNightscoutV3Store
+import io.aaps.copilot.data.repository.LocalV3Collection
+import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.CarbsSendThrottle
 import io.aaps.copilot.data.repository.TempTargetSendThrottle
@@ -90,6 +94,253 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         server?.stop()
         db.close()
         importedDatabaseName?.let(context::deleteDatabase)
+    }
+
+    @Test
+    fun storageSubscribeUsesRawCredentialAndDoesNotGrantLegacyReadiness() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime, socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openSocket(peer, port)
+        postSocket(peer, port, sid, "40/storage,")
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).startsWith("40/storage,")
+        listOf(apiSecretSha1, "Bearer $localAccessToken", "wrong").forEach { token ->
+            postSocket(peer, port, sid, storageSubscribe(token))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        }
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("43/storage,7[{\"success\":true")
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(getCode(peer, port, "/api/v1/treatments.json", apiSecretSha1)).isEqualTo(503)
+        assertThat(Gson().toJson(db.auditLogDao().observeLatest(100).first())).doesNotContain(localAccessToken)
+    }
+
+    @Test
+    fun storagePushesCommittedInternalWritesInOrderAndSurvivesRootReauthorization() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime, socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 50))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        store.create(storageInput("internal-first"))
+        store.create(storageInput("internal-second"))
+        postSocket(peer, port, sid, "40")
+        postSocket(peer, port, sid, "421[\"authorize\",{\"secret\":\"invalid\"}]")
+        val packets = pollStorageEvents(peer, port, sid, 2)
+        assertThat(packets.map { it.getAsJsonObject("doc")["identifier"].asString })
+            .containsExactly("internal-first", "internal-second").inOrder()
+        assertThat(packets.map { it.getAsJsonObject("doc")["srvModified"].asLong })
+            .isInOrder()
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
+    fun storageLongPollWakesAfterCommitButNeverPublishesRolledBackWrites() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        try {
+            db.withTransaction {
+                store.create(storageInput("rolled-back"))
+                error("synthetic rollback")
+            }
+        } catch (_: IllegalStateException) { }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val pending = executor.submit<String> { getSocket(peer, port, sid).use { it.body!!.string() } }
+            store.create(storageInput("after-commit"))
+            val packet = pending.get(3, TimeUnit.SECONDS)
+            assertThat(packet).contains("after-commit")
+            assertThat(packet).doesNotContain("rolled-back")
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun storageRequiresConnectionAndClosedCollectionSchemaAndRevokesFailedResubscribe() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openSocket(peer, port)
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        postSocket(peer, port, sid, "40/storage,")
+        getSocket(peer, port, sid).close()
+        listOf(emptyList(), listOf("settings", "settings"), listOf("unknown"), listOf("food")).forEach { names ->
+            postSocket(peer, port, sid, storageSubscribe(collections = names))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        }
+        postSocket(peer, port, sid, storageSubscribe())
+        getSocket(peer, port, sid).close()
+        LocalNightscoutV3Store(db).create(storageInput("revoked-data"))
+        postSocket(peer, port, sid, storageSubscribe("wrong"))
+        postSocket(peer, port, sid, "40")
+        postSocket(peer, port, sid, authorizePacket())
+        val body = getSocket(peer, port, sid).use { it.body!!.string() }
+        assertThat(body).contains("\"success\":false")
+        assertThat(body).doesNotContain("revoked-data")
+    }
+
+    @Test
+    fun storageChangesUseSubscribedCollectionOnlyAndDeletionHasNoExecutablePayload() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        store.create(storageInput("not-subscribed", LocalV3Collection.ENTRIES))
+        val created = store.create(storageInput("setting"))
+        assertThat(pollStorageEvents(peer, port, sid, 1).single()["colName"].asString).isEqualTo("settings")
+        val edited = store.update(storageInput("setting").copy(payloadJson = """{"opaque":"edited"}"""), created.document.modifiedRevision)
+        assertThat(pollStorageEvents(peer, port, sid, 1).single().getAsJsonObject("doc")["opaque"].asString).isEqualTo("edited")
+        store.delete(LocalV3Collection.SETTINGS, "setting", edited.document.modifiedRevision)
+        val deleted = pollStorageEvents(peer, port, sid, 1).single()
+        assertThat(deleted.keySet()).containsExactly("colName", "identifier")
+        assertThat(deleted["identifier"].asString).isEqualTo("setting")
+    }
+
+    @Test
+    fun storageJournalTransactionPublishesOnceWithoutHttpWrite() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val key = javax.crypto.spec.SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
+        val cipher = KeystoreAapsV3JournalCipher { key }
+        val owner = AapsV3TargetJournal(db, cipher)
+        owner.bind("11111111-2222-4333-8444-555555555555")
+        AapsV3TargetProtocol(ByteArray(32) { it.toByte() }).use { protocol ->
+            val target = AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon")
+            owner.prepare("synthetic-storage", target, protocol, System.currentTimeMillis()) {}
+            val doc = pollStorageEvents(peer, port, sid, 1).single().getAsJsonObject("doc")
+            assertThat(doc.getAsJsonObject("envelope")["type"].asString).isEqualTo("batch_prepare")
+            assertThat(owner.prepare("synthetic-storage", target, protocol, System.currentTimeMillis()) {}.publication).isNull()
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("6")
+        }
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
+    fun storageDisconnectDoesNotCloseRootAndRequiresFreshSubscribe() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        postSocket(peer, port, sid, "40")
+        getSocket(peer, port, sid).close()
+        postSocket(peer, port, sid, "41/storage,")
+        LocalNightscoutV3Store(db).create(storageInput("while-disconnected"))
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("6")
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        postSocket(peer, port, sid, "40/storage,")
+        getSocket(peer, port, sid).close()
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+        // Reconnect catch-up is HTTP-owned; a new live event must follow the new head.
+        LocalNightscoutV3Store(db).create(storageInput("after-reconnect"))
+        assertThat(pollStorageEvents(peer, port, sid, 1).single().getAsJsonObject("doc")["identifier"].asString)
+            .isEqualTo("after-reconnect")
+    }
+
+    @Test
+    fun storageBacklogOverflowClosesSessionWithoutPartialDeliveryOrDroppingPersistentHistory() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(maxOutboundPackets = 2, pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        repeat(3) { store.create(storageInput("backlog-$it")) }
+        assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+        assertThat(store.history(LocalV3Collection.SETTINGS, 0, 10).documents).hasSize(3)
+        val fresh = openStorage(peer, port)
+        store.create(storageInput("new-live"))
+        assertThat(pollStorageEvents(peer, port, fresh, 1).single().getAsJsonObject("doc")["identifier"].asString)
+            .isEqualTo("new-live")
+    }
+
+    @Test
+    fun storageActivePollingRefreshesTtlButStopRevokesAllNamespaces() = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get,
+            socketLimits = LocalNightscoutSocketLimits(sessionTtlMs = 100, pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        repeat(4) {
+            clock.addAndGet(80)
+            assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(200)
+        }
+        server!!.stop()
+        assertThat(server!!.update(true, port)).isEqualTo(port)
+        assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+        val fresh = openStorage(peer, port)
+        LocalNightscoutV3Store(db).create(storageInput("after-restart"))
+        assertThat(pollStorageEvents(peer, port, fresh, 1).single().getAsJsonObject("doc")["identifier"].asString)
+            .isEqualTo("after-restart")
+    }
+
+    @Test
+    fun storageMalformedSubscribeRevokesPriorAccessAndCannotBeRescuedByRoot() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        postSocket(peer, port, sid, "42/storage,9[\"subscribe\"]")
+        LocalNightscoutV3Store(db).create(storageInput("after-malformed"))
+        postSocket(peer, port, sid, "40")
+        postSocket(peer, port, sid, authorizePacket())
+        val body = getSocket(peer, port, sid).use { it.body!!.string() }
+        assertThat(body).contains("43/storage,9[{\"success\":false")
+        assertThat(body).doesNotContain("after-malformed")
+    }
+
+    @Test
+    fun storageOversizedEventClosesBeforeDeliveryAndRetainsWireRow() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(maxOutboundBytes = 1024, pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        LocalNightscoutV3Store(db).create(storageInput("too-large").copy(payloadJson = Gson().toJson(mapOf("opaque" to "x".repeat(2048)))))
+        assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+        assertThat(db.localNightscoutV3Dao().get("settings", "too-large")).isNotNull()
+    }
+
+    @Test
+    fun storageConcurrentReadersAndCommitWakeupsDoNotBlockStopOrLoseHistory() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sessions = List(3) { openStorage(peer, port) }
+        val executor = Executors.newFixedThreadPool(4)
+        try {
+            val reads = sessions.map { sid -> executor.submit<String> { getSocket(peer, port, sid).use { it.body!!.string() } } }
+            LocalNightscoutV3Store(db).create(storageInput("all-peers"))
+            reads.forEach { assertThat(it.get(3, TimeUnit.SECONDS)).contains("all-peers") }
+            val stopped = executor.submit { server!!.stop() }
+            stopped.get(3, TimeUnit.SECONDS)
+            assertThat(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "all-peers")).isNotNull()
+        } finally {
+            executor.shutdownNow()
+        }
     }
 
     @Test
@@ -1769,6 +2020,36 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     private fun authorizePacket() = "421[\"authorize\",{\"client\":\"AndroidAPS\",\"secret\":\"$apiSecretSha1\"}]"
+
+    private fun storageSubscribe(token: String = localAccessToken, collections: List<String> = listOf("settings")) =
+        "42/storage,7" + Gson().toJson(listOf("subscribe",
+            mapOf("accessToken" to token, "collections" to collections)))
+
+    private fun openStorage(peer: OkHttpClient, port: Int): String = openSocket(peer, port).also { sid ->
+        postSocket(peer, port, sid, "40/storage,")
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("40/storage,")
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+    }
+
+    private fun storageInput(id: String, collection: LocalV3Collection = LocalV3Collection.SETTINGS) =
+        LocalV3DocumentInput(collection, id, "local-v3-target", 946_684_800_001,
+            """{"date":946684800001,"utcOffset":0,"app":"test","kind":"synthetic"}""")
+
+    private fun pollStorageEvents(peer: OkHttpClient, port: Int, sid: String, count: Int): List<com.google.gson.JsonObject> {
+        val result = mutableListOf<com.google.gson.JsonObject>()
+        repeat(20) {
+            val body = getSocket(peer, port, sid).use { response ->
+                assertThat(response.code).isEqualTo(200)
+                response.body!!.string()
+            }
+            body.split('\u001e').filter { it.startsWith("42/storage,") }.forEach { packet ->
+                result += JsonParser.parseString(packet.removePrefix("42/storage,")).asJsonArray[1].asJsonObject
+            }
+            if (result.size >= count) return result
+        }
+        error("storage events unavailable")
+    }
 
     private fun newServer(
         runtime: MutableLocalNightscoutRuntimeState,
