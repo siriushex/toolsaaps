@@ -1,3 +1,20 @@
+# Unified Product Research Proposal - 2026-10-21
+
+- Read pinned AAPS RC1 d5e7f5b, Copilot a6692924 and a private research checkout
+  of public JugglucoNG a02d85ea. Source inspection and official primary references
+  only: no unified build, phone action, server deployment or clinical validation.
+- Added docs/superpowers/plans/2026-10-21-unified-aaps-copilot-juggluco.md as a
+  proposed architecture/master plan. Recommend an AAPS host, bounded Copilot
+  adapters and NG sensor runtime; not three independent clinical writers/loops.
+- Recorded Application/WorkManager/DI/toolchain conflicts, JNI/provenance/license
+  gates, durable clinical/target ownership, alarms, offline AI, migration/signing,
+  phased tests and parallel ownership. License/ABI/sensor feasibility comes first.
+- This proposal does not replace current runtime decisions or remove native
+  control admission. Implementation and device migration remain separate gates.
+- Documentation validation:10phases/56unchecked tasks,15primary links,9pinned
+  source paths verified,balanced fences/no placeholders and clean diff checks.
+  No production code changed; runtime suites were not rerun for this plan.
+
 # Internet Update 0.1.5 - 2026-10-20
 
 - User authorized publication through the existing About updater. Advance to
