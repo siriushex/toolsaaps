@@ -1,3 +1,21 @@
+# Internet Update 0.1.5 - 2026-10-20
+
+- User authorized publication through the existing About updater. Advance to
+  versionCode6/versionName0.1.5 because the public channel already contains5.
+- Keep the reviewed Seen/onset implementation and installed signing identity.
+  No clinical, database, server AI, permission or phone configuration change.
+- Before pointer publication, verify local quality, exact-head CI, the signed
+  APK metadata/class/size gates and compatibility with the public release signer.
+  Retain the previous manifest/page privately and all immutable public APKs.
+- Acceptance requires independent HTTPS byte/hash/metadata/signature verification,
+  Range resume and unchanged service status. Publication is not phone installation.
+- Local frozen release checks:6510passed/6private-input skips/0failures or errors,
+  lint0errors/379existing warnings; compile/assemble passed. Recreate the generated
+  APK without incremental ZIP blocks:39534118bytes. Class/size/signature guards
+  passed with the same signer as the independently downloaded public build5.
+- Publication helper suite:14passed. Exact-head CI and live publication receipts
+  remain separate release gates; this source note does not claim deployment.
+
 # Seen Pause and Insulin Countdown - 2026-10-20
 
 - Reproduced two failures before implementation: Seen reused the short repeat
