@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Treatment Wire Stage
+
+LOCAL_NS_V3_TREATMENTS.md reuses the existing authenticated listener/Room37 store.
+No schema, credential, background worker, clinical writer or AAPS source change.
+The real pinned SDK fixture now also uploads/reads/patches/deletes treatments and
+preserves record ICfg and canonical native units. Keep full test/lint/build,
+stock SDK and APK guards enabled. Profile/food and clinical/master admission stay
+closed; never remove the native publication lock to install this partial stage.
+
 ## Native Pairing Stage
 
 See AAPS4_PAIRING.md. The existing SDK fixture now starts with real native PIN

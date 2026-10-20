@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Treatment Wire Boundary (2026-10-20)
+
+- MUST before migration: two external mock regressions on pinned RC1 confirm
+  expired commits can reach the executor after settings/Executing-ACK delay.
+  Captured verification time is stale across suspension. A receiver-only clock
+  change must not be assumed to cover executor/queue delays. No fix or live
+  acceptance is claimed here; Copilot's production native admission stays closed.
+
+- Existing loopback TLS/bearer boundary only; no anonymous route or new authority.
+  Closed primitive schemas, finite bounded JSON, exact time/duration/units and
+  nested ICfg checks prevent silent native mapper losses and unit fallback.
+- Atomic identity/revision/replay checks, strict immutable acquisition fields,
+  CAS patches, permanent tombstones and read-only protection reuse the wire store.
+  Page size includes metadata; no partial-success history or retention purge.
+- Actual native mmol mismatch reproduced and corrected. No wire treatment can
+  become an application ACK, dispatch a command or bypass clinical admission.
+  Read-only phone TLS/CGM diagnostics are not an RC1 rollout or Android trust proof.
+
 ## Native Pairing And Route Isolation (2026-10-20)
 
 - Strict native PBKDF2/GCM PIN unwrap, bounded offers/schema/expiry and persisted

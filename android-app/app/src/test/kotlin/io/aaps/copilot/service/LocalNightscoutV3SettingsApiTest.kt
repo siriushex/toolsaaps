@@ -145,6 +145,7 @@ class LocalNightscoutV3SettingsApiTest {
         val status = api.handle("GET", "/api/v3/status", emptyMap())
         val permissions = body(status)["result"]!!.jsonObject["apiPermissions"]!!.jsonObject
         assertEquals("crud", permissions["settings"]!!.jsonPrimitive.content)
-        assertEquals("", permissions["treatments"]!!.jsonPrimitive.content)
+        assertEquals("crud", permissions["treatments"]!!.jsonPrimitive.content)
+        assertEquals("", permissions["profile"]!!.jsonPrimitive.content)
     }
 }

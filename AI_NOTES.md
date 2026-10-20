@@ -1,3 +1,39 @@
+# RC1 Treatment Wire Exchange - 2026-10-20
+
+- Ten new adapter tests first failed against the missing501 boundary. Add typed
+  treatment CRUD/history, stable quantity-independent identity, partial PATCH,
+  CAS/read-only/tombstones, strict native schemas, durations and per-record ICfg.
+- Expand the real unchanged RC1 SDK TLS fixture through bolus, carbs and target
+  upload/read/edit/delete before the existing PIN/native command checks. It
+  exposed the native mmol spelling; retained the RED, then normalize the known
+  alias instead of allowing its silent mg/dl fallback. Focused assessment passed;
+  native reread/create then exposed its nonglycemic mg/dl default. Retain that
+  second RED and normalize the native default without guessing glycemic units.
+  Add actual file-backed reopen/tombstone checks.
+- Source review added native emulated-basal coverage. Its separate RED confirmed
+  wrongly refused child metadata. Preserve/validate child-only provenance and
+  recursively normalize units; add actual SDK extended create/read. The first
+  full assessment was stopped before completion as this coverage changed; it is
+  not admitted as the final full verification.
+- Final107 focused cases pass106/one prior skip; SDK3.599s,not skipped. Final full
+  test/lint/build passes15m30s:6495 passed/six prior skips,zero failures/errors,
+  all12 adapter cases and SDK3.710s passed. Lint zero errors/378 existing warnings/
+  eight hints; APK48175941bytes retains all7003 app classes, icon/size guard passes.
+  Frozen main/test/driver hashes remain unchanged. Exact-source CI remains next.
+- Read-only intended Redmi checks find TLS localhost/127.0.0.1 SANs and fresh
+  AAPS processing of the standard BgEstimate action each minute. No medical
+  payload/credential was retrieved; temporary TLS USB tunnel removed. Stock
+  Android CA trust and post-update continuity remain separate admission gates.
+  Pristine RC1 source worker/plugin tests passed8/8, no failures/errors/skips.
+- Two external mock-only master regressions then confirmed executor invocation
+  after the signed deadline across settings retrieval/Executing ACK. Upstream
+  source remains unchanged. This is an unfixed migration gate, not a live pump
+  operation. Deadline propagation must be reviewed through the final executor.
+- This is wire storage, not clinical promotion, an applied target or a pump test.
+  Profile/food and master-handler admission remain unfinished. Production native
+  publication stays locked; AAPS source/phone/therapy unchanged. Details:
+  docs/LOCAL_NS_V3_TREATMENTS.md. Prior pairing e8fa014a CI39383075611 passed.
+
 # Native Pairing And Target Route Isolation - 2026-10-20
 
 - Native PIN/GCM unwrap and persisted attempt budget; atomic Hello/key enrollment,

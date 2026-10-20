@@ -90,6 +90,13 @@ commit d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0. It is a prerelease.
 
 ## Acceptance Boundary
 
+On2026-10-20 two external mock regressions against the unchanged pinned master
+confirmed stale command time across settings retrieval and the Executing ACK
+write. In both cases the mock executor was called after the signed validity
+deadline. This is not a live pump test or a fix. Keep production native admission
+closed; a minimal end-to-end deadline fix and corresponding master/executor tests
+are required before enabling targets or replacing the phone's therapy app.
+
 Persistent document storage is now separate from the route adapter; see
 LOCAL_NS_V3_STORE.md. Room 36 contains revisioned latest-state documents, not
 backfilled clinical records or immutable snapshots of every intermediate update.
@@ -98,7 +105,9 @@ LOCAL_NS_V3_ENTRIES.md. Immutable device-status create/read is described in
 LOCAL_NS_V3_DEVICE_STATUS.md. Settings wire CRUD is now available; see
 LOCAL_NS_V3_SETTINGS.md. The native target codec has a real SDK DTO/crypto and
 TLS/settings fixture in AAPS4_TARGET_PROTOCOL.md. That fixture is not execution
-of the master handler. Treatments/profile/food still fail501. Clinical ingestion
+of the master handler. Treatment wire CRUD/history is now implemented separately
+(LOCAL_NS_V3_TREATMENTS.md), including exact native units and record ICfg.
+Profile/food still fail501. Clinical ingestion
 and live native control remain unconnected. Authenticated storage notifications
 now read committed revisions, including direct journal writes; see
 LOCAL_NS_V3_STORAGE.md. Pairing UI/runtime and repository native routing are now

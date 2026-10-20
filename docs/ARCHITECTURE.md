@@ -16,7 +16,9 @@ now have a typed wire adapter (LOCAL_NS_V3_ENTRIES.md). Immutable device-status
 create/read is specified in LOCAL_NS_V3_DEVICE_STATUS.md. Settings wire storage
 supports native upsert/ACK/offer lifecycles (LOCAL_NS_V3_SETTINGS.md). The separate
 target-only signed codec verifies prepare/commit ACKs (AAPS4_TARGET_PROTOCOL.md),
-but is not a live dispatcher. Other collections still return501 with empty
+but is not a live dispatcher. Treatments now have their own typed wire adapter
+(LOCAL_NS_V3_TREATMENTS.md), preserving per-record insulin configuration and native
+units without claiming clinical delivery. Profile/food still return501 with empty
 permissions. The isolated storage subscription now reads committed revisions and
 wakes polling clients through Room invalidation (LOCAL_NS_V3_STORAGE.md).
 Whole-app sync, live Client Control and READY remain unconnected; stored

@@ -430,7 +430,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         peer.newCall(Request.Builder().url("https://127.0.0.1:$port/api/v3/treatments")
             .header("Authorization", "Bearer $token")
             .post("{\"eventType\":\"Carb Correction\",\"carbs\":10}".toRequestBody("application/json".toMediaType()))
-            .build()).execute().use { assertThat(it.code).isEqualTo(501) }
+            .build()).execute().use { assertThat(it.code).isEqualTo(400) }
         assertThat(getCode(peer, port, "/api/v1/entries.json", headers = headers)).isEqualTo(401)
         assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
         assertThat(db.therapyDao().since(0L)).isEmpty()
@@ -550,7 +550,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             val running = process
             suspend fun awaitStage(stage: String) = kotlinx.coroutines.withTimeout(60_000) {
                 while (stage !in outputFile.readLines()) {
-                    check(running.isAlive) { "Stock SDK exited before expected stage" }
+                    check(running.isAlive) {
+                        val safeFailure = outputFile.readLines().singleOrNull {
+                            Regex("STOCK_RC1_ENTRIES_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+                        }
+                        "Stock SDK exited before expected stage: ${safeFailure ?: "unclassified"}"
+                    }
                     kotlinx.coroutines.delay(25)
                 }
             }
@@ -596,7 +601,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(journal.pending()).isNull()
             protocol.close()
             targetKey.fill(0)
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(14)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(18)
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

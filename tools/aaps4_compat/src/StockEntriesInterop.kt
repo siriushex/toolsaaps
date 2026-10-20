@@ -7,6 +7,7 @@ import app.aaps.core.nssdk.localmodel.entry.NSMbgV3
 import app.aaps.core.nssdk.localmodel.entry.NsUnits
 import app.aaps.core.nssdk.localmodel.devicestatus.NSDeviceStatus
 import app.aaps.core.nssdk.localmodel.clientcontrol.*
+import app.aaps.core.nssdk.localmodel.treatment.*
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import app.aaps.core.nssdk.utils.ClientControlPairingCrypto
 import kotlinx.coroutines.runBlocking
@@ -101,6 +102,67 @@ fun main() {
                 check(client.createDeviceStatus(status.copy(date = at + 60_000)).response == 201)
                 check(client.getDeviceStatusModifiedSince(statusCreated.lastModified!!).single().date == at + 60_000)
                 check(client.getLastModified().collections.devicestatus > statusCreated.lastModified!!)
+                stage = "treatments"
+                val bolus = NSBolus(date = at, identifier = null, utcOffset = 0, isValid = true,
+                    eventType = EventType.MEAL_BOLUS, notes = "synthetic", pumpId = 123L, endId = null,
+                    pumpType = "synthetic", pumpSerial = "pump-a", insulin = 1.2,
+                    type = NSBolus.BolusType.NORMAL, isBasalInsulin = false,
+                    iCfg = NSICfg("synthetic insulin", 18_000_000, 4_500_000, 100.0))
+                val bolusCreated = client.createTreatment(bolus)
+                check(bolusCreated.response == 201 && !bolusCreated.identifier.isNullOrEmpty())
+                stage = "treatment-retry"
+                val bolusRetry = client.createTreatment(bolus)
+                check(bolusRetry.response == 200 && bolusRetry.lastModified == bolusCreated.lastModified)
+                stage = "treatment-read"
+                val readBolus = client.getTreatmentsNewerThan("1970-01-01T00:00:00Z", 10).values!!.single() as NSBolus
+                check(readBolus.date == at && readBolus.insulin == 1.2 && readBolus.iCfg == bolus.iCfg)
+                stage = "treatment-round-trip"
+                check(client.createTreatment(readBolus).lastModified == bolusCreated.lastModified)
+                stage = "treatment-edit"
+                check(client.updateTreatment(readBolus.copy(insulin = 1.4)).response == 200)
+                val editedBolus = client.getTreatmentsModifiedSince(bolusCreated.lastModified!!, 10)
+                check((editedBolus.values!!.single() as NSBolus).insulin == 1.4)
+                check(editedBolus.values!!.single().date == at)
+                stage = "treatment-delete"
+                check(client.updateTreatment((editedBolus.values!!.single() as NSBolus).copy(isValid = false)).response == 200)
+                val removedBolus = client.getTreatmentsModifiedSince(editedBolus.lastServerModified!!, 10)
+                check(!removedBolus.values!!.single().isValid)
+                check(client.getTreatmentsNewerThan("1970-01-01T00:00:00Z", 10).values!!.isEmpty())
+                stage = "treatment-carbs"
+                val carbs = NSCarbs(date = at + 60_000, identifier = null, utcOffset = 0, isValid = true,
+                    eventType = EventType.CARBS_CORRECTION, notes = "synthetic", pumpId = null, endId = null,
+                    pumpType = null, pumpSerial = null, carbs = 24.0, duration = 1_800_000)
+                check(client.createTreatment(carbs).response == 201)
+                val readCarbs = client.getTreatmentsModifiedSince(removedBolus.lastServerModified!!, 10).values!!.single() as NSCarbs
+                check(readCarbs.carbs == 24.0 && readCarbs.duration == 1_800_000L)
+                stage = "treatment-target"
+                val target = NSTemporaryTarget(date = at + 120_000, identifier = null, utcOffset = 0,
+                    units = NsUnits.MMOL_L, eventType = EventType.TEMPORARY_TARGET, pumpId = null, endId = null,
+                    pumpType = null, pumpSerial = null, duration = 1_800_000, targetBottom = 5.5, targetTop = 5.5,
+                    reason = NSTemporaryTarget.Reason.EATING_SOON)
+                check(client.createTreatment(target).response == 201)
+                stage = "treatment-target-read"
+                val readTarget = client.getTreatmentsNewerThan("2027-01-15T08:01:00Z", 10).values!!.single() as NSTemporaryTarget
+                check(readTarget.duration == 1_800_000L && readTarget.targetBottomAsMgdl() == 99.0)
+                check(readTarget.reason == NSTemporaryTarget.Reason.EATING_SOON)
+                stage = "treatment-target-edit"
+                val changedTarget = client.updateTreatment(readTarget.copy(duration = 1_200_000, targetTop = 5.6))
+                check(changedTarget.response == 200)
+                check(client.getLastModified().collections.treatments > removedBolus.lastServerModified!!)
+                stage = "treatment-extended"
+                val extended = NSExtendedBolus(date = at + 180_000, identifier = null, units = NsUnits.MMOL_L,
+                    utcOffset = 0, isValid = true, eventType = EventType.COMBO_BOLUS, pumpId = 456L,
+                    endId = null, pumpType = "synthetic", pumpSerial = "pump-a", duration = 1_800_000,
+                    enteredinsulin = 0.25, isEmulatingTempBasal = true, rate = 0.5)
+                val emulated = NSTemporaryBasal(date = at + 180_000, identifier = null, utcOffset = 0,
+                    isValid = true, eventType = EventType.TEMPORARY_BASAL, pumpId = 456L, endId = null,
+                    pumpType = "synthetic", pumpSerial = "pump-a", duration = 1_800_000, rate = 0.5,
+                    isAbsolute = true, absolute = 0.5, type = NSTemporaryBasal.Type.FAKE_EXTENDED,
+                    extendedEmulated = extended)
+                check(client.createTreatment(emulated).response == 201)
+                val readExtended = client.getTreatmentsNewerThan("2027-01-15T08:02:00Z", 10).values!!.single() as NSExtendedBolus
+                check(readExtended.enteredinsulin == 0.25 && readExtended.duration == 1_800_000L)
+                check(readExtended.units == NsUnits.MMOL_L && readExtended.isValid)
                 stage = "settings"
                 socket.subscribe()
                 fun document(value: String) = buildJsonObject {

@@ -52,7 +52,13 @@
 - [x] Add explicit-consent UI and paired-route isolation without legacy fallback.
 - [x] Complete full local pairing/UI/native-SDK test/lint/build and size/class guard:
       6483 passed/six prior skips,zero errors; five UI and six recipe cases passed.
-- [ ] Inspect exact-source pairing-stage CI.
+- [x] Inspect exact-source pairing-stage e8fa014a CI39383075611: all three jobs passed.
+- [x] Add typed treatment wire CRUD/history with record ICfg and native unit normalization.
+- [x] Exercise actual RC1 SDK treatment reads/patch/delete over TLS; retain the
+      native mmol mismatch RED before correction. Additional retry/reopen checks follow.
+- [x] Complete final treatment wire local test/lint/build:6495 passed/six prior
+      skips,zero test/lint errors; APK retains all7003 compiled application classes.
+- [ ] Inspect exact-source treatment wire CI before calling this source stage complete.
 - [ ] Complete typed clinical history and master-handler admission before opening
       production native Target Manager publication (AAPS4_PAIRING.md).
 - [ ] Implement authenticated loopback v3 with durable collection revisions.

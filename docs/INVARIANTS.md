@@ -58,6 +58,11 @@
   empty page or change clinical/command state. No automatic store purge is enabled.
 - V3 entry HTTP receipts prove wire persistence only, not clinical ingestion or
   therapy. Unimplemented collections must have empty permissions and fail501.
+- V3 treatment identity cannot depend on quantities or timezone offset. Corrections,
+  tombstones and immutable acquisition fields retain source/revision ownership.
+  ICfg belongs to its historical record, not the latest global insulin setting.
+  Native mmol spelling must survive SDK reading without a mg/dl fallback. Treatment
+  upload is not a command application receipt and cannot enable native publication.
 - Entry PATCH retains omitted acquisition fields; server metadata cannot become
   payload. Stable owner/producer/type/time identity prevents POST replay duplicates;
   conflicting content is refused, not merged by value.
