@@ -7,7 +7,8 @@ applies only the reviewed receiver/test patch to a clean pinned RC1 checkout,
 runs actual native regressions and reverses its own exact diff even after a test
 failure. Unknown concurrent edits are preserved and fail the check. The existing
 pristine SDK preparation gate stays unchanged; Verify separately installs the
-upstream-required Android37 platform for native module tests. This is not a signed
+upstream-required Android37 platform (`platforms;android-37.0`, the exact Google
+package identifier) for native module tests. This is not a signed
 AAPS APK publication, full upstream APK CI or USB installation permission.
 
 ## Treatment Wire Stage

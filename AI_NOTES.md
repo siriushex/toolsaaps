@@ -21,6 +21,10 @@
   exchange, scoped Android TLS trust and refresh-path logging still block live
   publication/migration. No phone update, pairing or therapy command in this stage.
 - Prior treatment wire b5d3b3d7 Verify39392761034 passed all three jobs.
+- Verify39402715711 failed before compilation because the requested SDK package
+  name android-37 does not exist. The official Google repository and installed
+  package metadata both identify platforms;android-37.0. Correct only that CI
+  input; retain the failed evidence and unchanged local311-test/patch results.
 
 # RC1 Treatment Wire Exchange - 2026-10-20
 
