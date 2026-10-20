@@ -21,7 +21,9 @@ live controllers, phone settings or AAPS sources change in this stage.
   timeout stays UNKNOWN and holds ownership. A signed correlated final ACK can
   reconcile later. Restart never re-publishes a command or chooses a legacy route.
 - Terminal receipts discard envelope/preview bodies but retain target fingerprints,
-  counters and outcomes. There is deliberately no reset/rebind/prune API here.
+  counters and outcomes. There is deliberately no reset/prune API here. Explicit
+  revoked-owner replacement retains sealed retired identity/counter state; it is
+  not an old-identity counter reset. See AAPS4_PAIRING.md.
 
 ## Storage
 
@@ -58,8 +60,9 @@ the isolated test-helper polling correction. Exact-source87ce15e8 Verify run
 
 ## Live Admission
 
-The journal is not yet wired to Target Manager, a pairing UI or a background ACK
-owner. Authenticated `/storage` notifications now cover its committed outbox;
+The journal now has a pairing UI, runtime ACK owner and repository routing;
+production publication is explicitly blocked until clinical projection and master
+admission. See AAPS4_PAIRING.md. Authenticated `/storage` covers committed outbox;
 see LOCAL_NS_V3_STORAGE.md. Keystore provisioning still needs
 device verification. Whole-client v3 exchange, TLS trust and JugglucoNG continuity
 must pass before the AAPS USB upgrade. No live therapy test is authorized by a

@@ -716,7 +716,61 @@ class EatingSoonDeliveryRoomTest {
         }
     }
 
-    private suspend fun repository(server: MockWebServer, reuseSettings: Boolean = false): NightscoutActionRepository {
+    @Test fun nativeAppliedOutcomeMarksSentWithoutLegacyHttpOrBroadcastFallback() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server, native = nativeTransport(NativeTargetOutcome.APPLIED))
+            val request = command("native-applied")
+            assertThat(repository.submitManualMealTarget(request) { null }.status).isEqualTo(MealDeliveryStatus.SENT)
+            assertThat(db.actionCommandDao().byIdempotencyKey(request.idempotencyKey)?.status).isEqualTo("SENT")
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
+    @Test fun nativeUnknownOutcomeKeepsPendingAndReconciliationNeverQueriesLegacyHttp() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server, native = nativeTransport(NativeTargetOutcome.UNKNOWN))
+            val request = command("native-unknown")
+            assertThat(repository.submitManualMealTarget(request) { null }.status).isEqualTo(MealDeliveryStatus.UNKNOWN)
+            assertThat(db.actionCommandDao().byIdempotencyKey(request.idempotencyKey)?.status).isEqualTo("PENDING")
+            assertThat(repository.reconcileTempTargetDelivery(request.idempotencyKey))
+                .isEqualTo(NightscoutActionRepository.TempTargetDeliveryReconciliation.UNKNOWN)
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
+    @Test fun nativeDefiniteRefusalDoesNotTryLegacyFallback() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server, native = nativeTransport(NativeTargetOutcome.NOT_SENT))
+            val request = command("native-blocked")
+            assertThat(repository.submitManualMealTarget(request) { null }.status).isEqualTo(MealDeliveryStatus.BLOCKED)
+            assertThat(db.actionCommandDao().byIdempotencyKey(request.idempotencyKey)?.status).isEqualTo("BLOCKED")
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
+    @Test fun nativeJournalReadFailureNeverSelectsLegacyWriter() = runBlocking {
+        MockWebServer().use { server ->
+            val native = object : NativeTargetTransport {
+                override suspend fun isConfigured(): Boolean = error("synthetic unavailable journal")
+                override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = error("synthetic unavailable journal")
+                override suspend fun reconcile(operationId: String): NativeTargetOutcome = error("synthetic unavailable journal")
+            }
+            val repository = repository(server, native = native)
+            assertThat(repository.submitManualMealTarget(command("native-damaged")) { null }.status).isEqualTo(MealDeliveryStatus.UNKNOWN)
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
+    private fun nativeTransport(outcome: NativeTargetOutcome) = object : NativeTargetTransport {
+        override suspend fun isConfigured() = true
+        override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome {
+            check(deliveryGuard() == null)
+            return outcome
+        }
+        override suspend fun reconcile(operationId: String) = outcome
+    }
+
+    private suspend fun repository(server: MockWebServer, reuseSettings: Boolean = false, native: NativeTargetTransport? = null): NightscoutActionRepository {
         if (!reuseSettings) settings = AppSettingsStore(context)
         settings.update {
             it.copy(nightscoutUrl = server.url("/").toString(), localNightscoutEnabled = false,
@@ -727,7 +781,7 @@ class EatingSoonDeliveryRoomTest {
             context = context, db = db, settingsStore = settings, apiFactory = ApiFactory(),
             carbsSendThrottle = CarbsSendThrottle(db.actionCommandDao()),
             tempTargetSendThrottle = TempTargetSendThrottle(db.actionCommandDao()),
-            gson = Gson(), auditLogger = AuditLogger(db.auditLogDao(), Gson())
+            gson = Gson(), auditLogger = AuditLogger(db.auditLogDao(), Gson()), nativeTargetTransport = native
         )
     }
 

@@ -1818,6 +1818,13 @@ class MainViewModel(application: Application) :
     AutomaticEventAiAnalysisSettingsAction {
 
     private val container = (application as CopilotApp).container
+    val nativeAapsConnectionState get() = container.nativeAapsConnectionState
+    fun pairNativeAaps(pin: CharArray) {
+        viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin) }
+            .invokeOnCompletion { pin.fill('\u0000') }
+    }
+    fun checkNativeAapsConnection() { viewModelScope.launch(Dispatchers.IO) { container.checkNativeAapsConnection() } }
+    fun revokeNativeAapsPairing() { viewModelScope.launch(Dispatchers.IO) { container.revokeNativeAapsPairing() } }
     private val db = container.db
     private val manualCarbSubmission = ManualMealSubmission(
         sendCarbs = container.actionRepository::submitCarbs,

@@ -1,3 +1,28 @@
+# Native Pairing And Target Route Isolation - 2026-10-20
+
+- Native PIN/GCM unwrap and persisted attempt budget; atomic Hello/key enrollment,
+  active post-Hello roster, signed Pong and shared Hello/probe/target counter.
+  Protected non-saveable PIN UI discloses broad native permission; local revocation
+  retains pending ownership and old identity/counter records. No AAPS source edit.
+- Existing runtime owns bounded ACK/probe observation. Recovered previews never
+  commit; suspending guards recheck runtime/storage and signing reads a fresh clock.
+  Repository selects paired transport before legacy writers; uncertainty/key loss
+  has no fallback. An absent receipt is not absence of an old legacy request.
+- Production publication remains explicitly closed until typed clinical projection
+  and master-handler expiry/application admission. Communication status is not READY.
+  Treatments/profile/foods and phone migration remain incomplete, not success stubs.
+- Focused real SDK fixture passed native wrap/Hello/Ping/target counters1/2/3/4
+  over TLS in3.891s, without clinical writes. Initial replacement-owner test exposed
+  create-vs-update in its roster helper, corrected. Separate popup UI failed on
+  pending dialog measurement in Robolectric despite geometry/clock checks. Use
+  existing inline credential/window-security pattern instead; all four UI tests
+  passed, without reflection, frame intervention, skip or timeout change. Final
+  full local test/lint/build passed10m6s:6483 passed,six prior skips,zero test/lint
+  errors; all five UI tests and actual SDK fixture4.176s passed. APK41314825bytes
+  retained all6997 compiled app classes; size/icon guard and six external build
+  recipe regressions passed. Exact-source CI remains required before completion.
+  AAPS, phone, AI model/login and therapy unchanged; no live commands.
+
 # Isolated V3 Storage Notifications - 2026-10-20
 
 - Three initial TLS regressions reproduced missing /storage. Separate native raw

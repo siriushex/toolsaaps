@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Native Pairing Stage
+
+See AAPS4_PAIRING.md. The existing SDK fixture now starts with real native PIN
+wrapping and verifies Hello/Ping/target counters1/2/3/4 over TLS. It still simulates
+the master, not actual application. Runtime/key/roster failures cannot select a
+legacy fallback. No extra worker, AAPS patch or phone migration is part of this
+source stage. Never drop the production clinical-admission lock to deploy it.
+Private sealed journal JSON now includes pairing/probe/retired-owner fields;
+old-APK rollback is not admitted merely because the Room version remains37.
+Preserve originals and verify compatibility rather than restoring old counters.
+
 ## Native RC1 Master Regression
 
 With Java21 and the pinned unchanged RC1 checkout, these local mock-only tasks

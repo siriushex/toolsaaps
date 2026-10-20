@@ -8,6 +8,7 @@ import app.aaps.core.nssdk.localmodel.entry.NsUnits
 import app.aaps.core.nssdk.localmodel.devicestatus.NSDeviceStatus
 import app.aaps.core.nssdk.localmodel.clientcontrol.*
 import app.aaps.core.nssdk.utils.ClientControlCrypto
+import app.aaps.core.nssdk.utils.ClientControlPairingCrypto
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.net.URI
@@ -121,26 +122,9 @@ fun main() {
                 check(client.createSettings(document("post")).response == 201)
                 val owner = "11111111-2222-4333-8444-555555555555"
                 val offerId = "aaps_clientcontrol_offer_$owner"
-                check(client.updateSettings(offerId, JsonObject(document("offer") +
-                    ("offer" to buildJsonObject { put("wrappedB64", "synthetic-ciphertext") }))).response == 201)
-                check(client.deleteSettingsPermanent(offerId).response == 200)
-                check(client.getSettings(offerId).code == 404)
-                check(client.searchSettings(100).values!!.none { it["identifier"] == JsonPrimitive(offerId) })
-                stage = "target-envelope"
-                val codec = Json { ignoreUnknownKeys = false }
+                stage = "pairing-offer"
+                val codec = Json { ignoreUnknownKeys = false; encodeDefaults = true }
                 val secret = ByteArray(32) { it.toByte() }
-                suspend fun envelope(type: String): SignedEnvelope {
-                    val doc = client.getSettings("aaps_clientcontrol_cmd_${type}_$owner").values!!
-                    return codec.decodeFromJsonElement(SignedEnvelope.serializer(), doc.getValue("envelope"))
-                        .also { check(ClientControlCrypto.verifyEnvelope(secret, it)) }
-                }
-                val prepare = envelope("batch_prepare")
-                check(prepare.clientId == owner && prepare.counter == 1L && prepare.wantsAck)
-                check(prepare.validUntil == prepare.timestamp + 8000)
-                val batch = codec.decodeFromString(ClientControlMessage.serializer(), prepare.payload) as ClientControlMessage.BatchPrepare
-                check(batch.actions == listOf(BatchActionDto(type = "temp_target", reason = "Eating Soon",
-                    lowMgdl = 90.0, highMgdl = 99.0, durationMinutes = 30, startOffsetMinutes = 0,
-                    notes = "copilot:synthetic-meal")))
                 suspend fun publishAck(counter: Long, payload: String?, timestamp: Long) {
                     val ack = ClientControlCrypto.signAck(secret, AckEnvelope(owner, counter, AckPhase.Done,
                         AckStatus.Ok, payload = payload, timestamp = timestamp, signature = ""))
@@ -150,6 +134,52 @@ fun main() {
                     }
                     check(client.updateSettings("aaps_clientcontrol_ack_$owner", doc).response in 200..299)
                 }
+                suspend fun envelope(type: String): SignedEnvelope {
+                    val id = if (type == "hello") "aaps_clientcontrol_hello_$owner" else "aaps_clientcontrol_cmd_${type}_$owner"
+                    val doc = client.getSettings(id).values!!
+                    return codec.decodeFromJsonElement(SignedEnvelope.serializer(), doc.getValue("envelope"))
+                        .also { check(ClientControlCrypto.verifyEnvelope(secret, it)) }
+                }
+                val salt = ClientControlPairingCrypto.newSalt()
+                val iv = ClientControlPairingCrypto.newIv()
+                val expiry = at + 120_000
+                val inner = PairingPayload(masterInstallId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                    clientId = owner, secretHex = secret.joinToString("") { "%02x".format(it.toInt() and 255) }, expiresAt = expiry)
+                val wrapped = ClientControlPairingCrypto.wrap(codec.encodeToString(PairingPayload.serializer(), inner).toByteArray(),
+                    "23456789", salt, iv)
+                val b64 = java.util.Base64.getEncoder()
+                val offer = PairingOffer(clientId = owner, expiresAt = expiry, kdfSaltB64 = b64.encodeToString(salt),
+                    ivB64 = b64.encodeToString(iv), wrappedB64 = b64.encodeToString(wrapped))
+                check(client.updateSettings(offerId, JsonObject(document("offer") +
+                    ("offer" to codec.encodeToJsonElement(PairingOffer.serializer(), offer)))).response == 201)
+                println("STOCK_RC1_PAIRING_READY"); System.out.flush()
+                check(readlnOrNull() == "HELLO_READY")
+                val hello = envelope("hello")
+                check(hello.counter == 1L && !hello.wantsAck)
+                check(codec.decodeFromString(ClientControlMessage.serializer(), hello.payload) == ClientControlMessage.Hello(protocolVersion = 1))
+                check(client.deleteSettingsPermanent(offerId).response == 200)
+                check(client.getSettings(offerId).code == 404)
+                check(client.searchSettings(100).values!!.none { it["identifier"] == JsonPrimitive(offerId) })
+                check(client.updateSettings("aaps", JsonObject(document("roster") + ("runningConfig" to buildJsonObject {
+                    put("authorizedClients", buildJsonObject { put("clientIds", buildJsonArray { add(owner) }) })
+                    put("syncedPrefs", buildJsonObject { put("ns_allow_client_control", "true") })
+                }))).response == 201)
+                println("STOCK_RC1_ROSTER_READY"); System.out.flush()
+                check(readlnOrNull() == "PING_READY")
+                val ping = envelope("ping")
+                check(ping.counter == 2L && ping.wantsAck)
+                check(codec.decodeFromString(ClientControlMessage.serializer(), ping.payload) == ClientControlMessage.Ping)
+                publishAck(ping.counter, null, ping.timestamp + 1)
+                println("STOCK_RC1_PONG_READY"); System.out.flush()
+                check(readlnOrNull() == "TARGET_READY")
+                stage = "target-envelope"
+                val prepare = envelope("batch_prepare")
+                check(prepare.clientId == owner && prepare.counter == 3L && prepare.wantsAck)
+                check(prepare.validUntil == prepare.timestamp + 8000)
+                val batch = codec.decodeFromString(ClientControlMessage.serializer(), prepare.payload) as ClientControlMessage.BatchPrepare
+                check(batch.actions == listOf(BatchActionDto(type = "temp_target", reason = "Eating Soon",
+                    lowMgdl = 90.0, highMgdl = 99.0, durationMinutes = 30, startOffsetMinutes = 0,
+                    notes = "copilot:synthetic-meal")))
                 val preview = codec.encodeToString(BolusPreview.serializer(),
                     BolusPreview(321, listOf(ConfirmationLineDto("Normal", "synthetic target"))))
                 publishAck(prepare.counter, preview, prepare.timestamp + 1)
@@ -160,7 +190,7 @@ fun main() {
                 val commitDoc = socket.awaitDocument("aaps_clientcontrol_cmd_bolus_commit_$owner")
                 val commit = codec.decodeFromJsonElement(SignedEnvelope.serializer(), commitDoc.getValue("envelope"))
                 check(ClientControlCrypto.verifyEnvelope(secret, commit))
-                check(commit.counter == 2L && commit.clientId == owner && commit.wantsAck)
+                check(commit.counter == 4L && commit.clientId == owner && commit.wantsAck)
                 check(commit.validUntil == commit.timestamp + 8000)
                 val confirmation = codec.decodeFromString(ClientControlMessage.serializer(), commit.payload) as ClientControlMessage.BolusCommit
                 check(confirmation == ClientControlMessage.BolusCommit(321, asAdvisor = false, correctionU = 0.0))

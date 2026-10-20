@@ -101,7 +101,9 @@ TLS/settings fixture in AAPS4_TARGET_PROTOCOL.md. That fixture is not execution
 of the master handler. Treatments/profile/food still fail501. Clinical ingestion
 and live native control remain unconnected. Authenticated storage notifications
 now read committed revisions, including direct journal writes; see
-LOCAL_NS_V3_STORAGE.md. This does not activate pairing or clinical routing.
+LOCAL_NS_V3_STORAGE.md. Pairing UI/runtime and repository native routing are now
+registered (AAPS4_PAIRING.md); production target publication stays explicitly
+blocked until clinical projection and master-handler admission are verified.
 
 Legacy capability checks and the bounded refresh/bearer exchange do not establish
 complete stock-AAPS compatibility. The auth-only stage is specified separately in

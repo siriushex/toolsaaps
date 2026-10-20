@@ -525,7 +525,6 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
                 javax.crypto.spec.SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
             })
-            journal.bind(targetClient)
             val store = io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
             suspend fun readTargetAck(): kotlinx.serialization.json.JsonObject {
                 val record = store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
@@ -533,10 +532,6 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 val doc = kotlinx.serialization.json.Json.parseToJsonElement(record.payloadJson) as kotlinx.serialization.json.JsonObject
                 return doc.getValue("ack") as kotlinx.serialization.json.JsonObject
             }
-            val prepared = journal.prepare("synthetic-meal", AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"),
-                protocol, targetAt) {}
-            assertThat(prepared.phase).isEqualTo(AapsV3TargetPhase.PREPARED)
-            assertThat(prepared.publication).isNotNull()
             val trust = java.security.KeyStore.getInstance("PKCS12").apply {
                 load(null, null)
                 setCertificateEntry("test-ca", caCertificate)
@@ -553,31 +548,55 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                     redirectOutput(outputFile)
                 }.start()
             val running = process
-            kotlinx.coroutines.withTimeout(60_000) {
-                while ("STOCK_RC1_TARGET_PREVIEW_READY" !in outputFile.readLines()) {
-                    check(running.isAlive) { "Stock SDK exited before target preview" }
+            suspend fun awaitStage(stage: String) = kotlinx.coroutines.withTimeout(60_000) {
+                while (stage !in outputFile.readLines()) {
+                    check(running.isAlive) { "Stock SDK exited before expected stage" }
                     kotlinx.coroutines.delay(25)
                 }
             }
+            fun nextStage(stage: String) { running.outputStream.write("$stage\n".toByteArray()); running.outputStream.flush() }
+            awaitStage("STOCK_RC1_PAIRING_READY")
+            val offerRow = store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
+                "aaps_clientcontrol_offer_$targetClient")!!
+            val offer = kotlinx.serialization.json.Json.parseToJsonElement(offerRow.payloadJson) as kotlinx.serialization.json.JsonObject
+            AapsV3PairingProtocol.unwrap(offer.getValue("offer") as kotlinx.serialization.json.JsonObject,
+                "23456789".toCharArray(), targetAt).use { credential ->
+                credential.withSecret { assertThat(it).isEqualTo(targetKey) }
+                assertThat(journal.enroll(credential, targetAt).phase).isEqualTo(AapsV3PairingPhase.WAITING)
+            }
+            nextStage("HELLO_READY")
+            awaitStage("STOCK_RC1_ROSTER_READY")
+            assertThat(journal.observeRoster(store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS, "aaps")!!).phase)
+                .isEqualTo(AapsV3PairingPhase.ACTIVE)
+            assertThat(journal.probe(targetAt + 1)).isNotNull()
+            nextStage("PING_READY")
+            awaitStage("STOCK_RC1_PONG_READY")
+            assertThat(journal.acknowledgeProbe(readTargetAck(), targetAt + 3)).isTrue()
+            journal.requireLivePairing(targetAt + 3, targetAt, 2)
+            val prepared = journal.prepare("synthetic-meal", AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"),
+                protocol, targetAt + 3) {}
+            assertThat(prepared.phase).isEqualTo(AapsV3TargetPhase.PREPARED)
+            assertThat(prepared.publication).isNotNull()
+            nextStage("TARGET_READY")
+            awaitStage("STOCK_RC1_TARGET_PREVIEW_READY")
             val previewAck = readTargetAck()
-            assertThat(journal.acknowledge("synthetic-meal", protocol, previewAck, targetAt + 2).phase)
+            assertThat(journal.acknowledge("synthetic-meal", protocol, previewAck, targetAt + 5).phase)
                 .isEqualTo(AapsV3TargetPhase.PREVIEW)
-            val committed = journal.commit("synthetic-meal", protocol, targetAt + 2) {}
+            val committed = journal.commit("synthetic-meal", protocol, targetAt + 5) {}
             assertThat(committed.phase).isEqualTo(AapsV3TargetPhase.COMMITTED)
             assertThat(committed.publication).isNotNull()
-            running.outputStream.write("COMMIT_READY\n".toByteArray())
-            running.outputStream.flush()
+            nextStage("COMMIT_READY")
             assertThat(process.waitFor(90, TimeUnit.SECONDS)).isTrue()
             assertThat(outputFile.length()).isLessThan(8192)
             val result = outputFile.readLines().singleOrNull { it.startsWith("STOCK_RC1_ENTRIES_") }
             assertThat(result).isEqualTo("STOCK_RC1_ENTRIES_OK")
             assertThat(process.exitValue()).isEqualTo(0)
-            assertThat(journal.acknowledge("synthetic-meal", protocol, readTargetAck(), targetAt + 4).phase)
+            assertThat(journal.acknowledge("synthetic-meal", protocol, readTargetAck(), targetAt + 7).phase)
                 .isEqualTo(AapsV3TargetPhase.APPLIED)
             assertThat(journal.pending()).isNull()
             protocol.close()
             targetKey.fill(0)
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(11)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(14)
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

@@ -701,6 +701,10 @@ fun CopilotFoundationRoot(
                                         viewModel::exportLocalNightscoutCertificate,
                                     onLocalNightscoutIdentityReset =
                                         viewModel::resetLocalNightscoutIdentity,
+                                    nativeAapsConnectionState = viewModel.nativeAapsConnectionState.collectAsStateWithLifecycle().value,
+                                    onNativeAapsPair = viewModel::pairNativeAaps,
+                                    onNativeAapsCheck = viewModel::checkNativeAapsConnection,
+                                    onNativeAapsRevoke = viewModel::revokeNativeAapsPairing,
                                     onLocalBroadcastIngestToggle = viewModel::setLocalBroadcastIngestEnabled,
                                     onStrictSenderValidationToggle = viewModel::setStrictBroadcastValidation,
                                     onUamExportUiModeChange = viewModel::setUamExportUiMode,

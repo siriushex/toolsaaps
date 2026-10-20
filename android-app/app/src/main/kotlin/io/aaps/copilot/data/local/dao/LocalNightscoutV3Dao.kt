@@ -5,6 +5,7 @@ import androidx.room.Query
 import androidx.room.Upsert
 import io.aaps.copilot.data.local.entity.LocalNightscoutV3ClockEntity
 import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
+import kotlinx.coroutines.flow.Flow
 
 data class LocalV3DocumentPosition(val eventAtMs: Long?, val modifiedRevision: Long, val payloadBytes: Int)
 
@@ -13,6 +14,16 @@ data class LocalV3DocumentPosition(val eventAtMs: Long?, val modifiedRevision: L
 interface LocalNightscoutV3Dao {
     @Query("SELECT * FROM local_ns_v3_clock WHERE singleton = 1")
     suspend fun clock(): LocalNightscoutV3ClockEntity?
+
+    @Query("SELECT revision FROM local_ns_v3_clock WHERE singleton = 1")
+    fun observeRevision(): Flow<Long?>
+
+    @Query("""SELECT * FROM local_ns_v3_documents WHERE collection = 'settings' AND deleted = 0
+        AND identifier GLOB 'aaps_clientcontrol_offer_*' ORDER BY modifiedRevision DESC LIMIT 9""")
+    suspend fun pairingOffers(): List<LocalNightscoutV3DocumentEntity>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM local_ns_v3_documents WHERE collection = 'settings' AND source = 'local-v3-target')")
+    suspend fun hasNativeControlOutbox(): Boolean
 
     @Query("SELECT * FROM local_ns_v3_documents WHERE collection = :collection AND identifier = :id")
     suspend fun get(collection: String, id: String): LocalNightscoutV3DocumentEntity?

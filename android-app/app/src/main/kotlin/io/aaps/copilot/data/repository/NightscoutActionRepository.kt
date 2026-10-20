@@ -47,7 +47,8 @@ class NightscoutActionRepository(
     private val carbsSendThrottle: CarbsSendThrottle,
     private val tempTargetSendThrottle: TempTargetSendThrottle,
     private val gson: Gson,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val nativeTargetTransport: NativeTargetTransport? = null
 ) : AapsCarbGateway {
 
     suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
@@ -234,6 +235,17 @@ class NightscoutActionRepository(
         val local = db.actionCommandDao().byIdempotencyKey(idempotencyKey)
         if (local?.status == STATUS_SENT) return TempTargetDeliveryReconciliation.SENT
 
+        if (nativeRouteConfigured()) {
+            return when (nativeOutcome { reconcile(idempotencyKey) }) {
+                NativeTargetOutcome.APPLIED -> {
+                    local?.let { db.actionCommandDao().updateStatusByIds(listOf(it.id), STATUS_PENDING, STATUS_SENT) }
+                    TempTargetDeliveryReconciliation.SENT
+                }
+                NativeTargetOutcome.NOT_SENT -> TempTargetDeliveryReconciliation.CONFIRMED_ABSENT
+                NativeTargetOutcome.UNKNOWN -> TempTargetDeliveryReconciliation.UNKNOWN
+            }
+        }
+
         val settings = settingsStore.settings.first()
         val targets = nightscoutWriteTargets(settings)
         if (targets.isEmpty()) return TempTargetDeliveryReconciliation.UNKNOWN
@@ -333,6 +345,17 @@ class NightscoutActionRepository(
                 mapOf("reason" to reason, "idempotencyKey" to command.idempotencyKey)
             )
             return false
+        }
+        if (nativeRouteConfigured()) {
+            return when (nativeOutcome {
+                if (isFirstReservation) send(command) { deliveryGuard?.invoke() }
+                else reconcile(command.idempotencyKey)
+            }) {
+                NativeTargetOutcome.APPLIED -> { markSent(command, "aaps_v3_signed_ack"); true }
+                NativeTargetOutcome.NOT_SENT -> { markBlocked(command, "target_not_sent"); false }
+                NativeTargetOutcome.UNKNOWN -> throw TempTargetDeliveryUnknownException(
+                    "native_target_delivery_unknown", IllegalStateException("native_target_not_confirmed"))
+            }
         }
         val nowIso = Instant.now().toString()
         val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
@@ -989,6 +1012,16 @@ class NightscoutActionRepository(
             )
         )
     }
+
+    private suspend fun nativeRouteConfigured(): Boolean = try {
+        nativeTargetTransport?.isConfigured() == true
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { true } // A damaged paired journal cannot silently select a legacy writer.
+
+    private suspend fun nativeOutcome(block: suspend NativeTargetTransport.() -> NativeTargetOutcome): NativeTargetOutcome = try {
+        checkNotNull(nativeTargetTransport).block()
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { NativeTargetOutcome.UNKNOWN }
 
     private fun sendLocalTreatmentFallbackChain(
         payload: LocalTreatmentPayload,

@@ -22,9 +22,14 @@ wakes polling clients through Room invalidation (LOCAL_NS_V3_STORAGE.md).
 Whole-app sync, live Client Control and READY remain unconnected; stored
 documents and subscription credentials cannot grant clinical authority.
 Room37 adds an encrypted single-owner target journal and atomic command outbox
-(AAPS4_TARGET_JOURNAL.md), not a registered controller. Receipt/counter allocation
+(AAPS4_TARGET_JOURNAL.md). Receipt/counter allocation
 and wire publication commit together; unknown commit holds ownership across restart.
 It is excluded from clinical/AI projections and cannot grant pairing permission.
+Native PIN enrollment, roster/Pong verification and a lifecycle-scoped ACK owner
+now share this journal and counter (AAPS4_PAIRING.md). The repository selects the
+paired route without legacy fallback, but production publication remains explicitly
+closed until typed clinical history and master-handler admission are verified.
+Communication-only UI status cannot enable Target Manager or READY.
 
 Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
 tombstones, compare-and-set updates and bounded revision/time paging. The entries

@@ -2129,4 +2129,21 @@
     <string name="ai_advice_scope">CGM observations only. Causes of changes are unconfirmed.</string>
     <string name="ai_advice_recent_incomplete">The last three days have insufficient data for a separate conclusion.</string>
     <string name="ai_advice_other_reports">Advice from other reports</string>
+    <string name="native_aaps_title">AAPS 4 connection</string>
+    <string name="native_aaps_unpaired">Not paired</string>
+    <string name="native_aaps_waiting">Waiting for AAPS confirmation</string>
+    <string name="native_aaps_verifying">Verifying signed connection</string>
+    <string name="native_aaps_connected">Signed connection confirmed</string>
+    <string name="native_aaps_disabled">Enable Client Control and WebSocket in AAPS</string>
+    <string name="native_aaps_revoked">Pairing revoked</string>
+    <string name="native_aaps_offline">Local connection unavailable</string>
+    <string name="native_aaps_error">Connection not confirmed. Check AAPS, PIN and local sync.</string>
+    <string name="native_aaps_control_unavailable">AAPS 4 target control remains blocked until clinical history sync is verified.</string>
+    <string name="native_aaps_pair">Pair</string>
+    <string name="native_aaps_check">Check connection</string>
+    <string name="native_aaps_revoke">Revoke locally</string>
+    <string name="native_aaps_pin">8-digit PIN</string>
+    <string name="native_aaps_pin_help">Open Client Control pairing in AAPS and enter its current PIN.</string>
+    <string name="native_aaps_permission_consent">I understand that AAPS grants broad client control, including bolus commands. Copilot uses only a target-specific channel.</string>
+    <string name="native_aaps_revoke_help">Copilot will stop using this pairing. Pending delivery is not cancelled. Also remove the client in AAPS to revoke its permission there.</string>
 </resources>

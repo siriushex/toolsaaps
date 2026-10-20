@@ -171,6 +171,8 @@ class ActionCommandUamExportReservationStoreTest {
     private class FakeActionCommandDao : ActionCommandDao {
         val rows = linkedMapOf<String, ActionCommandEntity>()
 
+        override suspend fun hasPendingTempTarget() = rows.values.any { it.type == "temp_target" && it.status == "PENDING" }
+
         override suspend fun upsert(command: ActionCommandEntity) {
             rows[command.id] = command
         }

@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Native Pairing And Route Isolation (2026-10-20)
+
+- Strict native PBKDF2/GCM PIN unwrap, bounded offers/schema/expiry and persisted
+  attempt budget. Mutable buffers cleared, masked non-saveable secure UI. Permission
+  consent discloses AAPS whole-client scope; local signer has no arbitrary actions.
+- Newer active roster and fresh signed Pong required independently; shared durable
+  Hello/probe/target counters. Sticky removal/revocation and retired identity retention.
+  Missing private state with outbox cannot become unpaired legacy fallback.
+- Pending legacy registration excludes enrollment; retries reconcile only. A failed
+  fingerprint check cannot reuse an old APPLIED receipt as evidence of changed payload.
+- Lifecycle stop/storage/guard changes block publication; fresh clock after suspending
+  checks prevents stale signing/expired preview commit. Unknown commits stay owned.
+- Production native target admission explicitly closed pending typed clinical data
+  and master-handler expiry verification. SDK/mock/UI tests do not authorize a pump
+  rollout. Device Keystore, Android TLS trust, settings export and CGM remain gates.
+
 ## Isolated Storage Namespace (2026-10-20)
 
 - Existing loopback TLS only. Exact raw-token comparison, closed collection

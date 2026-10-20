@@ -16,7 +16,15 @@
   Prepare-only expiry is distinct from application. No counter reset/rebind/purge.
 - Journal reads never regenerate missing encryption keys; corrupt/unknown state
   blocks dispatch. Binding a client is not native pairing approval. The journal
-  table is not an AI/clinical source and does not register a live action owner.
+  table is not an AI/clinical source. Its runtime owner never commits or replays
+  a recovered preview. Production clinical dispatch admission remains closed.
+- Hello/Ping/target commands share one durable counter. Active post-Hello roster,
+  current storage subscription and new signed Pong are separate requirements.
+  Native whole-client permissions must not be described as a target-only grant.
+- PIN never enters saved UI state/logs; attempt budget survives restart. Revocation
+  cannot clear unknown commands or silently reset/reuse a retired identity.
+- Enrollment cannot overlap a pending legacy target. Paired routing never falls
+  back after refusal/uncertainty/key loss; old absent receipts are not delivery proof.
 - Settings HTTP success is wire persistence, not target application. Only the
   target codec's correlated signed Done/Ok COMMIT is an application receipt;
   signed preparation remains a preview. Durable dispatch admission is separate.

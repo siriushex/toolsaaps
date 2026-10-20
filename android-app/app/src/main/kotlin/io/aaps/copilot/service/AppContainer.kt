@@ -1117,6 +1117,23 @@ class AppContainer(context: Context) {
         }
     )
 
+    private val nativeAapsTargetChannel = AapsV3TargetChannel(
+        db = db,
+        journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
+        storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
+        // Wire documents are not clinical history. Keep publication closed until the
+        // typed treatment/profile pipeline and master-handler admission are verified.
+        baselineGuard = { "native_clinical_projection_unavailable" },
+        publicationLease = { publish ->
+            io.aaps.copilot.security.TherapyActionTransportGate.withArmedLease(
+                verifyPersistedState = { settingsStore.settings.first().therapyActionsArmed }, block = publish)
+        }
+    )
+    val nativeAapsConnectionState get() = nativeAapsTargetChannel.state
+    suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
+    suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
+    suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()
+
     val actionRepository = NightscoutActionRepository(
         context = context,
         db = db,
@@ -1125,7 +1142,8 @@ class AppContainer(context: Context) {
         carbsSendThrottle = carbsSendThrottle,
         tempTargetSendThrottle = tempTargetSendThrottle,
         gson = gson,
-        auditLogger = auditLogger
+        auditLogger = auditLogger,
+        nativeTargetTransport = nativeAapsTargetChannel
     )
 
     suspend fun submitManualEatingSoon(mealKey: String): EatingSoonResult {
@@ -1928,6 +1946,7 @@ class AppContainer(context: Context) {
         if (PowerSaveRuntimeState.isActive() || !LocalObservationRuntimeState.isAllowed()) return
         if (runtimeControllersActive) return
         runtimeControllersActive = true
+        nativeAapsTargetChannel.start(appScope)
         startLocalActivitySensors()
         if (healthConnectEnabled) {
             startHealthConnectCollection()
@@ -1963,6 +1982,7 @@ class AppContainer(context: Context) {
     fun stopRuntimeControllers(
         reason: LocalNightscoutRuntimeReason = LocalNightscoutRuntimeReason.SERVICE_STOPPED
     ) {
+        nativeAapsTargetChannel.stop()
         localNightscoutServer.stop(reason)
         if (!runtimeControllersActive) return
         runtimeControllersActive = false

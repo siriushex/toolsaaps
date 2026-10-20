@@ -47,8 +47,14 @@
 - [x] Check focused authentication/isolation/journal/rollback/restart/bounds cases.
 - [x] Complete full local storage checks and unchanged SDK push fixture:
       6450 passed/six prior skips,lint/build/class-retention guard passed.
-- [ ] Inspect exact-source storage CI.
-- [ ] Finish owner pairing, shared Hello counter and live ACK owner.
+- [x] Inspect exact-source storage CI:0e7770d1 Verify39326467379 succeeded.
+- [x] Implement PIN pairing, shared Hello/Ping counter and runtime ACK owner.
+- [x] Add explicit-consent UI and paired-route isolation without legacy fallback.
+- [x] Complete full local pairing/UI/native-SDK test/lint/build and size/class guard:
+      6483 passed/six prior skips,zero errors; five UI and six recipe cases passed.
+- [ ] Inspect exact-source pairing-stage CI.
+- [ ] Complete typed clinical history and master-handler admission before opening
+      production native Target Manager publication (AAPS4_PAIRING.md).
 - [ ] Implement authenticated loopback v3 with durable collection revisions.
 - [ ] Verify native paired Client Control and signed application ACKs before
       considering any AAPS command-bridge changes.

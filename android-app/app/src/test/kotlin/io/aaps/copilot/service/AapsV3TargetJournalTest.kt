@@ -126,6 +126,40 @@ class AapsV3TargetJournalTest {
         }
     }
 
+    @Test fun suspendedGuardCannotSignUsingItsOldClockOrCommitAnExpiredPreview() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            var current = at
+            owner.prepare("meal-1", target, p, at, currentTime = { current }) { current += 5000 }
+            val wire = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client")!!
+            val envelope = Json.parseToJsonElement(wire.payloadJson).jsonObject.getValue("envelope").jsonObject
+            assertEquals(at + 5000, envelope.getValue("timestamp").jsonPrimitive.long)
+            owner.acknowledge("meal-1", p, ack(1,
+                """{"bolusId":321,"lines":[{"role":"Normal","text":"synthetic target"}]}""", at + 5001), at + 5002)
+            assertTrue(runCatching {
+                owner.commit("meal-1", p, at + 5003, currentTime = { current }) { current = at + 14_000 }
+            }.isFailure)
+            assertEquals(AapsV3TargetPhase.PREVIEW, owner.pending()!!.phase)
+            assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_bolus_commit_$client"))
+        }
+    }
+
+    @Test fun backgroundCommitAckSettlesOnlyExistingPendingTargetWithoutClinicalWrites() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        db.actionCommandDao().upsert(io.aaps.copilot.data.local.entity.ActionCommandEntity(
+            id = "pending-target", timestamp = at, type = "temp_target", payloadJson = "{}", safetyJson = "{}",
+            idempotencyKey = "meal-1", status = "PENDING"))
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}; preview(owner, p)
+            assertEquals("PENDING", db.actionCommandDao().byIdempotencyKey("meal-1")!!.status)
+            owner.commit("meal-1", p, at + 3) {}
+            owner.acknowledgePending(p, ack(2, timestamp = at + 4), at + 5)
+        }
+        assertEquals("SENT", db.actionCommandDao().byIdempotencyKey("meal-1")!!.status)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.glucoseDao().since(0).isEmpty())
+    }
+
     @Test fun encryptionOrWireFailureRollsBackCounterAndDocumentTogether() = runBlocking {
         val owner = journal(); owner.bind(client)
         protocol.use { p ->

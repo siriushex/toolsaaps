@@ -2137,4 +2137,21 @@
     <string name="ai_advice_scope">Наблюдения по CGM. Причины изменений не подтверждены.</string>
     <string name="ai_advice_recent_incomplete">За последние три дня данных недостаточно для отдельного вывода.</string>
     <string name="ai_advice_other_reports">Советы из других отчётов</string>
+    <string name="native_aaps_title">Подключение AAPS 4</string>
+    <string name="native_aaps_unpaired">Не сопряжено</string>
+    <string name="native_aaps_waiting">Ожидаем подтверждения AAPS</string>
+    <string name="native_aaps_verifying">Проверяем подписанный обмен</string>
+    <string name="native_aaps_connected">Подписанный обмен подтверждён</string>
+    <string name="native_aaps_disabled">Включите Client Control и WebSocket в AAPS</string>
+    <string name="native_aaps_revoked">Сопряжение отозвано</string>
+    <string name="native_aaps_offline">Локальное соединение недоступно</string>
+    <string name="native_aaps_error">Связь не подтверждена. Проверьте AAPS, PIN и локальную синхронизацию.</string>
+    <string name="native_aaps_control_unavailable">Управление целями AAPS 4 заблокировано до проверки синхронизации клинической истории.</string>
+    <string name="native_aaps_pair">Сопрячь</string>
+    <string name="native_aaps_check">Проверить связь</string>
+    <string name="native_aaps_revoke">Отозвать локально</string>
+    <string name="native_aaps_pin">PIN из 8 цифр</string>
+    <string name="native_aaps_pin_help">Откройте сопряжение Client Control в AAPS и введите текущий PIN.</string>
+    <string name="native_aaps_permission_consent">Я понимаю, что AAPS выдаёт широкое разрешение, включая болюсы. Copilot использует только канал целей.</string>
+    <string name="native_aaps_revoke_help">Copilot перестанет использовать сопряжение. Ожидающая команда не отменяется. Для отзыва разрешения со стороны AAPS удалите там этого клиента.</string>
 </resources>

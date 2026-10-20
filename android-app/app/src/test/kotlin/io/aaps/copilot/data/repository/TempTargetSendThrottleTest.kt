@@ -363,6 +363,8 @@ class TempTargetSendThrottleTest {
     ) : ActionCommandDao {
         val latestCalls = AtomicInteger()
 
+        override suspend fun hasPendingTempTarget() = lastSent?.let { it.type == "temp_target" && it.status == "PENDING" } == true
+
         override suspend fun upsert(command: ActionCommandEntity) = Unit
 
         override suspend fun byIdempotencyKey(idempotencyKey: String): ActionCommandEntity? = null

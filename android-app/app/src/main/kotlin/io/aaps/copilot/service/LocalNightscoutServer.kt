@@ -314,6 +314,8 @@ class LocalNightscoutServer internal constructor(
     @Volatile
     private var authenticatedSocketObserved = false
 
+    internal fun hasNativeStorageSubscription(): Boolean = server?.hasNativeStorageSubscription() == true
+
     @Synchronized
     fun update(enabled: Boolean, port: Int): Int? {
         if (!enabled) {
@@ -495,6 +497,12 @@ class LocalNightscoutServer internal constructor(
         private val v3Authentication = LocalNightscoutV3Authentication(authenticator)
         private val v3Entries = LocalNightscoutV3EntriesApi(db)
         private val v3Store = LocalNightscoutV3Store(db)
+
+        fun hasNativeStorageSubscription(): Boolean {
+            val now = socketNowMs()
+            // Lock-free snapshot: publication guards may already own a Room transaction.
+            return socketSessions.values.any { it.storageSubscribed && now - it.lastSeenAt in 0..35_000 }
+        }
         private val storageGeneration = AtomicLong(0)
         private val storageObserver = object : InvalidationTracker.Observer("local_ns_v3_documents") {
             override fun onInvalidated(tables: Set<String>) {
