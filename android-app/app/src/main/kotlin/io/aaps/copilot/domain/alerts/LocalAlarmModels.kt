@@ -1,6 +1,7 @@
 package io.aaps.copilot.domain.alerts
 
 internal const val LOCAL_ALARM_CYCLE_TIMEOUT_MS = 55_000L
+internal const val LOCAL_ALARM_ACK_MIN_PAUSE_MS = 600_000L
 
 enum class LocalAlarmLevel(val priority: Int, val strong: Boolean = false) {
     NONE(0),

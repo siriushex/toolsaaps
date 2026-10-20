@@ -43,8 +43,11 @@ class CompactTopBarRobolectricTest {
     @Test fun approvedOwlOwnsTheFixedMenuTarget() = verifyHeader(1f, false, approvedOwl = true)
     @Test fun modelCountdownFitsBesideOwlAndKeepsAllActions() = verifyHeader(1f, false, onsetFinished = false)
     @Test fun elapsedModelHasOwlBurgerAndAccessibleExplanation() = verifyHeader(2f, false, onsetFinished = true)
+    @Test fun insulinOnlyElapsedTimerDoesNotSuggestAMeal() = verifyHeader(2f, false,
+        onsetFinished = true, mealAssociated = false)
 
-    private fun verifyHeader(fontScale: Float, dark: Boolean, approvedOwl: Boolean = false, onsetFinished: Boolean? = null) {
+    private fun verifyHeader(fontScale: Float, dark: Boolean, approvedOwl: Boolean = false,
+        onsetFinished: Boolean? = null, mealAssociated: Boolean = true) {
         val app = RuntimeEnvironment.getApplication()
         val old = Configuration(app.resources.configuration)
         @Suppress("DEPRECATION")
@@ -56,7 +59,8 @@ class CompactTopBarRobolectricTest {
         var cycles = 0; var blood = 0; var events = 0; var history = 0; var menu = 0
         val now = System.currentTimeMillis()
         val timer = onsetFinished?.let { finished -> io.aaps.copilot.ui.InsulinOnsetCountdown(
-            "meal-1", now - 30 * 60_000, if (finished) now - 1_000 else now + 750_000, 27.5) }
+            "meal-1", now - 30 * 60_000, if (finished) now - 1_000 else now + 750_000, 27.5,
+                mealAssociated = mealAssociated) }
         try {
             controller.get().setContent {
                 AapsCopilotTheme(darkTheme = dark, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
@@ -93,7 +97,8 @@ class CompactTopBarRobolectricTest {
                 assertTrue("timer must not cover refresh", clockBounds.right <= refresh.left + .5f)
                 if (onsetFinished == true) {
                     compose.onNodeWithText("Истекло").assertIsDisplayed()
-                    compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertIsDisplayed()
+                    if (mealAssociated) compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertIsDisplayed()
+                    else compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertDoesNotExist()
                 }
             }
             val bloodBounds = compose.onNodeWithTag("overviewTopBloodCheck").fetchSemanticsNode().boundsInRoot
@@ -121,7 +126,7 @@ class CompactTopBarRobolectricTest {
                     val view = controller.get().window.decorView
                     val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
                     view.draw(Canvas(bitmap))
-                    File(dir, "compact-header-$fontScale-${onsetFinished ?: "none"}.png").outputStream().use {
+                    File(dir, "compact-header-$fontScale-${onsetFinished ?: "none"}-$mealAssociated.png").outputStream().use {
                         assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                     }
                 }

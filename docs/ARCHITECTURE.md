@@ -1,5 +1,28 @@
 # ARCHITECTURE
 
+## Seen Pause and Insulin-Onset Presentation
+
+The exact running-owner acknowledgement keeps its source/generation/ordinal,
+cleanup-before-persistence and worsening checks. Its pause is at least ten
+minutes, independent of a one- or two-minute critical repeat setting; a longer
+configured soft repeat is retained. Another episode and a higher risk level
+remain independently audible. This is not an indefinite mute or risk resolution.
+
+One application-scoped countdown projection is shared by the header and a
+separate silent notification. It accepts usable recorded insulin without
+requiring carbohydrate entry, but excludes automatic microboluses, inferred IOB,
+recovered doses and unconfirmed local actions. An insulin-only/correction record
+does not claim that a meal is planned and never activates the meal-completion
+gesture. Existing finite/fresh matching-profile model gates remain in force.
+The timestamp anchors the countdown; reopening a screen cannot restart it.
+
+The notification has its own channel/id, no sound, vibration, alarm-clock wake,
+full-screen intent or therapeutic action. Android renders its chronometer;
+application work is only at data changes, onset expiry and model-freshness expiry.
+Android may restrict banners and background execution; notification posting is
+not proof of user observation or insulin delivery. Onset is an estimate, not a
+meal waiting recommendation. No target, dose or onset estimator is changed.
+
 ## Stock AAPS 4.0 Integration Direction
 
 Keep AAPS source stock where possible and implement its Nightscout v3 contract in
@@ -2371,9 +2394,9 @@ AAPS Predictive Copilot is a two-part system:
   - telemetry keepalive may still republish the latest estimate hourly so UI/runtime diagnostics stay fresh without re-running the expensive fit.
 
 ## Model Onset Header and AI Context
-- The shared header derives a model clock from a recent, unambiguous `meal_bolus` record and finite, fresh onset telemetry from the local runtime. IOB alone, corrections, broadcasts, invalid records and mismatched model profiles cannot start it.
-- The clock marks an approximate model deadline, not confirmed insulin delivery or a safe eating interval. Completion shows a finite owl/meal gesture, then a static elapsed state for up to 15 minutes. It never calls therapy actions; foreground ticks stop with the lifecycle.
-- The primary UI has a bounded 32-row meal-insulin stream, so the header does not depend on opening the expensive analytics projection first.
+- The shared header and silent notification derive a model clock from a recent, unambiguous usable insulin record and finite, fresh onset telemetry from the local runtime. IOB alone, SMB, inferred/recovered insulin, unconfirmed local actions, broadcasts, invalid records and mismatched model profiles cannot start it.
+- The clock marks an approximate model deadline, not confirmed insulin delivery or a safe eating interval. Only an explicitly meal-associated record permits the finite owl/meal gesture; insulin-only/correction records have neutral onset status. Elapsed state lasts up to 15 minutes, bounded by model freshness. It never calls therapy actions; foreground ticks stop with the lifecycle.
+- One application-scoped projection uses a bounded 256-row insulin stream and latest-per-source/key model telemetry, so the header does not depend on opening analytics and old fitted-profile identity is not starved by frequent runtime samples.
 - Selected insulin profile, effective DIA, onset, fitted shape, sample count, confidence and evidence times are included in the device chat snapshot. Fixed-source, fixed-key telemetry is used; unknown values are not replaced with a guessed drug.
 - Existing authenticated history maintenance also uploads an observed profile snapshot once per local 05:00 day, on profile/model change, or after process restart. It catches up when active; this is not an exact alarm and is not an AI inference request. History incompleteness and unconfirmed delivery remain explicit.
 - The therapeutic fitter's existing 72-hour cadence is unchanged. Nightly retraining and any new Target Manager effect require a separate validated model/control integration; UI animation does not authorize therapy.

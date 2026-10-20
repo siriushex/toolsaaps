@@ -181,6 +181,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -358,6 +360,15 @@ class AppContainer(context: Context) {
     internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val insulinOnsetCountdown = combine(
+        db.therapyDao().observeInsulinOnsetCandidates().distinctUntilChanged(),
+        db.telemetryDao().observeInsulinOnsetContext().distinctUntilChanged(),
+        settingsStore.settings.map { it.insulinProfileId }.distinctUntilChanged()
+    ) { rows, telemetry, profile ->
+        val now = System.currentTimeMillis()
+        if (telemetry.size > 128) null else io.aaps.copilot.ui.insulinOnsetCountdown(rows,
+            io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(profile, telemetry, now), now)
+    }.distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, null)
     private val mealStateInbox = io.aaps.copilot.data.repository.MealStateInbox(db)
     internal val mealStateIngestion = io.aaps.copilot.data.repository.MealStateIngestionQueue(
         scope = appScope,
@@ -1596,6 +1607,10 @@ class AppContainer(context: Context) {
 
     init {
         appScope.launch { serverAiConnectionManager.load() }
+        appScope.launch {
+            val notifications = io.aaps.copilot.data.repository.InsulinOnsetNotifier(appContext)
+            insulinOnsetCountdown.collectLatest { notifications.follow(it) }
+        }
         appScope.launch {
             io.aaps.copilot.data.repository.maintainRoomAiHistory(
                 enabled = combine(serverAiConnectionManager.state, settingsStore.settings) { connection, settings ->

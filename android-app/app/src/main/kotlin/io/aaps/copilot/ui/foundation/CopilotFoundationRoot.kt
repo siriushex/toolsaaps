@@ -886,7 +886,7 @@ internal fun TopBar(
 ) {
     val onsetNow = io.aaps.copilot.ui.foundation.components.rememberOnsetNow(insulinOnsetCountdown)
     val onset = insulinOnsetCountdown?.takeIf { it.visibleAt(onsetNow) }
-    val completionKey = onset?.takeIf { it.remainingSeconds(onsetNow) == 0L }
+    val completionKey = onset?.takeIf { it.mealAssociated && it.remainingSeconds(onsetNow) == 0L }
         ?.let { "${it.recordKey}:${it.estimatedAtMs}" }
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(

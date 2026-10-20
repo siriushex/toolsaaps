@@ -16,7 +16,8 @@ data class GlucoseAlarmOwnerState(
     val exactAlarmAvailable: Boolean = false,
     val nextAlarmElapsedMs: Long? = null,
     val acknowledgement: LocalAlarmAcknowledgement? = null,
-    val sessionId: String? = null
+    val sessionId: String? = null,
+    val acknowledgementPauseMinutes: Int = (LOCAL_ALARM_ACK_MIN_PAUSE_MS / 60_000L).toInt()
 )
 
 data class GlucoseAlarmCapabilities(val notifications: Boolean, val audio: Boolean,
@@ -307,7 +308,10 @@ class GlucoseAlarmOwner(
             else -> GlucoseAlarmOwnerPhase.RUNNING
         }
         mutableState.value = state.value.copy(phase = phase, exactAlarmAvailable = cap.exactAlarm,
-            acknowledgement = ack, sessionId = sessionId)
+            acknowledgement = ack, sessionId = sessionId,
+            acknowledgementPauseMinutes = maxOf((LOCAL_ALARM_ACK_MIN_PAUSE_MS / 60_000L).toInt(),
+                if (ack?.level?.strong == true) settings?.strongLowRepeatMinutes ?: 2
+                else settings?.softAlertRepeatMinutes ?: 5))
         return platform.publish(state.value)
     }
 }

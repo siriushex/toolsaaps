@@ -167,10 +167,10 @@ class LocalAlarmArbitrationPolicyTest {
         val source = request(); val active = active(source)
         val paused = LocalAlarmPolicy.acknowledge(source.evidence, active, environment, timing,
             LocalAlarmAcknowledgement(active.key, 1, 1, active.level))!!
-        assertEquals(400_000L, decide(listOf(source), listOf(paused)).nextWakeElapsedMs)
+        assertEquals(700_000L, decide(listOf(source), listOf(paused)).nextWakeElapsedMs)
         val expiring = source.copy(evidence = source.evidence.copy(validUntilElapsedMs = 120_000))
         assertEquals(120_000L, decide(listOf(expiring), listOf(paused)).nextWakeElapsedMs)
-        val env = environment.copy(nowElapsedMs = 400_000, nowWallMs = 500_000)
+        val env = environment.copy(nowElapsedMs = 700_000, nowWallMs = 800_000)
         assertEquals(source.evidence, decide(listOf(source), listOf(paused), env = env).selected)
     }
 

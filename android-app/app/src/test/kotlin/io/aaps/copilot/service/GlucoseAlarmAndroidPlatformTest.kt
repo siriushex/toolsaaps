@@ -47,6 +47,7 @@ class GlucoseAlarmAndroidPlatformTest {
         assertNull(notification.vibrate)
         assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
         assertEquals(1, notification.actions.size)
+        assertTrue(notification.actions.single().title.toString().contains("10"))
         val encoded = shadowOf(notification.actions.single().actionIntent).savedIntent
         assertEquals(session to action, GlucoseAlarmAckReceiver.decode(encoded))
         assertTrue(platform.notification(GlucoseAlarmOwnerState()).actions.isNullOrEmpty())

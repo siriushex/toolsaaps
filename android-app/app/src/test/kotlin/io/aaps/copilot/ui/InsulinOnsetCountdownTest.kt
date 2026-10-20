@@ -20,15 +20,40 @@ class InsulinOnsetCountdownTest {
         assertEquals(0L, timer.remainingSeconds(now + 751_000))
     }
     @Test fun expiredClockRemainsVisibleBrieflyThenDisappears() {
-        val timer = insulinOnsetCountdown(listOf(row()), model, now)!!
+        val timer = insulinOnsetCountdown(listOf(row()), model, now)!!.copy(validUntilMs = Long.MAX_VALUE)
         assertTrue(timer.visibleAt(timer.estimatedAtMs + 15 * 60_000))
         assertFalse(timer.visibleAt(timer.estimatedAtMs + 15 * 60_000 + 1))
         assertFalse(timer.visibleAt(timer.recordedAtMs - 1))
     }
+    @Test fun timerHidesWhenItsModelEvidenceExpiresAndCorrectionHasNoMealGesture() {
+        val timer = insulinOnsetCountdown(listOf(row(type = "correction_bolus")), model, now)!!
+        assertFalse(timer.mealAssociated)
+        assertTrue(timer.visibleAt(now + 900_000))
+        assertFalse(timer.visibleAt(now + 900_001))
+    }
     @Test fun iobWithoutMealInsulinRecordCannotStartAClock() {
         assertNull(insulinOnsetCountdown(emptyList(), model, now))
-        assertNull(insulinOnsetCountdown(listOf(row(type = "correction_bolus")), model, now))
         assertNull(insulinOnsetCountdown(listOf(row(payload = "{\"carbs\":40}")), model, now))
+    }
+    @Test fun insulinOnlyRecordCanShowOnsetWithoutClaimingAConfirmedMeal() {
+        for (type in listOf("insulin", "bolus", "correction_bolus")) {
+            val timer = insulinOnsetCountdown(listOf(row(type = type, payload = "{\"insulin\":2.2}")), model, now)
+            assertNotNull(type, timer)
+            assertEquals(750L, timer!!.remainingSeconds(now))
+        }
+    }
+    @Test fun automaticInferredAndUnconfirmedInsulinCannotStartATimer() {
+        val payloads = listOf(
+            "{\"insulin\":0.2,\"isSMB\":true}",
+            "{\"insulin\":0.2,\"bolusType\":\"SMB\"}",
+            "{\"insulin\":0.2,\"type\":\"SMB\"}",
+            "{\"insulin\":2.2,\"classification\":\"INFERRED_IOB\"}",
+            "{\"insulin\":2.2,\"classification\":\"RECOVERED_MICROBOLUS\"}",
+            "{\"insulin\":2.2,\"classification\":\"LOCAL_ACTION\"}",
+            "{\"insulin\":2.2,\"cancelled\":true}",
+            "{\"insulin\":2.2,\"inferred\":true}"
+        )
+        payloads.forEach { assertNull(it, insulinOnsetCountdown(listOf(row(type = "correction_bolus", payload = it)), model, now)) }
     }
     @Test fun staleFutureOrInvalidModelCannotSignalCompletion() {
         listOf(model.copy(onsetEvidenceTs = now - 900_001), model.copy(onsetEvidenceTs = now + 1),

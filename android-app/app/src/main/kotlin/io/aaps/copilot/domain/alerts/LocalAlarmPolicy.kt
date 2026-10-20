@@ -101,7 +101,8 @@ object LocalAlarmPolicy {
             action.ordinal != previous.ordinal || action.level != previous.level
         ) return previous
         val profile = LocalAlarmProfiles.create(evidence.level, timing, previous.reachedPercent) ?: return previous
-        val until = addTime(environment.nowWallMs, profile.repeatMs) ?: return previous
+        // Seeing a signal is a bounded pause, not another one-minute repeat interval.
+        val until = addTime(environment.nowWallMs, maxOf(profile.repeatMs, LOCAL_ALARM_ACK_MIN_PAUSE_MS)) ?: return previous
         return previous.copy(
             observedElapsedMs = evidence.observedElapsedMs,
             validUntilElapsedMs = evidence.validUntilElapsedMs,

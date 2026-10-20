@@ -9,6 +9,7 @@
     <string name="alarm_runtime_limited">Доставка ограничена. Проверьте будильники, уведомления и громкость будильника.</string>
     <string name="alarm_runtime_unavailable">Фоновая доставка недоступна. Откройте приложение для повторного запуска.</string>
     <string name="alarm_runtime_ack">Вижу</string>
+    <string name="alarm_runtime_ack_minutes">Вижу · %1$d мин</string>
     <string name="alarm_runtime_system_clock">Критический повтор отображается как системный будильник. OFF 30/60 сохраняет полную паузу.</string>
     <string name="alarm_runtime_alarm_permission">Разрешение будильников и напоминаний</string>
     <string name="alarm_runtime_notification_permission">Разрешение уведомлений</string>

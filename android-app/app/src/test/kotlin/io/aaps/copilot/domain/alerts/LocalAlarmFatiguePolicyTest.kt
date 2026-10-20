@@ -66,16 +66,16 @@ class LocalAlarmFatiguePolicyTest {
         }
     }
 
-    @Test fun acknowledgementUsesBaseIntervalNotBackedOffInterval() {
+    @Test fun acknowledgementUsesMinimumPauseNotBackedOffInterval() {
         var state = LocalAlarmPolicy.evaluate(evidence, null, environment, timing).state!!
         state = LocalAlarmPolicy.evaluate(evidence, state, at(301_000), timing).state!!
         val action = LocalAlarmAcknowledgement(state.key, state.generation, state.ordinal, state.level)
         val paused = LocalAlarmPolicy.acknowledge(evidence, state, at(302_000), timing, action)!!
-        assertEquals(611_000L, paused.pause!!.untilWallMs)
+        assertEquals(911_000L, paused.pause!!.untilWallMs)
         assertEquals(LocalAlarmAdmission.ACKNOWLEDGED,
-            LocalAlarmPolicy.evaluate(evidence, paused, at(601_999), timing).admission)
-        val resumed = LocalAlarmPolicy.evaluate(evidence, paused, at(602_000), timing)
-        assertEquals(902_000L, resumed.state!!.nextDueElapsedMs)
+            LocalAlarmPolicy.evaluate(evidence, paused, at(901_999), timing).admission)
+        val resumed = LocalAlarmPolicy.evaluate(evidence, paused, at(902_000), timing)
+        assertEquals(1_202_000L, resumed.state!!.nextDueElapsedMs)
     }
 
     @Test fun configuredMinimumAndMaximumRemainBoundsForNoncriticalBackoff() {

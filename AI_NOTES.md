@@ -1,3 +1,34 @@
+# Seen Pause and Insulin Countdown - 2026-10-20
+
+- Reproduced two failures before implementation: Seen reused the short repeat
+  interval, and insulin-only records could not start the header countdown.
+- Keep exact source/session/generation/ordinal and cleanup-before-Room ACK
+  semantics. Pause for at least10min, retaining a longer soft interval. The
+  notification button states its duration; new CGM points do not restart the
+  acknowledged source. Higher risk, a separate episode and global OFF remain.
+- Share one application-scoped timestamp countdown between header and a separate
+  silent notification. Valid recorded insulin may have no carbohydrates; SMB,
+  inferred/recovered doses, broadcasts and unconfirmed local commands cannot
+  anchor it. Correction/insulin-only completion has no meal gesture. Existing
+  fresh model/profile gates stay closed when evidence is unavailable.
+- Use bounded256 insulin candidates and two indexed latest-key model lookups,
+  preserving conflicting equal-time telemetry rather than selecting one value.
+  Android renders the notification chronometer. No second-by-second background
+  notification updates, audio, vibration, exact alarm, dose or target action.
+- Focused regression check:245passed,0fail/errors/skips. The separate banner
+  regression failed before removing forced-silent mode on a verified quiet
+  channel; customized sound/vibration settings retain the explicit quiet fallback.
+- Final combined Android test/lint/compile/build:6510passed,6private-input skips,
+  0fail/errors. The pinned actual SDK TLS fixture passed. Native320dp/2x-font
+  header checks passed;0lint errors and no findings in the new notifier/onset,
+  DAO or alarm-owner files. Existing project warnings are not new acceptance.
+- Backend mandatory regression:1942passed,27skipped. APK/signature/class guards
+  passed;41,317,353bytes. Source publication and exact-head CI are tracked with
+  the stage checkpoint/PR, not inferred from local success. No release publication.
+- No phone install/audio acceptance, medical data export, AAPS/source update or
+  server deployment is part of this stage. Notification posting is not proof of
+  hearing, confirmed insulin delivery or safe eating time.
+
 # RC1 Receiver Admission - 2026-10-20
 
 - Six new real upstream receiver tests reproduced invocation of the mocked

@@ -59,7 +59,7 @@ class GlucoseAlarmAndroidPlatform(private val context: Context, val wakes: Gluco
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         if (state.sessionId != null && state.acknowledgement != null) {
-            builder.addAction(0, context.getString(R.string.alarm_runtime_ack),
+            builder.addAction(0, context.getString(R.string.alarm_runtime_ack_minutes, state.acknowledgementPauseMinutes),
                 GlucoseAlarmAckReceiver.pendingIntent(context, state.sessionId, state.acknowledgement))
         }
         return builder.build()

@@ -149,6 +149,26 @@ class GlucoseAlarmOwnerTest {
         }
     }
 
+    @Test fun seenSurvivesFreshCgmPointsAndAcceptedOffersForTheSameLow() = runBlocking {
+        settings.value = settings.value.copy(strongLowRepeatMinutes = 1)
+        running { owner ->
+            owner.startInitial(publish(), settings.value)
+            val action = owner.state.value
+            assertTrue(owner.acknowledge(action.sessionId!!, action.acknowledgement!!))
+            for (minute in 1..9) {
+                elapsed = 1_000L + minute * 60_000L
+                owner.acceptedWithoutInitial(publish())
+                owner.signal()
+                delay(30)
+                assertEquals(1, audio.starts.size)
+                assertEquals(GlucoseAlarmOwnerPhase.PAUSED, owner.state.value.phase)
+            }
+            elapsed = 601_000
+            owner.acceptedWithoutInitial(publish()); owner.signal()
+            until { audio.starts.size > 1 }
+        }
+    }
+
     @Test fun sourceExpiryStopsAudioCancelsAlarmAndRemovesAction() = runBlocking {
         running { owner ->
             owner.startInitial(publish(), settings.value)

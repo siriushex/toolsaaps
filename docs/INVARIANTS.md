@@ -422,8 +422,9 @@
   shutdown settles pending replies without claiming that a pause was persisted.
 - Pending-claim waits use current source expiry. Expired acknowledgement cannot
   spin on a past deadline; every runner iteration checks cancellation.
-- Duplicate actions never slide a pause. Configured critical/soft repeat, global
-  OFF and worsening semantics remain unchanged. No notification posting implies
+- Duplicate actions never slide a pause. Acknowledgement pauses at least ten
+  minutes (or the longer configured soft repeat); ordinary repeat intervals,
+  global OFF and higher-risk preemption remain unchanged. No notification posting implies
   acknowledgement, audio success or hearing; this API alone activates no runtime.
 
 ## Alert Control Intent Revocation
@@ -1879,5 +1880,6 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 
 ## Model Onset Clock
 - A completed model countdown is not delivery confirmation, permission to eat, or a target/dose command. The status and its detail text must preserve that distinction even when the owl shows the requested food animation.
-- No timer from positive IOB alone; require a usable meal-insulin record and matching configured/model profile. Nonfinite, future, stale, wrong-unit or conflicting onset evidence cannot create a clock.
+- No timer from positive IOB alone; require a usable insulin record and matching configured/model profile. Exclude SMB, inferred/recovered insulin and unconfirmed local commands. Insulin-only/correction records do not assert meal intent or trigger the meal gesture. Nonfinite, future, stale, wrong-unit or conflicting onset evidence cannot create a clock.
+- Header and notification share one timestamp-anchored projection. Onset notifications have a distinct channel/id and no audio, vibration, full-screen intent, alarm-clock scheduling or therapy action. They cannot cancel, acknowledge or replace glucose alarms. Stale model evidence clears the display, not the clinical alert.
 - Profile exports are observed current settings. Never retroactively label historical boluses with the currently selected insulin; no credentials, arbitrary payloads or new provider calls accompany the snapshot.

@@ -1,5 +1,22 @@
 # PLAN
 
+## Seen Pause and Silent Insulin Countdown (2026-10-20)
+
+- [x] Reproduce short ACK pause and absent insulin-only countdown before fixes.
+- [x] Keep exact runtime acknowledgement and add a ten-minute minimum pause,
+  independent of critical repeat; retain higher-risk preemption and global OFF.
+- [x] Share one bounded insulin/model projection with header and silent system
+  countdown; do not infer meal intent or delivery from positive IOB/correction.
+- [x] Pass245 focused policy/owner/Room/notification cases.
+- [x] Finish frozen combined Android tests/lint/build:6510pass,6private-input
+  skips,0fail/errors; actual SDK TLS fixture passes. Backend:1942pass,27skip.
+- [x] Pass APK signature/class/size guards:41,317,353bytes; inspect native header
+  at320dp and2x text. Quiet-channel banner/customized-channel silence verified.
+- Exact-head CI is a separate required source-publication receipt, recorded in
+  the stage checkpoint and PR. Local checks never stand in for that receipt.
+- Device installation, real notification/banner acceptance and separately
+  consented audio tests are not performed by source verification.
+
 ## Internet Update Recovery And Size (2026-10-19)
 
 - [x] Verify public APK bytes, hash, HTTPS transfer and Range support.
@@ -1869,7 +1886,8 @@ Details and limits: [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md).
   Written proposal: `superpowers/specs/2026-10-07-local-alarm-escalation-design.md`.
 - Opt-in typed-source coordinator, bounded ramp/repeats, urgent-low floor,
   exact global OFF and fresh alert-only resume. Explicit source acknowledgement
-  pauses one repeat interval; it does not resolve risk or silence other sources.
+  originally paused one repeat interval; the 2026-10-20 fix separates this into
+  a minimum ten-minute pause. Neither resolves risk nor silences other sources.
 - Dedicated user-started foreground lifecycle and additive local-cycle storage;
   no clinical threshold, therapy, Telegram retry or local Nightscout change.
 - Written human review precedes implementation/TDD. Fresh original-incident

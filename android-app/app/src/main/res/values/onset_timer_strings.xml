@@ -3,5 +3,9 @@
     <string name="onset_timer_elapsed">Elapsed</string>
     <string name="onset_timer_finished">Model time elapsed</string>
     <string name="onset_timer_remaining">Model onset: %1$s remaining</string>
-    <string name="onset_timer_details">Estimated onset: %1$s min. Counted from the meal insulin record at %2$s, not confirmed delivery. This is not a recommendation to wait or start eating. The estimate may change as the model updates.</string>
+    <string name="onset_timer_details">Estimated onset: %1$s min. Counted from the insulin record at %2$s, not confirmed delivery. This is not a recommendation to wait or start eating. The estimate may change as the model updates.</string>
+    <string name="onset_notification_channel">Insulin countdown</string>
+    <string name="onset_notification_title">Insulin · estimated onset</string>
+    <string name="onset_notification_body">Expected around %1$s. Estimate, not an eating instruction.</string>
+    <string name="onset_notification_elapsed">Estimated onset time elapsed</string>
 </resources>

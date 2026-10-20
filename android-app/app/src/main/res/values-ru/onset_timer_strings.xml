@@ -3,5 +3,9 @@
     <string name="onset_timer_elapsed">Истекло</string>
     <string name="onset_timer_finished">Модельное время истекло</string>
     <string name="onset_timer_remaining">Модельное начало действия: осталось %1$s</string>
-    <string name="onset_timer_details">Оценка начала действия: %1$s мин. Отсчёт от записи инсулина к еде в %2$s, не от подтверждённой доставки. Это не рекомендация ждать или начинать еду. При обновлении модели оценка может измениться.</string>
+    <string name="onset_timer_details">Оценка начала действия: %1$s мин. Отсчёт от записи инсулина в %2$s, не от подтверждённой доставки. Это не рекомендация ждать или начинать еду. При обновлении модели оценка может измениться.</string>
+    <string name="onset_notification_channel">Таймер инсулина</string>
+    <string name="onset_notification_title">Инсулин · начало действия ≈</string>
+    <string name="onset_notification_body">Ожидается около %1$s. Оценка, не указание начинать еду.</string>
+    <string name="onset_notification_elapsed">Оценочное время начала действия истекло</string>
 </resources>

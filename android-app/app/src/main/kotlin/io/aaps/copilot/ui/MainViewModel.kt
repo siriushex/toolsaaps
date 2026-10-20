@@ -2125,7 +2125,7 @@ class MainViewModel(application: Application) :
         ),
         container.sensitivityRuntimeRepository.current,
         calibrationSessionEvidence,
-        db.therapyDao().observeMealInsulinTimerCandidates()
+        container.insulinOnsetCountdown
     ) { values ->
         buildPrimaryUiState(values)
     }
@@ -3338,7 +3338,7 @@ class MainViewModel(application: Application) :
             this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
             this.aiInsulinContext = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(settings.insulinProfileId, telemetry, now)
-            this.insulinOnsetCountdown = insulinOnsetCountdown(therapy, this.aiInsulinContext!!, now)
+            this.insulinOnsetCountdown = container.insulinOnsetCountdown.value
             this.insulinRealProfileCurveCompact = insulinRealProfileCurveCompact
             this.insulinRealProfileUpdatedTs = insulinRealProfileUpdatedTs
             this.insulinRealProfileConfidence = insulinRealProfileConfidence
@@ -3685,7 +3685,7 @@ class MainViewModel(application: Application) :
         val calibrationAuthorityTokenRow = values[8] as TelemetrySampleEntity?
         val sensitivityRuntime = values[9] as SensitivityRuntimeSnapshot?
         @Suppress("UNCHECKED_CAST")
-        val mealInsulinRows = values[11] as List<TherapyEventEntity>
+        val insulinOnset = values[11] as InsulinOnsetCountdown?
 
         val now = System.currentTimeMillis()
         val sortedGlucose = glucose.sortedBy { it.timestamp }
@@ -3950,7 +3950,7 @@ class MainViewModel(application: Application) :
             this.latestActivityRatio = latestActivityRatio
             this.insulinProfileId = settings.insulinProfileId
             this.aiInsulinContext = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(settings.insulinProfileId, telemetry, now)
-            this.insulinOnsetCountdown = insulinOnsetCountdown(mealInsulinRows, this.aiInsulinContext!!, now)
+            this.insulinOnsetCountdown = insulinOnset
             this.latestStepsCount = latestStepsCount
             this.forecast5m = latestForecast5Row?.valueMmol
             this.forecast5mCiLow = latestForecast5Row?.ciLow

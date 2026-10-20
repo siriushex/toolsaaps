@@ -208,10 +208,10 @@ class LocalAlarmCoordinatorTest {
             assertTrue(withTimeout(5_000) { owner.acknowledge(action(cycle)) })
             assertTrue(audio.stops.contains(cycle)); assertNull(audio.playing); assertEquals(1, volume.index)
             assertEquals("CANCELLED", row(cycle).status)
-            assertFalse(state(cycle).cycleActive); assertEquals(310_000L, state(cycle).pause?.untilWallMs)
+            assertFalse(state(cycle).cycleActive); assertEquals(610_000L, state(cycle).pause?.untilWallMs)
             assertTrue(job.isActive); assertFalse(store().runtimeUnavailable.get())
-            until { clock.hasDeadline(301_000) }
-            clock.advance(300_000); until { audio.starts.size == 2 }
+            until { clock.hasDeadline(601_000) }
+            clock.advance(600_000); until { audio.starts.size == 2 }
             assertEquals(2L, audio.starts.last().first.ordinal)
         }
     }
@@ -331,16 +331,16 @@ class LocalAlarmCoordinatorTest {
         }
     }
 
-    @Test fun criticalAcknowledgementUsesConfiguredRepeatNotNoncriticalBackoff() = runBlocking {
+    @Test fun criticalAcknowledgementHasTenMinutePauseIndependentOfRepeat() = runBlocking {
         template = template.copy(settings = template.settings.copy(strongLowRepeatMinutes = 3),
             requests = listOf(request(level = LocalAlarmLevel.LOW_NOW)))
         val owner = coordinator()
         running(owner) {
             until { audio.starts.size == 1 }; val cycle = audio.starts.single().first
             assertTrue(owner.acknowledge(action(cycle)))
-            assertEquals(190_000L, state(cycle).pause?.untilWallMs)
-            until { clock.hasDeadline(181_000) }
-            clock.advance(180_000); until { audio.starts.size == 2 }
+            assertEquals(610_000L, state(cycle).pause?.untilWallMs)
+            until { clock.hasDeadline(601_000) }
+            clock.advance(600_000); until { audio.starts.size == 2 }
             assertEquals(2L, audio.starts.last().first.ordinal)
         }
     }
