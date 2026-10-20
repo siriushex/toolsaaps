@@ -32,6 +32,10 @@ now share this journal and counter (AAPS4_PAIRING.md). The repository selects th
 paired route without legacy fallback, but production publication remains explicitly
 closed until typed clinical history and master-handler admission are verified.
 Communication-only UI status cannot enable Target Manager or READY.
+The narrowly scoped external RC1 receiver-admission patch is specified in
+AAPS4_MASTER_ADMISSION.md. Its real-source regressions cover stale dispatch,
+not the executor's later clinical transaction or pump queue. The unmodified SDK
+fixture remains independent; neither check unlocks production publication.
 
 Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
 tombstones, compare-and-set updates and bounded revision/time paging. The entries

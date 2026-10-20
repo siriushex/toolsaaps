@@ -1,5 +1,15 @@
 # DEVOPS
 
+## RC1 Receiver Patch Verification
+
+See AAPS4_MASTER_ADMISSION.md. `tools/aaps4_compat/verify_master.sh` temporarily
+applies only the reviewed receiver/test patch to a clean pinned RC1 checkout,
+runs actual native regressions and reverses its own exact diff even after a test
+failure. Unknown concurrent edits are preserved and fail the check. The existing
+pristine SDK preparation gate stays unchanged; Verify separately installs the
+upstream-required Android37 platform for native module tests. This is not a signed
+AAPS APK publication, full upstream APK CI or USB installation permission.
+
 ## Treatment Wire Stage
 
 LOCAL_NS_V3_TREATMENTS.md reuses the existing authenticated listener/Room37 store.

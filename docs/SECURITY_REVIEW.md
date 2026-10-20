@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## RC1 Receiver Admission Patch (2026-10-20)
+
+- Six real native regressions first invoked the mocked executor after expired,
+  revoked or disabled admission. The external pinned-source patch guards dispatch
+  with a monotonic receipt budget and fresh wall/authorization/control checks.
+  Authenticated rejection after replay/skew gates consumes the counter; it cannot
+  restore a deleted pairing or turn a late completed effect into a no-effect claim.
+- MUST before migration: independently guard the executor's later temporary-target
+  transaction. Receiver tests are not clinical/pump proof. Typed clinical/profile,
+  scoped Android CA trust and credential-bearing refresh log redaction remain
+  open; production native publication remains closed.
+- The check helper requires clean exact upstream source and reverses only its own
+  unchanged diff. Six real-Git synthetic helper tests cover errors and concurrent
+  edits. No credentials, signing material or phone database participates.
+
 ## Treatment Wire Boundary (2026-10-20)
 
 - MUST before migration: two external mock regressions on pinned RC1 confirm

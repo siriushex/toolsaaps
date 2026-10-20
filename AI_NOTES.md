@@ -1,3 +1,27 @@
+# RC1 Receiver Admission - 2026-10-20
+
+- Six new real upstream receiver tests reproduced invocation of the mocked
+  executor after network/ACK expiry, exact deadline, wall rollback, control OFF
+  and pairing revocation. Preserve the RED evidence privately. Add a narrow
+  external pinned-source patch with fresh dispatch checks, monotonic receipt
+  budget, identity/counter revalidation and fresh final ACK time.
+- Verification helper applies/reverses only its exact diff on a pristine pinned
+  checkout; concurrent edits are preserved with failure. No source-clean SDK gate
+  is weakened. Final frozen native source passed103 protocol and80 executor tests,
+  plus128 app tests, zero failures/errors/skips. Instrumented Kotlin, lint and
+  unsigned release build passed9m55s; lint retains29 existing warnings/zero errors.
+  Ten new native cases include counter-write expiry and honest final ACK after an
+  already completed mocked effect. Six helper tests passed8.275s. Exact-source CI
+  remains required before calling this source stage complete.
+- The real helper completed50s and restored the pristine RC1 checkout; its two
+  native test tasks reused the just-verified identical input outputs. The full
+  run above executed all311 tests. APK DEX defines both changed master classes
+  among86791 classes; this is an unsigned patched artifact, not a stock APK.
+- This protects dispatch only. Executor/persistence validity, clinical/profile
+  exchange, scoped Android TLS trust and refresh-path logging still block live
+  publication/migration. No phone update, pairing or therapy command in this stage.
+- Prior treatment wire b5d3b3d7 Verify39392761034 passed all three jobs.
+
 # RC1 Treatment Wire Exchange - 2026-10-20
 
 - Ten new adapter tests first failed against the missing501 boundary. Add typed

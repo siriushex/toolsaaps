@@ -86,7 +86,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-36 platforms;android-37 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
       - name: Compile unmodified stock SDK with external test driver
         env:
@@ -98,6 +98,11 @@ jobs:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
         run: python3 -m unittest discover -s tools/aaps4_compat -p 'test_*.py'
+      - name: Check minimal RC1 master admission patch
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
+        run: bash tools/aaps4_compat/verify_master.sh
       - name: Test, lint and build
         working-directory: android-app
         env:

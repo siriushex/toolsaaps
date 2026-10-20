@@ -67,6 +67,10 @@
   payload. Stable owner/producer/type/time identity prevents POST replay duplicates;
   conflicting content is refused, not merged by value.
 - Stock SDK TLS tests do not prove Android CA trust or whole-app readiness.
+- Patched master receipt budgets include network/mutex/ACK/counter waits and cannot
+  be renewed by clock rollback or stalled wall time. Revoked pairing/control is
+  rechecked before dispatch. Executor invocation is not clinical application;
+  receiver-only admission cannot unlock native target publication.
 - Device status is immutable owner/device/time wire evidence, not insulin-delivery
   confirmation. Both date formats must agree; known empty SDK wrappers normalize
   without rewriting opaque IOB/pump content. Nonpaged history is complete or507,

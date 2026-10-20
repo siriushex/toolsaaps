@@ -58,7 +58,13 @@
       native mmol mismatch RED before correction. Additional retry/reopen checks follow.
 - [x] Complete final treatment wire local test/lint/build:6495 passed/six prior
       skips,zero test/lint errors; APK retains all7003 compiled application classes.
-- [ ] Inspect exact-source treatment wire CI before calling this source stage complete.
+- [x] Inspect exact-source treatment wire b5d3b3d7 CI39392761034: all three jobs passed.
+- [x] Reproduce six expired/revoked/disabled command dispatch failures in real RC1 tests.
+- [x] Verify the minimal receiver patch:183 native checks plus128 app tests,
+      instrumented Kotlin,release lint/build and actual helper apply/reversal pass.
+- [ ] Inspect exact-source receiver patch CI before source-stage completion.
+- [ ] Propagate target-only validity to the actual executor/persistence boundary;
+      a receiver-only fix cannot admit live Target Manager publication.
 - [ ] Complete typed clinical history and master-handler admission before opening
       production native Target Manager publication (AAPS4_PAIRING.md).
 - [ ] Implement authenticated loopback v3 with durable collection revisions.

@@ -7,6 +7,10 @@ Copilot, with minimal AAPS changes. Do not transplant the old custom AAPS bridge
 or modify dosing algorithms. The target under inspection is official 4.0.0-rc1,
 commit d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0. It is a prerelease.
 
+The external receiver-admission patch and its explicit limits are described in
+AAPS4_MASTER_ADMISSION.md. It is not a dose-algorithm change or permission to
+replace the active phone application before the remaining migration gates pass.
+
 ## Confirmed Protocol Differences
 
 - Stock `DataReceiver` handles `NS_EMULATOR` as glucose data through
