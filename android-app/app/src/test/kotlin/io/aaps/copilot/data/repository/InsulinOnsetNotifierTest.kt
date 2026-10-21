@@ -7,6 +7,8 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.ui.InsulinOnsetCountdown
+import io.aaps.copilot.ui.insulinOnsetCountdown
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -83,7 +85,7 @@ class InsulinOnsetNotifierTest {
         assertTrue(manager.activeNotifications.isEmpty())
     }
 
-    @Test fun modelFreshnessExpiryClearsTimerWithoutClaimingOnset() = kotlinx.coroutines.runBlocking {
+    @Test fun explicitValidityDeadlineClearsTimerWithoutClaimingOnset() = kotlinx.coroutines.runBlocking {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         var time = now
         var waits = 0
@@ -93,6 +95,25 @@ class InsulinOnsetNotifierTest {
             time += duration
         }
         assertEquals(1, waits)
+        assertTrue(manager.activeNotifications.isEmpty())
+    }
+
+    @Test fun acceptedEstimateKeepsQuietNotificationThroughOnsetAndCompletion() = kotlinx.coroutines.runBlocking {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val estimate = AiInsulinContext("FIASP", 27.5, now - 14 * 60_000L, fittedProfileId = "FIASP")
+        val event = TherapyEventEntity("normal-insulin", now, "meal_bolus", "{\"insulin\":2.2,\"carbs\":40}")
+        val projected = insulinOnsetCountdown(listOf(event), estimate, now)!!
+        var time = now
+        val waits = mutableListOf<Long>()
+        InsulinOnsetNotifier(context).follow(projected, { time }) { duration ->
+            val notice = manager.activeNotifications.single().notification
+            assertNull(notice.sound)
+            assertNull(notice.vibrate)
+            assertEquals(waits.isEmpty(), notice.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER))
+            waits += duration
+            time += duration
+        }
+        assertEquals(listOf(1_650_000L, 900_001L), waits)
         assertTrue(manager.activeNotifications.isEmpty())
     }
 

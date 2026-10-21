@@ -21,11 +21,13 @@ internal fun insulinOnsetCountdown(rows: List<TherapyEventEntity>, model: AiInsu
     nowMs: Long): InsulinOnsetCountdown? {
     val onset = model.onsetMinutes?.takeIf { it.isFinite() && it in 1.0..180.0 } ?: return null
     val evidence = model.onsetEvidenceTs ?: return null
-    if (model.knownProfile == null || model.profileMatches != true || evidence > nowMs || nowMs - evidence > 15 * 60_000L) return null
+    if (model.knownProfile == null || model.profileMatches != true || evidence <= 0 || evidence > nowMs) return null
     val candidates = TherapySanitizer.filterEntities(rows).mapNotNull { row ->
         val type = row.type.lowercase(Locale.US)
         if (type !in setOf("meal_bolus", "correction_bolus", "bolus", "insulin") ||
             row.timestamp !in (nowMs - 195 * 60_000L)..nowMs) return@mapNotNull null
+        // Freshness admits the estimate for this event, not for each screen visit.
+        if (evidence < row.timestamp - 15 * 60_000L) return@mapNotNull null
         val payload = BoundedClinicalPayloadParser.parse(row.payloadJson) ?: return@mapNotNull null
         val values = payload.scalarValues().mapKeys { io.aaps.copilot.data.repository.normalizeClinicalKey(it.key) }
         fun flag(key: String) = values[key]?.trim()?.lowercase(Locale.US) in setOf("true", "1")
@@ -35,8 +37,9 @@ internal fun insulinOnsetCountdown(rows: List<TherapyEventEntity>, model: AiInsu
             row.id.startsWith("iob-inf-") || row.id.startsWith("br-local_broadcast-")) return@mapNotNull null
         val parts = resolveTherapyComponents(type, payload.scalarValues(), payload.componentTrust())
         if (!parts.wholeEventValid || parts.insulinU?.let { it.isFinite() && it > 0 } != true) return@mapNotNull null
-        InsulinOnsetCountdown(row.id, row.timestamp, row.timestamp + (onset * 60_000).roundToLong(), onset,
-            mealAssociated = type == "meal_bolus", validUntilMs = evidence + 15 * 60_000L)
+        val estimatedAtMs = row.timestamp + (onset * 60_000).roundToLong()
+        InsulinOnsetCountdown(row.id, row.timestamp, estimatedAtMs, onset,
+            mealAssociated = type == "meal_bolus", validUntilMs = estimatedAtMs + 15 * 60_000L)
     }
     val latestTs = candidates.maxOfOrNull { it.recordedAtMs } ?: return null
     return candidates.filter { it.recordedAtMs == latestTs }.distinctBy { it.recordKey }.singleOrNull()

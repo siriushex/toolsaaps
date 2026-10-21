@@ -1,5 +1,15 @@
 # SECURITY REVIEW
 
+## Insulin Countdown Lifetime (2026-10-21)
+
+- Freshness is relative to the recorded bolus, not each presentation frame;
+  a newer bolus still requires applicable evidence. Lifetime is bounded to the
+  original onset deadline plus15min. Invalid/missing evidence and profile or
+  anchor invalidation remain closed. No cached screen state can override them.
+- No new provider, permission, schema, audio path, therapeutic action or meal
+  recommendation is admitted. The quiet notification remains separate from
+  glucose alarms. Room/native tests are not clinical or intended-phone proof.
+
 ## RC1 Receiver Admission Patch (2026-10-20)
 
 - Six real native regressions first invoked the mocked executor after expired,

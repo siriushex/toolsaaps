@@ -13,12 +13,19 @@ separate silent notification. It accepts usable recorded insulin without
 requiring carbohydrate entry, but excludes automatic microboluses, inferred IOB,
 recovered doses and unconfirmed local actions. An insulin-only/correction record
 does not claim that a meal is planned and never activates the meal-completion
-gesture. Existing finite/fresh matching-profile model gates remain in force.
-The timestamp anchors the countdown; reopening a screen cannot restart it.
+gesture. A finite matching-profile estimate must be no more than fifteen
+minutes older than the insulin record, or be refreshed after that record. This
+admission window is not the countdown's lifetime: the timestamp anchors its
+deadline and the completed state lasts fifteen minutes after that deadline.
+Persisted therapy/model inputs reconstruct the same clock after a screen or
+process recreation; age alone does not erase an already applicable estimate.
+Missing/invalid/conflicting evidence, profile mismatch or a removed/cancelled
+anchor still invalidates the projection. A stale estimate cannot admit a newer
+insulin record.
 
 The notification has its own channel/id, no sound, vibration, alarm-clock wake,
 full-screen intent or therapeutic action. Android renders its chronometer;
-application work is only at data changes, onset expiry and model-freshness expiry.
+application work is only at data changes, onset expiry and completion expiry.
 Android may restrict banners and background execution; notification posting is
 not proof of user observation or insulin delivery. Onset is an estimate, not a
 meal waiting recommendation. No target, dose or onset estimator is changed.

@@ -1,3 +1,29 @@
+# Insulin Countdown Lifetime Repair - 2026-10-21
+
+- Reproduced three failures before the fix: a14-minute-old estimate erased a
+  new27.5-minute timer after one minute; reopening later returned null; completed
+  state was lost before its intended retention interval. Model evidence expiry
+  had incorrectly been used as presentation expiry.
+- Admit onset relative to the insulin record, not each screen's current time.
+  Keep the absolute record-plus-onset deadline and15-minute completed state.
+  Existing persisted inputs reconstruct this after navigation/database reopen;
+  no new store, migration, periodic background work or therapy writer.
+- Preserve explicit invalidation, current-profile matching, insulin provenance,
+  SMB/inference/local-command exclusions and stale-new-bolus rejection. A fresh
+  revised onset recalculates from the original record, not from refresh time.
+- Focused countdown/Room/quiet-notification checks:25passed,zero failures/skips.
+  All seven native header cases also pass, including removing/recreating the
+  header and Activity pause/resume. Inspected320dp and2x-text native rasters.
+  Frozen full Android test/lint/compile/assemble passed in9m7s:6519passed,
+  six private-input skips,zero test/lint errors;379 existing lint warnings and
+  eight hints. The actual pristine RC1 SDK TLS fixture passed. APK class/size
+  and signature checks passed:7014 application classes,40,366,017bytes,prior
+  signing certificate retained. Backend regression:1942passed/27skipped;
+  APK tooling:14passed. Exact-head source CI is a separate checkpoint/PR receipt.
+- The existing MealTimingPlanner and3/7/14-day source audit are research-only;
+  neither establishes a validated meal wait. No renaming to an ideal/safe eating
+  time, new GI/control formula, targets, doses, phone or server change is made.
+
 # Unified Public Product And AAPS UI Clarification - 2026-10-21
 
 - User superseded the personal-first assumption: the unified product targets

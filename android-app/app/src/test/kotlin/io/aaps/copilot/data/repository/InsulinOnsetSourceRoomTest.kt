@@ -15,12 +15,47 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class InsulinOnsetSourceRoomTest {
     private val now = 10_000_000L
+
+    @Test fun reopeningDatabaseAfterFreshnessWindowRestoresSameAnchoredCountdown() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File.createTempFile("insulin-clock-", ".db", context.cacheDir)
+        fun open() = Room.databaseBuilder(context, CopilotDatabase::class.java, file.absolutePath)
+            .allowMainThreadQueries().build()
+        var db = open()
+        try {
+            db.therapyDao().upsertAll(listOf(TherapyEventEntity("normal-insulin", now,
+                "meal_bolus", "{\"insulin\":2.2,\"carbs\":40}")))
+            db.telemetryDao().upsertAll(listOf(
+                TelemetrySampleEntity("onset", now - 14 * 60_000L, "copilot_runtime_cob_iob",
+                    "insulin_real_onset_min", 27.5, null, "min", "OK"),
+                TelemetrySampleEntity("profile", now - 14 * 60_000L, "copilot_real_insulin_profile",
+                    "insulin_profile_real_source_profile", null, "FIASP", null, "OK")))
+            suspend fun current(at: Long) = insulinOnsetCountdown(
+                db.therapyDao().observeInsulinOnsetCandidates().first(),
+                AiInsulinContext.fromTelemetry("FIASP", db.telemetryDao().observeInsulinOnsetContext().first(), at), at)
+            val before = current(now)!!
+            // A new subscriber and then a new database instance both use persisted evidence.
+            assertEquals(before.estimatedAtMs, current(now + 120_000)!!.estimatedAtMs)
+            db.close()
+            db = open()
+            val restored = current(now + 20 * 60_000L)!!
+            assertEquals(before, restored)
+            assertEquals(450L, restored.remainingSeconds(now + 20 * 60_000L))
+            val finished = current(before.estimatedAtMs + 1)!!
+            assertEquals(0L, finished.remainingSeconds(before.estimatedAtMs + 1))
+            assertNull(current(before.estimatedAtMs + 15 * 60_000L + 1))
+        } finally {
+            db.close()
+            context.deleteDatabase(file.absolutePath)
+        }
+    }
 
     @Test fun insulinOnlyAnchorIsNotStarvedByCarbsTargetsOrMicroboluses() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CopilotDatabase::class.java)

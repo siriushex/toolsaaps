@@ -1,5 +1,22 @@
 # PLAN
 
+## Insulin Countdown Lifetime Repair (2026-10-21)
+
+- [x] Reproduce one-minute disappearance, failed reconstruction and lost
+  completed state in three failing regressions before the source fix.
+- [x] Separate per-record estimate admission from countdown/completion lifetime.
+- [x] Check stale-new-bolus rejection, explicit invalidation, bounded expiry,
+  quiet notification and reconstruction through actual Room close/reopen.
+- [x] Verify native header removal/recreation and Activity pause/resume; all
+  seven native header cases pass, including320dp and2x text.
+- [x] Complete full Android test/lint/compile/build and APK guards:
+  6519passed/six private-input skips,zero test/lint errors;7014 application
+  classes retained in the signed40,366,017-byte candidate.
+- Reviewed source publication and exact-head Verify require separate receipts
+  in the task checkpoint/PR, not an inference from local checks.
+- This repairs presentation only. The existing research meal-timing planner
+  remains unadmitted: onset is not an ideal or recommended meal-start interval.
+
 ## Seen Pause and Silent Insulin Countdown (2026-10-20)
 
 - [x] Reproduce short ACK pause and absent insulin-only countdown before fixes.

@@ -45,9 +45,11 @@ class CompactTopBarRobolectricTest {
     @Test fun elapsedModelHasOwlBurgerAndAccessibleExplanation() = verifyHeader(2f, false, onsetFinished = true)
     @Test fun insulinOnlyElapsedTimerDoesNotSuggestAMeal() = verifyHeader(2f, false,
         onsetFinished = true, mealAssociated = false)
+    @Test fun restoredCountdownSurvivesHeaderNavigationAndActivityPause() = verifyHeader(1f, false,
+        onsetFinished = false, restoreAfterNavigation = true)
 
     private fun verifyHeader(fontScale: Float, dark: Boolean, approvedOwl: Boolean = false,
-        onsetFinished: Boolean? = null, mealAssociated: Boolean = true) {
+        onsetFinished: Boolean? = null, mealAssociated: Boolean = true, restoreAfterNavigation: Boolean = false) {
         val app = RuntimeEnvironment.getApplication()
         val old = Configuration(app.resources.configuration)
         @Suppress("DEPRECATION")
@@ -56,9 +58,15 @@ class CompactTopBarRobolectricTest {
         }, app.resources.displayMetrics)
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         var canRun by mutableStateOf(false)
+        var showHeader by mutableStateOf(true)
         var cycles = 0; var blood = 0; var events = 0; var history = 0; var menu = 0
         val now = System.currentTimeMillis()
-        val timer = onsetFinished?.let { finished -> io.aaps.copilot.ui.InsulinOnsetCountdown(
+        val timer = if (restoreAfterNavigation) io.aaps.copilot.ui.insulinOnsetCountdown(
+            listOf(io.aaps.copilot.data.local.entity.TherapyEventEntity("meal-one", now - 20 * 60_000L,
+                "meal_bolus", "{\"insulin\":2.2,\"carbs\":40}")),
+            io.aaps.copilot.data.repository.AiInsulinContext("FIASP", 27.5, now - 34 * 60_000L,
+                fittedProfileId = "FIASP"), now).also { assertNotNull(it) }
+        else onsetFinished?.let { finished -> io.aaps.copilot.ui.InsulinOnsetCountdown(
             "meal-1", now - 30 * 60_000, if (finished) now - 1_000 else now + 750_000, 27.5,
                 mealAssociated = mealAssociated) }
         try {
@@ -66,12 +74,26 @@ class CompactTopBarRobolectricTest {
                 AapsCopilotTheme(darkTheme = dark, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                     Surface(Modifier.fillMaxSize()) {
                         androidx.compose.foundation.layout.Column {
+                            if (showHeader) {
                             TopBar("Главная", UiStyle.CLARITY, false, false, true, true, 0L,
                                 true, canRun, { cycles++ }, { blood++ }, { menu++ },
                                 {}, {}, {}, { history++ }, { events++ }, 2, {}, insulinOnsetCountdown = timer)
+                            }
                         }
                     }
                 }
+            }
+            if (restoreAfterNavigation) {
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                val deadline = timer!!.estimatedAtMs
+                compose.runOnIdle { showHeader = false }
+                compose.onNodeWithTag("insulinOnsetTimer").assertDoesNotExist()
+                compose.runOnIdle { showHeader = true }
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                controller.pause().stop()
+                controller.start().resume().visible()
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                assertEquals(deadline, timer.estimatedAtMs)
             }
             compose.onNodeWithTag("overviewTopRefresh").assertIsDisplayed().assertIsNotEnabled().performClick()
             if (approvedOwl) {
