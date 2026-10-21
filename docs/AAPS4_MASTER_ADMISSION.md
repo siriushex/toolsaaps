@@ -50,9 +50,11 @@ JAVA_HOME="$JAVA_21_HOME" AAPS_RC1_DIR="$PRISTINE_RC1_DIR" \
 ```
 
 The helper requires the exact commit and no tracked or nonignored untracked
-changes. It snapshots and applies the patch, runs the real receiver, round-trip,
+changes. It snapshots and applies the admission and transport-privacy patches,
+runs the real receiver, round-trip,
 mapping, uplink, SMS and executor tests, plus target transaction host tests and
-real Room/bundled-SQLite JVM rollback checks, then reverses only its own exact diff.
+real Room/bundled-SQLite JVM rollback checks and the full NSSDK JVM suite, then
+reverses only its own exact diff.
 If concurrent source edits occur it preserves the checkout and fails instead of overwriting
 them. Gradle needs the upstream-required Android platform. The stock SDK fixture
 remains a separate pristine-source check; this patched stage is not called stock.
@@ -87,12 +89,21 @@ separately in the PR/checkpoint after publication, not inferred from local resul
 
 ## Remaining Admission Gates
 
+The October21 transport stage adds a separate two-line URL logging repair with
+four synthetic native tests. Three tests failed against the unmodified logger;
+all174 SDK tests passed after the repair. The combined admission/transport helper
+passed398 tests with zero failures/errors/skips and restored the pristine tree.
+It preserves HTTP method/status diagnostics but never logs token-bearing paths,
+query strings, headers or bodies. This is not a TLS trust change or a phone build.
+
 The target-only callback extends admission into the temporary-target transaction.
 Mixed command batches and pump queues remain outside that boundary. A receiver test returning
 `Delivered` from a mock proves neither application nor pump delivery. Do not
 translate expiry after a real effect into an assertion that nothing happened.
 
 Production native publication remains closed in Copilot. Typed clinical/profile
-exchange, loopback CA trust on Android, refresh-path log redaction and actual
-JugglucoNG continuity on the upgraded phone remain separate gates. This helper
+exchange, loopback CA trust on Android and actual JugglucoNG continuity on the
+upgraded phone remain separate gates; see AAPS4_CLINICAL_PROFILE_CONTRACT.md.
+The log repair still requires exact-head CI and later artifact/device acceptance.
+This helper
 does not sign/install an APK, pair a device or issue a therapy command.

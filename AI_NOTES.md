@@ -1,3 +1,24 @@
+# RC1 Transport Privacy - 2026-10-21
+
+- Continue after freezing the release0.1.6 candidate. Native HTTP logging exposed
+  the authorization token-bearing URL with logging enabled. Three of four new
+  synthetic tests failed before the fix; all174 NSSDK JVM tests passed after it.
+- Preserve the fix as an external transport-privacy.patch against the exact
+  RC1 pin. Two logger lines now retain only method/status, with no network,
+  preference, dosing or trust modification. The pristine SDK driver is unchanged.
+- The existing controlled helper tests both minimal patches together and restores
+  only its own exact diff. Combined398 tests passed; upstream tree clean. Added
+  recipe checks cover missing transport patch and concurrent transport edits.
+- Profile source audit confirms defaultProfile is cosmetic. EPS and per-record
+  iCfg are mandatory evidence; the catalog cannot supply a historical insulin
+  selection. The new clinical contract records acceptance cases and unavailable
+  Android trust/JugglucoNG device evidence. Production native publication stays shut.
+- No AAPS install, server AI change, model request or real therapy command.
+  All16 updated recipe checks passed with the required RC1/Java21 environment;
+  the final helper passed and left the upstream tree clean. An earlier recipe
+  invocation omitted AAPS_RC1_DIR and correctly refused rather than skipping.
+  CI/main receipts remain pending and must be recorded separately.
+
 # Internet Release 0.1.6 - 2026-10-21
 
 - Owner requested publication of the verified JSON-export and countdown-lifetime

@@ -1,5 +1,21 @@
 # PLAN
 
+## RC1 Transport Privacy And Clinical Contract (2026-10-21)
+
+- [x] Reproduce token-bearing URL logging on the actual pinned RC1 engine.
+- [x] Add method/status-only logging, preserving requests and refresh behavior;
+  all174 SDK tests passed, including four new synthetic regressions.
+- [x] Verify admission and transport patches together:398 tests passed and the
+  upstream checkout restored. No clinical runtime or device state changed.
+- [x] Document exact profile/EPS/insulin semantics and remaining readiness gates
+  in AAPS4_CLINICAL_PROFILE_CONTRACT.md.
+- [x] Complete all16 recipe checks, including paired cleanup and preservation
+  of concurrent edits; final combined helper succeeds and restores source.
+- [ ] Verify exact-head CI/main integration.
+- [ ] Implement catalog wire handling and typed observational projection.
+- [ ] Verify scoped Android TLS and real JugglucoNG continuity on the Redmi.
+- This source stage is separate from release0.1.6 and does not unlock targets.
+
 ## Internet Release 0.1.6 (2026-10-21)
 
 - [x] Start from verified main with JSON export and countdown lifetime repair.
