@@ -179,6 +179,7 @@ fun CopilotFoundationRoot(
     val message by viewModel.messageUiState.collectAsStateWithLifecycle()
     val appHealth by viewModel.appHealthUiState.collectAsStateWithLifecycle()
     val overview by viewModel.overviewUiState.collectAsStateWithLifecycle()
+    val insulinOnsetTimer by viewModel.insulinOnsetTimerState.collectAsStateWithLifecycle()
     val uiStyleRaw by viewModel.uiStyleState.collectAsStateWithLifecycle()
     val headerAiWaiting = if (currentRoute == Destinations.AiAnalysis.route) {
         val waitingFlow = remember(viewModel) {
@@ -329,7 +330,8 @@ fun CopilotFoundationRoot(
                         owlNavigationKey = currentRoute.orEmpty(),
                         owlGesture = headerOwlGesture(currentRoute),
                         owlWaiting = headerAiWaiting,
-                        insulinOnsetCountdown = overview.insulinOnsetCountdown,
+                        insulinOnsetCountdown = insulinOnsetTimer,
+                        onHideInsulinOnset = viewModel::hideInsulinOnsetTimer,
                         onAiDiagnostics = if (currentRoute == Destinations.AiAnalysis.route) {
                             { aiDiagnosticsVisible = true }
                         } else null,
@@ -886,11 +888,12 @@ internal fun TopBar(
     onAiSettings: (() -> Unit)? = null,
     aiDiagnosticsVisible: Boolean = false,
     onDismissAiDiagnostics: () -> Unit = {},
-    insulinOnsetCountdown: io.aaps.copilot.ui.InsulinOnsetCountdown? = null
+    insulinOnsetCountdown: io.aaps.copilot.ui.InsulinOnsetCountdown? = null,
+    onHideInsulinOnset: (String) -> Unit = {}
 ) {
     val onsetNow = io.aaps.copilot.ui.foundation.components.rememberOnsetNow(insulinOnsetCountdown)
     val onset = insulinOnsetCountdown?.takeIf { it.visibleAt(onsetNow) }
-    val completionKey = onset?.takeIf { it.mealAssociated && it.remainingSeconds(onsetNow) == 0L }
+    val completionKey = onset?.takeIf { it.showsMealCompletionAt(onsetNow) }
         ?.let { "${it.recordKey}:${it.estimatedAtMs}" }
     val statusCount = if (showStatusIndicators) listOf(staleData, killSwitchEnabled).count { it } else 0
     val alertsMuted = io.aaps.copilot.ui.foundation.screens.isAuthoritativelyMuted(
@@ -937,7 +940,9 @@ internal fun TopBar(
                     onAiDiagnostics, onDismissAiDiagnostics, onMenuClick, onAiSettings, completionKey)
             } else OwlMenuButton(owlBand, owlNavigationKey, owlGesture, menuExpanded, owlWaiting, onMenuClick,
                 onsetCompletionKey = completionKey)
-            if (onset != null) io.aaps.copilot.ui.foundation.components.InsulinOnsetTimer(onset, onsetNow)
+            if (onset != null) io.aaps.copilot.ui.foundation.components.InsulinOnsetTimer(onset, onsetNow) {
+                onHideInsulinOnset(onset.recordKey)
+            }
             }
         },
         actions = {

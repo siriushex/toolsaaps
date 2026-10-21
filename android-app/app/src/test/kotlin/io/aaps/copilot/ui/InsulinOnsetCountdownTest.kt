@@ -12,6 +12,12 @@ class InsulinOnsetCountdownTest {
         type: String = "meal_bolus", payload: String = "{\"insulin\":2.2,\"carbs\":40}") =
         TherapyEventEntity(id, timestamp, type, payload)
 
+    @Test fun alreadyShownTimerDoesNotDisappearAfterCompletionWindow() {
+        val shown = io.aaps.copilot.data.repository.retainInsulinOnsetSession(
+            null, listOf(row(timestamp = now)), model, now)!!.timer
+        assertTrue(shown.visibleAt(shown.estimatedAtMs + 60 * 60_000L))
+    }
+
     @Test fun fractionalOnsetKeepsSecondsAndDoesNotRestartWithScreenClock() {
         val timer = insulinOnsetCountdown(listOf(row()), model, now)!!
         assertEquals(750L, timer.remainingSeconds(now))

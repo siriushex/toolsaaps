@@ -44,8 +44,11 @@ internal fun rememberOnsetNow(timer: InsulinOnsetCountdown?): Long {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             do {
                 now = System.currentTimeMillis()
-                if (!timer.visibleAt(now)) break
-                delay(if (timer.remainingSeconds(now) == 0L) 60_000L else 1_000L)
+                if (!timer.visibleAt(now) || timer.needsReviewAt(now)) break
+                if (timer.remainingSeconds(now) == 0L) {
+                    if (!timer.showsMealCompletionAt(now)) break
+                    delay((timer.estimatedAtMs + 900_001L - now).coerceAtLeast(1L))
+                } else delay(1_000L)
             } while (true)
         }
     }
@@ -53,12 +56,15 @@ internal fun rememberOnsetNow(timer: InsulinOnsetCountdown?): Long {
 }
 
 @Composable
-internal fun InsulinOnsetTimer(timer: InsulinOnsetCountdown, nowMs: Long) {
+internal fun InsulinOnsetTimer(timer: InsulinOnsetCountdown, nowMs: Long, onHide: () -> Unit = {}) {
     var details by remember { mutableStateOf(false) }
     val seconds = timer.remainingSeconds(nowMs)
-    val label = if (seconds == 0L) stringResource(R.string.onset_timer_elapsed)
+    val review = timer.needsReviewAt(nowMs)
+    val label = if (review) stringResource(R.string.onset_timer_review_short)
+        else if (seconds == 0L) stringResource(R.string.onset_timer_elapsed)
         else String.format(Locale.getDefault(), "≈ %d:%02d", seconds / 60, seconds % 60)
-    val description = if (seconds == 0L) stringResource(R.string.onset_timer_finished)
+    val description = if (review) stringResource(R.string.onset_timer_review)
+        else if (seconds == 0L) stringResource(R.string.onset_timer_finished)
         else stringResource(R.string.onset_timer_remaining, label)
     Column(Modifier.width(68.dp).heightIn(min = 48.dp).testTag("insulinOnsetTimer")
         .clickable { details = true }.semantics { contentDescription = description },
@@ -68,11 +74,14 @@ internal fun InsulinOnsetTimer(timer: InsulinOnsetCountdown, nowMs: Long) {
     }
     if (details) AlertDialog(onDismissRequest = { details = false },
         title = { Text(description) },
-        text = { Text(stringResource(R.string.onset_timer_details,
+        text = { Text(if (review) stringResource(R.string.onset_timer_review_details) else stringResource(R.string.onset_timer_details,
             String.format(Locale.getDefault(), "%.1f", timer.onsetMinutes),
-            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timer.recordedAtMs))),
+            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timer.recordedAtMs))),
             modifier = Modifier.verticalScroll(rememberScrollState())) },
-        confirmButton = { TextButton(onClick = { details = false }) { Text(stringResource(android.R.string.ok)) } })
+        confirmButton = { TextButton(onClick = { details = false }) { Text(stringResource(android.R.string.ok)) } },
+        dismissButton = { TextButton(onClick = { details = false; onHide() }, modifier = Modifier.testTag("hideInsulinOnsetTimer")) {
+            Text(stringResource(R.string.onset_timer_hide))
+        } })
 }
 
 @Composable

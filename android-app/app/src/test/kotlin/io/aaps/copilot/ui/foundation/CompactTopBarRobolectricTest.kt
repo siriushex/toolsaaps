@@ -47,9 +47,14 @@ class CompactTopBarRobolectricTest {
         onsetFinished = true, mealAssociated = false)
     @Test fun restoredCountdownSurvivesHeaderNavigationAndActivityPause() = verifyHeader(1f, false,
         onsetFinished = false, restoreAfterNavigation = true)
+    @Test fun retainedCompletionStaysVisibleAndCanBeExplicitlyHidden() = verifyHeader(1f, false,
+        onsetFinished = true, retained = true)
+    @Test fun unavailableTimerKeepsTileWithoutMealAnimationAtLargeFont() = verifyHeader(2f, false,
+        onsetFinished = true, retained = true, review = true)
 
     private fun verifyHeader(fontScale: Float, dark: Boolean, approvedOwl: Boolean = false,
-        onsetFinished: Boolean? = null, mealAssociated: Boolean = true, restoreAfterNavigation: Boolean = false) {
+        onsetFinished: Boolean? = null, mealAssociated: Boolean = true, restoreAfterNavigation: Boolean = false,
+        retained: Boolean = false, review: Boolean = false) {
         val app = RuntimeEnvironment.getApplication()
         val old = Configuration(app.resources.configuration)
         @Suppress("DEPRECATION")
@@ -59,6 +64,7 @@ class CompactTopBarRobolectricTest {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         var canRun by mutableStateOf(false)
         var showHeader by mutableStateOf(true)
+        var timerHidden by mutableStateOf(false)
         var cycles = 0; var blood = 0; var events = 0; var history = 0; var menu = 0
         val now = System.currentTimeMillis()
         val timer = if (restoreAfterNavigation) io.aaps.copilot.ui.insulinOnsetCountdown(
@@ -67,8 +73,8 @@ class CompactTopBarRobolectricTest {
             io.aaps.copilot.data.repository.AiInsulinContext("FIASP", 27.5, now - 34 * 60_000L,
                 fittedProfileId = "FIASP"), now).also { assertNotNull(it) }
         else onsetFinished?.let { finished -> io.aaps.copilot.ui.InsulinOnsetCountdown(
-            "meal-1", now - 30 * 60_000, if (finished) now - 1_000 else now + 750_000, 27.5,
-                mealAssociated = mealAssociated) }
+            "meal-1", now - 120 * 60_000, if (retained) now - 60 * 60_000 else if (finished) now - 1_000 else now + 750_000, 27.5,
+                mealAssociated = mealAssociated, retained = retained, requiresReview = review) }
         try {
             controller.get().setContent {
                 AapsCopilotTheme(darkTheme = dark, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
@@ -77,7 +83,8 @@ class CompactTopBarRobolectricTest {
                             if (showHeader) {
                             TopBar("Главная", UiStyle.CLARITY, false, false, true, true, 0L,
                                 true, canRun, { cycles++ }, { blood++ }, { menu++ },
-                                {}, {}, {}, { history++ }, { events++ }, 2, {}, insulinOnsetCountdown = timer)
+                                {}, {}, {}, { history++ }, { events++ }, 2, {}, insulinOnsetCountdown = timer.takeUnless { timerHidden },
+                                onHideInsulinOnset = { key -> assertEquals(timer!!.recordKey, key); timerHidden = true })
                             }
                         }
                     }
@@ -118,8 +125,8 @@ class CompactTopBarRobolectricTest {
                 assertTrue(owl.right <= clockBounds.left + .5f)
                 assertTrue("timer must not cover refresh", clockBounds.right <= refresh.left + .5f)
                 if (onsetFinished == true) {
-                    compose.onNodeWithText("Истекло").assertIsDisplayed()
-                    if (mealAssociated) compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertIsDisplayed()
+                    compose.onNodeWithText(if (review) "Данные?" else "Истекло").assertIsDisplayed()
+                    if (mealAssociated && !review && !retained) compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertIsDisplayed()
                     else compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertDoesNotExist()
                 }
             }
@@ -148,7 +155,7 @@ class CompactTopBarRobolectricTest {
                     val view = controller.get().window.decorView
                     val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
                     view.draw(Canvas(bitmap))
-                    File(dir, "compact-header-$fontScale-${onsetFinished ?: "none"}-$mealAssociated.png").outputStream().use {
+                    File(dir, "compact-header-$fontScale-${onsetFinished ?: "none"}-$mealAssociated-$retained-$review.png").outputStream().use {
                         assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                     }
                 }
@@ -157,8 +164,14 @@ class CompactTopBarRobolectricTest {
             assertEquals(1, menu)
             if (timer != null) {
                 compose.onNodeWithTag("insulinOnsetTimer").performClick()
-                compose.onNodeWithText("Это не рекомендация ждать или начинать еду.", substring = true).assertIsDisplayed()
+                compose.onNodeWithText(if (review) "Таймер остаётся на экране" else "Это не рекомендация ждать или начинать еду.", substring = true).assertIsDisplayed()
                 compose.onNodeWithText(app.getString(android.R.string.ok)).performClick()
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                if (retained) {
+                    compose.onNodeWithTag("insulinOnsetTimer").performClick()
+                    compose.onNodeWithTag("hideInsulinOnsetTimer").performClick()
+                    compose.onNodeWithTag("insulinOnsetTimer").assertDoesNotExist()
+                }
             }
             compose.onNodeWithTag("glucoseAlertBellAction").performClick()
             compose.onNodeWithTag("glucoseAlertHistoryAction").performClick()

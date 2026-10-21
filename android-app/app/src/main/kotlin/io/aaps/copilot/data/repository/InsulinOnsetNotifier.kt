@@ -35,7 +35,8 @@ internal class InsulinOnsetNotifier(private val context: Context) {
     }
 
     fun notification(timer: InsulinOnsetCountdown, nowMs: Long): Notification {
-        val running = nowMs < timer.estimatedAtMs
+        val review = timer.needsReviewAt(nowMs)
+        val running = !review && nowMs < timer.estimatedAtMs
         val expires = minOf(timer.validUntilMs, timer.estimatedAtMs + 15 * 60_000L)
         val next = if (running) minOf(timer.estimatedAtMs, expires) else expires
         val open = PendingIntent.getActivity(context, NOTIFICATION_ID,
@@ -47,14 +48,18 @@ internal class InsulinOnsetNotifier(private val context: Context) {
         val forceSilent = channel == null || channel.sound != null || channel.shouldVibrate()
         return NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.copilot_glyph_low_watch)
-            .setContentTitle(context.getString(R.string.onset_notification_title))
-            .setContentText(if (running) context.getString(R.string.onset_notification_body,
-                DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timer.estimatedAtMs)))
+            .setContentTitle(context.getString(if (review) R.string.onset_notification_channel else R.string.onset_notification_title))
+            .setContentText(if (review) context.getString(R.string.onset_timer_review)
+                else if (running) context.getString(R.string.onset_notification_body,
+                (if (timer.retained) DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    else DateFormat.getTimeInstance(DateFormat.SHORT)).format(Date(timer.estimatedAtMs)))
                 else context.getString(R.string.onset_notification_elapsed))
             .setContentIntent(open)
-            .setWhen(timer.estimatedAtMs).setShowWhen(running)
-            .setUsesChronometer(running).setChronometerCountDown(running)
-            .setTimeoutAfter((next - nowMs).coerceAtLeast(1L))
+            // Retained notices use the absolute estimate, so process death cannot leave a negative chronometer.
+            .setWhen(timer.estimatedAtMs).setShowWhen(running && !timer.retained)
+            .setUsesChronometer(running && !timer.retained).setChronometerCountDown(running && !timer.retained)
+            .setTimeoutAfter(if (timer.retained) 0L else (next - nowMs).coerceAtLeast(1L))
+            .setOngoing(timer.retained)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -83,12 +88,14 @@ internal class InsulinOnsetNotifier(private val context: Context) {
         waitMs: suspend (Long) -> Unit = { delay(it) }) {
         if (timer == null || !timer.visibleAt(clock())) { clear(); return }
         if (!show(timer, clock())) { clear(); return }
+        if (timer.needsReviewAt(clock())) return
         val expires = minOf(timer.validUntilMs, timer.estimatedAtMs + 15 * 60_000L)
         if (clock() < timer.estimatedAtMs) {
             waitMs((minOf(timer.estimatedAtMs, expires + 1L) - clock()).coerceAtLeast(1L))
             if (!timer.visibleAt(clock())) { clear(); return }
             if (clock() >= timer.estimatedAtMs && !show(timer, clock())) { clear(); return }
         }
+        if (timer.retained) return
         waitMs((expires - clock() + 1L).coerceAtLeast(1L))
         clear()
     }

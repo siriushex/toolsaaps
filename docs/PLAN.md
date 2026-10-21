@@ -1,5 +1,16 @@
 # PLAN
 
+## Retained Insulin Countdown (2026-10-21)
+
+- [x] Reproduce automatic disappearance after the completed-state window.
+- [x] Add a durable single presentation session and explicit hide action.
+- [x] Preserve a review tile on invalidation without stale countdown/meal gesture.
+- [x] Verify disk recreation, refresh, dismissal, native header and quiet notice.
+- [x] Complete full Android test/lint/build:6615passed,6private-input skips,
+  zero test/lint errors; native320dp and2x-text rendering inspected.
+- Exact-head source CI must pass before main integration; retain its PR receipt.
+- No therapy, estimator, AAPS, device installation or server publication change.
+
 ## In-App Installer File Access (2026-10-21)
 
 - [x] Confirm public manifest0.1.6 and reproduce duplicate provider identities on
