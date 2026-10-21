@@ -99,6 +99,12 @@
   payload. Stable owner/producer/type/time identity prevents POST replay duplicates;
   conflicting content is refused, not merged by value.
 - Stock SDK TLS tests do not prove Android CA trust or whole-app readiness.
+- Profile catalogs are immutable wire observations, not effective-profile switches.
+  A cosmetic default cannot select a clinical profile or fill missing insulin data.
+  Exact schedule seconds and native units survive transport; HH:00 display labels
+  must not round non-hour boundaries. History cursors never use catalog dates.
+  Latest-only reads cannot claim unseen revisions; unsupported invalidation fails
+  closed. Structural validation and cr permission do not unlock native targets.
 - Patched master receipt budgets include network/mutex/ACK/counter waits and cannot
   be renewed by clock rollback or stalled wall time. Revoked pairing/control is
   rechecked before dispatch. Executor invocation is not clinical application;

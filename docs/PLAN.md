@@ -121,6 +121,10 @@
 
 ## Stock AAPS 4.0 Compatibility (2026-10-18)
 
+- [x] Implement immutable native profile catalog transport without clinical selection.
+- [x] Complete focused/full profile checks and actual pristine SDK round trip.
+- Profile-stage publication follows the exact-head CI and main integration gates
+  in DEVOPS.md; local results alone do not authorize migration to AAPS4.
 - [x] Follow owner direction: adapt Copilot first, leave AAPS source unchanged.
 - [x] Inspect official RC1 data, authentication and incoming-treatment contracts.
 - [x] Reproduce and fix false legacy treatment delivery through glucose-only receivers.

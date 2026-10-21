@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Native Profile Catalog Stage
+
+LOCAL_NS_V3_PROFILE.md adds an immutable catalog route to the existing listener
+without a Room migration, background worker, AAPS patch or clinical writer.
+The pinned pristine SDK driver exercises native profile upload/read/history and
+the hour-label/exact-seconds distinction. Rebuild the driver with prepare.sh
+before its integration test; unchanged upstream source remains mandatory.
+Run focused profiles, full Android test/lint/build and exact-head Verify before
+main integration. This source stage is not AAPS4 migration admission and does
+not alter the published APK or phone. Production clinical dispatch stays closed.
+
 ## Controlled Main Integration
 
 WORKSTREAMS.md tracks isolated assignments and coordinator-owned integration.

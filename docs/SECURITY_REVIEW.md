@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Native Profile Catalog (2026-10-21)
+
+- Existing loopback bearer/body/revision limits only; no new trust or authority.
+- Closed native schemas and strict finite schedules prevent silent field loss,
+  unit fallback, duplicate keys and contradictory timestamps. Preserve exact
+  timeAsSeconds even where RC1's display label is truncated to its hour.
+- Stable owner/date identity and immutable conflict handling prevent changed
+  retries from replacing prior snapshots. Metadata must match stored ownership.
+- History byte limits include metadata. Internal tombstones cannot become live
+  catalogs in history. No public mutation/delete, retention reset or app-identity
+  attestation is claimed. Catalog default and HTTP success cannot enable targets.
+- These transport checks do not validate clinical values or Android device trust.
+
 ## RC1 Target Transaction Admission (2026-10-21)
 
 - Callback admission covers strictly one-action target batches, not mixed effects

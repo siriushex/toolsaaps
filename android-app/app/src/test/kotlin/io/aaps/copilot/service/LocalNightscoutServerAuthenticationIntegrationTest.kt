@@ -502,6 +502,57 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun v3ProfileRequiresBearerAndDoesNotActivateClinicalSynchronization() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        val invalidations = AtomicInteger()
+        server = newServer(runtime, onClinicalInputPersisted = { invalidations.incrementAndGet() })
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val payload = """{"date":1800000000000,"store":{},"app":"AAPS"}"""
+        fun post(bearer: String?) = peer.newCall(Request.Builder()
+            .url("https://127.0.0.1:$port/api/v3/profile")
+            .apply { if (bearer != null) header("Authorization", "Bearer $bearer") }
+            .post(payload.toRequestBody("application/json".toMediaType())).build()).execute()
+        post(null).use { assertThat(it.code).isEqualTo(401) }
+        post("invalid-bearer").use { assertThat(it.code).isEqualTo(401) }
+        assertThat(db.localNightscoutV3Dao().count()).isEqualTo(0)
+        val token = get(peer, port, "/api/v2/authorization/request/$localAccessToken").use {
+            JsonParser.parseString(it.body!!.string()).asJsonObject["token"].asString
+        }
+        val created = post(token).use {
+            assertThat(it.code).isEqualTo(201)
+            assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+            JsonParser.parseString(it.body!!.string()).asJsonObject
+        }
+        post(token).use {
+            assertThat(it.code).isEqualTo(200)
+            assertThat(JsonParser.parseString(it.body!!.string()).asJsonObject["lastModified"])
+                .isEqualTo(created["lastModified"])
+        }
+        val path = "/api/v3/profile?sort%24desc=date&limit=1"
+        assertThat(getCode(peer, port, path)).isEqualTo(401)
+        get(peer, port, path, headers = mapOf("Authorization" to "Bearer $token")).use {
+            assertThat(it.code).isEqualTo(200)
+            assertThat(it.header("ETag")).isEqualTo("W/\"${created["lastModified"].asLong}\"")
+            val row = JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonArray.single().asJsonObject
+            assertThat(row["identifier"]).isEqualTo(created["identifier"])
+            assertThat(row["store"].asJsonObject.size()).isEqualTo(0)
+        }
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(db.glucoseDao().since(0)).isEmpty()
+        assertThat(db.therapyDao().since(0)).isEmpty()
+        assertThat(invalidations.get()).isEqualTo(0)
+        val audit = Gson().toJson(db.auditLogDao().observeLatest(100).first())
+        assertThat(audit).doesNotContain(localAccessToken)
+        assertThat(audit).doesNotContain(token)
+        server?.stop()
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        post(token).use { assertThat(it.code).isEqualTo(401) }
+        assertThat(db.localNightscoutV3Dao().count()).isEqualTo(1)
+    }
+
+    @Test
     fun pristineRc1SdkUsesRealTlsAuthenticationAndEntryExchange() = runBlocking {
         val classpathFile = System.getenv("AAPS_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
@@ -601,7 +652,9 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(journal.pending()).isNull()
             protocol.close()
             targetKey.fill(0)
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(18)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(20)
+            assertThat(store.history(io.aaps.copilot.data.repository.LocalV3Collection.PROFILE, 0, 10).documents)
+                .hasSize(2)
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

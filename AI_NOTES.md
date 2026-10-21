@@ -1,3 +1,27 @@
+# Native Profile Catalog - 2026-10-21
+
+- Continue from verified main 9c179ec1 after internet release 0.1.6. Add immutable
+  authenticated native profile POST/latest/history/id reads, truthful cr status
+  and strict native catalog validation. Reuse Room/revision/body/auth owners.
+- Reproduced 13 failing profile cases against the previous unsupported route.
+  New tests cover stable retry/conflict, metadata, units/timezone/schedules,
+  history cursors, late catalogs, bounds, cancellation and no clinical writes.
+- RC1 source inspection found hour-only labels with exact timeAsSeconds. Preserve
+  both without rounding, and do not treat cosmetic defaultProfile as activation.
+- Extended the actual pristine SDK fixture through profile round trips. It passed
+  over HTTPS without a skip, with both native units and exact schedule boundaries.
+- Local verification: 6593 Android tests, 0 failures/errors, 6 explicit private-input
+  skips; 15 profile cases pass. Full test/lint/compile/assemble succeeded in 11m22s.
+  Lint has 0 errors, 382 warnings and 8 hints. APK is 40,550,127 bytes and retains
+  all 7077 compiled application classes; the 80 MiB/class-preservation guard passes.
+- The first full run caught two old empty-profile-permission expectations; both
+  now assert cr while food remains unsupported. A stale SDK total-count assertion
+  was also corrected, with a separate exact count for the two profile catalogs.
+- These local results precede publication. Exact-head Verify and main integration
+  must be inspected separately; CI and device acceptance are not inferred here.
+- No AAPS change/install, clinical projection unlock, target action, server/model
+  change or public APK publication in this stage.
+
 # RC1 Transport Privacy - 2026-10-21
 
 - Continue after freezing the release0.1.6 candidate. Native HTTP logging exposed
