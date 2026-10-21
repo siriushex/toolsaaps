@@ -15,6 +15,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AiInsulinContextTest {
+    @Test fun missingTelemetryPreservesConfiguredProfileButCannotInventParameters() {
+        val context = AiInsulinContext.fromTelemetry("HUMALOG", emptyList(), now)
+        assertEquals("HUMALOG", context.knownProfile?.name)
+        assertNull(context.onsetMinutes)
+        assertNull(context.diaHours)
+        assertTrue(context.summary().contains("insulin_onset_is_not_meal_waiting_interval=true"))
+        assertTrue(context.summary().contains("insulin_profile_selection_is_not_delivery_confirmation=true"))
+    }
+
     private val now = 10_000_000L
     private fun row(id: String, key: String, number: Double? = null, text: String? = null,
         timestamp: Long = now) = TelemetrySampleEntity(id, timestamp,

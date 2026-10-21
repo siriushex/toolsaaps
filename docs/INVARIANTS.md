@@ -1,5 +1,14 @@
 # INVARIANTS
 
+## Combined Source Integration
+
+- One durable background-history owner; no application polling loop bypasses
+  the background switch. Restore connection once before schedule reconciliation.
+- Scheduled/manual uploads preserve signed recovery, current insulin provenance
+  and timing evidence. Upload is not a model request, recommendation or therapy.
+- Main integration cannot remove photo body bounds, daily device binding, quiet
+  countdown presentation, clinical dispatch locks or local export safeguards.
+
 ## Clinical JSON Export
 
 - Explicit local action only. Never serialize whole settings, account secrets,
@@ -808,6 +817,18 @@
   record/plan bounds; arbitrary oversized input fails before upload. Fragmentation
   is observational only, never authority to split or retry a model job. Response
   clock tolerance does not change event timestamps or clinical freshness checks.
+## Periodic History Transport
+
+- Signed device binding, fresh access and explicit power/background admission
+  still gate every upload. Scheduling grants no model or therapy authority.
+- Receipt success alone advances the durable export plan. Cancellation and
+  ambiguous transport outcomes preserve exact pending bytes and record identity.
+- Initial empty connection UI cannot cancel a restoring worker before session
+  loading. Background OFF does not cancel an explicit manual upload.
+- Partial source coverage and observed insulin configuration remain labelled;
+  recorded insulin is not confirmed delivery, onset is not a meal-wait interval.
+- The 1-4 hour transport schedule never replaces urgent local alerts.
+
 ## Native Artwork Isolation
 
 - Interactive root destinations do not crossfade. Motion-policy changes must not

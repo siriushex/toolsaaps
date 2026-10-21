@@ -1,5 +1,19 @@
 # PLAN
 
+## Controlled Main Integration (2026-10-21)
+
+- Current backlog and isolated assignments: [WORKSTREAMS.md](WORKSTREAMS.md).
+  Native subagents are unavailable in this session; briefs are not running jobs.
+- [x] Reconcile main's independent history upload with the combined release.
+- [x] Preserve signed photo/daily routes, silent countdown and local JSON export.
+- [x] Use one durable history schedule and retain the existing insulin/timing
+  context in its serialized upload path; remove the duplicate in-process loop.
+- [x] Verify the merged tree locally:6568 Android pass,6private-input skips,
+  lint/build/stock-SDK/APK guards pass; unchanged backend has successful CI.
+- [ ] Verify the exact merged source head on CI.
+- [ ] Explicitly integrate reviewed source into main and inspect its build.
+- Server/phone publication and clinical gate enablement remain separate actions.
+
 ## Local Clinical JSON Export (2026-10-21)
 
 - [x] Review Room tables, local settings, coverage and explicit privacy exclusions.
@@ -1158,6 +1172,15 @@ Details and limits: [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md).
   Kotlin/lint/APK passed. Includes reduced-motion cancellation red/green evidence.
 - Source-only feature PR requires exact-head Verify. Main merge and physical
   phone installation remain separate; see `NATIVE_MOTION_REFINEMENT.md`.
+## Narrow Periodic History Integration (2026-10-19)
+
+- [x] Isolate on main and import only signed history/export dependencies.
+- [x] Connect persisted upload settings, durable scheduler and current profile.
+- [x] Verify main-based Android tests/lint/build and compact native UI locally.
+- [ ] Verify exact-head CI before integration.
+- [ ] Merge only the reviewed narrow PR after fresh main divergence checks.
+- Server recurring advisory reviews and recommendation acceptance are not part
+  of this client integration. See AI_HISTORY_UPLOAD_SCHEDULE.md.
 
 ## Feather 01 Main Integration (2026-10-15)
 

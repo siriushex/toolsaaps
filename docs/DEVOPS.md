@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Controlled Main Integration
+
+WORKSTREAMS.md tracks isolated assignments and coordinator-owned integration.
+The October21 reconciliation combines independently tested main/development
+features; neither prior suite proves the merged tree. Run full merged Android
+tests/lint/build, real stock-SDK fixture, backend and APK guards, inspect
+exact-head Verify, then explicitly merge after a fresh main check. Verify the
+resulting main SHA and CI separately. No auto-merge, force push or implied server,
+phone, clinical activation or public APK publication.
+
 ## RC1 Receiver Patch Verification
 
 See AAPS4_MASTER_ADMISSION.md. `tools/aaps4_compat/verify_master.sh` temporarily
@@ -707,6 +717,15 @@ retain the unchanged suite evidence and run the affected client/legacy tests:
 Record the full-run and focused-retest results separately, including skips;
 do not label a scoped rerun as a zero-failure complete-suite run. Published CI
 still runs the full suite on the exact new commit.
+## Narrow Periodic Client Upload
+
+Main integration imports only client transport/export/configuration/scheduler
+dependencies. No server unit, credentials, API routes or medical schema change.
+Full Android test/lint/assemble and exact-head Verify are required on the narrow
+tree; the development-branch APK is not its verification. Do not install over a
+newer-schema device as part of a source merge. Preserve pending encrypted plans
+and export metadata across rollback; never restore an old medical database.
+This does not activate server model jobs or publish an APK update.
 
 ## Trusted Supervisor Entry Point
 

@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Combined History Integration
+
+- Preserve main's signed-session and background/power admission. Remove the
+  duplicate in-process uploader instead of allowing it to bypass the switch.
+- Retain newer food-photo request limits, current daily device binding and
+  encrypted archive slots when reconciling the older narrow dependency copy.
+- No new endpoint, profile/token replacement, telemetry upload category,
+  therapeutic authorization or schema migration. Source gates stay closed.
+- Independent evidence is required for combined CI, main, server and device
+  surfaces. Prepared workstream assignments are not evidence of agent execution.
+
 ## Local Clinical JSON Export (2026-10-21)
 
 - New egress is an explicit Android CreateDocument choice, not a network client.
@@ -984,6 +995,17 @@ therapy capability is added. Explicit action gates remain independent.
 - Still required: real deployment/network and peer admission, device enrollment,
   encrypted backup/restore/retention/load tests and complete structured-history
   adapter validation. Source tests cannot establish these operational properties.
+## Periodic Client History Integration
+
+- Closed signed history routes retain separate body/response limits and
+  device-bound exact pending recovery. Credentials stay connection-owned.
+- Core export reads fixed tables/columns, bounded payloads and an allowlist of
+  telemetry. Payload plans are encrypted; the separate index is metadata-only.
+- No clinical command, model request, provider configuration or new public host
+  is introduced. UI queue acknowledgement must not claim delivery or analysis.
+- Initial-backfill resource use and device/Doze behavior require separate device
+  verification; synthetic tests cannot prove clinical completeness or efficacy.
+
 ## Native Artwork (2026-10-15)
 
 - Static local assets and pure native recipes, no remote loading or medical

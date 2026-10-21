@@ -4682,6 +4682,7 @@ class MainViewModel(application: Application) :
             baseTarget = settings.baseTargetMmol,
             nightscoutUrl = settings.nightscoutUrl,
             aiApiUrl = settings.cloudBaseUrl,
+            aiHistoryUpload = settings.aiHistoryUpload,
             aiCredential = AiCredentialUiState(
                 configured = credentialStatus.configured,
                 busy = credentialStatus.busy,
@@ -5836,6 +5837,44 @@ class MainViewModel(application: Application) :
     fun checkServerAiConnection() {
         viewModelScope.launch {
             container.serverAiConnectionManager.check()
+        }
+    }
+
+    fun setAiHistoryUploadEnabled(enabled: Boolean) = updateAiHistoryUpload {
+        container.settingsStore.setAiHistoryUploadEnabled(enabled)
+    }
+
+    fun setAiHistoryUploadInterval(minutes: Int) = updateAiHistoryUpload {
+        container.settingsStore.setAiHistoryUploadInterval(minutes)
+    }
+
+    private fun updateAiHistoryUpload(update: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                update()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(R.string.settings_history_save_failed)
+            }
+        }
+    }
+
+    fun requestAiHistoryUpload() {
+        viewModelScope.launch {
+            try {
+                val settings = container.settingsStore.settings.first()
+                if (io.aaps.copilot.service.PowerSaveController.isActive(settings)) {
+                    messageState.value = getApplication<Application>().getString(R.string.settings_history_paused)
+                    return@launch
+                }
+                io.aaps.copilot.scheduler.ServerAiHistoryUploadSchedule.requestManual(getApplication())
+                messageState.value = getApplication<Application>().getString(R.string.settings_history_queued)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(R.string.settings_history_queue_failed)
+            }
         }
     }
 

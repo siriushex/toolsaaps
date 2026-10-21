@@ -135,6 +135,9 @@ fun SettingsScreen(
     onServerAiActivate: (String) -> Unit = {},
     onServerAiResume: () -> Unit = {},
     onServerAiCheck: () -> Unit = {},
+    onAiHistoryUploadEnabled: (Boolean) -> Unit = {},
+    onAiHistoryUploadInterval: (Int) -> Unit = {},
+    onAiHistoryUploadNow: () -> Unit = {},
     targetManagerStatus: TargetManagerLiveStatusUi = TargetManagerLiveStatusUi(),
     onTargetManagerTimingChange: (TargetManagerTimingSetting, Int) -> Unit = { _, _ -> },
     onNightscoutUrlSave: (String) -> Unit = {},
@@ -389,6 +392,9 @@ fun SettingsScreen(
                             onServerAiActivate = onServerAiActivate,
                             onServerAiResume = onServerAiResume,
                             onServerAiCheck = onServerAiCheck,
+                            onAiHistoryUploadEnabled = onAiHistoryUploadEnabled,
+                            onAiHistoryUploadInterval = onAiHistoryUploadInterval,
+                            onAiHistoryUploadNow = onAiHistoryUploadNow,
                             onNightscoutUrlSave = onNightscoutUrlSave,
                             onAiApiSettingsSave = onAiApiSettingsSave,
                             onAiCredentialReplace = onAiCredentialReplace,
@@ -1624,6 +1630,9 @@ private fun DataSourcesCard(
     onServerAiActivate: (String) -> Unit,
     onServerAiResume: () -> Unit,
     onServerAiCheck: () -> Unit,
+    onAiHistoryUploadEnabled: (Boolean) -> Unit,
+    onAiHistoryUploadInterval: (Int) -> Unit,
+    onAiHistoryUploadNow: () -> Unit,
     onNightscoutUrlSave: (String) -> Unit,
     onAiApiSettingsSave: (String) -> Unit,
     onAiCredentialReplace: (String) -> Unit,
@@ -1680,6 +1689,13 @@ private fun DataSourcesCard(
             onActivate = onServerAiActivate,
             onResume = onServerAiResume,
             onCheck = onServerAiCheck
+        )
+        ServerAiHistoryUploadSection(
+            settings = state.aiHistoryUpload,
+            connected = serverAiConnectionState.hasStoredSession,
+            onEnabledChange = onAiHistoryUploadEnabled,
+            onIntervalChange = onAiHistoryUploadInterval,
+            onUpload = onAiHistoryUploadNow
         )
         ClinicalAiSettingsSection(
             state = if (state.clinicalAi.usesLegacyCredentialState) {

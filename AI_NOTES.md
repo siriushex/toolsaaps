@@ -1,3 +1,26 @@
+# Controlled Main Integration - 2026-10-21
+
+- Owner requested backlog decomposition, native subagents and main build updates.
+  Native subagent tools are unavailable in this session; WORKSTREAMS.md contains
+  twelve bounded assignments, shared-file ownership, dependencies and acceptance
+  gates. No agents or external model processes are falsely reported as running.
+- Main independently added periodic history uploads. Resolve its conflicts with
+  the combined release while preserving both sides' feature tests and history.
+  Keep one WorkManager schedule, one connection restore and the serialized Room
+  upload. Retain insulin/timing evidence in that path and remove the duplicate
+  application loop. Preserve photo request bounds, daily archive and countdown.
+- Add three integration-wiring regressions and retain the narrow-port missing
+  insulin telemetry regression. Full merged Android test/lint/compile/assemble
+  passed in11m34s:6568passed,6private-input skips,zero failures/lint errors;
+  382lint warnings. All new wiring/history/insulin regressions passed, including
+  native320dp/1.8x settings rendering and the real pristine RC1 SDK fixture.
+  APK guards retain7073 application classes in41,486,045bytes; signing certificate
+  is unchanged. Backend/tools/workflow trees are unchanged from the preceding
+  candidate whose backend/session CI jobs succeeded. Exact merged-head CI and
+  main integration still require their separate receipts.
+- No server deployment, medical-data export, phone action, therapy gate change
+  or APK publication. Explicit main integration follows verified source checks.
+
 # Local Clinical JSON Export - 2026-10-21
 
 - Added offline JSON export to AI analysis > Report with 7/14/30/60 days and Full.
@@ -2389,6 +2412,22 @@
 - No algorithms, models, target/pump actions, databases, notifications, server
   or phone changes. No new animation library or asset regeneration.
   See docs/NATIVE_MOTION_REFINEMENT.md. Main merge is not part of this follow-up.
+# Narrow Periodic Client History - 2026-10-19
+
+- Owner requested main integration of only the periodic upload feature and its
+  necessary dependencies. Isolated main-based port excludes the rest of PR #7.
+- Import signed history transport, bounded core Room exporter and their existing
+  tests; add 60/120/180/240-minute settings, background switch and manual queue.
+- Current insulin profile/onset/DIA context is observational. No meal-timing
+  research, chat/photo redesign, clinical rule or database migration imported.
+- Main-based focused tests: 83 passed. Full local Android gate: 5625 tests,
+  5619 passed, six optional private-data checks skipped, zero failures/errors.
+  Lint: zero errors, 362 warnings and eight hints; no added-source issues.
+  Debug APK assembly passed; full test/lint/build took 23m58s with Java 17 and
+  one worker. Native 320dp/1.8x font rasters fit; source hashes stayed unchanged.
+  Exact-head CI and main integration remain separate gates. No server or phone
+  operation, APK publication or clinical activation is implied.
+- Scope and remaining advisory work: docs/AI_HISTORY_UPLOAD_SCHEDULE.md.
 
 # Feather 01 Native Presentation - 2026-10-15
 

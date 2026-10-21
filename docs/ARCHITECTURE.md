@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Combined History Upload Ownership
+
+The combined tree retains main's durable `ServerAiHistoryUploadSchedule` as the
+only automatic history owner. One shared connection initialization precedes
+schedule reconciliation. `synchronizeServerAiHistory` serializes bounded Room
+pages and the existing deduplicated insulin/timing context projection; it does
+not add a second fifteen-minute application loop or call a model. The silent
+insulin notification, daily archive and food-photo signed routes remain separate.
+See WORKSTREAMS.md for ownership and unimplemented capability boundaries.
+
 ## Local Clinical JSON Export
 
 The separate `historyexport` package reads a dedicated WAL snapshot and writes the versioned
@@ -791,6 +801,14 @@ interaction feedback and one coordinated drawer lifetime. Root policy includes
 foreground lifecycle, system settings, power save and urgency. Short owl/glyph
 accents settle without loops. No navigation/action or clinical owner changes.
 See `NATIVE_MOTION_REFINEMENT.md` for connected surfaces and verification.
+## Periodic History Upload
+
+A dedicated WorkManager schedule owns optional 60/120/180/240-minute signed
+history uploads and explicit manual requests. It restores existing activation,
+respects power policy and uses a separate metadata index plus encrypted pending
+plans for exact receipt recovery. Core Room history and observed insulin settings
+are read-only projections. Existing chat, clinical rules and medical schema stay
+unchanged. See AI_HISTORY_UPLOAD_SCHEDULE.md for the narrow dependency manifest.
 
 ## Feather 01 Native Presentation
 
