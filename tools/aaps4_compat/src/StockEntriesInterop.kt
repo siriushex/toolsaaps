@@ -203,6 +203,34 @@ fun main() {
                 val readExtended = client.getTreatmentsNewerThan("2027-01-15T08:02:00Z", 10).values!!.single() as NSExtendedBolus
                 check(readExtended.enteredinsulin == 0.25 && readExtended.duration == 1_800_000L)
                 check(readExtended.units == NsUnits.MMOL_L && readExtended.isValid)
+                stage = "treatment-effective-profile"
+                listOf("mmol", "mg/dl").forEachIndexed { index, units ->
+                    val effectiveJson = catalog.getValue("store").jsonObject.getValue("First").jsonObject
+                        .toMutableMap().also {
+                            it["units"] = JsonPrimitive(units)
+                            it["iCfg"] = buildJsonObject {
+                                put("insulinLabel", "historical insulin"); put("insulinEndTime", 18_000_000)
+                                put("insulinPeakTime", 4_500_000); put("concentration", 1.0); put("insulinNickname", "Historical")
+                            }
+                        }.let(::JsonObject).toString()
+                    val effective = NSEffectiveProfileSwitch(date = at + 240_000 + index * 60_000,
+                        utcOffset = -300, isValid = true, eventType = EventType.NOTE, notes = "Evening 120%",
+                        pumpId = null, endId = null, pumpType = null, pumpSerial = null, profileJson = effectiveJson,
+                        originalProfileName = "Evening", originalCustomizedName = "Evening 120%",
+                        originalTimeshift = -3_600_000, originalPercentage = 120, originalDuration = 0, originalEnd = 0,
+                        iCfg = NSICfg("historical insulin", 18_000_000, 4_500_000, 1.0))
+                    val uploaded = client.createTreatment(effective)
+                    check(uploaded.response == 201)
+                    check(client.createTreatment(effective).lastModified == uploaded.lastModified)
+                }
+                val effectiveRows = client.getTreatmentsNewerThan("2027-01-15T08:03:00Z", 10).values!!
+                    .map { it as NSEffectiveProfileSwitch }
+                check(effectiveRows.size == 2)
+                effectiveRows.forEach {
+                    check(it.originalTimeshift == -3_600_000L && it.utcOffset == -300L)
+                    check(it.originalPercentage == 120 && it.originalProfileName == "Evening")
+                    check(it.iCfg?.concentration == 1.0 && it.iCfg?.insulinLabel == "historical insulin")
+                }
                 stage = "settings"
                 socket.subscribe()
                 fun document(value: String) = buildJsonObject {

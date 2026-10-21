@@ -652,9 +652,21 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(journal.pending()).isNull()
             protocol.close()
             targetKey.fill(0)
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(20)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(22)
             assertThat(store.history(io.aaps.copilot.data.repository.LocalV3Collection.PROFILE, 0, 10).documents)
                 .hasSize(2)
+            val effectiveProfiles = store.history(io.aaps.copilot.data.repository.LocalV3Collection.TREATMENTS, 0, 100)
+                .documents.map(AapsV3EffectiveProfileProjector::project).filterIsInstance<AapsV3ProfileProjection.Observed>()
+                .map { it.observation }
+            assertThat(effectiveProfiles).hasSize(2)
+            assertThat(effectiveProfiles.map { it.profile.units }).containsExactly("mmol", "mg/dl")
+            effectiveProfiles.forEach {
+                assertThat(it.originalName).isEqualTo("Evening")
+                assertThat(it.originalTimeshiftMs).isEqualTo(-3_600_000)
+                assertThat(it.profile.basal[1].seconds).isEqualTo(23400)
+                assertThat(it.profile.sensitivity[1].value).isEqualTo(6.25)
+                assertThat(it.insulin.concentrationRatio).isEqualTo(1.0)
+            }
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

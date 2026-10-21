@@ -1,12 +1,26 @@
 # PLAN
 
+## Native Effective Profile Projection (2026-10-22)
+
+- [x] Inspect pinned RC1 EPS/insulin serialization and preserve already effective values.
+- [x] Reproduce rejection of signed native timezone/profile offsets in two wire tests.
+- [x] Share typed schedule decoding with catalogs; add revisioned EPS observations.
+- [x] Complete pure, Room and actual pristine SDK TLS profile regressions: 48 passed.
+- [x] Complete full Android test/lint/compile/build and APK retention guard:
+      6635 passed/six existing skips, zero errors; all7106 app classes preserved.
+- [ ] Publish reviewed source and inspect exact-head CI before main integration.
+- No active-profile selection, clinical readiness, therapy or device update here.
+
 ## Timer Internet Release (2026-10-22)
 
 - [x] Prepare0.1.8/code9 after retained-timer implementation verification.
 - [x] Verify updater/provider/About contracts:47passed; lint/compile/assemble
   passed. Signed artifact publication receipts remain in the release checkpoint.
-- [ ] Pass release-commit Verify and integrate the reviewed source into main.
-- [ ] Publish static update files with prior pointer/page backup and HTTPS readback.
+- [x] Pass release-commit Verify and integrate the reviewed source into main:
+      PR15/01ccca90; source Verify39671493705 and39671505659 succeeded.
+- [x] Publish static update files with prior pointer/page backup and HTTPS readback.
+      0.1.8/code9, SHA256f56dc130a3ed; public bytes/signature/Range verified.
+- Android-confirmed installation and phone acceptance remain separate.
 
 ## Retained Insulin Countdown (2026-10-21)
 

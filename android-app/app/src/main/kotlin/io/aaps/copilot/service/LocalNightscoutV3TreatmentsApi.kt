@@ -225,7 +225,11 @@ internal class LocalNightscoutV3TreatmentsApi(private val db: CopilotDatabase, n
     }
     private fun parse(bytes: ByteArray) = format { HistoryJson.parse(bytes, LocalNightscoutV3Store.MAX_PAYLOAD_BYTES) }
     private fun optionalString(body: JsonObject, key: String) = format { body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::string) }
-    private fun optionalLong(body: JsonObject, key: String) = format { body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::long) }
+    private fun optionalLong(body: JsonObject, key: String) = format {
+        body[key]?.takeUnless { it == JsonNull }?.let {
+            if (key in SIGNED_FIELDS) HistoryJson.signedLong(it) else HistoryJson.long(it)
+        }
+    }
     private fun number(body: JsonObject, key: String) = format { body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::double) }
     private fun readOnly(body: JsonObject) = format { body["isReadOnly"]?.takeUnless { it == JsonNull }?.let(HistoryJson::bool) ?: false }
     private inline fun <T> format(block: () -> T): T = try { block() } catch (_: Exception) {
@@ -254,6 +258,7 @@ internal class LocalNightscoutV3TreatmentsApi(private val db: CopilotDatabase, n
             "reasons", "notes", "enteredBy", "pumpType", "pumpSerial", "profileJson", "originalProfileName", "originalCustomizedName", "bolusCalculatorResult", "type")
         private val INTEGER_FIELDS = setOf("date", "mills", "timestamp", "utcOffset", "protein", "fat", "duration", "durationInMilliseconds", "preBolus", "splitNow", "splitExt",
             "endId", "pumpId", "originalTimeshift", "originalPercentage", "originalDuration", "originalEnd", "timeshift", "percentage")
+        private val SIGNED_FIELDS = setOf("utcOffset", "originalTimeshift", "timeshift")
         private val NUMBER_FIELDS = setOf("glucose", "carbs", "insulin", "percent", "absolute", "targetTop", "targetBottom", "enteredinsulin", "relative", "rate")
         private val INT_FIELDS = setOf("protein", "fat", "preBolus", "splitNow", "splitExt", "originalPercentage", "percentage")
         private val BOOLEAN_FIELDS = setOf("autoForced", "isSMB", "isEmulatingTempBasal", "isAnnouncement", "isBasalInsulin")

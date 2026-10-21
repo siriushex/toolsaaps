@@ -17,6 +17,7 @@ internal object HistoryJson {
     const val maxTime = Long.MAX_VALUE - retentionMs
     val code = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}")
     private val decimal = Regex("0|[1-9][0-9]*")
+    private val signedDecimal = Regex("0|-?[1-9][0-9]*")
 
     fun uuid(value: String) { check(UUID.fromString(value).toString() == value) }
     fun time(value: Long) { check(value in 1..maxTime) }
@@ -89,6 +90,11 @@ internal object HistoryJson {
     fun long(value: JsonElement): Long {
         val primitive = value as? JsonPrimitive ?: error("invalid_history_number")
         check(!primitive.isString && decimal.matches(primitive.content))
+        return primitive.content.toLong()
+    }
+    fun signedLong(value: JsonElement): Long {
+        val primitive = value as? JsonPrimitive ?: error("invalid_history_number")
+        check(!primitive.isString && signedDecimal.matches(primitive.content))
         return primitive.content.toLong()
     }
     fun bool(value: JsonElement): Boolean {

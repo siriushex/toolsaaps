@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Native Effective Profile Projection
+
+- An EPS observation is not a requested switch, catalog default or complete history.
+- Exported EPS schedules are already effective; never reapply original percentage
+  or timeshift. Preserve those original modifiers as provenance only.
+- Historical record insulin is mandatory, with no current-profile fallback.
+  Nested insulin must agree; native concentration ratios cannot become U/mL.
+- Exact units, timezone and schedule seconds remain unchanged. Missing, conflicting,
+  invalidated or malformed evidence cannot produce a partial usable profile.
+- Typed observation alone cannot select an active profile or lift the native
+  clinical-admission guard. Signed offsets do not make timestamps/durations signed.
+
 ## RC1 Target Admission
 
 - A target-only native commit must carry its original receipt deadline through

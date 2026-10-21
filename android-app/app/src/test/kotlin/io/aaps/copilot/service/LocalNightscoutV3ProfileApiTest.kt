@@ -241,6 +241,53 @@ class LocalNightscoutV3ProfileApiTest {
         assertEquals(store, rows(latest()).single()["store"])
     }
 
+    @Test fun effectiveProfileObservationTracksCorrectionDeletionAndDatabaseReopen() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "effective-profile-${UUID.randomUUID()}"
+        db.close()
+        db = Room.databaseBuilder(context, CopilotDatabase::class.java, name).allowMainThreadQueries().build()
+        try {
+            api = LocalNightscoutV3EntriesApi(db) { now }
+            assertEquals(201, call("POST", "profile", sample()).status)
+            val profile = Json.parseToJsonElement(sample()).jsonObject.getValue("store").jsonObject.getValue("Second")
+            val effective = buildJsonObject {
+                put("app", "AAPS"); put("date", at); put("utcOffset", -300); put("eventType", "Note")
+                put("originalProfileName", "Second"); put("originalCustomizedName", "Second 120%")
+                put("originalTimeshift", -3600000); put("originalPercentage", 120)
+                put("originalDuration", 0); put("originalEnd", 0); put("profileJson", profile.toString())
+                put("icfg", buildJsonObject {
+                    put("insulinLabel", "historical insulin"); put("insulinEndTime", 18000000)
+                    put("insulinPeakTime", 4500000); put("concentration", 1.0)
+                })
+            }
+            val created = call("POST", "treatments", effective.toString())
+            assertEquals(201, created.status)
+            val identifier = id(created)
+            suspend fun observation() = AapsV3EffectiveProfileProjector.project(
+                LocalNightscoutV3Store(db).get(LocalV3Collection.TREATMENTS, identifier)!!)
+            val initial = observation() as AapsV3ProfileProjection.Observed
+            assertEquals("Second", initial.observation.originalName)
+            assertEquals(created.revision, initial.observation.modifiedRevision)
+            db.close()
+            db = Room.databaseBuilder(context, CopilotDatabase::class.java, name).allowMainThreadQueries().build()
+            api = LocalNightscoutV3EntriesApi(db) { now - 86400000 }
+            assertEquals(initial, observation())
+            val corrected = call("PATCH", "treatments/$identifier", """{"originalCustomizedName":"Corrected name"}""")
+            assertEquals(200, corrected.status)
+            val updated = observation() as AapsV3ProfileProjection.Observed
+            assertEquals("Corrected name", updated.observation.customizedName)
+            assertEquals(created.revision, updated.observation.createdRevision)
+            assertTrue(updated.observation.modifiedRevision > initial.observation.modifiedRevision)
+            assertEquals(200, call("DELETE", "treatments/$identifier").status)
+            assertEquals(AapsV3ProfileProjection.Unavailable(AapsV3ProfileUnavailable.INVALIDATED), observation())
+            assertTrue(db.therapyDao().since(0).isEmpty())
+            assertTrue(db.glucoseDao().since(0).isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test fun historyDoesNotTurnInternalDeletionIntoLiveProfile() = runBlocking {
         val first = call("POST", "profile", sample())
         LocalNightscoutV3Store(db).delete(LocalV3Collection.PROFILE, id(first), first.revision!!)
