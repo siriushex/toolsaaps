@@ -1,5 +1,822 @@
 # INVARIANTS
 
+## Combined Source Integration
+
+- One durable background-history owner; no application polling loop bypasses
+  the background switch. Restore connection once before schedule reconciliation.
+- Scheduled/manual uploads preserve signed recovery, current insulin provenance
+  and timing evidence. Upload is not a model request, recommendation or therapy.
+- Main integration cannot remove photo body bounds, daily device binding, quiet
+  countdown presentation, clinical dispatch locks or local export safeguards.
+
+## Clinical JSON Export
+
+- Explicit local action only. Never serialize whole settings, account secrets,
+  raw transport staging or operational logs; list deliberate exclusions.
+- Preserve original clinical rows/provenance with no silent count cap. Glucose
+  reduction retains extrema/source/quality/gaps and cannot claim exact trajectories.
+- Full means retained local history, not recovered/deleted or server-only data.
+  Current profiles/state must not masquerade as historical configuration.
+- Use a read-only consistent database snapshot; never stop the app or lock its
+  clinical writer for export. Cancellation must never be presented as success.
+- Write completion only after all sections; verify destination bytes before
+  reporting saved. Failed cleanup must be visible; retry requires user action.
+
+## AAPS Treatment Transport Capability
+
+- Storage namespace authentication cannot authorize root or mark READY. Root
+  authorization cannot release storage events; its reauthorization preserves
+  separately authorized storage packets. Failed storage resubscribe revokes it.
+- Storage notifications read postcommit persistent revisions, including internal
+  outbox writes. No rolled-back event, cursor regression or silent backlog skip.
+  Overflow/read failure closes the session; reconnect catch-up remains HTTP-owned.
+- Deleted settings have no executable document in their notification. Service
+  stop unregisters the database observer and revokes every namespace/session.
+- Native target counter, private receipt and wire publication commit atomically.
+  Repeated IDs cannot republish; changed payloads and competing owners are refused.
+  An unknown published commit holds ownership across restart with no fallback.
+  Prepare-only expiry is distinct from application. No counter reset/rebind/purge.
+- Journal reads never regenerate missing encryption keys; corrupt/unknown state
+  blocks dispatch. Binding a client is not native pairing approval. The journal
+  table is not an AI/clinical source. Its runtime owner never commits or replays
+  a recovered preview. Production clinical dispatch admission remains closed.
+- Hello/Ping/target commands share one durable counter. Active post-Hello roster,
+  current storage subscription and new signed Pong are separate requirements.
+  Native whole-client permissions must not be described as a target-only grant.
+- PIN never enters saved UI state/logs; attempt budget survives restart. Revocation
+  cannot clear unknown commands or silently reset/reuse a retired identity.
+- Enrollment cannot overlap a pending legacy target. Paired routing never falls
+  back after refusal/uncertainty/key loss; old absent receipts are not delivery proof.
+- Settings HTTP success is wire persistence, not target application. Only the
+  target codec's correlated signed Done/Ok COMMIT is an application receipt;
+  signed preparation remains a preview. Durable dispatch admission is separate.
+- The one-use pairing-offer cleanup may erase its wrapped payload while keeping
+  a non-secret tombstone; no other wire payload is purged or clock regressed.
+- Native target-only commit cannot carry advisor correction, bolus/carbs,
+  profile or running-mode actions. Existing clinical/armed ownership gates remain.
+
+- Never infer treatment support from an installed AAPS package or an
+  `NS_EMULATOR` glucose receiver alone, regardless of version name.
+- Legacy fallback must have an explicit destination. Generic glucose transport
+  additionally requires the same enabled, exported component to declare the
+  treatment extension. Package-manager failure cannot become permission to send.
+- A rejected local relay cannot create a treatment row, claim application by
+  AAPS or clear uncertain command ownership. Existing reconciliation remains.
+- API v3 compatibility requires authentication, durable modification history,
+  exact filters and stock-client verification, not merely matching route names.
+- Refresh uses the local raw identity secret, while v1 uses its SHA-1 header.
+  Neither credential nor a query parameter can replace a v3 session bearer.
+- V3 sessions have bounded issuance/capacity, fixed elapsed/wall expiry and no
+  persistence. Stop/restart revokes them; authorization cannot mark sync ready,
+  create clinical evidence or report unimplemented collections as successful.
+- Credential-bearing refresh paths and tokens must never enter request logs.
+- V3 wire document, revision and counters commit together. Event time never serves
+  as a modification revision; clock rollback/restart cannot reuse a cursor.
+- Normalized identical writes do not create a new revision. Conflicts, read-only
+  documents and deleted identities cannot be silently overwritten or resurrected.
+- History includes tombstones and advances only through returned records. A
+  chronological page must finish its equal-time boundary or refuse explicitly.
+- Capacity failure cannot discard another identity/tombstone, issue a successful
+  empty page or change clinical/command state. No automatic store purge is enabled.
+- V3 entry HTTP receipts prove wire persistence only, not clinical ingestion or
+  therapy. Unimplemented collections must have empty permissions and fail501.
+- V3 treatment identity cannot depend on quantities or timezone offset. Corrections,
+  tombstones and immutable acquisition fields retain source/revision ownership.
+  ICfg belongs to its historical record, not the latest global insulin setting.
+  Native mmol spelling must survive SDK reading without a mg/dl fallback. Treatment
+  upload is not a command application receipt and cannot enable native publication.
+- Entry PATCH retains omitted acquisition fields; server metadata cannot become
+  payload. Stable owner/producer/type/time identity prevents POST replay duplicates;
+  conflicting content is refused, not merged by value.
+- Stock SDK TLS tests do not prove Android CA trust or whole-app readiness.
+- Patched master receipt budgets include network/mutex/ACK/counter waits and cannot
+  be renewed by clock rollback or stalled wall time. Revoked pairing/control is
+  rechecked before dispatch. Executor invocation is not clinical application;
+  receiver-only admission cannot unlock native target publication.
+- Device status is immutable owner/device/time wire evidence, not insulin-delivery
+  confirmation. Both date formats must agree; known empty SDK wrappers normalize
+  without rewriting opaque IOB/pump content. Nonpaged history is complete or507,
+  including serialized metadata bytes; unsupported tombstones cannot appear live.
+
+## Provider Token Usage
+
+- Only correlated raw upstream usage is provider evidence, not thread estimates.
+- Missing usage is unknown; repeated response identity cannot double count.
+- Model/input/instruction mismatch cannot be stored as the accepted turn's usage.
+- Unconfirmed stop or unsuccessful outcome cannot publish a successful receipt.
+- Per-device encrypted archival and immutable compact frame receipts are preserved.
+- Provider usage does not infer full window fit, widen limits or change therapy.
+
+## Compact Budget Binding
+
+- A supplied counter is not proof of the selected model's tokenizer or window.
+- CHAT budget model/instruction mismatch fails before personal archive access.
+- Instructions count within the reserve, never twice or without remaining headroom.
+- Nonempty input cannot be admitted with a zero, boolean or invalid count.
+- Failed counting cannot persist a partial receipt or dispatch a native turn.
+- Old receipts remain unchanged; no guessed tokenizer or host activation follows.
+
+## Concise Chat Presentation
+
+- Sender roles remain available to accessibility, without normal visible captions.
+- Errors, voice metadata, attachments and accepted answer text are preserved.
+- Brevity cannot hide relevant uncertainty, missing evidence or urgent warnings.
+- Requested detail may exceed the prompt default; no new local text cutoff exists.
+- Concise style never changes therapy authority, model selection, deadlines,
+  hard limits, untrusted-context boundaries or action/tool restrictions.
+- Prompt adherence and latency need separate live evidence; tests alone prove neither.
+
+## Owl Choreography
+
+- Every scene starts/ends at exact rest; body movement stays in the fixed viewport.
+- Shared waiting ends decorative movement at 7200ms without implying completion.
+- Real busy state retains indeterminate semantics after motion stops.
+- Existing urgency/reduced/power/lifecycle suppression and no-replay gates remain.
+- Clinical actions/colors, static notifications and 48dp hit targets are unchanged.
+
+## Trusted Compact Chat
+
+- Every selected latest MEAL/THERAPY event fits the table or preparation refuses.
+- Exact times, null/absent payload fields and quantity/GI provenance survive.
+- Repeated views and unlinked MEAL/CARBS observations cannot become extra intake.
+- Shared cohort preparation never shares mutable moments across resolutions.
+- Generic counts declare their actual selected period; no whole-retention claim.
+- Trusted server identity, accepted question and exact model/policy must match.
+- Source selection and receipt write share one bounded device transaction.
+- Selected tombstones are authenticated before omission; no old-version revival.
+- PREPARED receipt is immutable composition evidence, not model receipt or validity.
+- Prepared jobs cannot be re-prepared/replayed; failure cannot leave partial success.
+- Required token admission, cancellation/deadline checks and independent stop remain.
+- Partial nonglucose examples and missing profiles cannot become complete history.
+- Default worker/host, raw history, expiry, model settings and therapy stay unchanged.
+
+## Pure Compact Context
+
+- Compaction changes model representation only, not uploads or raw archives.
+- Raw eligible segments determine metrics; rounded/decimated bins never do.
+- Source/quality/context/sensor cohorts, unknown ranges and gaps remain distinct.
+- Required supplied sections and admitted current question cannot be truncated.
+- Protected focus and recent72hours retain their declared resolution.
+- Exception/capacity overflow refuses rather than silently hiding critical detail.
+- Frame/manifest bytes are immutable; a hash does not authenticate a caller.
+- Missing trusted token accounting cannot claim model-window admission.
+- The pure projector cannot persist, infer, deploy or perform a clinical action.
+
+## Meal Timing Evidence Windows
+
+- 3/7/14 days describe completed local calendar windows, not clinical validation.
+- Episode counts cannot substitute for distinct days or merge incompatible cohorts.
+- Current insulin/ISF/CR cannot backfill unrecorded historical treatment context.
+- Estimated GI and approximate declared grams are not independent measured truth.
+- Qualified absorption is not a confirmed bolus-to-meal timing label; source
+  readiness cannot produce a recommended waiting interval or notification.
+- Optional audit failures preserve fixed UNAVAILABLE, not raw errors or false
+  successful empty history. Cancellation propagates before any new upload.
+
+## APK Update Boundary
+
+- Only explicit check/download/install actions; no silent update or downgrade.
+- An APK must match the advertised hash, package, version and installed signer.
+- Unverified bytes, medical context and credentials never enter the update route.
+- Cancelled operation results, including errors, cannot replace newer state.
+- Local APK write errors remain distinct from remote read/network failures.
+- APK resume accepts only the same content-addressed release, an exact byte range
+  and the verified complete hash. Partial bytes remain outside FileProvider access.
+- Only the locked transfer owns cleanup/writes; cancelled HTTP callbacks finish
+  before lock release. Retry count, idle reads and total duration remain bounded.
+- APK shrinking may remove only Material icon classes. All other application
+  classes/members, reflection names, resources and clinical behavior are retained.
+- Android permission/confirmation remains required. Updating cannot arm therapy,
+  reset consent, overwrite configuration or disable AAPS.
+
+## Food Photo Failure Recovery
+
+- Display-only nutrition intervals cannot choose a midpoint, confirm a mass,
+  populate therapy carbohydrates or submit food. Unknown facts stay unknown.
+- Invalid portion edits hide preview totals; confirmed and estimated masses
+  retain distinct labels. Existing domain nutrition rules are reused.
+- Reopening the same food form's photo review does not recheck or reinfer. Only
+  explicit replacement discards it; a different food form never inherits it.
+- Retained review contains no image, request or credential and never enters
+  saved-state storage. Each explicit review opening has one transfer allowance.
+- A response from a cancelled review cannot mutate retained state even when its
+  provider ignores cancellation. Accept the result only while its coroutine is active.
+
+- A correlated terminal analysis failure/cancellation/deadline/result expiry
+  cannot imply missing authorization or image capability. Those actual refusals
+  retain their readiness gate; unknown acceptance remains unknown.
+- Terminal outcomes do not replay, poll or cancel a finished job. Only an
+  explicit new selection creates another photo request; no cached image retry.
+- Untrusted enum types, numeric overflow and blank labels fail with fixed
+  schema errors. Neither worker internals nor rejected model data reach the UI.
+
+## Authenticated Facts Maintenance
+
+- Owner host flag defaults false and is distinct from device consent, signed
+  reads and inference. Existing HTTP/model/profile capabilities do not widen.
+- A bounded current roster never replaces fresh stable-session authorization.
+  Foreign/revoked/expired/inconsistent membership cannot start facts work.
+- Completed generation/day is not scanned each poll; failures/missing data have
+  capped backoff. Restart uses persisted facts idempotency, never model replay.
+- Source calls are off-loop and cancellation drains the owned thread before
+  storage teardown. Stop does not claim physically cancelling SQLite work.
+- Known archived analytical ranges are preserved atomically; unknown stays
+  unavailable. No source archive can become a therapy command.
+- Revocation and private facts commit are separate databases; an already-started
+  call can finish privately after revocation, but cannot publish or admit AI.
+
+## Opt-In Daily Facts
+
+- Missing settings are disabled; only explicit trusted generation-CAS edits
+  can opt into facts. Schema6 and its encrypted setting commit together.
+- Facts consent is not enrollment, current authorization or model admission.
+  Production host composition must independently check all three boundaries.
+- Saved-zone local05:00 selects only yesterday; no historical inference catchup.
+  Source/range/setting checks and archive write share one bounded transaction.
+- Unknown reporting range stays unavailable. Unchanged facts retain original
+  dates; late changes/deletions cannot silently keep old facts current or rerun AI.
+- Queue/work/results remain immutable and separately source-checked. No timer,
+  job/slot, phone, target, dose, ISF/CR/DIA or clinical publication is changed.
+
+## Android Retained Server Audit
+
+- Server audit text never enters the primary report, Recommendations, command
+  pipeline or automatic chat; NOT_ADMITTED and glucose-only scope remain visible.
+- Signed read routes/proof limits do not authorize upload, job or model work.
+- Cache/selected detail are bound to the current device and locally valid session.
+  Offline storage is not current revocation proof; known refusal hides data.
+- Only a complete bounded index replaces the last successful snapshot. Failure,
+  cancellation or source change cannot invent a new success or retrieval date.
+- Current selected source status is separate from original reply evidence. Cached
+  checks display their original time, never a live or clinical validity claim.
+- Expiry is original, not refresh-relative. Restore/read validation rejects
+  foreign/future-clock cache and prunes expired records before adoption. Visible
+  snapshots and lifecycle wakes are not instant wall-clock erasure guarantees;
+  physical cleanup requires app/storage availability.
+
+## Protected Daily Result Projection
+
+- Daily reads are off without an explicit actual-boolean owner opt-in. They
+  require HistoryService and cannot create jobs or change inference admission.
+- Owner/device are derived from current signed authorization, never the body.
+  Method/path/exact bytes/nonce and revocation are checked before store reads.
+- Closed list/detail requests are at most1 KiB. Responses are at most128 KiB;
+  overflow is an error, never truncation or partial medical text.
+- List membership is retained-archive only, at most20 rows with NOT_CHECKED
+  source. Only selected reads replay current source; absence/expiry/foreign
+  result is the same404. Reads do not create or migrate a device database.
+- Current source cannot rewrite sourceAtReply or grant clinical authority.
+  NOT_ADMITTED, REFERENCES_ONLY, UNREVIEWED_AI_INTERPRETATION, GLUCOSE_ONLY
+  and missing-domain evidence survive projection. Internal work stays private.
+
+## Meal Preparation Presentation
+
+- Positive total IOB alone cannot establish food preparation, a food bolus,
+  delivery confirmation or a safe meal-start recommendation.
+- Explicit recent intent and original fresh glucose/IOB are required for food
+  preparation motion. Unknown/blocked/expired/future intents cannot become confirmed.
+  The separate model-clock completion gesture is labelled as model time elapsed,
+  never as a confirmed meal plan or permission to eat.
+- Only a single consistent future canonical meal supplies a labelled plan;
+  corrections/closed/contradictory entries cannot resurrect an old plan.
+- Native motion is finite and follows reduced-motion/lifecycle/power controls.
+  Its frames cannot alter a clinical clock, command, timer or request.
+- Automatic GI is versioned MODEL_ESTIMATE metadata. No generated GI can count
+  as an independent USER/CATALOG label or train itself into apparent confidence.
+  Type priors and bounded historical medians have no therapy authority.
+
+## Restored Photo Connection
+
+- A restored SAVED or unloaded state cannot alone prove missing credentials.
+  The signed client rereads persistence and verifies access before image work.
+- Pending activation is not completed by photo readiness. Revoked/missing
+  credentials cannot submit an image; text readiness cannot enable vision.
+- No personal-key fallback, changed image limit or ambiguous model-job retry.
+- A trusted text admission source can renew only public image/egress. It cannot
+  change the exact model, API identity, private profile or native guard scope;
+  unreadable/mismatched source never falls back to stale admission.
+
+## Nightly Advice
+
+- Local CGM advice never becomes a dose, target, ISF/CR, diagnosis or AI answer.
+- Missing/invalid/duplicate source rows cannot increase supported observation
+  time. Pattern claims require sufficient days and coverage; comparisons use
+  disjoint periods. The displayed 4-10 report range is not a personal target.
+- One committed cutoff/zone is reused. Failed/over-limit refreshes retain the
+  previous dated snapshot, not a falsely new success or partial source.
+- Night work is network-free, respects power-save, and cannot arm therapy.
+  Tab visits do not invoke a model; discussion only appends an unsent draft.
+
+## Chat Waiting And Attachments
+
+- Pending UI follows real work only; finite motion cannot imply model progress,
+  request success, clinical evidence or therapy readiness.
+- Picker selection does not upload. Complete bounded content is rechecked on
+  send; no truncation, filename-only binary substitute or silent fifth-item loss.
+- Failed copy removes only its partial file. Import/send/removal gates preserve
+  the exact reserved draft. Private cache is not a durable message attachment store.
+- Configured server never falls back to personal credentials. Text attachments
+  keep original signature/capability/question limits; images/PDF/audio do not
+  bypass the server TEXT policy or enter food-only vision through this UI.
+
+## Owned Daily Lifecycle
+
+- Only the executor's fresh idle ADMITTED claim invokes a factory. DEFERRED
+  consumes no daily slot/owner; RECORDED never reuses a token or starts a model.
+- A handoff alone is not inference. Reconstructing exact retained handoff work
+  requires current source verification and a first-ever new ledger claim. Any
+  recorded attempt or uncertain commit/stop prohibits replay.
+- Factory failure retains capacity unless positive cleanup exists. Proven
+  cancellation before any factory call withdraws only that never-started claim.
+- Dedicated peer/binding-checked daily JSON cannot become a CHAT/native RPC or
+  accept instructions/tools. Shared busy/poison spans both optional host channels.
+- Success requires source/reference checks, exact stop, ledger settlement and
+  encrypted archival. Stored historical output is not current-source, clinical
+  validity, publication admission, opt-in or scheduling authority.
+
+## Native Moderation Event
+
+- Only the pinned turn/moderationMetadata notification is newly accepted. Its
+  exact three fields and thread/turn correlation are checked, including events
+  preceding the RPC acknowledgement. Unrelated turns cannot inject metadata.
+- Opaque metadata remains subject to existing JSON/frame/session bounds and is
+  neither persisted nor interpreted as authority. Missing/failed completion,
+  foreign IDs, tools and other unknown notifications remain refusals.
+
+## Bounded Native Context Echoes
+
+- Native pipe and parser share the finite 6*131072+1024-byte line bound so an
+  already admitted full context can return as an escaped user-message event.
+- This does not raise the 128 KiB input, 1 MiB aggregate stream, 2048-event or typed
+  answer limit. Oversized, malformed, foreign, tool and unknown frames still
+  fail closed with fixed codes; no raw content enters errors or metadata.
+- Two full-size echo notifications must cross actual child pipes and the Unix
+  supervisor path without a second turn. Stop/IO confirmation remains required.
+- This source fix alone grants no deployment, provider call, daily schedule,
+  medical-data transfer, clinical validity or therapy authority.
+
+## Independent Observation Authority
+
+- Observation is explicit, defaults off and is bound to the no-backup install
+  identity. Restored preferences, equipment selection and general settings writes
+  cannot grant it. Failed/stale writes do not report successful activation.
+- Observation permission never grants treatment authority. Every existing relay,
+  target and dose transport gate remains therapy-only. Existing armed users are
+  not silently disarmed by setup or observation controls.
+- An explicit observation choice permanently excludes automatic legacy therapy
+  arming for that installation, even after observation is turned off. The existing
+  explicit two-step therapy confirmation remains available and authoritative.
+- Independent background cycles use LOCAL_READ_ONLY: no remote refresh, clinical
+  writer, action-repository access, alert/AI publication or sensitivity maintenance.
+  Queued observer work cannot become normal work after subsequent therapy arming.
+- Disable/power-save cancel observer work; restart reads persisted permission.
+  Reactive local work cannot cancel a currently permitted observer merely because
+  therapy is disarmed. Android execution/signal delivery is not guaranteed.
+- Source-specific trust, TLS migration, permissions and freshness gates remain.
+  Source ingestion settings remain independent of the background runtime switch.
+  Manual diary and blood checks retain provenance and never fabricate CGM/IOB/COB.
+
+## Local Manual Diary
+
+- A local entry reports food eaten or insulin already taken. Saving never sends
+  a treatment command, confirms hardware delivery, enables therapy or uploads it.
+- Manual diary data is stored separately from therapy/CGM/telemetry tables and
+  is not counted as observed IOB/COB or used by Target Manager/predictions.
+- Stable identity and expected revision prevent stale replacement and duplicate
+  creation after a lost commit acknowledgement. Retry cannot silently change
+  the payload. Corrections/deletions/restores preserve prior revisions.
+- Kind, gram/unit semantics, original occurrence time/time zone and manual source
+  remain explicit. Future planned events, nonfinite/negative/zero values and
+  missing injection identity/type are rejected; no suggested dose is populated.
+- Deleted records remain locally recoverable, as disclosed before confirmation;
+  deletion is not physical erasure or cancellation of delivered insulin.
+- Migration34->35 is additive and preserves clinical tables. No new destructive
+  fallback. An older APK cannot open the migrated DB; use forward repair.
+
+## First-Start Setup
+
+- Equipment selection and checklist completion never arm/disarm therapy, change
+  targets, fabricate IOB/COB, emit CGM points, send food or upload medical data.
+- Manual readings keep their existing blood-check provenance. Sparse entries
+  are not continuous monitoring and cannot certify prediction/alert readiness.
+- Only explicit user action opens the existing two-confirmation therapy flow.
+  Existing arming and all transport guards remain authoritative; no-pump choices
+  cannot silently stop previously authorized therapy or imply that it stopped.
+- Failed/stale saves cannot advance/close the wizard as successful. Persisted
+  Later/Complete stays dismissed; unknown install metadata does not interrupt an
+  existing setup. Incomplete setup cannot block an already-armed runtime startup.
+
+## Priority Reservation Cancellation
+
+- Manual Eating Soon registration captures FIRST_RESERVED ownership before
+  cancellation may discard a committed Room return. Cancellation is rechecked
+  before queue admission; only the exact first owner proven unsent is blocked.
+- The cancellation-shielded section is local registration, not mutex admission,
+  delivery or retry. A cancelled duplicate cannot withdraw another owner, and
+  cancellation after transport starts retains unknown/no-replay semantics.
+
+## Scoped Runtime Acknowledgement
+
+- The production notification binds its immutable action to an ephemeral owner
+  session plus exact source/generation/ordinal/level. The non-exported receiver
+  may acknowledge an existing owner only; it never starts one or grants consent.
+- New alarm consent is installation-bound, defaults off and is not writable by
+  generic clinical settings updates. It cannot enable therapy or observation.
+- System wake tokens are not medical evidence. Reboot, clock drift, replacement,
+  expiry, OFF and lost source authority prevent old-event replay. There is at
+  most one critical AlarmClock, with no catch-up burst.
+- An unknown local INITIAL timeout is not a decline. Native fallback requires
+  either no admitted owner or completed confirmed cleanup. Notification, audio
+  and vibration outcomes remain separate, and hearing is never inferred.
+
+- Only the current explicitly running coordinator accepts acknowledgement; the
+  command cannot start an owner or replace user opt-in. One pending intent is
+  bounded and tied to exact source/generation/ordinal/level and current boot.
+- Exact audio authority is revoked before Room waits. A claim callback must
+  notice its pending exact acknowledgement before starting hardware effects.
+  A stale action cannot cancel a different ordinal, generation or source.
+- Audio/volume and terminal-journal cleanup finish before the pause transaction.
+  Unconfirmed cleanup cannot become a successful acknowledgement or healthy owner.
+- Current source, freshness and settings are rechecked around persistence. Lost
+  authority rolls back the transaction, not just the return value. Another risk
+  source keeps its playback; higher risk is not acknowledged by an older action.
+- Receiver cancellation does not retract an already accepted intent. Runtime
+  shutdown settles pending replies without claiming that a pause was persisted.
+- Pending-claim waits use current source expiry. Expired acknowledgement cannot
+  spin on a past deadline; every runner iteration checks cancellation.
+- Duplicate actions never slide a pause. Acknowledgement pauses at least ten
+  minutes (or the longer configured soft repeat); ordinary repeat intervals,
+  global OFF and higher-risk preemption remain unchanged. No notification posting implies
+  acknowledgement, audio success or hearing; this API alone activates no runtime.
+
+## Alert Control Intent Revocation
+
+- Valid OFF/resume/toggle intent advances the shared database control revision
+  before any Room wait. Invalid duration does not revoke an active delivery.
+- Queued work and each admitted side-effect child bind to that revision. New
+  controls cancel only that child; parent cancellation/fatal errors retain their
+  original meaning and are never converted into normal continuation.
+- Persistent control changes remain serialized after exact child cleanup. The
+  immediate audio/vibration stop runs first; an ordinary hardware-stop error
+  cannot skip the Room write. Failed writes never claim a successful OFF.
+- Control cancellation records failure, not audio-start/hearing/acknowledgement.
+  It neither fabricates a new clinical INITIAL nor dispatches a postcommit AI
+  request as if the cancelled attempt succeeded.
+- Cached glucose source admission requires its publication control revision,
+  including across multiple owners of the same database. Ending a control or
+  resuming cannot make old cached evidence current again.
+- No new repeat owner, permission, default, therapy behavior or platform wake
+  scheduling is activated by this prerequisite repair.
+
+## Accepted Alarm Source Provenance
+
+- Only accepted current decisions bound to committed matching OPEN episodes may
+  publish glucose/diagnostic sources. Persisted events and UI acceptedAt do not
+  authorize repeats; a latched severity is not the current confirmed candidate.
+- Source expiry derives from existing measurement/forecast freshness. Duplicate
+  CGM cannot slide either wall/elapsed deadline or reset generation/queue age.
+  Unknown/changed boot, backward clocks, >5s disagreement and expiry revoke.
+- Shared source mechanics do not detect clinical risk or grant hardware access.
+  Future admission still requires current settings, authoritative Room OFF,
+  platform capabilities and an explicit running single-audio owner.
+- New data revokes old publication before persistence. Storage/read/cancellation
+  failure cannot leave cached authority; stale failure tickets cannot revoke a
+  newer publication. Cancellation/fatal errors are cleaned up then propagated.
+- The default native initial delivery and receipts remain first. The explicit
+  handoff may read source authority after committed claim but before its callback;
+  neither authority nor notification success implies confirmed audio STARTED.
+  Optional source readback is bounded; its error/timeout never replays INITIAL.
+  Failed diagnostic posting does not itself resolve confirmed clinical risk.
+- OFF/resume/toggle attempts revoke all feeds before writes. OFF expiry, restart
+  and display refresh alone never republish. No extra timer, permission, sound,
+  therapy action or production coordinator activation accompanies this stage.
+
+## Native Audio Handoff
+
+- Delivery ordering must not hold the persistence mutex across physical side
+  effects. Local transactions independently reject pending/changed control intent;
+  splitting locks must not reopen the gap before the persistent OFF write.
+- A local transport lease is acquired before volume baseline capture. Old native
+  boost restoration finishes first. Denied admission never steals urgent playback.
+- Player stop alone does not release the external volume lease. New native/preview
+  playback waits for exact-owner cleanup; unconfirmed cleanup never authorizes it.
+- Confirmed transport release does not wait for the journal mutex. A blocked or
+  failed terminal write is not audio ownership and cannot suppress an otherwise
+  admitted urgent native replacement; its failure remains independently visible.
+- Request fencing remains effective during cleanup waits and reentrant observers.
+  OFF or a newer request prevents delayed playback from an older request.
+- Normal retirement does not cancel the executor's caller. Preemption cancels only
+  the local child; a completed claim/notification is never fabricated as sound.
+- These source/transport prerequisites do not activate repeat, ACK or wake owners.
+
+## Local Alarm Fatigue Policy
+
+- Noncritical cycles start one short clip only; they never inherit a critical
+  maximum. Critical floors, within-clip ramp and configured repeat stay intact.
+- Unchanged noncritical identities double scheduled intervals to30 minutes.
+  Current evidence refresh never resets backoff/slides an existing due. Lifetime
+  ordinal is identity/replay protection, not a per-generation repeat count.
+- Shared noncritical cooldown uses current-boot confirmed audio-start receipts
+  across sources, not just current requests, notification posting or claim time.
+  A live claim reserves one slot but never establishes successful sound/hearing.
+- Shared-history uncertainty prevents only new noncritical sound. Critical
+  selection/admission never waits for the unrelated shared-history query.
+- Shared preview and committed admission use the same transactional gate.
+  Deferral does not consume ordinal, fake a result or acknowledge any source.
+- Exact ACK and global OFF remain effective. Neither history refresh, higher
+  risk nor model output can bypass deliberate global OFF. No catch-up bursts.
+- Policy alone cannot supply source authority or foreground/wake/ACK admission.
+  The explicit glucose adapter supplies those gates; physical phone acceptance
+  remains separate. No clinical threshold or therapy change is authorized.
+
+## Accepted Alert Delivery Isolation
+
+- Accepted forecast/UAM/sensitivity authority validation precedes every consumer.
+  No invalid authority, cancelled owner or process-fatal error starts new effects.
+- Normal permitted alert publication precedes the potentially slow writer stage.
+  Each consumer is invoked at most once by this helper. It introduces no retry,
+  replacement command, relaxed writer policy or clinical threshold change.
+- Ordinary alert failure does not suppress otherwise permitted therapy. A therapy
+  exception remains primary; a separate alert exception is suppressed, never
+  swallowed or converted into a successful widget publication. Cancellation wins.
+- Source-change read-only policy never publishes notifications or writes therapy.
+- Successful notify invocation cannot override blocked global/channel/group state.
+  Missing/unreadable channel state is not confirmed posting. No channel reset.
+- Required audio/vibration failure stays visible even when another channel works.
+  Any-channel receipt success preserves its bounded degradation summary and does
+  not establish human hearing/ACK, media completion or full-channel success.
+- Silent WATCH does not require audio/vibration. No repeat, ACK, wake/service,
+  OFF behavior, schema/default, phone or therapy activation accompanies this stage.
+
+## Daily Capacity Priority
+
+- Idle-only daily reservation, active-work priority check and fresh claim share
+  one committed metadata transaction. Busy adds no owner/queued reservation.
+- A duplicate in any state is metadata only, never reissued claim authority.
+  Commit uncertainty/restart leaves executing capacity held, never auto-replayed.
+- Legacy DAILY_REVIEW claims yield to queued non-daily jobs. Expired waiting
+  jobs do not block; running/cancel-requested jobs never expire implicitly.
+- Priority is for already queued work, not preemption, fairness or zero latency.
+  Interactive arrival after daily claim cannot imply successful process stop.
+- Capacity metadata is not a provider/OS/execution/publication receipt. No source,
+  model, queue handoff, schedule, result or therapy action follows from the call.
+
+## Daily Result Durability
+
+- Only the trusted exact executor/worker composition may call the private result
+  sink after positive stop and actual SUCCEEDED ledger settlement. A supplied
+  Job/outcome/status is not a public execution receipt or provider admission.
+- Authenticate immutable owner/device/job/request/work/model/clocks/source/reply
+  provenance under a distinct purpose. Shared quota, expiry and bounded reads
+  include results; only explicit writes enable schema 5, never ordinary reads.
+- Cross-database success-before-save loss stays RESULT_UNAVAILABLE. Commit with
+  lost acknowledgement may recover the original row; neither path re-infers.
+  Cancellation drains owned storage work. Uncertain stop keeps capacity held.
+- Original sourceAtReply and summary membership are not currentness. Selected
+  reads replay retained source/latest report within one protected snapshot and
+  expose changes, unavailable evidence or supersession, never rewrite history.
+- Stored text remains REFERENCES_ONLY/NOT_ADMITTED/unreviewed. No inferred
+  medical validity, provider/publication admission, route, schedule or therapy.
+
+## Focus AI Presentation
+
+- Focus+ display projection cannot restore a prepared payload, consent, PDF
+  source lease, retry or therapeutic authority. The live two-minute TTL stays.
+- Local 05:00/catch-up reserves at most one automatic current slot. Failed,
+  cancelled, late or clock-regressed work cannot replace a successful display.
+- Only two fixed aggregate display rows survive ordinary rolling cleanup;
+  they are excluded from the numeric-only server history stream.
+- One header owl, six accessible composer tools; TEXT capability does not
+  prevent stopping an already active recording.
+
+- Daily analytics loading/failure must not hide usable chat or local report.
+- A tab visit does not submit, refresh, reprepare or retry an AI job. Discuss
+  appends to the unsent draft; sending and disclosure remain explicit actions.
+- Confirmed-send latch and PDF ticket effects outlive tab disposal; process death
+  cannot restore an unreviewed approval. Existing backend/controller gates remain.
+- Clinical recommendations retain typed source/period/evidence. Missing raw
+  glucose series cannot become a fabricated day curve or therapeutic conclusion.
+- One active panel, retained scroll/draft, accessible targets and finite native
+  motion; no hidden page may keep intercepting input or run a decorative loop.
+
+## Contained Daily Worker
+
+- Dedicated daily JSON/prompt/request bindings must not widen CHAT/photo policy.
+- Consumed durable handoff and independently current canonical archive/source
+  are checked before native start; reply references/source are checked again.
+- Failed/cancelled start still requires exact process stop. Reader cancellation
+  is not thread termination; join owned work before any cleanup confirmation.
+- Only JobExecutor settlement after a positive stop may expose a result. Unknown
+  stop or regressed ledger clock keeps the slot unresolved, never auto-retried.
+- A worker does not confer provider/priority/publication/clinical admission.
+  Results remain NOT_ADMITTED and cannot write therapy or suppress protection.
+
+## Durable Daily Reservations
+
+- One automatic owner/device/date/zone reservation, independent of prompt,
+  language/report revision or retry. Only the latest completed civil day may
+  be newly enqueued; original frozen work/audit are never silently replaced.
+- Authenticate complete encrypted queue payload and metadata under a distinct
+  purpose. Only explicit enqueue enables schema 4; reads/cancel/handoff do not.
+  Existing history/chat/report quotas and fixed report-day retention include it.
+- Recheck latest source/report and exact current work under serialized handoff.
+  Record handoff before returning work, at most once across concurrent callers
+  and restarts. A committed marker with missing acknowledgement is not retried.
+- HANDOFF_RECORDED is not model submission/success/stop or publication. Queued
+  cancellation cannot pretend to stop handed work. No global slot is reserved;
+  actual worker admission/priority/ownership/settlement remain separate.
+- Dispatch deadline is next civil-day end, respecting DST; audit expiry never
+  extends. An old prompt can be read for audit but not handed off under new pins.
+  No provider, scheduler, public/API/therapy activation follows from these methods.
+
+## Checked Daily Review Boundaries
+
+- Preparation and reply evaluation independently consume authenticated source
+  replay in the same protected transaction as work/result construction. There is
+  no hash/proof argument to bypass the second check or reuse old MATCHED state.
+- Latest visible archive revision must match work; a newer revision supersedes
+  old work. Reconstruct exact canonical work from that authenticated archive;
+  a self-consistent rehashed packet is not sufficient evidence for its metrics.
+- Bind owner/device before storage. Preserve response size/schema/reference/
+  priority gates and complete-operation deadlines; contract errors inside the
+  lock are not mislabeled as storage corruption. No partial checked object.
+- Actual point-in-time source checks remain separate from unchanged legacy
+  inner contracts. No continuous freshness, provider stop, publication, medical
+  quality or therapy authority follows. No queue/policy/schema widening occurs.
+
+## Frozen Daily Source Checks
+
+- Selected archive and latest retained source share one bounded protected read
+  transaction. Reuse original cuts only for deterministic replay, never as new
+  current snapshot metadata. Actual check time/sequence/window remain distinct.
+- Compare complete facts as well as source digest. Observe late boundary inputs
+  beyond the original midnight cutoff; never hide them behind that cutoff.
+  Authenticate selected tombstones before treating evidence as absent.
+- Retention loss, source rollback or non-reproducing derived facts cannot be
+  MATCHED. Integrity/row/SQL/wall-budget failures produce no partial assertion.
+- MATCHED is only retained GLUCOSE_ONLY evidence at the check moment, not source
+  completeness, medical validity, current range configuration or future freshness.
+  No worker, legacy preparation promotion, provider or publication authority exists.
+
+## Grounded Daily Review
+
+- Only authenticated archived calculator output enters trusted preparation. A
+  supplied matching digest is not independently verified currentness. No implicit
+  all-history scan, cache freshness certificate, model call or public DTO exists.
+- Canonical input includes exact closed result schema and its digest. The model
+  receives the packet hash it must echo; schema replacement, stale/expired
+  assertions and unknown/duplicate references cannot pass reference checking.
+- Bounded selection preserves original metrics/eligible denominators, explicitly
+  counts omissions and keeps source/data-quality limitations visible. Baseline day
+  reasons are aggregated, not clinical metrics re-estimated. Low exposure has
+  priority; absent data cannot become a reassuring normal-day finding.
+- No free numeric/action fields or unknown review action. Visible counts/times/
+  units come from frozen evidence, not model arithmetic. Free prose remains
+  unreviewed; syntactic/reference checking cannot establish medical correctness.
+- Returned view always remains REFERENCES_ONLY / NOT_ADMITTED with independently
+  unverified freshness. It cannot be promoted by a status string, reused as CHAT
+  admission, sent to therapy or treated as native process stop confirmation.
+
+## Daily Glucose Facts
+
+- Daily facts archive writes require trusted owner/device-bound calculator
+  output and consistent date/window/as-of/snapshot/digest bindings. They are not
+  a client ingestion or public read contract, clinical validation or model result.
+- Report revisions are immutable and exact retries do not rewrite creation time
+  or retention. Expiry is civil-day end plus 365 days, including late generation.
+  A new revision cannot resurrect an expired date or roll back source chronology.
+- Authenticated archive metadata binds owner/device, purpose, sequence, logical
+  date/zone key, revision, creation/expiry and canonical full-facts digest.
+  Corrupt selected rows, quota or deadline failures yield no partial read/write.
+- Bounded report summaries expose NOT_CHECKED source state. Only an explicitly
+  supplied trusted current digest may mark MATCHED/STALE_SOURCE; it never changes
+  the original report. Retained membership is not complete/fresh source evidence.
+
+- Reporting range is explicit versioned analytical input, never a temporary
+  target/default. Unknown range or uncovered time cannot become in-range time.
+- Only adjacent compatible observations within 15 minutes support linear
+  segments. Suspect/conflicting samples and known sensor changes break them.
+  Quality OK is device-declared; UNKNOWN contexts are not calibrated by default.
+- Keep cohort statistics separate. Integer duration totals, exact range crossings,
+  original-time guards and civil-day/DST bounds are required. A state/record
+  count is not time-in-range and a single episode is not a learned pattern.
+- Internal history reads authenticate selected records in one bounded snapshot,
+  bind owner/device/version/range and fail without partial totals. They are not
+  complete-source certificates or full out-of-window integrity scans.
+- No schema migration, clinical write, model request, scheduler/public route,
+  therapy dispatch, prompt activation or deployment follows from this calculator.
+- Multi-day facts share owner/device, as-of cutoff and snapshot sequence. Only
+  prior 7/21-day compatible cohorts with known original context supply baselines;
+  current/future dates and unknown calibration/session cannot be pooled by default.
+- Pool moments and range minutes using their eligible covered-time denominators.
+  Sparse current days have no daily delta. Missing/changed range history cannot
+  supply comparable TIR even if glucose moments are otherwise usable.
+- Hourly recurrence requires a regular civil clock and adequate window coverage;
+  three distinct days is a provisional engineering label, not a diagnosis or
+  treatment rule. Truncated episodes cannot erase integrated hourly exposure.
+  Selected evidence and day-wide omissions stay explicit; missing is not normal.
+
+## Photo API Composition
+
+- No decoder or login-profile access in the nonroot API. Its optional vision
+  endpoint is distinct, kernel-peer checked and operator-controlled.
+- Freeze and correlate the entire canonical work/image body. No task crossover,
+  model/argv/prompt selection, URL/file input or ambiguous automatic replay.
+- The root photo host must inject the isolated decoder; never use the development
+  thread. Decoder UID/GID, public image and namespace are separate from native/API.
+- No authenticated model image until decoder stop/IO is confirmed. No result or
+  idle release after unknown native stop. Drain both API services on any shutdown.
+- Public API activation requires actual admission, not synthetic readiness or a
+  capability-response edit. No phone, medical data or therapy authority is added.
+
+## Native Image Isolation
+
+- Fixed inline JPEG and food prompt only; no paths, remote URLs, clinical history,
+  tools, provider fallback or retry. Preserve model/reasoning metadata.
+- Text input/pipe/stream limits remain unchanged. Image echo and food-result
+  budgets belong only to the dedicated native vision path.
+- Exact invocation/cgroup stop AND successful terminated IO precede the shared
+  profile's idle journal write. IO failure retains bound state, never a reset.
+- Concrete source transport is not a host/decoder/channel admission or public
+  photo capability. No synthetic readiness or provider-result claim.
+
+## Food Photo And Context Cache
+
+- CHAT readiness never grants IMAGE authority; validate the selected route.
+- Freeze photo body and request identity; no parallel same-ID inference,
+  photo rebinding or ambiguous automatic resubmission.
+- Never use an uncorrelated receipt to poll/cancel another job.
+- Schema-v1 nutrients/energy are per 100 g, mass is selected explicitly,
+  missing facts are unknown, and the existing final meal confirmation remains.
+- A parsed photo result must pass the existing nutrition-domain feasibility
+  rules before review. Range validation never selects a portion; confirmed mass
+  must satisfy both the model interval and the calculator's quantity bounds.
+- No photo-derived GI, target/dose action, Room migration or history upload.
+- Full eligible encrypted-envelope fingerprints are mandatory for context
+  reuse; revisions, retention, AEAD/digests and resource budgets stay intact.
+- Injectable vision peers and declared model modality do not admit a real
+  contained server worker. Default image inference remains disabled.
+
+## Core Room Export
+
+- The exporter never writes clinical tables or changes their schema/version.
+  Only its independent no-backup metadata index and encrypted page journal change.
+- Source SQL/columns/units are allowlisted; original time is not observation time.
+  Unknown calibration/session/timezone/GI are not borrowed from current settings.
+  A stored dose is not delivered insulin; UAM is not confirmed real food.
+- Index UUID/revision and frozen page records commit only after signed upload.
+  Clear/ack failure cannot rebuild the page or replay a model request. Device
+  mismatch refuses reuse; there is no automatic reset of uncertain state.
+- Original-time retention can retire an unacceptably expired observational
+  batch, never change its body. Its UUID/digest/time are durable before new
+  attempts for unchanged still-valid record JSON. No model job is replayed.
+  Expected device identity is checked inside the signing/transport mutex.
+- Page budgets, indexed keysets and explicit partial coverage bound work. Completed
+  core scans are neither database-wide snapshots nor proof of full history.
+  Old corrections/deletions may await daily full reconciliation.
+- Full-scan absence permits tombstones only inside that scan's original-time
+  window. Tombstoned identity is never resurrected; expired server records cannot
+  acquire a later lifetime from a sync timestamp. Missing sources stay omissions.
+- Maintenance requires ACTIVE server access and power saving off; cancellation
+  preserves pending recovery. App-lifecycle work is not an OS execution guarantee.
+
+## Owner Application Chat
+
+- Explicit owner API requires a nonroot service, protected configuration and
+  keys, distinct private storage, current attestation policy and a fixed trusted
+  supervisor peer. No default activation, root API or bearer-only shortcut.
+- Owner descriptor v2 requires a protected, digest-pinned serial revocation
+  snapshot. SHA256 revocations alone cannot represent Google's serial status
+  list. Check every chain certificate; suspended keys remain denied. No client
+  supplies trust, no snapshot fetch occurs inside enrollment, and existing
+  freshness/root/application/hardware/boot checks are not relaxed.
+- A lifetime lock prevents concurrent API owners. Unresolved executing claims
+  block startup; unknown execution is never replay authority.
+- Concurrent inventories never share a lifetime directory cursor. Each owns a
+  fresh checked/pinned descriptor and closes it on success or failure. A storage
+  rejection is not permission to bypass guards or retry model submission.
+- Configured or not-yet-loaded server routing precedes personal-key reads and
+  has no failure fallback. The repository rejects unsupported modalities before
+  reading their files or personal credentials. The chat UI disables unsupported
+  media and speech actions, including during unloaded routing; stale picker and
+  recorder callbacks recheck the route. An existing recording always remains
+  stoppable. Existing clinical optimization is not rerouted.
+- UI request failures are typed status entries, never assistant observations in
+  model history. History filters invalid/blank/status messages before applying
+  its ten-turn bound. Ambiguous outcomes retain their uncertainty and never
+  authorize automatic submission retry. Composer guards apply to keyboard and
+  click callbacks; a synchronous latch and finally cleanup bound one request.
+- Model jobs follow successful signed context sync; ambiguous submission is
+  UNKNOWN, never an automatic new request. Only correlated jobs can be cancelled.
+- Nonexpired upload retries retain exact batch bytes/identity and persisted device binding.
+  Server high-water sequence is not proof of completeness or delivery.
+- Snapshots without original timestamps remain observations, not historical
+  measurements. Missing values are unknown; onset is not action duration, net
+  IOB is not interchangeable with positive IOB. No chat result changes therapy.
+- Numbered archive fragments preserve complete supported reply text within
+  record/plan bounds; arbitrary oversized input fails before upload. Fragmentation
+  is observational only, never authority to split or retry a model job. Response
+  clock tolerance does not change event timestamps or clinical freshness checks.
 ## Periodic History Transport
 
 - Signed device binding, fresh access and explicit power/background admission
@@ -14,6 +831,19 @@
 
 ## Native Artwork Isolation
 
+- Interactive root destinations do not crossfade. Motion-policy changes must not
+  replace the NavHost/controller or reset route drafts to cancel an old effect.
+- The owl menu retains the existing click owner and a fixed48dp target. Only
+  explicit route/menu/busy edges create finite header gestures; palette updates,
+  recomposition and same-route events cannot replay them. Suppressed requests
+  remain consumed. Accessibility waiting ends only with the real busy state.
+- Color comes from existing fresh current CGM, not report/forecast values or
+  navigation time. One private notification owl never removes its required risk
+  smallIcon, public redaction, clinical text, delivery claims or actions. No
+  artwork-only notification scheduling, sound or vibration is introduced.
+- Icon feedback never scales touch targets or delays an existing action. Material
+  retains gesture cancellation and disabled semantics. A disabled drawer exit
+  cannot retain an invisible input-blocking overlay; visible content state stays.
 - No therapy, database, network, permission, acknowledgement or risk mutation
   callback belongs to artwork. Visual bands are not clinical thresholds.
 - Urgent LOW_NOW/CRITICAL_5 and native notifications stay static. No animation
@@ -188,14 +1018,23 @@
 
 ## Independent Explicit Eating Soon
 
+- Another meal's in-flight carbohydrate transport cannot delay reservation or
+  dispatch of a newly checked explicit target. Carb writes remain serialized.
+- A same-input duplicate shares its existing owner's result. Cancellation records
+  the partial outcome; in-flight owners cannot be evicted to admit a duplicate.
 - A checked meal target is independent of carb transport/annotation success.
-  Attempt the existing guarded canonical target first; preserve both outcomes.
+  Attempt the existing guarded canonical target before optional research
+  persistence as well as carbs/annotation; preserve both outcomes. Research input
+  still precedes the carb transport and has no target authority.
 - No mode switch, GI/portion value, carb throttle or annotation failure can
   turn explicit intent into an automatic proposal or invent target success.
 - Cancellation and same-key duplicate submission cannot replay ambiguous actions.
   Unstarted carbs, attempted unknown carbs and target statuses remain distinct.
 - Existing safety/arming/chronology and confirmed30-minute priority remain.
   A sent request is not proof of AAPS application. No automatic renewal.
+- Food-origin refusal details survive UI/process recreation through the exact
+  canonical terminal receipt and the shared allowlist. Never expose raw payload
+  errors or let a null/stale local hint replace the stored reason.
 - Signed net IOB for residual prediction and positive safety IOB stay distinct;
   high mean forecasts alone cannot bypass low-bound/reliability protections.
 
@@ -559,10 +1398,25 @@
 - No coordinator consumer, extra timer/poll, schema, arming, hardware or clinical
   change. Technical pump connectivity never proves physical attachment/delivery.
 
-## Inactive Alarm Runtime Ownership
+## Audio Request Fencing
+
+- Request identity is transport state, never clinical admission or persistent OFF.
+  At most one requested and one physical active ticket exist; no generation map.
+- Global/preview/exact-cycle Stop revoke known matching tickets before queued
+  Main cleanup. Old cancellation/cleanup never releases a newer pending/active
+  request. A denied local preflight cannot preempt an urgent native owner.
+- Physical cleanup and volume/focus restoration precede idle-state publication.
+  Observable-state callbacks and clock reads may revoke/replace a request; reread
+  exact ownership before confirming start or installing its stop timer. Install
+  the stop timer before observable active-state callbacks can delay publication.
+- Prepared/seek callbacks are one-shot. Do not extend absolute local deadlines,
+  remove the native urgent floor or treat played=true as evidence of hearing.
+
+## Alarm Runtime Ownership
 
 - Constructor/signal cannot auto-start or manufacture accepted authority.
-  No production source/service constructs the coordinator; opt-in stays absent.
+  Only the explicitly enabled foreground glucose owner constructs the coordinator;
+  construction, journal recovery and a system wake cannot grant opt-in.
 - One database-instance lifetime owner, distinct from the global OFF lock.
   Revocation/stop must not wait for Room before cleanup starts on Main.
 - A committed in-flight claim belongs only to its actual execution job, not a
@@ -634,10 +1488,10 @@
   remains on denial, media error, timeout or a clock jump at timer capture.
 - New mode shares the existing single player and uses alarm attributes/gains;
   it does not alter stream volume, ringer/DND/route or clinical calculations.
-- Future coordinator admission must include the confirmed urgent floor and
-  call stop on current OFF/source/capability loss while playing. No default
-  true authority, polling, service or runtime activation is added. The only new
-  audio API consumer is the inactive cycle executor, not a production source.
+- Coordinator admission includes the confirmed urgent floor and calls stop on
+  current OFF/source/capability loss while playing. No default true authority or
+  automatic opt-in is allowed. Only the cycle executor through the foreground
+  owner consumes the local audio API.
 - Default legacy alerts remain. Platform URI/timer behavior is not a Doze
   delivery guarantee; foreground/wake and real-device acceptance remain.
 
@@ -685,12 +1539,13 @@
 
 ## Food Display And GI
 
-- GI is optional confirmed metadata, not a clinical absorption calibration.
+- GI is optional source-labelled metadata, not a clinical absorption calibration.
   It changes only the separate display shape, never clinical5/30/60, announced
   pressure, insulin, UAM, current COB, target bounds or dispatch authority.
 - Each GI is bound to the exact trusted canonical meal identity/revision.
-  Pending, missing, conflicting and guessed values cannot become accepted GI.
-  Unknown preserves baseline; unrelated meals receive no invented shared GI.
+  Pending, missing, conflicting and guessed values cannot become measured GI.
+  An explicit model estimate retains its source/version and display-only status.
+  Unknown preserves baseline; unrelated meals receive no measured shared GI.
 - Display shaping conserves each current modeled remainder and finish time.
   Engineering coefficients cannot be described as physiologically validated.
 - The complete remaining curve is bounded to720m/145 points/16 KiB. Invalid
@@ -790,7 +1645,7 @@ A durable pre-send claim prevents automatic retry after an uncertain HTTP outcom
 3. Every outbound action must have idempotency semantics.
 4. Temp target values are always clamped to configured hard safety bounds.
 5. Adaptive runtime base target is forced to `4.2 mmol/L` when `cob_grams >= 20`.
-6. Activity spike protection may temporarily override adaptive temp target into `7.7..8.7 mmol/L`; recovery back to base is allowed only after sustained low-load signal.
+6. Activity spike protection may temporarily override adaptive temp target into `7.7..8.7 mmol/L`; recovery back to the current effective base requires thirty minutes between supported low-load acquisitions from the same physical source/day and metric basis, not a count of evaluations. Duplicates cannot advance rest. Invalid/missing/conflicting evidence, clock reversal, discontinuity or new load restart it; unavailable evidence during active protection creates no replacement proposal. Sensitivity aliases and daily counter maxima cannot serve as physical observations. Existing downstream clinical gates and expiry remain authoritative.
 7. Automatic outbound `temp_target` writes must obey a repository-level duplicate throttle:
    - repeated or near-identical targets are blocked inside `30 minutes`,
    - materially changed targets may pass immediately,
@@ -1056,3 +1911,9 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 12. Daily replay must persist per-horizon weekday/weekend gap diagnostics (`daily_report_replay_daytype_gap_json`) and quick keys (`daily_report_replay_daytype_gap_{5|30|60}m`, `daily_report_replay_daytype_gap_hint_{5|30|60}m`) so UI can expose asymmetric day-type error windows.
 13. In OpenAI mode, daily analysis must still produce local report; optimizer failure must degrade safely to local-only behavior and persist explicit failure telemetry (`daily_report_ai_opt_error`).
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
+
+## Model Onset Clock
+- A completed model countdown is not delivery confirmation, permission to eat, or a target/dose command. The status and its detail text must preserve that distinction even when the owl shows the requested food animation.
+- No timer from positive IOB alone; require a usable insulin record and matching configured/model profile. Exclude SMB, inferred/recovered insulin and unconfirmed local commands. Insulin-only/correction records do not assert meal intent or trigger the meal gesture. Nonfinite, future, wrong-unit or conflicting onset evidence cannot create a clock. The estimate must be no more than15min older than its insulin record (a later estimate is allowed); evidence already stale at a new bolus cannot admit that bolus.
+- Header and notification share one timestamp-anchored projection. Once applicable to its record, the estimate remains visible through onset plus15min of completed state, including reconstruction from persisted inputs. Do not apply the15min model-admission window again against the screen's current time. Explicit missing/invalid/conflicting evidence, profile mismatch and removed/cancelled anchors still clear the projection. Onset notifications have a distinct channel/id and no audio, vibration, full-screen intent, alarm-clock scheduling or therapy action. They cannot cancel, acknowledge or replace glucose alarms.
+- Profile exports are observed current settings. Never retroactively label historical boluses with the currently selected insulin; no credentials, arbitrary payloads or new provider calls accompany the snapshot.

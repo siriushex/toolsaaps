@@ -788,6 +788,44 @@ object CopilotMigrations {
         }
     }
 
+    val MIGRATION_34_35: Migration = object : Migration(34, 35) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `local_diary_entries` (" +
+                "`entryId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `kind` TEXT NOT NULL, " +
+                "`occurredAtMs` INTEGER NOT NULL, `recordedZoneId` TEXT NOT NULL, `amountMilli` INTEGER NOT NULL, " +
+                "`insulinName` TEXT NOT NULL, `insulinKind` TEXT NOT NULL, `note` TEXT NOT NULL, " +
+                "`deleted` INTEGER NOT NULL, `recordedAtMs` INTEGER NOT NULL, `source` TEXT NOT NULL, " +
+                "PRIMARY KEY(`entryId`, `revision`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_diary_entries_occurredAtMs` ON `local_diary_entries` (`occurredAtMs`)")
+        }
+    }
+
+    val MIGRATION_35_36: Migration = object : Migration(35, 36) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `local_ns_v3_documents` (" +
+                "`collection` TEXT NOT NULL, `identifier` TEXT NOT NULL, `source` TEXT NOT NULL, " +
+                "`eventAtMs` INTEGER, `payloadJson` TEXT NOT NULL, `payloadBytes` INTEGER NOT NULL, " +
+                "`createdRevision` INTEGER NOT NULL, `modifiedRevision` INTEGER NOT NULL, " +
+                "`deleted` INTEGER NOT NULL, `readOnly` INTEGER NOT NULL, PRIMARY KEY(`collection`,`identifier`))")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_local_ns_v3_documents_modifiedRevision` " +
+                "ON `local_ns_v3_documents` (`modifiedRevision`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_ns_v3_documents_collection_modifiedRevision` " +
+                "ON `local_ns_v3_documents` (`collection`,`modifiedRevision`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_local_ns_v3_documents_collection_deleted_eventAtMs_identifier` " +
+                "ON `local_ns_v3_documents` (`collection`,`deleted`,`eventAtMs`,`identifier`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `local_ns_v3_clock` (" +
+                "`singleton` INTEGER NOT NULL PRIMARY KEY, `revision` INTEGER NOT NULL, " +
+                "`documentCount` INTEGER NOT NULL, `payloadBytes` INTEGER NOT NULL)")
+        }
+    }
+
+    val MIGRATION_36_37: Migration = object : Migration(36, 37) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `aaps_v3_target_journal` (" +
+                "`row` TEXT NOT NULL PRIMARY KEY, `revision` INTEGER NOT NULL, `sealed` BLOB NOT NULL)")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_9_10,
         MIGRATION_10_11,
@@ -813,6 +851,9 @@ object CopilotMigrations {
         MIGRATION_30_31,
         MIGRATION_31_32,
         MIGRATION_32_33,
-        MIGRATION_33_34
+        MIGRATION_33_34,
+        MIGRATION_34_35,
+        MIGRATION_35_36,
+        MIGRATION_36_37
     )
 }

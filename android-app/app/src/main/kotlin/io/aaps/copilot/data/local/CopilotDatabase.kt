@@ -2,6 +2,13 @@ package io.aaps.copilot.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import io.aaps.copilot.data.local.dao.AapsV3TargetJournalDao
+import io.aaps.copilot.data.local.entity.AapsV3TargetJournalEntity
+import io.aaps.copilot.data.local.dao.LocalNightscoutV3Dao
+import io.aaps.copilot.data.local.entity.LocalNightscoutV3ClockEntity
+import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
+import io.aaps.copilot.data.local.dao.LocalDiaryDao
+import io.aaps.copilot.data.local.entity.LocalDiaryEntryEntity
 import io.aaps.copilot.data.local.dao.AlertLocalDao
 import io.aaps.copilot.data.local.entity.AlertLocalStateEntity
 import io.aaps.copilot.data.local.entity.AlertLocalCycleEntity
@@ -92,6 +99,10 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
 
 @Database(
     entities = [
+        AapsV3TargetJournalEntity::class,
+        LocalNightscoutV3DocumentEntity::class,
+        LocalNightscoutV3ClockEntity::class,
+        LocalDiaryEntryEntity::class,
         GlucoseSampleEntity::class,
         MealForecastJournalEntity::class,
         MealInputObservationEntity::class,
@@ -142,10 +153,13 @@ import io.aaps.copilot.data.local.entity.UamInferenceEventEntity
         AlertLocalStateEntity::class,
         AlertLocalCycleEntity::class
     ],
-    version = 34,
+    version = 37,
     exportSchema = false
 )
 abstract class CopilotDatabase : RoomDatabase() {
+    abstract fun aapsV3TargetJournalDao(): AapsV3TargetJournalDao
+    abstract fun localNightscoutV3Dao(): LocalNightscoutV3Dao
+    abstract fun localDiaryDao(): LocalDiaryDao
     abstract fun mealInputObservationDao(): MealInputObservationDao
     abstract fun mealForecastJournalDao(): MealForecastJournalDao
     abstract fun alertLocalDao(): AlertLocalDao

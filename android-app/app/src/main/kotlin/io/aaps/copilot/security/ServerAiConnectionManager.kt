@@ -227,11 +227,40 @@ class ServerAiConnectionManager internal constructor(
         return exchangeSigned(method, path, body, requestId, deadlineMs, JOB_RESPONSE_LIMIT)
     }
 
-    internal suspend fun historyDeviceBinding(): String {
+    internal suspend fun exchangeMealPhoto(
+        method: String,
+        path: String,
+        body: ByteArray,
+        requestId: String? = null,
+        deadlineMs: Long? = null
+    ): ServerAiConnectionResponse {
+        val jobs = "$BASE/meal-photo/jobs"
+        val allowed = when {
+            method == "GET" && path == "$BASE/capabilities" ->
+                body.isEmpty() && requestId == null && deadlineMs == null
+            method == "POST" && path == jobs ->
+                body.size in 1..3 * 1024 * 1024 && isCanonicalUuid(requestId) && deadlineMs != null && deadlineMs > 0
+            method in setOf("GET", "DELETE") && path.startsWith("$jobs/") ->
+                body.isEmpty() && requestId == null && deadlineMs == null && isCanonicalUuid(path.removePrefix("$jobs/"))
+            else -> false
+        }
+        require(allowed) { "invalid_request" }
+        return exchangeSigned(method, path, body.copyOf(), requestId, deadlineMs, 65_536)
+    }
+
+    internal suspend fun historyDeviceBinding(): String = historyDeviceBinding(requireCurrent = false)
+
+    internal suspend fun currentHistoryDeviceBinding(): String = historyDeviceBinding(requireCurrent = true)
+
+    private suspend fun historyDeviceBinding(requireCurrent: Boolean): String {
         mutex.lock()
         try {
             record = read()
-            if (record.session == null) throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            val session = record.session ?: throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            if (requireCurrent && (session.subscriptionExpires <= serverNow() || session.refreshExpires <= serverNow() ||
+                    record.pending?.let { it.refresh == null } == true)) {
+                throw ServerAiConnectionFailure(ServerAiConnectionError.UNAUTHORIZED)
+            }
             return keyCall { identity.fingerprint().also { check(Regex("[0-9a-f]{64}").matches(it)) } }
         } finally {
             mutex.unlock()
@@ -450,7 +479,10 @@ private class HttpsConnectionTransport : ServerAiConnectionTransport {
             require(body.size in 1..historyRoute.requestLimit)
             require(responseLimit == historyRoute.responseLimit)
         } else {
-            require(body.size <= 96_000)
+            val requestLimit = if (method == "POST" && path == "/api/ai/v1/meal-photo/jobs") {
+                3 * 1024 * 1024
+            } else 96_000
+            require(body.size <= requestLimit)
             require(responseLimit in 1..65_536)
         }
         val request = Request.Builder().url("https://diai.centv.ru$path").apply {
@@ -508,9 +540,11 @@ private class HttpsConnectionTransport : ServerAiConnectionTransport {
             return body.isEmpty()
         }
         if (method == "POST" && path == "/api/ai/v1/jobs") return body.size in 1..16_384
+        if (method == "POST" && path == "/api/ai/v1/meal-photo/jobs") return body.size in 1..3 * 1024 * 1024
         if (method !in setOf("GET", "DELETE") || body.isNotEmpty()) return false
-        val id = path.removePrefix("/api/ai/v1/jobs/")
-        if (id == path) return false
+        val prefix = listOf("/api/ai/v1/jobs/", "/api/ai/v1/meal-photo/jobs/")
+            .singleOrNull(path::startsWith) ?: return false
+        val id = path.removePrefix(prefix)
         return runCatching { UUID.fromString(id).toString() == id }.getOrDefault(false)
     }
 }

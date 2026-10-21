@@ -6,6 +6,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageInfo
 import android.content.pm.ResolveInfo
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.google.gson.Gson
@@ -16,6 +17,9 @@ import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
 import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.repository.AuditLogger
+import io.aaps.copilot.data.repository.LocalNightscoutV3Store
+import io.aaps.copilot.data.repository.LocalV3Collection
+import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.CarbsSendThrottle
 import io.aaps.copilot.data.repository.TempTargetSendThrottle
@@ -65,6 +69,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     private lateinit var storage: MemoryAtomicStorage
     private lateinit var caCertificate: X509Certificate
     private lateinit var apiSecretSha1: String
+    private lateinit var localAccessToken: String
     private var server: LocalNightscoutServer? = null
     private var importedDatabaseName: String? = null
 
@@ -78,6 +83,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         try {
             caCertificate = loaded.caCertificate
             apiSecretSha1 = sha1Hex(loaded.apiSecretBytes)
+            localAccessToken = loaded.apiSecretBytes.toString(Charsets.US_ASCII)
         } finally {
             loaded.clearSecrets()
         }
@@ -88,6 +94,524 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         server?.stop()
         db.close()
         importedDatabaseName?.let(context::deleteDatabase)
+    }
+
+    @Test
+    fun storageSubscribeUsesRawCredentialAndDoesNotGrantLegacyReadiness() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime, socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openSocket(peer, port)
+        postSocket(peer, port, sid, "40/storage,")
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).startsWith("40/storage,")
+        listOf(apiSecretSha1, "Bearer $localAccessToken", "wrong").forEach { token ->
+            postSocket(peer, port, sid, storageSubscribe(token))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        }
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("43/storage,7[{\"success\":true")
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(getCode(peer, port, "/api/v1/treatments.json", apiSecretSha1)).isEqualTo(503)
+        assertThat(Gson().toJson(db.auditLogDao().observeLatest(100).first())).doesNotContain(localAccessToken)
+    }
+
+    @Test
+    fun storagePushesCommittedInternalWritesInOrderAndSurvivesRootReauthorization() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime, socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 50))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        store.create(storageInput("internal-first"))
+        store.create(storageInput("internal-second"))
+        postSocket(peer, port, sid, "40")
+        postSocket(peer, port, sid, "421[\"authorize\",{\"secret\":\"invalid\"}]")
+        val packets = pollStorageEvents(peer, port, sid, 2)
+        assertThat(packets.map { it.getAsJsonObject("doc")["identifier"].asString })
+            .containsExactly("internal-first", "internal-second").inOrder()
+        assertThat(packets.map { it.getAsJsonObject("doc")["srvModified"].asLong })
+            .isInOrder()
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
+    fun storageLongPollWakesAfterCommitButNeverPublishesRolledBackWrites() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        try {
+            db.withTransaction {
+                store.create(storageInput("rolled-back"))
+                error("synthetic rollback")
+            }
+        } catch (_: IllegalStateException) { }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val pending = executor.submit<String> { getSocket(peer, port, sid).use { it.body!!.string() } }
+            store.create(storageInput("after-commit"))
+            val packet = pending.get(3, TimeUnit.SECONDS)
+            assertThat(packet).contains("after-commit")
+            assertThat(packet).doesNotContain("rolled-back")
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun storageRequiresConnectionAndClosedCollectionSchemaAndRevokesFailedResubscribe() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openSocket(peer, port)
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        postSocket(peer, port, sid, "40/storage,")
+        getSocket(peer, port, sid).close()
+        listOf(emptyList(), listOf("settings", "settings"), listOf("unknown"), listOf("food")).forEach { names ->
+            postSocket(peer, port, sid, storageSubscribe(collections = names))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        }
+        postSocket(peer, port, sid, storageSubscribe())
+        getSocket(peer, port, sid).close()
+        LocalNightscoutV3Store(db).create(storageInput("revoked-data"))
+        postSocket(peer, port, sid, storageSubscribe("wrong"))
+        postSocket(peer, port, sid, "40")
+        postSocket(peer, port, sid, authorizePacket())
+        val body = getSocket(peer, port, sid).use { it.body!!.string() }
+        assertThat(body).contains("\"success\":false")
+        assertThat(body).doesNotContain("revoked-data")
+    }
+
+    @Test
+    fun storageChangesUseSubscribedCollectionOnlyAndDeletionHasNoExecutablePayload() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        store.create(storageInput("not-subscribed", LocalV3Collection.ENTRIES))
+        val created = store.create(storageInput("setting"))
+        assertThat(pollStorageEvents(peer, port, sid, 1).single()["colName"].asString).isEqualTo("settings")
+        val edited = store.update(storageInput("setting").copy(payloadJson = """{"opaque":"edited"}"""), created.document.modifiedRevision)
+        assertThat(pollStorageEvents(peer, port, sid, 1).single().getAsJsonObject("doc")["opaque"].asString).isEqualTo("edited")
+        store.delete(LocalV3Collection.SETTINGS, "setting", edited.document.modifiedRevision)
+        val deleted = pollStorageEvents(peer, port, sid, 1).single()
+        assertThat(deleted.keySet()).containsExactly("colName", "identifier")
+        assertThat(deleted["identifier"].asString).isEqualTo("setting")
+    }
+
+    @Test
+    fun storageJournalTransactionPublishesOnceWithoutHttpWrite() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val key = javax.crypto.spec.SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
+        val cipher = KeystoreAapsV3JournalCipher { key }
+        val owner = AapsV3TargetJournal(db, cipher)
+        owner.bind("11111111-2222-4333-8444-555555555555")
+        AapsV3TargetProtocol(ByteArray(32) { it.toByte() }).use { protocol ->
+            val target = AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon")
+            owner.prepare("synthetic-storage", target, protocol, System.currentTimeMillis()) {}
+            val doc = pollStorageEvents(peer, port, sid, 1).single().getAsJsonObject("doc")
+            assertThat(doc.getAsJsonObject("envelope")["type"].asString).isEqualTo("batch_prepare")
+            assertThat(owner.prepare("synthetic-storage", target, protocol, System.currentTimeMillis()) {}.publication).isNull()
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("6")
+        }
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
+    fun storageDisconnectDoesNotCloseRootAndRequiresFreshSubscribe() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        postSocket(peer, port, sid, "40")
+        getSocket(peer, port, sid).close()
+        postSocket(peer, port, sid, "41/storage,")
+        LocalNightscoutV3Store(db).create(storageInput("while-disconnected"))
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("6")
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":false")
+        postSocket(peer, port, sid, "40/storage,")
+        getSocket(peer, port, sid).close()
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+        // Reconnect catch-up is HTTP-owned; a new live event must follow the new head.
+        LocalNightscoutV3Store(db).create(storageInput("after-reconnect"))
+        assertThat(pollStorageEvents(peer, port, sid, 1).single().getAsJsonObject("doc")["identifier"].asString)
+            .isEqualTo("after-reconnect")
+    }
+
+    @Test
+    fun storageBacklogOverflowClosesSessionWithoutPartialDeliveryOrDroppingPersistentHistory() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(maxOutboundPackets = 2, pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        val store = LocalNightscoutV3Store(db)
+        repeat(3) { store.create(storageInput("backlog-$it")) }
+        assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+        assertThat(store.history(LocalV3Collection.SETTINGS, 0, 10).documents).hasSize(3)
+        val fresh = openStorage(peer, port)
+        store.create(storageInput("new-live"))
+        assertThat(pollStorageEvents(peer, port, fresh, 1).single().getAsJsonObject("doc")["identifier"].asString)
+            .isEqualTo("new-live")
+    }
+
+    @Test
+    fun storageActivePollingRefreshesTtlButStopRevokesAllNamespaces() = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get,
+            socketLimits = LocalNightscoutSocketLimits(sessionTtlMs = 100, pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        repeat(4) {
+            clock.addAndGet(80)
+            assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(200)
+        }
+        server!!.stop()
+        assertThat(server!!.update(true, port)).isEqualTo(port)
+        assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+        val fresh = openStorage(peer, port)
+        LocalNightscoutV3Store(db).create(storageInput("after-restart"))
+        assertThat(pollStorageEvents(peer, port, fresh, 1).single().getAsJsonObject("doc")["identifier"].asString)
+            .isEqualTo("after-restart")
+    }
+
+    @Test
+    fun storageMalformedSubscribeRevokesPriorAccessAndCannotBeRescuedByRoot() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        postSocket(peer, port, sid, "42/storage,9[\"subscribe\"]")
+        LocalNightscoutV3Store(db).create(storageInput("after-malformed"))
+        postSocket(peer, port, sid, "40")
+        postSocket(peer, port, sid, authorizePacket())
+        val body = getSocket(peer, port, sid).use { it.body!!.string() }
+        assertThat(body).contains("43/storage,9[{\"success\":false")
+        assertThat(body).doesNotContain("after-malformed")
+    }
+
+    @Test
+    fun storageOversizedEventClosesBeforeDeliveryAndRetainsWireRow() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(maxOutboundBytes = 1024, pollWaitMs = 10))
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        LocalNightscoutV3Store(db).create(storageInput("too-large").copy(payloadJson = Gson().toJson(mapOf("opaque" to "x".repeat(2048)))))
+        assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+        assertThat(db.localNightscoutV3Dao().get("settings", "too-large")).isNotNull()
+    }
+
+    @Test
+    fun storageConcurrentReadersAndCommitWakeupsDoNotBlockStopOrLoseHistory() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sessions = List(3) { openStorage(peer, port) }
+        val executor = Executors.newFixedThreadPool(4)
+        try {
+            val reads = sessions.map { sid -> executor.submit<String> { getSocket(peer, port, sid).use { it.body!!.string() } } }
+            LocalNightscoutV3Store(db).create(storageInput("all-peers"))
+            reads.forEach { assertThat(it.get(3, TimeUnit.SECONDS)).contains("all-peers") }
+            val stopped = executor.submit { server!!.stop() }
+            stopped.get(3, TimeUnit.SECONDS)
+            assertThat(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "all-peers")).isNotNull()
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun v3AuthenticationCannotBeBypassedByLegacySecretOrQuery() {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        listOf("/api/v3/status", "/api/v3/treatments", "/API/V3/settings").forEach { path ->
+            assertThat(getCode(peer, port, path)).isEqualTo(401)
+            assertThat(getCode(peer, port, path, apiSecretSha1)).isEqualTo(401)
+            assertThat(getCode(peer, port, "$path?token=$localAccessToken")).isEqualTo(401)
+        }
+    }
+
+    @Test
+    fun v3RefreshRequiresExactDecodedCredentialAndGet() {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val refresh = "/api/v2/authorization/request/"
+        listOf("", "$localAccessToken%20", "$localAccessToken%3Fextra", "$localAccessToken%2Fextra",
+            "$localAccessToken/extra", "x".repeat(257)).forEach { suffix ->
+            get(peer, port, refresh + suffix).use {
+                assertThat(it.code).isEqualTo(401)
+                assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+                assertThat(it.body!!.string()).doesNotContain(localAccessToken)
+            }
+        }
+        peer.newCall(Request.Builder().url("https://127.0.0.1:$port$refresh$localAccessToken")
+            .post("{}".toRequestBody("application/json".toMediaType())).build()).execute().use {
+            assertThat(it.code).isEqualTo(405)
+            assertThat(it.header("Allow")).isEqualTo("GET")
+        }
+    }
+
+    @Test
+    fun v3RefreshBudgetReturnsRetryWithoutBlockingLegacyExchange() {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val refresh = "/api/v2/authorization/request/"
+        repeat(60) { assertThat(getCode(peer, port, refresh + "invalid-budget-fixture")).isEqualTo(401) }
+        get(peer, port, refresh + localAccessToken).use {
+            assertThat(it.code).isEqualTo(429)
+            assertThat(it.header("Retry-After")).isEqualTo("60")
+            assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+        }
+        authorizeLocalServer(port)
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.READY)
+        assertThat(getCode(peer, port, "/api/v1/status.json", apiSecretSha1)).isEqualTo(200)
+    }
+
+    @Test
+    fun stockV3RefreshShapeDoesNotClaimSynchronizationOrAuthorizeV1() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val refresh = "/api/v2/authorization/request/"
+        assertThat(getCode(peer, port, refresh + apiSecretSha1)).isEqualTo(401)
+        assertThat(getCode(peer, port, refresh + "invalid-local-access")).isEqualTo(401)
+        val token = get(peer, port, refresh + localAccessToken).use { response ->
+            assertThat(response.code).isEqualTo(200)
+            assertThat(response.header("Cache-Control")).isEqualTo("no-store")
+            val body = JsonParser.parseString(response.body!!.string()).asJsonObject
+            assertThat(body.keySet()).containsExactly("token", "iat", "exp")
+            assertThat(body["exp"].asLong - body["iat"].asLong).isEqualTo(900L)
+            body["token"].asString
+        }
+        val headers = mapOf("Authorization" to "Bearer $token", "Date" to System.currentTimeMillis().toString())
+        get(peer, port, "/api/v3/status", headers = headers).use {
+            assertThat(it.code).isEqualTo(200)
+            val status = JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonObject
+            assertThat(status["apiVersion"].asString).isEqualTo("3.0.0")
+            assertThat(status["apiPermissions"].asJsonObject["entries"].asString).isEqualTo("crud")
+            assertThat(status["apiPermissions"].asJsonObject["settings"].asString).isEqualTo("crud")
+        }
+        get(peer, port, "/api/v3/status", headers = headers + ("Date" to "1")).use {
+            assertThat(it.code).isEqualTo(401)
+            assertThat(it.body!!.string()).contains("Date header out of tolerance")
+        }
+        peer.newCall(Request.Builder().url("https://127.0.0.1:$port/api/v3/treatments")
+            .header("Authorization", "Bearer $token")
+            .post("{\"eventType\":\"Carb Correction\",\"carbs\":10}".toRequestBody("application/json".toMediaType()))
+            .build()).execute().use { assertThat(it.code).isEqualTo(400) }
+        assertThat(getCode(peer, port, "/api/v1/entries.json", headers = headers)).isEqualTo(401)
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        assertThat(db.therapyDao().since(0L)).isEmpty()
+        val audit = Gson().toJson(db.auditLogDao().observeLatest(100).first())
+        assertThat(audit).doesNotContain(localAccessToken)
+        assertThat(audit).doesNotContain(token)
+        server?.stop()
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        assertThat(getCode(peer, port, "/api/v3/status", headers = headers)).isEqualTo(401)
+    }
+
+    @Test
+    fun v3EntriesRoundTripKeepsRevisionAndNeverBecomesTherapyEvidence() = runBlocking {
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        val invalidations = AtomicInteger()
+        server = newServer(runtime, onClinicalInputPersisted = { invalidations.incrementAndGet() })
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val token = get(peer, port, "/api/v2/authorization/request/$localAccessToken").use {
+            JsonParser.parseString(it.body!!.string()).asJsonObject["token"].asString
+        }
+        fun call(method: String, path: String, body: String? = null) = peer.newCall(
+            Request.Builder().url("https://127.0.0.1:$port/api/v3/$path")
+                .header("Authorization", "Bearer $token")
+                .method(method, body?.toRequestBody("application/json".toMediaType())).build()
+        ).execute()
+        val payload = """{"type":"sgv","date":1800000000000,"sgv":110.0,"device":"test-sensor","units":"mg/dl","utcOffset":0,"isValid":true,"isReadOnly":false}"""
+        val created = call("POST", "entries", payload).use {
+            assertThat(it.code).isEqualTo(201)
+            assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+            JsonParser.parseString(it.body!!.string()).asJsonObject
+        }
+        val id = created["identifier"].asString
+        val revision = created["lastModified"].asLong
+        call("POST", "entries", payload).use {
+            assertThat(it.code).isEqualTo(200)
+            val retry = JsonParser.parseString(it.body!!.string()).asJsonObject
+            assertThat(retry["identifier"].asString).isEqualTo(id)
+            assertThat(retry["lastModified"].asLong).isEqualTo(revision)
+            assertThat(retry["isDeduplication"].asBoolean).isTrue()
+        }
+        call("GET", "entries?sort=date&date%24gt=0&limit=1").use {
+            assertThat(it.code).isEqualTo(200)
+            assertThat(JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonArray.single()
+                .asJsonObject["sgv"].asDouble).isEqualTo(110.0)
+        }
+        call("PATCH", "entries/$id", """{"identifier":"$id","sgv":115.0}""").use {
+            assertThat(it.code).isEqualTo(200)
+            assertThat(JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonObject
+                ["identifier"].asString).isEqualTo(id)
+        }
+        call("DELETE", "entries/$id").use { assertThat(it.code).isEqualTo(200) }
+        call("GET", "entries/history/$revision?limit=1").use {
+            assertThat(it.code).isEqualTo(200)
+            val row = JsonParser.parseString(it.body!!.string()).asJsonObject["result"].asJsonArray.single().asJsonObject
+            assertThat(row["isValid"].asBoolean).isFalse()
+            assertThat(row["date"].asLong).isEqualTo(1800000000000L)
+            assertThat(it.header("ETag")).isEqualTo("W/\"${row["srvModified"].asLong}\"")
+        }
+        call("GET", "entries?sort=date&date%24gt=0&limit=1&limit=2").use {
+            assertThat(it.code).isEqualTo(400)
+        }
+        call("POST", "entries", payload).use { assertThat(it.code).isEqualTo(409) }
+        assertThat(db.glucoseDao().since(0)).isEmpty()
+        assertThat(db.therapyDao().since(0)).isEmpty()
+        assertThat(invalidations.get()).isEqualTo(0)
+        assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+    }
+
+    @Test
+    fun pristineRc1SdkUsesRealTlsAuthenticationAndEntryExchange() = runBlocking {
+        val classpathFile = System.getenv("AAPS_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") {
+            check(classpathFile?.isFile == true && !javaHome.isNullOrBlank()) { "Missing required stock SDK fixture" }
+        }
+        Assume.assumeTrue("Run tools/aaps4_compat/prepare.sh for stock SDK interoperability",
+            classpathFile?.isFile == true && !javaHome.isNullOrBlank())
+        val port = freePort()
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val trustFile = File.createTempFile("entry-trust-", ".p12")
+        val outputFile = File.createTempFile("entry-client-", ".log")
+        var process: Process? = null
+        try {
+            val targetKey = ByteArray(32) { it.toByte() }
+            val targetClient = "11111111-2222-4333-8444-555555555555"
+            val targetAt = 1_800_000_000_000L
+            val protocol = AapsV3TargetProtocol(targetKey)
+            val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+                javax.crypto.spec.SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+            })
+            val store = io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
+            suspend fun readTargetAck(): kotlinx.serialization.json.JsonObject {
+                val record = store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
+                    "aaps_clientcontrol_ack_$targetClient")!!
+                val doc = kotlinx.serialization.json.Json.parseToJsonElement(record.payloadJson) as kotlinx.serialization.json.JsonObject
+                return doc.getValue("ack") as kotlinx.serialization.json.JsonObject
+            }
+            val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                setCertificateEntry("test-ca", caCertificate)
+            }
+            trustFile.outputStream().use { trust.store(it, "test-trust".toCharArray()) }
+            process = ProcessBuilder("$javaHome/bin/java",
+                "-Djavax.net.ssl.trustStore=${trustFile.absolutePath}",
+                "-Djavax.net.ssl.trustStorePassword=test-trust",
+                "-cp", classpathFile!!.readText(), "integration.entries.StockEntriesInteropKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    redirectErrorStream(true)
+                    redirectOutput(outputFile)
+                }.start()
+            val running = process
+            suspend fun awaitStage(stage: String) = kotlinx.coroutines.withTimeout(60_000) {
+                while (stage !in outputFile.readLines()) {
+                    check(running.isAlive) {
+                        val safeFailure = outputFile.readLines().singleOrNull {
+                            Regex("STOCK_RC1_ENTRIES_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+                        }
+                        "Stock SDK exited before expected stage: ${safeFailure ?: "unclassified"}"
+                    }
+                    kotlinx.coroutines.delay(25)
+                }
+            }
+            fun nextStage(stage: String) { running.outputStream.write("$stage\n".toByteArray()); running.outputStream.flush() }
+            awaitStage("STOCK_RC1_PAIRING_READY")
+            val offerRow = store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS,
+                "aaps_clientcontrol_offer_$targetClient")!!
+            val offer = kotlinx.serialization.json.Json.parseToJsonElement(offerRow.payloadJson) as kotlinx.serialization.json.JsonObject
+            AapsV3PairingProtocol.unwrap(offer.getValue("offer") as kotlinx.serialization.json.JsonObject,
+                "23456789".toCharArray(), targetAt).use { credential ->
+                credential.withSecret { assertThat(it).isEqualTo(targetKey) }
+                assertThat(journal.enroll(credential, targetAt).phase).isEqualTo(AapsV3PairingPhase.WAITING)
+            }
+            nextStage("HELLO_READY")
+            awaitStage("STOCK_RC1_ROSTER_READY")
+            assertThat(journal.observeRoster(store.get(io.aaps.copilot.data.repository.LocalV3Collection.SETTINGS, "aaps")!!).phase)
+                .isEqualTo(AapsV3PairingPhase.ACTIVE)
+            assertThat(journal.probe(targetAt + 1)).isNotNull()
+            nextStage("PING_READY")
+            awaitStage("STOCK_RC1_PONG_READY")
+            assertThat(journal.acknowledgeProbe(readTargetAck(), targetAt + 3)).isTrue()
+            journal.requireLivePairing(targetAt + 3, targetAt, 2)
+            val prepared = journal.prepare("synthetic-meal", AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"),
+                protocol, targetAt + 3) {}
+            assertThat(prepared.phase).isEqualTo(AapsV3TargetPhase.PREPARED)
+            assertThat(prepared.publication).isNotNull()
+            nextStage("TARGET_READY")
+            awaitStage("STOCK_RC1_TARGET_PREVIEW_READY")
+            val previewAck = readTargetAck()
+            assertThat(journal.acknowledge("synthetic-meal", protocol, previewAck, targetAt + 5).phase)
+                .isEqualTo(AapsV3TargetPhase.PREVIEW)
+            val committed = journal.commit("synthetic-meal", protocol, targetAt + 5) {}
+            assertThat(committed.phase).isEqualTo(AapsV3TargetPhase.COMMITTED)
+            assertThat(committed.publication).isNotNull()
+            nextStage("COMMIT_READY")
+            assertThat(process.waitFor(90, TimeUnit.SECONDS)).isTrue()
+            assertThat(outputFile.length()).isLessThan(8192)
+            val result = outputFile.readLines().singleOrNull { it.startsWith("STOCK_RC1_ENTRIES_") }
+            assertThat(result).isEqualTo("STOCK_RC1_ENTRIES_OK")
+            assertThat(process.exitValue()).isEqualTo(0)
+            assertThat(journal.acknowledge("synthetic-meal", protocol, readTargetAck(), targetAt + 7).phase)
+                .isEqualTo(AapsV3TargetPhase.APPLIED)
+            assertThat(journal.pending()).isNull()
+            protocol.close()
+            targetKey.fill(0)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(18)
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+            assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
+        } finally {
+            process?.let {
+                if (it.isAlive) { it.destroyForcibly(); check(it.waitFor(10, TimeUnit.SECONDS)) }
+            }
+            trustFile.delete()
+            outputFile.delete()
+        }
     }
 
     @Test
@@ -266,6 +790,71 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
                 .isEqualTo(NightscoutActionRepository.STATUS_BLOCKED)
         }
+    }
+
+    @Test
+    fun directFallbackAlsoRejectsStockGlucoseOnlyReceiver() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        settings.update { it.copy(localNightscoutEnabled = false,
+            localCommandFallbackEnabled = true, localCommandPackage = "info.nightscout.androidaps") }
+        installAapsRelayReceiver(supportsTreatments = false)
+        val base = managerTempTargetCommand("stock-fallback")
+        val command = base.copy(idempotencyKey = "manual:target-editor:stock-fallback")
+
+        val result = repository(settings) { error("No HTTP target configured") }
+            .submitTempTarget(command) { null }
+
+        assertThat(result).isFalse()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
+            .isEqualTo(NightscoutActionRepository.STATUS_FAILED)
+        assertThat(db.therapyDao().since(0L)).isEmpty()
+        assertThat(shadowOf(context as android.app.Application).broadcastIntents
+            .filter { it.`package` == "info.nightscout.androidaps" }).isEmpty()
+    }
+
+    @Test
+    fun directFallbackPreservesExplicitLegacyTreatmentExtension() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        settings.update { it.copy(localNightscoutEnabled = false,
+            localCommandFallbackEnabled = true, localCommandPackage = "info.nightscout.androidaps") }
+        installAapsRelayReceiver()
+        val base = managerTempTargetCommand("legacy-fallback")
+        val command = base.copy(idempotencyKey = "manual:target-editor:legacy-fallback")
+
+        val result = repository(settings) { error("No HTTP target configured") }
+            .submitTempTarget(command) { null }
+
+        assertThat(result).isTrue()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
+            .isEqualTo(NightscoutActionRepository.STATUS_SENT)
+        assertThat(shadowOf(context as android.app.Application).broadcastIntents
+            .filter { it.`package` == "info.nightscout.androidaps" }).hasSize(1)
+    }
+
+    @Test
+    fun stockAapsGlucoseReceiverCannotAcknowledgeTreatmentDelivery() = runBlocking {
+        val port = freePort()
+        val settings = configuredLocalSettings(port)
+        installAapsRelayReceiver(supportsTreatments = false)
+        server = newServer(MutableLocalNightscoutRuntimeState(), settingsStore = settings)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        authorizeLocalServer(port)
+        val command = managerTempTargetCommand("stock-aaps-glucose-only")
+
+        val result = runCatching {
+            withTimeout(5_000L) {
+                repository(settings) { LocalNightscoutClientIdentity(caCertificate, apiSecretSha1) }
+                    .submitOrRetryTempTarget(command) { null }
+            }
+        }
+
+        assertThat(result.exceptionOrNull())
+            .isInstanceOf(NightscoutActionRepository.TempTargetDeliveryUnknownException::class.java)
+        assertThat(db.therapyDao().since(0L)).isEmpty()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status)
+            .isEqualTo(NightscoutActionRepository.STATUS_PENDING)
+        assertThat(shadowOf(context as android.app.Application).broadcastIntents
+            .filter { it.action == "com.eveningoutpost.dexdrip.NS_EMULATOR" }).isEmpty()
     }
 
     @Test
@@ -1456,6 +2045,36 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
 
     private fun authorizePacket() = "421[\"authorize\",{\"client\":\"AndroidAPS\",\"secret\":\"$apiSecretSha1\"}]"
 
+    private fun storageSubscribe(token: String = localAccessToken, collections: List<String> = listOf("settings")) =
+        "42/storage,7" + Gson().toJson(listOf("subscribe",
+            mapOf("accessToken" to token, "collections" to collections)))
+
+    private fun openStorage(peer: OkHttpClient, port: Int): String = openSocket(peer, port).also { sid ->
+        postSocket(peer, port, sid, "40/storage,")
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("40/storage,")
+        postSocket(peer, port, sid, storageSubscribe())
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+    }
+
+    private fun storageInput(id: String, collection: LocalV3Collection = LocalV3Collection.SETTINGS) =
+        LocalV3DocumentInput(collection, id, "local-v3-target", 946_684_800_001,
+            """{"date":946684800001,"utcOffset":0,"app":"test","kind":"synthetic"}""")
+
+    private fun pollStorageEvents(peer: OkHttpClient, port: Int, sid: String, count: Int): List<com.google.gson.JsonObject> {
+        val result = mutableListOf<com.google.gson.JsonObject>()
+        repeat(20) {
+            val body = getSocket(peer, port, sid).use { response ->
+                assertThat(response.code).isEqualTo(200)
+                response.body!!.string()
+            }
+            body.split('\u001e').filter { it.startsWith("42/storage,") }.forEach { packet ->
+                result += JsonParser.parseString(packet.removePrefix("42/storage,")).asJsonArray[1].asJsonObject
+            }
+            if (result.size >= count) return result
+        }
+        error("storage events unavailable")
+    }
+
     private fun newServer(
         runtime: MutableLocalNightscoutRuntimeState,
         socketNowMs: () -> Long = System::currentTimeMillis,
@@ -1529,7 +2148,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             .contains("\"read\":true")
     }
 
-    private fun installAapsRelayReceiver() {
+    private fun installAapsRelayReceiver(supportsTreatments: Boolean = true) {
         val packageName = "info.nightscout.androidaps"
         val relayIntent = Intent("com.eveningoutpost.dexdrip.NS_EMULATOR").setPackage(packageName)
         val receiver = ResolveInfo().apply {
@@ -1537,11 +2156,18 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 this.packageName = packageName
                 name = "$packageName.TestNightscoutReceiver"
                 exported = true
+                enabled = true
             }
         }
         shadowOf(context.packageManager).apply {
             installPackage(PackageInfo().apply { this.packageName = packageName })
             addResolveInfoForIntent(relayIntent, receiver)
+            if (supportsTreatments) {
+                addResolveInfoForIntent(
+                    Intent("info.nightscout.androidaps.action.LOCAL_TREATMENTS").setPackage(packageName),
+                    receiver
+                )
+            }
         }
     }
 

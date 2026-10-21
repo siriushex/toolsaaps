@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,6 +26,10 @@ import androidx.compose.ui.unit.dp
 import io.aaps.copilot.R
 import io.aaps.copilot.domain.nutrition.MealPortion
 import io.aaps.copilot.domain.nutrition.MealPortionSettings
+import io.aaps.copilot.domain.nutrition.HybridMealResponseRequest
+import io.aaps.copilot.domain.nutrition.LentaMealEstimator
+import io.aaps.copilot.domain.nutrition.LentaMealHistory
+import io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import io.aaps.copilot.ui.foundation.screens.FoodProfileSelector
 import io.aaps.copilot.ui.foundation.format.UiFormatters
@@ -36,7 +41,10 @@ internal fun MealEntryDialog(
     settings: MealPortionSettings,
     maximumGrams: Double,
     onDismiss: () -> Unit,
-    onConfirm: (MealEntryConfirmation) -> Unit
+    onConfirm: (MealEntryConfirmation) -> Unit,
+    photoAvailability: (suspend () -> io.aaps.copilot.data.repository.MealPhotoAvailability)? = null,
+    analyzePhoto: (suspend (ByteArray) -> io.aaps.copilot.data.repository.MealPhotoAnalysisResult)? = null,
+    onLoadHistory: suspend (Long, String) -> LentaMealHistory = { cutoff, zone -> LentaMealHistory(cutoff, zone) }
 ) {
     var portion by rememberSaveable { mutableStateOf(MealPortion.MEDIUM) }
     var profile by rememberSaveable { mutableStateOf(MealAbsorptionProfile.MIXED) }
@@ -46,14 +54,43 @@ internal fun MealEntryDialog(
     var manualCarbs by rememberSaveable { mutableStateOf(false) }
     var correction by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf(false) }
+    var showPhoto by remember { mutableStateOf(false) }
+    val photoReview = remember(submissionId) { MealPhotoReviewSession() }
+    val cutoff by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+    val zoneId by rememberSaveable { mutableStateOf(java.time.ZoneId.systemDefault().id) }
+    var history by remember { mutableStateOf<LentaMealHistory?>(null) }
+    LaunchedEffect(cutoff, zoneId) {
+        history = try { onLoadHistory(cutoff, zoneId) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { LentaMealHistory(cutoff, zoneId, status = LentaMealHistoryStatus.UNAVAILABLE) }
+    }
     LaunchedEffect(settings.showCalories) { if (!settings.showCalories) energyRaw = "" }
     if (submitted) return
+    if (showPhoto && photoAvailability != null && analyzePhoto != null) {
+        MealPhotoFlowDialog(maximumGrams, photoAvailability, analyzePhoto,
+            onDismiss = { showPhoto = false }, onUse = {
+                manualCarbs = true
+                correction = it.grams.toString()
+                it.profile?.let { selected -> profile = selected }
+                showPhoto = false
+            }, reviewSession = photoReview)
+        return
+    }
     val proposedGrams = settings.range(portion).defaultGrams
+    val automaticGi = remember(cutoff, zoneId, history, profile, portion, settings) {
+        if (!settings.isValid()) null else {
+            val minute = java.time.Instant.ofEpochMilli(cutoff).atZone(java.time.ZoneId.of(zoneId))
+                .toLocalTime().toSecondOfDay() / 60
+            LentaMealEstimator().estimate(HybridMealResponseRequest(cutoff, profile, portion, zoneId, minute,
+                portionSettings = settings), history ?: LentaMealHistory(cutoff, zoneId,
+                    status = LentaMealHistoryStatus.UNAVAILABLE)).automaticGi
+        }
+    }
     val finalMeal = confirmedMealFromInput(
         if (manualCarbs) correction else proposedGrams.toString(), portion, profile,
         energyRaw, settings.showCalories, eatingSoon, submissionId, maximumGrams,
         proposedGrams = proposedGrams
-    )
+    )?.copy(glycemicIndex = automaticGi)
     val energyValid = !settings.showCalories || energyRaw.isBlank() ||
         energyRaw.replace(',', '.').toDoubleOrNull()?.let { it.isFinite() && it in 1.0..10_000.0 } == true
     val enlargedText = LocalDensity.current.fontScale > 1.3f
@@ -62,6 +99,14 @@ internal fun MealEntryDialog(
         title = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.meal_entry_title), modifier = Modifier.weight(1f))
+                if (photoAvailability != null && analyzePhoto != null) {
+                    IconButton(onClick = {
+                        photoReview.applied.value = false
+                        showPhoto = true
+                    }, modifier = Modifier.testTag("mealPhotoOpen")) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = stringResource(R.string.meal_photo_title))
+                    }
+                }
                 IconButton(onClick = onDismiss, modifier = Modifier.testTag("mealEntryClose")) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel))
                 }
@@ -91,6 +136,11 @@ internal fun MealEntryDialog(
                     }
                 }
                 FoodProfileSelector(profile, { profile = it }, compact = true)
+                automaticGi?.let {
+                    Text(stringResource(R.string.meal_automatic_gi, UiFormatters.formatGrams(it.value, 0)),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("mealAutomaticGi"))
+                }
                 FlowRow(Modifier.fillMaxWidth(),
                     maxItemsInEachRow = if (enlargedText) 1 else 2,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Error
@@ -129,6 +130,7 @@ fun SettingsScreen(
     state: SettingsUiState,
     onVerboseLogsToggle: (Boolean) -> Unit,
     onProModeToggle: (Boolean) -> Unit,
+    onOpenSetup: () -> Unit = {},
     serverAiConnectionState: ServerAiConnectionState = ServerAiConnectionState(),
     onServerAiActivate: (String) -> Unit = {},
     onServerAiResume: () -> Unit = {},
@@ -160,6 +162,10 @@ fun SettingsScreen(
     onLocalNightscoutCertificateInstall: () -> Unit = {},
     onLocalNightscoutCertificateExport: () -> Unit = {},
     onLocalNightscoutIdentityReset: (Boolean) -> Unit = {},
+    nativeAapsConnectionState: io.aaps.copilot.service.AapsV3ConnectionState = io.aaps.copilot.service.AapsV3ConnectionState(),
+    onNativeAapsPair: (CharArray) -> Unit = { it.fill('\u0000') },
+    onNativeAapsCheck: () -> Unit = {},
+    onNativeAapsRevoke: () -> Unit = {},
     onLocalBroadcastIngestToggle: (Boolean) -> Unit = {},
     onStrictSenderValidationToggle: (Boolean) -> Unit = {},
     onUamInferenceToggle: (Boolean) -> Unit = {},
@@ -367,6 +373,10 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             item {
+                OutlinedButton(onClick = onOpenSetup, modifier = Modifier.fillMaxWidth().testTag("settings_setup")) {
+                    Icon(Icons.Default.Tune, contentDescription = null)
+                    Text(stringResource(R.string.setup_title), Modifier.padding(start = 8.dp))
+                }
                 SettingsTabCard(
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTabRaw = it.name }
@@ -412,6 +422,9 @@ fun SettingsScreen(
                             onLocalBroadcastIngestToggle = onLocalBroadcastIngestToggle,
                             onStrictSenderValidationToggle = onStrictSenderValidationToggle
                         )
+                    }
+                    item {
+                        NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck, onNativeAapsRevoke)
                     }
                     item {
                         UamSettingsCard(

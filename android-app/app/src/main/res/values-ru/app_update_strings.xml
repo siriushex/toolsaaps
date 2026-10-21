@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="menu_about">О приложении</string>
+    <string name="app_update_version">Версия %1$s · сборка %2$d</string>
+    <string name="app_update_heading">Обновление приложения</string>
+    <string name="app_update_idle">Обновления с сервера Copilot</string>
+    <string name="app_update_checking">Проверяем обновления…</string>
+    <string name="app_update_current">Установлена последняя доступная версия</string>
+    <string name="app_update_available">Доступна новая версия</string>
+    <string name="app_update_downloading">Загружаем обновление…</string>
+    <string name="app_update_ready">Обновление проверено и готово</string>
+    <string name="app_update_verifying">Проверяем перед установкой…</string>
+    <string name="app_update_failed">Обновление не завершено</string>
+    <string name="app_update_release">%1$s · %2$.1f МБ</string>
+    <string name="app_update_error_network">Не удалось получить обновление. Проверьте интернет и повторите попытку.</string>
+    <string name="app_update_error_release">Описание обновления некорректно. Установка заблокирована.</string>
+    <string name="app_update_error_incompatible">Для этой версии нужен более новый Android.</string>
+    <string name="app_update_error_storage">Не удалось сохранить APK. Проверьте свободное место и повторите попытку.</string>
+    <string name="app_update_error_apk">APK не прошёл проверку целостности или подписи. Установка заблокирована.</string>
+    <string name="app_update_error_installer">Не удалось открыть установщик или разрешения Android. Повторите попытку.</string>
+    <string name="app_update_install_notice">Установку подтвердит Android. Если потребуется, разрешите установку из Copilot, вернитесь сюда и нажмите «Установить». На время установки оповещения Copilot могут прерваться; AAPS не меняется.</string>
+    <string name="app_update_cancel">Отмена</string>
+    <string name="app_update_download">Загрузить обновление</string>
+    <string name="app_update_resume">Продолжить загрузку</string>
+    <string name="app_update_install">Установить</string>
+    <string name="app_update_check">Проверить обновление</string>
+</resources>

@@ -8,6 +8,7 @@ import io.aaps.copilot.ui.foundation.format.UiFormatters
 
 internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, result: ManualMealResult?): String {
     if (result == null) return context.getString(R.string.overview_meal_unconfirmed)
+    if (result.carbBlockReason == "submission_busy") return context.getString(R.string.meal_submission_busy)
     return buildString {
         append(when (result.carbs) {
             MealDeliveryStatus.SENT -> context.getString(R.string.overview_meal_sent,

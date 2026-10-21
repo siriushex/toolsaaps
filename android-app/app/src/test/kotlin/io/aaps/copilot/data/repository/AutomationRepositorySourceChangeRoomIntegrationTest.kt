@@ -114,6 +114,39 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
     }
 
     @Test
+    fun physicalActivityAcquisitionReachesRuleWithoutAliasingOrDailyMaximum() = runBlocking {
+        val now = System.currentTimeMillis()
+        val observedAt = now - 3000
+        seedRisingGlucose(now)
+        seedLocalSafetyEvidence(now, recentActionCount = 0)
+        configureActiveSourceChange()
+        settingsStore.update { it.copy(nightscoutUrl = "", apiSecret = "", enableUamExportToAaps = false) }
+        db.telemetryDao().upsertAll(listOf(
+            TelemetrySampleEntity("physical-old-steps", now - 6000, "local_sensor", "steps_count", 5000.0, null, "steps", "OK"),
+            TelemetrySampleEntity("physical-steps", observedAt, "local_sensor", "steps_count", 200.0, null, "steps", "OK"),
+            TelemetrySampleEntity("physical-ratio", observedAt, "local_sensor", "activity_ratio", 1.3, null, null, "OK"),
+            TelemetrySampleEntity("sensitivity-only", now, "aaps_broadcast", "sensitivity_ratio", 1.8, null, null, "OK")
+        ))
+        val captured = mutableListOf<RuleContext>()
+        val repository = repository(now, observeRuleContext = captured::add)
+        repository.runAutomationCycle()
+        val physical = requireNotNull(captured.last().physicalActivity)
+        assertThat(physical.timestamp).isEqualTo(observedAt)
+        assertThat(physical.source).isEqualTo("local_sensor")
+        assertThat(physical.stepsCount).isEqualTo(200.0)
+        assertThat(physical.activityRatio).isEqualTo(1.3)
+
+        repository.runAutomationCycle()
+        assertThat(captured.last().physicalActivity).isEqualTo(physical)
+        db.openHelper.writableDatabase.execSQL("DELETE FROM telemetry_samples WHERE source = 'local_sensor'")
+        repository.runAutomationCycle()
+        assertThat(captured.last().physicalActivity).isNull()
+        assertThat(targetDispatches.get()).isEqualTo(0)
+        assertThat(uamGatewayCalls.get()).isEqualTo(0)
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
     fun readOnlyAcceptedCycleCapturesExactRoomAuthorityAndInvalidatesOnMissingGlucose() = runBlocking {
         val now = System.currentTimeMillis()
         seedRisingGlucose(now)
@@ -1281,6 +1314,7 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         beforePredict: suspend () -> Unit = {},
         predictForecasts: (suspend () -> List<Forecast>)? = null,
         predictionEngineOverride: PredictionEngine? = null,
+        observeRuleContext: (RuleContext) -> Unit = {},
         onWidgetRefresh: suspend () -> Unit = { widgetRefreshes.incrementAndGet() }
     ): AutomationRepository {
         val gson = Gson()
@@ -1416,17 +1450,20 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
                     object : TargetRule {
                         override val id: String = AdaptiveTargetControllerRule.RULE_ID
 
-                        override fun evaluate(context: RuleContext) = RuleDecision(
-                            ruleId = id,
-                            state = RuleState.TRIGGERED,
-                            reasons = listOf("integration_action_candidate"),
-                            actionProposal = ActionProposal(
-                                type = "integration_action",
-                                targetMmol = 6.0,
-                                durationMinutes = 30,
-                                reason = "integration_action_candidate"
+                        override fun evaluate(context: RuleContext): RuleDecision {
+                            observeRuleContext(context)
+                            return RuleDecision(
+                                ruleId = id,
+                                state = RuleState.TRIGGERED,
+                                reasons = listOf("integration_action_candidate"),
+                                actionProposal = ActionProposal(
+                                    type = "integration_action",
+                                    targetMmol = 6.0,
+                                    durationMinutes = 30,
+                                    reason = "integration_action_candidate"
+                                )
                             )
-                        )
+                        }
                     }
                 ),
                 SafetyPolicy()

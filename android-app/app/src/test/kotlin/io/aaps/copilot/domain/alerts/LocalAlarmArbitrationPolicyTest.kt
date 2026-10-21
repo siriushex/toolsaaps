@@ -4,6 +4,38 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LocalAlarmArbitrationPolicyTest {
+    @Test fun onlyAnActualCriticalCycleCreatesAnAlarmClockDeadline() {
+        val low = request(level = LocalAlarmLevel.LOW_NOW)
+        val active = active(low)
+        assertNull(decide(listOf(low)).criticalWake)
+        assertEquals(active.nextDueElapsedMs, decide(listOf(low), listOf(active), active.activeCycle).criticalWake?.dueElapsedMs)
+        val ended = active.copy(cycleActive = false)
+        assertEquals(1L, decide(listOf(low), listOf(ended)).criticalWake?.ordinal)
+        val warning = request(); val soft = active(warning)
+        assertNull(decide(listOf(warning), listOf(soft), soft.activeCycle).criticalWake)
+    }
+
+    @Test fun systemAlarmNeverSchedulesSourceExpiryGlobalOffOrInvalidAuthority() {
+        val low = request(level = LocalAlarmLevel.CRITICAL_5)
+        val active = active(low)
+        assertNull(decide(listOf(low.copy(evidence = low.evidence.copy(validUntilElapsedMs = 101_000))),
+            listOf(active), active.activeCycle).criticalWake)
+        for (env in listOf(environment.copy(enabled = false), environment.copy(armed = false),
+            environment.copy(mutedUntilWallMs = 300_000))) {
+            assertNull(decide(listOf(low), listOf(active), active.activeCycle, env).criticalWake)
+        }
+        assertNull(decide(listOf(low.copy(evidence = low.evidence.copy(authorized = false))),
+            listOf(active), active.activeCycle).criticalWake)
+    }
+
+    @Test fun acknowledgedCriticalSchedulesOnlyItsPauseExpiry() {
+        val low = request(level = LocalAlarmLevel.LOW_NOW); val initial = active(low)
+        val paused = LocalAlarmPolicy.acknowledge(low.evidence, initial, environment, timing,
+            LocalAlarmAcknowledgement(initial.key, 1, 1, initial.level))!!
+        val wake = decide(listOf(low), listOf(paused)).criticalWake!!
+        assertEquals(paused.pause!!.untilWallMs - environment.nowWallMs + environment.nowElapsedMs, wake.dueElapsedMs)
+        assertEquals(low.evidence.key, wake.key)
+    }
     private val environment = LocalAlarmEnvironment(true, true, 100_000, 200_000, 2)
     private val timing = LocalAlarmTiming()
     private fun request(id: String = "source-a", level: LocalAlarmLevel = LocalAlarmLevel.WARNING_30,
@@ -135,10 +167,10 @@ class LocalAlarmArbitrationPolicyTest {
         val source = request(); val active = active(source)
         val paused = LocalAlarmPolicy.acknowledge(source.evidence, active, environment, timing,
             LocalAlarmAcknowledgement(active.key, 1, 1, active.level))!!
-        assertEquals(400_000L, decide(listOf(source), listOf(paused)).nextWakeElapsedMs)
+        assertEquals(700_000L, decide(listOf(source), listOf(paused)).nextWakeElapsedMs)
         val expiring = source.copy(evidence = source.evidence.copy(validUntilElapsedMs = 120_000))
         assertEquals(120_000L, decide(listOf(expiring), listOf(paused)).nextWakeElapsedMs)
-        val env = environment.copy(nowElapsedMs = 400_000, nowWallMs = 500_000)
+        val env = environment.copy(nowElapsedMs = 700_000, nowWallMs = 800_000)
         assertEquals(source.evidence, decide(listOf(source), listOf(paused), env = env).selected)
     }
 

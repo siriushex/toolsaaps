@@ -1,5 +1,806 @@
 # ARCHITECTURE
 
+## Combined History Upload Ownership
+
+The combined tree retains main's durable `ServerAiHistoryUploadSchedule` as the
+only automatic history owner. One shared connection initialization precedes
+schedule reconciliation. `synchronizeServerAiHistory` serializes bounded Room
+pages and the existing deduplicated insulin/timing context projection; it does
+not add a second fifteen-minute application loop or call a model. The silent
+insulin notification, daily archive and food-photo signed routes remain separate.
+See WORKSTREAMS.md for ownership and unimplemented capability boundaries.
+
+## Local Clinical JSON Export
+
+The separate `historyexport` package reads a dedicated WAL snapshot and writes the versioned
+offline report defined in [CLINICAL_JSON_EXPORT.md](CLINICAL_JSON_EXPORT.md).
+The AI report tab exposes 7/14/30/60/full without requiring the AI service.
+Glucose is aggregated to ten-minute source/quality bins; other reviewed clinical
+rows are streamed without caps. Private transport/auth stores are excluded.
+An activity-scoped export ViewModel owns save/cancel/cleanup; saved-document
+length and SHA-256 readback must match before success. No therapy or network path.
+The existing `report` package remains a narrow PDF renderer without database or
+file access; its architectural guards are unchanged. The writer prohibition also
+covers the new JSON exporter and its UI.
+
+## Seen Pause and Insulin-Onset Presentation
+
+The exact running-owner acknowledgement keeps its source/generation/ordinal,
+cleanup-before-persistence and worsening checks. Its pause is at least ten
+minutes, independent of a one- or two-minute critical repeat setting; a longer
+configured soft repeat is retained. Another episode and a higher risk level
+remain independently audible. This is not an indefinite mute or risk resolution.
+
+One application-scoped countdown projection is shared by the header and a
+separate silent notification. It accepts usable recorded insulin without
+requiring carbohydrate entry, but excludes automatic microboluses, inferred IOB,
+recovered doses and unconfirmed local actions. An insulin-only/correction record
+does not claim that a meal is planned and never activates the meal-completion
+gesture. A finite matching-profile estimate must be no more than fifteen
+minutes older than the insulin record, or be refreshed after that record. This
+admission window is not the countdown's lifetime: the timestamp anchors its
+deadline and the completed state lasts fifteen minutes after that deadline.
+Persisted therapy/model inputs reconstruct the same clock after a screen or
+process recreation; age alone does not erase an already applicable estimate.
+Missing/invalid/conflicting evidence, profile mismatch or a removed/cancelled
+anchor still invalidates the projection. A stale estimate cannot admit a newer
+insulin record.
+
+The notification has its own channel/id, no sound, vibration, alarm-clock wake,
+full-screen intent or therapeutic action. Android renders its chronometer;
+application work is only at data changes, onset expiry and completion expiry.
+Android may restrict banners and background execution; notification posting is
+not proof of user observation or insulin delivery. Onset is an estimate, not a
+meal waiting recommendation. No target, dose or onset estimator is changed.
+
+## Stock AAPS 4.0 Integration Direction
+
+Keep AAPS source stock where possible and implement its Nightscout v3 contract in
+Copilot's loopback TLS server. Existing v1/Socket.IO and custom 3.x extensions
+remain separate capabilities, not evidence of stock RC1 compatibility. The
+generic `NS_EMULATOR` receiver is glucose-only in upstream AAPS; legacy treatment
+relay requires a matching explicit treatment-extension receiver. See
+AAPS4_COMPATIBILITY.md for inspected contracts and remaining implementation gates.
+Stock RC1's paired Client Control over v3 settings is the candidate for command
+acknowledgements; its signed prepare/commit protocol must be verified rather than
+replaced with new AAPS broadcast handlers. The v3 refresh/bearer boundary is now
+implemented in the existing TLS listener (LOCAL_NS_V3_AUTH.md). Status and entries
+now have a typed wire adapter (LOCAL_NS_V3_ENTRIES.md). Immutable device-status
+create/read is specified in LOCAL_NS_V3_DEVICE_STATUS.md. Settings wire storage
+supports native upsert/ACK/offer lifecycles (LOCAL_NS_V3_SETTINGS.md). The separate
+target-only signed codec verifies prepare/commit ACKs (AAPS4_TARGET_PROTOCOL.md),
+but is not a live dispatcher. Treatments now have their own typed wire adapter
+(LOCAL_NS_V3_TREATMENTS.md), preserving per-record insulin configuration and native
+units without claiming clinical delivery. Profile/food still return501 with empty
+permissions. The isolated storage subscription now reads committed revisions and
+wakes polling clients through Room invalidation (LOCAL_NS_V3_STORAGE.md).
+Whole-app sync, live Client Control and READY remain unconnected; stored
+documents and subscription credentials cannot grant clinical authority.
+Room37 adds an encrypted single-owner target journal and atomic command outbox
+(AAPS4_TARGET_JOURNAL.md). Receipt/counter allocation
+and wire publication commit together; unknown commit holds ownership across restart.
+It is excluded from clinical/AI projections and cannot grant pairing permission.
+Native PIN enrollment, roster/Pong verification and a lifecycle-scoped ACK owner
+now share this journal and counter (AAPS4_PAIRING.md). The repository selects the
+paired route without legacy fallback, but production publication remains explicitly
+closed until typed clinical history and master-handler admission are verified.
+Communication-only UI status cannot enable Target Manager or READY.
+The narrowly scoped external RC1 receiver-admission patch is specified in
+AAPS4_MASTER_ADMISSION.md. Its real-source regressions cover stale dispatch,
+not the executor's later clinical transaction or pump queue. The unmodified SDK
+fixture remains independent; neither check unlocks production publication.
+
+Room 36 adds a separate latest-document v3 store with atomic persistent revisions,
+tombstones, compare-and-set updates and bounded revision/time paging. The entries
+HTTP caller is connected, but no clinical consumer exists. The strict JSON helper is
+reused without the AI archive's retention or identity semantics. No old clinical
+rows are backfilled as wire evidence. See LOCAL_NS_V3_STORE.md for cursor, capacity,
+equal-time page boundaries and remaining adapter/retention admission.
+
+## Provider Token Usage (2026-10-18)
+
+Bounded raw upstream response counts are correlated to native thread/turn and
+bound to submitted input/model/instructions. Text supervisor negotiates optional
+receipts, returns them only after confirmed stop, and the settled CHAT job stores
+them in its existing encrypted device entry. Public answers and model history
+remain unchanged. This is post-response evidence, not a preflight tokenizer or
+permission to activate compact context. See PROVIDER_TOKEN_USAGE.md.
+
+## Compact Budget Binding (2026-10-18)
+
+Optional compact CHAT binds accounting to the exact accepted model and instruction
+digest before archive access. Instructions are counted inside the configured
+reserve, leaving explicit native/output headroom. Receipts distinguish supplied
+counts from independent model verification and retain window/reserve/remainder.
+No host tokenizer is selected or enabled; see COMPACT_TOKEN_BUDGET.md.
+
+## Concise Chat Presentation (2026-10-18)
+
+Chat bubbles retain roles for accessibility without visible sender captions.
+Native personal chat and attachment requests share one system instruction; server
+CHAT, contextual and optional compact policies share answer-first plain-text style.
+The 80-word default has requested-detail and essential-safety exceptions, with no
+response truncation or history rewrite. Prompt revisions remain part of request
+binding. Source changes do not activate a new server worker or change models.
+
+## Owl Choreography (2026-10-18)
+
+Native owl poses now include bounded body travel/tilt with coordinated head,
+eyes and wings. One deterministic 7200ms waiting choreography drives header and
+chat; existing draw-only clocks and safety/power/lifecycle gates remain owners.
+No new data, action or network boundary. See NATIVE_MOTION_REFINEMENT.md.
+
+## Trusted Compact Chat Adapter
+
+The v3 compact path also carries bounded lossless tables of all selected latest
+MEAL/THERAPY events. Shared columns/codebooks retain exact source timestamps,
+revisions and declared GI/quantity provenance. Focus/examples are overlapping
+views, not additional meals/doses. This is not complete client-domain export.
+Source cohorts are prepared once per request and each resolution receives fresh
+moment accumulators. See COMPACT_MEAL_THERAPY.md; no host activation follows.
+
+An optional trusted compact worker selects history and server exchanges in one
+bounded device transaction and stores a <=16KiB contextReceipt in the already
+reserved encrypted chat entry before dispatch. Exact accepted question/policy and
+frame digest remain bound through result archival. No schema change or default
+host activation. The new prompt separates time-weighted glucose facts from partial
+nonglucose examples; complete profile/trajectory export is still separate.
+See COMPACT_CHAT_ADAPTER.md for opt-in, limits and remaining operational admission.
+
+## Pure Compact Context
+
+A pure projector accepts selected decoded glucose versions and
+caller-prepared observational sections. It reuses daily-glucose preparation and
+original-segment moments/episodes, encodes adaptive statistical grids and exact
+extrema offsets, then freezes bounded frame/manifest bytes. No archive selection,
+authentication, persistent receipt or model dispatch occurs inside the projector.
+Token admission
+requires an injected trusted counter; absent accounting stays UNVERIFIED.
+See COMPACT_AI_CONTEXT.md for limits and the remaining trusted CHAT adapter.
+
+## Device Conversation Versus Native Thread
+
+Per-device encrypted history and server exchange archival do not imply a durable
+native conversation. The current context worker assembles bounded summaries and
+recent exchanges, then starts one ephemeral native thread. Full user/settings
+coverage, a stable native registry and exact per-answer context manifests are
+separate missing integrations. See AI_DEVICE_CONTEXT.md for the audited limits
+and required design; no new runtime persistence or retrieval tools are enabled.
+
+## Meal Timing Evidence Windows
+
+MealTimingHistoryReport projects the existing qualified absorption source into
+completed local3/7/14-day windows. It retains source/cohort/missingness distinctions,
+independent GI provenance and unknown confirmed-bolus-to-actual-meal linkage.
+The due insulin-context maintenance loads it only for a new device/day/profile
+snapshot. Counts do not train a timer or authorize notifications. No new Room
+schema, worker, provider request or therapy writer. See MEAL_TIMING_EVIDENCE.md.
+
+## APK Distribution
+
+About uses an isolated fixed-origin HTTPS update client and route-scoped state.
+Bounded manifest/download validation and installed-package signer comparison
+precede the standard Android installer. Static nginx release files are separate
+from the AI API, device identity and clinical storage. See APP_UPDATES.md.
+The hash-addressed partial cache supports bounded HTTP Range recovery, serialized
+writers and full-file verification; interrupted downloads expose explicit Resume.
+The debug distribution prunes unused Material icons and compresses DEX, with a CI
+check preserving all compiled application classes and limiting removal to icons.
+
+## Authenticated Facts Host
+
+Owner API's optional default-off `daily_facts` creates one ASGI-lifetime
+maintenance task, not a root timer or model worker. A bounded current subscribed
+attested roster, per-device consent and fresh session/key checks gate each
+local05:00 facts call. Completed-day deduplication, safe-failure backoff and
+critical thread drain reuse the existing history/teardown boundaries. Internal
+ranges=None atomically preserves an archived analytical range or leaves metrics
+unavailable; it is never a live target. See DAILY_FACTS_HOST.md. No live rollout.
+
+## Opt-In Facts Preparation
+
+An internal persisted facts-only schedule selects the preceding completed
+civil day after local05:00. One encrypted generation-CAS setting in history
+schema6 is explicit consent for deterministic preparation only. The one-shot
+producer joins source checks, bounded reads and the existing facts archive in
+one protected transaction; unchanged source retains original dates, late
+changes create facts revisions without inference. No host timer, public route,
+model admission or clinical publication is installed. See DAILY_FACTS_SCHEDULE.md.
+
+## Android Daily Review Archive
+
+The existing signed history client reads retained daily reviews into a separate
+device-bound encrypted cache and native Reports block. A complete bounded frozen
+summary index and one selected audit detail survive navigation/restart; failed
+reads retain dated content. Current-vs-original source checks and unreviewed
+labels cannot become primary clinical advice or control inputs. Unused numeric
+cohorts remain inert. No provider/schedule admission, worker, Room migration,
+new dependency or live rollout. See ANDROID_SERVER_DAILY_ARCHIVE.md.
+
+## Protected Daily Review Reads
+
+An optional `daily_reads` boolean in the protected owner v2 descriptor mounts
+two signed POST history routes. It defaults false and does not admit daily
+execution, schedule work or widen capabilities. Both reuse HistoryService's
+current owner/subscription/device checks, exact request proof and nonce barrier.
+`server_daily_query` decodes closed 1 KiB requests and projects at most 128 KiB.
+List uses retained sequence membership and at most20 unverified summaries;
+selected detail reuses the bounded current-source reader. Frozen native input,
+queue and execution claims never enter the public projection. Historical source
+at reply and current source remain separate; all original unreviewed/glucose-only
+labels remain. See DAILY_REVIEW_RESULTS.md. Source only, not active deployment.
+
+## Meal Preparation And Automatic GI
+
+Food and Lenta share the bounded historical estimator and coarse type GI
+priors. An explicit versioned MODEL_ESTIMATE travels through the existing
+immutable confirmation/pending/exact-revision metadata route. Only independent
+USER/CATALOG labels can influence known-GI summaries or GI research fitting.
+The optional form history read is once per opening and cannot block valid
+confirmation or turn an estimated GI into measured evidence. Existing display
+shaping consumes the annotated estimate; clinical forecast/COB/control do not.
+
+The compact preparation renderer requires recent explicit intent or one
+upcoming canonical AAPS meal, fresh glucose and fresh positive IOB. IOB remains
+context, not proof of a food bolus. A finite 2.4-second gesture reuses the root
+motion/lifecycle policy. Only an explicit future meal timestamp supplies a
+labelled plan; no inferred "safe to eat" time or background timer is added.
+See MEAL_PREPARATION_GI.md. The separate timing research is not activated.
+
+## Restored Food Photo Session
+
+The current food form owns a bounded in-memory typed photo review and raw edit
+strings. Closing only photo review retains them without another request; closing
+the whole form releases them. A separate display-only nutrition envelope evaluates
+mass endpoints with the existing calculator. It cannot populate confirmed masses
+or carbohydrate commands. No photo bytes, request replay or disk/Bundle persistence
+is added. See COMBINED_UI_PHOTO.md for scope and confirmation boundaries.
+
+Photo readiness rejects only a known unconfigured connection before the signed
+client reads persistence. SAVED, unloaded and recoverable states reach the same
+credential/refresh/device checks as other signed routes; they are not grants.
+Real authorization refusal, unsupported image capability and transient failure
+remain distinct. This source repair does not admit a vision supervisor.
+
+The privileged image host may follow an explicit protected text admission source
+for public image/egress renewal only. Model, API peer and original profile/guard
+bindings must match the separate vision descriptor. Its image socket and decoder
+stay independent; native image modality and kernel admission are checked as before.
+
+## Nightly Advice
+
+Advice now has an independent local 3/7/14-day CGM aggregate, fixed latest
+telemetry identity and a network-free 05:00/catch-up worker. Existing canonical
+glucose and one-day duration metrics are reused. No therapy arming, remote AI
+job or parameter writer is involved. Saved AI reports stay separately sourced.
+See NIGHTLY_ADVICE.md for quality gates, windows, clock and scheduling limits.
+
+## Chat Waiting And Attachments
+
+Focus has one actual-pending finite owl/typing renderer, not a fake progress timer.
+Local picker imports use bounded private cache and strict complete content checks.
+Supported personal image/PDF/text payloads carry actual bytes. Small server text
+files retain the existing signed question envelope; no personal fallback, generic
+server image route or deployment. See AI_CHAT_ATTACHMENTS.md for exact limits.
+
+## Owned Daily Dispatch
+
+DailyDispatcher now joins encrypted one-shot handoff, fresh source checks,
+JobExecutor-owned atomic idle admission, contained daily work and stopped-result
+archival. A recorded request never obtains its claim again. The dedicated daily
+Unix contract returns strict JSON, not ChatResult-wrapped/truncated text.
+Explicit host --daily-socket shares busy/unknown-cleanup capacity with chat;
+default host behavior remains chat-only. See DAILY_DISPATCH.md. No schedule,
+recurring enrollment or clinical publication is enabled. Optional read-only
+result routes are now composed separately; they do not start this dispatcher.
+
+## Correlated Moderation Metadata
+
+The pinned native protocol emits turn/moderationMetadata during a text answer.
+Accept only its exact threadId/turnId/metadata envelope and correlate both IDs.
+The opaque JSON metadata is ignored, never stored or treated as an answer,
+successful completion, tool permission or override of provider safety decisions.
+Final typed answer and successful turn completion remain independently required.
+All other unknown notifications still fail closed.
+
+## Full-Context Native Framing
+
+Native user-message notifications can echo an admitted 128 KiB text input. The
+shared pipe/parser line cap is now 6*131072+1024 bytes, covering JSON escaping
+and bounded envelope overhead. A fixed 64 KiB pipe could otherwise reject valid
+context before the answer. The same constant bounds outgoing native messages;
+the independent 1 MiB aggregate session, 2048-event and typed answer limits remain.
+No model, prompt, tool, provider, ownership, retry or daily activation changes.
+
+## Independent Local Observation
+
+An explicit install-bound localObservationEnabled preference permits the local
+foreground runtime without therapyActionsArmed. Equipment/checklist selections
+and generic settings updates cannot grant it. The existing therapy runtime still
+implies observation; switching the independent option off cannot disarm therapy.
+An install-scoped decision marker prevents delayed legacy auto-arm migration even
+after this option is disabled. It does not replace explicit therapy confirmation.
+
+Application, foreground, boot, broadcast and power-save lifecycle admission use
+the combined observation permission. Command transports, circadian targets and
+normal clinical writer policies retain therapy-only authority. The foreground
+cycle rereads persisted settings and selects the existing LOCAL_READ_ONLY path
+for independent observation. That path cannot upgrade into writers, remote
+refresh, alerts, widget publication or AI dispatch when therapy state changes.
+
+A separate unique 15-minute local worker has no network constraint and yields
+to the foreground cycle. It checks current permission/power state, never becomes
+a normal automation job, and has bounded timeout/retry. In observation-only
+mode the scheduler cancels legacy normal/daily/circadian jobs; new reactive input
+still uses LOCAL_READ_ONLY without cancelling the observer's periodic work.
+Worker completion rereads current runtime policy before cancellation/resume/stop,
+so an older disarmed or power-save calculation cannot close a newly enabled
+observer. The selected calculation intent itself never upgrades mid-cycle.
+
+This enables configured local sources and silent calculations only. It does not
+connect remote Nightscout polling, independent alarms or daily AI, nor turn manual
+diary entries into clinical evidence. Fresh-data capability and Android background
+availability still require device/source acceptance.
+
+## Local Manual Diary
+
+Room35 adds an isolated append-only local_diary_entries journal. A stable entry
+identity and expected revision bind each create/correction/delete/restore. A
+transaction admits one current revision; exact committed retries return their
+existing receipt. Original occurrence time, time zone, fixed-point amount,
+insulin name/type, manual provenance and earlier revisions remain available.
+Amounts are stored in thousandths of grams or units, never binary floating point.
+
+The native Diary route is reachable from the drawer and setup, with no AAPS,
+sensor, network or therapy-arming requirement. A SavedStateHandle retains the
+draft identity and fields across UI recreation. Failures keep the editor open;
+stale writers cannot overwrite newer revisions. Deleted rows are tombstones,
+not physical erasure, with an explicit restore action and revision viewer.
+History reads are bounded (100 recent entries, expandable to1000;100 revisions).
+
+These entries have no clinical consumer: no treatment import, upload adapter,
+CGM insertion, IOB/COB projection, forecast trigger or target/dose command. The
+existing AAPS Food action stays separate. The explicit local observation runtime
+above does not connect the diary to clinical calculations.
+
+## First-Start Checklist
+
+SetupProgress is separate from clinical AppSettings, stored by a scoped atomic
+compare-and-set in the same preferences datastore. Equipment choices only select
+checklist content. The native setup route links existing editors and permission
+screens; it cannot mint connectivity, glucose evidence or treatment authority.
+Fresh installations are offered setup, existing installations are not reset.
+Legacy refusal is respected; already-armed runtime startup remains independent
+of checklist completion. See ONBOARDING.md for actual capability limitations.
+
+## Scoped Runtime Acknowledgement
+
+The explicitly running LocalAlarmCoordinator accepts one bounded acknowledgement
+intent at a time. It binds source key, generation, cycle ordinal and level to
+current accepted evidence, settings and boot. An exact active owner is revoked
+before any Room wait; a pending claim is matched again in its onClaimed callback
+before hardware use. Old ordinals/generations cannot stop a replacement. An
+unstarted, stopped or competing coordinator cannot accept commands or arm itself.
+
+The runner finishes exact audio/volume and terminal-journal cleanup before it
+persists the pause. The acknowledgement does not clear an executor's active claim
+out from under its finish operation. Another source's playback is not cancelled.
+Source/settings/freshness are checked again inside the Room transaction and after
+the write; lost authority rolls back both journal and pause changes. Failed
+cleanup yields unavailable, never a successful acknowledgement.
+
+An accepted intent belongs to this runtime even if its receiver coroutine stops
+waiting. Runtime shutdown settles unprocessed intents as unconfirmed. Duplicate
+taps do not extend the pause; worsening and deliberate global OFF retain existing
+policy semantics. Pending claims wait on the current source expiry rather than
+their originally selected expiry; expired acknowledgement authority is rejected
+before waiting. The runner also checks cancellation on each iteration, preventing
+old-deadline busy loops while Room is delayed. The command API cannot start a
+service. Its production notification/foreground/AlarmClock adapter is described
+under Foreground Glucose Alarm Runtime below.
+
+## Immediate Alert Control Intent
+
+Episode control actions now revoke delivery before acquiring the persistent
+operation mutex. A database-identity gate stores an opaque control revision,
+pending control count and the one admitted delivery child. Queued work captures
+its revision before waiting; old work cannot start after OFF/resume/toggle even
+if it acquires Room first. Cancellation runs outside the gate monitor.
+
+Only the alert side-effect child is cancelled. Its cleanup completes before the
+delivery-order lock is released; the caller remains available to finish unrelated
+forecast/therapy work. Parent cancellation and fatal errors still propagate.
+AppContainer immediately stops the shared audio controller and vibration; Room
+OFF, notification cleanup and the legacy mirror retain their serialized order.
+An ordinary immediate-stop failure cannot prevent the persistent OFF attempt.
+Failed writes still fail; the process gate is not a successful persistent mute.
+
+Published glucose sources bind to that exact control revision. Another owner
+cannot restore cached authority after resume; a fresh accepted evaluation opens
+the new cohort. StateFlow remains a wake signal, not admission.
+
+## Native Alert Handoff
+
+Database identity now owns separate delivery-order and persistence mutexes.
+Native/technical callbacks and their cancellation cleanup hold delivery order,
+not the persistence mutex needed by local claims. Only bounded receipt/control
+transactions hold persistence. Local guarded transactions capture shared control
+intent before waiting and deny arming when that intent changes or remains pending,
+including while OFF waits for old physical cleanup. Terminal cleanup stays allowed.
+
+The explicit coordinateWithLocalAlarmSource path commits the initial claim, then
+optionally reads back the matching OPEN event and current OFF before invoking its
+callback with a checked source. Expired/missing observations yield no authority;
+an ordinary optional-read failure never cancels the native fallback. The source
+does not establish audio STARTED or DELIVERED, and duplicate INITIAL is not replayed.
+The existing coordinate path retains its post-delivery source publication order.
+The production glucose notifier now selects the checked handoff through
+GlucoseAlarmDeliveryRouter. Only an already running, explicitly enabled owner
+can accept it. A decline before ownership retains the native path; timeout or
+unconfirmed cleanup cannot start a second player.
+
+## Foreground Glucose Alarm Runtime
+
+GlucoseAlarmService owns one LocalAlarmCoordinator and the existing audio player,
+not a second player or clinical engine. Its install-bound setting defaults off
+and is separate from therapy and observation consent. Foreground/boot startup
+rechecks that setting. The non-exported specialUse service exposes a silent
+ongoing status notification and current scoped acknowledgement. Technical pump
+link and delivery-diagnostic alerts still use their existing native paths.
+
+Only accepted glucose deliveries/evaluations offer authority. Source-flow
+emissions wake the coordinator but cannot themselves start playback. An actual
+native audio START can defer local playback until its configured repeat without
+inventing a local INITIAL or audio receipt. Native/local route selection retains
+the existing episode receipt and postcommit semantics.
+
+GlucoseAlarmWakeScheduler installs one genuine user-visible AlarmClock for the
+next current critical repeat or scoped pause expiry. No source-expiry, soft
+repeat or idle polling timer uses AlarmClock. Global OFF removes it. A private,
+non-backed-up token validates replacement, boot and wall/elapsed time; it carries
+no clinical data or playback authority. Process recreation requires a new
+accepted current source and never reconstructs one from the wake token.
+
+The foreground owner holds a bounded partial wake lock only around an admitted
+cycle and cleanup. Notifications, fixed-volume restrictions, exact-alarm access
+and scheduling failures are exposed as limited/unavailable, not successful
+delivery. No Android state proves that a person heard an alert. The Alerts screen
+contains explicit opt-in and links to system alarm/notification access.
+
+Local execution reserves an admitted transport lease before capturing its volume
+baseline. Reservation first finishes legacy player/boost cleanup. A replacement
+legacy/preview request revokes only the exact local child and waits for its audio
+and volume cleanup; unknown cleanup denies replacement. A retired lease remains
+visible between player stop and volume restoration, including to reentrant idle
+observers. Ordinary completion retires the lease without cancelling its caller.
+Confirmed transport cleanup releases the handoff before journal persistence:
+a busy Room transaction must not delay an independently admitted urgent native
+clip. The old executor still finishes its own journal/coordination lifecycle;
+the transport result never represents a successful journal write.
+This handoff does not arm a foreground service, AlarmClock or scoped ACK action.
+
+## Shared Audio Request Ownership
+
+The actual legacy, preview and admitted local paths use one bounded synchronous
+request fence. It tracks only requested/active identity tickets and an opaque
+revision. Legacy/preview reserve before source resolution/Main dispatch; local
+reservation follows admission/window/duplicate checks and requires the captured
+revision. Denied local preflight never replaces a valid urgent legacy request.
+
+Stop revokes synchronously, then exact captured tickets are cleaned up on Main.
+Stale cancellation, preview Stop and old-cycle callbacks cannot release a newer
+request. Physical cleanup finishes before idle StateFlow publication: observers
+may synchronously start a replacement. Start confirmation rechecks identity after
+observable callbacks and clock reads; duplicate prepared/seek callbacks cannot
+restart or extend a clip. URI fallback, urgent legacy floor, focus/gain and local
+absolute deadlines remain unchanged. This is transport fencing, not source
+authority, a persistent OFF policy or full foreground/AlarmClock ownership.
+
+## Accepted Glucose And Diagnostic Alarm Sources
+
+The actual accepted forecast path forwards its CGM timestamp through the notifier
+to episode coordination. A private-constructor observation projects the engine's
+confirmed current candidate, not a latched episode/UI severity. A recovering
+current low cannot repeat legacy LOW_NOW retained by hysteresis. Existing
+clinical thresholds, confirmation, initial notification and episode/AI receipts
+are unchanged. Silent WATCH and unknown current evidence publish no source.
+
+LocalAlarmSourceFeed handles short-lived provenance only: current boot, wall and
+elapsed deadlines, bounded clock disagreement, ordered observations and exact
+revocation tickets. Same-CGM observations can tighten, never extend their original
+window; fresh CGM retains episode generation and queue age. Level changes retain
+generation for existing scoped ACK policy. Failure/safe/OFF ends that cohort;
+another accepted cohort uses its newer committed revision. A cached StateFlow
+is a wake feed, not admission: currentAlarmSource rechecks time and identity.
+
+The default glucose path binds after native delivery/receipt work, using a
+best-effort1s readback of the exact matching OPEN episode and Room OFF. The explicit
+handoff path may bind between committed claim and callback as described above. Failure/timeout of that
+optional read cannot undo or replay INITIAL. Diagnostic source candidates come
+from the same validated current history/OPEN-event transaction as its existing
+assessment, never from display acceptedAt; they publish after initial notice and
+receipt work. Their expiry also bounds the current forecast origin. Ordinary
+failed posting does not resolve risk; cancellation/storage uncertainty revokes.
+Retained startup display cannot mint authority. Global OFF/resume/toggle attempts
+revoke glucose/diagnostic/pump feeds before writes, even if persistence fails.
+
+AppContainer supplies wall/elapsed time and a process-lifetime boot count; a
+process cannot survive reboot. Unknown boot/time gives no source. No repeated
+Settings-provider read is added to the first-alert path. The explicit foreground
+glucose owner consumes these sources through the checked route described above;
+technical sources still use native notices. OFF expiry alone cannot revive a
+source. Physical phone acceptance remains a separate gate.
+
+## Accepted Alert Initial Delivery
+
+After strict accepted forecast/UAM/sensitivity binding, normal alert publication
+precedes potentially slow therapy writers. The existing audio-start handshake is
+bounded at4s; this path does not wait for the full clip or an AI model result.
+An ordinary alert error is retained while the otherwise permitted therapy stage
+runs once. A therapy error stays primary, with an ordinary alert error suppressed;
+an alert-only error is rethrown after therapy. No success widget follows failure.
+Cancellation/fatal errors are not converted into permission for more side effects.
+Source-change policy still only assesses causes after read-only target evaluation.
+
+The notifier rechecks global notification access and the selected channel/group
+before posting; it does not recreate blocked channels or override user choices.
+Notification, requested audio and requested vibration failures remain separate in
+delivery results/telemetry. The existing any-channel DELIVERED receipt now retains
+its bounded degradation summary; it is not an acknowledgement or proof of hearing.
+Silent WATCH requests no audio/vibration and is not degraded for their absence.
+
+This hardens the existing initial-delivery path, not the inactive coordinator.
+Repeat/source/foreground/wake ownership, OFF-expiry reassessment, scoped ACK and
+actual-phone acceptance remain required. No setting default or permission changes.
+
+## Daily Idle Capacity
+
+The shared metadata ledger can reserve-and-claim a new DAILY_REVIEW only inside
+an idle serialized transaction. Busy returns no new reservation; duplicates
+return audit metadata without reissuing claim authority. Legacy daily claims
+also yield to queued non-daily work, closing the old-path bypass. Normal reserve
+and non-daily claim contracts are retained. This is no dispatcher/provider or
+preemption guarantee; RUNNING claims require separately owned execution/stop.
+See DAILY_IDLE_CAPACITY.md. No service, schema or schedule is activated.
+
+## Stopped Daily Result Archive
+
+The internal daily_results composition saves a daily answer only after the
+existing exact worker/executor confirms cleanup and settles the actual ledger
+job successfully. Explicit private writes add encrypted per-device schema 5;
+shared quotas/retention include immutable work/source/reply provenance. Selected
+reads independently check current source; summary pages remain unchecked.
+Cross-database crash loss is explicit and never re-infers. No provider, route,
+schedule or publication/therapy admission. See DAILY_REVIEW_RESULTS.md.
+
+## Focus AI Workspace
+
+Focus+ adds a separate bounded Room display projection and local 05:00/catch-up
+worker. Route entry observes saved data instead of preparing a live payload.
+The global owl owns diagnostics navigation; the pinned six-tool composer owns
+TTS. Display success, local refresh and action/consent state are independent.
+No server daily-model activation follows. See AI_FOCUS_PLUS.md.
+
+The approved native Focus layout separates clinical report, chat, recommendations
+and archive with retained per-panel state and no global daily-loading gate.
+Only active content is composed; the composer is pinned outside the lazy message
+list. Existing clinical facts, explicit consent, guarded retry and PDF actions
+remain authoritative. PDF effects and the confirmed-send UI latch outlive tab
+composition, but do not persist consent across process death. Full diagnostics
+retain existing operational tools. No provider, server or therapy change follows
+from navigation. See AI_FOCUS_UI.md for data/rendering and acceptance boundaries.
+Reports show the newest supplied successful, nonempty, error-free saved review
+without a preliminary tap. Failed/inconsistent runs remain inspectable but do not
+supply advice. Discussion drafts retain source/date and selected report context;
+no draft is sent automatically. This does not connect the new daily result API.
+
+## Contained Daily Review Worker
+
+The internal daily_worker uses a separate pinned daily JSON session, not the
+CHAT output contract. It binds frozen work/model/deadline/queue UUID to a shared
+ledger Job and rechecks durable handoff/latest source before a single native turn
+and current source/references after the reply. Owned reader threads are drained
+on cancellation; the existing JobExecutor exposes a result only after independent
+process stop and ledger settlement. No daily dispatcher/supervisor channel,
+provider registration or schedule is activated. Encrypted result composition is
+now a separate explicit internal call, never a side effect of worker.run.
+See DAILY_REVIEW_WORKER.md; shared exclusion is not priority arbitration and
+REFERENCES_ONLY/NOT_ADMITTED is not medical approval.
+
+## Durable Daily Review Queue
+
+The internal daily_queue module stores one encrypted automatic logical-day
+reservation and frozen source-checked work per owner/device/date/zone. Explicit
+enqueue alone adds schema 4. Shared quotas/retention/private-file rules apply.
+One serialized fresh-source/latest-report check records one-shot handoff before
+returning work; restart or an uncertain acknowledgement cannot reissue it.
+No model, global slot, worker, scheduler or public capability is activated.
+See [DAILY_REVIEW_QUEUE.md](DAILY_REVIEW_QUEUE.md).
+
+## Source-Checked Daily Review Boundaries
+
+The internal checked_daily_review bridge now consumes the independent retained-
+source checker inside preparation and reply evaluation. Archive selection,
+source replay and canonical work/result construction share one bounded protected
+transaction. Replies recheck current source/latest revision and reconstruct work
+from the authenticated archive rather than trusting a hash or earlier proof.
+Actual source checks stay separate from the unchanged legacy inner contracts;
+results remain NOT_ADMITTED. No generic queue/provider, schema, model or action
+activation. See [CHECKED_DAILY_REVIEW.md](CHECKED_DAILY_REVIEW.md).
+
+## Frozen Daily Source Verification
+
+HistoryStore.check_daily_glucose_report_source independently reads the selected
+archive and latest retained source in one bounded protected transaction. It
+replays original analytical inputs/cuts while separately binding actual check
+time/sequence; unrelated uploads do not become false changes. Late observations,
+revisions/deletions, expiry, rollback and non-reproducing facts stay explicit.
+The new checked preparation/result bridge consumes this point-in-time result;
+the worker and old caller-assertion bridge remain separate. No schema, provider,
+route or therapy change.
+See [DAILY_SOURCE_VERIFICATION.md](DAILY_SOURCE_VERIFICATION.md).
+
+## Grounded Daily Review Contract
+
+The internal daily_review module compiles an authenticated selected facts report
+into a bounded canonical envelope with its exact closed result schema, fixed
+prompt and digest bindings. Explicit candidate/cohort/episode/window omissions,
+compact baseline eligibility reasons and unknown domains preserve limitations.
+HistoryStore.prepare_daily_glucose_review is a read-only trusted-service bridge.
+
+Strict synthetic answer checking produces an evidence-linked REFERENCES_ONLY /
+NOT_ADMITTED view, not model dispatch or a publication/therapy authority. Matching
+caller-supplied digests do not independently establish source freshness; a real
+worker still needs to consume frozen-source verification and separate policy/stop/quality
+admission. No generic CHAT widening, public route, scheduler or result table.
+See [DAILY_REVIEW_CONTRACT.md](DAILY_REVIEW_CONTRACT.md).
+
+## Deterministic Daily Glucose Facts
+
+The opt-in internal daily_reports archive preserves a bounded complete
+DailyGlucoseReview in immutable per-device revisions. It reuses HistoryStore's
+private files/lock/key derivation and shared row/byte quotas, with distinct AEAD
+purpose and authenticated archive metadata. Only an explicit save adds schema 3;
+ordinary history/chat reads remain non-migrating. Bounded summary pages freeze
+retained membership, not source freshness. Explicit current source-digest checks
+produce MATCHED or STALE_SOURCE without changing the stored report. Model state
+is always NOT_REQUESTED. No route, worker, schedule or deployment is added.
+
+The internal daily_glucose calculator and HistoryStore.daily_glucose_facts
+reader form the first approved daily-review stage. They use a bounded private
+read snapshot, identity/version-bound input digest, civil-day bounds and
+piecewise-linear time metrics, with separate quality/source/session cohorts.
+Recorded sensor changes split unknown sessions without inventing their IDs.
+Missing/partial analytical range history remains explicit. Descriptive episodes
+retain source references and omission counts; no model, schedule or public
+endpoint is enabled. See [DAILY_GLUCOSE_FACTS.md](DAILY_GLUCOSE_FACTS.md).
+
+Hourly v2 facts and the pure glucose_comparison module add weighted 7/21-day
+baselines and bounded provisional two-hour exposure recurrences. One internal
+HistoryStore.daily_glucose_review read freezes the report day and previous 21
+days under the same protected snapshot and deadline. Comparable known context,
+coverage, historical ranges and omitted evidence remain explicit; unknown source
+metadata never becomes learned personalization. That calculator does not dispatch
+a model, persist a report, schedule work or expose a route/admin. Report persistence
+is a separate explicit internal call, not a side effect of the calculation.
+
+## Optional Photo Service
+
+The protected owner descriptor can compose signed MEAL_PHOTO jobs through a
+dedicated peer-checked vision supervisor socket. The nonroot API forwards frozen
+work without pixel decoding or profile access. The explicit root image host
+constructs a separate-UID, offline/pinned SystemdMealDecoder and then the shared
+guarded native vision process. Both decoder stop and original native process/IO
+stop precede result publication. Text's public protocol/limits are unchanged;
+source composition is not deployment readiness. See
+[VISION_API_DECODER.md](VISION_API_DECODER.md).
+
+## Dedicated Native Meal Vision
+
+NativeMealVisionSession and NativeMealVisionTransport implement one fixed inline
+food-image turn with a separate result schema and pipe/stream budgets. The exact
+image-capable catalog is pinned by VisionRuntimeImage; SystemdVisionProcess
+shares text's trusted process/guard/kernel lifecycle without widening public
+CHAT or its supervisor. The shared profile becomes idle only after exact stop
+AND IO confirmation. Host/channel/isolated-decoder admission and public API
+activation remain separate. See [CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md).
+
+## Combined Photo Entry And Year Context
+
+See [COMBINED_UI_PHOTO.md](COMBINED_UI_PHOTO.md). The signed photo client and
+foreground editor are connected to the existing meal dialog, separately from
+CHAT and clinical context. Explicit gram confirmation only populates the food
+form; its final command boundary remains unchanged. Server vision defaults
+inactive pending dedicated contained transport and decoder admission. Context
+aggregates are bounded in memory and reused only after complete encrypted
+evidence fingerprint verification in the current SQLite snapshot.
+
+## Core Room History Adapter
+
+RoomAiHistorySource reads indexed original-time/rowid keyset pages from five
+allowlisted core sources. It preserves known units and unknown context, uses
+existing therapy component/artifact semantics, excludes canonical carb aliases
+and synthetic UAM, and never claims recorded insulin was delivered. Unlisted raw
+JSON/text and GI overlays are not exported. Each page has at most32 source rows.
+
+ServerAiRoomHistorySync maintains a separate no-backup Room metadata index, not
+a migration of the clinical database. A separate AES-GCM atomic page journal
+freezes records and index deltas before the existing signed history client sends
+them. Exact retry and idempotent index/progress commit survive process/storage
+failure. Changed records retain UUID/time and increase export revision; finished
+scans tombstone missing records. Recreated tombstones use new UUIDs.
+
+Device identity is carried into the connection's signing lock. SQL projects only
+consumed bounded columns; deletion pages use a time/key index and durable cursor.
+Expired observational attempts are retired with encrypted UUID/digest/time audit
+before new attempts carry exactly unchanged unexpired JSON. Fully valid batch
+bodies remain immutable, and this path never retries model jobs.
+
+An initial six-hour scan precedes365-day backfill. Recent reconciliation runs
+every15minutes; a full scan is due daily. Older corrections may wait for it.
+Maintenance is app-lifecycle-owned, enabled only with ACTIVE server access and
+power saving off, bounded to16pages per call. Explicit chat syncs four pages and
+adds scope/omissions to its observational context. No global snapshot, full
+database coverage, stopped-app execution guarantee or therapeutic authority is
+claimed. See superpowers/specs/2026-10-15-room-history-export.md.
+
+## Owner API And Application Chat
+
+Every private inventory scan owns an independently opened, no-follow-checked
+directory descriptor pinned to its expected identity. Lifetime database/root
+descriptors are not reused for concurrent iteration; scans close their own
+descriptors without weakening file/lock identity or permission checks.
+
+The explicit nonroot `app.ai.owner_api:create_app` factory composes the existing
+attested activation, signed jobs/history, encrypted per-device archive and typed
+supervisor client. Imports and the default backend app do not activate it. A
+protected descriptor supplies one owner, provisioned keys, dedicated storage,
+attestation trust and supervisor identity. The API never opens the login profile.
+The protected owner descriptor is version2 and requires a separate hash-pinned
+Google serial-number revocation snapshot. Every certificate in an enrollment
+chain is checked against it as well as the existing SHA256 denylist. Unknown,
+malformed, stale or changed trust input is not silently accepted.
+
+Android AppContainer injects `ServerAiHistoryClient.syncChatContext` into
+`ServerAiChatGateway`, then into the ordinary chat repository. Server routing is
+decided before personal credentials; unloaded or configured/error states cannot
+silently use the legacy API. One immutable model submission follows successful
+context upload; correlation, bounded polling and cancellation remain explicit.
+
+The display adapter uploads a labelled current snapshot and timestamp-free
+local chat observations, alongside the bounded core Room adapter above, not a
+complete database export. Typed structured upload and
+signed conversation reads are available independently. Display context preserves
+source/timestamp differences, unknowns, positive/net IOB and insulin onset units.
+Full supported text replies are retained as numbered observational fragments,
+bounded by actual encoded JSON size and Unicode code points; this never splits
+or repeats a model request. Current display context follows imported messages so
+the server's bounded latest-record selection retains it. Omitted older examples
+remain explicitly counted rather than represented as complete detailed context.
+Chat accepts limited history; extended-analysis readiness remains separate.
+Text-only capabilities do not imply image, audio or speech support. Clinical AI
+optimization and all therapy actions retain their existing paths and gates.
+
+## Native Interaction Motion
+
+The persistent header now places one38dp owl in the existing48dp menu action.
+Explicit route/menu/busy transitions own a saved presentation-only request;
+palette/CGM emissions never create a visit. Suppression consumes that request,
+and the existing draw-only finite clock cannot signal AI completion. The actual
+AI busy projection is observed only on its route; it does not read another data
+source or call a model. Accessibility menu/busy state is independent of artwork.
+Root pages change without crossfades. NavHost retains active transition specs,
+so a later motion-policy update cannot reliably cancel a previously started
+page fade. Immediate pages preserve the same controller and saved state while
+finite owl/drawer gestures provide feedback under the shared suppression gate.
+The chat row keeps a static accessible hourglass rather than a second owl/loop.
+See superpowers/specs/2026-10-16-owl-navigation-native-design.md.
+
+`ui/motion/NativeMotion.kt` shares presentation tokens, Material-owned icon
+interaction feedback and one coordinated drawer lifetime. Root policy includes
+foreground lifecycle, system settings, power save and urgency. Short owl/glyph
+accents settle without loops. No navigation/action or clinical owner changes.
+See `NATIVE_MOTION_REFINEMENT.md` for connected surfaces and verification.
 ## Periodic History Upload
 
 A dedicated WorkManager schedule owns optional 60/120/180/240-minute signed
@@ -175,9 +976,19 @@ superpowers/specs/2026-10-14-personal-history-api-design.md.
 The checked Eating Soon option is an independent explicit manual target, like
 the standalone button. ManualMealSubmission freezes/reserves both intentions,
 then attempts the existing guarded target before carbohydrate transport and
-profile annotation. Carb/annotation failure cannot prevent the target attempt
+profile annotation. Reservation uses a short lock and one completion per input;
+duplicate callers share the owner's final or cancellation outcome. The target
+attempt precedes waiting for any earlier meal's carbohydrate I/O. Carbohydrate
+transport and annotation retain their own serial lock. At most64 reservations
+are retained; only finished owners can be evicted, otherwise admission returns
+a visible busy result without sending. The target also precedes the optional research intent write;
+that write remains before carbohydrate transport, not on the priority-reservation
+path. Carb/annotation failure cannot prevent the target attempt
 or overwrite its result. Cancellation/duplicates retain separate statuses with
 no ambiguous retry. English/Russian messages show both independent outcomes.
+Durable canonical BLOCKED/FAILED receipts restore only allowlisted refusal codes
+through the same parser used by transport results. Empty or stale local hints
+cannot erase the durable reason in Eating Soon details after food submission.
 Canonical duration, confirmed target priority, safety gates, IOB physiology and
 automatic controller behavior are unchanged. See
 superpowers/specs/2026-10-14-explicit-eating-soon-meal-intent.md.
@@ -606,20 +1417,20 @@ No additional timer, poll, persistence schema or accepted packet cadence changes
 Existing deadline scheduling captures time after publication, so synchronous
 subscriber work cannot move the absolute heartbeat deadline into the future.
 
-The existing committed global OFF/resume/overview cleanup withdraws this source
-without Room/monitor reentry and before legacy player cleanup. OFF expiry alone
-does not republish it; another validated monitor evaluation is required. This is
-post-commit source invalidation, not pre-lock OFF-intent cancellation of an actor.
-No production consumer constructs or arms LocalAlarmCoordinator. A complete
-current-context bridge still needs glucose/diagnostic producers, stable alarm
-key/generation/queue-age mapping, OFF-intent invalidation and capability/opt-in
-admission. Service/channel/UI/device acceptance gates remain unchanged. Technical
+Global OFF/resume/overview now withdraws this source before the authoritative
+write and again during existing cleanup, without Room/monitor reentry. OFF expiry
+alone does not republish it; another validated monitor evaluation is required.
+This is serialized source invalidation, not pre-lock cancellation of an active
+alarm actor. Glucose/diagnostic source publication is described above; complete
+typed request/capability/opt-in admission and foreground ownership remain open.
+Technical sources are not yet offered to the production glucose-only owner.
+Service/channel/UI/device acceptance gates remain unchanged. Technical
 link status cannot establish that a pump is worn or insulin enters the body.
 
-## Inactive Serialized Alarm Coordinator
+## Serialized Alarm Coordinator
 
-LocalAlarmCoordinator has no production constructor call. Construction/signals
-cannot start it; an explicitly running future owner must supply current accepted
+LocalAlarmCoordinator is constructed only by GlucoseAlarmOwner. Construction/signals
+cannot start it; the explicitly enabled foreground owner must supply current accepted
 typed requests, saved settings, boot/clocks/OFF and platform capabilities. The
 coordinator never infers arming from journal, UI risk or notification history.
 
@@ -672,18 +1483,18 @@ reads actual Room OFF and validates the exact same keys' state/claim/result
 payloads. Null means unavailable/corrupt storage. Preview never changes ordinals,
 due, ACK, progress or cycle journal rows, even after an expired deadline.
 
-Only the inactive coordinator uses preview. No production caller constructs it.
-It cancels and joins old execution before claiming a selected replacement; future
+Only the coordinator uses preview. Its production owner is glucose-only.
+It cancels and joins old execution before claiming a selected replacement; all
 source producers must publish current accepted authority/OFF invalidation immediately.
 The decision/timestamp cannot arm a service or authorize hardware. Notification,
-vibration/wake/native fallback, lifecycle, opt-in/ACK UI and device/night delivery
-remain separate gates; legacy and clinical behavior are unchanged.
+vibration/wake/native fallback and opt-in/ACK UI are connected as described above;
+physical device/night delivery remains a separate acceptance gate.
 
 ## Local Alarm Cycle Execution
 
 LocalAlarmCycleExecutor combines one newly committed Room claim, the existing
 volume lease and the existing guarded audio controller through LocalAlarmAudioPort.
-Only the inactive coordinator constructs it; no armed service does. Initial
+Only the coordinator constructs it, through the foreground owner. Initial
 claims use the saved repeat settings; actual strong-slot duration
 is resolved for the cycle ordinal. Only START is executable; an existing ACTIVE
 claim is never adopted or replayed.
@@ -693,17 +1504,21 @@ mute lock/transaction. It reads actual Room OFF and validates state/result shape
 source evidence and elapsed bounds, without creating a later claim or persisting
 a pure-policy evaluation. The runner rechecks this gate between side effects.
 Injected current accepted evidence/OFF/capabilities guard synchronous hardware
-calls and callbacks as well. The future source owner must publish invalidation
-and cancel the exact running cycle immediately; this stage supplies no producer
-of that authority and cannot make Room and platform side effects atomic.
+calls and callbacks as well. The source owner publishes invalidation and cancels
+the exact running cycle immediately. Room and platform side effects still cannot
+be made atomic.
 
 One try-locked coroutine owns execution; competing calls return BUSY without
 claims. At most four absolute step windows are visited, with cancellable waits
 bounded by source expiry and cycle end. Late windows are skipped, not replayed.
 Volume readback must confirm each target before audio; the same step window is
 rechecked inside volume/player admission, so a slow hardware read cannot admit
-an old step. Strong clips start once, soft clips at most four times. Later cycles
-retain the confirmed target maximum. Indexed bounded journal reads replace
+an old step. Strong clips start once and retain their confirmed target maximum
+on later cycles. Noncritical cycles use one short clip at the initial25% target,
+never a four-clip ramp or a maximum inherited from a previous critical level.
+The old15-second first-step admission window is shared by player and executor;
+the55-second cleanup bound does not authorize a delayed soft start.
+Indexed bounded journal reads replace
 neither source freshness nor Android capability admission; there is no polling,
 forecast, AI or therapy work on this path.
 
@@ -715,16 +1530,45 @@ journal finish independently, then always drops ownership/unlocks. Cancellation
 propagates; unconfirmed cleanup is not FINISHED, and interrupted claims require
 existing UNCERTAIN recovery without replay. No automatic retry is introduced.
 
-Operational multi-source ownership, fresh source/OFF publication, async playback
-failure/native fallback, visual notification, vibration/wake ownership, dedicated
-foreground lifecycle, explicit opt-in and real-device acceptance remain release
-gates. Default legacy behavior, settings/schema and clinical writers are unchanged.
+### Noncritical Backoff And Shared Cooldown (2026-10-16)
+
+The local runtime doubles each unchanged noncritical cycle's previous
+persisted interval up to30 minutes (default5/10/20/30). Derivation uses last-cycle
+start and next due, not lifetime ordinal, so no schema change is needed. Duplicate
+or fresh same-level evidence does not slide due/reset backoff. New generation/
+level and fresh admission after ACK/OFF reset to configured base. Critical cadence
+stays configured (default2 minutes) and retains reached progression. An overdue
+cycle schedules one next opportunity from now, never catches up a backlog.
+
+RoomLocalAlarmStore computes shared noncritical admission inside its existing
+operation lock/transaction for both preview and committed START. It reads up to65
+current-boot journal rows in the soft-interval+cycle-timeout lookback, including
+sources absent from the current batch. Over64, bad payload/time/claim shape or a
+query failure makes only new noncritical sound unavailable. Confirmed STARTED
+audio receipts establish the configured shared interval. Failed/not-requested
+audio and notification-only results do not. Live exact claims reserve the slot
+only through cleanup/deadline; a reservation is not a delivery receipt.
+
+COOLDOWN preserves per-source due/ordinal/ACK state and schedules the shared
+deadline or earlier source expiry. Critical selection/retention and committed
+critical admission skip the unrelated shared-history query entirely. Exact
+active ownership, cancellation, recovery and cleanup rules are unchanged. The
+query bounds materialized rows, not total SQLite scan work; it adds no index or
+migration. Profile its retained-history cost before live activation.
+
+Production glucose source/foreground/AlarmClock/ACK integration is described above.
+The existing native urgent fallback remains available under the checked handoff;
+the dedicated foreground service owns the single local runtime.
+
+Operational technical multi-source ownership and real-device acceptance remain
+separate release gates. Default legacy behavior, schema and clinical writers are
+unchanged; only explicit alarm consent enables the new local runtime.
 
 ## Guarded Local Alarm Playback
 
 GlucoseAlertAudioController now exposes an explicit playLocalAlarm(cycle, step,
 settings, admitted) transport entry point and exact-cycle stopLocalAlarm.
-Its only caller is the inactive cycle executor. The future source owner must supply
+Its only execution path is the cycle executor through the foreground owner, which supplies
 the committed claim, fresh accepted source/OFF/capability checks and confirmed
 volume floor before playback; this API cannot authorize or arm an alarm.
 
@@ -818,11 +1662,14 @@ It covers the remaining modeled tail on a five-minute grid, bounded to720m and
 insulin, not a longer clinical glucose forecast. Clinical announced steps,
 5/30/60 forecasts, pressure, UAM, residual COB and target inputs are unchanged.
 
-Optional `MealGlycemicIndex` has explicit USER or referenced CATALOG provenance.
+Optional `MealGlycemicIndex` has explicit USER, referenced CATALOG, or separately
+versioned MODEL_ESTIMATE provenance. The last is a display estimate, never a
+known food label for research training.
 Room30->31 adds nullable metadata to canonical meal overrides and pending
 intents, preserving the existing exact-identity/revision promotion. Old meals
-remain unknown. Failed optional reads fall back without GI; cancellation is
-not swallowed. No photograph/profile/name inference or averaged mixed-meal GI.
+remain unknown unless explicitly annotated. Failed optional reads fall back;
+cancellation is not swallowed. No laboratory GI is inferred from photographs,
+body profile, names or personal CGM outcomes. Type priors are declared heuristics.
 
 `food_gi_shape_v1` redistributes each modeled remainder through a bounded
 normalized-fraction exponent. High GI moves influence earlier, low GI later;
@@ -1277,8 +2124,11 @@ AAPS Predictive Copilot is a two-part system:
   - materially changed targets may pass immediately,
   - manual commands may bypass the throttle only via explicit manual idempotency prefix.
 - Activity-protection override in adaptive rule:
-  - if `activity_ratio`/`steps_count` spike indicates active load, temp target is overridden to `7.7..8.7 mmol/L` (load-scaled),
-  - after sustained low-load period (`~30 min`) the rule sends recovery back to pre-activity base target.
+  - a timestamp-bound `PhysicalActivityObservation` from one trusted physical collector carries co-timed `activity_ratio`/`steps_count`, source and counter-day identity; generic telemetry aliases and daily maxima cannot activate this branch,
+  - supported activity spikes retain the existing load-scaled `7.7..8.7 mmol/L` proposal and downstream arbitration,
+  - recovery requires thirty minutes between supported low-load acquisitions, independent of evaluation cadence, then proposes the current effective base target,
+  - duplicates do not advance rest; invalid/missing evidence, reversed clocks, discontinuity, source/day/basis changes and new load restart it. Step deltas require at least one minute and a nondecreasing same-source/day counter,
+  - acquisition freshness/continuity is bounded at ten minutes for local input and twenty for Health Connect's fifteen-minute unchanged heartbeat. Active protection with unavailable evidence makes no new proposal. Counter coverage/wear semantics and multiday response analysis remain separate.
 - Timestamps written to local DB must be normalized and non-zero (`>0`) before persist.
 - `cob_grams` and `iob_units` telemetry are allowed to bias local runtime forecasts before rule arbitration.
 - Runtime context factors from physiology-aware ISF/CR snapshot (`set/sensor/activity/dawn/stress/hormone/steroid`) are exported to telemetry and applied as bounded forecast context-bias + CI widening before rule arbitration.
@@ -1580,6 +2430,15 @@ AAPS Predictive Copilot is a two-part system:
 - Real-profile insulin fit is not recomputed every cycle:
   - a stable estimate is recomputed on a `72h` cadence (or earlier on version mismatch / empty fallback),
   - telemetry keepalive may still republish the latest estimate hourly so UI/runtime diagnostics stay fresh without re-running the expensive fit.
+
+## Model Onset Header and AI Context
+- The shared header and silent notification derive a model clock from a recent, unambiguous usable insulin record and finite, fresh onset telemetry from the local runtime. IOB alone, SMB, inferred/recovered insulin, unconfirmed local actions, broadcasts, invalid records and mismatched model profiles cannot start it.
+- The clock marks an approximate model deadline, not confirmed insulin delivery or a safe eating interval. Only an explicitly meal-associated record permits the finite owl/meal gesture; insulin-only/correction records have neutral onset status. Elapsed state lasts up to 15 minutes, bounded by model freshness. It never calls therapy actions; foreground ticks stop with the lifecycle.
+- One application-scoped projection uses a bounded 256-row insulin stream and latest-per-source/key model telemetry, so the header does not depend on opening analytics and old fitted-profile identity is not starved by frequent runtime samples.
+- Selected insulin profile, effective DIA, onset, fitted shape, sample count, confidence and evidence times are included in the device chat snapshot. Fixed-source, fixed-key telemetry is used; unknown values are not replaced with a guessed drug.
+- Existing authenticated history maintenance also uploads an observed profile snapshot once per local 05:00 day, on profile/model change, or after process restart. It catches up when active; this is not an exact alarm and is not an AI inference request. History incompleteness and unconfirmed delivery remain explicit.
+- The therapeutic fitter's existing 72-hour cadence is unchanged. Nightly retraining and any new Target Manager effect require a separate validated model/control integration; UI animation does not authorize therapy.
+- `insulin_real_onset_min` is a different, current runtime estimate: `estimateLocalCobIob` passes it to `modelSameCycleActiveInsulinStatic` and the prediction engine. Its existing insulin/forecast effect is preserved. The timer does not freeze it until the next night or replace it with the long-term fitted-profile onset.
 
 ## Open architecture questions
 - Formal plugin contract for adding new prediction engines without touching automation repository.

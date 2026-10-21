@@ -1,7 +1,10 @@
 import base64
 import json
+import time
 from dataclasses import dataclass
 from uuid import uuid4
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -58,7 +61,7 @@ class PhotoWorker:
 
     async def run(self):
         self.factory.seen_bytes.append(self.work.request.image_bytes)
-        return photo_estimate()
+        return self.factory.result
 
     async def stop_and_confirm(self):
         self.factory.stops.append(self.work.job_id)
@@ -69,6 +72,7 @@ class PhotoFactory:
     def __init__(self):
         self.seen_bytes = []
         self.stops = []
+        self.result = photo_estimate()
 
     def __call__(self, work):
         self.work = work
@@ -90,11 +94,33 @@ def submit_photo(client, key, tokens, body, *, request_id, deadline_ms, now=NOW 
 
 def wait_for_photo(client, key, tokens, job_id):
     path = f"/api/ai/v1/meal-photo/jobs/{job_id}"
-    for _ in range(100):
+    for _ in range(20):
         response = signed_get(client, key, tokens, path)
+        assert response.status_code == 200, f"photo status HTTP {response.status_code}"
         if response.json()["state"] not in {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}:
             return response
+        time.sleep(0.25)
     raise AssertionError("photo job did not reach terminal state")
+
+
+def test_photo_wait_yields_between_pending_responses(monkeypatch):
+    from types import SimpleNamespace
+    sleeps = []
+    states = iter(["QUEUED", "RUNNING", "SUCCEEDED"])
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    monkeypatch.setattr(__import__(__name__), "signed_get", lambda *args:
+                        SimpleNamespace(status_code=200, json=lambda: {"state": next(states)}))
+    result = wait_for_photo(None, None, None, "synthetic-job")
+    assert result.status_code == 200
+    assert sleeps == [0.25, 0.25]
+
+
+def test_photo_wait_reports_rejection_without_parsing_it_as_job(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(__import__(__name__), "signed_get", lambda *args:
+                        SimpleNamespace(status_code=429, json=lambda: {"error": "rate_limited"}))
+    with pytest.raises(AssertionError, match="429"):
+        wait_for_photo(None, None, None, "synthetic-job")
 
 
 def test_meal_photo_job_is_separate_from_chat_and_returns_typed_estimate(service, tmp_path):
@@ -127,4 +153,52 @@ def test_meal_photo_job_is_separate_from_chat_and_returns_typed_estimate(service
         assert factory.seen_bytes == [b"\xff\xd8\xff\xe0" + b"synthetic" * 4 + b"\xff\xd9"]
         assert client.post("/api/ai/v1/jobs", content=body,
                            headers={"Content-Type": "application/json"}).status_code == 404
+    ledger.engine.dispose()
+
+
+@pytest.mark.parametrize("changes", [
+    {"preparationState": []},
+    {"massGrams": {"min": 90, "max": 10 ** 400}},
+    {"name": "   "},
+    {"protein": {"min": 120, "max": 140}},
+])
+def test_invalid_photo_result_stops_once_and_next_explicit_job_can_succeed(service, tmp_path, changes):
+    from app.ai.job_ledger import JobLedger
+    from app.ai.job_policy import MEAL_PHOTO_POLICY
+    from app.ai.job_service import AiJobService
+
+    factory = PhotoFactory()
+    factory.result["ingredients"][0].update(changes)
+    ledger = JobLedger(tmp_path / "meal-photo-recovery.sqlite")
+    jobs = AiJobService(service[1], service[0].proofs, ledger, factory,
+                        policy=MEAL_PHOTO_POLICY, clock_ms=lambda: NOW + 2)
+    with TestClient(create_bound_ai_app(service[0], meal_photo_jobs=jobs,
+                                        clock_ms=lambda: NOW + 2)) as client:
+        _, key, tokens = activate(client, service)
+        body = photo_body()
+        rejected = submit_photo(client, key, tokens, body, request_id=str(uuid4()),
+                                deadline_ms=NOW + 60_000)
+        assert rejected.status_code == 202
+        job_id = rejected.json()["job_id"]
+        finished = wait_for_photo(client, key, tokens, job_id)
+        assert finished.status_code == 200
+        assert finished.json()["state"] == "FAILED"
+        assert finished.json()["result_available"] is False
+        assert "result" not in finished.json()
+        assert factory.stops == [job_id]
+        assert len(factory.seen_bytes) == 1
+        capabilities = signed_get(client, key, tokens, "/api/ai/v1/capabilities")
+        assert capabilities.json()["inference_enabled"] is True
+
+        factory.result = photo_estimate()
+        accepted = submit_photo(client, key, tokens, body, request_id=str(uuid4()),
+                                deadline_ms=NOW + 60_000)
+        assert accepted.status_code == 202
+        next_id = accepted.json()["job_id"]
+        assert next_id != job_id
+        recovered = wait_for_photo(client, key, tokens, next_id)
+        assert recovered.json()["state"] == "SUCCEEDED"
+        assert recovered.json()["result"] == photo_estimate()
+        assert factory.stops == [job_id, next_id]
+        assert len(factory.seen_bytes) == 2
     ledger.engine.dispose()

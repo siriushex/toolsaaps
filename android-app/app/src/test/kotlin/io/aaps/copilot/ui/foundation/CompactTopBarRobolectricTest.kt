@@ -40,8 +40,16 @@ class CompactTopBarRobolectricTest {
     @get:Rule val compose = createEmptyComposeRule()
     @Test fun ordinaryHeaderPreservesActionsAndDisabledRefresh() = verifyHeader(1f, false)
     @Test fun enlargedDarkHeaderPreservesActionsAndDisabledRefresh() = verifyHeader(2f, true)
+    @Test fun approvedOwlOwnsTheFixedMenuTarget() = verifyHeader(1f, false, approvedOwl = true)
+    @Test fun modelCountdownFitsBesideOwlAndKeepsAllActions() = verifyHeader(1f, false, onsetFinished = false)
+    @Test fun elapsedModelHasOwlBurgerAndAccessibleExplanation() = verifyHeader(2f, false, onsetFinished = true)
+    @Test fun insulinOnlyElapsedTimerDoesNotSuggestAMeal() = verifyHeader(2f, false,
+        onsetFinished = true, mealAssociated = false)
+    @Test fun restoredCountdownSurvivesHeaderNavigationAndActivityPause() = verifyHeader(1f, false,
+        onsetFinished = false, restoreAfterNavigation = true)
 
-    private fun verifyHeader(fontScale: Float, dark: Boolean) {
+    private fun verifyHeader(fontScale: Float, dark: Boolean, approvedOwl: Boolean = false,
+        onsetFinished: Boolean? = null, mealAssociated: Boolean = true, restoreAfterNavigation: Boolean = false) {
         val app = RuntimeEnvironment.getApplication()
         val old = Configuration(app.resources.configuration)
         @Suppress("DEPRECATION")
@@ -50,26 +58,71 @@ class CompactTopBarRobolectricTest {
         }, app.resources.displayMetrics)
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         var canRun by mutableStateOf(false)
+        var showHeader by mutableStateOf(true)
         var cycles = 0; var blood = 0; var events = 0; var history = 0; var menu = 0
+        val now = System.currentTimeMillis()
+        val timer = if (restoreAfterNavigation) io.aaps.copilot.ui.insulinOnsetCountdown(
+            listOf(io.aaps.copilot.data.local.entity.TherapyEventEntity("meal-one", now - 20 * 60_000L,
+                "meal_bolus", "{\"insulin\":2.2,\"carbs\":40}")),
+            io.aaps.copilot.data.repository.AiInsulinContext("FIASP", 27.5, now - 34 * 60_000L,
+                fittedProfileId = "FIASP"), now).also { assertNotNull(it) }
+        else onsetFinished?.let { finished -> io.aaps.copilot.ui.InsulinOnsetCountdown(
+            "meal-1", now - 30 * 60_000, if (finished) now - 1_000 else now + 750_000, 27.5,
+                mealAssociated = mealAssociated) }
         try {
             controller.get().setContent {
                 AapsCopilotTheme(darkTheme = dark, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                     Surface(Modifier.fillMaxSize()) {
                         androidx.compose.foundation.layout.Column {
+                            if (showHeader) {
                             TopBar("Главная", UiStyle.CLARITY, false, false, true, true, 0L,
                                 true, canRun, { cycles++ }, { blood++ }, { menu++ },
-                                {}, {}, {}, { history++ }, { events++ }, 2, {})
+                                {}, {}, {}, { history++ }, { events++ }, 2, {}, insulinOnsetCountdown = timer)
+                            }
                         }
                     }
                 }
             }
+            if (restoreAfterNavigation) {
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                val deadline = timer!!.estimatedAtMs
+                compose.runOnIdle { showHeader = false }
+                compose.onNodeWithTag("insulinOnsetTimer").assertDoesNotExist()
+                compose.runOnIdle { showHeader = true }
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                controller.pause().stop()
+                controller.start().resume().visible()
+                compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                assertEquals(deadline, timer.estimatedAtMs)
+            }
             compose.onNodeWithTag("overviewTopRefresh").assertIsDisplayed().assertIsNotEnabled().performClick()
+            if (approvedOwl) {
+                val owlMenu = compose.onNodeWithTag("owlMenuAction").assertIsDisplayed()
+                val bounds = owlMenu.fetchSemanticsNode().boundsInRoot
+                assertTrue("fixed menu target: $bounds", bounds.width >= 48f && bounds.height >= 48f)
+                compose.onNodeWithTag("copilotBrand").assertDoesNotExist()
+            }
             assertEquals(0, cycles)
             compose.runOnIdle { canRun = true }
             compose.onNodeWithTag("overviewTopRefresh").assertIsEnabled().performClick()
             compose.onNodeWithTag("overviewTopBloodCheck").performClick()
             compose.onNodeWithTag("eventsNotebookAction").performClick()
             assertEquals(1, cycles); assertEquals(1, blood); assertEquals(1, events)
+            if (timer != null) {
+                val clock = compose.onNodeWithTag("insulinOnsetTimer").assertIsDisplayed()
+                compose.onNodeWithText("Инсулин").assertIsDisplayed()
+                compose.onNodeWithText("Модель").assertDoesNotExist()
+                val owl = compose.onNodeWithTag("owlMenuAction").fetchSemanticsNode().boundsInRoot
+                val clockBounds = clock.fetchSemanticsNode().boundsInRoot
+                val refresh = compose.onNodeWithTag("overviewTopRefresh").fetchSemanticsNode().boundsInRoot
+                assertTrue(owl.right <= clockBounds.left + .5f)
+                assertTrue("timer must not cover refresh", clockBounds.right <= refresh.left + .5f)
+                if (onsetFinished == true) {
+                    compose.onNodeWithText("Истекло").assertIsDisplayed()
+                    if (mealAssociated) compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertIsDisplayed()
+                    else compose.onNodeWithTag("owlModelTimeFinished", useUnmergedTree = true).assertDoesNotExist()
+                }
+            }
             val bloodBounds = compose.onNodeWithTag("overviewTopBloodCheck").fetchSemanticsNode().boundsInRoot
             val refreshBounds = compose.onNodeWithTag("overviewTopRefresh").fetchSemanticsNode().boundsInRoot
             val badgeBounds = compose.onNodeWithTag("eventsActiveBadge").getUnclippedBoundsInRoot()
@@ -81,7 +134,8 @@ class CompactTopBarRobolectricTest {
                 val results = mutableListOf<TextLayoutResult>()
                 layouts[i].performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
                 results.forEach { result ->
-                    assertFalse(result.layoutInput.text.text, result.multiParagraph.didExceedMaxLines)
+                    assertFalse("${result.layoutInput.text.text}: size=${result.size}, constraints=${result.layoutInput.constraints}, style=${result.layoutInput.style}",
+                        result.multiParagraph.didExceedMaxLines)
                     assertTrue(result.layoutInput.text.text, result.multiParagraph.height <= result.size.height + 1f)
                     repeat(result.lineCount) { line ->
                         assertTrue(result.layoutInput.text.text, result.getLineLeft(line) >= -1f)
@@ -94,13 +148,18 @@ class CompactTopBarRobolectricTest {
                     val view = controller.get().window.decorView
                     val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
                     view.draw(Canvas(bitmap))
-                    File(dir, "compact-header-$fontScale.png").outputStream().use {
+                    File(dir, "compact-header-$fontScale-${onsetFinished ?: "none"}-$mealAssociated.png").outputStream().use {
                         assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                     }
                 }
             }
-            compose.onNodeWithContentDescription(app.getString(R.string.menu_more)).performClick()
+            compose.onNodeWithContentDescription(app.getString(R.string.menu_open)).performClick()
             assertEquals(1, menu)
+            if (timer != null) {
+                compose.onNodeWithTag("insulinOnsetTimer").performClick()
+                compose.onNodeWithText("Это не рекомендация ждать или начинать еду.", substring = true).assertIsDisplayed()
+                compose.onNodeWithText(app.getString(android.R.string.ok)).performClick()
+            }
             compose.onNodeWithTag("glucoseAlertBellAction").performClick()
             compose.onNodeWithTag("glucoseAlertHistoryAction").performClick()
             assertEquals(1, history)

@@ -1,4 +1,5 @@
 <resources>
+    <string name="meal_submission_busy">Другие записи еды ещё обрабатываются. Дождитесь результата.</string>
     <string name="meal_carbs_rate_limited">Углеводы не отправлены: после предыдущей отправки должно пройти 30 минут.</string>
     <string name="meal_carbs_disarmed">Углеводы не отправлены: терапевтические действия выключены.</string>
     <string name="meal_carbs_blocked">Отправка углеводов заблокирована.</string>

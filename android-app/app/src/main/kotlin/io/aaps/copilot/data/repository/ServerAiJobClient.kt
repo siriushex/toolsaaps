@@ -194,7 +194,12 @@ class ServerAiJobClient internal constructor(
         return response
     }
 
-    private fun decodeCapabilities(body: ByteArray): ServerAiCapabilities = decode(body) { reader ->
+    private fun decodeCapabilities(body: ByteArray): ServerAiCapabilities = decode(
+        try {
+            val route = ServerTaskCapabilities.select(body, "CHAT") ?: error("missing_chat_route")
+            HistoryJson.bytes(route)
+        } catch (_: Exception) { throw ServerAiJobFailure(ServerAiJobError.INVALID_RESPONSE) }
+    ) { reader ->
         reader.beginObject()
         val seen = mutableSetOf<String>()
         var revision: String? = null

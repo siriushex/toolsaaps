@@ -1,0 +1,59 @@
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+
+allprojects { p ->
+    if (p.path == ':app') {
+        def fix = p.providers.gradleProperty('androidPlatformJsonIsolation').orNull == 'true'
+        if (fix) {
+            p.configurations.configureEach { c ->
+                def consumer = c.name.startsWith('full') &&
+                    (c.name.endsWith('CompileClasspath') || c.name.endsWith('RuntimeClasspath'))
+                if (consumer) {
+                    c.exclude(group: 'org.json', module: 'json')
+                    if (c.name.toLowerCase(Locale.ROOT).contains('androidtest')) {
+                        c.exclude(group: 'com.vaadin.external.google', module: 'android-json')
+                    }
+                }
+            }
+        }
+        p.tasks.register('checkAndroidPlatformJsonIsolation') {
+            doLast {
+                def names = ['fullReleaseRuntimeClasspath', 'fullDebugRuntimeClasspath',
+                             'fullDebugUnitTestRuntimeClasspath', 'fullDebugAndroidTestRuntimeClasspath']
+                def report = names.collectEntries { name ->
+                    def graph = p.configurations.getByName(name).incoming.resolutionResult
+                    assert graph.allDependencies.findAll {
+                        it instanceof org.gradle.api.artifacts.result.UnresolvedDependencyResult
+                    }.isEmpty()
+                    def dependencies = graph.allComponents.collect { it.id.displayName }.unique().sort()
+                    def filtered = dependencies.findAll {
+                        !it.startsWith('org.json:json:') &&
+                            !(name.contains('AndroidTest') && it.startsWith('com.vaadin.external.google:android-json:'))
+                    }
+                    def digest = MessageDigest.getInstance('SHA-256')
+                        .digest(dependencies.join('\n').getBytes('UTF-8')).encodeHex().toString()
+                    def filteredDigest = MessageDigest.getInstance('SHA-256')
+                        .digest(filtered.join('\n').getBytes('UTF-8')).encodeHex().toString()
+                    [(name): [sha256: digest, modules: dependencies.size(),
+                              platformExpectedSha256: filteredDigest,
+                              jsonProviders: dependencies.findAll {
+                                  it.startsWith('org.json:json:') || it.startsWith('com.vaadin.external.google:android-json:')
+                              },
+                              jsonParents: graph.allComponents.findAll { it.id.displayName.startsWith('org.json:json:') }
+                                  .collectMany { it.dependents.collect { d -> d.from.id.displayName } }.unique().sort(),
+                              androidJson: dependencies.any { it.startsWith('com.vaadin.external.google:android-json:') }]]
+                }
+                assert !report.fullReleaseRuntimeClasspath.androidJson
+                assert !report.fullDebugRuntimeClasspath.androidJson
+                assert report.fullDebugUnitTestRuntimeClasspath.androidJson
+                assert report.fullDebugAndroidTestRuntimeClasspath.androidJson == !fix
+                if (fix) {
+                    assert report.values().every { r -> !r.jsonProviders.any { it.startsWith('org.json:json:') } }
+                } else {
+                    assert report.fullReleaseRuntimeClasspath.jsonProviders == ['org.json:json:20090211']
+                }
+                println('JSON_ISOLATION_EVIDENCE=' + JsonOutput.toJson([fixed: fix, configurations: report]))
+            }
+        }
+    }
+}

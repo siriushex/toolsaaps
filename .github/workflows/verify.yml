@@ -55,15 +55,30 @@ jobs:
       - name: Test
         working-directory: backend
         run: python -m pytest -q tests
+      - name: APK release publication tests
+        run: python -m unittest discover -s tools/app_updates -p 'test_*.py'
 
   android:
     name: Android tests, lint and build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Check out pristine AAPS RC1 SDK
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: nightscout/AndroidAPS
+          ref: d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0
+          path: android-app/build/aaps-rc1
+          persist-credentials: false
+      - name: Prepare upstream Java
+        id: upstream-java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
@@ -71,11 +86,37 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-36 platforms;android-37.0 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
+      - name: Compile unmodified stock SDK with external test driver
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
+        run: bash tools/aaps4_compat/prepare.sh
+      - name: Verify external Android JSON isolation boundaries
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
+        run: python3 -m unittest discover -s tools/aaps4_compat -p 'test_*.py'
+      - name: Check minimal RC1 master admission patch
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
+        run: bash tools/aaps4_compat/verify_master.sh
       - name: Test, lint and build
         working-directory: android-app
+        env:
+          AAPS_INTEROP_JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-interop/classpath.txt
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2 --console=plain
+      - name: Verify APK size and preserved application classes
+        run: >-
+          python3 tools/app_updates/analyze_apk.py
+          android-app/app/build/outputs/apk/debug/app-debug.apk
+          --compiled-dir android-app/app/build/tmp/kotlin-classes/debug
+          --compiled-dir android-app/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes
+          --usage android-app/app/build/outputs/mapping/debug/usage.txt
+          --max-bytes 83886080
       - name: Preserve synthetic unit-test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

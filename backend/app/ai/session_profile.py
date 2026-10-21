@@ -377,16 +377,20 @@ class ProfileLease:
                                       cgroup_root=guard.cgroup_root, slice_id=guard.slice_id)
         if (type(verifier) is not SystemdStopVerifier
                 or any(getattr(verifier, field, None) != getattr(expected, field)
-                       for field in ("unit", "invocation_id", "root", "parent_name", "group_path"))):
+                       for field in ("unit", "invocation_id", "root", "parent_name", "group_path", "worker_user"))):
             raise ProfileError("stop_identity_mismatch")
 
-    async def finish(self, verifier):
+    async def finish(self, verifier, *, io_stopped=None):
         self._check()
         if self._record["phase"] != "bound":
             raise ProfileError("unbound_session")
         self._verifier(verifier)
         self._stopping = True
-        task = asyncio.create_task(verifier.stop_and_confirm())
+        async def confirm():
+            if await verifier.stop_and_confirm() is not True:
+                return False
+            return io_stopped is None or await io_stopped() is True
+        task = asyncio.create_task(confirm())
         cancelled = False
         try:
             while True:

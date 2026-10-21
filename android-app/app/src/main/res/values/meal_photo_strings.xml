@@ -1,0 +1,40 @@
+<resources>
+    <string name="meal_photo_title">Food photo</string>
+    <string name="meal_photo_camera">Camera</string>
+    <string name="meal_photo_gallery">Gallery</string>
+    <string name="meal_photo_choose_another">Choose another photo</string>
+    <string name="meal_photo_consent">The selected food photo will be sent to your AI server for analysis.</string>
+    <string name="meal_photo_estimate_note">Model estimate. Confirm mass and the amount eaten.</string>
+    <string name="meal_photo_needs_connection">Connect your AI server in Settings → Server Copilot.</string>
+    <string name="meal_photo_unavailable">Photo analysis is unavailable on the server. Manual food entry remains available.</string>
+    <string name="meal_photo_connecting">Checking server…</string>
+    <string name="meal_photo_analyzing">Analyzing food…</string>
+    <string name="meal_photo_invalid_image">Cannot prepare this image. Select another photo.</string>
+    <string name="meal_photo_open_failed">Could not open the camera or gallery. Try the other source.</string>
+    <string name="meal_photo_invalid_request">The server rejected the image. Select another photo.</string>
+    <string name="meal_photo_exchange_failed">Could not get the result. Check the AI server connection. No automatic retry was sent.</string>
+    <string name="meal_photo_busy">Wait for the current photo analysis to finish.</string>
+    <string name="meal_photo_invalid_result">The server returned an invalid estimate. Nothing was applied.</string>
+    <string name="meal_photo_analysis_failed">Could not complete photo analysis. Select the photo again or enter food manually.</string>
+    <string name="meal_photo_cancelled">Analysis was cancelled. You can select a new photo.</string>
+    <string name="meal_photo_result_unavailable">The result is no longer available. Select the photo again or enter food manually.</string>
+    <string name="meal_photo_unknown">The request outcome is unknown. No automatic retry was sent.</string>
+    <string name="meal_photo_timeout">The analysis timed out. No food was recorded.</string>
+    <string name="meal_photo_recheck">Check connection</string>
+    <string name="meal_photo_use">Use in food form</string>
+    <string name="meal_photo_mass_range">Estimated mass: %1$s g</string>
+    <string name="meal_photo_mass">Mass, g</string>
+    <string name="meal_photo_mass_invalid">Enter a mass within %1$s g.</string>
+    <string name="meal_photo_eaten" formatted="false">Eaten, %</string>
+    <string name="meal_photo_eaten_invalid" formatted="false">Enter a value from 0 to 100%.</string>
+    <string name="meal_photo_raw">Raw</string>
+    <string name="meal_photo_cooked">Cooked</string>
+    <string name="meal_photo_unknown_value">Unknown</string>
+    <string name="meal_photo_totals">Energy: %1$s kcal\nProtein: %2$s g\nFat: %3$s g\nCarbs: %4$s g</string>
+    <string name="meal_photo_estimated_totals">From photo, mass not confirmed</string>
+    <string name="meal_photo_portion_totals">For the entered portion</string>
+    <string name="meal_photo_incomplete">Some values are unknown. The subtotal is not a complete meal total.</string>
+    <string name="meal_photo_confirm_carbs">Carbohydrates, g</string>
+    <string name="meal_photo_carb_limit">1 to %1$s g. Does not record food yet.</string>
+    <string name="meal_photo_carbs_invalid">Enter carbohydrates from 1 to %1$s g.</string>
+</resources>

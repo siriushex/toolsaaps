@@ -17,6 +17,39 @@ class LentaMealEstimateTest {
         gi?.let { MealGlycemicIndex.fromStored(it, "USER") })
     private fun history(vararg entries: LentaMealHistoryEntry) = LentaMealHistory(now, "UTC", entries.toList())
 
+    @Test fun automaticGiAlwaysHasAnHonestTypePriorWithoutInventingHistorySupport() {
+        val values = MealAbsorptionProfile.entries.associateWith { type ->
+            val result = LentaMealEstimator().estimate(request.copy(selectedProfile = type), history())
+            assertEquals("MODEL_ESTIMATE", result.automaticGi!!.source.name)
+            assertEquals(LentaMealEstimator.GI_MODEL_VERSION, result.automaticGi.reference)
+            assertEquals(0, result.giSupportMeals)
+            assertNull(result.historyGi)
+            result.automaticGi.value
+        }
+        assertTrue(values.getValue(MealAbsorptionProfile.FAST) > values.getValue(MealAbsorptionProfile.MIXED))
+        assertTrue(values.getValue(MealAbsorptionProfile.MIXED) > values.getValue(MealAbsorptionProfile.FAT_PROTEIN))
+    }
+
+    @Test fun knownHistoryMakesABoundedCorrectionAndModelOutputsCannotTrainThemselves() {
+        val baseline = LentaMealEstimator().estimate(request, history())
+        val personal = LentaMealEstimator().estimate(request, history(meal(1, gi = 90.0)))
+        assertEquals(60.0 + 30.0 / 9.0, personal.automaticGi!!.value, 1e-9)
+        val generated = meal(1).copy(glycemicIndex = personal.automaticGi)
+        val replay = LentaMealEstimator().estimate(request, history(generated))
+        assertEquals(baseline.automaticGi, replay.automaticGi)
+        assertEquals(0, replay.giSupportMeals)
+        assertNull(replay.historyGi)
+    }
+
+    @Test fun evenLargeKnownGiCohortCannotDominateTheTypePriorOrChangeDeclaredGrams() {
+        val entries = (1..13).map { meal(it, gi = 100.0) }.toTypedArray()
+        val result = LentaMealEstimator().estimate(request.copy(declaredGrams = 47.0), history(*entries))
+        assertEquals(80.0, result.automaticGi!!.value, 1e-9)
+        assertEquals(47.0, result.modeledGrams, 0.0)
+        assertEquals(0.0, result.curve.last().modeledRemainingGrams, 0.0)
+        assertFalse(result.clinicalInfluenceAllowed)
+    }
+
     @Test fun everyTypeAndPortionWorksWithoutHistoryAndConservesMass() {
         for (type in MealAbsorptionProfile.entries) for (portion in MealPortion.entries) {
             val result = LentaMealEstimator().estimate(request.copy(selectedProfile = type, portion = portion), history())

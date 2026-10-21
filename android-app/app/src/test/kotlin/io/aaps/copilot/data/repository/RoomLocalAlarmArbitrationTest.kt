@@ -112,8 +112,8 @@ class RoomLocalAlarmArbitrationTest {
         val cycle = owner.evaluate(source.evidence, timing)!!.startCycle!!
         assertTrue(owner.acknowledge(source.evidence, timing, LocalAlarmAcknowledgement(cycle.key, 1, 1, cycle.level)))
         val before = state(source)
-        assertEquals(400_000L, owner.previewArbitration(listOf(source), null, timing)!!.nextWakeElapsedMs)
-        environment = environment.copy(nowElapsedMs = 400_000, nowWallMs = 500_000)
+        assertEquals(700_000L, owner.previewArbitration(listOf(source), null, timing)!!.nextWakeElapsedMs)
+        environment = environment.copy(nowElapsedMs = 700_000, nowWallMs = 800_000)
         assertEquals(source.evidence, owner.previewArbitration(listOf(source), null, timing)!!.selected)
         assertEquals(before, state(source)); assertNull(row(cycle.copy(ordinal = 2)))
     }

@@ -46,6 +46,7 @@ import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.isfcr.IsfCrRealtimeSnapshot
 import io.aaps.copilot.domain.isfcr.IsfCrRuntimeMode
 import io.aaps.copilot.domain.activity.PhysicalActivityTelemetryPolicy
+import io.aaps.copilot.domain.activity.PhysicalActivityObservation
 import io.aaps.copilot.domain.alerts.AlertCauseAnalysis
 import io.aaps.copilot.domain.alerts.AlertCauseAnalyzer
 import io.aaps.copilot.domain.alerts.AlertCauseDirection
@@ -1417,6 +1418,7 @@ class AutomationRepository(
                     currentProfileSegment = currentSegment,
                     latestTelemetry = latestTelemetry,
                     safetyIobUnits = targetInsulinCycle.safetyIobUnits,
+                    physicalActivity = calibrationRuntime.physicalActivity,
                     retargetCooldownMinutes = settings.adaptiveControllerRetargetMinutes,
                     adaptiveMaxStepMmol = settings.adaptiveControllerMaxStepMmol,
                     adaptiveMinTargetMmol = settings.safetyMinTargetMmol,
@@ -2183,7 +2185,8 @@ class AutomationRepository(
             settings = settings,
             causeAnalysis = preparedCause?.analysis,
             causeSnapshot = preparedCause?.snapshot,
-            nowTs = nowTs
+            nowTs = nowTs,
+            currentGlucoseTimestamp = latestGlucose.ts
         )
         persistGlucoseAlertTelemetry(
             nowTs = nowTs,
@@ -2457,6 +2460,7 @@ class AutomationRepository(
             sensorLagRuntimeContext = sensorLagRuntimeContext,
             latestTelemetry = latestTelemetry,
             deliveryTrustTelemetry = resolvedTelemetry.deliveryTrustTelemetry,
+            physicalActivity = resolvedTelemetry.physicalActivity,
             latestResolved = latestResolved,
             latestCheck = latestCheck
         )
@@ -2472,13 +2476,15 @@ class AutomationRepository(
         val sensorLagRuntimeContext: SensorLagRuntimeContext,
         val latestTelemetry: MutableMap<String, Double?>,
         val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        val physicalActivity: PhysicalActivityObservation?,
         val latestResolved: io.aaps.copilot.domain.model.ResolvedGlucosePoint?,
         val latestCheck: io.aaps.copilot.domain.model.BloodGlucoseCheck?
     )
 
     private data class ResolvedLatestTelemetry(
         val values: Map<String, Double?>,
-        val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>
+        val deliveryTrustTelemetry: List<DeliveryTrustTelemetryValue>,
+        val physicalActivity: PhysicalActivityObservation? = null
     )
 
     private data class CumulativeActivityDayCache(
@@ -4781,7 +4787,8 @@ class AutomationRepository(
         }
         return ResolvedLatestTelemetry(
             values = latestByKey,
-            deliveryTrustTelemetry = deliveryTrustTelemetry
+            deliveryTrustTelemetry = deliveryTrustTelemetry,
+            physicalActivity = PhysicalActivityObservationResolver.resolve(baseRows, readCompletedAt, ZoneId.systemDefault())
         )
     }
 
@@ -9238,22 +9245,42 @@ class AutomationRepository(
                 authority = acceptedClinicalForecastAuthority
             )
             val fanOut = SensitivityRuntimeFanOut(acceptedSnapshot)
-            val decisions = runTherapyStageStatic(
-                policy = policy,
-                writeUamCarbs = writeUamCarbs,
-                evaluateRulesAndTargetManager = { externalWritesAllowed ->
-                    evaluateRulesAndTargetManager(
-                        fanOut.contextFor(SensitivityRuntimeConsumer.TARGET_MANAGER),
-                        externalWritesAllowed
-                    )
-                }
-            )
+            currentCoroutineContext().ensureActive()
             val alertContext = fanOut.contextFor(SensitivityRuntimeConsumer.ALERT_CAUSE)
-            when {
-                policy.allowAlertPublication -> publishAlerts(alertContext, unifiedUam)
-                intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE -> {
-                    assessAlertCause(alertContext, unifiedUam)
+            var alertFailure: Exception? = null
+            // Publish accepted alerts before potentially slow writers. A channel
+            // failure cannot retry or suppress an independently accepted writer.
+            if (policy.allowAlertPublication) {
+                try {
+                    publishAlerts(alertContext, unifiedUam)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    alertFailure = failure
                 }
+            }
+            currentCoroutineContext().ensureActive()
+            val decisions = try {
+                runTherapyStageStatic(
+                    policy = policy,
+                    writeUamCarbs = writeUamCarbs,
+                    evaluateRulesAndTargetManager = { externalWritesAllowed ->
+                        evaluateRulesAndTargetManager(
+                            fanOut.contextFor(SensitivityRuntimeConsumer.TARGET_MANAGER),
+                            externalWritesAllowed
+                        )
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                alertFailure?.takeIf { it !== failure }?.let(failure::addSuppressed)
+                throw failure
+            }
+            currentCoroutineContext().ensureActive()
+            alertFailure?.let { throw it }
+            if (!policy.allowAlertPublication && intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) {
+                assessAlertCause(alertContext, unifiedUam)
             }
             if (policy.publishWidgetAfterAcceptance) publishAcceptedForecast()
             return decisions
@@ -13189,6 +13216,9 @@ class AutomationRepository(
             addNumeric("glucose_alert_vibration_attempted", if (delivery.vibrationAttempted) 1.0 else 0.0)
             addNumeric("glucose_alert_audio_played", if (delivery.audioPlayed) 1.0 else 0.0)
             addText("glucose_alert_disable_reason", decision.disableReason ?: delivery.degradedReason)
+            addText("glucose_alert_notification_failure", delivery.notificationFailureReason)
+            addText("glucose_alert_audio_failure", delivery.audioFailureReason)
+            addText("glucose_alert_vibration_failure", delivery.vibrationFailureReason)
             addText("glucose_alert_audio_clip", delivery.audioClipLabel)
             addNumeric("glucose_alert_audio_fallback_used", if (delivery.audioFallbackUsed) 1.0 else 0.0)
             addNumeric("glucose_alert_audio_start_ms", delivery.audioStartMs?.toDouble(), "ms")

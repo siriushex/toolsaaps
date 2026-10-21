@@ -31,7 +31,8 @@ internal fun eatingSoonPresentation(
         // A durable pending receipt after restart cannot prove an in-flight send.
         else -> EatingSoonUiStatus.UNKNOWN
     }
-    return EatingSoonUiState(status, receipt.idempotencyKey, receipt.timestamp)
+    return EatingSoonUiState(status, receipt.idempotencyKey, receipt.timestamp,
+        reason = NightscoutActionRepository.eatingSoonFailureReasonStatic(receipt, gson))
 }
 
 internal fun mergeEatingSoonPresentation(durable: EatingSoonUiState, local: EatingSoonUiState?, nowTs: Long): EatingSoonUiState {
@@ -41,7 +42,7 @@ internal fun mergeEatingSoonPresentation(durable: EatingSoonUiState, local: Eati
         local.timestamp?.let { it > 0L && nowTs >= it && nowTs - it >= EatingSoonPolicy.DURATION_MINUTES * 60_000L } == true) return durable
     if (local.requestKey == durable.requestKey) {
         return if (local.status == EatingSoonUiStatus.QUEUED && durable.status == EatingSoonUiStatus.UNKNOWN) local
-        else durable.copy(reason = local.reason)
+        else durable.copy(reason = durable.reason ?: local.reason)
     }
     return if ((local.timestamp ?: Long.MIN_VALUE) > (durable.timestamp ?: Long.MIN_VALUE)) local else durable
 }

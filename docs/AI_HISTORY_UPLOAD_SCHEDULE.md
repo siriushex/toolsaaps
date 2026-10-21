@@ -1,5 +1,16 @@
 # Periodic Client History Upload
 
+## Combined Release Integration (2026-10-21)
+
+The historical narrow-port scope below describes its original main change.
+The combined release now preserves this schedule, switch and manual queue while
+retaining newer chat/photo/daily/export features. It replaces the older in-process
+history loop rather than running both. The serialized upload path keeps the
+deduplicated observed insulin context and available research timing history;
+it no longer hard-codes timing history as unavailable. This is evidence upload,
+not a meal-start recommendation or a model/therapy request. Device-local05:00
+snapshot logic runs at the next admitted upload, not an exact alarm guarantee.
+
 ## Narrow Main Integration
 
 Owner chose only the upload feature and necessary dependencies on 2026-10-19.

@@ -1,5 +1,6 @@
 package io.aaps.copilot.domain.rules
 
+import io.aaps.copilot.domain.activity.PhysicalActivityObservation
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.PatternWindow
@@ -32,5 +33,6 @@ data class RuleContext(
     val retargetCooldownMinutes: Int = 5,
     val adaptiveMaxStepMmol: Double = 0.25,
     val adaptiveMinTargetMmol: Double = 4.0,
-    val adaptiveMaxTargetMmol: Double = 9.0
+    val adaptiveMaxTargetMmol: Double = 9.0,
+    val physicalActivity: PhysicalActivityObservation? = null
 )

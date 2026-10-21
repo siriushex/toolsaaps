@@ -31,13 +31,14 @@ class MealFoodDisplayEngineTest {
 
     private suspend fun snapshot(
         gi: String? = null, revision: String = "r1", events: List<TherapyEvent> = listOf(meal, insulin),
-        context: MealAbsorptionContext = MealAbsorptionContext(enabled = true,
+        source: String = "USER", context: MealAbsorptionContext = MealAbsorptionContext(enabled = true,
             manual = MealAbsorptionSelection(MealAbsorptionProfile.FAT_PROTEIN, 360))
     ): Pair<List<Forecast>, HybridPredictionEngine.V3Diagnostics> {
         val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true)
         engine.setMealAbsorptionContext(context)
         engine.setMealGlycemicIndexContext(gi?.let { MealGlycemicIndexContext(mapOf("12" to
-            MealGlycemicIndexOverride(revision, MealGlycemicIndex.fromManualInput(it)!!))) }
+            MealGlycemicIndexOverride(revision, MealGlycemicIndex.fromStored(it.toDouble(), source,
+                if (source == "MODEL_ESTIMATE") "meal_gi_type_history_v1" else null)!!))) }
             ?: MealGlycemicIndexContext.EMPTY)
         val forecasts = engine.predict(glucose, events)
         return forecasts to engine.diagnosticsSnapshot()!!
@@ -47,7 +48,8 @@ class MealFoodDisplayEngineTest {
         val baseline = snapshot()
         val low = snapshot("20")
         val high = snapshot("100")
-        for (candidate in listOf(low, high)) {
+        val estimated = snapshot("80", source = "MODEL_ESTIMATE")
+        for (candidate in listOf(low, high, estimated)) {
             assertEquals(baseline.first, candidate.first)
             assertEquals(baseline.second.copy(foodDisplayProjection = null),
                 candidate.second.copy(foodDisplayProjection = null))
@@ -65,6 +67,7 @@ class MealFoodDisplayEngineTest {
         assertTrue(plain.completeByHorizon)
         assertEquals(now, plain.predictionAtMs)
         assertTrue(plain.stepsMmol.size > 13)
+        assertNotEquals(plain.stepsMmol, estimated.second.foodDisplayProjection!!.stepsMmol)
     }
 
     @Test fun baselinePrefixMatchesLiveAnnouncedStepsForModernAndLegacyProfiles() = runBlocking {

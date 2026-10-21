@@ -79,6 +79,12 @@ class _ValidatingWorker:
         self.route_revision = work.route_revision
         self.request_digest = work.request_digest
 
+    @property
+    def usage_receipt(self):
+        if self._work.policy.kind == "CHAT":
+            return getattr(self._worker, "usage_receipt", None)
+        return None
+
     async def run(self):
         # JobExecutor calls run only after acquiring the durable global claim.
         self._construction_attempted = True
@@ -548,15 +554,16 @@ class AiJobService:
                 if cached.expires_ms <= now_ms:
                     self._results.pop(job_id, None)
 
-    async def _archive_final(self, job, result=None):
+    async def _archive_final(self, job, result=None, *, usage_receipt=None):
         from .server_chat import FINAL_STATES
 
         if (self.chat_archive is None or job is None or job.state not in FINAL_STATES
                 or job.state == "SUCCEEDED" and result is None):
             return
         try:
+            extra = {"usage_receipt": usage_receipt} if usage_receipt is not None else {}
             await asyncio.to_thread(self.chat_archive.finish_chat, job, result,
-                                    now_ms=self.clock_ms())
+                                    now_ms=self.clock_ms(), **extra)
         except Exception:
             self._failed = True
             raise JobServiceError(503, "chat_archive_unavailable") from None
@@ -578,7 +585,9 @@ class AiJobService:
                 if job is not None and job.state in {"RUNNING", "CANCEL_REQUESTED"}:
                     self._failed = True
                 if self.chat_archive is not None:
-                    await self._archive_final(job, outcome.result if outcome is not None else None)
+                    receipt = worker.usage_receipt if job is not None and job.state == "SUCCEEDED" else None
+                    await self._archive_final(job, outcome.result if outcome is not None else None,
+                                              usage_receipt=receipt)
             _, cancelled = await _complete_critical(reconcile())
             if cancelled:
                 raise asyncio.CancelledError

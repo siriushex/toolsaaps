@@ -36,6 +36,23 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class EnergyProfileRepositoryTest {
+    @Test fun automaticGiSourceSurvivesPendingPromotionWithoutBecomingAUserOrCatalogValue() = runBlocking {
+        val dao = RecordingEnergyProfileDao()
+        val repository = EnergyProfileRepository(dao, clock = { 123L })
+        val command = copilotCarbCommand("manual:meal-model-gi")
+        val gi = io.aaps.copilot.domain.profile.MealGlycemicIndex.fromStored(63.0, "MODEL_ESTIMATE",
+            "meal_gi_type_history_v1")!!
+        val event = trustedImportedEvent("903", "r1", command)
+        repository.stageSelectionAfterSubmittedCarbAction(command,
+            MealAbsorptionSelection(MealAbsorptionProfile.MIXED, glycemicIndex = gi))
+        assertThat(dao.pendingIntents.getValue(command.idempotencyKey).glycemicIndexSource).isEqualTo("MODEL_ESTIMATE")
+        repository.refreshPendingSelections(listOf(event))
+        val restored = EnergyProfileRepository(dao).mealGlycemicIndexContext(listOf(event)).indexFor(event.toGiReference())
+        assertThat(restored).isEqualTo(gi)
+        assertThat(dao.mealOverrides.getValue("903").glycemicIndexSource).isEqualTo("MODEL_ESTIMATE")
+        assertThat(dao.pendingIntents).isEmpty()
+    }
+
     @Test fun optionalGiReadDoesNotSwallowCancellation() = runBlocking {
         val cancellation = kotlinx.coroutines.CancellationException("display read cancelled")
         val dao = object : EnergyProfileDao by RecordingEnergyProfileDao() {

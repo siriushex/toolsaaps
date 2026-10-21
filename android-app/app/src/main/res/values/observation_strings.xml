@@ -1,0 +1,7 @@
+<resources>
+    <string name="setup_observation_title">Background observation</string>
+    <string name="setup_observation_detail">Local sources and silent recalculation. No pump commands, automatic AI requests or independent alarms.</string>
+    <string name="setup_observation_therapy">Observation is included in the enabled therapy runtime. Command permissions are managed in Safety.</string>
+    <string name="setup_observation_on">Background observation permitted. Check actual data reception in Sources.</string>
+    <string name="setup_observation_off">Independent background observation is off.</string>
+</resources>

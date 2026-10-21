@@ -1,6 +1,7 @@
 package io.aaps.copilot.domain.alerts
 
 internal const val LOCAL_ALARM_CYCLE_TIMEOUT_MS = 55_000L
+internal const val LOCAL_ALARM_ACK_MIN_PAUSE_MS = 600_000L
 
 enum class LocalAlarmLevel(val priority: Int, val strong: Boolean = false) {
     NONE(0),
@@ -55,7 +56,9 @@ data class LocalAlarmEnvironment(
     val nowElapsedMs: Long,
     val nowWallMs: Long,
     val bootCount: Int,
-    val mutedUntilWallMs: Long = 0L
+    val mutedUntilWallMs: Long = 0L,
+    // Null means the shared sound history could not be validated, not a zero cooldown.
+    val noncriticalCooldownUntilElapsedMs: Long? = 0L
 )
 
 data class LocalAlarmCycle(
@@ -95,7 +98,7 @@ data class LocalAlarmAcknowledgement(
 )
 
 enum class LocalAlarmAdmission {
-    START, ACTIVE, WAITING, ACKNOWLEDGED, MUTED, DISABLED, UNAVAILABLE,
+    START, ACTIVE, WAITING, COOLDOWN, ACKNOWLEDGED, MUTED, DISABLED, UNAVAILABLE,
     INVALID_ENVIRONMENT, INVALID_EVIDENCE, INVALID_STATE, INVALID_TIMING, SILENT, OVERFLOW
 }
 

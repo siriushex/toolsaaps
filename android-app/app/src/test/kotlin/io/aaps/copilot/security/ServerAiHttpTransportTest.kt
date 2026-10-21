@@ -1,6 +1,9 @@
 package io.aaps.copilot.security
 
+import io.aaps.copilot.data.repository.MealPhotoGatewayRequest
+import io.aaps.copilot.data.repository.ServerMealPhotoProtocol
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +24,75 @@ import org.junit.Test
 class ServerAiHttpTransportTest {
     private val jobPath = "/api/ai/v1/jobs/f1e19b82-e0f2-4c50-b2bf-03c80c906f2c"
     private val headers = mapOf("X-Copilot-Nonce" to "synthetic-proof", "Authorization" to "Bearer synthetic")
+
+    @Test
+    fun largestPreparedPhotoReachesHttpWithoutTheTextBodyLimit() = runBlocking {
+        val image = ByteArray(1_048_576).apply {
+            this[0] = -1; this[1] = -40; this[2] = -1
+            this[lastIndex - 1] = -1; this[lastIndex] = -39
+        }
+        val submission = ServerMealPhotoProtocol.prepare(
+            MealPhotoGatewayRequest(UUID.randomUUID().toString(), image, "image/jpeg"),
+            1_800_000_000_000L, 1_800_000_060_000L
+        )
+        assertTrue(submission.body.size > 96_000)
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(202).setBody("{}"))
+            val response = transport(server).exchange("POST", ServerMealPhotoProtocol.JOBS_PATH,
+                submission.body, headers, 65_536)
+            assertEquals(202, response.statusCode)
+            assertEquals(1, server.requestCount)
+            val request = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+            assertEquals(ServerMealPhotoProtocol.JOBS_PATH, request.path)
+            assertArrayEquals(submission.body, request.body.readByteArray())
+            assertEquals("synthetic-proof", request.getHeader("X-Copilot-Nonce"))
+            assertTrue(request.getHeader("Content-Type")!!.startsWith("application/json"))
+        }
+    }
+
+    @Test
+    fun photoBodyAllowanceEndsAtItsExactRouteBound() = runBlocking {
+        MockWebServer().use { server ->
+            val transport = transport(server)
+            server.enqueue(MockResponse().setResponseCode(202).setBody("{}"))
+            val limit = 3 * 1024 * 1024
+            assertEquals(202, transport.exchange("POST", "/api/ai/v1/meal-photo/jobs",
+                ByteArray(limit), headers, 65_536).statusCode)
+            val error = runCatching {
+                transport.exchange("POST", "/api/ai/v1/meal-photo/jobs",
+                    ByteArray(limit + 1), headers, 65_536)
+            }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
+    @Test
+    fun photoAllowanceCannotWidenOtherRoutesOrResponseBounds() = runBlocking {
+        MockWebServer().use { server ->
+            val transport = transport(server)
+            for ((path, size) in listOf(
+                "/api/ai/v1/jobs" to 16_385,
+                "/api/ai/v1/activation/start" to 96_001,
+                "/api/ai/v1/meal-photo/jobs/extra" to 96_001,
+                "/api/ai/v1/meal-photo/jobs?extra=1" to 96_001
+            )) {
+                val error = runCatching {
+                    transport.exchange("POST", path, ByteArray(size), headers, 65_536)
+                }.exceptionOrNull()
+                assertTrue("Invalid route or body must be rejected locally", error is IllegalArgumentException)
+            }
+            assertTrue(runCatching {
+                transport.exchange("POST", "/api/ai/v1/meal-photo/jobs", byteArrayOf(1), headers, 65_537)
+            }.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(0, server.requestCount)
+        }
+    }
+
+    @Test
+    fun largePhotoPostDoesNotFollowRetryAfterZero() = runBlocking {
+        assertSingle503("POST", "/api/ai/v1/meal-photo/jobs", ByteArray(128_000))
+    }
 
     @Test
     fun signedPostDoesNotFollowRetryAfterZero() = runBlocking {

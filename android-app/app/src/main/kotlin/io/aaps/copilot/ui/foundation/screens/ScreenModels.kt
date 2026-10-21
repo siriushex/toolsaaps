@@ -322,6 +322,7 @@ data class OverviewUiState(
     val targetEditMinMmol: Double = 4.0,
     val targetEditMaxMmol: Double = 10.0,
     val currentIobUnits: Double? = null,
+    val insulinOnsetCountdown: io.aaps.copilot.ui.InsulinOnsetCountdown? = null,
     val iobDetails: IobRuntimeDetailsUi = IobRuntimeDetailsUi(),
     val currentCobGrams: Double? = null,
     val externalCobGrams: Double? = null,
@@ -840,13 +841,20 @@ data class AiReplayUi(
     val driftStats: List<AiReplayDriftStatUi> = emptyList()
 )
 
+enum class AiChatFailureUi {
+    INVALID_ATTACHMENT,
+    CONNECTION, UNAVAILABLE, ACCESS, TEXT_ONLY, INVALID_REQUEST, CONTEXT, UNKNOWN_OUTCOME,
+    TIMEOUT, CANCELLED, INVALID_RESPONSE, OTHER
+}
+
 data class AiChatMessageUi(
     val id: String,
     val role: String,
     val text: String,
     val ts: Long,
     val attachments: List<AiChatAttachmentUi> = emptyList(),
-    val voiceTranscript: Boolean = false
+    val voiceTranscript: Boolean = false,
+    val failure: AiChatFailureUi? = null
 )
 
 data class AiChatAttachmentUi(
@@ -1174,6 +1182,13 @@ data class ClinicalReportUiState(
     val pdfExportTicket: ClinicalPdfExportTicketUi? = null
 )
 
+data class ClinicalDisplayUi(
+    val generatedAtTs: Long,
+    val zoneId: String,
+    val summaries: List<ClinicalPeriodSummaryUi>,
+    val complete: ClinicalCompleteReportUi? = null
+)
+
 data class AiAnalysisUiState(
     val loadState: ScreenLoadState,
     val isStale: Boolean,
@@ -1200,17 +1215,23 @@ data class AiAnalysisUiState(
     val localDayTypeGaps: List<AiDayTypeGapUi> = emptyList(),
     val circadianReplaySummary: CircadianReplaySummaryUi? = null,
     val localRecommendations: List<String> = emptyList(),
+    val nightlyAdvice: io.aaps.copilot.data.repository.NightlyAdviceSnapshot? = null,
     val rollingLines: List<String> = emptyList(),
     val aiTuningStatus: AiTuningStatusUi? = null,
     val chatMessages: List<AiChatMessageUi> = emptyList(),
     val chatInProgress: Boolean = false,
     val chatDraft: String = "",
     val chatPendingAttachments: List<AiChatAttachmentUi> = emptyList(),
+    val chatAttachmentBusy: Boolean = false,
     val chatVoiceRepliesEnabled: Boolean = false,
     val chatRecording: Boolean = false,
     val chatVoiceBusy: Boolean = false,
     val chatSpeaking: Boolean = false,
-    val clinicalReport: ClinicalReportUiState = ClinicalReportUiState()
+    val chatTextOnly: Boolean = false,
+    val clinicalReport: ClinicalReportUiState = ClinicalReportUiState(),
+    val clinicalDisplay: ClinicalDisplayUi? = null,
+    val clinicalDisplayRefreshing: Boolean = false,
+    val clinicalDisplayFailed: Boolean = false
 )
 
 data class CircadianReplayMetricUi(

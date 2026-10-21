@@ -30,8 +30,7 @@ internal class LocalAlarmPlaybackWindow private constructor(
             val profile = LocalAlarmProfiles.create(cycle.level, timing) ?: return null
             val step = profile.steps.getOrNull(stepIndex)?.takeIf { it.startsClip } ?: return null
             val start = cycle.startedElapsedMs + step.offsetMs
-            val deadline = profile.steps.getOrNull(stepIndex + 1)?.let { cycle.startedElapsedMs + it.offsetMs }
-                ?: cycle.deadlineElapsedMs
+            val deadline = cycle.startedElapsedMs + LocalAlarmProfiles.stepDeadlineOffsetMs(profile, stepIndex)
             return LocalAlarmPlaybackWindow(cycle, stepIndex, start, deadline, durationMs)
         }
     }

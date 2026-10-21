@@ -1,0 +1,264 @@
+# Combined Native UI And Food Photo Source
+
+## Immediate Nutrition Preview (2026-10-18)
+
+A successful estimate with uncertain ingredient masses previously displayed no
+meal totals until every mass was entered. Review now shows a separate labelled
+photo-based range immediately, before any confirmation. The existing nutrition
+calculator evaluates lower/upper portion endpoints, preserving per-100g facts,
+kJ conversion, eaten fractions, missing values and carbohydrate-basis rules.
+No midpoint is selected. A true zero lower mass remains zero in the display.
+
+The open food form now owns the in-memory review and raw edit strings. Returning
+from photo review and reopening it restores the same result without another
+capability check or upload. An explicit different-photo command discards that
+review and checks current availability before selection. Successful transfer
+keeps the one-shot apply guard until disposal; only explicitly reopening review
+permits another edit/transfer without reinference. Closing the whole form discards
+the session. A cancellation check rejects late provider responses after dismissal.
+No image/request,
+disk cache, saved-state Bundle or process-death/configuration recovery is added.
+
+Entered masses progressively replace only their own uncertainty. Invalid mass
+or eaten-fraction edits suppress the preview; correction restores it. Missing
+facts never become zero or a complete meal total. The display projection cannot
+build a confirmed draft: every ingredient mass and explicit carbohydrate entry
+are still required before transferring to the food form, which retains its own
+confirmation. No model, prompt, provider setting, API contract or therapy change.
+
+Local native reproduction and synthetic tests cover this UI boundary. A separate
+owner-approved live synthetic image check confirms a typed estimate and stopped
+worker, not accuracy of portions or successful use on the user's phone. Historical
+job failure metadata cannot recover the discarded private result or its cause.
+
+## Terminal Failure Recovery (2026-10-18)
+
+Photo job failure is not proof that the server lacks image support. A correlated
+FAILED job now shows an analysis failure, CANCELLED shows cancellation, EXPIRED
+shows timeout, and a SUCCEEDED job whose retained result is unavailable/expired
+shows result unavailability. These outcomes retain the camera/gallery choices.
+They do not trigger another request; a fresh selection is still required.
+Unknown acceptance/outcome retains its existing warning and no-replay behavior.
+Actual authentication/capability refusal still requires the readiness recheck.
+No private worker error detail is added to the public wire protocol or UI.
+
+Backend decoding rejects arrays/objects in enum fields, numeric overflow and
+blank identifiers/names with the existing fixed invalid_result error. It does
+not coerce these into an estimate or rewrite any nutrition value. Signed synthetic
+API tests verify failed-job stop and successful next explicit job independently
+of the Android presentation checks. Provider/device acceptance is separate.
+
+Verification:153 focused backend cases and119 affected Android cases pass,
+including34 native photo cases. Full backend1803 passed/27 existing skips; full
+Android6203 passed/six existing skips, with the same skip identities as before.
+Lint/compile/build and private APK signature passed on matching source manifests.
+Lint has no errors or changed-file issues; the new native error raster was
+inspected at320px. Source CI and operational acceptance remain separate receipts.
+
+## Reviewable Nutrition Responses (2026-10-18)
+
+Photo response parsing now applies the existing nutrition-domain validation
+before opening review. Backend result decoding mirrors the same per-100g physical
+mass rules, including the existing 1g label-rounding tolerance. TOTAL/UNKNOWN
+carbohydrates do not add fiber twice; AVAILABLE includes fiber in physical mass.
+Sugar and polyols are subfractions, not extra macros in that check. Missing facts
+remain unknown and energy retains its original unit; no arithmetic is changed.
+
+A mass interval wholly below the existing 0.1g calculator minimum is unusable.
+An uncertain interval beginning at zero remains valid when it contains supported
+nonzero masses. Validation uses its upper endpoint only for a feasibility check,
+never as a selected mass. The editor and original-estimate conversion independently
+reject unsupported confirmed masses; the field error shows the usable lower bound
+without modifying or clamping the model interval or the user's input.
+
+Android rejects an otherwise successful response with malformed nutrition using
+the existing localized invalid-result error, rather than opening an editor with
+permanently unavailable totals. Terminal server-job failures are handled separately
+as described above.
+There is no automatic retry;
+the user can explicitly select another image. Source tests use synthetic replies
+and images only. Actual device/provider acceptance and nutritional accuracy remain
+separate; no therapy, GI, command, schema migration or operational rollout is added.
+
+Verification:113 affected Android cases including30 native photo cases and87
+backend cases passed. Full fixed-input Android6203 cases passed with six existing
+skips; lint/compile/build succeeded and the private APK signature verifies. Full
+backend1763 passed/27 existing skips on unchanged inputs; the initial macOS
+process-group PermissionError and passing isolated30-case runner/full repeat are
+retained separately. Source CI and any device update are independent receipts.
+
+## Camera Ownership (2026-10-18)
+
+Once bounded preparation returns independent JPEG bytes, the owned camera file
+and its exact URI grant are released before inference waits. Failure, cancellation
+and disposal share the same idempotent release. State is cleared before cleanup,
+so a later disposal cannot revoke the URI again. A new capture has a new URI.
+The selected gallery file/URI is not owned by this flow and is never deleted or
+revoked by its cleanup. No parent directory grant is touched.
+
+The implementation uses Android's [exact URI grant revocation](https://developer.android.com/reference/android/content/Context#revokeUriPermission(android.net.Uri,%20int))
+for the owned capture only. Synthetic native tests verify call arguments and
+private fixture files, not OEM permission enforcement or a live image model.
+Cancellation after recognition leaves the existing food draft, calories, profile
+and Eating Soon unchanged; only explicit final food confirmation invokes its
+callback. This is not photo process-death/rotation recovery or a nutrition archive.
+
+Verification: four expected native REDs preceded production edits. Final106-case
+focused gate, including28 native cases, and full6196-case Android run passed
+(six existing skips in the full run). Lint/compile/build and private APK signature
+checks passed on matching source manifests. Source CI is a separate post-commit
+receipt; actual OEM camera/grant and live recognition acceptance remain open.
+
+## Native Review And Confirmation (2026-10-18)
+
+The photo review and parent food form share the existing 1..maximum carbohydrate
+entry range. A value below the parent's minimum no longer reaches an unusable
+food form. Nothing is rounded/clamped or automatically chosen from an AI range.
+Entered invalid mass, eaten percentage and carbohydrate fields now expose
+localized field errors and correction guidance. Missing mass remains blank;
+model mass bounds, finite-number checks and uncertain facts are unchanged.
+The carbohydrate label is kept short at enlarged font sizes; the hint and
+separate parent confirmation retain the explicit-entry boundary.
+
+Successful photo analysis still leads only to an editable review. Explicit
+carbohydrate entry transfers to the existing form; only that form's separate
+confirmation invokes its callback. Eating Soon selection is retained. These
+foreground synthetic UI guarantees are not device/provider acceptance, durable
+photo session recovery or nutritional accuracy. No new action/channel is added.
+
+Verification: final focused99 including21 native cases, and complete6189 Android
+cases (6183 passed/six existing skips), with zero failures/errors. Lint/compile/
+build and private APK signature verification passed on matching input manifests.
+Actual1.8x error rasters and the single-line carbohydrate label were inspected.
+Public exact-head CI is recorded separately in the post-commit PR receipt.
+
+## Native Selection And Failure Recovery (2026-10-17)
+
+The photo dialog owns one camera/gallery selection at a time. Both controls
+remain disabled until its callback; cancellation does not analyze anything.
+Launcher failures are localized recoverable errors, not unhandled exceptions or
+invalid-image claims. Raw provider/URI/exception details are not displayed.
+
+Authorization or service refusal after selection returns to the existing
+readiness gate. An explicit recheck only checks capability/access; it cannot
+retry the selected image. Exchange, busy and invalid-request failures have
+distinct messages, retaining existing unknown-outcome and timeout warnings.
+Mass/profile limits, uncertain nutrition provenance and final confirmation are
+unchanged. These are foreground UI guarantees, not process-death recovery or
+proof of actual OEM camera/vision acceptance. No server or therapy admission.
+
+Verification: seven expected native failures preceded production edits. Final
+70-case focused and complete 6183-case Android runs passed (six existing skips
+in the complete suite). Actual 1.8x text/error rasters were inspected; local
+lint/compile/build and private APK signature checks passed. Public exact-head
+CI and phone recognition are separate gates, not inferred from these fixtures.
+
+## Restored Connection Follow-through (2026-10-17)
+
+Saved owner credentials no longer require an ACTIVE in-memory status before the
+signed photo capability check. The same existing private-session/refresh/proof
+checks remain authoritative; unfinished activation, real 401/403 and text-only
+servers cannot authorize image upload. This fixes a false not-configured state,
+not operational image admission. Initial live inspection found no vision
+endpoint; native tests or a working text chat cannot prove photo readiness.
+An optional protected text admission source can renew public image/egress for
+the distinct image host without changing the pinned model/private identity.
+The separate owner rollout subsequently passed actual decoder/stop checks and
+one synthetic provider estimate, followed by API/proxy admission. This does not
+validate nutritional accuracy or replace confirmation in the food form. Intended
+phone installation remains unverified while ADB is empty.
+
+## Included
+
+The integration retains the current owner AI/Room-history source and merges
+PR #6, including its main-branch artwork dependency. It is not a replacement
+with the older graphics-only APK. Clinical settings, Room schema 34, prediction,
+Eating Soon, target selection and delivery commands are unchanged.
+
+The meal dialog has a photo entry. Its foreground flow checks the signed,
+per-task MEAL_PHOTO capability before offering camera/gallery. Selecting an
+image is explicit consent to upload it to the configured owner AI server.
+An independent FileProvider exposes only the meal camera cache directory,
+not the clinical PDF directory. Input is bounded at 16 MiB/100 million pixels,
+sampled, EXIF-oriented, re-encoded to JPEG <=1280 pixels and <=1 MiB without
+source metadata. Temporary camera files are deleted after use/dismissal;
+old abandoned camera files are cleaned on the next camera use.
+
+The signed client uses only `/api/ai/v1/meal-photo/jobs` and correlated job
+resources. It cannot send images through CHAT, external URLs or personal keys.
+Capability multiplexing selects each route independently and preserves the
+existing closed CHAT checks. One immutable UUID/body/deadline is submitted once;
+ambiguous acceptance is unknown, not permission to replay. Only a correlated
+receipt grants polling/cancellation authority. Cancellation is bounded.
+
+The result is an uncertain editable draft: ingredient mass, eaten percentage,
+preparation, profile and complete nutrient ranges. Schema-v1 nutrient facts and
+declared energy are PER 100 G in the declared preparation state, not portion
+totals. The user must select the mass; no midpoint is silently substituted.
+Unknown totals are shown as unknown, never zero. The user enters explicit
+carbohydrate grams and uses the result in the existing food form. Recording
+food still requires that form's final confirmation. Nutrition estimates and
+images are not persisted as a Room nutrition archive by this stage; no GI,
+bolus or target is inferred from the photo.
+
+## History Capacity
+
+Year-scale context avoids SQLite ciphertext sorting, reduces unnecessary
+payload parsing, and uses a bounded per-device in-memory aggregate. A cache hit
+requires a complete SHA-256 fingerprint of every eligible encrypted envelope
+and its canonical metadata in the same SQLite snapshot, not an mtime/count
+shortcut. Cold scans still authenticate AEAD and payload digests. Revisions,
+tombstones, future cutoffs and retention remain authoritative. SQLite JSON
+functions are required; the 5-second/50M-instruction budgets are unchanged.
+The scan remains O(N), so a local capacity result is not a server latency SLA.
+
+## Server ChatGPT Boundary
+
+`meal_vision.py` is an inactive typed adapter for an admitted contained image
+worker, not a deployed image service. It provides a fixed food-only per-100g
+prompt, immutable local correlation, strict output validation, one attempt,
+deadline and independent-stop requirements. `meal_vision_image.py` independently
+decodes/re-encodes bounded JPEGs using pinned Pillow 12.3.0. Its thread is not
+an OS sandbox. The default transport is unavailable; default owner API
+composition and readiness are not enabled by these files.
+
+Pinned public native commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`
+declares v2 UserInput Image with `type=image` and `url`; a JPEG data URI belongs
+in that field, never a local file path. This is schema evidence, not proof of
+a working contained image turn. A cached model catalog's image modality is
+also not a live inference result or operational admission.
+
+The dedicated native image protocol, image-sized pipes and concrete process
+transport are now implemented in the separate source stage documented in
+[CONTAINED_MEAL_VISION.md](CONTAINED_MEAL_VISION.md), not connected to the owner API.
+Before enabling the route, admit the host/channel, bounded decoder isolation, exact model capability,
+the SAME login/text SessionProfileGuard and independently confirmed process/IO
+teardown. Keep model/reasoning settings and tool prohibitions. Do not widen or
+tunnel through the text-only supervisor. Then perform a separately scoped
+synthetic-image model test and signed client test. No personal medical photo
+or history is needed for that test. Public API unavailability is a deployment
+blocker, not a successful estimate.
+
+## Verification
+
+Backend full suite with the pinned decoder: 962 passed, 27 opt-in skips.
+The separate 365-day capacity test passed on 210241 synthetic encrypted records:
+cold 4.02 s, verified cache 0.97 s, restart 3.64 s, external revision 3.46 s
+(macOS/Python 3.12/SQLite 3.53.4). These are local synthetic measurements.
+Android focused transport: 15 passed; final focused UI/signed-client: 26 passed.
+Frozen Android suite: 5667 tests, zero failures/errors, 6 private-fixture skips.
+Final test/lint/assemble passed in 15m56s. Lint: zero errors, 357 warnings,
+8 hints (including two platform-ExifInterface recommendations; no checks disabled).
+Debug APK signature matches the prior retained device APK. An in-place update
+on the intended device was verified by the installed APK hash, retained app/DB
+identities, restored main chart, food-curve/form navigation, truthful unconfigured
+photo state and a foreground service surviving Home/return. No meal, target,
+bolus, image or sound was submitted for testing. A fresh public API check returned
+HTTP503 `ai_service_not_deployed`; real image inference and end-to-end server
+enrollment remain unfinished. Device artifacts remain private and local.
+
+Phone update is `adb install -r` on the verified existing Copilot Redmi only.
+No disabling the package, uninstall, data clear, therapy command or test sound.
+User declined another database copy. A missing USB device blocks installation.
+Rollback uses the prior locally retained APK with matching signature; no
+destructive schema rollback is introduced.

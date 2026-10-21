@@ -10,6 +10,7 @@ import io.aaps.copilot.service.LocalNightscoutRuntimeReason
 import io.aaps.copilot.service.PowerSaveController
 import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.localObservationRuntimeAllowed
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +62,7 @@ class LocalDataBroadcastReceiver : BroadcastReceiver() {
                     )
                     return@launch
                 }
-                if (settings.therapyActionsArmed && !PowerSaveController.isActive(settings)) {
+                if (settings.localObservationRuntimeAllowed() && !PowerSaveController.isActive(settings)) {
                     ensureRuntimeService(context.applicationContext)
                 }
                 val queued = app.container.broadcastIngestRepository.enqueue(payload)

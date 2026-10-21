@@ -5,10 +5,14 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 internal class LocalNightscoutApiAuthenticator private constructor(
-    expectedSha1Hex: ByteArray
+    expectedSha1Hex: ByteArray,
+    expectedRawSha256: ByteArray
 ) {
     private val expected = expectedSha1Hex.copyOf()
+    private val rawDigest = expectedRawSha256.copyOf()
+    private var closed = false
 
+    @Synchronized
     fun accepts(candidate: String?): Boolean {
         val canonical = candidate?.takeIf(::isCanonicalSha1Hex)
         val candidateBytes = canonical
@@ -16,14 +20,31 @@ internal class LocalNightscoutApiAuthenticator private constructor(
             ?: ByteArray(SHA1_HEX_LENGTH)
         return try {
             val equal = MessageDigest.isEqual(expected, candidateBytes)
-            canonical != null && equal
+            !closed && canonical != null && equal
         } finally {
             candidateBytes.fill(0)
         }
     }
 
+    @Synchronized
+    fun acceptsRawSecret(candidate: String?): Boolean {
+        if (closed || candidate == null || candidate.length !in 1..256 ||
+            candidate.any { it !in '!'..'~' }) return false
+        val bytes = candidate.toByteArray(StandardCharsets.US_ASCII)
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return try {
+            MessageDigest.isEqual(rawDigest, digest)
+        } finally {
+            bytes.fill(0)
+            digest.fill(0)
+        }
+    }
+
+    @Synchronized
     fun clear() {
+        closed = true
         expected.fill(0)
+        rawDigest.fill(0)
     }
 
     companion object {
@@ -31,6 +52,7 @@ internal class LocalNightscoutApiAuthenticator private constructor(
 
         fun fromRawSecret(rawSecret: ByteArray): LocalNightscoutApiAuthenticator {
             val digest = MessageDigest.getInstance("SHA-1").digest(rawSecret)
+            val rawDigest = MessageDigest.getInstance("SHA-256").digest(rawSecret)
             val hex = ByteArray(SHA1_HEX_LENGTH)
             try {
                 digest.forEachIndexed { index, value ->
@@ -38,10 +60,11 @@ internal class LocalNightscoutApiAuthenticator private constructor(
                     hex[index * 2] = HEX[unsigned ushr 4]
                     hex[index * 2 + 1] = HEX[unsigned and 0x0f]
                 }
-                return LocalNightscoutApiAuthenticator(hex)
+                return LocalNightscoutApiAuthenticator(hex, rawDigest)
             } finally {
                 digest.fill(0)
                 hex.fill(0)
+                rawDigest.fill(0)
             }
         }
 

@@ -17,7 +17,7 @@ object LocalNightscoutServiceController {
     }
 
     fun start(context: Context, allowBackground: Boolean = false) {
-        if (PowerSaveRuntimeState.isActive() || !TherapyActionRuntimeState.isArmed()) {
+        if (PowerSaveRuntimeState.isActive() || !LocalObservationRuntimeState.isAllowed()) {
             return
         }
         if (!allowBackground && !AppVisibilityTracker.isForeground()) {

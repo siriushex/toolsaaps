@@ -11,6 +11,8 @@ import io.aaps.copilot.domain.alerts.DeliveryDiagnosticAssessment
 import io.aaps.copilot.domain.alerts.DeliveryDiagnosticObservation
 import io.aaps.copilot.domain.alerts.DeliveryDiagnosticPolicy
 import io.aaps.copilot.domain.alerts.DeliveryDiagnosticReason
+import io.aaps.copilot.domain.alerts.LocalAlarmLevel
+import io.aaps.copilot.domain.alerts.LocalAlarmSourceKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -23,58 +25,98 @@ class DeliveryDiagnosticRepository(
     private val episodeAlerts: EpisodeAlertDeliveryStateMachine,
     private val post: suspend (DeliveryDiagnosticAssessment) -> AlertReceiptResult,
     private val clear: () -> Unit,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    alarmClock: () -> LocalAlarmSourceClock? = { null }
 ) {
+    private val alarmSources = LocalAlarmSourceFeed(LocalAlarmSourceKind.DELIVERY_DIAGNOSTIC, alarmClock)
+    val alarmSource = alarmSources.source
+    fun currentAlarmSource(): CheckedLocalAlarmSource? = alarmSources.current()
+    fun invalidateAlarmSource() = alarmSources.invalidate()
+
     private val mutableDisplay = MutableStateFlow(DeliveryDiagnosticUiEvidence())
     val display = mutableDisplay.asStateFlow()
 
     suspend fun refreshRetainedDisplay(nowTs: Long) {
-        episodeAlerts.coordinateMutedSideEffect {
-            val retained = db.withTransaction {
-                val state = db.alertEventDao().byEpisodeId(STATE_ID)?.let {
-                    DeliveryDiagnosticStateCodec.decode(it.localSnapshotJson)
-                } ?: DeliveryDiagnosticState()
-                require(db.alertEventDao().unresolvedDeliveryDiagnosticIds() == listOfNotNull(state.activeEpisodeId.takeIf(String::isNotEmpty)))
-                displayOf(state, nowTs, false)
+        val ticket = alarmSource.value?.ticket
+        try {
+            episodeAlerts.coordinateMutedSideEffect { muted ->
+                if (muted) alarmSources.invalidate()
+                val retained = db.withTransaction {
+                    val state = db.alertEventDao().byEpisodeId(STATE_ID)?.let {
+                        DeliveryDiagnosticStateCodec.decode(it.localSnapshotJson)
+                    } ?: DeliveryDiagnosticState()
+                    require(db.alertEventDao().unresolvedDeliveryDiagnosticIds() == listOfNotNull(state.activeEpisodeId.takeIf(String::isNotEmpty)))
+                    projectionOf(state, nowTs, acceptedRevision = null).display
+                }
+                mutableDisplay.value = retained
             }
-            mutableDisplay.value = retained
+        } catch (failure: Throwable) {
+            alarmSources.fail(ticket)
+            throw failure
         }
     }
 
     suspend fun accept(nowTs: Long, observation: DeliveryDiagnosticObservation?, enabled: Boolean, lowRisk: Boolean) {
-        require(nowTs > 0)
-        episodeAlerts.coordinateMutedSideEffect { muted ->
+        val previousTicket = alarmSource.value?.ticket
+        try {
+            require(nowTs > 0)
+            episodeAlerts.coordinateMutedSideEffect { muted -> acceptLocked(nowTs, observation, enabled, lowRisk, muted) }
+        } catch (failure: Throwable) {
+            alarmSources.fail(previousTicket)
+            throw failure
+        }
+    }
+
+    private suspend fun acceptLocked(nowTs: Long, observation: DeliveryDiagnosticObservation?,
+        enabled: Boolean, lowRisk: Boolean, muted: Boolean) {
+        val ticket = alarmSources.begin(observation?.takeIf {
+            enabled && !lowRisk && !muted && it.observedAt == nowTs
+        }?.alarmObservation(nowTs))
+        try {
             // Mandatory removal cannot depend on decoding possibly corrupt diagnostic evidence.
             if (!enabled || lowRisk || muted) clear()
             val outcome = db.withTransaction { advance(nowTs, observation, enabled, lowRisk, muted) }
             outcome.display?.let { mutableDisplay.value = it }
             if (outcome.clear) clear()
-            val claim = outcome.claim ?: return@coordinateMutedSideEffect
-            currentCoroutineContext().ensureActive()
-            val postedAt = clock()
-            val result = if (postedAt < nowTs || postedAt - nowTs > DeliveryDiagnosticPolicy.MAX_GAP_MS) {
-                AlertReceiptResult.FAILED
-            } else try {
-                when (post(requireNotNull(outcome.assessment))) {
-                    AlertReceiptResult.DELIVERED -> AlertReceiptResult.DELIVERED
-                    else -> AlertReceiptResult.FAILED
+            outcome.claim?.let { claim ->
+                currentCoroutineContext().ensureActive()
+                val postedAt = clock()
+                val result = if (postedAt < nowTs || postedAt - nowTs > DeliveryDiagnosticPolicy.MAX_GAP_MS) {
+                    AlertReceiptResult.FAILED
+                } else try {
+                    when (post(requireNotNull(outcome.assessment))) {
+                        AlertReceiptResult.DELIVERED -> AlertReceiptResult.DELIVERED
+                        else -> AlertReceiptResult.FAILED
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    AlertReceiptResult.FAILED
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                AlertReceiptResult.FAILED
-            }
-            db.withTransaction {
-                check(db.alertDeliveryReceiptDao().update(claim.copy(
-                    result = result.name,
-                    deliveredAt = postedAt.takeIf { result == AlertReceiptResult.DELIVERED },
-                    sanitizedError = "notification_unavailable".takeIf { result == AlertReceiptResult.FAILED }
-                )) == 1)
-                if (result == AlertReceiptResult.DELIVERED) {
-                    val event = requireNotNull(db.alertEventDao().byEpisodeId(claim.episodeId))
-                    db.alertEventDao().upsert(event.copy(lastNotificationAt = postedAt))
+                db.withTransaction {
+                    check(db.alertDeliveryReceiptDao().update(claim.copy(
+                        result = result.name,
+                        deliveredAt = postedAt.takeIf { result == AlertReceiptResult.DELIVERED },
+                        sanitizedError = "notification_unavailable".takeIf { result == AlertReceiptResult.FAILED }
+                    )) == 1)
+                    if (result == AlertReceiptResult.DELIVERED) {
+                        val event = requireNotNull(db.alertEventDao().byEpisodeId(claim.episodeId))
+                        db.alertEventDao().upsert(event.copy(lastNotificationAt = postedAt))
+                    }
                 }
             }
+            val candidate = outcome.source
+            if (ticket != null && candidate != null &&
+                ticket.observation.measurementAtWallMs == candidate.observation.measurementAtWallMs &&
+                ticket.observation.basisKey == candidate.observation.basisKey &&
+                ticket.window.untilWallMs <= candidate.observation.validUntilWallMs) {
+                alarmSources.publish(ticket, candidate.id, candidate.revision)
+            } else {
+                alarmSources.fail(ticket)
+            }
+        } catch (failure: Throwable) {
+            alarmSources.fail(ticket)
+            throw failure
         }
     }
 
@@ -156,19 +198,21 @@ class DeliveryDiagnosticRepository(
                 }
             }
         }
+        val revision = Math.addExact(saved?.revision ?: 0, 1)
         if (saved != null || next.history.isNotEmpty() || active != null) {
             dao.upsert(event(STATE_ID, "DELIVERY_DIAGNOSTIC_STATE", "RESOLVED", nowTs,
                 DeliveryDiagnosticStateCodec.encode(next)).copy(createdAt = saved?.createdAt ?: nowTs,
-                resolvedAt = Long.MAX_VALUE, revision = Math.addExact(saved?.revision ?: 0, 1)))
+                resolvedAt = Long.MAX_VALUE, revision = revision))
         }
-        return outcome.copy(display = displayOf(next, nowTs, true))
+        val projection = projectionOf(next, nowTs, revision)
+        return outcome.copy(display = projection.display, source = projection.source)
     }
 
-    private suspend fun displayOf(state: DeliveryDiagnosticState, now: Long, accepted: Boolean): DeliveryDiagnosticUiEvidence {
-        val id = state.activeEpisodeId.takeIf(String::isNotEmpty) ?: return DeliveryDiagnosticUiEvidence()
-        val active = db.alertEventDao().byEpisodeId(id) ?: return DeliveryDiagnosticUiEvidence()
+    private suspend fun projectionOf(state: DeliveryDiagnosticState, now: Long, acceptedRevision: Long?): Projection {
+        val id = state.activeEpisodeId.takeIf(String::isNotEmpty) ?: return Projection()
+        val active = db.alertEventDao().byEpisodeId(id) ?: return Projection()
         if (active.status != "OPEN" || active.eventType != EVENT_TYPE || active.createdAt !in 1..now ||
-            active.updatedAt !in active.createdAt..now) return DeliveryDiagnosticUiEvidence()
+            active.updatedAt !in active.createdAt..now) return Projection()
         val recorded = try {
             require(active.localSnapshotJson.length <= 65_536)
             val root = JsonParser.parseString(active.localSnapshotJson).asJsonObject
@@ -176,13 +220,23 @@ class DeliveryDiagnosticRepository(
             require(reason in setOf(DeliveryDiagnosticReason.UNEXPECTED_RISE, DeliveryDiagnosticReason.PERSISTENT_HIGH))
             val food = root.get("foodConfounded").also { require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean) }.asBoolean
             DeliveryDiagnosticUiEvidence(id, active.createdAt, reason, food)
-        } catch (_: RuntimeException) { return DeliveryDiagnosticUiEvidence() }
-        if (!accepted) return recorded
+        } catch (_: RuntimeException) { return Projection() }
+        if (acceptedRevision == null || active.resolvedAt != null || active.revision <= 0) return Projection(recorded)
         val assessment = DeliveryDiagnosticPolicy.assess(state.history, now)
-        if (assessment.reason !in setOf(DeliveryDiagnosticReason.UNEXPECTED_RISE, DeliveryDiagnosticReason.PERSISTENT_HIGH)) return recorded
+        if (assessment.reason !in setOf(DeliveryDiagnosticReason.UNEXPECTED_RISE, DeliveryDiagnosticReason.PERSISTENT_HIGH)) return Projection(recorded)
         val sample = state.history.last()
-        return recorded.copy(reason = assessment.reason, foodConfounded = assessment.foodConfounded,
-            acceptedAt = minOf(sample.glucoseTs, sample.observedAt))
+        return Projection(recorded.copy(reason = assessment.reason, foodConfounded = assessment.foodConfounded,
+            acceptedAt = minOf(sample.glucoseTs, sample.observedAt)),
+            sample.alarmObservation(now)?.let { SourceCandidate(id, acceptedRevision, it) })
+    }
+
+    private fun DeliveryDiagnosticObservation.alarmObservation(now: Long): LocalAlarmSourceObservation? {
+        if (!DeliveryDiagnosticPolicy.validObservation(this)) return null
+        val oldest = minOf(observedAt, glucoseTs, forecast30TargetTs - 30 * 60_000L)
+        val lifetime = DeliveryDiagnosticPolicy.MAX_GAP_MS + 1L
+        if (oldest > Long.MAX_VALUE - lifetime) return null
+        return LocalAlarmSourceObservation(LocalAlarmLevel.DELIVERY_DIAGNOSTIC, now, glucoseTs,
+            oldest + lifetime, basisKey)
     }
 
     private fun event(id: String, type: String, status: String, now: Long, json: String, cause: String? = null) =
@@ -190,7 +244,11 @@ class DeliveryDiagnosticRepository(
             null, null, null, 1)
 
     private data class Outcome(val clear: Boolean = false, val claim: AlertDeliveryReceiptEntity? = null,
-        val assessment: DeliveryDiagnosticAssessment? = null, val display: DeliveryDiagnosticUiEvidence? = null)
+        val assessment: DeliveryDiagnosticAssessment? = null, val display: DeliveryDiagnosticUiEvidence? = null,
+        val source: SourceCandidate? = null)
+    private data class SourceCandidate(val id: String, val revision: Long, val observation: LocalAlarmSourceObservation)
+    private data class Projection(val display: DeliveryDiagnosticUiEvidence = DeliveryDiagnosticUiEvidence(),
+        val source: SourceCandidate? = null)
 
     companion object {
         const val STATE_ID = "__delivery_diagnostic_state_v1"

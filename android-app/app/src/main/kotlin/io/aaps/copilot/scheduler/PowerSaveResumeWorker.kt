@@ -9,6 +9,7 @@ import io.aaps.copilot.service.LocalNightscoutRuntimeReason
 import io.aaps.copilot.service.PowerSaveController
 import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.service.TherapyActionRuntimeState
+import io.aaps.copilot.service.localObservationRuntimeAllowed
 import kotlinx.coroutines.flow.first
 
 class PowerSaveResumeWorker(
@@ -22,11 +23,11 @@ class PowerSaveResumeWorker(
         val settings = container.settingsStore.settings.first()
         val now = System.currentTimeMillis()
         TherapyActionRuntimeState.update(settings)
-        if (!settings.therapyActionsArmed) {
+        if (!settings.localObservationRuntimeAllowed()) {
             WorkScheduler.cancelRuntimeWork(applicationContext)
             LocalNightscoutServiceController.stop(
                 applicationContext,
-                LocalNightscoutRuntimeReason.THERAPY_ACTIONS_DISARMED
+                LocalNightscoutRuntimeReason.OBSERVATION_DISABLED
             )
             return Result.success()
         }

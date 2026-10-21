@@ -16,6 +16,7 @@ class DailyAnalysisWorker(
     override suspend fun doWork(): Result {
         val container = (applicationContext as CopilotApp).container
         val settings = container.settingsStore.settings.first()
+        if (!settings.therapyActionsArmed) return Result.success()
         PowerSaveRuntimeState.update(settings)
         if (PowerSaveController.isActive(settings)) {
             WorkScheduler.cancelRuntimeWork(applicationContext)

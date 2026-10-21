@@ -54,7 +54,9 @@ def accepted_entry(job: Job, request: ChatRequest, policy: JobPolicy):
                 startedAtMs=None, finishedAtMs=None)
 
 
-def final_entry(entry: dict, job: Job, result: ChatResult | None):
+def final_entry(entry: dict, job: Job, result: ChatResult | None, *, usage_receipt=None):
+    from .provider_usage import final_usage
+
     if any(entry.get(key) != value for key, value in binding(job).items()):
         raise ValueError("chat_archive_binding_mismatch")
     if job.state not in FINAL_STATES:
@@ -72,10 +74,11 @@ def final_entry(entry: dict, job: Job, result: ChatResult | None):
             raise ValueError("chat_result_not_settled")
         answer = ChatResult.decode(result.as_dict()).text
     else:
-        if result is not None:
+        if result is not None or usage_receipt is not None:
             raise ValueError("chat_result_not_settled")
         answer = None
-    return entry | dict(state=job.state, answer=answer, startedAtMs=job.started_ms,
+    extra = {"providerUsage": final_usage(entry, usage_receipt)} if usage_receipt is not None else {}
+    return entry | extra | dict(state=job.state, answer=answer, startedAtMs=job.started_ms,
                         finishedAtMs=job.finished_ms)
 
 
@@ -118,4 +121,25 @@ def context_entry(entry):
             excerpt = excerpt[:len(excerpt) // 2]
         result[key] = excerpt
         result[key + "Truncated"] = text != excerpt
+    return result
+
+
+def read_context(store, owner, device, db, *, now_ms, exclude_job_id=None):
+    """Caller holds the bounded device transaction; no nested store lock."""
+    result = dict(origin="SERVER_ARCHIVE", generatedAtMs=now_ms, exchanges=[],
+                  hasMore=False, outcomeMeaning="Recorded server outcome, not clinical validation")
+    if db is None or db.execute("PRAGMA user_version").fetchone()[0] == 1:
+        return result
+    rows = db.execute(
+        "SELECT * FROM server_chat WHERE created_ms<=? AND updated_ms<=? "
+        "AND expires_ms>? AND job_id!=? ORDER BY created_ms DESC,job_id DESC LIMIT 13",
+        (now_ms, now_ms, now_ms, exclude_job_id or "")).fetchall()
+    for row in rows:
+        item = context_entry(decrypt_entry(store, owner, device, row))
+        if (len(result["exchanges"]) >= 12
+                or len(encoded(result)) + len(encoded(item)) + 64 > MAX_CONTEXT_BYTES):
+            result["hasMore"] = True
+            break
+        result["exchanges"].append(item)
+    result["exchanges"].reverse()
     return result

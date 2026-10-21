@@ -22,6 +22,40 @@ class EatingSoonPresentationTest {
         assertEquals(EatingSoonUiStatus.BLOCKED, eatingSoonPresentation(receipt.copy(status = "BLOCKED"), null, now).status)
     }
 
+    @Test fun mealTargetRefusalReasonSurvivesWithoutStandaloneLocalState() {
+        val blocked = refusedReceipt("forecast_30m_ci_low")
+        assertEquals("forecast_30m_ci_low", eatingSoonPresentation(blocked, null, now).reason)
+    }
+
+    @Test fun localQueueCannotEraseTheStoredRefusalReason() {
+        val blocked = eatingSoonPresentation(refusedReceipt("sensor_untrusted"), null, now)
+        val queued = EatingSoonUiState(EatingSoonUiStatus.QUEUED, key, now)
+        assertEquals("sensor_untrusted", mergeEatingSoonPresentation(blocked, queued, now).reason)
+        assertEquals("sensor_untrusted", mergeEatingSoonPresentation(blocked,
+            queued.copy(status = EatingSoonUiStatus.BLOCKED, reason = "forecast_stale"), now).reason)
+    }
+
+    @Test fun storedReasonUsesTheTransportAllowlistAndNeverExposesArbitraryPayloadText() {
+        listOf(null, "not_an_allowed_code", "x".repeat(97), 42, true,
+            listOf("sensor_untrusted"), mapOf("reason" to "sensor_untrusted")).forEach { code ->
+            assertNull(eatingSoonPresentation(refusedReceipt(code), null, now).reason)
+        }
+        assertEquals("actions_disarmed", eatingSoonPresentation(
+            refusedReceipt("therapy_actions_not_armed", "FAILED"), null, now).reason)
+        for (status in listOf("SENT", "PENDING")) {
+            assertNull(eatingSoonPresentation(refusedReceipt("sensor_untrusted", status), null, now).reason)
+        }
+        assertNull(eatingSoonPresentation(refusedReceipt("sensor_untrusted").copy(
+            idempotencyKey = "manual:other"), null, now).reason)
+    }
+
+    private fun refusedReceipt(code: Any?, status: String = "BLOCKED"): ActionCommandEntity {
+        val gson = Gson()
+        val payload = gson.fromJson(receipt.payloadJson, com.google.gson.JsonObject::class.java)
+        payload.add("eatingSoonFailureCode", gson.toJsonTree(code))
+        return receipt.copy(status = status, payloadJson = gson.toJson(payload))
+    }
+
     @Test fun onlyExactActiveCanonicalReadbackConfirms() {
         val confirmed = withConfirmedEatingSoonContext(observed, receipt, now, Gson())!!
         assertEquals(EatingSoonUiStatus.CONFIRMED, eatingSoonPresentation(receipt, confirmed, now).status)

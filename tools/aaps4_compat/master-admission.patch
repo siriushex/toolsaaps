@@ -1,0 +1,310 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+index 01768edc31..6d6280ad99 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+@@ -69,6 +69,9 @@ import org.mockito.kotlin.never
+ import org.mockito.kotlin.times
+ import org.mockito.kotlin.verify
+ import org.mockito.kotlin.whenever
++import kotlin.time.Duration.Companion.milliseconds
++import kotlin.time.ExperimentalTime
++import kotlin.time.TestTimeSource
+ 
+ internal class ClientControlReceiverTest {
+ 
+@@ -958,11 +961,12 @@ internal class ClientControlReceiverTest {
+     // -- two-step ACK -----------------------------------------------------------------------
+ 
+     /** Captures the ACK envelopes the master writes to this client's ack identifier. */
+-    private suspend fun captureAcks(clientId: String): MutableList<AckEnvelope> {
++    private suspend fun captureAcks(clientId: String, onExecuting: () -> Unit = {}): MutableList<AckEnvelope> {
+         val acks = mutableListOf<AckEnvelope>()
+         whenever(nsAndroidClient.updateSettings(eq(ClientControlPublisher.IDENTIFIER_ACK_PREFIX + clientId), any())).thenAnswer {
+             val doc = it.getArgument<JsonObject>(1)
+             acks += Json.decodeFromString<AckEnvelope>(doc["ack"]!!.jsonObject.toString())
++            if (acks.last().phase.name == "Executing") onExecuting()
+             deleteOk
+         }
+         return acks
+@@ -1011,6 +1015,125 @@ internal class ClientControlReceiverTest {
+         assertThat(authorizedRepository.current(now).single { it.clientId == clientId }.counterReceived).isEqualTo(5L)
+     }
+ 
++    @Test
++    fun commitExpiredDuringNetworkReadNeverReachesExecutor() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val acks = captureAcks(clientId)
++        val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
++        val doc = JsonObject(wrap(envelope(clientId, secret, ClientControlMessage.BolusCommit(42L), 5L, validUntil = now + 8_000L, wantsAck = true)) +
++            ("identifier" to JsonPrimitive(identifier)))
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(nsAndroidClient.searchSettings(limit = 100)).thenAnswer {
++            whenever(dateUtil.now()).thenReturn(now + 9_000L)
++            NSAndroidClient.ReadResponse(200, null, listOf(doc))
++        }
++
++        sut.processPending()
++
++        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any())
++        assertThat(acks.last().status.name).isEqualTo("Expired")
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
++    }
++
++    @Test
++    fun commitExpiredDuringExecutingAckNeverReachesExecutor() = runTest {
++        assertCommitRejectedAfterAck("Expired") { whenever(dateUtil.now()).thenReturn(now + 9_000L) }
++    }
++
++    @Test
++    fun commitAtExactDeadlineNeverReachesExecutor() = runTest {
++        assertCommitRejectedAfterAck("Expired") { whenever(dateUtil.now()).thenReturn(now + 8_000L) }
++    }
++
++    @Test
++    fun clockRollbackDuringAckCannotExtendCommand() = runTest {
++        assertCommitRejectedAfterAck("Expired") { whenever(dateUtil.now()).thenReturn(now - 1L) }
++    }
++
++    @Test
++    fun controlDisabledDuringAckNeverReachesExecutor() = runTest {
++        assertCommitRejectedAfterAck("Failed", FailureReason.ControlDisabled.name) {
++            whenever(preferences.get(BooleanKey.NsClientAllowClientControl)).thenReturn(false)
++        }
++    }
++
++    @Test
++    fun pairingRevokedDuringAckNeverReachesExecutor() = runTest {
++        assertCommitRejectedAfterAck("Failed", FailureReason.NotPaired.name) { stored = "[]" }
++    }
++
++    @Test
++    fun commitExpiredDuringCounterWriteNeverReachesExecutor() = runTest {
++        assertCommitRejectedAfterAck("Expired") {
++            whenever(preferences.put(eq(StringNonKey.NsClientControlAuthorizedClients), any<String>())).thenAnswer {
++                stored = it.getArgument(1)
++                whenever(dateUtil.now()).thenReturn(now + 9_000L)
++            }
++        }
++    }
++
++    @Test
++    fun completedExecutorOutcomeIsNotRetroactivelyCalledExpired() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val acks = captureAcks(clientId)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenAnswer {
++            whenever(dateUtil.now()).thenReturn(now + 9_000L)
++            WizardBolusExecutor.ConfirmResult.Delivered
++        }
++        val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
++        val doc = wrap(envelope(clientId, secret, ClientControlMessage.BolusCommit(42L), 5L, validUntil = now + 8_000L, wantsAck = true))
++
++        sut.onSettingsDocChanged(identifier, doc)
++        sut.onSettingsDocChanged(identifier, doc)
++
++        verify(wizardBolusExecutor, times(1)).confirm(any(), any(), any(), any(), any(), any())
++        assertThat(acks.last().phase.name).isEqualTo("Done")
++        assertThat(acks.last().status.name).isEqualTo("Ok")
++        assertThat(acks.last().timestamp).isEqualTo(now + 9_000L)
++        assertThat(ClientControlCrypto.verifyAck(secret, acks.last())).isTrue()
++    }
++
++    @OptIn(ExperimentalTime::class)
++    @Test
++    fun monotonicBudgetExpiresEvenWhenWallClockStalls() {
++        val time = TestTimeSource()
++        val deadline = ClientControlCommandDeadline(now, time.markNow())
++        time += 7_999.milliseconds
++        assertThat(deadline.expired(now + 8_000L, now)).isFalse()
++        time += 1.milliseconds
++        assertThat(deadline.expired(now + 8_000L, now)).isTrue()
++    }
++
++    @OptIn(ExperimentalTime::class)
++    @Test
++    fun freshWallClockStillExpiresBeforeMonotonicBudget() {
++        val deadline = ClientControlCommandDeadline(now, TestTimeSource().markNow())
++        assertThat(deadline.expired(now + 8_000L, now + 8_000L)).isTrue()
++        assertThat(deadline.expired(now + 8_000L, now - 1L)).isTrue()
++        assertThat(deadline.expired(now, now)).isTrue()
++        assertThat(deadline.expired(Long.MAX_VALUE, now)).isFalse()
++    }
++
++    private suspend fun assertCommitRejectedAfterAck(status: String, reason: String? = null, duringAck: () -> Unit) {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val acks = captureAcks(clientId, duringAck)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
++        val doc = wrap(envelope(clientId, secret, ClientControlMessage.BolusCommit(42L), 5L, validUntil = now + 8_000L, wantsAck = true))
++
++        sut.onSettingsDocChanged(identifier, doc)
++        sut.onSettingsDocChanged(identifier, doc)
++
++        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any())
++        assertThat(acks.last().phase.name).isEqualTo("Done")
++        assertThat(acks.last().status.name).isEqualTo(status)
++        if (reason != null) assertThat(acks.last().reason).isEqualTo(reason)
++        if (stored != "[]") assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
++    }
++
+     // -- preferences_update (generic synced-pref channel) ---------------------------------
+ 
+     private val concentrationKey = BooleanKey.GeneralInsulinConcentration.key
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+index 09ee884e0a..629fd363a3 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+@@ -63,6 +63,9 @@ import kotlin.concurrent.Volatile
+ import kotlin.concurrent.atomics.AtomicBoolean
+ import kotlin.concurrent.atomics.AtomicReference
+ import kotlin.concurrent.atomics.ExperimentalAtomicApi
++import kotlin.time.Duration.Companion.milliseconds
++import kotlin.time.TimeMark
++import kotlin.time.TimeSource
+ 
+ /**
+  * Master-side receiver for inbound client-control envelopes.
+@@ -248,7 +251,7 @@ class ClientControlReceiver(
+      */
+     suspend fun processPending() {
+         val client = nsClientV3Plugin().nsAndroidClient ?: return
+-        val now = dateUtil.now()
++        val receipt = ClientControlCommandDeadline(dateUtil.now())
+         val resp = runCatching { client.searchSettings(limit = 100) }.getOrNull() ?: return
+         for (doc in resp.values) {
+             val identifier = doc.optStringCompat("identifier")
+@@ -261,7 +264,7 @@ class ClientControlReceiver(
+             if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_ACK_PREFIX)) continue
+             // Skip our own bolus-progress docs (master-written, for clients).
+             if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_PROGRESS_PREFIX)) continue
+-            verifyAndAck(identifier, doc, now)
++            verifyAndAck(identifier, doc, receipt)
+         }
+     }
+ 
+@@ -276,10 +279,10 @@ class ClientControlReceiver(
+         if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_ACK_PREFIX)) return
+         // Bolus-progress docs are master-written, consumed by clients — never an inbound command here.
+         if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_PROGRESS_PREFIX)) return
+-        verifyAndAck(identifier, doc, dateUtil.now())
++        verifyAndAck(identifier, doc, ClientControlCommandDeadline(dateUtil.now()))
+     }
+ 
+-    private suspend fun verifyAndAck(identifier: String, doc: JsonObject, now: Long): Unit = commandMutex.withLock {
++    private suspend fun verifyAndAck(identifier: String, doc: JsonObject, receipt: ClientControlCommandDeadline): Unit = commandMutex.withLock {
+         val client = nsClientV3Plugin().nsAndroidClient ?: return
+         // Unrecognized / unverifiable docs are IGNORED, never deleted. A delete soft-deletes
+         // (tombstones) the identifier on NS, so the next legitimate PUT to that same per-type slot
+@@ -304,6 +307,7 @@ class ClientControlReceiver(
+         // the diagnostic branch below — current(now) silently drops expired pendings, which
+         // would otherwise make a scraped-expired-QR replay indistinguishable from a typo.
+         val raw = authorizedRepository.findRaw(envelope.clientId)
++        var now = dateUtil.now()
+         val entry = authorizedRepository.current(now).firstOrNull { it.clientId == envelope.clientId }
+         if (entry == null) {
+             if (raw != null && raw.state == ClientState.Pending && raw.pairExpiresAt <= now)
+@@ -325,6 +329,7 @@ class ClientControlReceiver(
+             )
+             return
+         }
++        now = dateUtil.now()
+         if (!ClientControlCrypto.timestampWithinSkew(envelope.timestamp, now)) {
+             aapsLogger.error(LTag.NSCLIENT, "ClientControl: $identifier timestamp outside skew window")
+             return
+@@ -332,7 +337,7 @@ class ClientControlReceiver(
+         // Hard expiry: a command that sat past its validity must NOT fire late (e.g. a profile switch
+         // requested 15 min ago and only now picked up). Consume the counter so it can't replay, and
+         // tell the client definitively rather than leaving it to time out.
+-        if (now > envelope.validUntil) {
++        if (receipt.expired(envelope.validUntil, now)) {
+             authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
+             nsClientRepository.addLog("◄ CLIENTCTL", "expired ${envelope.type} from ${entry.name}")
+             aapsLogger.warn(LTag.NSCLIENT, "ClientControl: $identifier expired (validUntil=${envelope.validUntil} < now=$now), not executing")
+@@ -366,12 +371,20 @@ class ClientControlReceiver(
+         // Round-trip commands (wantsAck) get the two-step ACK: Executing before dispatch, then the
+         // result. Fire-and-forget commands (scenes, pref sync) skip it — no client is waiting, so the
+         // ACK doc would be pure write amplification.
+-        if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Executing, AckStatus.Pending, null, null, now)
++        if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Executing, AckStatus.Pending, null, null, dateUtil.now())
+         // Advance the replay counter ONCE here — post-gate, pre-dispatch — so a command can never be re-executed even
+         // if a handler throws or early-returns before its own bump. The whole pipeline is inside commandMutex, so this
+         // just makes the protection order explicit; the per-handler bumpLastSeen calls become idempotent no-ops (same
+         // counter). (Hello is handled above via markActive; the expiry branch bumps + returns before reaching here.)
+-        authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
++        authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, dateUtil.now())
++        // ACK, preference storage and the command mutex may all wait. Admission is
++        // checked again after those waits, not against the pre-network timestamp.
++        val refusal = dispatchRefusal(entry, envelope, receipt, message !is ClientControlMessage.Ping)
++        if (refusal != null) {
++            if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, refusal.status, refusal.reason, null, dateUtil.now())
++            return
++        }
++        now = dateUtil.now()
+         val outcome = when (message) {
+             null                                      -> {
+                 onVerifiedUndecodablePayload(entry, envelope, now)
+@@ -384,19 +397,32 @@ class ClientControlReceiver(
+             is ClientControlMessage.SceneStop         -> onVerifiedSceneStop(entry, envelope, message, now)
+             is ClientControlMessage.PreferencesUpdate -> onVerifiedPreferencesUpdate(entry, envelope, message, now)
+             is ClientControlMessage.BolusPrepare      -> onVerifiedBolusPrepare(entry, envelope, message, now)
+-            is ClientControlMessage.BolusCommit       -> onVerifiedBolusCommit(entry, envelope, message, now)
++            is ClientControlMessage.BolusCommit       -> onVerifiedBolusCommit(entry, envelope, message, now, receipt)
+             is ClientControlMessage.WizardPrepare     -> onVerifiedWizardPrepare(entry, envelope, message, now)
+             is ClientControlMessage.BatchPrepare      -> onVerifiedBatchPrepare(entry, envelope, message, now)
+             ClientControlMessage.DismissAlarm         -> onVerifiedDismissAlarm(entry, envelope, now)
+             ClientControlMessage.StopBolus            -> onVerifiedStopBolus(entry, envelope, now)
+         }
+-        if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, outcome.status, outcome.reason, outcome.payload, now)
++        if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, outcome.status, outcome.reason, outcome.payload, dateUtil.now())
+         // Don't deleteSettings here (nor on any error path above). NS soft-deletes (tombstones)
+         // the identifier; the next legitimate same-type command from the same client would PUT to
+         // that identifier and hit HTTP 410. Counter dedup (line above) prevents replay; the doc
+         // just lingers in the slot until the next overwrite or NS auto-prune.
+     }
+ 
++    private suspend fun dispatchRefusal(entry: AuthorizedClient, envelope: SignedEnvelope, receipt: ClientControlCommandDeadline, mutating: Boolean): AckOutcome? {
++        val current = authorizedRepository.findRaw(entry.clientId)
++        val now = dateUtil.now()
++        return when {
++            receipt.expired(envelope.validUntil, now) -> AckOutcome(AckStatus.Expired, FailureReason.Expired.name)
++            current == null || current.encryptedSecret != entry.encryptedSecret || current.state != entry.state ||
++                current.counterReceived != envelope.counter || (current.state == ClientState.Pending && current.pairExpiresAt <= now) ->
++                AckOutcome(AckStatus.Failed, FailureReason.NotPaired.name)
++            mutating && !preferences.clientControlOperational() -> AckOutcome(AckStatus.Failed, FailureReason.ControlDisabled.name)
++            else -> null
++        }
++    }
++
+     private suspend fun onVerifiedHello(entry: AuthorizedClient, envelope: SignedEnvelope, now: Long) {
+         when (entry.state) {
+             ClientState.Pending -> {
+@@ -562,8 +588,9 @@ class ClientControlReceiver(
+      * re-sent commit finds the slot drained → NoPending → NoPendingBolus (no double-dose). A synchronous
+      * mode-gate rejection rides back through deliverError → ExecutionFailed. [asAdvisor] picks the correction-only path.
+      */
+-    private suspend fun onVerifiedBolusCommit(entry: AuthorizedClient, envelope: SignedEnvelope, message: ClientControlMessage.BolusCommit, now: Long): AckOutcome {
++    private suspend fun onVerifiedBolusCommit(entry: AuthorizedClient, envelope: SignedEnvelope, message: ClientControlMessage.BolusCommit, now: Long, receipt: ClientControlCommandDeadline): AckOutcome {
+         authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
++        dispatchRefusal(entry, envelope, receipt, mutating = true)?.let { return it }
+         // AtomicReference (not a plain captured var): the onError closure CAN, in the microscopic window between
+         // confirm() returning and syncDone.store(true), be invoked on the appScope thread — give the sync-path write a
+         // memory barrier so the read below can never miss it. (Same reason syncDone is an AtomicBoolean.)
+@@ -884,6 +911,16 @@ class ClientControlReceiver(
+     private data class AckOutcome(val status: AckStatus, val reason: String?, val payload: String? = null)
+ }
+ 
++/** Admission budget includes network/mutex waits; wall-clock rollback cannot renew it. */
++internal class ClientControlCommandDeadline(
++    private val receivedAt: Long,
++    private val receivedMark: TimeMark = TimeSource.Monotonic.markNow()
++) {
++    fun expired(validUntil: Long, now: Long): Boolean =
++        receivedAt < 0L || now < receivedAt || validUntil <= receivedAt || now >= validUntil ||
++            receivedMark.elapsedNow() >= (validUntil - receivedAt).milliseconds
++}
++
+ private fun EventData.WizardDetail.toDto() = WizardDetailDto(
+     totalInsulin = totalInsulin,
+     unclampedInsulin = unclampedInsulin,

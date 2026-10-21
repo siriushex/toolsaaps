@@ -114,8 +114,12 @@ internal fun ChartEventDetailsDialog(events: List<CompensationEvent>, nowTs: Lon
                             }
                             val context = contexts[item.id]
                             Fact(R.string.event_detail_gi, context?.glycemicIndex?.let {
-                                stringResource(if (it.source == GlycemicIndexSource.USER) R.string.event_detail_gi_user
-                                    else R.string.event_detail_gi_catalog, UiFormatters.formatExactGrams(it.value, locale))
+                                stringResource(when (it.source) {
+                                    GlycemicIndexSource.USER -> R.string.event_detail_gi_user
+                                    GlycemicIndexSource.CATALOG -> R.string.event_detail_gi_catalog
+                                    GlycemicIndexSource.MODEL_ESTIMATE -> R.string.event_detail_gi_model
+                                }, if (it.source == GlycemicIndexSource.MODEL_ESTIMATE)
+                                    UiFormatters.formatGrams(it.value, 0) else UiFormatters.formatExactGrams(it.value, locale))
                             } ?: stringResource(if (context == null)
                                 R.string.event_detail_context_loading else R.string.event_detail_gi_unknown))
                             item.mealProfile?.let { Fact(R.string.event_detail_food_type, stringResource(when (it) {

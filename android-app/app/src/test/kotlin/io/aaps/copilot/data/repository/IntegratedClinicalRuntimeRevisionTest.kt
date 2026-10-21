@@ -24,9 +24,154 @@ import io.aaps.copilot.domain.target.TargetManagerRuntimeState
 import io.aaps.copilot.domain.target.TargetManagerSafetyContext
 import io.aaps.copilot.domain.target.CircadianAutoState
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import org.junit.Test
 
 class IntegratedClinicalRuntimeRevisionTest {
+
+    @Test fun acceptedWriterFailureStillPublishesAlertOnceAndRemainsFailure() = runTest {
+        val expected = IllegalStateException("synthetic_writer_failure")
+        var attempts = 0
+        var targets = 0
+        var alerts = 0
+        var widgets = 0
+        val failure = runCatching {
+            failureIsolationFanOut(
+                writer = { attempts++; throw expected },
+                target = { targets++ }, alert = { alerts++ }, widget = { widgets++ })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(attempts).isEqualTo(1)
+        assertThat(targets).isEqualTo(0)
+        assertThat(alerts).isEqualTo(1)
+        assertThat(widgets).isEqualTo(0)
+    }
+
+    @Test fun acceptedTargetFailureStillPublishesAlertWithoutRetryingWriter() = runTest {
+        val expected = IllegalArgumentException("synthetic_target_failure")
+        var writes = 0
+        var alerts = 0
+        val failure = runCatching {
+            failureIsolationFanOut(writer = { writes++ }, target = { throw expected }, alert = { alerts++ })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(writes).isEqualTo(1)
+        assertThat(alerts).isEqualTo(1)
+    }
+
+    @Test fun bothAcceptedConsumersFailPreservesPrimaryAndSuppressedFailures() = runTest {
+        val primary = IllegalStateException("synthetic_writer_failure")
+        val secondary = IllegalArgumentException("synthetic_alert_failure")
+        val failure = runCatching {
+            failureIsolationFanOut(writer = { throw primary }, alert = { throw secondary })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(primary)
+        assertThat(failure!!.suppressed).asList().containsExactly(secondary)
+    }
+
+    @Test fun therapyCancellationDoesNotReplayTheAlreadyPublishedAlert() = runTest {
+        val expected = CancellationException("synthetic_owner_cancelled")
+        var alerts = 0
+        val failure = runCatching {
+            failureIsolationFanOut(writer = { throw expected }, alert = { alerts++ })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(alerts).isEqualTo(1)
+    }
+
+    @Test fun acceptedAlertIsPublishedBeforeAnyPotentiallySlowWriter() = runTest {
+        val order = mutableListOf<String>()
+        failureIsolationFanOut(writer = { order += "writer" }, target = { order += "target" },
+            alert = { order += "alert" }, widget = { order += "widget" })
+        assertThat(order).containsExactly("alert", "writer", "target", "widget").inOrder()
+    }
+
+    @Test fun alertCancellationStopsBeforeAnyWriter() = runTest {
+        val expected = CancellationException("synthetic_alert_owner_stop")
+        var writes = 0
+        val failure = runCatching {
+            failureIsolationFanOut(writer = { writes++ }, alert = { throw expected })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(writes).isEqualTo(0)
+    }
+
+    @Test fun fatalAlertFailureIsNotConvertedIntoPermissionToWrite() = runTest {
+        val expected = AssertionError("synthetic_fatal_failure")
+        var writes = 0
+        val failure = runCatching {
+            failureIsolationFanOut(writer = { writes++ }, alert = { throw expected })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(writes).isEqualTo(0)
+    }
+
+    @Test fun alreadyCancelledOwnerCannotEnterEitherAcceptedConsumer() = runTest {
+        var effects = 0
+        val owner = launch(start = CoroutineStart.UNDISPATCHED) {
+            currentCoroutineContext().cancel()
+            failureIsolationFanOut(writer = { effects++ }, alert = { effects++ })
+        }
+        owner.join()
+        assertThat(owner.isCancelled).isTrue()
+        assertThat(effects).isEqualTo(0)
+    }
+
+    @Test fun alertFailureDoesNotRetryAcceptedTherapyOrPublishSuccessWidget() = runTest {
+        val expected = IllegalStateException("synthetic_alert_failure")
+        var writes = 0
+        var targets = 0
+        var widgets = 0
+        val failure = runCatching {
+            failureIsolationFanOut(writer = { writes++ }, target = { targets++ },
+                alert = { throw expected }, widget = { widgets++ })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(writes).isEqualTo(1)
+        assertThat(targets).isEqualTo(1)
+        assertThat(widgets).isEqualTo(0)
+    }
+
+    @Test fun sourceChangeFailureNeverPublishesNotificationOrWritesTherapy() = runTest {
+        val expected = IllegalStateException("synthetic_read_only_failure")
+        var writes = 0
+        var alerts = 0
+        val failure = runCatching {
+            failureIsolationFanOut(
+                intent = AutomationRepository.AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE,
+                writer = { writes++ }, target = { throw expected }, alert = { alerts++ })
+        }.exceptionOrNull()
+        assertThat(failure).isSameInstanceAs(expected)
+        assertThat(writes).isEqualTo(0)
+        assertThat(alerts).isEqualTo(0)
+    }
+
+    private suspend fun failureIsolationFanOut(
+        intent: AutomationRepository.AutomationCycleIntent = AutomationRepository.AutomationCycleIntent.NORMAL,
+        writer: suspend () -> Unit = {}, target: suspend () -> Unit = {},
+        alert: suspend () -> Unit = {}, widget: suspend () -> Unit = {}
+    ) {
+        val accepted = acceptedSnapshot()
+        val authority = authority(forecasts())
+        val uam = AutomationRepository.bindUnifiedUamToAcceptedForecastsStatic(
+            AutomationRepository.projectUnifiedUamRuntimeStatic(
+                diagnostics = null, effectiveCobGrams = 0.0, sensorBlocked = false,
+                sensitivityRuntime = io.aaps.copilot.testSensitivityRuntimeContext(
+                    consumer = io.aaps.copilot.domain.predict.SensitivityRuntimeConsumer.UAM,
+                    snapshot = accepted)), authority)
+        AutomationRepository.runAcceptedClinicalCalculationFanOutStatic<Unit>(
+            intent = intent,
+            policy = AutomationRepository.resolveCyclePolicyStatic(intent, true, false, false),
+            acceptedSnapshot = accepted, acceptedClinicalForecastAuthority = authority,
+            unifiedUam = uam, writeUamCarbs = writer,
+            evaluateRulesAndTargetManager = { _, _ -> target(); emptyList() },
+            assessAlertCause = { _, _ -> }, publishAlerts = { _, _ -> alert() },
+            publishAcceptedForecast = widget)
+    }
 
     @Test
     fun normalFanOutRejectsUamWithoutAcceptedForecastAuthorityBeforeWriter() = runTest {

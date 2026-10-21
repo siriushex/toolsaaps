@@ -19,6 +19,7 @@ import io.aaps.copilot.domain.nutrition.PersonalAbsorptionRequest
 import io.aaps.copilot.domain.nutrition.PersonalGiAnalysis
 import io.aaps.copilot.domain.nutrition.PersonalGiAnalyzer
 import io.aaps.copilot.domain.nutrition.PersonalGiEvidence
+import io.aaps.copilot.domain.nutrition.MealTimingHistoryReport
 import io.aaps.copilot.domain.nutrition.toPortionObservation
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
 import java.time.Clock
@@ -37,12 +38,18 @@ data class PersonalAbsorptionHistoryAudit(
     val actualMassAccuracyValidated: Boolean get() = false
 }
 
-/** Explicit read-only diagnostic requests; no app graph/worker/UI registration. */
+/** Read-only diagnostics, including the optional due AI-context source audit; no clinical writer. */
 internal class PersonalAbsorptionRepository(
     private val db: CopilotDatabase, private val gson: Gson, private val clock: Clock
 ) {
     suspend fun produce(zone: ZoneId, evidence: List<PersonalAbsorptionEpisodeEvidence> = emptyList()): PersonalAbsorptionSourceSnapshot {
         return loadAnalysisSource(zone, evidence).first
+    }
+
+    suspend fun timingHistory(zone: ZoneId,
+        evidence: List<PersonalAbsorptionEpisodeEvidence> = emptyList()): MealTimingHistoryReport {
+        val (source, gi) = loadAnalysisSource(zone, evidence)
+        return MealTimingHistoryReport.calculate(source, gi)
     }
 
     suspend fun analyzeGi(zone: ZoneId, profile: MealAbsorptionProfile, portion: MealPortion,

@@ -1,0 +1,17 @@
+// Adds an external test driver to a pristine, pinned upstream checkout.
+gradle.projectsEvaluated {
+    def sdk = gradle.rootProject.findProject(':core:nssdk')
+    if (sdk == null) return
+    def source = System.getenv('AAPS_INTEROP_SOURCE')
+    def output = System.getenv('AAPS_INTEROP_CLASSPATH')
+    if (!source || !output) throw new GradleException('Missing interop paths')
+    sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(source)
+    sdk.tasks.register('exportInteropClasspath') {
+        dependsOn sdk.tasks.named('jvmTestClasses')
+        doLast {
+            def target = new File(output)
+            target.parentFile.mkdirs()
+            target.text = sdk.tasks.getByName('jvmTest').classpath.asPath
+        }
+    }
+}

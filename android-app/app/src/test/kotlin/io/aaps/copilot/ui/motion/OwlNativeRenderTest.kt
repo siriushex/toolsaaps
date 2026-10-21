@@ -46,6 +46,34 @@ import java.io.File
 class OwlNativeRenderTest {
     @get:Rule val compose=createEmptyComposeRule()
 
+    @Test fun modelCompletionMovesTheOwlAndBurgerThenReturnsToRest() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        compose.mainClock.autoAdvance = false
+        try {
+            controller.get().setContent {
+                ProvideCopilotMotion(enabled = true) {
+                    Column(Modifier.fillMaxSize().background(Color.White).padding(12.dp)) {
+                        OwlMealCompletion(OwlColorBand.GREEN, "meal-1")
+                    }
+                }
+            }
+            compose.waitForIdle()
+            val initial = draw(controller.get().window.decorView)
+            compose.mainClock.advanceTimeBy(240)
+            compose.waitForIdle()
+            val moving = draw(controller.get().window.decorView)
+            assertFalse("finite eating gesture must change raster pixels", initial.sameAs(moving))
+            compose.mainClock.advanceTimeBy(3_000)
+            compose.waitForIdle()
+            val resting = draw(controller.get().window.decorView)
+            assertTrue("completed gesture must return to rest", initial.sameAs(resting))
+            System.getenv("CLARITY_UI_EVIDENCE_DIR")?.let { dir ->
+                File(dir, "onset-owl-moving.png").outputStream().use { moving.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                File(dir, "onset-owl-rest.png").outputStream().use { resting.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun nativeFamilyIsNonblankInBothThemesAndAllOpticalSizes() {
         val controller=Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         var dark by mutableStateOf(false)

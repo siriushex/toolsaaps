@@ -48,7 +48,7 @@ class LocalAlarmPolicyTest {
     @Test fun repeatAtExactDueCreatesNextOrdinalAndRebasesDeadline() {
         val result = LocalAlarmPolicy.evaluate(evidence, initial(), at(now + 300_000L), timing)
         assertThat(result.startCycle!!.ordinal).isEqualTo(2L)
-        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(now + 600_000L)
+        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(now + 900_000L)
     }
 
     @Test fun longPauseDoesNotReplayBacklog() {
@@ -56,7 +56,7 @@ class LocalAlarmPolicyTest {
         val fresh = evidence.copy(observedElapsedMs = later.nowElapsedMs)
         val result = LocalAlarmPolicy.evaluate(fresh, initial(), later, timing)
         assertThat(result.startCycle!!.ordinal).isEqualTo(2L)
-        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(later.nowElapsedMs + 300_000L)
+        assertThat(result.state!!.nextDueElapsedMs).isEqualTo(later.nowElapsedMs + 600_000L)
     }
 
     @Test fun unchangedEvidenceBeforeDueDoesNotSlideRepeatEvenWhenWallClockChanges() {
@@ -168,8 +168,8 @@ class LocalAlarmPolicyTest {
         val state = initial()
         val paused = LocalAlarmPolicy.acknowledge(evidence, state, environment, timing, action(state))!!
         assertThat(paused.activeCycle).isNull()
-        assertThat(paused.pause!!.untilWallMs).isEqualTo(wall + 300_000L)
-        val result = LocalAlarmPolicy.evaluate(evidence, paused, at(now + 299_999L), timing)
+        assertThat(paused.pause!!.untilWallMs).isEqualTo(wall + 600_000L)
+        val result = LocalAlarmPolicy.evaluate(evidence, paused, at(now + 599_999L), timing)
         assertThat(result.admission).isEqualTo(LocalAlarmAdmission.ACKNOWLEDGED)
         assertThat(result.startCycle).isNull()
         val other = evidence.copy(key = key.copy(id = "episode-b"))
@@ -179,9 +179,25 @@ class LocalAlarmPolicyTest {
     @Test fun acknowledgementExpiresAtExactWallDeadline() {
         val state = initial()
         val paused = LocalAlarmPolicy.acknowledge(evidence, state, environment, timing, action(state))!!
-        val result = LocalAlarmPolicy.evaluate(evidence, paused, at(now + 300_000L), timing)
+        val result = LocalAlarmPolicy.evaluate(evidence, paused, at(now + 600_000L), timing)
         assertThat(result.startCycle!!.ordinal).isEqualTo(2L)
         assertThat(result.state!!.pause).isNull()
+    }
+
+    @Test fun seenLowStaysQuietForTenMinutesRegardlessOfShortRepeatSetting() {
+        for (repeat in listOf(1, 2, 5, 10)) {
+            val config = timing.copy(strongRepeatMinutes = repeat)
+            val low = evidence.copy(level = LocalAlarmLevel.LOW_NOW)
+            val active = LocalAlarmPolicy.evaluate(low, null, environment, config).state!!
+            val paused = LocalAlarmPolicy.acknowledge(low, active, environment, config, action(active))!!
+            assertThat(paused.pause!!.untilWallMs).isEqualTo(wall + 600_000L)
+            for (minute in 1..9) {
+                val current = low.copy(observedElapsedMs = now + minute * 60_000L)
+                assertThat(LocalAlarmPolicy.evaluate(current, paused, at(current.observedElapsedMs), config).admission)
+                    .isEqualTo(LocalAlarmAdmission.ACKNOWLEDGED)
+            }
+            assertThat(LocalAlarmPolicy.evaluate(low, paused, at(now + 600_000), config).startCycle).isNotNull()
+        }
     }
 
     @Test fun duplicateAcknowledgementDoesNotExtendPause() {
@@ -254,9 +270,9 @@ class LocalAlarmPolicyTest {
     }
 
     @Test fun confirmedProgressCarriesIntoNextCycleWithoutReturningToGentleStep() {
-        val state = initial()
+        val state = initial(LocalAlarmLevel.CRITICAL_5)
         val progressed = LocalAlarmPolicy.recordReached(state, state.activeCycle!!, 75, environment)
-        val result = LocalAlarmPolicy.evaluate(evidence, progressed, at(now + 300_000L), timing)
+        val result = LocalAlarmPolicy.evaluate(evidence.copy(level = LocalAlarmLevel.CRITICAL_5), progressed, at(now + 120_000L), timing)
         assertThat(result.profile!!.steps.first().targetPercent).isEqualTo(75)
         assertThat(result.state!!.reachedPercent).isEqualTo(75)
     }
@@ -344,7 +360,7 @@ class LocalAlarmPolicyTest {
         val repeated = LocalAlarmPolicy.evaluate(evidence, lower, at(now + 2_000L), timing)
         assertThat(repeated.admission).isEqualTo(LocalAlarmAdmission.ACKNOWLEDGED)
         assertThat(repeated.startCycle).isNull()
-        val resumed = LocalAlarmPolicy.evaluate(evidence, repeated.state, at(now + 120_000L), timing)
+        val resumed = LocalAlarmPolicy.evaluate(evidence, repeated.state, at(now + 600_000L), timing)
         assertThat(resumed.startCycle!!.level).isEqualTo(LocalAlarmLevel.WARNING_30)
         assertThat(resumed.startCycle!!.ordinal).isEqualTo(2L)
     }
@@ -369,7 +385,7 @@ class LocalAlarmPolicyTest {
     @Test fun acknowledgementAfterClipEndStillPausesTheCurrentOrdinal() {
         val ended = LocalAlarmPolicy.evaluate(evidence, initial(), at(now + 55_000L), timing).state!!
         val paused = LocalAlarmPolicy.acknowledge(evidence, ended, at(now + 60_000L), timing, action(ended))!!
-        assertThat(paused.pause!!.untilWallMs).isEqualTo(wall + 360_000L)
+        assertThat(paused.pause!!.untilWallMs).isEqualTo(wall + 660_000L)
         assertThat(paused.ordinal).isEqualTo(1L)
     }
 

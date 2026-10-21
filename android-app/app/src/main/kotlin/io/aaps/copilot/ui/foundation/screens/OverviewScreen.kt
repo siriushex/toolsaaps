@@ -221,6 +221,8 @@ fun OverviewScreen(
         io.aaps.copilot.domain.nutrition.LentaMealHistory(cutoff, zone,
             status = io.aaps.copilot.domain.nutrition.LentaMealHistoryStatus.UNAVAILABLE)
     },
+    photoAvailability: (suspend () -> io.aaps.copilot.data.repository.MealPhotoAvailability)? = null,
+    analyzePhoto: (suspend (ByteArray) -> io.aaps.copilot.data.repository.MealPhotoAnalysisResult)? = null,
     modifier: Modifier = Modifier
 ) {
     var showKillSwitchConfirm by remember { mutableStateOf(false) }
@@ -340,6 +342,9 @@ fun OverviewScreen(
         io.aaps.copilot.ui.foundation.components.MealEntryDialog(
             settings = state.mealPortions,
             maximumGrams = io.aaps.copilot.domain.nutrition.MealCarbLimits.MAX_MANUAL_MEAL_GRAMS,
+            photoAvailability = photoAvailability,
+            analyzePhoto = analyzePhoto,
+            onLoadHistory = onLoadMealEstimateHistory,
             onDismiss = { showCobDialog = false },
             onConfirm = { meal ->
                 showCobDialog = false

@@ -121,7 +121,7 @@ class RuntimeImage:
                 or not self.binary_pin.mode & 0o111):
             raise AdmissionError("invalid_runtime_image")
 
-    def verify(self, policy: TextSessionPolicy, hosts: dict[str, tuple[str, ...]]):
+    def _verify_tree(self):
         _parents(self.root)
         _parents(self.binary.parent)
         info = self.root.stat()
@@ -158,6 +158,10 @@ class RuntimeImage:
             os.close(root_fd)
         if seen != set(expected):
             raise AdmissionError("missing_image_entry")
+        return expected
+
+    def verify(self, policy: TextSessionPolicy, hosts: dict[str, tuple[str, ...]]):
+        expected = self._verify_tree()
         for name in ("work/client", "work/profile", "work/home", "work/empty", "tmp",
                      "bin/env", "bin/sh", "work/ca.pem", "etc/hosts", "etc/nsswitch.conf", "work/text-model.json"):
             if name not in expected:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Callable, Literal, Protocol
 
 from .job_ledger import Job, JobLedger
 
@@ -46,6 +46,20 @@ class ExecutionOutcome:
     result: object | None = None
 
 
+@dataclass(frozen=True)
+class DailyExecutionOutcome:
+    disposition: Literal["ADMITTED", "DEFERRED", "RECORDED"]
+    outcome: ExecutionOutcome | None = None
+
+
+class _NotStartedWorker:
+    async def run(self):
+        raise ValueError("daily_worker_not_started")
+
+    async def stop_and_confirm(self):
+        return True
+
+
 class JobExecutor:
     def __init__(self, ledger: JobLedger, *, clock_ms: Callable[[], int] | None = None):
         self.ledger = ledger
@@ -65,10 +79,42 @@ class JobExecutor:
             if cancelled:
                 raise asyncio.CancelledError
             return ExecutionOutcome(await asyncio.to_thread(self.ledger.get, owner_id, job_id))
+        return await self._execute_claim(claim, worker, cancelled=cancelled)
+
+    async def execute_daily(self, *, owner_id, request_id, digest, route_revision,
+                            deadline_ms, worker_factory, session_id=None, key_hash=None,
+                            max_deadline_ms=900_000):
+        if not callable(worker_factory):
+            raise ValueError("daily_worker_factory_required")
+        admission, cancelled = await _complete_critical(asyncio.to_thread(
+            self.ledger.reserve_and_claim_daily, owner_id=owner_id, request_id=request_id,
+            digest=digest, route_revision=route_revision, deadline_ms=deadline_ms,
+            now_ms=self.clock_ms(), session_id=session_id, key_hash=key_hash,
+            max_deadline_ms=max_deadline_ms))
+        if admission.disposition != "ADMITTED":
+            if cancelled:
+                raise asyncio.CancelledError
+            outcome = None if admission.job is None else ExecutionOutcome(admission.job)
+            return DailyExecutionOutcome(admission.disposition, outcome)
+        if cancelled:
+            # No factory was invoked: only this metadata claim needs withdrawal.
+            await self._execute_claim(admission.claim, _NotStartedWorker(), cancelled=True)
+        try:
+            worker = worker_factory(admission.job)
+        except (Exception, asyncio.CancelledError):
+            # A factory can have side effects before raising; retain exact ownership.
+            raise ValueError("daily_worker_construction_unconfirmed") from None
+        outcome = await self._execute_claim(admission.claim, worker)
+        return DailyExecutionOutcome("ADMITTED", outcome)
+
+    async def _execute_claim(self, claim, worker, *, cancelled=False):
+        owner_id, job_id = claim.job.owner_id, claim.job.id
         state, result = "FAILED", None
         try:
             if cancelled:
                 raise asyncio.CancelledError
+            if worker.route_revision != claim.job.route_revision or worker.request_digest != claim.job.digest:
+                raise ValueError("worker_binding_mismatch")
             # Relative timeout uses the monotonic event-loop clock. Recheck the
             # absolute deadline again at settlement to reject late results.
             remaining = max(0, min(900, (claim.job.deadline_ms - self.clock_ms()) / 1000))

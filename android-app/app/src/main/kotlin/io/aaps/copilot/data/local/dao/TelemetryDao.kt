@@ -201,6 +201,16 @@ interface TelemetryDao {
     @Query("SELECT * FROM telemetry_samples ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<TelemetrySampleEntity>>
 
+    @Query(
+        "WITH expected(source,key) AS (" +
+            "SELECT 'copilot_runtime_cob_iob','insulin_real_onset_min' UNION ALL " +
+            "SELECT 'copilot_real_insulin_profile','insulin_profile_real_source_profile') " +
+            "SELECT t.* FROM expected e JOIN telemetry_samples t ON t.source=e.source AND t.key=e.key " +
+            "AND t.timestamp=(SELECT MAX(timestamp) FROM telemetry_samples WHERE source=e.source AND key=e.key) " +
+            "ORDER BY t.timestamp DESC, t.id DESC LIMIT 129"
+    )
+    fun observeInsulinOnsetContext(): Flow<List<TelemetrySampleEntity>>
+
     @Query("SELECT * FROM telemetry_samples WHERE key IN (:keys) ORDER BY timestamp DESC LIMIT :limit")
     fun observeLatestByKeys(limit: Int, keys: List<String>): Flow<List<TelemetrySampleEntity>>
 
@@ -710,6 +720,8 @@ interface TelemetryDao {
     @Query(
         "DELETE FROM telemetry_samples WHERE rowid IN (" +
             "SELECT rowid FROM telemetry_samples WHERE " +
+            "NOT (source = 'clinical_display' AND id = key " +
+            "AND key IN ('clinical_display_snapshot_v1', 'clinical_display_attempt_v1')) AND " +
             "NOT (" +
             "id = 'copilot-local-safety-clock-high-water-v1' " +
             "AND timestamp BETWEEN 1 AND 253402300799999 " +

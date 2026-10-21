@@ -21,8 +21,11 @@ MAX_RESULT_BYTES = 64 * 1024
 MAX_INGREDIENTS = 20
 MAX_TEXT_LENGTH = 120
 MAX_ID_LENGTH = 128
+MIN_REVIEW_MASS_GRAMS = 0.1
 MAX_MASS_GRAMS = 5_000.0
 MAX_NUTRIENT_GRAMS = 5_000.0
+NUTRIENT_REFERENCE_GRAMS = 100.0
+LABEL_ROUNDING_TOLERANCE_GRAMS = 1.0
 MAX_ENERGY = 100_000.0
 SCHEMA_VERSION = 1
 
@@ -67,7 +70,7 @@ def _json_object(body: bytes, *, maximum: int, error: str) -> dict[str, Any]:
 
 
 def _string(value: object, *, maximum: int, error: str) -> str:
-    if (not isinstance(value, str) or not value or len(value) > maximum
+    if (not isinstance(value, str) or not value.strip() or len(value) > maximum
             or any(ord(char) < 0x20 for char in value)):
         raise MealPhotoSchemaError(error)
     return value
@@ -76,7 +79,10 @@ def _string(value: object, *, maximum: int, error: str) -> str:
 def _number(value: object, *, maximum: float, error: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MealPhotoSchemaError(error)
-    converted = float(value)
+    try:
+        converted = float(value)
+    except OverflowError:
+        raise MealPhotoSchemaError(error) from None
     if not math.isfinite(converted) or converted < 0.0 or converted > maximum:
         raise MealPhotoSchemaError(error)
     return converted
@@ -209,7 +215,7 @@ class MealPhotoEstimate:
             ids.add(ingredient.ingredient_id)
             ingredients.append(ingredient)
         profile = value["suggestedProfile"]
-        if profile is not None and profile not in _PROFILE_DURATIONS:
+        if profile is not None and (not isinstance(profile, str) or profile not in _PROFILE_DURATIONS):
             raise MealPhotoSchemaError("invalid_result")
         duration = value["suggestedDurationMinutes"]
         if duration is not None:
@@ -237,9 +243,10 @@ class MealPhotoEstimate:
                        error="invalid_result")
         preparation = value["preparationState"]
         basis = value["carbohydrateBasis"]
-        if preparation not in _PREPARATION_STATES or basis not in _CARBOHYDRATE_BASES:
+        if (not isinstance(preparation, str) or preparation not in _PREPARATION_STATES
+                or not isinstance(basis, str) or basis not in _CARBOHYDRATE_BASES):
             raise MealPhotoSchemaError("invalid_result")
-        return MealPhotoIngredient(
+        ingredient = MealPhotoIngredient(
             ingredient_id=ingredient_id,
             name=name,
             mass_grams=cls._range(value["massGrams"], MAX_MASS_GRAMS),
@@ -253,6 +260,24 @@ class MealPhotoEstimate:
             polyols=cls._optional_range(value["polyols"], MAX_NUTRIENT_GRAMS),
             energy=cls._energy(value["energy"]),
         )
+        if ingredient.mass_grams.maximum < MIN_REVIEW_MASS_GRAMS:
+            raise MealPhotoSchemaError("invalid_result")
+        nutrients = (ingredient.carbohydrates, ingredient.protein, ingredient.fat,
+                     ingredient.fiber, ingredient.sugar, ingredient.polyols)
+        physical_limit = NUTRIENT_REFERENCE_GRAMS + LABEL_ROUNDING_TOLERANCE_GRAMS
+        if any(nutrient is not None and nutrient.maximum > physical_limit for nutrient in nutrients):
+            raise MealPhotoSchemaError("invalid_result")
+
+        def upper(nutrient):
+            return 0.0 if nutrient is None else nutrient.maximum
+
+        # Mirror Android's physical-mass check; subfractions are not added twice.
+        carbohydrate_mass = (upper(ingredient.carbohydrates) + upper(ingredient.fiber)
+                             if basis == "AVAILABLE" else
+                             max(upper(ingredient.carbohydrates), upper(ingredient.fiber)))
+        if upper(ingredient.protein) + upper(ingredient.fat) + carbohydrate_mass > physical_limit:
+            raise MealPhotoSchemaError("invalid_result")
+        return ingredient
 
     @staticmethod
     def _range(value: object, maximum: float) -> MealPhotoRange:
@@ -275,7 +300,7 @@ class MealPhotoEstimate:
         if not isinstance(value, dict) or set(value) != {"min", "max", "unit"}:
             raise MealPhotoSchemaError("invalid_result")
         unit = value["unit"]
-        if unit not in _ENERGY_UNITS:
+        if not isinstance(unit, str) or unit not in _ENERGY_UNITS:
             raise MealPhotoSchemaError("invalid_result")
         return cls._range({"min": value["min"], "max": value["max"]}, MAX_ENERGY), unit
 

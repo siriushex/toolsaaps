@@ -10,7 +10,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -211,25 +210,26 @@ class DeliveryDiagnosticRepositoryTest {
         assertThat(posts).isEqualTo(1)
     }
 
-    @Test fun globalOffWaitsForInFlightPostThenClearsItWithoutLateRepost() = runBlocking {
+    @Test fun globalOffCancelsInFlightPostAndPreventsLateRepost() = runBlocking {
         (0..30 step 5).forEach { feed(it) }
         val entered = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
+        val cleaned = CompletableDeferred<Unit>()
         var visible = false
-        val diagnostic = repository { entered.complete(Unit); release.await(); visible = true; posts++; AlertReceiptResult.DELIVERED }
+        val diagnostic = repository {
+            entered.complete(Unit)
+            try { kotlinx.coroutines.awaitCancellation() } finally { cleaned.complete(Unit) }
+        }
         val posting = launch { feed(35, diagnostic) }
         entered.await()
         val off = launch {
             EpisodeAlertDeliveryStateMachine(RoomEpisodeAlertReceiptStore(db),
                 clearRiskSideEffects = { visible = false }, clock = { now }).muteFor(now, 30 * MINUTE)
         }
-        yield()
-        assertThat(off.isCompleted).isFalse()
-        release.complete(Unit)
-        posting.join(); off.join()
+        kotlinx.coroutines.withTimeout(2_000L) { posting.join(); off.join() }
+        assertThat(cleaned.isCompleted).isTrue()
         assertThat(visible).isFalse()
         feed(40)
-        assertThat(posts).isEqualTo(1)
+        assertThat(posts).isEqualTo(0)
     }
 
     @Test fun lostStateCannotCreateASecondEpisodeWhileTheFirstRemainsOpen() = runBlocking {

@@ -1,0 +1,40 @@
+<resources>
+    <string name="meal_photo_title">Еда по фото</string>
+    <string name="meal_photo_camera">Камера</string>
+    <string name="meal_photo_gallery">Галерея</string>
+    <string name="meal_photo_choose_another">Другое фото</string>
+    <string name="meal_photo_consent">Выбранное фото еды будет отправлено на ваш ИИ-сервер для анализа.</string>
+    <string name="meal_photo_estimate_note">Оценка модели. Уточните массу и съеденную долю.</string>
+    <string name="meal_photo_needs_connection">Подключите ИИ-сервер в разделе «Настройки → Серверный Copilot».</string>
+    <string name="meal_photo_unavailable">Анализ фото на сервере недоступен. Еду можно ввести вручную.</string>
+    <string name="meal_photo_connecting">Проверка сервера…</string>
+    <string name="meal_photo_analyzing">Распознавание еды…</string>
+    <string name="meal_photo_invalid_image">Не удалось подготовить изображение. Выберите другое фото.</string>
+    <string name="meal_photo_open_failed">Не удалось открыть камеру или галерею. Попробуйте другой источник.</string>
+    <string name="meal_photo_invalid_request">Сервер отклонил изображение. Выберите другое фото.</string>
+    <string name="meal_photo_exchange_failed">Не удалось получить результат. Проверьте связь с ИИ-сервером. Автоматический повтор не отправлен.</string>
+    <string name="meal_photo_busy">Дождитесь завершения текущего анализа фото.</string>
+    <string name="meal_photo_invalid_result">Сервер вернул некорректную оценку. Ничего не применено.</string>
+    <string name="meal_photo_analysis_failed">Не удалось завершить анализ фото. Выберите снимок ещё раз или введите еду вручную.</string>
+    <string name="meal_photo_cancelled">Анализ отменён. Можно выбрать новое фото.</string>
+    <string name="meal_photo_result_unavailable">Результат больше недоступен. Выберите снимок ещё раз или введите еду вручную.</string>
+    <string name="meal_photo_unknown">Результат запроса неизвестен. Автоматический повтор не отправлен.</string>
+    <string name="meal_photo_timeout">Время анализа истекло. Еда не записана.</string>
+    <string name="meal_photo_recheck">Проверить связь</string>
+    <string name="meal_photo_use">В форму еды</string>
+    <string name="meal_photo_mass_range">Оценка массы: %1$s г</string>
+    <string name="meal_photo_mass">Масса, г</string>
+    <string name="meal_photo_mass_invalid">Укажите массу в пределах %1$s г.</string>
+    <string name="meal_photo_eaten" formatted="false">Съедено, %</string>
+    <string name="meal_photo_eaten_invalid" formatted="false">Введите значение от 0 до 100%.</string>
+    <string name="meal_photo_raw">Сырое</string>
+    <string name="meal_photo_cooked">Готовое</string>
+    <string name="meal_photo_unknown_value">Неизвестно</string>
+    <string name="meal_photo_totals">Калории: %1$s ккал\nБелки: %2$s г\nЖиры: %3$s г\nУглеводы: %4$s г</string>
+    <string name="meal_photo_estimated_totals">По фото, масса не подтверждена</string>
+    <string name="meal_photo_portion_totals">По указанной порции</string>
+    <string name="meal_photo_incomplete">Часть значений неизвестна. Неполная сумма не равна итогу всего блюда.</string>
+    <string name="meal_photo_confirm_carbs">Углеводы, г</string>
+    <string name="meal_photo_carb_limit">От 1 до %1$s г. Еда пока не записывается.</string>
+    <string name="meal_photo_carbs_invalid">Введите углеводы от 1 до %1$s г.</string>
+</resources>

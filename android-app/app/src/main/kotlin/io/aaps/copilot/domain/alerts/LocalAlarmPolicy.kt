@@ -45,6 +45,9 @@ object LocalAlarmPolicy {
         if (!environment.enabled) return stop(LocalAlarmAdmission.DISABLED, state)
         if (!environment.armed) return stop(LocalAlarmAdmission.UNAVAILABLE, state)
         if (environment.mutedUntilWallMs > environment.nowWallMs) return stop(LocalAlarmAdmission.MUTED, state)
+        if (!evidence.level.strong && environment.noncriticalCooldownUntilElapsedMs == null) {
+            return stop(LocalAlarmAdmission.UNAVAILABLE, state)
+        }
 
         state.pause?.let { pause ->
             if (environment.nowWallMs < pause.untilWallMs) return stop(LocalAlarmAdmission.ACKNOWLEDGED, state)
@@ -58,11 +61,18 @@ object LocalAlarmPolicy {
         if (state.nextDueElapsedMs?.let { environment.nowElapsedMs < it } == true) {
             return LocalAlarmEvaluation(state, LocalAlarmAdmission.WAITING, cancelActive = oldActive != state.activeCycle)
         }
+        if (!evidence.level.strong && environment.noncriticalCooldownUntilElapsedMs!! > environment.nowElapsedMs) {
+            return LocalAlarmEvaluation(state, LocalAlarmAdmission.COOLDOWN, cancelActive = oldActive != null)
+        }
         val profile = LocalAlarmProfiles.create(evidence.level, timing, state.reachedPercent)
             ?: return stop(LocalAlarmAdmission.INVALID_TIMING, state)
         val deadline = addTime(environment.nowElapsedMs, profile.cycleTimeoutMs)
             ?: return stop(LocalAlarmAdmission.OVERFLOW, state)
-        val nextDue = addTime(environment.nowElapsedMs, profile.repeatMs)
+        val previousInterval = state.nextDueElapsedMs?.let { due -> state.lastCycle?.let { due - it.startedElapsedMs } }
+        val repeatMs = if (!evidence.level.strong && previousInterval != null) {
+            maxOf(profile.repeatMs, previousInterval * 2L).coerceAtMost(1_800_000L)
+        } else profile.repeatMs
+        val nextDue = addTime(environment.nowElapsedMs, repeatMs)
             ?: return stop(LocalAlarmAdmission.OVERFLOW, state)
         if (state.ordinal == Long.MAX_VALUE) return stop(LocalAlarmAdmission.OVERFLOW, state)
         val cycle = LocalAlarmCycle(state.key, state.generation, state.ordinal + 1L, state.level,
@@ -91,7 +101,8 @@ object LocalAlarmPolicy {
             action.ordinal != previous.ordinal || action.level != previous.level
         ) return previous
         val profile = LocalAlarmProfiles.create(evidence.level, timing, previous.reachedPercent) ?: return previous
-        val until = addTime(environment.nowWallMs, profile.repeatMs) ?: return previous
+        // Seeing a signal is a bounded pause, not another one-minute repeat interval.
+        val until = addTime(environment.nowWallMs, maxOf(profile.repeatMs, LOCAL_ALARM_ACK_MIN_PAUSE_MS)) ?: return previous
         return previous.copy(
             observedElapsedMs = evidence.observedElapsedMs,
             validUntilElapsedMs = evidence.validUntilElapsedMs,
@@ -118,7 +129,8 @@ object LocalAlarmPolicy {
     }
 
     internal fun validEnvironment(environment: LocalAlarmEnvironment): Boolean = environment.nowElapsedMs >= 0L &&
-        environment.nowWallMs >= 0L && environment.bootCount >= 0 && environment.mutedUntilWallMs >= 0L
+        environment.nowWallMs >= 0L && environment.bootCount >= 0 && environment.mutedUntilWallMs >= 0L &&
+        (environment.noncriticalCooldownUntilElapsedMs == null || environment.noncriticalCooldownUntilElapsedMs >= 0L)
 
     private fun validKey(key: LocalAlarmKey): Boolean = key.id.length in 1..128 &&
         key.id.isNotBlank() && key.id.all { it in ' '..'~' }

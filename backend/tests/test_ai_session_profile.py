@@ -106,6 +106,51 @@ def test_stop_must_be_exact_true_before_capacity_is_released(tmp_path, outcome):
     assert state(control)["phase"] == "bound"
 
 
+@pytest.mark.parametrize("outcome", [False, None, 1, True])
+def test_io_confirmation_precedes_idle_marker(tmp_path, outcome):
+    module, guard, _, control = setup(tmp_path)
+    guard.initialize()
+    calls = []
+    with guard.reserve() as lease:
+        lease.bind("a" * 32)
+        async def io_stopped():
+            assert state(control)["phase"] == "bound"
+            assert len(calls) == 1
+            return outcome
+        async def scenario():
+            await lease.finish(verifier(guard, lease.run_id, calls=calls), io_stopped=io_stopped)
+        if outcome is True:
+            asyncio.run(scenario())
+        else:
+            with pytest.raises(module.ProfileError, match="stop_unconfirmed"):
+                asyncio.run(scenario())
+    assert state(control)["phase"] == ("idle" if outcome is True else "bound")
+
+
+def test_cancellation_joins_io_and_retains_bound_marker(tmp_path):
+    _, guard, _, control = setup(tmp_path)
+    guard.initialize()
+    with guard.reserve() as lease:
+        lease.bind("a" * 32)
+        async def scenario():
+            entered, release = asyncio.Event(), asyncio.Event()
+            async def io_stopped():
+                entered.set()
+                await release.wait()
+                assert state(control)["phase"] == "bound"
+                return True
+            task = asyncio.create_task(lease.finish(verifier(guard, lease.run_id), io_stopped=io_stopped))
+            await entered.wait()
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        asyncio.run(scenario())
+    assert state(control)["phase"] == "bound"
+
+
 def test_other_invocation_or_scope_never_reaches_stop(tmp_path):
     module, guard, _, _ = setup(tmp_path)
     guard.initialize()
@@ -116,6 +161,10 @@ def test_other_invocation_or_scope_never_reaches_stop(tmp_path):
                       verifier(guard, lease.run_id, "b" * 32, calls=calls)):
             with pytest.raises(module.ProfileError):
                 asyncio.run(lease.finish(other))
+        other = verifier(guard, lease.run_id, calls=calls)
+        other.worker_user = "copilot-image"
+        with pytest.raises(module.ProfileError):
+            asyncio.run(lease.finish(other))
         other = verifier(guard, lease.run_id, calls=calls)
         other.root = guard.cgroup_root / "other"
         with pytest.raises(module.ProfileError):

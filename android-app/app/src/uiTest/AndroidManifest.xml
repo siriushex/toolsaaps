@@ -8,6 +8,9 @@
         android:name="android.permission.INTERNET"
         tools:node="remove" />
     <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="remove" />
+    <uses-permission
         android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove" />
     <uses-permission
@@ -16,6 +19,8 @@
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
         tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
     <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS"
         tools:node="remove" />
@@ -75,6 +80,7 @@
         <service
             android:name=".service.LocalNightscoutForegroundService"
             tools:node="remove" />
+        <service android:name=".service.GlucoseAlarmService" tools:node="remove" />
         <service
             android:name="androidx.health.platform.client.impl.sdkservice.HealthDataSdkService"
             tools:node="remove" />
@@ -99,6 +105,7 @@
         <receiver
             android:name=".receiver.GlucoseAlertActionReceiver"
             tools:node="remove" />
+        <receiver android:name=".receiver.GlucoseAlarmAckReceiver" tools:node="remove" />
         <receiver
             android:name=".widget.CopilotGlucoseWidgetProvider"
             tools:node="remove" />

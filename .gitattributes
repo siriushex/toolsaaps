@@ -1,1 +1,2 @@
 tools/session_store/integration.patch whitespace=-blank-at-eol
+tools/aaps4_compat/master-admission.patch whitespace=-blank-at-eol

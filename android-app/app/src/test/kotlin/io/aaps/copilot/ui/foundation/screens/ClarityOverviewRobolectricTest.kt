@@ -65,6 +65,40 @@ class ClarityOverviewRobolectricTest {
             futurePath = listOf(ChartPointUi(origin, 7.2)) + listOf(5, 30, 60).map { ChartPointUi(origin + it * 60_000L, 7.5) },
             mealImpactPoints = points, mealImpactComplete = true, mealImpactGiAdjusted = true))
 
+    @Test fun explicitMealPreparationAndFreshIobShowPassiveFoodMotionWithoutInventingStartTime() {
+        var commands = 0
+        val state = ready().copy(foodDisplayNowTs = origin,
+            eatingSoon = EatingSoonUiState(EatingSoonUiStatus.CONFIRMED, "meal-intent", origin - 120_000),
+            iobDetails = IobRuntimeDetailsUi(sampleTimestamp = origin, sampleAgeMinutes = 0))
+        withUi { screen(state, { commands++ }, { commands++ }) }.use {
+            compose.onNodeWithTag("mealPreparationGlyph", useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("mealPreparationStatus", useUnmergedTree = true).assertIsDisplayed()
+            capture("meal-preparation-main-320.png")
+            compose.onNodeWithTag("clarityEatingSoon").performClick()
+            compose.onNodeWithTag("mealPreparationTimingUnknown").assertIsDisplayed()
+            assertEquals(0, commands)
+            assertNoTextOverflow()
+            capture("meal-preparation-details-320.png", true)
+        }
+    }
+
+    @Test fun enlargedDarkPreparationKeepsStatusVisibleAndInspectionNeverSends() {
+        var commands = 0
+        val state = ready().copy(foodDisplayNowTs = origin,
+            eatingSoon = EatingSoonUiState(EatingSoonUiStatus.CONFIRMED, "meal-intent", origin - 120_000),
+            iobDetails = IobRuntimeDetailsUi(sampleTimestamp = origin))
+        withUi(dark = true, fontScale = 1.8f) { screen(state, { commands++ }, { commands++ }) }.use {
+            compose.onNodeWithTag("mealPreparationStatus", useUnmergedTree = true).assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("meal-preparation-main-dark-large.png")
+            compose.onNodeWithTag("clarityEatingSoon").performClick()
+            compose.onNodeWithTag("mealPreparationTimingUnknown").assertIsDisplayed()
+            assertNoTextOverflow()
+            capture("meal-preparation-details-dark-large.png", true)
+            assertEquals(0, commands)
+        }
+    }
+
     @Test fun lentaEstimateLoadsPersonalHistoryOnceAndAllInspectionIsPassive() {
         var reads = 0
         var commands = 0
@@ -88,7 +122,7 @@ class ClarityOverviewRobolectricTest {
             assertEquals(0, reads)
             compose.onNodeWithTag("lentaModeEstimate").performClick()
             compose.onNodeWithTag("lentaEstimateSource").assert(hasText("1", substring = true))
-            compose.onNodeWithTag("lentaEstimateGi").assert(hasText("80", substring = true))
+            compose.onNodeWithTag("lentaEstimateGi").assert(hasText("62", substring = true))
             compose.onNodeWithTag("lentaEstimateCurve").assertIsDisplayed()
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "0 - 120"))
                 .performTouchInput { click(centerRight) }
@@ -149,7 +183,8 @@ class ClarityOverviewRobolectricTest {
         }.use {
             compose.onNodeWithTag("lentaModeEstimate").performClick()
             compose.onNodeWithTag("lentaEstimateCurve").assertExists()
-            compose.onNodeWithTag("lentaEstimateGi").assert(hasText(text(R.string.lenta_history_gi_unknown)))
+            compose.onNodeWithTag("lentaEstimateGi").assertTextEquals(
+                RuntimeEnvironment.getApplication().getString(R.string.meal_automatic_gi, "60"))
             compose.onNodeWithTag("lentaEstimatePoint").assertIsDisplayed()
             val readout = compose.onNodeWithTag("lentaEstimatePoint").fetchSemanticsNode().boundsInRoot
             val footer = compose.onNodeWithTag("clarityFoodEatingSoon").fetchSemanticsNode().boundsInRoot
@@ -395,6 +430,40 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
+    @Test fun plusFoodConfirmationForwardsEatingSoonExactlyOnceForEveryFoodType() {
+        val intents = mutableListOf<Pair<Boolean, String>>()
+        withUi { screen(ready(), {}, onMeal = { eating, id -> intents += eating to id }) }.use {
+            for (profile in io.aaps.copilot.domain.profile.MealAbsorptionProfile.entries) {
+                compose.onNodeWithTag("clarityAddMeal").performClick()
+                compose.onNodeWithTag("mealProfile_${profile.name}").performScrollTo().performClick()
+                compose.onNodeWithTag("overviewEatingSoon").performScrollTo().assertIsOn()
+                compose.onNodeWithTag("overviewPrepareMeal").performClick()
+                compose.onNodeWithText(text(R.string.meal_entry_title)).assertDoesNotExist()
+            }
+            assertEquals(3, intents.size)
+            assertTrue(intents.all { it.first })
+            assertEquals(3, intents.map { it.second }.distinct().size)
+        }
+    }
+
+    @Test fun restoredFoodTargetFailureExplainsTheBlockWithoutSendingAnotherRequest() {
+        var sends = 0
+        val key = "manual:meal:restored-food:eating-soon"
+        val receipt = io.aaps.copilot.data.local.entity.ActionCommandEntity(key, origin, "temp_target",
+            com.google.gson.Gson().toJson(mapOf("targetMmol" to "4.1", "durationMinutes" to "30",
+                "reason" to "Eating Soon", "eatingSoonFailureCode" to "sensor_untrusted")), "{}", key, "BLOCKED")
+        val eating = eatingSoonPresentation(receipt, null, origin)
+        withUi { screen(ready().copy(eatingSoon = eating), { sends++ }) }.use {
+            compose.onNodeWithTag("clarityEatingSoon").performClick()
+            compose.onNodeWithTag("clarityEatingDetails").assertIsDisplayed()
+            val app = RuntimeEnvironment.getApplication()
+            compose.onNodeWithText(io.aaps.copilot.ui.manualEatingSoonBlockedMessage(app, "sensor_untrusted"))
+                .assertIsDisplayed()
+            capture("food-eating-refusal-restored.png", true)
+            assertEquals(0, sends)
+        }
+    }
+
     @Test fun ordinaryCompactOverviewNeedsNoContentScroll() {
         withUi { screen(ready(), {}) }.use {
             compose.waitForIdle()
@@ -628,10 +697,10 @@ class ClarityOverviewRobolectricTest {
     }
 
     @Composable private fun screen(state: OverviewUiState, onEating: (String) -> Unit,
-        onChange: () -> Unit = {}, onClinical: () -> Unit = {}) {
+        onChange: () -> Unit = {}, onClinical: () -> Unit = {}, onMeal: ((Boolean, String) -> Unit)? = null) {
         OverviewScreen(state, onRunCycleNow = onChange, onSetKillSwitch = { onChange() }, onDisablePowerSave = onChange,
             onAddBloodCheck = { _, _, _, _ -> onChange() }, onOpenClinicalReport = onClinical, onEatingSoon = onEating,
-            onManualCarbs = { _, _, _, _, _, _, _, _ -> onChange() },
+            onManualCarbs = { _, _, _, _, eating, id, _, _ -> onMeal?.invoke(eating, id); onChange() },
             onOpenAapsBolus = onChange, onBaseTargetScheduleSave = { onChange() },
             onUamExportUiModeChange = { onChange() }, onIsfRuntimeSourceChange = { onChange() },
             onCrRuntimeSourceChange = { onChange() })

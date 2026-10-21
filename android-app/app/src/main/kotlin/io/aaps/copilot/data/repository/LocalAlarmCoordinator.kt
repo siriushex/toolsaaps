@@ -1,6 +1,7 @@
 package io.aaps.copilot.data.repository
 
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.domain.alerts.LocalAlarmAcknowledgement
 import io.aaps.copilot.domain.alerts.LocalAlarmAdmission
 import io.aaps.copilot.domain.alerts.LocalAlarmArbitrationStatus
 import io.aaps.copilot.domain.alerts.LocalAlarmCycle
@@ -9,8 +10,10 @@ import io.aaps.copilot.domain.alerts.LocalAlarmEvidence
 import io.aaps.copilot.domain.alerts.LocalAlarmPolicy
 import io.aaps.copilot.domain.alerts.LocalAlarmRequest
 import io.aaps.copilot.domain.alerts.LocalAlarmTiming
+import io.aaps.copilot.domain.alerts.LocalAlarmWake
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -20,7 +23,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
@@ -42,7 +47,10 @@ class LocalAlarmCoordinator(
     private val audio: LocalAlarmAudioPort,
     private val current: () -> LocalAlarmCoordinatorContext?,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
-    private val waitMs: suspend (Long) -> Unit = { delay(it) }
+    private val waitMs: suspend (Long) -> Unit = { delay(it) },
+    private val onClaimed: (LocalAlarmCycle) -> Unit = {},
+    private val onFinished: (LocalAlarmExecutionResult) -> Unit = {},
+    private val onWakeChanged: (LocalAlarmWake?) -> Unit = {}
 ) {
     private class Running(val selected: LocalAlarmEvidence, val settings: AppSettings, val startedAt: Long) {
         lateinit var job: Job
@@ -52,6 +60,16 @@ class LocalAlarmCoordinator(
         @Volatile var failed = false
     }
     private val wakes = Channel<Unit>(Channel.CONFLATED)
+    private class Acknowledgement(
+        val action: LocalAlarmAcknowledgement,
+        val settings: AppSettings,
+        val evidence: LocalAlarmEvidence
+    ) {
+        val result = CompletableDeferred<Boolean>()
+    }
+    private val commandLock = Any()
+    private var acceptingCommands = false
+    @Volatile private var pendingAcknowledgement: Acknowledgement? = null
     @Volatile private var execution: Running? = null
     @Volatile var lastExit: LocalAlarmCoordinatorExit? = null
         private set
@@ -64,6 +82,21 @@ class LocalAlarmCoordinator(
         wakes.trySend(Unit)
     }
 
+    /** Only the running owner may acknowledge. An old action never cancels a newer cycle. */
+    suspend fun acknowledge(action: LocalAlarmAcknowledgement): Boolean {
+        val captured = snapshot() ?: return false
+        val evidence = acknowledgementEvidence(action, captured) ?: return false
+        val command = Acknowledgement(action, captured.settings, evidence)
+        synchronized(commandLock) {
+            if (!acceptingCommands || pendingAcknowledgement != null) return false
+            pendingAcknowledgement = command
+        }
+        execution?.takeIf { matches(action, it.cycle) }?.let(::revoke)
+        wakes.trySend(Unit)
+        // The accepted intent belongs to the runtime, not the notification receiver's lifetime.
+        return command.result.await()
+    }
+
     suspend fun run(): LocalAlarmCoordinatorExit = withContext(dispatcher) {
         if (!store.runtimeMutex.tryLock()) return@withContext LocalAlarmCoordinatorExit.BUSY
         var exit = LocalAlarmCoordinatorExit.STOPPED
@@ -72,20 +105,57 @@ class LocalAlarmCoordinator(
                 exit = LocalAlarmCoordinatorExit.UNAVAILABLE
                 return@withContext exit
             }
+            synchronized(commandLock) { acceptingCommands = true }
             coroutineScope {
                 val executor = LocalAlarmCycleExecutor(store, volume, audio, ::executionContext, dispatcher, waitMs,
-                    onClaimed = { cycle -> execution?.let { it.cycle = cycle }; wakes.trySend(Unit) },
-                    onFinished = { result -> execution?.let { it.result = result }; wakes.trySend(Unit) })
+                    onClaimed = { cycle ->
+                        execution?.let { running ->
+                            running.cycle = cycle
+                            pendingAcknowledgement?.takeIf { matches(it.action, cycle) }?.let { revoke(running) }
+                        }
+                        onClaimed(cycle)
+                        wakes.trySend(Unit)
+                    },
+                    onFinished = { result ->
+                        execution?.let { it.result = result }
+                        onFinished(result)
+                        wakes.trySend(Unit)
+                    })
                 var noClaimSnapshot: LocalAlarmCoordinatorContext? = null
                 try {
                 while (true) {
+                    currentCoroutineContext().ensureActive()
                     execution?.takeIf { it.job.isCompleted }?.let { finished ->
                         finished.job.join()
                         execution = null
                         if (!clean(finished)) return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
                     }
+                    val command = pendingAcknowledgement
+                    if (command != null) {
+                        val authority = currentAcknowledgement(command)
+                        if (authority == null) {
+                            finishAcknowledgement(command, false)
+                            continue
+                        }
+                        val running = execution
+                        // A claim can be committed before onClaimed; wait for its exact ordinal.
+                        if (running != null && running.cycle == null && running.selected.key == command.action.key) {
+                            awaitWake(this, authority.validUntilElapsedMs, snapshot()?.environment?.nowElapsedMs)
+                        } else {
+                            if (matches(command.action, running?.cycle) && !stopOwned()) {
+                                return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
+                            }
+                            val evidence = currentAcknowledgement(command)
+                            val accepted = evidence != null && store.acknowledge(evidence, timing(command.settings), command.action) {
+                                currentAcknowledgement(command) != null
+                            }
+                            finishAcknowledgement(command, accepted)
+                        }
+                        continue
+                    }
                     val captured = snapshot()
                     if (captured == null || !available(captured)) {
+                        onWakeChanged(null)
                         if (!stopOwned()) return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
                         awaitWake(this, null, captured?.environment?.nowElapsedMs)
                         continue
@@ -97,13 +167,16 @@ class LocalAlarmCoordinator(
                     }
                     // A claim may be committed before its callback resumes. Do not recover our own in-flight claim.
                     if (running != null && running.cycle == null) {
-                        awaitWake(this, running.selected.validUntilElapsedMs, captured.environment.nowElapsedMs)
+                        val evidence = captured.requests.single { it.evidence.key == running.selected.key }.evidence
+                        awaitWake(this, evidence.validUntilElapsedMs, captured.environment.nowElapsedMs)
                         continue
                     }
                     val decision = store.previewArbitration(captured.requests, running?.cycle, timing(captured.settings))
                         ?: return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
                     val after = snapshot()
                     if (!sameSnapshot(captured, after)) continue
+                    if (pendingAcknowledgement != null) continue
+                    onWakeChanged(decision.criticalWake)
                     if (decision.status == LocalAlarmArbitrationStatus.INVALID_SNAPSHOT) {
                         return@coroutineScope LocalAlarmCoordinatorExit.UNAVAILABLE
                     }
@@ -155,9 +228,15 @@ class LocalAlarmCoordinator(
                 try {
                     if (!stopOwned()) exit = LocalAlarmCoordinatorExit.UNAVAILABLE
                 } finally {
+                    val pending = synchronized(commandLock) {
+                        acceptingCommands = false
+                        pendingAcknowledgement.also { pendingAcknowledgement = null }
+                    }
+                    pending?.result?.complete(false)
                     lastExit = exit
                     if (exit == LocalAlarmCoordinatorExit.UNAVAILABLE) store.runtimeUnavailable.set(true)
                     store.runtimeMutex.unlock()
+                    onWakeChanged(null)
                 }
             }
         }
@@ -174,6 +253,35 @@ class LocalAlarmCoordinator(
     private fun revoke(running: Running) {
         running.revoked.set(true)
         running.job.cancel(CancellationException("local_alarm_authority_revoked"))
+    }
+
+    private fun matches(action: LocalAlarmAcknowledgement, cycle: LocalAlarmCycle?): Boolean =
+        cycle != null && action.key == cycle.key && action.generation == cycle.generation &&
+            action.ordinal == cycle.ordinal && action.level == cycle.level
+
+    private fun finishAcknowledgement(command: Acknowledgement, accepted: Boolean) {
+        synchronized(commandLock) {
+            if (pendingAcknowledgement === command) pendingAcknowledgement = null
+        }
+        command.result.complete(accepted)
+    }
+
+    private fun acknowledgementEvidence(action: LocalAlarmAcknowledgement,
+        captured: LocalAlarmCoordinatorContext): LocalAlarmEvidence? {
+        if (!available(captured) || action.ordinal <= 0L || action.generation <= 0L) return null
+        val evidence = captured.requests.singleOrNull { it.evidence.key == action.key }?.evidence ?: return null
+        if (evidence.generation != action.generation || evidence.level != action.level) return null
+        return evidence.takeIf {
+            LocalAlarmPolicy.evaluate(it, null, captured.environment, timing(captured.settings)).admission == LocalAlarmAdmission.START
+        }
+    }
+
+    private fun currentAcknowledgement(command: Acknowledgement): LocalAlarmEvidence? {
+        val captured = snapshot() ?: return null
+        if (captured.settings != command.settings) return null
+        val evidence = acknowledgementEvidence(command.action, captured) ?: return null
+        return evidence.takeIf { it.bootCount == command.evidence.bootCount &&
+            it.observedElapsedMs >= command.evidence.observedElapsedMs }
     }
 
     private fun clean(running: Running): Boolean = !running.failed && when (running.result?.status) {

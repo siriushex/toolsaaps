@@ -109,7 +109,8 @@ import io.aaps.copilot.data.repository.deliveryDiagnosticLookbackFrom
 import io.aaps.copilot.data.repository.ContextEventCommandResult
 import io.aaps.copilot.data.repository.UamExportPolicy
 import io.aaps.copilot.data.repository.AiChatAttachmentRequest
-import io.aaps.copilot.data.repository.AiChatTurn
+import io.aaps.copilot.data.repository.AiChatAttachmentPolicy
+import io.aaps.copilot.data.repository.ServerAiChatRouting
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.eating.EatingEvidencePoint
@@ -271,6 +272,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -1816,6 +1818,13 @@ class MainViewModel(application: Application) :
     AutomaticEventAiAnalysisSettingsAction {
 
     private val container = (application as CopilotApp).container
+    val nativeAapsConnectionState get() = container.nativeAapsConnectionState
+    fun pairNativeAaps(pin: CharArray) {
+        viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin) }
+            .invokeOnCompletion { pin.fill('\u0000') }
+    }
+    fun checkNativeAapsConnection() { viewModelScope.launch(Dispatchers.IO) { container.checkNativeAapsConnection() } }
+    fun revokeNativeAapsPairing() { viewModelScope.launch(Dispatchers.IO) { container.revokeNativeAapsPairing() } }
     private val db = container.db
     private val manualCarbSubmission = ManualMealSubmission(
         sendCarbs = container.actionRepository::submitCarbs,
@@ -1931,6 +1940,8 @@ class MainViewModel(application: Application) :
     private val aiChatInProgressState = MutableStateFlow(false)
     private val aiChatDraftState = MutableStateFlow("")
     private val aiChatPendingAttachmentsState = MutableStateFlow<List<PendingAiAttachment>>(emptyList())
+    private val aiChatAttachmentImportingState = MutableStateFlow(false)
+    private val aiChatAttachmentLock = Any()
     private val aiChatVoiceRepliesEnabledState = MutableStateFlow(false)
     private val aiChatRecordingState = MutableStateFlow(false)
     private val aiChatVoiceBusyState = MutableStateFlow(false)
@@ -2113,7 +2124,8 @@ class MainViewModel(application: Application) :
             key = CALIBRATION_AUTHORITY_TOKEN_KEY
         ),
         container.sensitivityRuntimeRepository.current,
-        calibrationSessionEvidence
+        calibrationSessionEvidence,
+        container.insulinOnsetCountdown
     ) { values ->
         buildPrimaryUiState(values)
     }
@@ -3325,6 +3337,8 @@ class MainViewModel(application: Application) :
             this.latestExternalCobGrams = externalCob?.valueDouble
             this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
+            this.aiInsulinContext = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(settings.insulinProfileId, telemetry, now)
+            this.insulinOnsetCountdown = container.insulinOnsetCountdown.value
             this.insulinRealProfileCurveCompact = insulinRealProfileCurveCompact
             this.insulinRealProfileUpdatedTs = insulinRealProfileUpdatedTs
             this.insulinRealProfileConfidence = insulinRealProfileConfidence
@@ -3670,6 +3684,8 @@ class MainViewModel(application: Application) :
         val activeCalibrationModel = values[7] as GlucoseCalibrationModel?
         val calibrationAuthorityTokenRow = values[8] as TelemetrySampleEntity?
         val sensitivityRuntime = values[9] as SensitivityRuntimeSnapshot?
+        @Suppress("UNCHECKED_CAST")
+        val insulinOnset = values[11] as InsulinOnsetCountdown?
 
         val now = System.currentTimeMillis()
         val sortedGlucose = glucose.sortedBy { it.timestamp }
@@ -3932,6 +3948,9 @@ class MainViewModel(application: Application) :
             this.latestExternalCobTimestamp = externalCob?.timestamp
             this.insulinRealOnsetMinutes = insulinRealOnsetMinutes
             this.latestActivityRatio = latestActivityRatio
+            this.insulinProfileId = settings.insulinProfileId
+            this.aiInsulinContext = io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(settings.insulinProfileId, telemetry, now)
+            this.insulinOnsetCountdown = insulinOnset
             this.latestStepsCount = latestStepsCount
             this.forecast5m = latestForecast5Row?.valueMmol
             this.forecast5mCiLow = latestForecast5Row?.ciLow
@@ -4360,13 +4379,15 @@ class MainViewModel(application: Application) :
         aiChatDraftState,
         aiChatPendingAttachmentsState,
         aiChatVoiceRepliesEnabledState,
-        aiChatRecordingState
-    ) { draft, pendingAttachments, voiceRepliesEnabled, recording ->
+        aiChatRecordingState,
+        aiChatAttachmentImportingState
+    ) { draft, pendingAttachments, voiceRepliesEnabled, recording, importing ->
         AiChatComposerHeadState(
             draft = draft,
             pendingAttachments = pendingAttachments,
             voiceRepliesEnabled = voiceRepliesEnabled,
-            recording = recording
+            recording = recording,
+            importing = importing
         )
     }.stateIn(
         scope = viewModelScope,
@@ -4385,7 +4406,8 @@ class MainViewModel(application: Application) :
             voiceRepliesEnabled = head.voiceRepliesEnabled,
             recording = head.recording,
             voiceBusy = voiceBusy,
-            speaking = speaking
+            speaking = speaking,
+            importing = head.importing
         )
     }.stateIn(
         scope = viewModelScope,
@@ -4489,14 +4511,20 @@ class MainViewModel(application: Application) :
             chatRecording = composer.recording,
             chatVoiceBusy = composer.voiceBusy,
             chatSpeaking = composer.speaking
-        )
+        ).copy(chatAttachmentBusy = composer.importing)
     }
+        .combine(container.nightlyAdviceRepository.snapshots) { state, advice -> state.copy(nightlyAdvice = advice) }
+        .combine(container.serverAiConnectionManager.state) { state, _ ->
+            val textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED
+            state.copy(chatTextOnly = textOnly, chatVoiceRepliesEnabled = state.chatVoiceRepliesEnabled && !textOnly)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AiAnalysisUiState(
                 loadState = io.aaps.copilot.ui.foundation.screens.ScreenLoadState.LOADING,
-                isStale = true
+                isStale = true,
+                chatTextOnly = true
             )
         )
 
@@ -4555,6 +4583,11 @@ class MainViewModel(application: Application) :
                 )
             )
         }
+        .combine(combine(container.clinicalDisplayRepository.snapshots,
+            container.clinicalDisplayRepository.refreshing, container.clinicalDisplayRepository.failed) { snapshot, refreshing, failed ->
+            Triple(io.aaps.copilot.ui.foundation.screens.mapClinicalDisplay(snapshot), refreshing, failed)
+        }) { state, display -> state.copy(clinicalDisplay = display.first,
+            clinicalDisplayRefreshing = display.second, clinicalDisplayFailed = display.third) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -4938,10 +4971,8 @@ class MainViewModel(application: Application) :
             ensureCircadianAnalyticsHealthyAsync(reasonHint = "route:$normalized")
             refreshCircadianReplaySummaryAsync(force = false)
         }
-        if (normalized == ROUTE_AI_ANALYSIS) {
-            if (shouldPrepareClinicalReportOnRouteTransition(previousRoute, normalized)) {
-                prepareClinicalReport()
-            }
+        if (shouldRefreshAiReadModelsOnRouteTransition(previousRoute, normalized)) {
+            container.clinicalDisplayRepository.initialize(viewModelScope)
             refreshCloudJobs(silent = true)
             refreshAnalysisInsights(silent = true)
             maybeGenerateLocalDailyAnalysis(silent = true)
@@ -4951,6 +4982,12 @@ class MainViewModel(application: Application) :
     fun prepareClinicalReport() {
         viewModelScope.launch {
             clinicalReportCommands.prepare()
+        }
+    }
+
+    fun retryClinicalDisplay() {
+        viewModelScope.launch {
+            container.clinicalDisplayRepository.refreshIfDue(System.currentTimeMillis(), ZoneId.systemDefault(), force = true)
         }
     }
 
@@ -5769,6 +5806,14 @@ class MainViewModel(application: Application) :
             }
             messageState.value = getApplication<Application>().getString(R.string.settings_ai_api_updated)
         }
+    }
+
+    suspend fun mealPhotoAvailability() = withContext(Dispatchers.IO) {
+        container.mealPhotoGateway.availability()
+    }
+
+    suspend fun analyzeMealPhoto(bytes: ByteArray) = withContext(Dispatchers.IO) {
+        container.mealPhotoRepository.analyze(bytes)
     }
 
     fun loadServerAiConnection() {
@@ -8058,6 +8103,7 @@ class MainViewModel(application: Application) :
     }
 
     fun setAiChatVoiceRepliesEnabled(enabled: Boolean) {
+        if (enabled && !allowAiChatMedia()) return
         aiChatVoiceRepliesEnabledState.value = enabled
         if (!enabled) {
             stopAiVoicePlayback()
@@ -8065,24 +8111,65 @@ class MainViewModel(application: Application) :
     }
 
     fun removeAiChatAttachment(id: String) {
-        aiChatPendingAttachmentsState.value = aiChatPendingAttachmentsState.value.filterNot { it.id == id }
+        val removed = synchronized(aiChatAttachmentLock) {
+            if (aiChatInProgressState.value) return
+            aiChatPendingAttachmentsState.value.find { it.id == id }?.also {
+                aiChatPendingAttachmentsState.value = aiChatPendingAttachmentsState.value.filterNot { item -> item.id == id }
+            }
+        }
+        removed?.let { File(it.localPath).delete() }
     }
 
     fun addAiChatAttachment(uri: Uri, preferImage: Boolean) {
+        if (preferImage && !allowAiChatMedia()) return
+        synchronized(aiChatAttachmentLock) {
+            if (aiChatInProgressState.value || aiChatVoiceBusyState.value || aiChatRecordingState.value ||
+                aiChatAttachmentImportingState.value) return
+            if (aiChatPendingAttachmentsState.value.size >= AiChatAttachmentPolicy.MAX_COUNT) {
+                messageState.value = getApplication<Application>().getString(R.string.ai_chat_attachment_full)
+                return
+            }
+            aiChatAttachmentImportingState.value = true
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val attachment = copyAiAttachmentToCache(uri = uri, preferImage = preferImage)
-                val updated = aiChatPendingAttachmentsState.value.toMutableList().apply {
-                    add(attachment)
+            var attachment: PendingAiAttachment? = null
+            var retained = false
+            try {
+                val imported = copyAiAttachmentToCache(uri = uri, preferImage = preferImage)
+                attachment = imported
+                currentCoroutineContext().ensureActive()
+                synchronized(aiChatAttachmentLock) {
+                    if (aiChatInProgressState.value || aiChatRecordingState.value || aiChatVoiceBusyState.value) return@synchronized
+                    val textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED
+                    if (textOnly && (imported.kind != AiChatAttachmentRequest.Kind.FILE ||
+                            !AiChatAttachmentPolicy.isText(imported.name, imported.mimeType))) {
+                        throw io.aaps.copilot.data.repository.ServerAiChatFailure(
+                            io.aaps.copilot.data.repository.ServerAiChatError.UNSUPPORTED_MODALITY)
+                    }
+                    val updated = aiChatPendingAttachmentsState.value + imported
+                    AiChatAttachmentPolicy.checkBudget(updated.map { it.sizeBytes })
+                    if (updated.sumOf { it.textBytes } > if (textOnly) AiChatAttachmentPolicy.MAX_SERVER_TEXT_BYTES
+                            else AiChatAttachmentPolicy.MAX_TEXT_BYTES) {
+                        throw io.aaps.copilot.data.repository.AiChatAttachmentFailure()
+                    }
+                    aiChatPendingAttachmentsState.value = updated
+                    retained = true
                 }
-                aiChatPendingAttachmentsState.value = updated.takeLast(MAX_AI_CHAT_ATTACHMENTS)
-            }.onFailure { error ->
-                messageState.value = "AI attachment failed: ${error.message ?: "unknown error"}"
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                messageState.value = getApplication<Application>().getString(
+                    if (container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED)
+                        R.string.ai_chat_attachment_text_only else R.string.ai_chat_attachment_failed)
+            } finally {
+                if (!retained) attachment?.let { File(it.localPath).delete() }
+                aiChatAttachmentImportingState.value = false
             }
         }
     }
 
     fun startAiVoiceRecording() {
+        if (!allowAiChatMedia() || aiChatInProgressState.value || aiChatVoiceBusyState.value || aiChatAttachmentImportingState.value) return
         if (ContextCompat.checkSelfPermission(
                 getApplication(),
                 Manifest.permission.RECORD_AUDIO
@@ -8134,6 +8221,10 @@ class MainViewModel(application: Application) :
         aiMediaRecorder = null
         aiRecordingFile = null
         aiChatRecordingState.value = false
+        if (!allowAiChatMedia() || aiChatInProgressState.value || aiChatVoiceBusyState.value) {
+            recordedFile.delete()
+            return
+        }
         aiChatVoiceBusyState.value = true
         viewModelScope.launch {
             val transcript = runCatching {
@@ -8160,48 +8251,42 @@ class MainViewModel(application: Application) :
 
     fun sendAiChatPrompt(prompt: String = aiChatDraftState.value, fromVoiceTranscript: Boolean = false) {
         val question = prompt.trim()
-        if (question.isBlank()) return
+        if (!canSubmitAiChat(question, aiChatInProgressState.value, aiChatVoiceBusyState.value,
+                aiChatRecordingState.value)) return
+        val pendingAttachments = synchronized(aiChatAttachmentLock) {
+            if (aiChatAttachmentImportingState.value || aiChatInProgressState.value) return
+            aiChatInProgressState.value = true
+            aiChatPendingAttachmentsState.value.toList()
+        }
 
         viewModelScope.launch {
-            val snapshot = uiState.value
-            if (!snapshot.aiAnalysisReady) {
-                val waiting = String.format(
-                    Locale.US,
-                    "%.1f/%dh",
-                    snapshot.aiDataCoverageHours,
-                    snapshot.aiMinDataHours
-                )
+            var draftConsumed = false
+            try {
+                val snapshot = uiState.value
+                val now = System.currentTimeMillis()
+                val historyBeforeSend = aiChatModelHistory(aiChatMessagesState.value)
+                val requests = pendingAttachments.map { attachment ->
+                    AiChatAttachmentRequest(attachment.name, attachment.mimeType, attachment.localPath, attachment.kind)
+                }
+                if (requests.isNotEmpty()) withContext(Dispatchers.IO) {
+                    if (container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED) {
+                        AiChatAttachmentPolicy.serverQuestion(question, requests)
+                    } else AiChatAttachmentPolicy.load(requests)
+                }
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "assistant-wait-${System.currentTimeMillis()}",
-                    role = "assistant",
-                    text = "Нужно накопить минимум 24ч данных для AI-чата. Сейчас: $waiting",
-                    ts = System.currentTimeMillis()
+                    id = "user-${UUID.randomUUID()}",
+                    role = "user",
+                    text = question,
+                    ts = now,
+                    attachments = pendingAttachments.map { it.toUi() },
+                    voiceTranscript = fromVoiceTranscript
                 )
-                return@launch
-            }
-
-            val now = System.currentTimeMillis()
-            val pendingAttachments = aiChatPendingAttachmentsState.value
-            val historyBeforeSend = aiChatMessagesState.value
-                .takeLast(10)
-                .map { msg -> AiChatTurn(role = msg.role, text = msg.text) }
-            val userAttachmentsUi = pendingAttachments.map { it.toUi() }
-            aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                id = "user-$now",
-                role = "user",
-                text = question,
-                ts = now,
-                attachments = userAttachmentsUi,
-                voiceTranscript = fromVoiceTranscript
-            )
-            aiChatDraftState.value = ""
-            aiChatPendingAttachmentsState.value = emptyList()
-            aiChatInProgressState.value = true
-
-            val contextSummary = buildAiChatContextSummary(snapshot)
-
-            runCatching {
-                if (pendingAttachments.isEmpty()) {
+                // Attachment preflight may suspend while the user starts the next draft.
+                if (aiChatDraftState.value == prompt) aiChatDraftState.value = ""
+                aiChatPendingAttachmentsState.value = emptyList()
+                draftConsumed = true
+                val contextSummary = buildAiChatContextSummary(snapshot)
+                val response = if (pendingAttachments.isEmpty()) {
                     container.aiChatRepository.ask(
                         question = question,
                         contextSummary = contextSummary,
@@ -8212,39 +8297,44 @@ class MainViewModel(application: Application) :
                         question = question,
                         contextSummary = contextSummary,
                         history = historyBeforeSend,
-                        attachments = pendingAttachments.map { attachment ->
-                            AiChatAttachmentRequest(
-                                name = attachment.name,
-                                mimeType = attachment.mimeType,
-                                localPath = attachment.localPath,
-                                kind = attachment.kind
-                            )
-                        }
+                        attachments = requests
                     )
                 }
-            }.onSuccess { response ->
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "assistant-${System.currentTimeMillis()}",
+                    id = "assistant-${UUID.randomUUID()}",
                     role = "assistant",
                     text = response,
                     ts = System.currentTimeMillis()
                 )
-                if (aiChatVoiceRepliesEnabledState.value) {
+                if (aiChatVoiceRepliesEnabledState.value &&
+                    container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.UNCONFIGURED) {
                     playAiVoiceReply(response)
                 }
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 aiChatMessagesState.value = aiChatMessagesState.value + AiChatMessageUi(
-                    id = "assistant-err-${System.currentTimeMillis()}",
+                    id = "assistant-err-${UUID.randomUUID()}",
                     role = "assistant",
-                    text = "AI chat failed: ${error.message ?: "unknown error"}",
-                    ts = System.currentTimeMillis()
+                    text = "",
+                    ts = System.currentTimeMillis(),
+                    failure = aiChatFailureUi(error)
                 )
+            } finally {
+                aiChatInProgressState.value = false
+                if (draftConsumed) pendingAttachments.forEach { File(it.localPath).delete() }
             }
-            aiChatInProgressState.value = false
         }
     }
 
+    private fun allowAiChatMedia(): Boolean {
+        if (container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.UNCONFIGURED) return true
+        messageState.value = getApplication<Application>().getString(R.string.ai_chat_text_only)
+        return false
+    }
+
     private suspend fun playAiVoiceReply(text: String) {
+        if (!allowAiChatMedia()) return
         aiChatVoiceBusyState.value = true
         val audioDir = File(getApplication<Application>().cacheDir, "ai-chat-tts").apply { mkdirs() }
         runCatching {
@@ -8296,39 +8386,30 @@ class MainViewModel(application: Application) :
         val document = DocumentFile.fromSingleUri(context, uri)
         val mimeType = resolver.getType(uri) ?: document?.type
         val isImage = preferImage || mimeType?.startsWith("image/") == true
-        val baseName = document?.name?.takeIf { it.isNotBlank() } ?: "attachment-${System.currentTimeMillis()}"
-        val safeName = baseName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val baseName = document?.name?.takeIf { it.isNotBlank() }?.take(256) ?: "attachment-${System.currentTimeMillis()}"
+        val safeName = baseName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(128)
         val attachmentDir = File(context.cacheDir, "ai-chat-attachments").apply { mkdirs() }
-        val target = File(attachmentDir, "${System.currentTimeMillis()}-$safeName")
-        resolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        } ?: error("Unable to open attachment")
-        return PendingAiAttachment(
-            id = UUID.randomUUID().toString(),
-            name = baseName,
-            mimeType = mimeType,
-            localPath = target.absolutePath,
-            kind = if (isImage) AiChatAttachmentRequest.Kind.IMAGE else AiChatAttachmentRequest.Kind.FILE,
-            sizeLabel = formatBytes(target.length()),
-            previewLabel = buildAttachmentPreview(baseName, mimeType, target)
-        )
-    }
-
-    private fun buildAttachmentPreview(
-        name: String,
-        mimeType: String?,
-        file: File
-    ): String {
-        return if (mimeType?.startsWith("image/") == true) {
-            "photo"
-        } else {
-            container.aiChatRepository
-                .let { io.aaps.copilot.data.repository.AiChatRepository.extractTextAttachmentPreviewStatic(file, mimeType) }
-                ?.lineSequence()
-                ?.firstOrNull()
-                ?.take(48)
-                ?.takeIf { it.isNotBlank() }
-                ?: name.substringAfterLast('.').ifBlank { "file" }
+        val target = File(attachmentDir, "${UUID.randomUUID()}-$safeName")
+        try {
+            resolver.openInputStream(uri)?.use { input -> AiChatAttachmentPolicy.copyBounded(input, target) }
+                ?: error("chat_attachment_unavailable")
+            val kind = if (isImage) AiChatAttachmentRequest.Kind.IMAGE else AiChatAttachmentRequest.Kind.FILE
+            val content = AiChatAttachmentPolicy.load(listOf(AiChatAttachmentRequest(baseName, mimeType, target.path, kind)),
+                textOnly = container.aiChatRepository.chatRoutingState() == ServerAiChatRouting.SERVER_REQUIRED).single()
+            return PendingAiAttachment(
+                id = UUID.randomUUID().toString(),
+                name = content.name,
+                mimeType = content.mime,
+                localPath = target.absolutePath,
+                kind = kind,
+                sizeLabel = formatBytes(target.length()),
+                previewLabel = content.text?.lineSequence()?.firstOrNull()?.take(48) ?: if (isImage) "photo" else "PDF",
+                sizeBytes = target.length(),
+                textBytes = if (content.text != null) content.bytes.size else 0
+            )
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
         }
     }
 
@@ -8346,6 +8427,10 @@ class MainViewModel(application: Application) :
         aiMediaRecorder = null
         aiRecordingFile = null
         stopAiVoicePlayback()
+        synchronized(aiChatAttachmentLock) {
+            aiChatPendingAttachmentsState.value.forEach { File(it.localPath).delete() }
+            aiChatPendingAttachmentsState.value = emptyList()
+        }
         super.onCleared()
     }
 
@@ -8603,62 +8688,7 @@ class MainViewModel(application: Application) :
     }
 
     private fun buildAiChatContextSummary(state: MainUiState): String {
-        val reportMetrics = if (state.dailyReportMetrics.isEmpty()) {
-            "daily_report_metrics: none"
-        } else {
-            state.dailyReportMetrics.joinToString(separator = "\n") { metric ->
-                "${metric.horizonMinutes}m -> " +
-                    "MAE=${formatNullable(metric.mae)}, " +
-                    "RMSE=${formatNullable(metric.rmse)}, " +
-                    "MARD=${formatNullable(metric.mardPct)}%, " +
-                    "BIAS=${formatNullable(metric.bias)}, " +
-                    "n=${metric.sampleCount ?: 0}"
-            }
-        }
-
-        val topFactors = state.dailyReportReplayFactors
-            .sortedByDescending { it.contributionScore }
-            .take(6)
-            .joinToString(separator = "; ") { factor ->
-                "${factor.horizonMinutes}m:${factor.factor} score=${formatNullable(factor.contributionScore)} uplift=${formatNullable(factor.upliftPct)}%"
-            }
-            .ifBlank { "none" }
-
-        val hotspots = state.dailyReportReplayHotspots
-            .sortedByDescending { it.mae }
-            .take(6)
-            .joinToString(separator = "; ") { hotspot ->
-                "${hotspot.horizonMinutes}m H${hotspot.hour}: MAE=${formatNullable(hotspot.mae)} MARD=${formatNullable(hotspot.mardPct)}%"
-            }
-            .ifBlank { "none" }
-
-        val recommendations = state.dailyReportRecommendations
-            .take(6)
-            .joinToString(separator = "; ")
-            .ifBlank { "none" }
-
-        return buildString {
-            appendLine("coverage_hours=${String.format(Locale.US, "%.1f", state.aiDataCoverageHours)}")
-            appendLine("glucose_current=${formatNullable(state.latestGlucoseMmol)} mmol/L")
-            appendLine("delta=${formatNullable(state.glucoseDelta)} mmol/L")
-            appendLine("forecast_5=${formatNullable(state.forecast5m)} ci=[${formatNullable(state.forecast5mCiLow)}..${formatNullable(state.forecast5mCiHigh)}]")
-            appendLine("forecast_30=${formatNullable(state.forecast30m)} ci=[${formatNullable(state.forecast30mCiLow)}..${formatNullable(state.forecast30mCiHigh)}]")
-            appendLine("forecast_60=${formatNullable(state.forecast60m)} ci=[${formatNullable(state.forecast60mCiLow)}..${formatNullable(state.forecast60mCiHigh)}]")
-            appendLine("iob=${formatNullable(state.latestIobUnits)}U iob_real=${formatNullable(state.latestIobRealUnits)}U cob=${formatNullable(state.latestCobGrams)}g dia_h=${formatNullable(state.insulinRealOnsetMinutes?.div(60.0))}")
-            appendLine("isf_real=${formatNullable(state.isfCrRealtimeIsfEff)} isf_base=${formatNullable(state.isfCrRealtimeIsfBase)}")
-            appendLine("cr_real=${formatNullable(state.isfCrRealtimeCrEff)} cr_base=${formatNullable(state.isfCrRealtimeCrBase)}")
-            appendLine("isfcr_conf=${formatNullable(state.isfCrRealtimeConfidence)} quality=${formatNullable(state.isfCrRealtimeQualityScore)} mode=${state.isfCrRealtimeMode ?: "--"}")
-            appendLine("activity_ratio=${formatNullable(state.latestActivityRatio)} steps=${formatNullable(state.latestStepsCount)}")
-            appendLine("uam_calc_active=${state.calculatedUamActive ?: false} uci0=${formatNullable(state.calculatedUci0Mmol5m)} uam_carbs=${formatNullable(state.calculatedUamCarbsGrams)}")
-            appendLine("sensor_quality_score=${formatNullable(state.sensorQualityScore)} sensor_blocked=${state.sensorQualityBlocked ?: false}")
-            appendLine("adaptive_state=${state.controllerState ?: "--"} next_target=${formatNullable(state.controllerNextTarget)} confidence=${formatNullable(state.controllerConfidence)}")
-            appendLine("daily_report_generated_ts=${state.dailyReportGeneratedAtTs ?: 0}")
-            appendLine("daily_report_metrics:")
-            appendLine(reportMetrics)
-            appendLine("daily_replay_top_factors=$topFactors")
-            appendLine("daily_replay_hotspots=$hotspots")
-            appendLine("daily_recommendations=$recommendations")
-        }
+        return buildAiChatContextSummary(state, System.currentTimeMillis())
     }
 
     private fun formatNullable(value: Double?, decimals: Int = 2): String {
@@ -11788,7 +11818,7 @@ class MainViewModel(application: Application) :
             return value.toString()
         }
 
-        internal fun shouldPrepareClinicalReportOnRouteTransition(
+        internal fun shouldRefreshAiReadModelsOnRouteTransition(
             currentRoute: String,
             nextRoute: String
         ): Boolean = currentRoute != nextRoute && nextRoute == ROUTE_AI_ANALYSIS
@@ -11988,7 +12018,6 @@ class MainViewModel(application: Application) :
         private const val ROUTE_ANALYTICS = "analytics"
         private const val ROUTE_AI_ANALYSIS = "ai_analysis"
         private const val AI_MIN_DATA_HOURS = 24
-        private const val MAX_AI_CHAT_ATTACHMENTS = 4
         private const val AI_TUNING_MIN_CONFIDENCE = 0.45
         private const val AI_TUNING_MIN_MATCHED_SAMPLES = 36.0
         private const val AI_TUNING_BLOCK_RISK_LEVEL = 3.0
@@ -12155,7 +12184,7 @@ internal fun buildPrimaryTelemetryKeysForUi(): List<String> = listOf(
     "cr_runtime_selected_value",
     "isf_runtime_fallback_active",
     "cr_runtime_fallback_active"
-)
+).plus(io.aaps.copilot.data.repository.AiInsulinContext.KEYS).distinct()
 
 private fun buildIsfCrHistoryPoints(
     profileHistory: List<ProfileEstimateEntity>,
@@ -13170,6 +13199,8 @@ class MainUiState {
     var latestEffectiveCobGrams: Double? = null
     var latestEffectiveCobTimestamp: Long? = null
     var insulinRealOnsetMinutes: Double? = null
+    internal var aiInsulinContext: io.aaps.copilot.data.repository.AiInsulinContext? = null
+    var insulinOnsetCountdown: InsulinOnsetCountdown? = null
     var insulinRealProfileCurveCompact: String? = null
     var insulinRealProfileUpdatedTs: Long? = null
     var insulinRealProfileConfidence: Double? = null
@@ -13706,7 +13737,9 @@ private data class PendingAiAttachment(
     val localPath: String,
     val kind: AiChatAttachmentRequest.Kind,
     val sizeLabel: String?,
-    val previewLabel: String?
+    val previewLabel: String?,
+    val sizeBytes: Long,
+    val textBytes: Int
 ) {
     fun toUi(): AiChatAttachmentUi = AiChatAttachmentUi(
         id = id,
@@ -13722,7 +13755,8 @@ private data class AiChatComposerHeadState(
     val draft: String = "",
     val pendingAttachments: List<PendingAiAttachment> = emptyList(),
     val voiceRepliesEnabled: Boolean = false,
-    val recording: Boolean = false
+    val recording: Boolean = false,
+    val importing: Boolean = false
 )
 
 private data class AiChatComposerState(
@@ -13731,7 +13765,8 @@ private data class AiChatComposerState(
     val voiceRepliesEnabled: Boolean = false,
     val recording: Boolean = false,
     val voiceBusy: Boolean = false,
-    val speaking: Boolean = false
+    val speaking: Boolean = false,
+    val importing: Boolean = false
 )
 
 data class DryRunUi(

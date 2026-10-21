@@ -5,6 +5,7 @@ import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.Forecast
 import io.aaps.copilot.domain.model.GlucosePoint
 import io.aaps.copilot.domain.model.RuleState
+import io.aaps.copilot.domain.activity.PhysicalActivityObservation
 import org.junit.Test
 
 class AdaptiveTargetControllerRuleTest {
@@ -177,6 +178,30 @@ class AdaptiveTargetControllerRuleTest {
     }
 
     @Test
+    fun sixMinuteRateEvaluationsDoNotProveThirtyMinutesOfRest() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = 1_800_000_000_000L
+        rule.evaluate(context(now, defaultGlucose(now), defaultForecasts(now),
+            telemetry = mapOf("activity_ratio" to 1.4)))
+        repeat(6) { index ->
+            val ts = now + (index + 1) * 60_000L
+            val decision = rule.evaluate(context(ts, defaultGlucose(ts), defaultForecasts(ts),
+                telemetry = mapOf("activity_ratio" to 1.0), activeTempTargetMmol = 8.2))
+            assertThat(decision.reasons).doesNotContain("activity_recovery_to_base")
+        }
+    }
+
+    @Test
+    fun sensitivityRatioIsNotEvidenceOfPhysicalActivity() {
+        val now = 1_800_000_000_000L
+        val decision = AdaptiveTargetControllerRule().evaluate(
+            context(now, defaultGlucose(now), defaultForecasts(now),
+                telemetry = mapOf("sensitivity_ratio" to 1.5))
+        )
+        assertThat(decision.reasons).doesNotContain("activity_protection_active")
+    }
+
+    @Test
     fun activityTriggerRaisesTargetInConfiguredRange() {
         val rule = AdaptiveTargetControllerRule()
         val now = System.currentTimeMillis()
@@ -245,7 +270,7 @@ class AdaptiveTargetControllerRuleTest {
 
         var steps = 960.0
         var recoveryDecision = activation
-        for (i in 1..6) {
+        for (i in 1..7) {
             steps += 4.0
             val ts = now + (1L + i) * 5L * 60_000L
             recoveryDecision = rule.evaluate(
@@ -260,6 +285,7 @@ class AdaptiveTargetControllerRuleTest {
                     activeTempTargetMmol = 8.2
                 )
             )
+            if (i < 7) assertThat(recoveryDecision.reasons).doesNotContain("activity_recovery_to_base")
         }
 
         assertThat(recoveryDecision.state).isEqualTo(RuleState.TRIGGERED)
@@ -267,6 +293,147 @@ class AdaptiveTargetControllerRuleTest {
         assertThat(recoveryDecision.actionProposal).isNotNull()
         assertThat(recoveryDecision.actionProposal!!.targetMmol).isWithin(0.01).of(5.5)
     }
+
+    @Test
+    fun repeatedObservationNeverAccumulatesRestOrRenewsStaleActivity() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = 1_800_000_000_000L
+        activityDecision(rule, observation(now, 1.4))
+        val low = observation(now + 60_000, 1.0)
+        repeat(35) { minute ->
+            val decision = activityDecision(rule, low, low.timestamp + minute * 60_000L)
+            assertThat(decision.reasons).doesNotContain("activity_recovery_to_base")
+            if (minute > 10) {
+                assertThat(decision.actionProposal).isNull()
+                assertThat(decision.reasons).contains("activity_evidence_unavailable")
+            }
+        }
+    }
+
+    @Test
+    fun conflictingTimestampCannotBecomeUsableByReplayingItsFirstValue() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = 1_800_000_000_000L
+        activityDecision(rule, observation(now, 1.4))
+        val low = observation(now + 60_000, 1.0)
+        activityDecision(rule, low)
+        activityDecision(rule, low.copy(activityRatio = 1.5))
+        val replayed = activityDecision(rule, low)
+        assertThat(replayed.actionProposal).isNull()
+        assertThat(replayed.reasons).contains("activity_evidence_unavailable")
+    }
+
+    @Test
+    fun minuteAndFiveMinuteCadencesRequireSameMeasuredRestDuration() {
+        listOf(1L, 5L).forEach { cadence ->
+            val rule = AdaptiveTargetControllerRule()
+            val now = 1_800_000_000_000L
+            activityDecision(rule, observation(now, 1.4))
+            val firstLow = now + 60_000
+            for (minute in 0L..30L step cadence) {
+                val decision = activityDecision(rule, observation(firstLow + minute * 60_000, 1.0))
+                assertThat("activity_recovery_to_base" in decision.reasons).isEqualTo(minute == 30L)
+            }
+        }
+    }
+
+    @Test
+    fun healthConnectHeartbeatCanProveRestWithoutCountingIntermediateEvaluations() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = 1_800_000_000_000L
+        activityDecision(rule, observation(now, 1.4).copy(source = "health_connect"))
+        val firstLow = now + 60_000
+        for (minute in 0L..30L) {
+            val acquisitionMinute = minute / 15L * 15L
+            val sample = observation(firstLow + acquisitionMinute * 60_000, 1.0)
+                .copy(source = "health_connect")
+            val decision = activityDecision(rule, sample, firstLow + minute * 60_000)
+            assertThat("activity_recovery_to_base" in decision.reasons).isEqualTo(minute == 30L)
+        }
+    }
+
+    @Test
+    fun subMinuteStepUpdatesDoNotInventFiveMinuteExerciseIntensity() {
+        val rule = AdaptiveTargetControllerRule()
+        val now = 1_800_000_000_000L
+        activityDecision(rule, observation(now, 1.0, 1000.0))
+        val decision = activityDecision(rule, observation(now + 1000, 1.0, 1001.0))
+        assertThat(decision.reasons).doesNotContain("activity_protection_active")
+    }
+
+    @Test
+    fun gapAndSourceChangesRestartMeasuredRest() {
+        listOf("gap", "source", "day").forEach { change ->
+            val rule = AdaptiveTargetControllerRule()
+            val now = 1_800_000_000_000L
+            activityDecision(rule, observation(now, 1.4))
+            for (minute in 1L..26L step 5L) activityDecision(rule, observation(now + minute * 60_000, 1.0))
+            val resume = now + (if (change == "gap") 41L else 31L) * 60_000
+            val source = if (change == "source") "health_connect" else "local_sensor"
+            val day = if (change == "day") "next-day" else "same-day"
+            for (minute in 0L..30L step 5L) {
+                val sample = observation(resume + minute * 60_000, 1.0).copy(source = source, counterDay = day)
+                val decision = activityDecision(rule, sample)
+                assertThat("activity_recovery_to_base" in decision.reasons).isEqualTo(minute == 30L)
+            }
+        }
+    }
+
+    @Test
+    fun newLoadMissingEvidenceAndClockReversalRestartRest() {
+        listOf("load", "missing", "clock", "conflict", "blocked").forEach { interruption ->
+            val rule = AdaptiveTargetControllerRule()
+            val now = 1_800_000_000_000L
+            activityDecision(rule, observation(now, 1.4))
+            for (minute in 1L..26L step 5L) activityDecision(rule, observation(now + minute * 60_000, 1.0))
+            when (interruption) {
+                "load" -> activityDecision(rule, observation(now + 27 * 60_000, 1.4))
+                "clock" -> activityDecision(rule, observation(now + 25 * 60_000, 1.0))
+                "conflict" -> activityDecision(rule, observation(now + 26 * 60_000, 1.4))
+                "blocked" -> {
+                    val ts = now + 27 * 60_000
+                    rule.evaluate(context(ts, defaultGlucose(ts), defaultForecasts(ts), sensorBlocked = true))
+                }
+                else -> activityDecision(rule, null, now + 27 * 60_000)
+            }
+            val restart = now + 31 * 60_000
+            for (minute in 0L..30L step 5L) {
+                val decision = activityDecision(rule, observation(restart + minute * 60_000, 1.0))
+                assertThat("activity_recovery_to_base" in decision.reasons).isEqualTo(minute == 30L)
+            }
+        }
+    }
+
+    @Test
+    fun counterResetIsNotRestAndNewSourceCounterIsNotExercise() {
+        val now = 1_800_000_000_000L
+        val rule = AdaptiveTargetControllerRule()
+        activityDecision(rule, observation(now, 1.4, 1000.0))
+        for (minute in 1L..26L step 5L) activityDecision(rule, observation(now + minute * 60_000, null, 1000.0))
+        val reset = activityDecision(rule, observation(now + 31 * 60_000, null, 0.0))
+        assertThat(reset.reasons).doesNotContain("activity_recovery_to_base")
+        val isolated = AdaptiveTargetControllerRule()
+        activityDecision(isolated, observation(now, null, 10.0))
+        val other = activityDecision(isolated, observation(now + 60_000, null, 9000.0).copy(source = "health_connect"))
+        assertThat(other.reasons).doesNotContain("activity_protection_active")
+    }
+
+    @Test
+    fun rawTelemetryCannotCreateAnActivityProposalWithoutPhysicalEvidence() {
+        val now = 1_800_000_000_000L
+        val raw = context(now, defaultGlucose(now), defaultForecasts(now),
+            telemetry = mapOf("activity_ratio" to 1.5)).copy(physicalActivity = null)
+        assertThat(AdaptiveTargetControllerRule().evaluate(raw).reasons).doesNotContain("activity_protection_active")
+    }
+
+    private fun observation(timestamp: Long, ratio: Double?, steps: Double? = null) =
+        PhysicalActivityObservation(timestamp, "local_sensor", "same-day", ratio, steps)
+
+    private fun activityDecision(rule: AdaptiveTargetControllerRule, sample: PhysicalActivityObservation?,
+        now: Long = requireNotNull(sample).timestamp) = rule.evaluate(
+        context(now, defaultGlucose(now), defaultForecasts(now), activeTempTargetMmol = 8.2)
+            .copy(physicalActivity = sample)
+    )
 
     @Test
     fun safetyForceHigh_usesAdaptiveMaxBoundFromContext() {
@@ -506,6 +673,8 @@ class AdaptiveTargetControllerRuleTest {
         sensorBlocked = sensorBlocked,
         safetyIobUnits = safetyIobUnits,
         latestTelemetry = telemetry,
+        physicalActivity = if (telemetry["activity_ratio"] != null || telemetry["steps_count"] != null)
+            observation(now, telemetry["activity_ratio"], telemetry["steps_count"]) else null,
         adaptiveMaxStepMmol = 0.25,
         adaptiveMinTargetMmol = adaptiveMinTargetMmol,
         adaptiveMaxTargetMmol = adaptiveMaxTargetMmol

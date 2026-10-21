@@ -70,6 +70,60 @@ class MealPhotoEstimateParserTest {
             .isInstanceOf(MealPhotoParseResult.Invalid::class.java)
     }
 
+    @Test
+    fun rejectsMassRangesThatCannotBeReviewedByTheNutritionCalculator() {
+        listOf("{\"min\": 0, \"max\": 0}", "{\"min\": 0, \"max\": 0.05}").forEach { mass ->
+            val json = validJson().replace("{\"min\": 80, \"max\": 120}", mass)
+            assertThat(MealPhotoEstimateParser.parse(json)).isEqualTo(
+                MealPhotoParseResult.Invalid(MealPhotoParseResult.Invalid.Reason.INVALID_VALUE)
+            )
+        }
+    }
+
+    @Test
+    fun rejectsImpossiblePer100GramNutrientsAndCombinedPhysicalMass() {
+        val excessiveNutrient = validJson().replace("{\"min\": 28, \"max\": 34}",
+            "{\"min\": 28, \"max\": 102}")
+        val excessiveCombinedMass = validJson().replace("{\"min\": 2, \"max\": 4}",
+            "{\"min\": 2, \"max\": 70}")
+        val excessiveSugar = validJson().replace("{\"min\": 0, \"max\": 1}",
+            "{\"min\": 0, \"max\": 102}")
+        listOf(excessiveNutrient, excessiveCombinedMass, excessiveSugar).forEach { json ->
+            assertThat(MealPhotoEstimateParser.parse(json)).isEqualTo(
+                MealPhotoParseResult.Invalid(MealPhotoParseResult.Invalid.Reason.INVALID_VALUE)
+            )
+        }
+    }
+
+    @Test
+    fun usesExistingCarbohydrateBasisAndRoundingRulesWithoutDoubleCountingSubfractions() {
+        val total = validJson().replace("{\"min\": 28, \"max\": 34}",
+            "{\"min\": 90, \"max\": 90}")
+            .replace("\"fiber\": null", "\"fiber\": {\"min\": 10, \"max\": 10}")
+            .replace("\"polyols\": null", "\"polyols\": {\"min\": 20, \"max\": 20}")
+        val available = total.replace("\"TOTAL\"", "\"AVAILABLE\"")
+        assertThat(MealPhotoEstimateParser.parse(total)).isInstanceOf(MealPhotoParseResult.Valid::class.java)
+        assertThat(MealPhotoEstimateParser.parse(total.replace("\"TOTAL\"", "\"UNKNOWN\"")))
+            .isInstanceOf(MealPhotoParseResult.Valid::class.java)
+        assertThat(MealPhotoEstimateParser.parse(available)).isEqualTo(
+            MealPhotoParseResult.Invalid(MealPhotoParseResult.Invalid.Reason.INVALID_VALUE)
+        )
+        val roundingLimit = validJson().replace("{\"min\": 28, \"max\": 34}",
+            "{\"min\": 95, \"max\": 95}")
+        assertThat(MealPhotoEstimateParser.parse(roundingLimit))
+            .isInstanceOf(MealPhotoParseResult.Valid::class.java)
+        assertThat(MealPhotoEstimateParser.parse(roundingLimit.replace("95", "95.01")))
+            .isInstanceOf(MealPhotoParseResult.Invalid::class.java)
+        val minimumMass = validJson().replace("{\"min\": 80, \"max\": 120}",
+            "{\"min\": 0.1, \"max\": 0.1}")
+        assertThat(MealPhotoEstimateParser.parse(minimumMass))
+            .isInstanceOf(MealPhotoParseResult.Valid::class.java)
+        val includesZero = validJson().replace("{\"min\": 80, \"max\": 120}",
+            "{\"min\": 0, \"max\": 120}")
+        assertThat(MealPhotoEstimateParser.parse(includesZero))
+            .isInstanceOf(MealPhotoParseResult.Valid::class.java)
+    }
+
     private fun validJson(): String = """
         {
           "schemaVersion": 1,

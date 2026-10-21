@@ -23,6 +23,7 @@ import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.security.TherapyActionTransportGate
 import io.aaps.copilot.security.TherapyActionsNotArmedException
 import io.aaps.copilot.service.ApiFactory
+import io.aaps.copilot.service.AapsTreatmentBroadcastCapability
 import io.aaps.copilot.service.isOwnedLocalNightscoutEndpoint
 import io.aaps.copilot.util.UnitConverter
 import java.time.Instant
@@ -31,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,7 +47,8 @@ class NightscoutActionRepository(
     private val carbsSendThrottle: CarbsSendThrottle,
     private val tempTargetSendThrottle: TempTargetSendThrottle,
     private val gson: Gson,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val nativeTargetTransport: NativeTargetTransport? = null
 ) : AapsCarbGateway {
 
     suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
@@ -92,12 +96,18 @@ class NightscoutActionRepository(
         deliveryGuard: (suspend () -> String?)? = null
     ): Boolean {
         val frozenCommand = command.copy(params = command.params.toMap())
-        // Publish manual intent before waiting so queued manager preflights see it.
-        val priorityRegistration = if (isExactEatingSoonCommand(frozenCommand)) {
-            registerPendingCommand(frozenCommand)
-        } else null
+        var priorityRegistration: PendingCommandRegistration? = null
         var admitted = false
         try {
+            if (isExactEatingSoonCommand(frozenCommand)) {
+                currentCoroutineContext().ensureActive()
+                // Capture ownership before cancellation can discard the committed Room result.
+                // This contains only local registration, never queue admission or delivery.
+                withContext(NonCancellable) {
+                    priorityRegistration = registerPendingCommand(frozenCommand)
+                }
+                currentCoroutineContext().ensureActive()
+            }
             return TEMP_TARGET_WRITE_MUTEX.withLock {
                 admitted = true
                 val registration = priorityRegistration
@@ -107,10 +117,11 @@ class NightscoutActionRepository(
             }
         } catch (cancelled: CancellationException) {
             // Only the owner cancelled before admission can prove no delivery began.
-            if (!admitted && priorityRegistration?.kind == PendingCommandRegistrationKind.FIRST_RESERVED) {
+            val owned = priorityRegistration
+            if (!admitted && owned?.kind == PendingCommandRegistrationKind.FIRST_RESERVED) {
                 try {
                     withContext(NonCancellable) {
-                        markBlocked(priorityRegistration.command, "target_not_sent")
+                        markBlocked(owned.command, "target_not_sent")
                     }
                 } catch (cleanupFailure: Exception) {
                     cancelled.addSuppressed(cleanupFailure)
@@ -224,6 +235,17 @@ class NightscoutActionRepository(
         val local = db.actionCommandDao().byIdempotencyKey(idempotencyKey)
         if (local?.status == STATUS_SENT) return TempTargetDeliveryReconciliation.SENT
 
+        if (nativeRouteConfigured()) {
+            return when (nativeOutcome { reconcile(idempotencyKey) }) {
+                NativeTargetOutcome.APPLIED -> {
+                    local?.let { db.actionCommandDao().updateStatusByIds(listOf(it.id), STATUS_PENDING, STATUS_SENT) }
+                    TempTargetDeliveryReconciliation.SENT
+                }
+                NativeTargetOutcome.NOT_SENT -> TempTargetDeliveryReconciliation.CONFIRMED_ABSENT
+                NativeTargetOutcome.UNKNOWN -> TempTargetDeliveryReconciliation.UNKNOWN
+            }
+        }
+
         val settings = settingsStore.settings.first()
         val targets = nightscoutWriteTargets(settings)
         if (targets.isEmpty()) return TempTargetDeliveryReconciliation.UNKNOWN
@@ -323,6 +345,17 @@ class NightscoutActionRepository(
                 mapOf("reason" to reason, "idempotencyKey" to command.idempotencyKey)
             )
             return false
+        }
+        if (nativeRouteConfigured()) {
+            return when (nativeOutcome {
+                if (isFirstReservation) send(command) { deliveryGuard?.invoke() }
+                else reconcile(command.idempotencyKey)
+            }) {
+                NativeTargetOutcome.APPLIED -> { markSent(command, "aaps_v3_signed_ack"); true }
+                NativeTargetOutcome.NOT_SENT -> { markBlocked(command, "target_not_sent"); false }
+                NativeTargetOutcome.UNKNOWN -> throw TempTargetDeliveryUnknownException(
+                    "native_target_delivery_unknown", IllegalStateException("native_target_not_confirmed"))
+            }
         }
         val nowIso = Instant.now().toString()
         val targetMgdl = UnitConverter.mmolToMgdl(target).toDouble()
@@ -566,7 +599,7 @@ class NightscoutActionRepository(
             STATUS_SENT -> EatingSoonResult(MealDeliveryStatus.SENT)
             STATUS_BLOCKED, STATUS_FAILED -> EatingSoonResult(
                 MealDeliveryStatus.BLOCKED,
-                canonicalEatingSoonFailureCode(blockReason) ?: storedEatingSoonFailureCode(record) ?: "target_not_sent"
+                canonicalEatingSoonFailureCode(blockReason) ?: eatingSoonFailureReasonStatic(record, gson) ?: "target_not_sent"
             )
             else -> EatingSoonResult(MealDeliveryStatus.UNKNOWN, "delivery_unconfirmed")
         }
@@ -963,29 +996,6 @@ class NightscoutActionRepository(
             (canonicalEatingSoonFailureCode(reason) ?: "target_not_sent")))
     }
 
-    private fun storedEatingSoonFailureCode(record: ActionCommandEntity): String? {
-        val payload = try {
-            gson.fromJson(record.payloadJson, JsonObject::class.java)
-        } catch (_: JsonParseException) {
-            null
-        }
-        val value = payload?.get(EATING_SOON_FAILURE_CODE)
-            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
-        return canonicalEatingSoonFailureCode(value)
-    }
-
-    private fun canonicalEatingSoonFailureCode(reason: String?): String? {
-        if (reason == null || reason.length > 96) return null
-        val code = reason.removePrefix("managed_preflight:")
-        if (code == "therapy_actions_not_armed") return "actions_disarmed"
-        if (code in EATING_SOON_FAILURE_CODES) return code
-        for (minutes in listOf(5, 30, 60)) {
-            if (code in listOf("forecast_${minutes}m_missing", "forecast_${minutes}m_invalid",
-                    "forecast_${minutes}m_too_low", "forecast_${minutes}m_ci_low")) return code
-        }
-        return null
-    }
-
     private suspend fun markSent(command: ActionCommand, channel: String) {
         val payload = command.params.toMutableMap().apply {
             put("deliveryChannel", channel)
@@ -1002,6 +1012,16 @@ class NightscoutActionRepository(
             )
         )
     }
+
+    private suspend fun nativeRouteConfigured(): Boolean = try {
+        nativeTargetTransport?.isConfigured() == true
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { true } // A damaged paired journal cannot silently select a legacy writer.
+
+    private suspend fun nativeOutcome(block: suspend NativeTargetTransport.() -> NativeTargetOutcome): NativeTargetOutcome = try {
+        checkNotNull(nativeTargetTransport).block()
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { NativeTargetOutcome.UNKNOWN }
 
     private fun sendLocalTreatmentFallbackChain(
         payload: LocalTreatmentPayload,
@@ -1055,7 +1075,7 @@ class NightscoutActionRepository(
                         putExtra("secret", apiSecret)
                     }
                 }
-                if (resolveReceiverCount(intent) == 0) {
+                if (!AapsTreatmentBroadcastCapability.canSend(context, intent)) {
                     false
                 } else {
                     context.sendBroadcast(intent)
@@ -1134,18 +1154,6 @@ class NightscoutActionRepository(
         }
     }.isSuccess
 
-    private fun resolveReceiverCount(intent: Intent): Int = runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.packageManager.queryBroadcastReceivers(
-                intent,
-                PackageManager.ResolveInfoFlags.of(0)
-            ).size
-        } else {
-            @Suppress("DEPRECATION")
-            context.packageManager.queryBroadcastReceivers(intent, 0).size
-        }
-    }.getOrDefault(0)
-
     private fun buildTreatmentId(prefix: String, idempotencyKey: String): String {
         val suffix = idempotencyKey.replace(Regex("[^a-zA-Z0-9_-]"), "").take(48)
         return "copilot-$prefix-$suffix"
@@ -1161,6 +1169,32 @@ class NightscoutActionRepository(
             "accepted_forecast_unavailable", "settings_changed", "safety_read_expired", "safety_lookup_failed",
             "target_authority_read_timeout", "invalid_action_payload", "missing_nightscout_url", "target_not_sent"
         )
+
+        internal fun eatingSoonFailureReasonStatic(record: ActionCommandEntity, gson: Gson): String? {
+            if (record.status !in setOf(STATUS_BLOCKED, STATUS_FAILED) ||
+                !isCanonicalEatingSoonCommand(record, gson)) return null
+            val payload = try {
+                gson.fromJson(record.payloadJson, JsonObject::class.java)
+            } catch (_: JsonParseException) {
+                null
+            }
+            val value = payload?.get(EATING_SOON_FAILURE_CODE)
+                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            return canonicalEatingSoonFailureCode(value)
+        }
+
+        private fun canonicalEatingSoonFailureCode(reason: String?): String? {
+            if (reason == null || reason.length > 96) return null
+            val code = reason.removePrefix("managed_preflight:")
+            if (code == "therapy_actions_not_armed") return "actions_disarmed"
+            if (code in EATING_SOON_FAILURE_CODES) return code
+            for (minutes in listOf(5, 30, 60)) {
+                if (code in listOf("forecast_${minutes}m_missing", "forecast_${minutes}m_invalid",
+                        "forecast_${minutes}m_too_low", "forecast_${minutes}m_ci_low")) return code
+            }
+            return null
+        }
+
         private val TEMP_TARGET_WRITE_MUTEX = Mutex()
         private val TEMP_TARGET_RETRY_OWNERS = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
         const val MANUAL_IDEMPOTENCY_PREFIX = "manual:"
