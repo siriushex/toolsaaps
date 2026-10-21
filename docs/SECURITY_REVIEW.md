@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## RC1 Target Transaction Admission (2026-10-21)
+
+- Callback admission covers strictly one-action target batches, not mixed effects
+  or pump queues. Copilot's target-only encoder and closed clinical gate remain.
+- Recheck identity/counter/control plus original monotonic and current wall time
+  after executor/Room waits; rejection inside the transaction must roll back all
+  target writes. Typed refusal becomes a signed Done response, never Ok.
+- Preferences and SQLite are separate stores: revocation after the final check
+  is not atomic with commit. Do not claim an instantaneous distributed guarantee.
+- Preserve consumed pending/counter ownership and no blind retry. A real completed
+  transaction cannot be reclassified as no-effect when a later ACK is delayed.
+- Synthetic native/SQLite tests are not device acceptance. Typed clinical/profile
+  projection, scoped Android TLS/URL redaction and JugglucoNG remain migration gates.
+
 ## Combined History Integration
 
 - Preserve main's signed-session and background/power admission. Remove the

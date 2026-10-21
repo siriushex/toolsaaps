@@ -1,3 +1,37 @@
+# RC1 Target Transaction Admission - 2026-10-21
+
+- Continued A2 from WORKSTREAMS on a fresh branch based on verified main
+  ad678a84. No subagent or live clinical deployment is claimed.
+- Reproduced two failing native target-only install/cancel admission tests before
+  implementing the callback. Preserve the consume-once pending slot and propagate
+  original monotonic/wall expiry, pairing/counter/control and caller cancellation
+  through the executor into the existing Room target transactions.
+- Check admission after transaction acquisition/read/writes. Rejection rolls back
+  both target insertion and cancellation and emits no change event. The receiver
+  returns the signed correlated refusal; a later clock change cannot reclassify
+  an already completed effect. Ordinary local calls and mixed batches retain
+  upstream behavior; this is not pump-queue or mixed-command admission.
+- Added real bundled-SQLite rollback/suspension/cancellation checks and Copilot
+  durable-journal checks for late Expired/NotPaired/ControlDisabled ACKs, forged
+  refusals, monotonic counters and no replay/application claim.
+- Extended the external verification helper to cover SMS/database suites and
+  preserve concurrent added/untracked files. Eight synthetic Git recipe checks
+  and224 native tests passed. Frozen full AAPS verification also passed128 app
+  tests, instrumented-test compilation, release lint (zero errors/29 prior
+  warnings) and unsigned build in10m04s. The actual patch helper restored the
+  clean pinned checkout; all14 build/cleanup recipe tests passed.
+- Full Copilot test/lint/compile/assemble passed in13m30s:6571 passed, six prior
+  private-input skips, zero errors; all19 journal tests pass. Lint retains382
+  warnings. APK guards retain7073 application classes in41,486,045bytes. No
+  production Android source changed. Exact-head CI and main integration require
+  their separate inspected receipts in the PR and task checkpoint.
+- No dosing calculation, wire format, database schema, clinical gate, server,
+  phone, credential, signed APK or public update manifest change. Full clinical
+  profile projection, scoped Android TLS and actual JugglucoNG continuity remain.
+- Verify: tools/aaps4_compat/verify_master.sh on the exact clean RC1 pin;
+  full AAPS commands in docs/AAPS4_BUILD.md; Copilot testDebugUnitTest/lintDebug/
+  compileDebugKotlin/assembleDebug with the pristine SDK fixture; recipe tests.
+
 # Controlled Main Integration - 2026-10-21
 
 - Owner requested backlog decomposition, native subagents and main build updates.

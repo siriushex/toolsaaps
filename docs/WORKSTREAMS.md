@@ -10,14 +10,15 @@ validation. No medical data belongs in these briefs or public test fixtures.
 Native subagent execution is unavailable in the current session. The assignments
 below are prepared, not running agents. Do not substitute user-owned chats,
 unapproved external executors or reduced model settings for native subagents.
-The coordinator is actively integrating main's scheduled upload with the tested
-release; all other dispatch states remain **ready** or **dependency blocked**.
+The combined release was merged into main as ad678a84 with successful
+Verify39580751668. The coordinator now implements A2's target transaction stage;
+the other assignments remain **ready** or **dependency blocked**, not running agents.
 
 | Owner | Work | Current source state | Dispatch |
 | --- | --- | --- | --- |
-| Coordinator | Integration, review, main and release evidence | Main upload conflicts with combined release; local integration underway | Active |
+| Coordinator | Integration, review, main and release evidence | Combined main verified; A2 stage under local verification | Active |
 | A1 | AAPS 4 clinical input and profile adapter | Pairing/storage/treatment wire exist; live clinical gate closed | Ready |
-| A2 | AAPS 4 target admission, TLS, JugglucoNG | Native receiver patch tested; executor/trust/device gates remain | Parallel investigation; runtime wiring waits for A1 |
+| A2 | AAPS 4 target admission, TLS, JugglucoNG | Target-only transaction guard under verification; trust/device gates remain | Coordinator active; runtime wiring waits for A1 |
 | A3 | Meal timing and personal absorption evidence | Countdown lifetime repaired; recommendation/control not validated | Ready, research only |
 | A4 | Structured device history and compact context | Core history upload exists; full typed clinical coverage incomplete | Ready |
 | A5 | Durable device chat and chat attachments | Encrypted archive exists; native sessions ephemeral, text attachments only | Ready, staged |

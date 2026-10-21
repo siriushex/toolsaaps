@@ -13,8 +13,9 @@ phone, clinical activation or public APK publication.
 ## RC1 Receiver Patch Verification
 
 See AAPS4_MASTER_ADMISSION.md. `tools/aaps4_compat/verify_master.sh` temporarily
-applies only the reviewed receiver/test patch to a clean pinned RC1 checkout,
-runs actual native regressions and reverses its own exact diff even after a test
+applies the reviewed receiver/target-transaction/test patch to a clean pinned RC1
+checkout, runs native/SMS/executor and real Room rollback regressions, and reverses
+its own exact diff and added test file even after a test
 failure. Unknown concurrent edits are preserved and fail the check. The existing
 pristine SDK preparation gate stays unchanged; Verify separately installs the
 upstream-required Android37 platform (`platforms;android-37.0`, the exact Google

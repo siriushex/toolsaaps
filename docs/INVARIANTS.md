@@ -1,5 +1,15 @@
 # INVARIANTS
 
+## RC1 Target Admission
+
+- A target-only native commit must carry its original receipt deadline through
+  executor and persistence waits. Recheck after suspending authorization reads.
+- Refusal inside the target transaction rolls back insertion and cancellation;
+  it cannot publish an applied ACK or restore the consumed pending command.
+- Do not retroactively label a committed effect expired. Mixed batches and pump
+  delivery are outside this target-only contract; preserve their existing handling.
+- The patch is not admission to open Copilot's clinical gate or migrate a phone.
+
 ## Combined Source Integration
 
 - One durable background-history owner; no application polling loop bypasses

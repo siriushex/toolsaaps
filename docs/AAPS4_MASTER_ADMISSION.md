@@ -1,9 +1,10 @@
 # RC1 Master Admission Patch
 
 Target: official 4.0.0-rc1, commit
-`d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0`. The patch is deliberately limited
-to command reception and its tests. It changes no dosing calculation, SDK wire
-format, preferences, pump driver or clinical database schema.
+`d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0`. The patch is limited to command
+admission and the existing temporary-target transaction path, with synthetic
+regressions. It changes no dosing calculation, SDK wire format, preferences,
+pump driver or clinical database schema.
 
 ## Confirmed Defect
 
@@ -20,6 +21,27 @@ wall-clock rollback rejects the command. Monotonic elapsed time cannot renew its
 budget when the wall clock stalls. Rejected counters are consumed, not replayed;
 revocation cannot recreate the deleted pairing. A final ACK uses fresh time.
 
+## Target Transaction Admission
+
+An optional callback accompanies the native commit into the executor. Only a
+batch prepared from exactly one TempTarget action uses it. The consume-once
+pending slot is removed first, then admission is checked before persistence,
+inside the acquired Room transaction, after its read and after its writes.
+An expiry, revoked pairing, changed counter/identity or disabled control throws
+inside the transaction and rolls back both cancellation and insertion. No target
+change notification or user-entry success can follow the rejected transaction.
+The receiver returns the correlated signed refusal without replaying the slot.
+
+The wall/monotonic deadline is read after suspending preference/identity reads.
+The final check precedes SQLite commit; this is not an atomic transaction with
+the separate preferences store and cannot guarantee revocation occurring after
+that check. A completed transaction is never retroactively reported as expired.
+
+Local target calls retain their original overload. Mixed batches, insulin,
+carbohydrates and pump queues retain upstream semantics and are not covered by
+the target-only guarantee. Copilot's codec must continue to admit only target-only
+actions. The source patch alone does not enable production Target Manager.
+
 ## Verification
 
 ```sh
@@ -29,7 +51,8 @@ JAVA_HOME="$JAVA_21_HOME" AAPS_RC1_DIR="$PRISTINE_RC1_DIR" \
 
 The helper requires the exact commit and no tracked or nonignored untracked
 changes. It snapshots and applies the patch, runs the real receiver, round-trip,
-mapping, uplink and existing executor tests, then reverses only its own exact diff.
+mapping, uplink, SMS and executor tests, plus target transaction host tests and
+real Room/bundled-SQLite JVM rollback checks, then reverses only its own exact diff.
 If concurrent source edits occur it preserves the checkout and fails instead of overwriting
 them. Gradle needs the upstream-required Android platform. The stock SDK fixture
 remains a separate pristine-source check; this patched stage is not called stock.
@@ -44,11 +67,28 @@ Both master classes are defined among its 86791 DEX classes. It is a **patched**
 build, not the previous pristine artifact, and is not installed. Six synthetic
 real-Git recipe tests also pass, including concurrent-edit preservation.
 
+The October21 target-transaction extension passed224 native tests (receiver,
+round-trip, mapping, uplink, SMS, executor and database), plus128 app tests, with
+zero failures/errors/skips. Actual SQLite rollback checks cover all three
+transaction boundaries, suspended revocation, cancelled caller, unchanged prior
+target and absent change notifications. FullDebug instrumented-test compilation,
+FullRelease lint and unsigned build passed in10m04s; lint retains29 warnings and
+zero errors. Unsigned APK:140468540bytes, SHA-256
+`2aac7abc68f9d86ccf1a562f3387c17783f596b5cd58f411caee03e1378ee952`.
+Two failing-first executor regressions are retained in local test evidence.
+The Git recipe suite now has eight cases including added/untracked edit preservation.
+The actual helper applied and reversed the frozen patch on the pinned source,
+leaving it clean. All14 tooling checks passed. Full Copilot verification passed
+6571 tests with six pre-existing private-input skips, zero errors, and all19
+target-journal checks. Late signed transaction refusals cannot mark application
+or replay a command; forged refusals retain unknown ownership. Lint/build and
+APK size/class-retention guards pass. Exact-head CI/main receipts are recorded
+separately in the PR/checkpoint after publication, not inferred from local results.
+
 ## Remaining Admission Gates
 
-This patch guards **dispatch to the executor**, not the later transaction or pump
-queue. The executor still needs an independently checked target-only validity
-boundary at the actual temporary-target mutation. A receiver test returning
+The target-only callback extends admission into the temporary-target transaction.
+Mixed command batches and pump queues remain outside that boundary. A receiver test returning
 `Delivered` from a mock proves neither application nor pump delivery. Do not
 translate expiry after a real effect into an assertion that nothing happened.
 

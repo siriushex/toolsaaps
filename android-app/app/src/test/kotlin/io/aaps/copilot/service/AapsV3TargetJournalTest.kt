@@ -44,14 +44,16 @@ class AapsV3TargetJournalTest {
     }
     @After fun teardown() { db.close() }
 
-    private fun ack(counter: Long, payload: String? = null, timestamp: Long = at + 1): JsonObject {
-        val raw = "$client|$counter|Done|Ok||${payload ?: ""}|$timestamp"
+    private fun ack(counter: Long, payload: String? = null, timestamp: Long = at + 1,
+                    status: String = "Ok", reason: String? = null): JsonObject {
+        val raw = "$client|$counter|Done|$status|${reason ?: ""}|${payload ?: ""}|$timestamp"
         val signature = Mac.getInstance("HmacSHA256").run {
             init(SecretKeySpec(secret, "HmacSHA256"))
             doFinal(raw.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
         }
         return buildJsonObject {
-            put("clientId", client); put("commandCounter", counter); put("phase", "Done"); put("status", "Ok")
+            put("clientId", client); put("commandCounter", counter); put("phase", "Done"); put("status", status)
+            reason?.let { put("reason", it) }
             put("payload", payload?.let(::JsonPrimitive) ?: JsonNull); put("timestamp", timestamp); put("signature", signature)
         }
     }
@@ -123,6 +125,42 @@ class AapsV3TargetJournalTest {
             assertTrue(runCatching { owner.commit("meal-1", p, at + 8002) {} }.isFailure)
             assertNull(owner.prepare("meal-1", target, p, at + 8002) {}.publication)
             assertEquals(2L, owner.prepare("meal-2", target, p, at + 8003) {}.counter)
+        }
+    }
+
+    @Test fun lateMasterTransactionExpirySettlesWithoutApplicationOrReplay() = runBlocking {
+        assertLateMasterRefusal("Expired", "Expired", AapsV3TargetPhase.EXPIRED)
+    }
+
+    @Test fun lateMasterRevocationSettlesWithoutApplicationOrReplay() = runBlocking {
+        assertLateMasterRefusal("Failed", "NotPaired", AapsV3TargetPhase.REJECTED)
+    }
+
+    @Test fun lateMasterControlOffSettlesWithoutApplicationOrReplay() = runBlocking {
+        assertLateMasterRefusal("Failed", "ControlDisabled", AapsV3TargetPhase.REJECTED)
+    }
+
+    private suspend fun assertLateMasterRefusal(status: String, reason: String, phase: AapsV3TargetPhase) {
+        val owner = journal(); owner.bind(client)
+        db.actionCommandDao().upsert(io.aaps.copilot.data.local.entity.ActionCommandEntity(
+            id = "pending-target", timestamp = at, type = "temp_target", payloadJson = "{}", safetyJson = "{}",
+            idempotencyKey = "meal-1", status = "PENDING"))
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}; preview(owner, p)
+            owner.commit("meal-1", p, at + 3) {}
+            val restarted = journal()
+            assertEquals(AapsV3TargetPhase.UNKNOWN, restarted.expire(at + 60_000)!!.phase)
+            val response = ack(2, timestamp = at + 8003, status = status, reason = reason)
+            val forged = JsonObject(response + ("signature" to JsonPrimitive("0".repeat(64))))
+            assertEquals(AapsV3TargetPhase.UNKNOWN, restarted.acknowledge("meal-1", p, forged, at + 60_001).phase)
+            assertNotNull(restarted.pending())
+            assertEquals(phase, restarted.acknowledge("meal-1", p, response, at + 60_002).phase)
+            assertNull(restarted.pending())
+            assertNull(restarted.commit("meal-1", p, at + 60_003) { error("refused command cannot replay") }.publication)
+            assertEquals(2L, db.localNightscoutV3Dao().count())
+            assertEquals("PENDING", db.actionCommandDao().byIdempotencyKey("meal-1")!!.status)
+            assertTrue(db.therapyDao().since(0).isEmpty())
+            assertEquals(3L, restarted.prepare("meal-2", target, p, at + 60_004) {}.counter)
         }
     }
 

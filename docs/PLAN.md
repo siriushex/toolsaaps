@@ -1,5 +1,18 @@
 # PLAN
 
+## RC1 Target Transaction Admission (2026-10-21)
+
+- [x] Reproduce two target install/cancel admission failures before the fix.
+- [x] Carry optional target-only admission into the executor and Room transaction.
+- [x] Add real SQLite rollback/suspension and signed-refusal/no-replay tests.
+- [x] Complete expanded native/SMS/database and full patched AAPS checks:
+      224native +128app tests, instrumented compilation, lint and unsigned build.
+- [x] Verify exact patch apply/reversal and full Copilot test/lint/build:
+      clean RC1 restored,14recipe tests;6571pass/six prior skips,zero lint errors.
+- [ ] Inspect exact-head CI, explicitly merge reviewed source and verify main.
+- Typed clinical/profile projection, TLS and JugglucoNG device continuity remain
+  separate gates. No production dispatch unlock, deployment or phone update.
+
 ## Controlled Main Integration (2026-10-21)
 
 - Current backlog and isolated assignments: [WORKSTREAMS.md](WORKSTREAMS.md).
@@ -10,8 +23,9 @@
   context in its serialized upload path; remove the duplicate in-process loop.
 - [x] Verify the merged tree locally:6568 Android pass,6private-input skips,
   lint/build/stock-SDK/APK guards pass; unchanged backend has successful CI.
-- [ ] Verify the exact merged source head on CI.
-- [ ] Explicitly integrate reviewed source into main and inspect its build.
+- [x] Verify the exact merged source head on CI.
+- [x] Explicitly integrate reviewed source into main and inspect its build:
+      PR7 merged as ad678a84; Verify39580751668 succeeded (rechecked October21).
 - Server/phone publication and clinical gate enablement remain separate actions.
 
 ## Local Clinical JSON Export (2026-10-21)
@@ -122,7 +136,7 @@
 - [x] Verify the minimal receiver patch:183 native checks plus128 app tests,
       instrumented Kotlin,release lint/build and actual helper apply/reversal pass.
 - [ ] Inspect exact-source receiver patch CI before source-stage completion.
-- [ ] Propagate target-only validity to the actual executor/persistence boundary;
+- [x] Propagate target-only validity to the actual executor/persistence boundary;
       a receiver-only fix cannot admit live Target Manager publication.
 - [ ] Complete typed clinical history and master-handler admission before opening
       production native Target Manager publication (AAPS4_PAIRING.md).
