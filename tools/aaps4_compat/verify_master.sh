@@ -17,10 +17,13 @@ cleanup() {
     trap - EXIT INT TERM
     if "$applied"; then
         git -C "$AAPS_RC1_DIR" diff --binary HEAD -- > "$temp/current.diff"
+        git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard > "$temp/current.untracked"
         if cmp -s "$temp/applied.diff" "$temp/current.diff" &&
+            cmp -s "$temp/applied.untracked" "$temp/current.untracked" &&
             git -C "$AAPS_RC1_DIR" apply --reverse --check "$temp/change.patch"; then
             git -C "$AAPS_RC1_DIR" apply --reverse "$temp/change.patch" || status=1
             git -C "$AAPS_RC1_DIR" diff --quiet HEAD -- || status=1
+            test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)" || status=1
         else
             printf '%s\n' 'Source changed during verification; preserving the checkout without reversal.' >&2
             status=1
@@ -37,6 +40,7 @@ git -C "$AAPS_RC1_DIR" apply --check "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply "$temp/change.patch"
 applied=true
 git -C "$AAPS_RC1_DIR" diff --binary HEAD -- > "$temp/applied.diff"
+git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard > "$temp/applied.untracked"
 cd "$AAPS_RC1_DIR"
 ./gradlew --no-daemon --max-workers=2 --console=plain \
     :plugins:sync:testAndroidHostTest \
@@ -44,4 +48,9 @@ cd "$AAPS_RC1_DIR"
     --tests '*.clientcontrol.ClientControlRoundTripTest' \
     --tests '*.clientcontrol.BatchActionMappingTest' \
     --tests '*.clientcontrol.ClientControlUplinkIntegrationTest' \
-    :implementation:testAndroidHostTest --tests '*.WizardBolusExecutorImplTest'
+    --tests '*.SmsCommunicatorPluginTest' \
+    :implementation:testAndroidHostTest --tests '*.WizardBolusExecutorImplTest' \
+    :database:impl:testAndroidHostTest \
+    --tests '*.InsertAndCancelCurrentTemporaryTargetTransactionTest' \
+    --tests '*.CancelCurrentTemporaryTargetIfAnyTransactionTest' \
+    :database:impl:jvmTest --tests '*.TargetAdmissionTransactionTest'

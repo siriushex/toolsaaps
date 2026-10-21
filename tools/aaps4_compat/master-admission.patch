@@ -1,18 +1,427 @@
+diff --git a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/bolus/WizardBolusExecutor.kt b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/bolus/WizardBolusExecutor.kt
+index 163e9ef5f8..198961a08e 100644
+--- a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/bolus/WizardBolusExecutor.kt
++++ b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/bolus/WizardBolusExecutor.kt
+@@ -71,6 +71,9 @@ interface WizardBolusExecutor {
+      * record-only entry). That happens after [confirm] has returned, because the delivery is asynchronous. An entry
+      * with no bolus and no carbs never calls it: its steps are awaited, so the return value and [onError] already
+      * tell the whole story. A dose that was started is followed by [onSuccess] or by [onError].
++     * [targetAdmission] guards a strictly target-only prepared batch inside its database transaction.
++     * Its exception consumes the pending slot without applying the target. Mixed batches and pump queues
++     * retain their existing semantics and must not be described as covered by this target-only guard.
+      */
+     suspend fun confirm(
+         bolusId: Long,
+@@ -78,7 +81,8 @@ interface WizardBolusExecutor {
+         onError: (Failure) -> Unit,
+         asAdvisor: Boolean = false,
+         correctionU: Double = 0.0,
+-        onSuccess: () -> Unit = {}
++        onSuccess: () -> Unit = {},
++        targetAdmission: (suspend () -> Unit)? = null
+     ): ConfirmResult
+ 
+     /**
+diff --git a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
+index 1595f79af0..0041d9d9cd 100644
+--- a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
++++ b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
+@@ -1296,6 +1296,9 @@ interface PersistenceLayer {
+     suspend fun invalidateTemporaryTarget(id: Long, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>): TransactionResult<TT>
+     suspend fun insertAndCancelCurrentTemporaryTarget(temporaryTarget: TT, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>): TransactionResult<TT>
+     suspend fun cancelCurrentTemporaryTargetIfAny(timestamp: Long, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>): TransactionResult<TT>
++    /** Admission runs inside the transaction; throwing rolls back all target mutations. */
++    suspend fun insertAndCancelCurrentTemporaryTarget(temporaryTarget: TT, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>, admission: suspend () -> Unit): TransactionResult<TT>
++    suspend fun cancelCurrentTemporaryTargetIfAny(timestamp: Long, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>, admission: suspend () -> Unit): TransactionResult<TT>
+ 
+     /**
+      * Store records coming from NS to database
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/CancelCurrentTemporaryTargetIfAnyTransaction.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/CancelCurrentTemporaryTargetIfAnyTransaction.kt
+index 9ef34ce886..2cc0149bbf 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/CancelCurrentTemporaryTargetIfAnyTransaction.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/CancelCurrentTemporaryTargetIfAnyTransaction.kt
+@@ -4,17 +4,21 @@ import app.aaps.database.entities.TemporaryTarget
+ import app.aaps.database.entities.interfaces.end
+ 
+ class CancelCurrentTemporaryTargetIfAnyTransaction(
+-    val timestamp: Long
++    val timestamp: Long,
++    private val admission: suspend () -> Unit = {}
+ ) : Transaction<CancelCurrentTemporaryTargetIfAnyTransaction.TransactionResult>() {
+ 
+     override suspend fun run(): TransactionResult {
+         val result = TransactionResult()
++        admission()
+         val current = database.temporaryTargetDao.getTemporaryTargetActiveAt(timestamp)
++        admission()
+         if (current != null) {
+             current.end = timestamp
+             database.temporaryTargetDao.updateExistingEntry(current)
+             result.updated.add(current)
+         }
++        admission()
+         return result
+     }
+ 
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertAndCancelCurrentTemporaryTargetTransaction.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertAndCancelCurrentTemporaryTargetTransaction.kt
+index f2d142b2b8..4cec89d746 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertAndCancelCurrentTemporaryTargetTransaction.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertAndCancelCurrentTemporaryTargetTransaction.kt
+@@ -4,18 +4,23 @@ import app.aaps.database.entities.TemporaryTarget
+ import app.aaps.database.entities.interfaces.end
+ 
+ class InsertAndCancelCurrentTemporaryTargetTransaction(
+-    val temporaryTarget: TemporaryTarget
++    val temporaryTarget: TemporaryTarget,
++    private val admission: suspend () -> Unit = {}
+ ) : Transaction<InsertAndCancelCurrentTemporaryTargetTransaction.TransactionResult>() {
+ 
+     override suspend fun run(): TransactionResult {
+         val result = TransactionResult()
++        admission()
+         val current = database.temporaryTargetDao.getTemporaryTargetActiveAtLegacy(temporaryTarget.timestamp)
++        admission()
+         if (current != null) {
+             current.end = temporaryTarget.timestamp
+             database.temporaryTargetDao.updateExistingEntry(current)
+             result.updated.add(current)
+         }
+         database.temporaryTargetDao.insertNewEntry(temporaryTarget)
++        // This still runs inside Room's transaction, so rejection rolls back both writes.
++        admission()
+         result.inserted.add(temporaryTarget)
+         return result
+     }
+diff --git a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+index 78bf57e96a..7b7e358f63 100644
+--- a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
++++ b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+@@ -1969,9 +1969,12 @@ class PersistenceLayerImpl(
+     }
+ 
+     override suspend fun insertAndCancelCurrentTemporaryTarget(temporaryTarget: TT, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>)
++        : PersistenceLayer.TransactionResult<TT> = insertAndCancelCurrentTemporaryTarget(temporaryTarget, action, source, note, listValues) {}
++
++    override suspend fun insertAndCancelCurrentTemporaryTarget(temporaryTarget: TT, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>, admission: suspend () -> Unit)
+         : PersistenceLayer.TransactionResult<TT> = withContext(aapsIoDispatcher) {
+         try {
+-            val result = repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(temporaryTarget.toDb()))
++            val result = repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(temporaryTarget.toDb(), admission))
+             val transactionResult = PersistenceLayer.TransactionResult<TT>()
+             val ueValues = mutableListOf<UE>()
+             result.inserted.forEach {
+@@ -1992,9 +1995,12 @@ class PersistenceLayerImpl(
+     }
+ 
+     override suspend fun cancelCurrentTemporaryTargetIfAny(timestamp: Long, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>)
++        : PersistenceLayer.TransactionResult<TT> = cancelCurrentTemporaryTargetIfAny(timestamp, action, source, note, listValues) {}
++
++    override suspend fun cancelCurrentTemporaryTargetIfAny(timestamp: Long, action: Action, source: Sources, note: String?, listValues: List<ValueWithUnit>, admission: suspend () -> Unit)
+         : PersistenceLayer.TransactionResult<TT> = withContext(aapsIoDispatcher) {
+         try {
+-            val result = repository.runTransactionForResultSuspend(CancelCurrentTemporaryTargetIfAnyTransaction(timestamp))
++            val result = repository.runTransactionForResultSuspend(CancelCurrentTemporaryTargetIfAnyTransaction(timestamp, admission))
+             val transactionResult = PersistenceLayer.TransactionResult<TT>()
+             result.updated.forEach {
+                 aapsLogger.debug(LTag.DATABASE, "Updated TemporaryTarget from ${source.name} $it")
+diff --git a/implementation/src/androidHostTest/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImplTest.kt b/implementation/src/androidHostTest/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImplTest.kt
+index 6d29b366b8..7a0b831be9 100644
+--- a/implementation/src/androidHostTest/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImplTest.kt
++++ b/implementation/src/androidHostTest/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImplTest.kt
+@@ -280,6 +280,84 @@ class WizardBolusExecutorImplTest : TestBaseWithProfile() {
+ 
+     // ---- prepareBatch() → confirm(): the two-step multi-action transaction (decision-B ordering) ----
+ 
++    @Test
++    fun targetAdmissionRejectionConsumesPendingWithoutMutation() = runTest {
++        stubPassthroughConstraints()
++        val executor = create()
++        val target = BatchAction.TempTarget(TT.Reason.EATING_SOON.text, 90.0, 90.0, 30, 0)
++        val prepared = executor.prepareBatch(listOf(target)) as WizardBolusExecutor.PrepareResult.Preview
++        val refusal = IllegalStateException("admission expired")
++        val result = runCatching {
++            executor.confirm(prepared.bolusId, Sources.NSClient, {}, targetAdmission = { throw refusal })
++        }
++        assertThat(result.exceptionOrNull()).isSameInstanceAs(refusal)
++        verify(persistenceLayer, never()).insertAndCancelCurrentTemporaryTarget(any(), any(), any(), anyOrNull(), any())
++        verify(commandQueue, never()).bolus(anyOrNull())
++        assertThat(executor.confirm(prepared.bolusId, Sources.NSClient, {})).isEqualTo(WizardBolusExecutor.ConfirmResult.NoPending)
++    }
++
++    @Test
++    fun targetCancelAdmissionRejectionDoesNotCancelExistingTarget() = runTest {
++        stubPassthroughConstraints()
++        val executor = create()
++        val target = BatchAction.TempTarget(TT.Reason.EATING_SOON.text, 90.0, 90.0, 0, 0)
++        val prepared = executor.prepareBatch(listOf(target)) as WizardBolusExecutor.PrepareResult.Preview
++        val refusal = IllegalStateException("control revoked")
++        val result = runCatching {
++            executor.confirm(prepared.bolusId, Sources.NSClient, {}, targetAdmission = { throw refusal })
++        }
++        assertThat(result.exceptionOrNull()).isSameInstanceAs(refusal)
++        verify(persistenceLayer, never()).cancelCurrentTemporaryTargetIfAny(any(), any(), any(), anyOrNull(), any())
++    }
++
++    @Test
++    fun targetOnlyCommitPassesAdmissionIntoPersistence() = runTest {
++        stubPassthroughConstraints()
++        val executor = create()
++        var admissionCalls = 0
++        val admission: suspend () -> Unit = { admissionCalls++ }
++        val target = BatchAction.TempTarget(TT.Reason.EATING_SOON.text, 90.0, 90.0, 30, 0)
++        val prepared = executor.prepareBatch(listOf(target)) as WizardBolusExecutor.PrepareResult.Preview
++        val result = executor.confirm(prepared.bolusId, Sources.NSClient, {}, targetAdmission = admission)
++        assertThat(result).isEqualTo(WizardBolusExecutor.ConfirmResult.Delivered)
++        assertThat(admissionCalls).isEqualTo(1)
++        verify(persistenceLayer).insertAndCancelCurrentTemporaryTarget(any(), any(), eq(Sources.NSClient), anyOrNull(), any(), eq(admission))
++        verify(persistenceLayer, never()).insertAndCancelCurrentTemporaryTarget(any(), any(), any(), anyOrNull(), any())
++        verify(commandQueue, never()).bolus(anyOrNull())
++    }
++
++    @Test
++    fun cancelOnlyCommitPassesAdmissionIntoPersistence() = runTest {
++        stubPassthroughConstraints()
++        val executor = create()
++        val admission: suspend () -> Unit = {}
++        val prepared = executor.prepareBatch(listOf(BatchAction.TempTarget(TT.Reason.ACTIVITY.text, 120.0, 120.0, 0, 0))) as WizardBolusExecutor.PrepareResult.Preview
++        executor.confirm(prepared.bolusId, Sources.NSClient, {}, targetAdmission = admission)
++        verify(persistenceLayer).cancelCurrentTemporaryTargetIfAny(any(), any(), eq(Sources.NSClient), anyOrNull(), any(), eq(admission))
++        verify(persistenceLayer, never()).cancelCurrentTemporaryTargetIfAny(any(), any(), any(), anyOrNull(), any())
++    }
++
++    @Test
++    fun mixedBatchCannotBeReportedAsUnappliedByTargetOnlyGuard() = runTest {
++        stubPassthroughConstraints()
++        whenever(runningModeGuard.rejectionMessage(any())).thenReturn(null)
++        whenever(commandQueue.bolus(anyOrNull())).thenReturn(pumpEnactResultProvider().success(true))
++        val executor = create()
++        val prepared = executor.prepareBatch(listOf(
++            BatchAction.TempTarget(TT.Reason.EATING_SOON.text, 90.0, 90.0, 30, 0),
++            BatchAction.Bolus(1.0, 0, 0, 0, false, "", 0L, null)
++        )) as WizardBolusExecutor.PrepareResult.Preview
++        var admissionCalled = false
++        val result = executor.confirm(prepared.bolusId, Sources.NSClient, {}, targetAdmission = {
++            admissionCalled = true
++            error("guard must not classify a mixed effect")
++        })
++        assertThat(result).isEqualTo(WizardBolusExecutor.ConfirmResult.Delivered)
++        assertThat(admissionCalled).isFalse()
++        verify(commandQueue).bolus(anyOrNull())
++        verify(persistenceLayer).insertAndCancelCurrentTemporaryTarget(any(), any(), any(), anyOrNull(), any())
++    }
++
+     @Test
+     fun prepareBatch_raisingTtFirstThenBolus_bothAppliedOnConfirm() = runTest {
+         whenever(runningModeGuard.rejectionMessage(any())).thenReturn(null)
+diff --git a/implementation/src/commonMain/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImpl.kt b/implementation/src/commonMain/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImpl.kt
+index 7a8c09e69f..7b21c646c5 100644
+--- a/implementation/src/commonMain/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImpl.kt
++++ b/implementation/src/commonMain/kotlin/app/aaps/implementation/bolus/WizardBolusExecutorImpl.kt
+@@ -129,6 +129,7 @@ class WizardBolusExecutorImpl(
+         // Batch extension: a FIXED prepare may carry a temp target + a record-only flag/insulin/back-date,
+         // delivered together in [confirm] (decision-B order). Null/false for a plain fixed or wizard prepare.
+         val tempTarget: BatchAction.TempTarget? = null,
++        val targetOnly: Boolean = false,
+         val profileSwitch: BatchAction.ProfileSwitch? = null,
+         val runningMode: BatchAction.RunningMode? = null,
+         val tempBasal: BatchAction.TempBasal? = null,
+@@ -513,7 +514,8 @@ class WizardBolusExecutorImpl(
+                 carbTimeMinutes = bolus?.carbsTimeOffsetMinutes ?: 0, notes = bolus?.notes, mode = BolusMode.FIXED,
+                 eventType = eventType, carbsDurationHours = bolus?.carbsDurationHours ?: 0,
+                 eCarbsGrams = bolus?.eCarbsGrams ?: 0, eCarbsDelayMinutes = bolus?.eCarbsDelayMinutes ?: 0, eCarbsDurationHours = bolus?.eCarbsDurationHours ?: 0,
+-                tempTarget = tt, profileSwitch = ps, runningMode = rm, recordOnly = recordOnly, iCfg = bolus?.iCfg, bolusTimestamp = bolus?.timestamp?.takeIf { it > 0L },
++                tempTarget = tt, targetOnly = actions.size == 1 && tt != null,
++                profileSwitch = ps, runningMode = rm, recordOnly = recordOnly, iCfg = bolus?.iCfg, bolusTimestamp = bolus?.timestamp?.takeIf { it > 0L },
+                 tempBasal = cappedTb, extendedBolus = cappedEb, cancelTempBasal = ctb != null, cancelExtendedBolus = ceb != null,
+                 insulinActivate = ia, therapyEvents = tes, therapyEventEdits = teEdits
+             )
+@@ -541,13 +543,20 @@ class WizardBolusExecutorImpl(
+         onError: (WizardBolusExecutor.Failure) -> Unit,
+         asAdvisor: Boolean,
+         correctionU: Double,
+-        onSuccess: () -> Unit
++        onSuccess: () -> Unit,
++        targetAdmission: (suspend () -> Unit)?
+     ): WizardBolusExecutor.ConfirmResult {
+         // Atomic consume-once: remove(bolusId) returns the parked dose and removes it in one step, so two
+         // concurrent commits of the same id can't both deliver (the loser gets null → NoPending). A non-matching
+         // id removes nothing, leaving other actors' parked doses intact.
+         val p = pending.take(bolusId) ?: return WizardBolusExecutor.ConfirmResult.NoPending
+ 
++        if (p.targetOnly && targetAdmission != null) {
++            targetAdmission()
++            applyTempTarget(requireNotNull(p.tempTarget), source, targetAdmission)
++            return WizardBolusExecutor.ConfirmResult.Delivered
++        }
++
+         val notes = p.notes
+ 
+         // Fixed-amount bolus/carbs (Insulin / Treatment / Carbs dialogs): deliver the parked amounts as-is through
+@@ -737,10 +746,16 @@ class WizardBolusExecutorImpl(
+     }
+ 
+     /** Apply a batch TempTarget via the dialog-free domain path (mirrors onVerifiedTempTargetSet). */
+-    private suspend fun applyTempTarget(tt: BatchAction.TempTarget, source: Sources) {
++    private suspend fun applyTempTarget(tt: BatchAction.TempTarget, source: Sources, admission: (suspend () -> Unit)? = null) {
+         val reason = TT.Reason.fromString(tt.reason)
+         // duration 0 = cancel the running TT (a CANCEL_TT entry), not a 0-minute target record.
+         if (tt.durationMinutes == 0) {
++            if (admission != null) {
++                persistenceLayer.cancelCurrentTemporaryTargetIfAny(
++                    dateUtil.now(), Action.CANCEL_TT, source, null, listOf(ValueWithUnit.TETTReason(reason)), admission
++                )
++                return
++            }
+             persistenceLayer.cancelCurrentTemporaryTargetIfAny(
+                 timestamp = dateUtil.now(),
+                 action = Action.CANCEL_TT,
+@@ -750,19 +765,18 @@ class WizardBolusExecutorImpl(
+             )
+             return
+         }
+-        persistenceLayer.insertAndCancelCurrentTemporaryTarget(
+-            temporaryTarget = TT(
++        val target = TT(
+                 timestamp = dateUtil.now() + T.mins(tt.startOffsetMinutes.toLong()).msecs(),
+                 duration = T.mins(tt.durationMinutes.toLong()).msecs(),
+                 reason = reason,
+                 lowTarget = tt.lowMgdl,
+                 highTarget = tt.highMgdl
+-            ),
+-            action = Action.TT,
+-            source = source,
+-            note = tt.notes,
+-            listValues = listOf(ValueWithUnit.Mgdl(tt.lowMgdl), ValueWithUnit.Minute(tt.durationMinutes))
+-        )
++            )
++        val values = listOf(ValueWithUnit.Mgdl(tt.lowMgdl), ValueWithUnit.Minute(tt.durationMinutes))
++        if (admission != null)
++            persistenceLayer.insertAndCancelCurrentTemporaryTarget(target, Action.TT, source, tt.notes, values, admission)
++        else
++            persistenceLayer.insertAndCancelCurrentTemporaryTarget(target, Action.TT, source, tt.notes, values)
+     }
+ 
+     /** The MERGED confirmation lines for a FIXED batch bolus/carbs — the master is the sole author (client renders these verbatim). */
 diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
-index 01768edc31..6d6280ad99 100644
+index 01768edc31..300f2f0b8f 100644
 --- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
 +++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
-@@ -69,6 +69,9 @@ import org.mockito.kotlin.never
+@@ -69,6 +69,10 @@ import org.mockito.kotlin.never
  import org.mockito.kotlin.times
  import org.mockito.kotlin.verify
  import org.mockito.kotlin.whenever
 +import kotlin.time.Duration.Companion.milliseconds
 +import kotlin.time.ExperimentalTime
 +import kotlin.time.TestTimeSource
++import kotlinx.coroutines.runBlocking
  
  internal class ClientControlReceiverTest {
  
-@@ -958,11 +961,12 @@ internal class ClientControlReceiverTest {
+@@ -561,7 +565,7 @@ internal class ClientControlReceiverTest {
+     fun masterMirrorsProgressToArmedClientThenDisarmsOnTerminal() = runTest {
+         val (clientId, secret) = pair()
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
+         val progressId = "${ClientControlPublisher.IDENTIFIER_PROGRESS_PREFIX}$clientId"
+         val cmdId = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
+ 
+@@ -584,7 +588,7 @@ internal class ClientControlReceiverTest {
+     fun masterDoesNotMirrorAnAlreadyRunningBolusToTheCommittingClient() = runTest {
+         val (clientId, secret) = pair()
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
+         val progressId = "${ClientControlPublisher.IDENTIFIER_PROGRESS_PREFIX}$clientId"
+         val cmdId = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
+ 
+@@ -607,7 +611,7 @@ internal class ClientControlReceiverTest {
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+         // confirm() consumed the parked dose (Delivered) but delivery fails via onError before any frame streams
+         // (e.g. the master was already bolusing → queue-rejected this one). The arm must be cleared right away.
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenAnswer { inv ->
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenAnswer { inv ->
+             @Suppress("UNCHECKED_CAST") val onError = inv.arguments[2] as (WizardBolusExecutor.Failure) -> Unit
+             onError(WizardBolusExecutor.Failure("executing right now"))
+             WizardBolusExecutor.ConfirmResult.Delivered
+@@ -676,13 +680,13 @@ internal class ClientControlReceiverTest {
+     fun bolusCommitDeliversAndAcksOk() = runTest {
+         val (clientId, secret) = pair()
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
+         val acks = captureAcks(clientId)
+         val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
+ 
+         sut.onSettingsDocChanged(identifier, wrap(envelope(clientId, secret, message = ClientControlMessage.BolusCommit(42L, asAdvisor = false), counter = 5L, wantsAck = true)))
+ 
+-        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.NSClient), any(), eq(false), any(), any())
++        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.NSClient), any(), eq(false), any(), any(), anyOrNull())
+         assertThat(acks.last().status.name).isEqualTo("Ok")
+     }
+ 
+@@ -699,7 +703,7 @@ internal class ClientControlReceiverTest {
+         // Capture the callback instead of calling it inside confirm(): the real failure arrives AFTER confirm
+         // returned, which is exactly what makes it a late Delivery ack rather than part of the Done ack.
+         var report: ((WizardBolusExecutor.Failure) -> Unit)? = null
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenAnswer {
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenAnswer {
+             report = it.getArgument(2)
+             WizardBolusExecutor.ConfirmResult.Delivered
+         }
+@@ -723,7 +727,7 @@ internal class ClientControlReceiverTest {
+         val (clientId, secret) = pair()
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+         var report: ((WizardBolusExecutor.Failure) -> Unit)? = null
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenAnswer {
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenAnswer {
+             report = it.getArgument(2)
+             WizardBolusExecutor.ConfirmResult.Delivered
+         }
+@@ -742,7 +746,7 @@ internal class ClientControlReceiverTest {
+     fun bolusCommitNoPendingAcksNoPendingBolus() = runTest {
+         val (clientId, secret) = pair()
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.NoPending)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.NoPending)
+         val acks = captureAcks(clientId)
+         val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
+ 
+@@ -768,7 +772,7 @@ internal class ClientControlReceiverTest {
+         val done = acks.last()
+         assertThat(done.status.name).isEqualTo("Failed")
+         assertThat(done.reason).isEqualTo(FailureReason.ControlDisabled.name)
+-        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any())
++        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any(), anyOrNull())
+     }
+ 
+     @Test
+@@ -787,7 +791,7 @@ internal class ClientControlReceiverTest {
+         val done = acks.last()
+         assertThat(done.status.name).isEqualTo("Failed")
+         assertThat(done.reason).isEqualTo(FailureReason.ControlDisabled.name)
+-        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any())
++        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any(), anyOrNull())
+     }
+ 
+     @Test
+@@ -808,13 +812,13 @@ internal class ClientControlReceiverTest {
+     fun bolusCommitAsAdvisorDeliversAdvisorVariant() = runTest {
+         val (clientId, secret) = pair()
+         authorizedRepository.markActive(clientId, counterReceived = 1L, now = now - 5_000L)
+-        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
+         captureAcks(clientId)
+         val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
+ 
+         sut.onSettingsDocChanged(identifier, wrap(envelope(clientId, secret, message = ClientControlMessage.BolusCommit(42L, asAdvisor = true), counter = 5L, wantsAck = true)))
+ 
+-        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.NSClient), any(), eq(true), any(), any())
++        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.NSClient), any(), eq(true), any(), any(), anyOrNull())
+     }
+ 
+     @Test
+@@ -958,11 +962,12 @@ internal class ClientControlReceiverTest {
      // -- two-step ACK -----------------------------------------------------------------------
  
      /** Captures the ACK envelopes the master writes to this client's ack identifier. */
@@ -26,7 +435,7 @@ index 01768edc31..6d6280ad99 100644
              deleteOk
          }
          return acks
-@@ -1011,6 +1015,125 @@ internal class ClientControlReceiverTest {
+@@ -1011,6 +1016,180 @@ internal class ClientControlReceiverTest {
          assertThat(authorizedRepository.current(now).single { it.clientId == clientId }.counterReceived).isEqualTo(5L)
      }
  
@@ -38,7 +447,7 @@ index 01768edc31..6d6280ad99 100644
 +        val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
 +        val doc = JsonObject(wrap(envelope(clientId, secret, ClientControlMessage.BolusCommit(42L), 5L, validUntil = now + 8_000L, wantsAck = true)) +
 +            ("identifier" to JsonPrimitive(identifier)))
-+        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
 +        whenever(nsAndroidClient.searchSettings(limit = 100)).thenAnswer {
 +            whenever(dateUtil.now()).thenReturn(now + 9_000L)
 +            NSAndroidClient.ReadResponse(200, null, listOf(doc))
@@ -46,7 +455,7 @@ index 01768edc31..6d6280ad99 100644
 +
 +        sut.processPending()
 +
-+        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any())
++        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any(), anyOrNull())
 +        assertThat(acks.last().status.name).isEqualTo("Expired")
 +        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
 +    }
@@ -93,7 +502,7 @@ index 01768edc31..6d6280ad99 100644
 +        val (clientId, secret) = pair()
 +        authorizedRepository.markActive(clientId, 1L, now)
 +        val acks = captureAcks(clientId)
-+        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenAnswer {
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenAnswer {
 +            whenever(dateUtil.now()).thenReturn(now + 9_000L)
 +            WizardBolusExecutor.ConfirmResult.Delivered
 +        }
@@ -103,7 +512,7 @@ index 01768edc31..6d6280ad99 100644
 +        sut.onSettingsDocChanged(identifier, doc)
 +        sut.onSettingsDocChanged(identifier, doc)
 +
-+        verify(wizardBolusExecutor, times(1)).confirm(any(), any(), any(), any(), any(), any())
++        verify(wizardBolusExecutor, times(1)).confirm(any(), any(), any(), any(), any(), any(), anyOrNull())
 +        assertThat(acks.last().phase.name).isEqualTo("Done")
 +        assertThat(acks.last().status.name).isEqualTo("Ok")
 +        assertThat(acks.last().timestamp).isEqualTo(now + 9_000L)
@@ -135,38 +544,153 @@ index 01768edc31..6d6280ad99 100644
 +        val (clientId, secret) = pair()
 +        authorizedRepository.markActive(clientId, 1L, now)
 +        val acks = captureAcks(clientId, duringAck)
-+        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenReturn(WizardBolusExecutor.ConfirmResult.Delivered)
 +        val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
 +        val doc = wrap(envelope(clientId, secret, ClientControlMessage.BolusCommit(42L), 5L, validUntil = now + 8_000L, wantsAck = true))
 +
 +        sut.onSettingsDocChanged(identifier, doc)
 +        sut.onSettingsDocChanged(identifier, doc)
 +
-+        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any())
++        verify(wizardBolusExecutor, never()).confirm(any(), any(), any(), any(), any(), any(), anyOrNull())
 +        assertThat(acks.last().phase.name).isEqualTo("Done")
 +        assertThat(acks.last().status.name).isEqualTo(status)
 +        if (reason != null) assertThat(acks.last().reason).isEqualTo(reason)
 +        if (stored != "[]") assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
 +    }
 +
++    @Test
++    fun targetTransactionExpiryReturnsSignedExpiredAckAndNoReplay() = runTest {
++        assertTargetTransactionRejected("Expired") { whenever(dateUtil.now()).thenReturn(now + 8_000L) }
++    }
++
++    @Test
++    fun targetTransactionRevocationReturnsSignedNotPairedAck() = runTest {
++        assertTargetTransactionRejected("Failed", FailureReason.NotPaired.name) { stored = "[]" }
++    }
++
++    @Test
++    fun targetTransactionControlOffReturnsSignedControlDisabledAck() = runTest {
++        assertTargetTransactionRejected("Failed", FailureReason.ControlDisabled.name) {
++            whenever(preferences.get(BooleanKey.NsClientAllowClientControl)).thenReturn(false)
++        }
++    }
++
++    @Test
++    fun targetTransactionClockRollbackReturnsExpiredAck() = runTest {
++        assertTargetTransactionRejected("Expired") { whenever(dateUtil.now()).thenReturn(now - 1L) }
++    }
++
++    @Test
++    fun targetTransactionSlowSettingsReadCannotRenewDeadline() = runTest {
++        assertTargetTransactionRejected("Expired") {
++            whenever(preferences.get(BooleanKey.NsClientAllowClientControl)).thenAnswer {
++                whenever(dateUtil.now()).thenReturn(now + 8_000L)
++                true
++            }
++        }
++    }
++
++    private suspend fun assertTargetTransactionRejected(status: String, reason: String? = null, beforeMutation: () -> Unit) {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val acks = captureAcks(clientId)
++        var effects = 0
++        whenever(wizardBolusExecutor.confirm(any(), any(), any(), any(), any(), any(), anyOrNull())).thenAnswer { invocation ->
++            val admission = invocation.getArgument<suspend () -> Unit>(6)
++            beforeMutation()
++            runBlocking { admission() }
++            effects++
++            WizardBolusExecutor.ConfirmResult.Delivered
++        }
++        val identifier = "${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}bolus_commit_$clientId"
++        val doc = wrap(envelope(clientId, secret, ClientControlMessage.BolusCommit(42L), 5L, validUntil = now + 8_000L, wantsAck = true))
++        sut.onSettingsDocChanged(identifier, doc)
++        sut.onSettingsDocChanged(identifier, doc)
++        assertThat(effects).isEqualTo(0)
++        verify(wizardBolusExecutor, times(1)).confirm(any(), any(), any(), any(), any(), any(), anyOrNull())
++        assertThat(acks.last().status.name).isEqualTo(status)
++        if (reason != null) assertThat(acks.last().reason).isEqualTo(reason)
++        assertThat(ClientControlCrypto.verifyAck(secret, acks.last())).isTrue()
++    }
++
      // -- preferences_update (generic synced-pref channel) ---------------------------------
  
      private val concentrationKey = BooleanKey.GeneralInsulinConcentration.key
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/smsCommunicator/SmsCommunicatorPluginTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/smsCommunicator/SmsCommunicatorPluginTest.kt
+index 4b10856592..76592e2445 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/smsCommunicator/SmsCommunicatorPluginTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/smsCommunicator/SmsCommunicatorPluginTest.kt
+@@ -126,7 +126,7 @@ class SmsCommunicatorPluginTest : TestBaseWithProfile() {
+                 val bolus = actions.filterIsInstance<BatchAction.Bolus>().firstOrNull()
+                 WizardBolusExecutor.PrepareResult.Preview(insulin = bolus?.insulin ?: 0.0, carbs = bolus?.carbs ?: 0, bolusId = 42L)
+             }
+-            whenever(wizardBolusExecutor.confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull())).thenAnswer { invocation ->
++            whenever(wizardBolusExecutor.confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull(), anyOrNull())).thenAnswer { invocation ->
+                 invocation.getArgument<(() -> Unit)?>(5)?.invoke()
+                 WizardBolusExecutor.ConfirmResult.Delivered
+             }
+@@ -303,7 +303,7 @@ class SmsCommunicatorPluginTest : TestBaseWithProfile() {
+         // The reply above only proves an SMS went out. Pin down what reached the executor, so a refactor
+         // cannot change the mode or the duration silently. The executor picks the audit action itself.
+         assertThat(lastAction()).isEqualTo(BatchAction.RunningMode(RM.Mode.RESUME, 0))
+-        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.SMS), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull())
++        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.SMS), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull(), anyOrNull())
+ 
+         //LOOP SUSPEND 1 2: wrong format
+         smsCommunicatorPlugin.messages = ArrayList()
+@@ -727,7 +727,7 @@ class SmsCommunicatorPluginTest : TestBaseWithProfile() {
+         assertThat(switch.timeShiftHours).isEqualTo(0)
+         assertThat(switch.durationMinutes).isEqualTo(0)
+         // The parked batch is confirmed by its own id, and the switch is recorded as coming from SMS.
+-        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.SMS), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull())
++        verify(wizardBolusExecutor).confirm(eq(42L), eq(Sources.SMS), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull(), anyOrNull())
+     }
+ 
+     /**
+@@ -750,7 +750,7 @@ class SmsCommunicatorPluginTest : TestBaseWithProfile() {
+         smsCommunicatorPlugin.processSms(Sms("1234", passCode))
+ 
+         assertThat(smsCommunicatorPlugin.messages[3].text).isEqualTo("Cannot switch profile: no insulin is in use, and none was selected.")
+-        verifyBlocking(wizardBolusExecutor, never()) { confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull()) }
++        verifyBlocking(wizardBolusExecutor, never()) { confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull(), anyOrNull()) }
+     }
+ 
+     @Test fun processBasalTest() = runTest {
+@@ -893,7 +893,7 @@ class SmsCommunicatorPluginTest : TestBaseWithProfile() {
+         whenever(preferences.get(BooleanKey.SmsAllowRemoteCommands)).thenReturn(true)
+         testPumpPlugin.pumpDescription.tempBasalStyle = PumpDescription.ABSOLUTE
+         whenever(constraintChecker.applyBasalConstraints(anyOrNull(), anyOrNull())).thenReturn(ConstraintObject(1.0, aapsLogger))
+-        whenever(wizardBolusExecutor.confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull())).thenAnswer { invocation ->
++        whenever(wizardBolusExecutor.confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull(), anyOrNull())).thenAnswer { invocation ->
+             invocation.getArgument<((WizardBolusExecutor.Failure) -> Unit)?>(2)?.invoke(WizardBolusExecutor.Failure("Pump not reachable"))
+             WizardBolusExecutor.ConfirmResult.Delivered
+         }
+@@ -1108,7 +1108,7 @@ class SmsCommunicatorPluginTest : TestBaseWithProfile() {
+         whenever(preferences.get(IntKey.SmsRemoteBolusDistance)).thenReturn(15)
+         whenever(dateUtilMocked.now()).thenReturn(Constants.REMOTE_BOLUS_MIN_DISTANCE + 1002L)
+         smsCommunicatorPlugin.lastRemoteBolusTime = 0
+-        whenever(wizardBolusExecutor.confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull())).thenAnswer { invocation ->
++        whenever(wizardBolusExecutor.confirm(anyLong(), anyOrNull(), anyOrNull(), anyBoolean(), anyDouble(), anyOrNull(), anyOrNull())).thenAnswer { invocation ->
+             invocation.getArgument<((WizardBolusExecutor.Failure) -> Unit)?>(2)?.invoke(WizardBolusExecutor.Failure("Pump not reachable"))
+             WizardBolusExecutor.ConfirmResult.Delivered
+         }
 diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
-index 09ee884e0a..629fd363a3 100644
+index 09ee884e0a..459b348fbb 100644
 --- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
 +++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
-@@ -63,6 +63,9 @@ import kotlin.concurrent.Volatile
+@@ -63,6 +63,11 @@ import kotlin.concurrent.Volatile
  import kotlin.concurrent.atomics.AtomicBoolean
  import kotlin.concurrent.atomics.AtomicReference
  import kotlin.concurrent.atomics.ExperimentalAtomicApi
 +import kotlin.time.Duration.Companion.milliseconds
 +import kotlin.time.TimeMark
 +import kotlin.time.TimeSource
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
  
  /**
   * Master-side receiver for inbound client-control envelopes.
-@@ -248,7 +251,7 @@ class ClientControlReceiver(
+@@ -248,7 +253,7 @@ class ClientControlReceiver(
       */
      suspend fun processPending() {
          val client = nsClientV3Plugin().nsAndroidClient ?: return
@@ -175,7 +699,7 @@ index 09ee884e0a..629fd363a3 100644
          val resp = runCatching { client.searchSettings(limit = 100) }.getOrNull() ?: return
          for (doc in resp.values) {
              val identifier = doc.optStringCompat("identifier")
-@@ -261,7 +264,7 @@ class ClientControlReceiver(
+@@ -261,7 +266,7 @@ class ClientControlReceiver(
              if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_ACK_PREFIX)) continue
              // Skip our own bolus-progress docs (master-written, for clients).
              if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_PROGRESS_PREFIX)) continue
@@ -184,7 +708,7 @@ index 09ee884e0a..629fd363a3 100644
          }
      }
  
-@@ -276,10 +279,10 @@ class ClientControlReceiver(
+@@ -276,10 +281,10 @@ class ClientControlReceiver(
          if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_ACK_PREFIX)) return
          // Bolus-progress docs are master-written, consumed by clients — never an inbound command here.
          if (identifier.startsWith(ClientControlPublisher.IDENTIFIER_PROGRESS_PREFIX)) return
@@ -197,7 +721,7 @@ index 09ee884e0a..629fd363a3 100644
          val client = nsClientV3Plugin().nsAndroidClient ?: return
          // Unrecognized / unverifiable docs are IGNORED, never deleted. A delete soft-deletes
          // (tombstones) the identifier on NS, so the next legitimate PUT to that same per-type slot
-@@ -304,6 +307,7 @@ class ClientControlReceiver(
+@@ -304,6 +309,7 @@ class ClientControlReceiver(
          // the diagnostic branch below — current(now) silently drops expired pendings, which
          // would otherwise make a scraped-expired-QR replay indistinguishable from a typo.
          val raw = authorizedRepository.findRaw(envelope.clientId)
@@ -205,7 +729,7 @@ index 09ee884e0a..629fd363a3 100644
          val entry = authorizedRepository.current(now).firstOrNull { it.clientId == envelope.clientId }
          if (entry == null) {
              if (raw != null && raw.state == ClientState.Pending && raw.pairExpiresAt <= now)
-@@ -325,6 +329,7 @@ class ClientControlReceiver(
+@@ -325,6 +331,7 @@ class ClientControlReceiver(
              )
              return
          }
@@ -213,7 +737,7 @@ index 09ee884e0a..629fd363a3 100644
          if (!ClientControlCrypto.timestampWithinSkew(envelope.timestamp, now)) {
              aapsLogger.error(LTag.NSCLIENT, "ClientControl: $identifier timestamp outside skew window")
              return
-@@ -332,7 +337,7 @@ class ClientControlReceiver(
+@@ -332,7 +339,7 @@ class ClientControlReceiver(
          // Hard expiry: a command that sat past its validity must NOT fire late (e.g. a profile switch
          // requested 15 min ago and only now picked up). Consume the counter so it can't replay, and
          // tell the client definitively rather than leaving it to time out.
@@ -222,7 +746,7 @@ index 09ee884e0a..629fd363a3 100644
              authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
              nsClientRepository.addLog("◄ CLIENTCTL", "expired ${envelope.type} from ${entry.name}")
              aapsLogger.warn(LTag.NSCLIENT, "ClientControl: $identifier expired (validUntil=${envelope.validUntil} < now=$now), not executing")
-@@ -366,12 +371,20 @@ class ClientControlReceiver(
+@@ -366,12 +373,20 @@ class ClientControlReceiver(
          // Round-trip commands (wantsAck) get the two-step ACK: Executing before dispatch, then the
          // result. Fire-and-forget commands (scenes, pref sync) skip it — no client is waiting, so the
          // ACK doc would be pure write amplification.
@@ -245,7 +769,7 @@ index 09ee884e0a..629fd363a3 100644
          val outcome = when (message) {
              null                                      -> {
                  onVerifiedUndecodablePayload(entry, envelope, now)
-@@ -384,19 +397,32 @@ class ClientControlReceiver(
+@@ -384,19 +399,33 @@ class ClientControlReceiver(
              is ClientControlMessage.SceneStop         -> onVerifiedSceneStop(entry, envelope, message, now)
              is ClientControlMessage.PreferencesUpdate -> onVerifiedPreferencesUpdate(entry, envelope, message, now)
              is ClientControlMessage.BolusPrepare      -> onVerifiedBolusPrepare(entry, envelope, message, now)
@@ -266,13 +790,14 @@ index 09ee884e0a..629fd363a3 100644
  
 +    private suspend fun dispatchRefusal(entry: AuthorizedClient, envelope: SignedEnvelope, receipt: ClientControlCommandDeadline, mutating: Boolean): AckOutcome? {
 +        val current = authorizedRepository.findRaw(entry.clientId)
++        val operational = !mutating || preferences.clientControlOperational()
 +        val now = dateUtil.now()
 +        return when {
 +            receipt.expired(envelope.validUntil, now) -> AckOutcome(AckStatus.Expired, FailureReason.Expired.name)
 +            current == null || current.encryptedSecret != entry.encryptedSecret || current.state != entry.state ||
 +                current.counterReceived != envelope.counter || (current.state == ClientState.Pending && current.pairExpiresAt <= now) ->
 +                AckOutcome(AckStatus.Failed, FailureReason.NotPaired.name)
-+            mutating && !preferences.clientControlOperational() -> AckOutcome(AckStatus.Failed, FailureReason.ControlDisabled.name)
++            !operational -> AckOutcome(AckStatus.Failed, FailureReason.ControlDisabled.name)
 +            else -> null
 +        }
 +    }
@@ -280,7 +805,7 @@ index 09ee884e0a..629fd363a3 100644
      private suspend fun onVerifiedHello(entry: AuthorizedClient, envelope: SignedEnvelope, now: Long) {
          when (entry.state) {
              ClientState.Pending -> {
-@@ -562,8 +588,9 @@ class ClientControlReceiver(
+@@ -562,8 +591,9 @@ class ClientControlReceiver(
       * re-sent commit finds the slot drained → NoPending → NoPendingBolus (no double-dose). A synchronous
       * mode-gate rejection rides back through deliverError → ExecutionFailed. [asAdvisor] picks the correction-only path.
       */
@@ -291,10 +816,42 @@ index 09ee884e0a..629fd363a3 100644
          // AtomicReference (not a plain captured var): the onError closure CAN, in the microscopic window between
          // confirm() returning and syncDone.store(true), be invoked on the appScope thread — give the sync-path write a
          // memory barrier so the read below can never miss it. (Same reason syncDone is an AtomicBoolean.)
-@@ -884,6 +911,16 @@ class ClientControlReceiver(
-     private data class AckOutcome(val status: AckStatus, val reason: String?, val payload: String? = null)
- }
+@@ -587,7 +617,8 @@ class ClientControlReceiver(
+         progressArmedGeneration = bolusProgressData.currentGeneration
+         progressClientId.store(entry.clientId)
+         val syncDone = AtomicBoolean(false)
+-        val result = wizardBolusExecutor.confirm(message.bolusId, Sources.NSClient, { failure ->
++        val commandContext = currentCoroutineContext()
++        val result = try { wizardBolusExecutor.confirm(message.bolusId, Sources.NSClient, { failure ->
+             // Delivery failed. If no frame ever streamed for this arm (the bolus never started — e.g. the master was
+             // already bolusing, so the queue rejected this one), disarm now so a LATER unrelated master bolus isn't
+             // mirrored to this client during the remaining arm-TTL. Skip if it IS streaming (its terminal Cleared
+@@ -598,7 +629,17 @@ class ClientControlReceiver(
+             val reason = if (failure.cancelled) FailureReason.Cancelled else FailureReason.ExecutionFailed
+             if (syncDone.load()) appScope.launch { writeDeliveryFailureAck(entry, envelope.counter, failure.comment, reason) }
+             else deliverError.store(failure.comment)
+-        }, message.asAdvisor, correctionU = message.correctionU)
++        }, message.asAdvisor, correctionU = message.correctionU, targetAdmission = {
++            commandContext.ensureActive()
++            val refusal = dispatchRefusal(entry, envelope, receipt, mutating = true)
++            commandContext.ensureActive()
++            refusal?.let { throw TargetAdmissionRejected(it) }
++        }) } catch (rejected: TargetAdmissionRejected) {
++            // The executor invokes this guard only inside a target-only transaction.
++            // Rejection rolls back that transaction; it never reclassifies a completed effect.
++            progressClientId.compareAndSet(entry.clientId, null)
++            return rejected.outcome
++        }
+         syncDone.store(true)
+         val delivered = result is WizardBolusExecutor.ConfirmResult.Delivered
+         if (!delivered) progressClientId.store(null) // NoPending / Cancelled → nothing starts → don't mirror a future bolus to this client
+@@ -882,6 +923,17 @@ class ClientControlReceiver(
  
+     /** Result a command handler reports back so [verifyAndAck] can write the terminal Done ack. */
+     private data class AckOutcome(val status: AckStatus, val reason: String?, val payload: String? = null)
++    private class TargetAdmissionRejected(val outcome: AckOutcome) : IllegalStateException("Target admission refused")
++}
++
 +/** Admission budget includes network/mutex waits; wall-clock rollback cannot renew it. */
 +internal class ClientControlCommandDeadline(
 +    private val receivedAt: Long,
@@ -303,8 +860,145 @@ index 09ee884e0a..629fd363a3 100644
 +    fun expired(validUntil: Long, now: Long): Boolean =
 +        receivedAt < 0L || now < receivedAt || validUntil <= receivedAt || now >= validUntil ||
 +            receivedMark.elapsedNow() >= (validUntil - receivedAt).milliseconds
-+}
-+
+ }
+ 
  private fun EventData.WizardDetail.toDto() = WizardDetailDto(
-     totalInsulin = totalInsulin,
-     unclampedInsulin = unclampedInsulin,
+diff --git a/database/impl/src/jvmTest/kotlin/app/aaps/database/TargetAdmissionTransactionTest.kt b/database/impl/src/jvmTest/kotlin/app/aaps/database/TargetAdmissionTransactionTest.kt
+new file mode 100644
+index 0000000000..baf06f043f
+--- /dev/null
++++ b/database/impl/src/jvmTest/kotlin/app/aaps/database/TargetAdmissionTransactionTest.kt
+@@ -0,0 +1,133 @@
++package app.aaps.database
++
++import app.aaps.database.di.JvmAppDatabaseBuilder
++import app.aaps.database.entities.TemporaryTarget
++import app.aaps.database.transactions.CancelCurrentTemporaryTargetIfAnyTransaction
++import app.aaps.database.transactions.InsertAndCancelCurrentTemporaryTargetTransaction
++import com.google.common.truth.Truth.assertThat
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.CoroutineStart
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.async
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.flow.collect
++import kotlinx.coroutines.test.runTest
++import kotlinx.coroutines.test.runCurrent
++import kotlin.io.path.createTempDirectory
++import kotlin.test.AfterTest
++import kotlin.test.Test
++
++/** Synthetic targets, real Room transactions and bundled SQLite; no therapy runtime. */
++class TargetAdmissionTransactionTest {
++    private val directory = createTempDirectory("target-admission-")
++    private val database = JvmAppDatabaseBuilder().provideAppDatabase("$directory/test.db")
++    private val repository = AppRepository { database }
++
++    @AfterTest
++    fun close() {
++        repository.close()
++        database.close()
++        directory.toFile().deleteRecursively()
++    }
++
++    @Test
++    fun rejectionAtEveryInsertionBoundaryPreservesOriginalTarget() = runTest {
++        repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(1_000L, 120.0)))
++        var changes = 0
++        val observer = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { repository.changeFlow().collect { changes++ } }
++        for (refuseAt in 1..3) {
++            var calls = 0
++            val refusal = IllegalStateException("expired")
++            val result = runCatching {
++                repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(2_000L, 90.0)) {
++                    if (++calls == refuseAt) throw refusal
++                })
++            }
++            assertThat(result.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
++            assertThat(result.exceptionOrNull()!!.message).isEqualTo(refusal.message)
++            val current = database.temporaryTargetDao.getTemporaryTargetActiveAtLegacy(3_000L)
++            assertThat(current!!.lowTarget).isEqualTo(120.0)
++            assertThat(current.duration).isEqualTo(60_000L)
++            assertThat(database.temporaryTargetDao.getLastId()).isEqualTo(1L)
++        }
++        runCurrent()
++        assertThat(changes).isEqualTo(0)
++        observer.cancel()
++    }
++
++    @Test
++    fun rejectionAfterCancellationWriteRollsBackCancellation() = runTest {
++        repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(1_000L, 120.0)))
++        for (refuseAt in 1..3) {
++            var calls = 0
++            val refusal = IllegalStateException("revoked")
++            val result = runCatching {
++                repository.runTransactionForResultSuspend(CancelCurrentTemporaryTargetIfAnyTransaction(2_000L) {
++                    if (++calls == refuseAt) throw refusal
++                })
++            }
++            assertThat(result.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
++            assertThat(result.exceptionOrNull()!!.message).isEqualTo(refusal.message)
++            assertThat(database.temporaryTargetDao.getTemporaryTargetActiveAt(3_000L)!!.duration).isEqualTo(60_000L)
++        }
++    }
++
++    @Test
++    fun suspensionInsideTransactionCannotApplyRevokedTarget() = runTest {
++        repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(1_000L, 120.0)))
++        val reached = CompletableDeferred<Unit>()
++        val resume = CompletableDeferred<Unit>()
++        var allowed = true
++        var calls = 0
++        val work = async {
++            runCatching {
++                repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(2_000L, 90.0)) {
++                    if (++calls == 3) {
++                        reached.complete(Unit)
++                        resume.await()
++                    }
++                    check(allowed) { "revoked" }
++                })
++            }
++        }
++        reached.await()
++        allowed = false
++        resume.complete(Unit)
++        assertThat(work.await().isFailure).isTrue()
++        assertThat(database.temporaryTargetDao.getTemporaryTargetActiveAtLegacy(3_000L)!!.lowTarget).isEqualTo(120.0)
++    }
++
++    @Test
++    fun admittedInsertAndCancelCommitNormally() = runTest {
++        var calls = 0
++        val inserted = repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(1_000L, 90.0)) { calls++ })
++        assertThat(inserted.inserted).hasSize(1)
++        assertThat(calls).isEqualTo(3)
++        assertThat(database.temporaryTargetDao.getTemporaryTargetActiveAtLegacy(2_000L)!!.lowTarget).isEqualTo(90.0)
++        val cancelled = repository.runTransactionForResultSuspend(CancelCurrentTemporaryTargetIfAnyTransaction(2_000L) {})
++        assertThat(cancelled.updated).hasSize(1)
++        assertThat(database.temporaryTargetDao.getTemporaryTargetActiveAt(3_000L)).isNull()
++    }
++
++    @Test
++    fun cancelledOwnerRollsBackEvenInsideNonCancellableRepository() = runTest {
++        repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(1_000L, 120.0)))
++        val owner = Job()
++        var calls = 0
++        val result = runCatching {
++            repository.runTransactionForResultSuspend(InsertAndCancelCurrentTemporaryTargetTransaction(target(2_000L, 90.0)) {
++                if (++calls == 3) owner.cancel()
++                owner.ensureActive()
++            })
++        }
++        assertThat(result.isFailure).isTrue()
++        assertThat(database.temporaryTargetDao.getTemporaryTargetActiveAtLegacy(3_000L)!!.lowTarget).isEqualTo(120.0)
++        assertThat(database.temporaryTargetDao.getLastId()).isEqualTo(1L)
++    }
++
++    private fun target(timestamp: Long, value: Double) = TemporaryTarget(
++        timestamp = timestamp, duration = 60_000L, reason = TemporaryTarget.Reason.CUSTOM,
++        lowTarget = value, highTarget = value
++    )
++}

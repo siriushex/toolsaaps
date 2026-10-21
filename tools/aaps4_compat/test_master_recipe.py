@@ -32,6 +32,10 @@ class MasterRecipeTest(unittest.TestCase):
             "printf '%s\\n' \"$@\" > .gradle-invoked\n"
             "if [ \"${FIXTURE_MODE:-}\" = concurrent ]; then\n"
             "  printf '%s\\n' 'other edit' >> receiver.txt\nfi\n"
+            "if [ \"${FIXTURE_MODE:-}\" = untracked ]; then\n"
+            "  printf '%s\\n' 'other source' > concurrent.txt\nfi\n"
+            "if [ \"${FIXTURE_MODE:-}\" = added-edit ]; then\n"
+            "  printf '%s\\n' 'other edit' >> added.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = failure ]; then exit 9; fi\n"
         )
         wrapper.chmod(0o755)
@@ -43,6 +47,8 @@ class MasterRecipeTest(unittest.TestCase):
         shutil.copyfile(RECIPE, self.recipe)
         (self.source / "receiver.txt").write_text("patched\n")
         patch = self.run_git("diff", "--binary", "HEAD", "--").stdout
+        patch += ("diff --git a/added.txt b/added.txt\nnew file mode 100644\n"
+                  "--- /dev/null\n+++ b/added.txt\n@@ -0,0 +1 @@\n+new test\n")
         (tools / "master-admission.patch").write_text(patch)
         (self.source / "receiver.txt").write_text("original\n")
         binaries = self.root / "bin"
@@ -76,15 +82,33 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
         self.assertTrue((self.source / ".gradle-invoked").exists())
+        self.assertFalse((self.source / "added.txt").exists())
         arguments = (self.source / ".gradle-invoked").read_text().splitlines()
         self.assertIn(":plugins:sync:testAndroidHostTest", arguments)
         self.assertIn(":implementation:testAndroidHostTest", arguments)
         self.assertIn("*.WizardBolusExecutorImplTest", arguments)
+        self.assertIn(":database:impl:jvmTest", arguments)
+        self.assertIn("*.TargetAdmissionTransactionTest", arguments)
+        self.assertIn("*.SmsCommunicatorPluginTest", arguments)
 
     def test_failed_gradle_restores_source_and_preserves_exit_code(self):
         result = self.run_recipe("failure")
         self.assertEqual(9, result.returncode, result.stderr)
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+        self.assertFalse((self.source / "added.txt").exists())
+
+    def test_new_concurrent_source_is_preserved_and_fails_cleanup(self):
+        result = self.run_recipe("untracked")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("preserving the checkout", result.stderr)
+        self.assertEqual("other source\n", (self.source / "concurrent.txt").read_text())
+        self.assertEqual("patched\n", (self.source / "receiver.txt").read_text())
+
+    def test_edit_to_added_patch_file_is_not_overwritten(self):
+        result = self.run_recipe("added-edit")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("preserving the checkout", result.stderr)
+        self.assertEqual("new test\nother edit\n", (self.source / "added.txt").read_text())
 
     def test_concurrent_edit_is_not_reversed_or_overwritten(self):
         result = self.run_recipe("concurrent")

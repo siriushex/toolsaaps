@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## RC1 Target Transaction Boundary
+
+The external pinned RC1 admission patch carries a target-only callback from the
+receiver through the executor into the existing Room target transactions. The
+consume-once slot stays consumed on rejection; database writes roll back before
+the signed refusal. Successful mutation is not reclassified after expiry. Local
+calls and mixed/pump actions retain upstream semantics. No schema or wire change.
+See AAPS4_MASTER_ADMISSION.md; clinical projection and live publication stay closed.
+
 ## Combined History Upload Ownership
 
 The combined tree retains main's durable `ServerAiHistoryUploadSchedule` as the
