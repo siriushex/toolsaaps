@@ -1,5 +1,13 @@
 # PLAN
 
+## Timer Internet Release (2026-10-22)
+
+- [x] Prepare0.1.8/code9 after retained-timer implementation verification.
+- [x] Verify updater/provider/About contracts:47passed; lint/compile/assemble
+  passed. Signed artifact publication receipts remain in the release checkpoint.
+- [ ] Pass release-commit Verify and integrate the reviewed source into main.
+- [ ] Publish static update files with prior pointer/page backup and HTTPS readback.
+
 ## Retained Insulin Countdown (2026-10-21)
 
 - [x] Reproduce automatic disappearance after the completed-state window.

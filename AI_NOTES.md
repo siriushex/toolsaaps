@@ -1,3 +1,17 @@
+# Timer Internet Release - 2026-10-22
+
+- Continue the reviewed timer repair through the existing internet update flow.
+  Increment Android metadata to0.1.8/code9 so installed0.1.7 can discover it.
+- Timer implementation already passed the frozen full Android suite recorded
+  below. Versioned updater/provider/About checks passed47tests with no skips;
+  lint/compile/assemble passed in9m37s. APK tooling passed14tests. Publish only
+  after the release commit passes Verify and is integrated into main.
+- Static rollout replaces only the hash-named APK, bootstrap page and manifest.
+  Preserve the previous pointer/page and immutable APK, independently download
+  the new public bytes, and compare package/version/hash/signing identity.
+- Preparation is not publication or installation. Deployment receipt belongs
+  in the release checkpoint; phone installation requires Android confirmation.
+
 # Retained Insulin Timer - 2026-10-22
 
 - Reproduced automatic disappearance fifteen minutes after estimated onset in
