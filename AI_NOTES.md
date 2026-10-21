@@ -1,3 +1,38 @@
+# Local Clinical JSON Export - 2026-10-21
+
+- Added offline JSON export to AI analysis > Report with 7/14/30/60 days and Full.
+  The system document picker chooses the destination; no AI account is required.
+  Streaming schema1 includes 42 reviewed clinical sections and ten-minute glucose
+  bins with source/quality, extrema, sample counts and gaps. Other selected rows
+  have no count cap. Current settings and retained coverage are explicitly labeled.
+- Excluded private connection/account state, transport journals and operational
+  logs. Clinical notes remain included and disclosed. No phone database, real
+  medical fixture, network call, model request or therapeutic action is introduced.
+- Native Android12 tests caught BEGIN being rewritten into a writer transaction.
+  The separate read-only connection now uses a deferred SAVEPOINT snapshot;
+  concurrent clinical writes and snapshot consistency pass on API31 and35.
+- ViewModel work survives screen recreation; cancellation, duplicate clicks and
+  restored interrupted work are tested. The completed file is copied and read
+  back with SHA-256/length verification; incomplete-document cleanup failure is
+  explicit. Native 320dp and double-text selector rasters were inspected.
+- First full run caught two PDF package architecture violations. Moved explicit
+  history export to `historyexport`, preserving the restricted PDF package and
+  extending the common therapy-writer prohibition to all ClinicalJson sources.
+- Final full Android test/lint/compile/assemble passed in 21m39s: 6546 passed,
+  six private-input skips, no test/lint errors. All 27 JSON cases pass, including
+  60 days/86,400 samples, unknown-schema rejection and destination readback.
+  Lint has 382 warnings/eight hints: three new nonblocking KTX/plural suggestions.
+  The real pristine RC1 SDK TLS/authentication/entry fixture passed without skip.
+  APK guards retain 7038 application classes in the signed 41,482,021-byte build;
+  prior signing certificate is unchanged. Backend: 1942 passed/27 skipped;
+  update tooling: 14 passed. Exact-head CI is a separate publication receipt.
+- Full means retained local history, not a backup or recovery of purged/server
+  data. Ten-minute glucose bins cannot reconstruct exact TIR or insulin onset.
+  A force-stop/provider failure can leave a partial document; normal failure and
+  cancellation cleanup are verified. APK installation/release is a separate step.
+- Contract and manual save flow: docs/CLINICAL_JSON_EXPORT.md. Exact-head source
+  CI must be inspected separately after local checks and reviewed publication.
+
 # Insulin Countdown Lifetime Repair - 2026-10-21
 
 - Reproduced three failures before the fix: a14-minute-old estimate erased a

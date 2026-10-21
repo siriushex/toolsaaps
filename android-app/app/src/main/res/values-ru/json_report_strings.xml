@@ -1,0 +1,12 @@
+<resources>
+    <string name="json_report_title">Отчёт в JSON</string>
+    <string name="json_report_disclosure">История и текущий профиль, включая личные заметки. Сахар: статистика за 10 минут; остальные клинические записи: подробно. Ключи доступа и журналы соединений исключены. Передавайте файл только доверенным сервисам.</string>
+    <string name="json_report_full">Вся доступная история (Full)</string>
+    <string name="json_report_days">%1$d дней</string>
+    <string name="json_report_save">Сохранить JSON</string>
+    <string name="json_report_progress">Подготовка и сохранение · %1$d записей</string>
+    <string name="json_report_saved">JSON сохранён · %1$d КБ</string>
+    <string name="json_report_cancelled">Экспорт отменён</string>
+    <string name="json_report_failed">Не удалось сохранить отчёт. Проверьте свободное место и доступ к выбранной папке, затем повторите.</string>
+    <string name="json_report_partial">Экспорт не завершён. Удалите неполный файл из выбранной папки перед повтором.</string>
+</resources>

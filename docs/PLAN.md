@@ -1,5 +1,16 @@
 # PLAN
 
+## Local Clinical JSON Export (2026-10-21)
+
+- [x] Review Room tables, local settings, coverage and explicit privacy exclusions.
+- [x] Implement 7/14/30/60/full selector and streaming offline report/save flow.
+- [x] First native Room/period/glucose/concurrent-write regressions pass.
+- [x] Complete strengthened readback, cancellation, document-provider and native UI checks.
+- [x] Complete full Android test/lint/build and APK size/class/signature guards.
+- Exact-head source CI is recorded separately in the task checkpoint/PR after
+  reviewed publication; local checks do not prove remote CI completion.
+- No installation, release deployment or real medical export is part of this stage.
+
 ## Insulin Countdown Lifetime Repair (2026-10-21)
 
 - [x] Reproduce one-minute disappearance, failed reconstruction and lost

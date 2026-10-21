@@ -1,0 +1,12 @@
+<resources>
+    <string name="json_report_title">JSON report</string>
+    <string name="json_report_disclosure">Local clinical history and current profile, including personal notes. Glucose: 10-minute statistics; other clinical records: full detail. Credentials and transport logs are excluded. Share only with services you trust.</string>
+    <string name="json_report_full">Full available history</string>
+    <string name="json_report_days">%1$d days</string>
+    <string name="json_report_save">Save JSON</string>
+    <string name="json_report_progress">Preparing and saving · %1$d records</string>
+    <string name="json_report_saved">JSON saved · %1$d KB</string>
+    <string name="json_report_cancelled">Export cancelled</string>
+    <string name="json_report_failed">Could not save the report. Check free space and access to the selected folder, then retry.</string>
+    <string name="json_report_partial">Export did not finish. Delete the incomplete file from the selected folder before retrying.</string>
+</resources>

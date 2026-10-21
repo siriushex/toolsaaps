@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Local Clinical JSON Export (2026-10-21)
+
+- New egress is an explicit Android CreateDocument choice, not a network client.
+  The destination URI must be content-scheme. SQL table/column names come only
+  from the static reviewed schema; time bounds are bound parameters.
+- Typed clinical settings only; no wholesale preferences. Private transport,
+  credentials and operational logs are excluded. Clinical notes remain sensitive
+  personal data and are explicitly disclosed before export; JSON is unencrypted.
+- Streaming copy and readback verify SHA-256/length. Cancellation/error cleanup
+  targets only the created document, with a visible warning if removal fails.
+  No private contents/provider paths are placed in exception UI or logs.
+- Room native checks exercise concurrent writes. No app stop, therapy mutation,
+  provider upload, automatic sharing or real patient fixture is introduced.
+
 ## Insulin Countdown Lifetime (2026-10-21)
 
 - Freshness is relative to the recorded bolus, not each presentation frame;

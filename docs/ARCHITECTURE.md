@@ -1,5 +1,18 @@
 # ARCHITECTURE
 
+## Local Clinical JSON Export
+
+The separate `historyexport` package reads a dedicated WAL snapshot and writes the versioned
+offline report defined in [CLINICAL_JSON_EXPORT.md](CLINICAL_JSON_EXPORT.md).
+The AI report tab exposes 7/14/30/60/full without requiring the AI service.
+Glucose is aggregated to ten-minute source/quality bins; other reviewed clinical
+rows are streamed without caps. Private transport/auth stores are excluded.
+An activity-scoped export ViewModel owns save/cancel/cleanup; saved-document
+length and SHA-256 readback must match before success. No therapy or network path.
+The existing `report` package remains a narrow PDF renderer without database or
+file access; its architectural guards are unchanged. The writer prohibition also
+covers the new JSON exporter and its UI.
+
 ## Seen Pause and Insulin-Onset Presentation
 
 The exact running-owner acknowledgement keeps its source/generation/ordinal,

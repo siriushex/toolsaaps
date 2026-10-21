@@ -557,6 +557,7 @@ fun CopilotFoundationRoot(
                                 val aiAnalysis by viewModel.aiAnalysisUiState.collectAsStateWithLifecycle()
                                 AiAnalysisScreen(
                                     state = aiAnalysis,
+                                    localReportExport = { io.aaps.copilot.ui.foundation.screens.ClinicalJsonExport() },
                                     serverArchive = { query ->
                                         io.aaps.copilot.ui.foundation.screens.ServerDailyReviewArchive(query,
                                             onOpenConnection = { navController.navigate(Destinations.Settings.route) { launchSingleTop = true } })

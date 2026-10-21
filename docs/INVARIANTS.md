@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Clinical JSON Export
+
+- Explicit local action only. Never serialize whole settings, account secrets,
+  raw transport staging or operational logs; list deliberate exclusions.
+- Preserve original clinical rows/provenance with no silent count cap. Glucose
+  reduction retains extrema/source/quality/gaps and cannot claim exact trajectories.
+- Full means retained local history, not recovered/deleted or server-only data.
+  Current profiles/state must not masquerade as historical configuration.
+- Use a read-only consistent database snapshot; never stop the app or lock its
+  clinical writer for export. Cancellation must never be presented as success.
+- Write completion only after all sections; verify destination bytes before
+  reporting saved. Failed cleanup must be visible; retry requires user action.
+
 ## AAPS Treatment Transport Capability
 
 - Storage namespace authentication cannot authorize root or mark READY. Root

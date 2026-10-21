@@ -172,7 +172,8 @@ fun AiAnalysisScreen(
     diagnosticsVisible: Boolean = false,
     onDismissDiagnostics: () -> Unit = {},
     onRetryClinicalDisplay: () -> Unit = {},
-    serverArchive: (@Composable (String) -> Unit)? = null
+    serverArchive: (@Composable (String) -> Unit)? = null,
+    localReportExport: (@Composable () -> Unit)? = null
 ) {
     val midnightGlass = LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS
     val context = LocalContext.current
@@ -239,6 +240,7 @@ fun AiAnalysisScreen(
         onDismissDiagnostics = onDismissDiagnostics,
         serverArchive = serverArchive,
         report = { discuss ->
+            localReportExport?.invoke()
             var showActions by rememberSaveable { mutableStateOf(false) }
             val display = state.clinicalDisplay
             if (display != null) AiFocusDisplayReport(display, state.clinicalDisplayRefreshing,

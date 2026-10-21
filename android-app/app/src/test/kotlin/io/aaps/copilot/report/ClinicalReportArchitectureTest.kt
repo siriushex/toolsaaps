@@ -369,6 +369,7 @@ class ClinicalReportArchitectureTest {
         return productionSources().filter { source ->
             val name = source.relativePath.substringAfterLast('/')
             name.startsWith("ClinicalReport") ||
+                name.startsWith("ClinicalJson") ||
                 name == "ClinicalOpenAiClient.kt" ||
                 name.contains("ClinicalAiGateway") ||
                 name == "ClinicalAiProviderConfig.kt" ||
