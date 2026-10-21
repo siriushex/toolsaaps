@@ -58,6 +58,10 @@ reverses only its own exact diff.
 If concurrent source edits occur it preserves the checkout and fails instead of overwriting
 them. Gradle needs the upstream-required Android platform. The stock SDK fixture
 remains a separate pristine-source check; this patched stage is not called stock.
+CI runs `prepare.sh` after this helper has restored the source, so the exported
+stock classpath cannot accidentally reuse the patched SDK build output. When
+running the helper locally after preparation, run preparation again before
+claiming a pristine SDK interoperability result.
 
 On 2026-10-20 the frozen patch passed 103 receiver/round-trip/mapping/uplink
 tests, 80 existing executor tests and all 128 app tests, with zero failures,

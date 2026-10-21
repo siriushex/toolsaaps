@@ -14,10 +14,19 @@
   selection. The new clinical contract records acceptance cases and unavailable
   Android trust/JugglucoNG device evidence. Production native publication stays shut.
 - No AAPS install, server AI change, model request or real therapy command.
-  All16 updated recipe checks passed with the required RC1/Java21 environment;
+  All20 updated recipe checks passed with the required RC1/Java21 environment;
   the final helper passed and left the upstream tree clean. An earlier recipe
   invocation omitted AAPS_RC1_DIR and correctly refused rather than skipping.
   CI/main receipts remain pending and must be recorded separately.
+- Review caught a build-output isolation issue: reversing the source alone does
+  not restore the compiled SDK. CI now prepares the pristine interoperability
+  fixture after the patched native tests, not before. The release0.1.6 check is
+  unaffected because its previous admission patch did not modify NSSDK.
+- Preparation now rejects untracked source at entry and exit; two failing-first
+  checks reproduced the original omission. A real TLS/authentication/data and
+  target-protocol round trip passed with zero skips against the re-exported stock
+  fixture. Cleanup tests only assert removal of owned scratch directories, not
+  unrelated system cache files that macOS may create under TMPDIR.
 
 # Internet Release 0.1.6 - 2026-10-21
 
@@ -42,6 +51,12 @@
   The signer matches the independently downloaded public build6. Retention
   guard confirms all7073 compiled application classes; exact-head CI, public
   publication and main integration remain separate pending gates.
+- Publication receipt: exact-head Verify39621977944 and39622052769 succeeded.
+  Code7 was published through the existing static channel, previous pointer/page
+  preserved privately. Independent HTTPS download matched all39,609,340 bytes,
+  SHA-256, signer and compiled package/version/minSDK31. HEAD, bootstrap, hidden
+  path rejection and a4096-byte Range at75percent passed. Nginx/AI process IDs
+  and active-start identities are unchanged. Android installation is not claimed.
 
 # RC1 Target Transaction Admission - 2026-10-21
 

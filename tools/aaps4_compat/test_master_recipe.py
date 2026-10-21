@@ -32,6 +32,9 @@ class MasterRecipeTest(unittest.TestCase):
             "#!/usr/bin/env bash\nset -eu\n"
             "printf '%s\\n' \"$@\" > .gradle-invoked\n"
             "cp transport.txt .transport-invoked\n"
+            "if [ -n \"${AAPS_INTEROP_CLASSPATH:-}\" ]; then\n"
+            "  mkdir -p \"$(dirname \"$AAPS_INTEROP_CLASSPATH\")\"\n"
+            "  printf '%s\\n' synthetic > \"$AAPS_INTEROP_CLASSPATH\"\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = concurrent ]; then\n"
             "  printf '%s\\n' 'other edit' >> receiver.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = untracked ]; then\n"
@@ -49,6 +52,8 @@ class MasterRecipeTest(unittest.TestCase):
         tools.mkdir(parents=True)
         self.recipe = tools / RECIPE.name
         shutil.copyfile(RECIPE, self.recipe)
+        self.prepare = tools / "prepare.sh"
+        shutil.copyfile(RECIPE.with_name("prepare.sh"), self.prepare)
         (self.source / "receiver.txt").write_text("patched\n")
         patch = self.run_git("diff", "--binary", "HEAD", "--").stdout
         patch += ("diff --git a/added.txt b/added.txt\nnew file mode 100644\n"
@@ -78,6 +83,7 @@ class MasterRecipeTest(unittest.TestCase):
                         TMPDIR=str(self.scratch),
                         PATH=str(binaries) + os.pathsep + os.environ["PATH"],
                         REAL_GIT=self.git, FIXTURE_PIN=PIN)
+        self.env.pop("AAPS_INTEROP_CLASSPATH", None)
 
     def run_git(self, *args):
         return subprocess.run([self.git, "-C", str(self.source), *args],
@@ -92,7 +98,7 @@ class MasterRecipeTest(unittest.TestCase):
         result = self.run_recipe()
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
-        self.assertEqual([], list(self.scratch.iterdir()))
+        self.assertEqual([], list(self.scratch.glob("master-admission.*")))
         self.assertTrue((self.source / ".gradle-invoked").exists())
         self.assertFalse((self.source / "added.txt").exists())
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
@@ -111,13 +117,46 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.source / ".gradle-invoked").exists())
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
-        self.assertEqual([], list(self.scratch.iterdir()))
+        self.assertEqual([], list(self.scratch.glob("master-admission.*")))
 
     def test_concurrent_transport_edit_is_not_reversed(self):
         result = self.run_recipe("transport-edit")
         self.assertNotEqual(0, result.returncode)
         self.assertIn("preserving the checkout", result.stderr)
         self.assertEqual("patched transport\nother edit\n", (self.source / "transport.txt").read_text())
+
+    def test_prepare_rejects_untracked_sdk_source(self):
+        (self.source / "unknown.txt").write_text("owner content\n")
+        result = subprocess.run(["bash", str(self.prepare)], env=self.env,
+                                text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("owner content\n", (self.source / "unknown.txt").read_text())
+
+    def test_prepare_rejects_concurrent_source_without_overwriting_it(self):
+        result = subprocess.run(["bash", str(self.prepare)],
+                                env=dict(self.env, FIXTURE_MODE="untracked"),
+                                text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual("other source\n", (self.source / "concurrent.txt").read_text())
+
+    def test_clean_prepare_exports_classpath(self):
+        result = subprocess.run(["bash", str(self.prepare)], env=self.env,
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        exported = self.root / "project/android-app/build/aaps4-interop/classpath.txt"
+        self.assertEqual("synthetic\n", exported.read_text())
+        self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_ci_prepares_stock_sdk_after_reversing_temporary_patches(self):
+        workflow = (RECIPE.parents[2] / ".github/workflows/verify.yml").read_text()
+        patch_step = "        run: bash tools/aaps4_compat/verify_master.sh\n"
+        prepare_step = "        run: bash tools/aaps4_compat/prepare.sh\n"
+        test_step = "        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2 --console=plain\n"
+        for step in (patch_step, prepare_step, test_step):
+            self.assertEqual(1, workflow.count(step))
+        self.assertLess(workflow.index(patch_step), workflow.index(prepare_step))
+        self.assertLess(workflow.index(prepare_step), workflow.index(test_step))
 
     def test_failed_gradle_restores_source_and_preserves_exit_code(self):
         result = self.run_recipe("failure")

@@ -88,11 +88,6 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 platforms;android-37.0 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
-      - name: Compile unmodified stock SDK with external test driver
-        env:
-          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
-          AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
-        run: bash tools/aaps4_compat/prepare.sh
       - name: Verify external Android JSON isolation boundaries
         env:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
@@ -103,6 +98,12 @@ jobs:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
         run: bash tools/aaps4_compat/verify_master.sh
+      # Rebuild the pristine SDK after temporary patches and their build outputs.
+      - name: Compile unmodified stock SDK with external test driver
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
+        run: bash tools/aaps4_compat/prepare.sh
       - name: Test, lint and build
         working-directory: android-app
         env:
