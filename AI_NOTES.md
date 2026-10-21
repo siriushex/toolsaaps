@@ -1,3 +1,27 @@
+# Internet Release 0.1.6 - 2026-10-21
+
+- Owner requested publication of the verified JSON-export and countdown-lifetime
+  changes before continuing clinical AAPS4 integration. Start from main974b0818.
+- Advance to versionCode7/versionName0.1.6 because the live channel is build6.
+  Keep the existing package and signing identity. No clinical/runtime/schema,
+  model/login, server AI, phone or native target-admission change in this stage.
+- Release gates: complete local Android test/lint/build, publication-tool tests,
+  exact-head CI, APK metadata/signature/class-size checks and public signer match.
+  Preserve the old public pointer/page; publish the immutable APK first and
+  latest.json last, then independently verify HTTPS bytes and Range recovery.
+- Source completion, live publication and main receipts are separate evidence;
+  preparation alone does not claim any of them. Installation remains Android-
+  confirmed and briefly interrupts only Copilot, not AAPS.
+- Local verification completed: 6571 Android tests passed, six private-input
+  skips, no failures/errors; lint zero errors/382 existing warnings; full build
+  successful, canonical generated APK rebuilt and verified, 14 publication-tool
+  tests passed. Focused export/countdown suites passed 11/14 tests respectively.
+- APK: 39,609,340 bytes, SHA-256
+  f07169aeffad6fdc091c0d8064d8e7a08569922eb2cfe8bc49a07a67f198a3e3.
+  The signer matches the independently downloaded public build6. Retention
+  guard confirms all7073 compiled application classes; exact-head CI, public
+  publication and main integration remain separate pending gates.
+
 # RC1 Target Transaction Admission - 2026-10-21
 
 - Continued A2 from WORKSTREAMS on a fresh branch based on verified main

@@ -1,5 +1,21 @@
 # PLAN
 
+## Internet Release 0.1.6 (2026-10-21)
+
+- [x] Start from verified main with JSON export and countdown lifetime repair.
+- [x] Increase versionCode to7/versionName0.1.6; retain package/signing identity.
+- [x] Verify full local Android quality and release tooling: 6571 passed,
+  6 private-input skips, zero failures/errors; lint zero errors/382 warnings;
+  build successful; 14 publication-tool tests passed.
+- [x] Verify signed APK metadata/class retention and current public signer:
+  code7/name0.1.6, 39,609,340 bytes, all 7073 compiled app classes retained.
+- [ ] Verify exact-head CI before publication.
+- [ ] Publish only static APK/page/manifest with the previous pointer preserved.
+- [ ] Independently download and verify public bytes, signature and Range resume.
+- [ ] Merge reviewed source after checks and verify resulting main CI.
+- No AAPS APK installation, clinical-admission unlock, server AI/profile change
+  or therapeutic action. Clinical/profile/TLS/JugglucoNG work remains separate.
+
 ## RC1 Target Transaction Admission (2026-10-21)
 
 - [x] Reproduce two target install/cancel admission failures before the fix.
