@@ -1,0 +1,123 @@
+diff --git a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt
+index e6eb134149..cd7623005c 100644
+--- a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt
++++ b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt
+@@ -23,9 +23,10 @@ internal actual fun nsHttpClient(
+         engine {
+             addInterceptor { chain ->
+                 val request = chain.request()
+-                logger("--> ${request.method} ${request.url}")
++                // Authorization uses a token-bearing path; do not log URLs or payloads.
++                logger("--> ${request.method}")
+                 val response = chain.proceed(request)
+-                logger("<-- ${response.code} ${request.url}")
++                logger("<-- ${response.code}")
+                 response
+             }
+         }
+diff --git a/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsHttpLoggingPrivacyTest.kt b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsHttpLoggingPrivacyTest.kt
+new file mode 100644
+index 0000000000..d3c928f290
+--- /dev/null
++++ b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsHttpLoggingPrivacyTest.kt
+@@ -0,0 +1,100 @@
++package app.aaps.core.nssdk.networking
++
++import app.aaps.core.nssdk.NSAndroidClientImpl
++import com.google.common.truth.Truth.assertThat
++import io.ktor.client.request.get
++import io.ktor.client.request.header
++import io.ktor.client.request.post
++import io.ktor.client.request.setBody
++import io.ktor.client.statement.bodyAsText
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.test.runTest
++import mockwebserver3.MockResponse
++import mockwebserver3.MockWebServer
++import org.junit.jupiter.api.Test
++import java.util.concurrent.CopyOnWriteArrayList
++
++class NsHttpLoggingPrivacyTest {
++
++    @Test
++    fun `logging omits URL headers and body without changing the request`() = runTest {
++        val server = MockWebServer()
++        server.start()
++        val logs = CopyOnWriteArrayList<String>()
++        val client = nsHttpClient(true, logs::add) { }
++        try {
++            server.enqueue(MockResponse.Builder().code(200).body("fixture-response").build())
++            val response = client.post(server.url("/api/v2/authorization/request/fixture-access?key=fixture-query").toString()) {
++                header("Authorization", "Bearer fixture-issued")
++                setBody("fixture-payload")
++            }
++            assertThat(response.bodyAsText()).isEqualTo("fixture-response")
++            val request = server.takeRequest()
++            assertThat(request.target).isEqualTo("/api/v2/authorization/request/fixture-access?key=fixture-query")
++            assertThat(request.headers["Authorization"]).isEqualTo("Bearer fixture-issued")
++            assertThat(request.body?.utf8()).isEqualTo("fixture-payload")
++            assertThat(logs).containsExactly("--> POST", "<-- 200").inOrder()
++        } finally {
++            client.close()
++            server.close()
++        }
++    }
++
++    @Test
++    fun `disabled logging remains silent`() = runTest {
++        val server = MockWebServer()
++        server.start()
++        val logs = CopyOnWriteArrayList<String>()
++        val client = nsHttpClient(false, logs::add) { }
++        try {
++            server.enqueue(MockResponse.Builder().code(200).build())
++            assertThat(client.get(server.url("/fixture").toString()).status.value).isEqualTo(200)
++            assertThat(logs).isEmpty()
++        } finally {
++            client.close()
++            server.close()
++        }
++    }
++
++    @Test
++    fun `error status is retained without sensitive address`() = runTest {
++        val server = MockWebServer()
++        server.start()
++        val logs = CopyOnWriteArrayList<String>()
++        val client = nsHttpClient(true, logs::add) { }
++        try {
++            server.enqueue(MockResponse.Builder().code(403).body("fixture-denial").build())
++            val response = client.get(server.url("/private/fixture-access").toString())
++            assertThat(response.status.value).isEqualTo(403)
++            assertThat(response.bodyAsText()).isEqualTo("fixture-denial")
++            assertThat(logs).containsExactly("--> GET", "<-- 403").inOrder()
++        } finally {
++            client.close()
++            server.close()
++        }
++    }
++
++    @Test
++    fun `native token refresh stays functional and never logs its URL`() = runTest {
++        val server = MockWebServer()
++        server.start()
++        val logs = CopyOnWriteArrayList<String>()
++        val client = NSAndroidClientImpl(
++            server.url("/").toString().trimEnd('/'), "fixture-access", true,
++            logs::add, Dispatchers.Unconfined
++        )
++        try {
++            server.enqueue(MockResponse.Builder().code(401).body("unauthorized").build())
++            server.enqueue(MockResponse.Builder().code(200).body("""{"token":"fixture-issued","iat":1,"exp":2}""").build())
++            server.enqueue(MockResponse.Builder().code(200).body("""{"result":[]}""").build())
++            assertThat(client.getSgvs().values).isEmpty()
++            assertThat(server.takeRequest().headers["Authorization"]).isEqualTo("Bearer")
++            assertThat(server.takeRequest().target).isEqualTo("/api/v2/authorization/request/fixture-access")
++            assertThat(server.takeRequest().headers["Authorization"]).isEqualTo("Bearer fixture-issued")
++            assertThat(logs).containsExactly("--> GET", "<-- 401", "--> GET", "<-- 200", "--> GET", "<-- 200").inOrder()
++        } finally {
++            client.close()
++            server.close()
++        }
++    }
++}

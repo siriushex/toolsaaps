@@ -10,7 +10,6 @@ git -C "$AAPS_RC1_DIR" diff --quiet HEAD --
 test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)"
 
 temp="$(mktemp -d "${TMPDIR:-/tmp}/master-admission.XXXXXX")"
-cp "$root/tools/aaps4_compat/master-admission.patch" "$temp/change.patch"
 applied=false
 cleanup() {
     status=$?
@@ -36,6 +35,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+cat "$root/tools/aaps4_compat/master-admission.patch" \
+    "$root/tools/aaps4_compat/transport-privacy.patch" > "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply --check "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply "$temp/change.patch"
 applied=true
@@ -53,4 +54,5 @@ cd "$AAPS_RC1_DIR"
     :database:impl:testAndroidHostTest \
     --tests '*.InsertAndCancelCurrentTemporaryTargetTransactionTest' \
     --tests '*.CancelCurrentTemporaryTargetIfAnyTransactionTest' \
-    :database:impl:jvmTest --tests '*.TargetAdmissionTransactionTest'
+    :database:impl:jvmTest --tests '*.TargetAdmissionTransactionTest' \
+    :core:nssdk:jvmTest

@@ -1,5 +1,23 @@
 # PLAN
 
+## RC1 Transport Privacy And Clinical Contract (2026-10-21)
+
+- [x] Reproduce token-bearing URL logging on the actual pinned RC1 engine.
+- [x] Add method/status-only logging, preserving requests and refresh behavior;
+  all174 SDK tests passed, including four new synthetic regressions.
+- [x] Verify admission and transport patches together:398 tests passed and the
+  upstream checkout restored. No clinical runtime or device state changed.
+- [x] Document exact profile/EPS/insulin semantics and remaining readiness gates
+  in AAPS4_CLINICAL_PROFILE_CONTRACT.md.
+- [x] Complete all20 recipe checks, including paired cleanup and preservation
+  of concurrent edits; final combined helper succeeds and restores source.
+- [x] Rebuild the pristine SDK after patched tests; real TLS round trip passed
+  against that rebuilt fixture. Reject untracked source before and after export.
+- [ ] Verify exact-head CI/main integration.
+- [ ] Implement catalog wire handling and typed observational projection.
+- [ ] Verify scoped Android TLS and real JugglucoNG continuity on the Redmi.
+- This source stage is separate from release0.1.6 and does not unlock targets.
+
 ## Internet Release 0.1.6 (2026-10-21)
 
 - [x] Start from verified main with JSON export and countdown lifetime repair.
@@ -9,9 +27,10 @@
   build successful; 14 publication-tool tests passed.
 - [x] Verify signed APK metadata/class retention and current public signer:
   code7/name0.1.6, 39,609,340 bytes, all 7073 compiled app classes retained.
-- [ ] Verify exact-head CI before publication.
-- [ ] Publish only static APK/page/manifest with the previous pointer preserved.
-- [ ] Independently download and verify public bytes, signature and Range resume.
+- [x] Verify exact-head CI before publication: Verify39621977944 and39622052769.
+- [x] Publish only static APK/page/manifest with the previous pointer preserved.
+- [x] Independently download and verify public bytes, signature and Range resume;
+  unchanged nginx/AI service identities. Code7 offered over the previous code6.
 - [ ] Merge reviewed source after checks and verify resulting main CI.
 - No AAPS APK installation, clinical-admission unlock, server AI/profile change
   or therapeutic action. Clinical/profile/TLS/JugglucoNG work remains separate.
