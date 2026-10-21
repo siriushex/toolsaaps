@@ -111,7 +111,8 @@ LOCAL_NS_V3_SETTINGS.md. The native target codec has a real SDK DTO/crypto and
 TLS/settings fixture in AAPS4_TARGET_PROTOCOL.md. That fixture is not execution
 of the master handler. Treatment wire CRUD/history is now implemented separately
 (LOCAL_NS_V3_TREATMENTS.md), including exact native units and record ICfg.
-Profile/food still fail501. Clinical ingestion
+Immutable profile catalog create/latest/history/read is described in
+LOCAL_NS_V3_PROFILE.md. Food still fails501. Effective-profile/clinical ingestion
 and live native control remain unconnected. Authenticated storage notifications
 now read committed revisions, including direct journal writes; see
 LOCAL_NS_V3_STORAGE.md. Pairing UI/runtime and repository native routing are now

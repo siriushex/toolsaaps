@@ -80,8 +80,10 @@ supports native upsert/ACK/offer lifecycles (LOCAL_NS_V3_SETTINGS.md). The separ
 target-only signed codec verifies prepare/commit ACKs (AAPS4_TARGET_PROTOCOL.md),
 but is not a live dispatcher. Treatments now have their own typed wire adapter
 (LOCAL_NS_V3_TREATMENTS.md), preserving per-record insulin configuration and native
-units without claiming clinical delivery. Profile/food still return501 with empty
-permissions. The isolated storage subscription now reads committed revisions and
+units without claiming clinical delivery. Immutable profile catalogs now support
+create/latest/history/read (LOCAL_NS_V3_PROFILE.md), without selecting an active
+profile or inventing insulin configuration. Food still returns501 with empty
+permission. The isolated storage subscription now reads committed revisions and
 wakes polling clients through Room invalidation (LOCAL_NS_V3_STORAGE.md).
 Whole-app sync, live Client Control and READY remain unconnected; stored
 documents and subscription credentials cannot grant clinical authority.

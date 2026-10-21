@@ -48,11 +48,11 @@ class LocalNightscoutV3EntriesApiTest {
         assertEquals("cr", permissions["devicestatus"]!!.jsonPrimitive.content)
         assertEquals("crud", permissions["settings"]!!.jsonPrimitive.content)
         assertEquals("crud", permissions["treatments"]!!.jsonPrimitive.content)
-        assertTrue(permissions.filterKeys { it !in setOf("entries", "devicestatus", "settings", "treatments") }.values.all { it.jsonPrimitive.content.isEmpty() })
+        assertEquals("cr", permissions["profile"]!!.jsonPrimitive.content)
+        assertEquals("", permissions["food"]!!.jsonPrimitive.content)
         assertEquals(405, call("POST", "status").status)
-        listOf("profile", "food").forEach {
-            assertEquals(501, call("POST", it, sample()).status)
-        }
+        assertEquals(501, call("POST", "food", sample()).status)
+        assertEquals(400, call("POST", "profile", sample()).status)
         assertEquals(400, call("POST", "treatments", sample()).status)
         assertEquals(0, db.localNightscoutV3Dao().count())
         assertTrue(db.glucoseDao().since(0).isEmpty())

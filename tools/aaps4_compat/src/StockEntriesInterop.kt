@@ -102,6 +102,46 @@ fun main() {
                 check(client.createDeviceStatus(status.copy(date = at + 60_000)).response == 201)
                 check(client.getDeviceStatusModifiedSince(statusCreated.lastModified!!).single().date == at + 60_000)
                 check(client.getLastModified().collections.devicestatus > statusCreated.lastModified!!)
+                stage = "profiles"
+                fun profileCatalog(time: Long): JsonObject = buildJsonObject {
+                    put("date", time)
+                    put("created_at", java.time.Instant.ofEpochMilli(time).toString())
+                    put("startDate", java.time.Instant.ofEpochMilli(time).toString())
+                    put("defaultProfile", "First")
+                    put("store", buildJsonObject {
+                        listOf("First" to "mmol", "Second" to "mg/dl").forEach { (name, units) ->
+                            put(name, buildJsonObject {
+                                put("units", units); put("timezone", "Europe/Berlin")
+                                listOf("carbratio", "sens", "basal", "target_low", "target_high").forEach { field ->
+                                    put(field, buildJsonArray {
+                                        add(buildJsonObject { put("time", "00:00"); put("timeAsSeconds", 0); put("value", 5.5) })
+                                        // RC1 renders an hour label but reads the exact seconds field.
+                                        add(buildJsonObject { put("time", "06:00"); put("timeAsSeconds", 23400); put("value", 6.25) })
+                                    })
+                                }
+                            })
+                        }
+                    })
+                }
+                val catalog = profileCatalog(at)
+                val profileCreated = client.createProfileStore(catalog)
+                check(profileCreated.response == 201 && !profileCreated.identifier.isNullOrEmpty())
+                val profileRetry = client.createProfileStore(catalog)
+                check(profileRetry.response == 200 && profileRetry.identifier == profileCreated.identifier)
+                check(profileRetry.lastModified == profileCreated.lastModified)
+                val lastProfile = client.getLastProfileStore()
+                check(lastProfile.lastServerModified == profileCreated.lastModified)
+                check(lastProfile.values.single()["store"] == catalog["store"])
+                check(client.createProfileStore(lastProfile.values.single()).lastModified == profileCreated.lastModified)
+                val oldProfile = client.createProfileStore(profileCatalog(at - 60_000))
+                check(oldProfile.response == 201)
+                check(client.getLastProfileStore().values.single()["date"] == JsonPrimitive(at))
+                check(client.getLastProfileStore().lastServerModified == profileCreated.lastModified)
+                val profileChanges = client.getProfileModifiedSince(profileCreated.lastModified!!)
+                check(profileChanges.values.single()["date"] == JsonPrimitive(at - 60_000))
+                check(profileChanges.lastServerModified == oldProfile.lastModified)
+                check(client.getProfileModifiedSince(oldProfile.lastModified!!).values.isEmpty())
+                check(client.getLastModified().collections.profile == oldProfile.lastModified)
                 stage = "treatments"
                 val bolus = NSBolus(date = at, identifier = null, utcOffset = 0, isValid = true,
                     eventType = EventType.MEAL_BOLUS, notes = "synthetic", pumpId = 123L, endId = null,

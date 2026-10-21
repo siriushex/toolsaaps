@@ -5,6 +5,9 @@ Research baseline: official 4.0.0-rc1 at
 This is the next implementation contract, not a completed clinical adapter or
 permission to enable native target publication.
 
+Catalog transport is now implemented separately in LOCAL_NS_V3_PROFILE.md.
+This does not complete effective-profile resolution or clinical projection below.
+
 ## Source Of Truth
 
 - `ProfileRepositoryImpl.createAndStoreConvertedProfile` publishes a catalog:

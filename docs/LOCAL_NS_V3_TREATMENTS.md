@@ -4,7 +4,8 @@
 
 Copilot implements authenticated RC1 treatment create/read/patch/delete and
 modification history in the existing loopback TLS listener and Room37 wire store.
-This removes one unsupported collection. Profile/food remain unimplemented;
+Immutable profile catalogs are handled separately (LOCAL_NS_V3_PROFILE.md).
+Food remains unimplemented;
 clinical projection and native master admission are still separate prerequisites.
 The production `native_clinical_projection_unavailable` lock remains closed.
 An uploaded bolus or target is a source record, never proof that a newly issued

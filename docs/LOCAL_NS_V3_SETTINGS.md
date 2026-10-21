@@ -22,8 +22,10 @@ and client envelopes remain opaque; no clinical projection or READY is granted.
   native secret-cleanup needs without regressing history/accounting. It is not
   general hard deletion or physical secure erasure; other permanent deletes501.
 
-Settings advertises crud; unsupported treatments/profile/food remain501. There is
-no schema, TLS-policy or live command change. Tests cover upsert/retry/metadata,
+Settings advertises crud. Treatments now have their own CRUD adapter, and
+immutable profile catalogs advertise cr (LOCAL_NS_V3_PROFILE.md); food remains
+unsupported with 501. There is no schema, TLS-policy or live command change.
+Tests cover upsert/retry/metadata,
 history/deletion, secret cleanup, scope, types, concurrency and response capacity.
 The pinned unchanged SDK additionally exercises these routes through real TLS
 and bearer authentication. Target codec and remaining gates: AAPS4_TARGET_PROTOCOL.md.

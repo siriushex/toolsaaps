@@ -191,7 +191,8 @@ class LocalNightscoutV3TreatmentsApiTest {
         assertEquals(405, call("PUT", "treatments/${id(first)}", sample()).status)
         val permissions = body(call(path = "status"))["result"]!!.jsonObject["apiPermissions"]!!.jsonObject
         assertEquals("crud", permissions["treatments"]!!.jsonPrimitive.content)
-        assertEquals("", permissions["profile"]!!.jsonPrimitive.content)
+        assertEquals("cr", permissions["profile"]!!.jsonPrimitive.content)
+        assertEquals("", permissions["food"]!!.jsonPrimitive.content)
         assertEquals(1, rows(call()).size)
     }
 
