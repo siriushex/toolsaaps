@@ -74,7 +74,7 @@
         </provider>
 
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".storage.ClinicalPdfFileProvider"
             android:authorities="${applicationId}.clinical-pdf"
             android:exported="false"
             android:grantUriPermissions="true">
@@ -84,7 +84,7 @@
         </provider>
 
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".storage.MealPhotoFileProvider"
             android:authorities="${applicationId}.meal-photo"
             android:exported="false"
             android:grantUriPermissions="true">
@@ -94,7 +94,7 @@
         </provider>
 
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".storage.AppUpdateFileProvider"
             android:authorities="${applicationId}.app-update"
             android:exported="false"
             android:grantUriPermissions="true">

@@ -1,5 +1,19 @@
 # PLAN
 
+## In-App Installer File Access (2026-10-21)
+
+- [x] Confirm public manifest0.1.6 and reproduce duplicate provider identities on
+  API31 and35. User reports a finished download without an installer opening.
+- [x] Give APK, PDF and photo providers distinct components; retain path roots,
+  URI authorities, read-only installer grant and archive/signature validation.
+- [x] Exclude all three providers from the inert uiTest variant.
+- [x] Pass focused and full Android tests, lint, compile and packaging checks:
+  6595 passed/six private-input skips; lint zero errors; signed APK39,609,396bytes.
+- [ ] Verify source publication and exact-head CI before main integration.
+- [ ] Publish the verified0.1.7/code8 candidate after CI (user approved).
+- [ ] Confirm installation and the repaired flow on the phone separately.
+- ADB is unavailable at diagnosis. Desktop tests do not establish phone acceptance.
+
 ## RC1 Transport Privacy And Clinical Contract (2026-10-21)
 
 - [x] Reproduce token-bearing URL logging on the actual pinned RC1 engine.
