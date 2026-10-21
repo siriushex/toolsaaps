@@ -1,3 +1,19 @@
+# Unified Public Product And AAPS UI Clarification - 2026-10-21
+
+- User superseded the personal-first assumption: the unified product targets
+  other users from the start. A later clarification preserves AAPS main UI and
+  adds Copilot tabs, not a replacement dashboard or global owl navigation.
+- Updated the master plan and added the public-release companion: native AAPS
+  Overview/controls/setup remain; Copilot prediction/analytics/AI are additive.
+- Inspected actual RC1 MainScreen/navigation: MainNavigationBar is an action bar,
+  not spare tabs. Keep Android-only Copilot dependencies out of shared commonMain.
+- Public gates now cover support matrix, intended use/markets, JNI rights,
+  publisher signing/new package migration, tenant isolation, provider/data
+  agreements, rollout/recovery and support. Personal ChatGPT access remains
+  unchanged and is not presumed suitable for public multi-user medical data.
+- Documentation only; no runtime, server, account, device or therapy change.
+  Previous proposal CI39500629505 verified SUCCESS for exact6ad527c5.
+
 # Unified Product Research Proposal - 2026-10-21
 
 - Read pinned AAPS RC1 d5e7f5b, Copilot a6692924 and a private research checkout
