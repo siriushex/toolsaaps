@@ -11,7 +11,6 @@ import io.aaps.copilot.data.repository.LocalV3StoreError
 import io.aaps.copilot.data.repository.LocalV3StoreException
 import java.security.MessageDigest
 import java.time.Instant
-import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
 
@@ -104,38 +103,9 @@ internal class LocalNightscoutV3ProfileApi(
         profiles.forEach { (name, value) ->
             require(name.isNotBlank() && name.length <= 256 && name.none { it.isISOControl() })
             val profile = HistoryJson.obj(value)
-            require(profile.keys == SCHEDULES + setOf("units", "timezone"))
-            require(HistoryJson.string(profile.getValue("units")) in setOf("mg/dl", "mmol"))
-            val zone = HistoryJson.string(profile.getValue("timezone"))
-            require(zone.length in 1..128)
-            ZoneId.of(zone)
-            val schedules = SCHEDULES.associateWith { key -> schedule(profile.getValue(key), key == "basal") }
-            val low = schedules.getValue("target_low")
-            val high = schedules.getValue("target_high")
-            require(low.size == high.size && low.zip(high).all { (a, b) -> a.first == b.first && a.second <= b.second })
+            AapsV3ProfileJson.profile(profile)
         }
         return JsonObject(values)
-    }
-
-    private fun schedule(value: JsonElement, allowZero: Boolean): List<Pair<Long, Double>> {
-        val rows = HistoryJson.array(value)
-        require(rows.size in 1..1440)
-        val result = rows.map { row ->
-            val item = HistoryJson.obj(row)
-            require(item.keys == setOf("time", "timeAsSeconds", "value"))
-            val seconds = HistoryJson.long(item.getValue("timeAsSeconds"))
-            require(seconds in 0..86399)
-            val label = HistoryJson.string(item.getValue("time"))
-            require(Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]").matches(label))
-            val labelSeconds = label.take(2).toInt() * 3600L + label.takeLast(2).toInt() * 60L
-            // RC1's serializer writes HH:00; the native reader prefers nonzero timeAsSeconds.
-            require(labelSeconds == seconds || labelSeconds == seconds / 3600 * 3600)
-            val amount = HistoryJson.double(item.getValue("value"))
-            require(if (allowZero) amount >= 0 else amount > 0)
-            seconds to amount
-        }
-        require(result.first().first == 0L && result.zipWithNext().all { (a, b) -> a.first < b.first })
-        return result
     }
 
     private fun documents(rows: List<LocalNightscoutV3DocumentEntity>, revision: Long?): LocalV3HttpResult {
@@ -164,6 +134,5 @@ internal class LocalNightscoutV3ProfileApi(
         private val ID = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
         private val METADATA = setOf("identifier", "srvCreated", "srvModified", "subject", "modifiedBy")
         private val FIELDS = setOf("date", "created_at", "startDate", "defaultProfile", "store", "app")
-        private val SCHEDULES = setOf("carbratio", "sens", "basal", "target_low", "target_high")
     }
 }

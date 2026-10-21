@@ -1,3 +1,31 @@
+# Native Effective Profile Projection - 2026-10-22
+
+- Continue from main01ccca90 after the delivered 0.1.8 release. The next bounded
+  clinical-input stage decodes individual native EPS observations, not active
+  profile/readiness or live target publication.
+- Two new wire regressions first reproduced HTTP400 for negative UTC/profile
+  offsets. Permit signed integers only for native offset/shift fields; existing
+  timestamp/duration constraints remain. No global numeric coercion is introduced.
+- Share catalog schedule decoding with the typed EPS projector. Preserve original
+  units, timezone, exact seconds, event/revision provenance, already transformed
+  values and historical insulin. Missing/conflicting/deleted evidence is explicit;
+  never select the cosmetic catalog default or reapply original percentage/shift.
+- Expand the pristine SDK TLS fixture through native EPS upload/retry/read and
+  typed stored projection for both units and negative offsets. All 48 focused
+  tests passed, with no failures/errors/skips; the actual SDK TLS case ran9.181s.
+  Includes 17 pure projection cases and 16 catalog/Room cases. A third failing-first
+  test caught native bolus/carbohydrate branch precedence; that is now preserved.
+  Frozen full Android test/lint/compile/assemble passed in 9m34s: 6635 passed,
+  six existing private-input skips, zero failures/errors. The actual stock SDK
+  TLS case ran in 3.295s, not skipped. Lint has zero errors, 382 existing warnings
+  and eight hints. APK40,569,186 bytes retains all7106 compiled app classes;
+  size/icon-only removal guard and source/test hash stability checks passed.
+  Exact-head source CI and main integration remain separate pending gates.
+- Source audit also confirmed that the pinned SDK does not carry originalPsId
+  through its remote treatment mapper. Do not invent a requested-switch link.
+- No AAPS source, therapy writer, database schema, worker, model/login, public
+  APK or phone change. See AAPS4_EFFECTIVE_PROFILE_PROJECTION.md.
+
 # Timer Internet Release - 2026-10-22
 
 - Continue the reviewed timer repair through the existing internet update flow.

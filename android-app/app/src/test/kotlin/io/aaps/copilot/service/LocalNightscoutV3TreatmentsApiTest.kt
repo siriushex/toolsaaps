@@ -18,6 +18,26 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class LocalNightscoutV3TreatmentsApiTest {
+    @Test fun signedNativeOffsetsRoundTripWithoutChangingIdentity() = runBlocking {
+        val record = sample().replace("\"utcOffset\":0", "\"utcOffset\":-300")
+        val created = call("POST", "treatments", record)
+        assertEquals(201, created.status)
+        val readback = rows(call(path = "treatments/history/0")).single()
+        assertEquals(-300, readback.getValue("utcOffset").jsonPrimitive.int)
+        assertEquals(created.revision, call("POST", "treatments", readback.toString()).revision)
+        assertEquals(400, call("POST", "treatments", record.replace("-300", "-1441")).status)
+    }
+
+    @Test fun negativeEffectiveProfileTimeshiftIsNotAnUnsignedTimestamp() = runBlocking {
+        val record = """{"app":"AAPS","date":$at,"utcOffset":-300,"eventType":"Note","originalProfileName":"Evening","originalCustomizedName":"Evening 120%","originalTimeshift":-3600000,"originalPercentage":120,"originalDuration":0,"originalEnd":0,"profileJson":"{}"}"""
+        val created = call("POST", "treatments", record)
+        assertEquals(201, created.status)
+        val readback = rows(call(path = "treatments/history/0")).single()
+        assertEquals(-3600000L, readback.getValue("originalTimeshift").jsonPrimitive.long)
+        assertEquals(created.revision, call("POST", "treatments", readback.toString()).revision)
+        assertEquals(400, call("POST", "treatments", record.replace("\"date\":$at", "\"date\":-1")).status)
+        assertEquals(400, call("POST", "treatments", record.replace("\"originalDuration\":0", "\"originalDuration\":-1")).status)
+    }
     private lateinit var db: CopilotDatabase
     private lateinit var api: LocalNightscoutV3EntriesApi
     private val now = 1_800_000_000_000L

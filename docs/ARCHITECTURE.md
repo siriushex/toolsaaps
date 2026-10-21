@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Native Effective Profile Observations
+
+Catalog transport and native EPS projection share one typed schedule decoder.
+The projector retains event/storage revisions, original modifiers, exact native
+units/timezone and historical insulin without applying modifiers twice. It
+decodes one record only: it cannot select a current profile, claim complete
+coverage or unlock clinical dispatch. Missing/conflicting/invalidated evidence
+is explicit. See AAPS4_EFFECTIVE_PROFILE_PROJECTION.md for native semantics and
+remaining clinical readiness. No AAPS source or therapy boundary is changed.
+
 ## RC1 Target Transaction Boundary
 
 The external pinned RC1 admission patch carries a target-only callback from the

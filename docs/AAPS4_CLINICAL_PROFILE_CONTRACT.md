@@ -7,6 +7,9 @@ permission to enable native target publication.
 
 Catalog transport is now implemented separately in LOCAL_NS_V3_PROFILE.md.
 This does not complete effective-profile resolution or clinical projection below.
+Single-record typed EPS projection is specified in
+AAPS4_EFFECTIVE_PROFILE_PROJECTION.md; it still cannot resolve active state or
+claim collection coverage.
 
 ## Source Of Truth
 
