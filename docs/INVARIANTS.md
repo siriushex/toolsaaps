@@ -194,6 +194,8 @@
 - Only explicit check/download/install actions; no silent update or downgrade.
 - An APK must match the advertised hash, package, version and installed signer.
 - Unverified bytes, medical context and credentials never enter the update route.
+- APK, PDF and photo providers have distinct Android component names as well as
+  separate authorities and path roots. Installer access cannot expose other files.
 - Cancelled operation results, including errors, cannot replace newer state.
 - Local APK write errors remain distinct from remote read/network failures.
 - APK resume accepts only the same content-addressed release, an exact byte range

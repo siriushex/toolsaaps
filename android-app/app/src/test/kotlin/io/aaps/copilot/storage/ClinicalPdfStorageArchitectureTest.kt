@@ -32,7 +32,7 @@ class ClinicalPdfStorageArchitectureTest {
         val manifest = parse(File(project, "src/main/AndroidManifest.xml"))
         val application = directChildren(manifest.documentElement, "application").single()
         val provider = directChildren(application, "provider").single {
-            it.androidAttribute("name") == "androidx.core.content.FileProvider" &&
+            it.androidAttribute("name") == ".storage.ClinicalPdfFileProvider" &&
                 it.androidAttribute("authorities") == "${'$'}{applicationId}.clinical-pdf"
         }
         val paths = parse(File(project, "src/main/res/xml/clinical_pdf_file_paths.xml"))

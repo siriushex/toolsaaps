@@ -34,6 +34,10 @@ the Android versionCode and retain the installed signing identity.
   and complete current signing-certificate set must match. Check hash and archive
   again before offering the file to Android's verifying package installer.
 - Only private `cache/app-updates/verified/` is shared by a read-only URI grant.
+  APK, meal-photo and PDF sharing use distinct FileProvider subclasses and
+  Android component names. Authorities and narrow directory roots stay separate;
+  declaring the same class three times does not create three independent Android
+  providers. Tests verify component uniqueness, resolver reads and denied paths.
   Partial files are outside the FileProvider root and named by the exact release
   hash. A locked writer retains bytes on interruption/cancellation; a later
   explicit download resumes them using Range and identity encoding. Exact

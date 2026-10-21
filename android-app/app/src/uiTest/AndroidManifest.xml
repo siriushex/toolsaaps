@@ -74,8 +74,16 @@
             android:name="androidx.startup.InitializationProvider"
             tools:node="remove" />
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".storage.ClinicalPdfFileProvider"
             android:authorities="${applicationId}.clinical-pdf"
+            tools:node="remove" />
+        <provider
+            android:name=".storage.MealPhotoFileProvider"
+            android:authorities="${applicationId}.meal-photo"
+            tools:node="remove" />
+        <provider
+            android:name=".storage.AppUpdateFileProvider"
+            android:authorities="${applicationId}.app-update"
             tools:node="remove" />
         <service
             android:name=".service.LocalNightscoutForegroundService"

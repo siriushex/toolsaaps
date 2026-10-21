@@ -191,7 +191,9 @@ schema, worker, provider request or therapy writer. See MEAL_TIMING_EVIDENCE.md.
 
 About uses an isolated fixed-origin HTTPS update client and route-scoped state.
 Bounded manifest/download validation and installed-package signer comparison
-precede the standard Android installer. Static nginx release files are separate
+precede the standard Android installer. APK, PDF and photo sharing each declare a
+separate FileProvider subclass to prevent component identity collisions; their
+existing authorities and private path roots are unchanged. Static release files are separate
 from the AI API, device identity and clinical storage. See APP_UPDATES.md.
 The hash-addressed partial cache supports bounded HTTP Range recovery, serialized
 writers and full-file verification; interrupted downloads expose explicit Resume.

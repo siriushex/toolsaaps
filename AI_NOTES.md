@@ -1,3 +1,35 @@
+# In-App Installer File Access - 2026-10-21
+
+- User reports a completed download without the Android installer opening; website
+  installation works. Public manifest still offers0.1.6/code7. ADB is unavailable.
+- APK, PDF and photo shared the same FileProvider component name with different
+  authorities. Android keys local provider registration by package/class, so these
+  are not independent components. Existing tests only constructed the APK URI.
+- New API31/API35 tests first reproduced two failing identity assertions out of
+  six cases. Synthetic resolver reads and path refusal passed in Robolectric;
+  those alone do not reproduce Android's process-level provider registration.
+- Added a framework-registration regression: the old declarations reuse the
+  first provider holder; the repaired declarations retain all three authorities.
+  It invokes ActivityThread.installProvider on API31/API35 with a negative control.
+  All eight provider tests and the earlier86-case focused suite pass.
+- Use three minimal FileProvider subclasses and retain existing authorities,
+  directory restrictions, installer read grant and hash/package/signer checks.
+  All three providers are explicitly excluded from the inert uiTest variant.
+- Reserve0.1.7/code8. User approved static publication after checks/CI; no phone,
+  therapy, AAPS, AI service or database operation.
+- Full Android verification completed in15m51s: 6601 cases, 6595 passed,
+  six private-input skips, zero failures/errors. The pristine SDK TLS case ran.
+  Lint has zero errors, 382 warnings/eight hints; compile and assemble passed.
+- Signed candidate is39,609,396bytes with the existing public signer; all7080
+  compiled application classes remain and the size/removal guard passes. The
+  publication-tool suite passes14 cases. CI/publication/device checks are separate.
+- Verify with SharedFileProvidersTest, the updater/transport/AboutScreen and
+  MealPhotoFlowRobolectricTest suites, full Android test/lint/compile/assemble,
+  uiTest merged-manifest exclusion and signed artifact checks.
+- Android registration reference:
+  https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/app/ActivityThread.java
+  (installProvider / mLocalProvidersByName).
+
 # Native Profile Catalog - 2026-10-21
 
 - Continue from verified main 9c179ec1 after internet release 0.1.6. Add immutable
