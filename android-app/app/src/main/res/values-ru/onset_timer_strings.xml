@@ -1,4 +1,8 @@
 <resources>
+    <string name="onset_timer_hide">Скрыть таймер</string>
+    <string name="onset_timer_review_short">Данные?</string>
+    <string name="onset_timer_review">Проверьте данные таймера</string>
+    <string name="onset_timer_review_details">Таймер остаётся на экране, но его данные или сохранённое состояние сейчас нельзя подтвердить. Отсчёт и анимация еды приостановлены. Проверьте запись инсулина и выбранный профиль; возможна также ошибка сохранения. Это не подтверждение доставки и не рекомендация ждать перед едой.</string>
     <string name="onset_timer_model">Инсулин</string>
     <string name="onset_timer_elapsed">Истекло</string>
     <string name="onset_timer_finished">Модельное время истекло</string>

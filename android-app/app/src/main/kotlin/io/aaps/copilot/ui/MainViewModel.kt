@@ -5206,6 +5206,12 @@ class MainViewModel(application: Application) :
         messageState.value = null
     }
 
+    val insulinOnsetTimerState = container.insulinOnsetCountdown
+
+    fun hideInsulinOnsetTimer(recordKey: String) {
+        viewModelScope.launch { container.insulinOnsetSession.dismiss(recordKey) }
+    }
+
     fun runCycleNow() {
         runAutomationNow()
     }

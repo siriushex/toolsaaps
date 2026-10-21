@@ -1,3 +1,42 @@
+# Timer Internet Release - 2026-10-22
+
+- Continue the reviewed timer repair through the existing internet update flow.
+  Increment Android metadata to0.1.8/code9 so installed0.1.7 can discover it.
+- Timer implementation already passed the frozen full Android suite recorded
+  below. Versioned updater/provider/About checks passed47tests with no skips;
+  lint/compile/assemble passed in9m37s. APK tooling passed14tests. Publish only
+  after the release commit passes Verify and is integrated into main.
+- Static rollout replaces only the hash-named APK, bootstrap page and manifest.
+  Preserve the previous pointer/page and immutable APK, independently download
+  the new public bytes, and compare package/version/hash/signing identity.
+- Preparation is not publication or installation. Deployment receipt belongs
+  in the release checkpoint; phone installation requires Android confirmation.
+
+# Retained Insulin Timer - 2026-10-22
+
+- Reproduced automatic disappearance fifteen minutes after estimated onset in
+  a failing regression. Keep a single application-owned presentation session
+  until explicit hide or replacement by a newer usable insulin record.
+- Persist the record, profile, deadline inputs and dismissal in a no-backup
+  DataStore. Navigation, refresh, completed-state age and process recreation
+  cannot drop it. A dismissed/corrected/older record cannot restart it.
+- Missing/cancelled/conflicting evidence, profile changes and persistence errors
+  retain an explicit review tile without a numerical estimate or meal gesture.
+  Valid recovery recalculates from the insulin record, not the refresh time.
+- Header observes the session directly, independently of overview loading.
+  Notification collection waits for the first restored/evaluated state; loading
+  null cannot cancel the prior notification. Retained notices are ongoing,
+  silent and use absolute date/time without auto-expiry or a negative chronometer.
+- Completed text remains; the finite meal gesture retains its fifteen-minute
+  eligibility window so old completion cannot animate again after restart.
+- Final frozen Android test/lint/compile/assemble passed in9m47s:6615passed,
+  six private-input skips,zero failures/errors;0lint errors,382existing warnings,
+  eight hints. Includes55timer/header/wiring cases and the actual pristine RC1
+  SDK TLS fixture. Native320dp and2x-text header rasters were inspected.
+- No insulin estimator, target, dose, AAPS, server or device changes. Public0.1.7
+  remains unchanged. Source CI and phone acceptance are separate gates; ADB
+  currently shows MI8Lite, not the designated Redmi. No device was updated.
+
 # In-App Installer File Access - 2026-10-21
 
 - User reports a completed download without the Android installer opening; website

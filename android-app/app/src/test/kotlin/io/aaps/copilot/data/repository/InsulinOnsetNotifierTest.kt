@@ -25,6 +25,44 @@ class InsulinOnsetNotifierTest {
     private val timer = InsulinOnsetCountdown("insulin-one", now - 900_000, now + 750_000, 27.5,
         mealAssociated = false, validUntilMs = now + 900_000)
 
+    @Test fun retainedNotificationNeverAutoExpiresAndCannotLeaveANegativeChronometer() = kotlinx.coroutines.runBlocking {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        var time = now
+        val waits = mutableListOf<Long>()
+        val notifier = InsulinOnsetNotifier(context)
+        notifier.follow(timer.copy(retained = true), { time }) { duration ->
+            val notice = manager.activeNotifications.single().notification
+            assertEquals(0L, notice.timeoutAfter)
+            assertFalse(notice.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER))
+            assertTrue(notice.flags and Notification.FLAG_ONGOING_EVENT != 0)
+            waits += duration
+            time += duration
+        }
+        assertEquals(listOf(750_000L), waits)
+        val completed = manager.activeNotifications.single().notification
+        assertEquals(0L, completed.timeoutAfter)
+        assertNull(completed.sound)
+        assertNull(completed.vibrate)
+        assertEquals(context.getString(io.aaps.copilot.R.string.onset_notification_elapsed),
+            completed.extras.getCharSequence(Notification.EXTRA_TEXT))
+        notifier.follow(null)
+        assertTrue(manager.activeNotifications.isEmpty())
+    }
+
+    @Test fun invalidatedRetainedTimerPostsReviewWithoutCountdownOrScheduledWork() = kotlinx.coroutines.runBlocking {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        InsulinOnsetNotifier(context).follow(timer.copy(retained = true, requiresReview = true), { now }) {
+            fail("Review state must not schedule completion")
+        }
+        val notice = manager.activeNotifications.single().notification
+        assertEquals(0L, notice.timeoutAfter)
+        assertFalse(notice.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER))
+        assertNull(notice.sound)
+        assertNull(notice.vibrate)
+        assertEquals(context.getString(io.aaps.copilot.R.string.onset_timer_review),
+            notice.extras.getCharSequence(Notification.EXTRA_TEXT))
+    }
+
     @Test fun countdownHasNoSoundOrVibrationAndUsesSystemChronometer() {
         val notifier = InsulinOnsetNotifier(context)
         notifier.ensureChannel()

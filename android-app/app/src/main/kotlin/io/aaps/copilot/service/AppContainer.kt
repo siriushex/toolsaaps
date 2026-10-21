@@ -361,15 +361,11 @@ class AppContainer(context: Context) {
     internal val lentaMealHistory = io.aaps.copilot.data.repository.LentaMealHistoryRepository(db, gson)
     val auditLogger = AuditLogger(db.auditLogDao(), gson)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    internal val insulinOnsetCountdown = combine(
-        db.therapyDao().observeInsulinOnsetCandidates().distinctUntilChanged(),
-        db.telemetryDao().observeInsulinOnsetContext().distinctUntilChanged(),
-        settingsStore.settings.map { it.insulinProfileId }.distinctUntilChanged()
-    ) { rows, telemetry, profile ->
-        val now = System.currentTimeMillis()
-        if (telemetry.size > 128) null else io.aaps.copilot.ui.insulinOnsetCountdown(rows,
-            io.aaps.copilot.data.repository.AiInsulinContext.fromTelemetry(profile, telemetry, now), now)
-    }.distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, null)
+    internal val insulinOnsetSession = io.aaps.copilot.data.repository.InsulinOnsetSessionRepository(
+        appScope, db.therapyDao().observeInsulinOnsetCandidates(),
+        db.telemetryDao().observeInsulinOnsetContext(), settingsStore.settings.map { it.insulinProfileId },
+        io.aaps.copilot.data.repository.DataStoreInsulinOnsetSessionStore.create(appContext, appScope))
+    internal val insulinOnsetCountdown = insulinOnsetSession.countdown
     private val mealStateInbox = io.aaps.copilot.data.repository.MealStateInbox(db)
     internal val mealStateIngestion = io.aaps.copilot.data.repository.MealStateIngestionQueue(
         scope = appScope,
@@ -1633,6 +1629,7 @@ class AppContainer(context: Context) {
     init {
         appScope.launch {
             val notifications = io.aaps.copilot.data.repository.InsulinOnsetNotifier(appContext)
+            insulinOnsetSession.awaitInitialEvaluation()
             insulinOnsetCountdown.collectLatest { notifications.follow(it) }
         }
         appScope.launch {

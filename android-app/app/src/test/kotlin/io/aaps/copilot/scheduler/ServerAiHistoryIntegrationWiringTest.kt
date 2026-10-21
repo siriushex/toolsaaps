@@ -36,8 +36,17 @@ class ServerAiHistoryIntegrationWiringTest {
     @Test fun durableUploadIntegrationDoesNotRemoveSilentCountdownOrDailyArchive() {
         val container = source("service/AppContainer.kt")
         assertThat(container).contains("insulinOnsetCountdown.collectLatest { notifications.follow(it) }")
+        assertThat(container).contains("insulinOnsetSession.awaitInitialEvaluation()\n            insulinOnsetCountdown.collectLatest")
         assertThat(container).contains("serverAiHistoryClient::readDailyResults")
         assertThat(source("security/ServerAiConnectionManager.kt")).contains("internal suspend fun exchangeMealPhoto(")
+    }
+
+    @Test fun headerObservesDurableTimerDirectlyNotReloadingOverviewProjection() {
+        val root = source("ui/foundation/CopilotFoundationRoot.kt")
+        assertThat(root).contains("viewModel.insulinOnsetTimerState.collectAsStateWithLifecycle()")
+        assertThat(root).contains("insulinOnsetCountdown = insulinOnsetTimer")
+        assertThat(root).doesNotContain("insulinOnsetCountdown = overview.insulinOnsetCountdown")
+        assertThat(source("ui/MainViewModel.kt")).contains("val insulinOnsetTimerState = container.insulinOnsetCountdown")
     }
 
     private fun source(path: String): String = File(

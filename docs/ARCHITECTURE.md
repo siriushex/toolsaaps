@@ -48,16 +48,28 @@ does not claim that a meal is planned and never activates the meal-completion
 gesture. A finite matching-profile estimate must be no more than fifteen
 minutes older than the insulin record, or be refreshed after that record. This
 admission window is not the countdown's lifetime: the timestamp anchors its
-deadline and the completed state lasts fifteen minutes after that deadline.
-Persisted therapy/model inputs reconstruct the same clock after a screen or
-process recreation; age alone does not erase an already applicable estimate.
-Missing/invalid/conflicting evidence, profile mismatch or a removed/cancelled
-anchor still invalidates the projection. A stale estimate cannot admit a newer
-insulin record.
+deadline. New unobserved clocks are admitted only through fifteen minutes after
+that deadline. Once shown, a single application-owned InsulinOnsetSessionRepository
+retains the clock and completed state until explicitly hidden or replaced by a
+newer usable record. A small no-backup DataStore saves its record, profile,
+deadline inputs and dismissal tombstone; there is no clinical database migration.
+Navigation, process recreation and age alone cannot discard it. Invalid/missing
+evidence, a changed profile, cancelled/removed anchor or failed persistence show
+an explicit review tile instead of a number or meal gesture. Valid evidence can
+restore the same timestamp-anchored projection. A stale estimate cannot admit a
+newer insulin record, and corrected/older rows cannot restart a dismissed clock.
+The shared header subscribes directly to this state, independently of overview
+loading. Notification collection waits for the first restored/evaluated state;
+the initial loading null must not cancel an existing notification.
 
 The notification has its own channel/id, no sound, vibration, alarm-clock wake,
-full-screen intent or therapeutic action. Android renders its chronometer;
-application work is only at data changes, onset expiry and completion expiry.
+full-screen intent or therapeutic action. Retained notices have no auto-expiry
+and display the absolute estimated time, avoiding a negative system chronometer
+if Android kills the process. Application work is only at data changes and onset
+expiry; completed/review states do not run a periodic background clock. Explicit
+hide clears only this notice, not glucose alarms.
+The finite meal gesture is limited to recent completion (fifteen minutes);
+retaining the elapsed label cannot replay it for an old record after restart.
 Android may restrict banners and background execution; notification posting is
 not proof of user observation or insulin delivery. Onset is an estimate, not a
 meal waiting recommendation. No target, dose or onset estimator is changed.
@@ -2446,7 +2458,7 @@ AAPS Predictive Copilot is a two-part system:
 
 ## Model Onset Header and AI Context
 - The shared header and silent notification derive a model clock from a recent, unambiguous usable insulin record and finite, fresh onset telemetry from the local runtime. IOB alone, SMB, inferred/recovered insulin, unconfirmed local actions, broadcasts, invalid records and mismatched model profiles cannot start it.
-- The clock marks an approximate model deadline, not confirmed insulin delivery or a safe eating interval. Only an explicitly meal-associated record permits the finite owl/meal gesture; insulin-only/correction records have neutral onset status. Elapsed state lasts up to 15 minutes, bounded by model freshness. It never calls therapy actions; foreground ticks stop with the lifecycle.
+- The clock marks an approximate model deadline, not confirmed insulin delivery or a safe eating interval. Only a valid, explicitly meal-associated record permits the finite owl/meal gesture; insulin-only/correction records have neutral onset status. Once shown, elapsed state remains until explicit hide or a newer usable record; invalid inputs retain a review tile, never a stale recommendation. It never calls therapy actions; foreground ticks stop with the lifecycle, completion or review.
 - One application-scoped projection uses a bounded 256-row insulin stream and latest-per-source/key model telemetry, so the header does not depend on opening analytics and old fitted-profile identity is not starved by frequent runtime samples.
 - Selected insulin profile, effective DIA, onset, fitted shape, sample count, confidence and evidence times are included in the device chat snapshot. Fixed-source, fixed-key telemetry is used; unknown values are not replaced with a guessed drug.
 - Existing authenticated history maintenance also uploads an observed profile snapshot once per local 05:00 day, on profile/model change, or after process restart. It catches up when active; this is not an exact alarm and is not an AI inference request. History incompleteness and unconfirmed delivery remain explicit.

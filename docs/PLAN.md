@@ -1,5 +1,24 @@
 # PLAN
 
+## Timer Internet Release (2026-10-22)
+
+- [x] Prepare0.1.8/code9 after retained-timer implementation verification.
+- [x] Verify updater/provider/About contracts:47passed; lint/compile/assemble
+  passed. Signed artifact publication receipts remain in the release checkpoint.
+- [ ] Pass release-commit Verify and integrate the reviewed source into main.
+- [ ] Publish static update files with prior pointer/page backup and HTTPS readback.
+
+## Retained Insulin Countdown (2026-10-21)
+
+- [x] Reproduce automatic disappearance after the completed-state window.
+- [x] Add a durable single presentation session and explicit hide action.
+- [x] Preserve a review tile on invalidation without stale countdown/meal gesture.
+- [x] Verify disk recreation, refresh, dismissal, native header and quiet notice.
+- [x] Complete full Android test/lint/build:6615passed,6private-input skips,
+  zero test/lint errors; native320dp and2x-text rendering inspected.
+- Exact-head source CI must pass before main integration; retain its PR receipt.
+- No therapy, estimator, AAPS, device installation or server publication change.
+
 ## In-App Installer File Access (2026-10-21)
 
 - [x] Confirm public manifest0.1.6 and reproduce duplicate provider identities on
