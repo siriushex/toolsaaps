@@ -197,4 +197,18 @@ class MealTimingResearchAssessmentTest {
                 MealTimingResearchEvaluator().evaluate(context, belief(), episode, telemetry(), 180).status)
         }
     }
+
+    @Test fun accountingMismatchIsVisibleButCannotRescaleOrDoubleSubtractInsulin() = runBlocking {
+        val context = context()
+        val evaluator = MealTimingResearchEvaluator()
+        val first = evaluator.evaluate(context, belief(), episode, telemetry(), 180,
+            referenceInsulinKernel = context.insulinKernelIdentity())
+        val larger = telemetry().plus(mapOf("iob_net_units" to 5.2, "iob_bolus_units" to 5.2, "iob_basal_units" to 0.0))
+        val second = evaluator.evaluate(context, belief(), episode, larger, 180,
+            referenceInsulinKernel = context.insulinKernelIdentity())
+        assertNotEquals(first.insulinAccounting!!.bolusDifferenceUnits, second.insulinAccounting!!.bolusDifferenceUnits)
+        assertEquals(first.batch!!.trajectories.map { it.forecast.glucoseMmol }, second.batch!!.trajectories.map { it.forecast.glucoseMmol })
+        assertFalse(second.insulinAccounting.fullIobCoverage)
+        assertFalse(second.notificationAllowed)
+    }
 }

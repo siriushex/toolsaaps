@@ -434,11 +434,26 @@ class HybridPredictionEngine(
             insulin.units * insulin.impactScale *
                 (1.0 - insulinCumulative((nowTs - ts) / 60_000.0 + horizonMinutes)).coerceIn(0.0, 1.0)
         }
-        require(steps.all { it.isFinite() } && remaining.isFinite())
+        var activeUnits = 0.0
+        var inferredUnits = 0.0
+        for ((ts, insulin) in relevant) {
+            val active = insulin.units * insulin.impactScale *
+                (1.0 - insulinCumulative((nowTs - ts) / 60_000.0)).coerceIn(0.0, 1.0)
+            activeUnits += active
+            if (insulin.inferred) inferredUnits += active
+        }
+        val unsupported = therapyEvents.count { event ->
+            val modeledEvent = modeledInsulinEvent(event)
+            if (modeledEvent == null || nowTs - event.ts > EVENT_LOOKBACK_MS) false else {
+                val parts = io.aaps.copilot.domain.model.resolveTherapyComponents(event)
+                !parts.wholeEventValid || parts.insulinU?.let { abs(it - modeledEvent.units) <= 1e-9 } != true
+            }
+        }
+        require(steps.all { it.isFinite() } && remaining.isFinite() && activeUnits.isFinite() && inferredUnits.isFinite())
         return MealInsulinProjection(nowTs, factors.isfMmolPerUnit, factors.carbSensitivityMmolPerGram,
             steps, remaining, relevant.all { (ts, _) ->
                 insulinCumulative((nowTs - ts) / 60_000.0 + horizonMinutes) >= 1.0
-            }, relevant.size, relevant.count { it.second.inferred })
+            }, relevant.size, relevant.count { it.second.inferred }, activeUnits, inferredUnits, unsupported)
     }
 
     internal fun projectMealTimingFutureInsulin(

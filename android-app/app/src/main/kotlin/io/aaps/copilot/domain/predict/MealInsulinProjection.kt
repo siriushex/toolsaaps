@@ -11,7 +11,10 @@ internal class MealInsulinProjection(
     val remainingModeledUnitsAtHorizon: Double,
     val completeByHorizon: Boolean,
     val modeledEventCount: Int,
-    val inferredEventCount: Int
+    val inferredEventCount: Int,
+    val activeModeledUnits: Double,
+    val activeInferredUnits: Double,
+    val unsupportedEventCount: Int
 ) {
     val stepEffectsMmol: List<Double> = Collections.unmodifiableList(stepEffectsMmol.toList())
 }

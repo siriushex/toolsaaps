@@ -2480,6 +2480,26 @@ AAPS Predictive Copilot is a two-part system:
 - `insulin_real_onset_min` is a different, current runtime estimate: `estimateLocalCobIob` passes it to `modelSameCycleActiveInsulinStatic` and the prediction engine. Its existing insulin/forecast effect is preserved. The timer does not freeze it until the next night or replace it with the long-term fitted-profile onset.
 
 ## No-Button Meal Scenario Research (2026-10-22)
+- Follow-up input qualification exposes active and inferred modeled insulin from
+  the same frozen cumulative kernel as the forecast steps/tail, without applying
+  the screen/runtime30U clamp to this accounting quantity. Remaining mass is
+  conserved. Unsupported event semantics remain explicit.
+- `MealInsulinAccounting` compares only resolver-qualified, exactly aligned AAPS
+  bolus components with an explicitly matching reference kernel. It reports the
+  signed numeric difference, not a fitted scale, tolerance-based safety verdict
+  or glucose correction. Signed/positive basal remain separate unsupported
+  coverage. Zero difference or zero basal does not prove full IOB coverage.
+- `evaluatePersonal` reuses the existing PersonalMealCandidateBuilder receipt
+  and its causal source/profile/DIA/sensor/calibration/meal/time/portion/GI gates.
+  Only a successful receipt exposes its absorption shape. Exact episode/source
+  linkage and complete scenario profile/duration support are required; the belief
+  is never silently rewritten to fit the model. The full batch must finish within
+  the same five-minute availability window, without clock rollback.
+- Personal input qualification is research qualification, not prospective glucose
+  accuracy or clinical admission. Its shape can now drive the complete research
+  matrix, including both intake and missed-food worlds, while notification/therapy
+  permission remains false. Basal/full inventory, simultaneous uncertainty and
+  future-controller/clinical forecast validation remain outstanding.
 - `MealMessageEpisode` records an explicit canonical meal/source revision and
   insulin row link. A successfully posted message permits an assumed start only,
   never observed intake, a training label, actual COB decrement or treatment.

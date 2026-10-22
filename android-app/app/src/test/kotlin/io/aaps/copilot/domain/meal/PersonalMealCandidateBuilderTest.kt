@@ -204,9 +204,90 @@ class PersonalMealCandidateBuilderTest {
         assertEquals(PersonalMealCandidateStatus.CREATED, low.status)
         assertEquals(PersonalMealCandidateStatus.CREATED, high.status)
         assertNotEquals(low.candidate!!.values, high.candidate!!.values)
+        assertEquals(model.shapeFor(20.0), low.absorptionShape)
         for (bad in listOf(null, gi.copy(value = 19.0), gi.copy(value = 81.0), gi.copy(source = "MODEL"),
             gi.copy(source = "CATALOG", reference = null), gi.copy(therapyRevision = "r2"),
             gi.copy(availableAtMs = now + 1))) assertEquals(PersonalMealCandidateStatus.GI_UNAVAILABLE,
             PersonalMealCandidateBuilder.build(simulation, identity, model, meal, bad) { now + 200 }.status)
+    }
+
+    private suspend fun timingFixture(): Triple<MealSimulationContext, MealForecastIdentity, MealPortionObservation> {
+        val (simulation, identity, meal) = fixture()
+        val events = simulation.therapy + TherapyEvent(meal.timestamp.toEpochMilli() - 600_000L,
+            "meal_bolus", mapOf("insulin" to "2.2"), sourceRowId = "bolus-1")
+        val engine = engine()
+        val forecasts = engine.predict(simulation.glucose, events)
+        return Triple(MealSimulationContext.capture(engine, simulation.glucose, events, forecasts,
+            simulation.forecastCycleId, simulation.settingsRevision, simulation.capturedAtMs, GlucoseMeasurementBasis.RAW),
+            identity.copy(baselineModelVersion = forecasts.first().modelVersion), meal)
+    }
+
+    private fun episode(meal: MealPortionObservation) = MealMessageEpisode("episode-1",
+        MealRecordRevision(meal.canonicalId, 3, meal.timestamp.toEpochMilli(), meal.grams, false),
+        "bolus-1", meal.timestamp.toEpochMilli() - 600_000L, requireNotNull(meal.therapyRevision))
+
+    private fun timingBelief(meal: MealPortionObservation, shape: PersonalAbsorptionShape) =
+        MealBelief(MealInput("input-1", meal.timestamp.toEpochMilli(), MealCarbRange(meal.grams, meal.grams)),
+            MealHypothesisKind.entries.map { kind ->
+                val absent = kind in setOf(MealHypothesisKind.NO_NEW_MEAL, MealHypothesisKind.NOT_HAPPENING)
+                val start = if (kind == MealHypothesisKind.UPCOMING) now else meal.timestamp.toEpochMilli()
+                MealScenario(kind.name, kind, if (absent) null else MealStartInterval(start, start),
+                    MealCarbRange(if (absent) 0.0 else meal.grams, if (absent) 0.0 else meal.grams),
+                    listOf(MealAbsorptionAlternative(shape.profile, shape.durationMinutes, 1.0)), 1.0 / 6, meal.canonicalId)
+            }, 3)
+
+    private fun timingIob(simulation: MealSimulationContext): Map<String, Double?> {
+        val active = simulation.insulinProjection(360).activeModeledUnits
+        return mapOf("iob_relay_timestamp_ms" to now.toDouble(), "iob_net_units" to active,
+            "iob_bolus_units" to active, "iob_basal_units" to 0.0, "insulin_activity" to 0.02)
+    }
+
+    @Test fun qualifiedHistoricalShapeDrivesCompleteScenariosWithoutEnablingMealMessages() = runBlocking {
+        val (simulation, identity, meal) = timingFixture()
+        val model = model(giEffect = -0.15, gi = giHistory())
+        val gi = PersonalGiEvidence(meal.canonicalId, "r1", 20.0, "USER", null, meal.timestamp.toEpochMilli())
+        val belief = timingBelief(meal, model.shapeFor(20.0)!!)
+        val evaluator = MealTimingResearchEvaluator()
+        val low = evaluator.evaluatePersonal(simulation, identity, model, meal, gi, belief, episode(meal), timingIob(simulation), 240,
+            referenceInsulinKernel = simulation.insulinKernelIdentity()) { now + 200 }
+        val high = evaluator.evaluatePersonal(simulation, identity, model, meal, gi.copy(value = 80.0), belief,
+            episode(meal).recordPosted(now), timingIob(simulation), 240) { now + 200 }
+        assertEquals(MealTimingResearchStatus.EVALUATED, low.status)
+        assertEquals(model.evidenceDigest, low.personalCandidate!!.model.evidenceDigest)
+        assertEquals(model.shapeFor(20.0), low.absorptionShape)
+        assertEquals(MealInsulinAccountingStatus.COMPARABLE_BOLUS_ONLY, low.insulinAccounting!!.status)
+        assertEquals(0.0, low.insulinAccounting.bolusDifferenceUnits!!, 1e-9)
+        assertNotEquals(low.batch!!.trajectories.first().forecast.glucoseMmol, high.batch!!.trajectories.first().forecast.glucoseMmol)
+        assertEquals(low.noFoodPaths.map { it.trajectory.forecast.glucoseMmol }, high.noFoodPaths.map { it.trajectory.forecast.glucoseMmol })
+        assertEquals(48, low.noFoodPaths.size)
+        assertFalse(high.notificationAllowed)
+        assertFalse(high.episode.trainingLabelEligible)
+        assertFalse(high.therapyAllowed)
+    }
+
+    @Test fun personalScenariosRejectModelContextRevisionSupportAndLateCompletion() = runBlocking {
+        val (simulation, identity, meal) = timingFixture()
+        val model = model()
+        val belief = timingBelief(meal, model.timingShape)
+        val evaluator = MealTimingResearchEvaluator()
+        for (changed in listOf(identity.copy(sensorSessionKey = "other-session"), identity.copy(settingsRevision = 8))) {
+            val result = evaluator.evaluatePersonal(simulation, changed, model, meal, null, belief, episode(meal), timingIob(simulation), 240) { now + 200 }
+            assertEquals(MealTimingResearchStatus.PERSONAL_MODEL_UNAVAILABLE, result.status)
+            assertNull(result.batch)
+        }
+        val wrongProfile = model(engine().apply { setInsulinDurationHours(4.5) })
+        assertEquals(MealTimingResearchStatus.PERSONAL_MODEL_UNAVAILABLE,
+            evaluator.evaluatePersonal(simulation, identity, wrongProfile, meal, null, belief, episode(meal), timingIob(simulation), 240) { now + 200 }.status)
+        val changedRecord = meal.copy(therapyRevision = "r2")
+        assertEquals(MealTimingResearchStatus.EPISODE_MISMATCH,
+            evaluator.evaluatePersonal(simulation, identity, model, changedRecord, null, belief, episode(meal), timingIob(simulation), 240) { now + 200 }.status)
+        val unsupported = timingBelief(meal, model.timingShape.copy(durationMinutes = 120))
+        assertEquals(MealTimingResearchStatus.PERSONAL_SCENARIO_UNSUPPORTED,
+            evaluator.evaluatePersonal(simulation, identity, model, meal, null, unsupported, episode(meal), timingIob(simulation), 240) { now + 200 }.status)
+        val times = listOf(now + 200, now + 200, now + 300_000).iterator()
+        val late = evaluator.evaluatePersonal(simulation, identity, model, meal, null, belief, episode(meal), timingIob(simulation), 240) { times.next() }
+        assertEquals(MealTimingResearchStatus.PERSONAL_MODEL_UNAVAILABLE, late.status)
+        assertEquals(PersonalMealCandidateStatus.LATE, late.personalQualificationStatus)
+        assertNull(late.batch)
     }
 }

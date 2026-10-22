@@ -1,5 +1,20 @@
 # PLAN
 
+## Meal Timing Input Qualification (2026-10-22)
+
+- [x] Continue PR18/333c7684 after both exact-head Verify runs succeeded.
+- [x] Expose conserved active/inferred insulin accounting from the frozen kernel.
+- [x] Add typed exact-time/kernel bolus-only comparison and explicit basal gaps;
+      do not scale curves, double-subtract IOB or treat zero difference as safety.
+- [x] Connect the existing qualified historical shape receipt to complete research
+      scenarios, preserving source/cohort identity and final availability checks.
+- [x] Pass138 focused accounting/personal/scenario/timer/planner tests.
+- [x] Finish frozen full local Android quality:6676passed/six existing skips,
+      zero failures/errors; real SDK TLS, lint and APK retention/size guard passed.
+- [ ] Publish follow-up reviewed source and inspect exact-head CI in PR18.
+- Still no live recommended meal message, new runtime subscriber, full basal IOB
+      coverage, therapy/device/server/main change or APK publication.
+
 ## No-Button Meal Scenario Research (2026-10-22)
 
 - [x] Add immutable message/assumption state without an intake confirmation action.
@@ -9,7 +24,8 @@
 - [x] Pass111 focused episode/store/simulator/onset/planner tests without skips.
 - [x] Complete frozen full Android quality:6668passed/six existing skips, no
       errors; real pristine SDK TLS ran, lint and APK retention/size guard passed.
-- [ ] Publish reviewed source and inspect exact-head source CI.
+- [x] Publish reviewed source in PR18/333c7684; Verify39785570413/39785540611
+      succeeded and synthetic CI JUnit confirmed6668passed/six existing skips.
 - [ ] Integrate a qualified personal-model producer, reconcile current IOB with
       modeled delivery coverage, and validate simultaneous paths/future control
       before admitting any recommended meal-time message or live timer producer.

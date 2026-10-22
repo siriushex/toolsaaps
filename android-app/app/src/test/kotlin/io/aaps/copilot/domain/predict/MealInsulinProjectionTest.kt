@@ -38,6 +38,17 @@ class MealInsulinProjectionTest {
         assertTrue(result.stepEffectsMmol.all { it <= 0.0 })
     }
 
+    @Test fun activeAndInferredMassAreConservedWithoutDisplayClamping() {
+        val engine = engine()
+        val inferred = bolus.copy(payload = mapOf("units" to "2.0", "inferred" to "true"))
+        val projection = engine.projectMealTimingInsulin(glucose, List(20) { bolus } + inferred, 60)
+        assertTrue(projection.activeModeledUnits > 30.0)
+        assertTrue(projection.activeInferredUnits > 0.0)
+        assertEquals(projection.activeModeledUnits,
+            -projection.stepEffectsMmol.sum() / projection.isfMmolPerUnit + projection.remainingModeledUnitsAtHorizon, 1e-9)
+        assertTrue(projection.activeInferredUnits < projection.activeModeledUnits)
+    }
+
     @Test fun sixtyMinutesDoesNotPretendInsulinFinished() {
         val result = engine().projectMealTimingInsulin(glucose, listOf(bolus), 60)
         assertFalse(result.completeByHorizon)

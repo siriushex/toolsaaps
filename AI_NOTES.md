@@ -1,3 +1,34 @@
+# Meal Timing Input Qualification - 2026-10-22
+
+- Continue from PR18/333c7684 after both exact-head Verify runs succeeded. Source
+  only; no main merge, APK publication, device/server/AAPS or therapeutic change.
+- Expose uncapped active and inferred modeled insulin using the same cumulative
+  kernel as the existing research projection. Step effects plus remaining tail
+  conserve this mass; this is not a replacement for the existing display/runtime
+  IOB clamp or a new clinical scalar. Unsupported semantics remain explicit.
+- Add exact-time/reference-kernel bolus-only accounting through the existing
+  InsulinRuntimeSnapshotResolver. Keep signed and positive basal separate; no
+  total/net-versus-bolus comparison, tolerance-based safety claim, kernel scaling
+  or extra IOB*ISF subtraction. Full IOB coverage is explicitly unavailable.
+- Add a personal research entry point using the actual existing historical-fit
+  qualification receipt, including profile/DIA, sensor/calibration, source/meal
+  revision, time/portion/GI and causal availability gates. Preserve original belief
+  support and missed-food paths; unsupported profiles/durations or late completion
+  reject without a partial matrix. Return the qualified shape only after a valid
+  candidate receipt. This is not clinical or prospective-accuracy validation.
+- Failing-first compilation confirmed absent accounting/personal APIs. A further
+  regression reproduced copied component snapshots bypassing validation; reusing
+  the existing resolver closes that gap. Final focused suite passed138 tests with
+  zero failures/errors/skips before final source freeze. Frozen full Android
+  test/lint/compile/assemble passed in5m21s:6676passed, six existing private-input
+  skips, zero failures/errors. Actual pristine SDK TLS ran2.815s, not skipped.
+  Lint has zero errors,382existing warnings/eight hints. APK retention/size guard
+  passed with all7136 compiled app classes retained; source/test hashes stayed
+  unchanged. Exact-head CI remains a separate publication gate.
+- No producer subscription/background work or notification/therapy authority was
+  added. Basal inventory, trajectory uncertainty, future control and prospective
+  personal-forecast validation remain live-admission blockers.
+
 # No-Button Meal Scenario Research - 2026-10-22
 
 - Start from main38b0b015 in the existing isolated checkout; no native subagent

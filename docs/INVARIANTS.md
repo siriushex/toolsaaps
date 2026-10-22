@@ -1950,6 +1950,15 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- Bolus-only modeled insulin cannot be reconciled against signed net or total
+  positive IOB as though it included basal. Exactly matching timestamps and
+  declared kernels plus typed component validation are required even for a numeric
+  research comparison. Its delta cannot rescale the kernel or be subtracted from
+  glucose a second time; zero delta does not prove complete delivery coverage.
+- A qualified historical absorption receipt is not clinical validation. Personal
+  scenario use must preserve its cohort/meal/profile/source/availability identity,
+  retain every supported scenario and reject unsupported shape ranges or late
+  completion rather than weakening uncertainty/control/hypoglycemia gates.
 - A no-button meal message is not consumed-food confirmation. Persisted assumptions
   cannot retire NOT_HAPPENING/NO_NEW_MEAL scenarios, change real COB/therapy, clear
   glucose alarms or supply ingestion/training labels. Canonical source revision
