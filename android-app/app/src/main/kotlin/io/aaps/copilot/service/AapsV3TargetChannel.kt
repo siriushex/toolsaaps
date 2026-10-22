@@ -17,7 +17,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 
 enum class AapsV3ConnectionStatus { UNPAIRED, WAITING, VERIFYING, CONNECTED, CONTROL_DISABLED, REVOKED, OFFLINE, ERROR }
-data class AapsV3ConnectionState(val status: AapsV3ConnectionStatus = AapsV3ConnectionStatus.UNPAIRED, val busy: Boolean = false)
+data class AapsV3ConnectionState(
+    val status: AapsV3ConnectionStatus = AapsV3ConnectionStatus.UNPAIRED,
+    val busy: Boolean = false,
+    val observedProfile: AapsV3ObservedProfileStatus = AapsV3ObservedProfileStatus.UNCHECKED
+)
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
 internal class AapsV3TargetChannel(
@@ -29,6 +33,7 @@ internal class AapsV3TargetChannel(
     private val clock: () -> Long = System::currentTimeMillis
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
+    private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
     private val commandMutex = Mutex()
     private val enrollmentMutex = Mutex()
@@ -138,6 +143,9 @@ internal class AapsV3TargetChannel(
                 if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
             }
         }
+        val profileStatus = if (runtimeAllowed && storageAvailable()) profileSource.read(clock()).status
+            else AapsV3ObservedProfileStatus.UNCHECKED
+        // Profile IO may suspend; derive connectivity from the pairing again after that read.
         pair = checkNotNull(journal.pairingSnapshot())
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
@@ -147,7 +155,10 @@ internal class AapsV3TargetChannel(
             sessionProbeCounter <= 0 || pair.pongCounter < sessionProbeCounter || clock() - pair.lastPongAt !in 0..90_000 -> AapsV3ConnectionStatus.VERIFYING
             else -> AapsV3ConnectionStatus.CONNECTED
         }
-        if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState(status, mutableState.value.busy)
+        val observedProfile = if (status in setOf(AapsV3ConnectionStatus.CONNECTED, AapsV3ConnectionStatus.CONTROL_DISABLED)) {
+            profileStatus
+        } else AapsV3ObservedProfileStatus.UNCHECKED
+        if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState(status, mutableState.value.busy, observedProfile)
     }
 
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {

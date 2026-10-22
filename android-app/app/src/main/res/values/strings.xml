@@ -2147,6 +2147,12 @@
     <string name="native_aaps_offline">Local connection unavailable</string>
     <string name="native_aaps_error">Connection not confirmed. Check AAPS, PIN and local sync.</string>
     <string name="native_aaps_control_unavailable">AAPS 4 target control remains blocked until clinical history sync is verified.</string>
+    <string name="native_aaps_profile_observed">Profile received. History completeness is not yet confirmed.</string>
+    <string name="native_aaps_profile_missing">No effective profile received from AAPS.</string>
+    <string name="native_aaps_profile_invalidated">Latest effective profile was deleted. A new AAPS record is required.</string>
+    <string name="native_aaps_profile_conflicting">Conflicting AAPS profiles at the same time.</string>
+    <string name="native_aaps_profile_limit">Profile check exceeded the local history read limit.</string>
+    <string name="native_aaps_profile_unavailable">Received profile could not be verified. Check local sync.</string>
     <string name="native_aaps_pair">Pair</string>
     <string name="native_aaps_check">Check connection</string>
     <string name="native_aaps_revoke">Revoke locally</string>

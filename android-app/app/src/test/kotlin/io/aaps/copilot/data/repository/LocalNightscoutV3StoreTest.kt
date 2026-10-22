@@ -312,6 +312,44 @@ class LocalNightscoutV3StoreTest {
         assertEquals("LocalNightscoutV3DocumentEntity(redacted)", storage.get(meals, "meal-1").toString())
     }
 
+    @Test fun retainedSnapshotIsCompleteAtItsRevisionAndKeepsCorrectedRowsAndTombstones() = runBlocking {
+        val storage = store()
+        val first = storage.create(input()).document
+        storage.create(input("second"))
+        val updated = storage.update(input(body = "{\"carbs\":25}"), first.modifiedRevision).document
+        val deleted = storage.delete(meals, first.identifier, updated.modifiedRevision).document
+        storage.create(input("unrelated").copy(collection = LocalV3Collection.ENTRIES))
+        val snapshot = storage.retainedSnapshot(meals, 2, 1024) as LocalV3RetainedSnapshot.Complete
+        assertEquals(deleted.modifiedRevision, snapshot.collectionRevision)
+        assertEquals(2, snapshot.documents.size)
+        assertEquals(deleted, snapshot.documents.single { it.identifier == first.identifier })
+        assertTrue(snapshot.documents.all { it.modifiedRevision <= snapshot.collectionRevision })
+        assertFalse(snapshot.toString().contains("carbs"))
+    }
+
+    @Test fun retainedSnapshotRefusesRowAndByteOverflowRatherThanReturningAPrefix() = runBlocking {
+        val storage = store()
+        val first = storage.create(input()).document
+        assertTrue(storage.retainedSnapshot(meals, 1, first.payloadBytes.toLong()) is LocalV3RetainedSnapshot.Complete)
+        assertTrue(storage.retainedSnapshot(meals, 1, first.payloadBytes - 1L) is LocalV3RetainedSnapshot.OverLimit)
+        val second = storage.create(input("second")).document
+        val result = storage.retainedSnapshot(meals, 1, 1024) as LocalV3RetainedSnapshot.OverLimit
+        assertEquals(second.modifiedRevision, result.collectionRevision)
+    }
+
+    @Test fun emptySnapshotAndConcurrentMutationsCannotMixCollectionHeadWithLaterPayloads() = runBlocking {
+        val storage = store()
+        assertEquals(LocalV3RetainedSnapshot.Complete(0, emptyList()), storage.retainedSnapshot(meals, 1, 100))
+        val writer = launch(Dispatchers.IO) { repeat(25) { storage.create(input("meal-$it")) } }
+        repeat(25) {
+            val snapshot = storage.retainedSnapshot(meals, 100, 8192) as LocalV3RetainedSnapshot.Complete
+            assertEquals(snapshot.collectionRevision, snapshot.documents.maxOfOrNull { it.modifiedRevision } ?: 0L)
+            assertTrue(snapshot.documents.map { it.identifier }.distinct().size == snapshot.documents.size)
+        }
+        writer.join()
+        assertEquals(25, (storage.retainedSnapshot(meals, 100, 8192) as LocalV3RetainedSnapshot.Complete).documents.size)
+    }
+
     private suspend fun rejected(expected: LocalV3StoreError, block: suspend () -> Any?) {
         try { block(); fail("expected $expected") } catch (failure: LocalV3StoreException) {
             assertEquals(expected, failure.reason)

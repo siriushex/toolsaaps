@@ -116,6 +116,7 @@ internal object AapsV3EffectiveProfileProjector {
             return AapsV3ProfileProjection.Unavailable(AapsV3ProfileUnavailable.INVALID_SOURCE)
         }
         return try {
+            require(row.payloadJson.length <= LocalNightscoutV3Store.MAX_PAYLOAD_BYTES)
             val bytes = HistoryJson.encodeUtf8(row.payloadJson)
             require(bytes.size == row.payloadBytes)
             val body = HistoryJson.parse(bytes, LocalNightscoutV3Store.MAX_PAYLOAD_BYTES)

@@ -1,5 +1,17 @@
 # PLAN
 
+## Retained Native Profile Resolution (2026-10-22)
+
+- [x] Verify main7b2edfd0 CI39686882701 succeeded for all three jobs.
+- [x] Add bounded atomic retained treatment reads, including tombstones.
+- [x] Resolve observed EPS by event time; preserve revisions, conflicts and errors.
+- [x] Connect non-sensitive status to existing pairing UI, with no new worker.
+- [x] Complete frozen full Android quality:6651passed/six existing skips,
+      zero failures/errors; actual pristine SDK TLS ran and APK guard passed.
+- [ ] Publish reviewed source, inspect exact-head CI, then integrate into main.
+- Upstream clinical completeness, live targets and Redmi TLS/JugglucoNG acceptance
+  are not completed by this read-only slice. No AAPS patch or phone update here.
+
 ## Native Effective Profile Projection (2026-10-22)
 
 - [x] Inspect pinned RC1 EPS/insulin serialization and preserve already effective values.
@@ -8,7 +20,8 @@
 - [x] Complete pure, Room and actual pristine SDK TLS profile regressions: 48 passed.
 - [x] Complete full Android test/lint/compile/build and APK retention guard:
       6635 passed/six existing skips, zero errors; all7106 app classes preserved.
-- [ ] Publish reviewed source and inspect exact-head CI before main integration.
+- [x] Publish reviewed source via PR16/eb838e4c and integrate main7b2edfd0;
+      source Verify39684110726/39684051065 and main39686882701 succeeded.
 - No active-profile selection, clinical readiness, therapy or device update here.
 
 ## Timer Internet Release (2026-10-22)

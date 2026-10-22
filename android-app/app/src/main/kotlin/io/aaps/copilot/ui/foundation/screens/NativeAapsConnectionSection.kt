@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.aaps.copilot.R
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
+import io.aaps.copilot.service.AapsV3ObservedProfileStatus
 
 @Composable
 internal fun NativeAapsConnectionSection(
@@ -55,6 +56,16 @@ internal fun NativeAapsConnectionSection(
             AapsV3ConnectionStatus.OFFLINE -> R.string.native_aaps_offline
             AapsV3ConnectionStatus.ERROR -> R.string.native_aaps_error
         }), Modifier.testTag("native_aaps_status"), style = MaterialTheme.typography.bodyMedium)
+        if (state.observedProfile != AapsV3ObservedProfileStatus.UNCHECKED) {
+            Text(stringResource(when (state.observedProfile) {
+                AapsV3ObservedProfileStatus.OBSERVED -> R.string.native_aaps_profile_observed
+                AapsV3ObservedProfileStatus.NOT_OBSERVED -> R.string.native_aaps_profile_missing
+                AapsV3ObservedProfileStatus.INVALIDATED -> R.string.native_aaps_profile_invalidated
+                AapsV3ObservedProfileStatus.CONFLICTING -> R.string.native_aaps_profile_conflicting
+                AapsV3ObservedProfileStatus.LIMIT_REACHED -> R.string.native_aaps_profile_limit
+                else -> R.string.native_aaps_profile_unavailable
+            }), Modifier.testTag("native_aaps_profile_status"), style = MaterialTheme.typography.bodySmall)
+        }
         Text(stringResource(R.string.native_aaps_control_unavailable), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { pairing = true }, enabled = !state.busy,

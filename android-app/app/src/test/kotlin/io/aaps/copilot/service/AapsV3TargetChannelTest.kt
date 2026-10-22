@@ -143,4 +143,14 @@ class AapsV3TargetChannelTest {
         assertEquals(NativeTargetOutcome.UNKNOWN, channel.reconcile("legacy-unknown"))
         assertNull(journal.pending())
     }
+
+    @Test fun signedConnectivityDoesNotInventAnEffectiveProfileOrBypassClinicalAdmission() = runBlocking {
+        connected()
+        assertEquals(AapsV3ObservedProfileStatus.NOT_OBSERVED, channel.state.value.observedProfile)
+        baseline = { "native_clinical_projection_unavailable" }
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+        channel.stop()
+        assertEquals(AapsV3ObservedProfileStatus.UNCHECKED, channel.state.value.observedProfile)
+    }
 }

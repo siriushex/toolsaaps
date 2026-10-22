@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Density
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
+import io.aaps.copilot.service.AapsV3ObservedProfileStatus
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import java.io.File
 import org.junit.Assert.*
@@ -77,6 +78,23 @@ class NativeAapsConnectionSectionTest {
         screen(AapsV3ConnectionState(busy = true)) {
             compose.onNodeWithTag("native_aaps_pair").assertIsNotEnabled()
             compose.onNodeWithContentDescription("Check connection").assertIsNotEnabled()
+        }
+    }
+
+    @Test fun receivedProfileDoesNotClaimCompleteHistoryOrTargetReadiness() {
+        screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED, observedProfile = AapsV3ObservedProfileStatus.OBSERVED)) {
+            compose.onNodeWithTag("native_aaps_profile_status").assertTextEquals("Profile received. History completeness is not yet confirmed.")
+            compose.onNodeWithText("AAPS 4 target control remains blocked", substring = true).assertIsDisplayed()
+        }
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun profileConflictRemainsReadableAtLargeRussianFont() {
+        screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED, observedProfile = AapsV3ObservedProfileStatus.CONFLICTING), fontScale = 1.5f) {
+            compose.onNodeWithTag("native_aaps_profile_status").assertIsDisplayed()
+            compose.onNodeWithText("В AAPS получены разные профили на одно время.").assertIsDisplayed()
+            compose.onNodeWithText("Управление целями AAPS 4 заблокировано", substring = true).assertIsDisplayed()
+            compose.onNodeWithContentDescription("Проверить связь").performScrollTo().assertIsDisplayed()
         }
     }
 
