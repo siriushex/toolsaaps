@@ -169,4 +169,39 @@ class AapsV3TargetChannelTest {
         assertEquals(AapsV3ObservedInsulinStatus.UNCHECKED, channel.state.value.observedInsulin)
         assertEquals(0, channel.state.value.insulinRecordCount)
     }
+
+    @Test fun profileHistoryDiagnosticsRefreshAndClearWithOwnerWithoutAdmittingTherapy() = runBlocking {
+        connected()
+        assertEquals(AapsV3ObservedProfileStatus.NOT_OBSERVED, channel.state.value.observedProfileHistory)
+        val time = at - 86_400_000
+        val body = buildJsonObject {
+            put("eventType", "Note"); put("date", time); put("utcOffset", 0)
+            put("originalProfileName", "historical"); put("originalCustomizedName", "historical")
+            put("originalTimeshift", 0); put("originalPercentage", 100)
+            put("originalDuration", 0); put("originalEnd", 0)
+            put("icfg", buildJsonObject {
+                put("insulinLabel", "historical"); put("insulinEndTime", 18_000_000)
+                put("insulinPeakTime", 4_500_000); put("concentration", 1.0)
+            })
+            put("profileJson", buildJsonObject {
+                put("units", "mmol"); put("timezone", "UTC")
+                listOf("carbratio", "sens", "basal", "target_low", "target_high").forEach { key ->
+                    put(key, buildJsonArray { add(buildJsonObject {
+                        put("time", "00:00"); put("timeAsSeconds", 0); put("value", 1.0)
+                    }) })
+                }
+            }.toString())
+        }
+        LocalNightscoutV3Store(db, now::get).create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS,
+            "profile", "local-v3-owner", time, body.toString()))
+        now.addAndGet(100); channel.checkConnection()
+        assertEquals(AapsV3ObservedProfileStatus.OBSERVED, channel.state.value.observedProfileHistory)
+        assertEquals(1, channel.state.value.profileHistoryIntervalCount)
+        baseline = { "native_clinical_projection_unavailable" }
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        channel.stop()
+        assertEquals(AapsV3ObservedProfileStatus.UNCHECKED, channel.state.value.observedProfileHistory)
+        assertEquals(0, channel.state.value.profileHistoryIntervalCount)
+    }
 }

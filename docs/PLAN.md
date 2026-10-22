@@ -1,5 +1,16 @@
 # PLAN
 
+## Native Historical Profile Windows (2026-10-23)
+
+- [x] Reproduce late as-known profile reuse and cached-schedule mutation.
+- [x] Add bounded half-open EPS windows and immutable lists from one snapshot.
+- [x] Pass pure, native Room/reopen/cache and owner-lifecycle regressions.
+- [x] Full quality:6766passed/six existing skips, actual pristine SDK TLS,
+      zero lint errors, unchanged1429source hashes and all7164app classes retained.
+- [ ] Publish reviewed source, verify exact-head CI and integrate matching tree.
+- No source/pump completeness, delivered basal or recommended eating-time
+  admission is claimed; see AAPS4_PROFILE_HISTORY.md.
+
 ## Native Insulin Observations (2026-10-23)
 
 - [x] Merge verified PR22 as6d5a4fa8 and verify unchanged tree.
@@ -10,8 +21,8 @@
 - [x] Pass pure, Room/reopen/owner and actual pristine SDK TLS regressions.
 - [x] Full Android quality:6751passed/six existing skips, real SDK TLS, zero lint
       errors, successful build and unchanged source hashes.
-- [ ] Complete source review/publication and feature CI.
-- [ ] Integrate verified source into main.
+- [x] Complete source review/publication and all six exact-head feature CI checks.
+- [x] Integrate PR23 as a63e0f3f with the identical tested tree.
 - Source-bound upstream coverage and prospective meal forecasting validation
   remain prerequisites for recommended eating-time admission.
 

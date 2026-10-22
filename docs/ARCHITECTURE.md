@@ -14,6 +14,13 @@ collection revision. It does not prove upstream completeness or lift clinical
 dispatch. See AAPS4_EFFECTIVE_PROFILE_PROJECTION.md for native semantics and
 remaining clinical readiness. No AAPS source or therapy boundary is changed.
 
+The same retained index now resolves bounded half-open EPS history windows for
+baseline reconstruction. As-known reads refuse a newer collection revision,
+because latest records are not a version archive. Cached schedules and returned
+intervals are immutable. Original modifiers/end do not reapply or invent reversion.
+The owner publishes diagnostic history status/count only; these are not delivered
+basal or upstream coverage. See AAPS4_PROFILE_HISTORY.md.
+
 ## RC1 Target Transaction Boundary
 
 The external pinned RC1 admission patch carries a target-only callback from the

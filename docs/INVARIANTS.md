@@ -18,6 +18,13 @@
 - Latest invalid/deleted EPS blocks fallback; same-time EPS identities conflict.
   Event time outranks upload revision; original end cannot invent a reversion.
   Retained latest versions are not a historical version archive.
+- A historical profile window must include an observed start anchor and every
+  retained EPS change before its exclusive end. Any unavailable segment rejects
+  the whole window; do not fill gaps with today's profile or invent end reversion.
+- As-known profile reads reject collection revisions newer than knowledge time,
+  including potentially moved/deleted evidence outside the query. The retrospective
+  compatibility view is not an admission receipt. Cached schedules/window lists
+  cannot be mutated by readers. Observed intervals are not basal delivery coverage.
 
 ## RC1 Target Admission
 

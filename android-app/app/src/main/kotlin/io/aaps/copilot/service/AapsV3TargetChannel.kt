@@ -22,7 +22,9 @@ data class AapsV3ConnectionState(
     val busy: Boolean = false,
     val observedProfile: AapsV3ObservedProfileStatus = AapsV3ObservedProfileStatus.UNCHECKED,
     val observedInsulin: AapsV3ObservedInsulinStatus = AapsV3ObservedInsulinStatus.UNCHECKED,
-    val insulinRecordCount: Int = 0
+    val insulinRecordCount: Int = 0,
+    val observedProfileHistory: AapsV3ObservedProfileStatus = AapsV3ObservedProfileStatus.UNCHECKED,
+    val profileHistoryIntervalCount: Int = 0
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -164,7 +166,9 @@ internal class AapsV3TargetChannel(
         val showEvidence = status in setOf(AapsV3ConnectionStatus.CONNECTED, AapsV3ConnectionStatus.CONTROL_DISABLED)
         if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState(status, mutableState.value.busy, observedProfile,
             if (showEvidence) evidence?.insulin?.status ?: AapsV3ObservedInsulinStatus.UNCHECKED else AapsV3ObservedInsulinStatus.UNCHECKED,
-            if (showEvidence) evidence?.insulin?.records?.size ?: 0 else 0)
+            if (showEvidence) evidence?.insulin?.records?.size ?: 0 else 0,
+            if (showEvidence) evidence?.profileHistory?.status ?: AapsV3ObservedProfileStatus.UNCHECKED else AapsV3ObservedProfileStatus.UNCHECKED,
+            if (showEvidence) evidence?.profileHistory?.intervals?.size ?: 0 else 0)
     }
 
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {
