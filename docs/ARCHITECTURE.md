@@ -2479,6 +2479,79 @@ AAPS Predictive Copilot is a two-part system:
 - The therapeutic fitter's existing 72-hour cadence is unchanged. Nightly retraining and any new Target Manager effect require a separate validated model/control integration; UI animation does not authorize therapy.
 - `insulin_real_onset_min` is a different, current runtime estimate: `estimateLocalCobIob` passes it to `modelSameCycleActiveInsulinStatic` and the prediction engine. Its existing insulin/forecast effect is preserved. The timer does not freeze it until the next night or replace it with the long-term fitted-profile onset.
 
+## No-Button Meal Scenario Research (2026-10-22)
+- Follow-up input qualification exposes active and inferred modeled insulin from
+  the same frozen cumulative kernel as the forecast steps/tail, without applying
+  the screen/runtime30U clamp to this accounting quantity. Remaining mass is
+  conserved. Unsupported event semantics remain explicit.
+- `MealInsulinAccounting` compares only resolver-qualified, exactly aligned AAPS
+  bolus components with an explicitly matching reference kernel. It reports the
+  signed numeric difference, not a fitted scale, tolerance-based safety verdict
+  or glucose correction. Optional `MealBasalHistory` carries immutable contiguous
+  observed-delivery/contemporaneous-schedule intervals and source revisions. The
+  frozen engine integrates its existing piecewise-linear kernel at transformed
+  knots, preserving actual, scheduled, positive-deviation and negative-deviation
+  insulin separately. Coverage includes the actual onset-shifted tail, not merely
+  rounded DIA. Gaps, overlap, duplicates, incompatible historical kernels, late
+  evidence and exceeded work budgets reject, never truncate.
+  A matching projection adds signed basal/net numeric differences. Zero difference,
+  zero signed basal or locally complete intervals do not prove upstream delivery
+  completeness. Positive exposure and unsigned remaining tails cannot disappear
+  through net cancellation. `MealBasalAssimilation` builds one immutable receipt
+  for a complete batch, integrating signed deviations over each actual historical
+  CGM interval. The frozen forward engine refits Kalman/AR with those known inputs
+  and adds the corresponding future tail. Physical scheduled basal is kept as
+  accounting, not an additional glucose subtraction. This research convention
+  treats scheduled basal as the reference equilibrium; it does not establish
+  clinical adequacy of that schedule or historical sensitivity.
+  Replay requires inventory through earliest CGM minus support, compatible
+  timestamp/kernel/ISF/horizon, causal kernels and bounded work. Missing/poor CGM,
+  inferred or ambiguous extended delivery cannot silently fall back. Each path
+  carries its physical basal tail; zero net deviation cannot close that tail.
+- `evaluatePersonal` reuses the existing PersonalMealCandidateBuilder receipt
+  and its causal source/profile/DIA/sensor/calibration/meal/time/portion/GI gates.
+  Only a successful receipt exposes its absorption shape. Exact episode/source
+  linkage and complete scenario profile/duration support are required; the belief
+  is never silently rewritten to fit the model. The full batch must finish within
+  the same five-minute availability window, without clock rollback.
+- Personal input qualification is research qualification, not prospective glucose
+  accuracy or clinical admission. Its shape can now drive the complete research
+  matrix, including both intake and missed-food worlds, while notification/therapy
+  permission remains false. Basal clinical ingestion/completeness, historical
+  sensitivity, simultaneous uncertainty and future-controller/clinical
+  forecast validation remain outstanding.
+- `MealMessageEpisode` records an explicit canonical meal/source revision and
+  insulin row link. A successfully posted message permits an assumed start only,
+  never observed intake, a training label, actual COB decrement or treatment.
+  `DataStoreMealMessageEpisodeStore` atomically retains that state in a private
+  no-backup file. Reopening does not restart time; corrections clear the assumption,
+  and stale posting callbacks cannot attach to another revision/episode.
+- `MealTimingResearchEvaluator` is an on-demand research API, not an application
+  subscription or a new timer/notification owner. It resolves signed and positive
+  IOB at the frozen glucose anchor using the existing typed resolver. Positive
+  IOB above2U highlights a candidate; smaller IOB does not suppress risk. Scalar
+  IOB is not multiplied by ISF or silently substituted for delivery kernels.
+- Optional GI sensitivity applies `PersonalGiModel.shapeFor` and the existing
+  cumulative absorption projection to supported linked-food scenarios. It requires
+  independent USER/CATALOG GI, exact canonical source revision, causal availability
+  and supported GI/profile/duration ranges. Supplied research coefficients do not
+  establish personal-model qualification. This is not automatic GI inference or
+  reuse of the display-only GI warp. Actual grams, historical food and baseline
+  forecasts are unchanged; absent-food paths do not depend on the proposed meal GI.
+- The complete food/start/delay/insulin matrix survives message posting. Each
+  absent-food path reports conditional-mean crossings below4.6/3.9/3.0 as grid
+  intervals, not exact crossing times, confidence bounds or recommended meal times.
+  Missing IOB/GI and mismatched episodes are explicit unavailable results.
+- Real-food component admission and shared recorded-insulin exclusions run before
+  simulation. The onset reader and evaluator both reject SMB, inferred/recovered,
+  synthetic, priming or local-action records. Conflicting normalized flag aliases
+  cannot erase an exclusion merely by appearing later in the payload.
+- Notification/therapy permission is always false. Simultaneous uncertainty,
+  future closed-loop control, IOB-versus-curve reconciliation and qualified personal
+  forecast support remain outstanding. Neither the existing onset deadline nor
+  this research output generates a live meal instruction. The existing durable
+  onset header, silent notification and all glucose protections remain unchanged.
+
 ## Open architecture questions
 - Formal plugin contract for adding new prediction engines without touching automation repository.
 - Unified backend lint/typecheck standards to match Android quality gate strictness.

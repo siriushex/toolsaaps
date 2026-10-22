@@ -1,5 +1,68 @@
 # PLAN
 
+## Meal Basal Forecast Replay And 0.1.9 (2026-10-22)
+
+- [x] Verify all six PR18/8ff108fc checks and public0.1.8/code9 metadata.
+- [x] Assimilate complete declared basal history in frozen historical known inputs
+      and future scenario paths, preserving separate physical and signed tails.
+- [x] Add chronology, coverage, residual-refit, nonmutation and missing-food tests;
+      148 focused tests and14release-helper tests pass.
+- [x] Full Android quality:6708passed, six existing skips, zero errors/failures;
+      real SDK TLS and lint pass in8m25s; source/test hashes unchanged.
+- [ ] Final APK retention/signature and exact-head CI.
+- [ ] Reviewed main integration and verified static0.1.9publication.
+- Live meal recommendation remains unavailable: the local interval contract does
+  not attest complete upstream delivery, historical sensitivity or prospective
+  forecast safety. The persistent onset clock remains operational and unchanged.
+
+## Meal Basal Accounting (2026-10-22)
+
+- [x] Confirm PR18/c108942b passed all six exact-head push/PR checks.
+- [x] Add immutable observed-delivery/scheduled-basal interval accounting with
+      exact existing-kernel integration and separate signed/positive/negative tails.
+- [x] Reject incomplete, incompatible, late or over-budget history explicitly.
+- [x] Connect optional numeric basal/net comparison to on-demand research only;
+      preserve all trajectories and missed-food paths without double correction.
+- [x] Complete99 focused regressions and frozen full Android quality:6694passed,
+      six existing private-input skips, zero errors; SDK TLS and APK guard passed.
+- [x] Publish reviewed PR18/8ff108fc and inspect both successful Verify runs;
+      independent synthetic JUnit confirms6694passed and six existing skips.
+- No clinical basal ingestion or upstream completeness claim, live recommended
+  meal time, target/dose change, phone/server/main update or APK publication.
+  See superpowers/plans/2026-10-22-meal-basal-accounting.md for remaining gates.
+
+## Meal Timing Input Qualification (2026-10-22)
+
+- [x] Continue PR18/333c7684 after both exact-head Verify runs succeeded.
+- [x] Expose conserved active/inferred insulin accounting from the frozen kernel.
+- [x] Add typed exact-time/kernel bolus-only comparison and explicit basal gaps;
+      do not scale curves, double-subtract IOB or treat zero difference as safety.
+- [x] Connect the existing qualified historical shape receipt to complete research
+      scenarios, preserving source/cohort identity and final availability checks.
+- [x] Pass138 focused accounting/personal/scenario/timer/planner tests.
+- [x] Finish frozen full local Android quality:6676passed/six existing skips,
+      zero failures/errors; real SDK TLS, lint and APK retention/size guard passed.
+- [x] Publish c108942b and inspect all six successful exact-head PR18 checks.
+- Still no live recommended meal message, new runtime subscriber, full basal IOB
+      coverage, therapy/device/server/main change or APK publication.
+
+## No-Button Meal Scenario Research (2026-10-22)
+
+- [x] Add immutable message/assumption state without an intake confirmation action.
+- [x] Persist it atomically; test reopen, concurrent callbacks, revisions and deletion.
+- [x] Add on-demand typed IOB and independently known GI sensitivity to the frozen
+      scenario simulator, preserving all absent-food/insulin worlds and baseline.
+- [x] Pass111 focused episode/store/simulator/onset/planner tests without skips.
+- [x] Complete frozen full Android quality:6668passed/six existing skips, no
+      errors; real pristine SDK TLS ran, lint and APK retention/size guard passed.
+- [x] Publish reviewed source in PR18/333c7684; Verify39785570413/39785540611
+      succeeded and synthetic CI JUnit confirmed6668passed/six existing skips.
+- [ ] Integrate a qualified personal-model producer, reconcile current IOB with
+      modeled delivery coverage, and validate simultaneous paths/future control
+      before admitting any recommended meal-time message or live timer producer.
+- The existing onset UI remains unchanged. No APK/server/device/therapy/main
+  deployment is part of this source-only research stage.
+
 ## Retained Native Profile Resolution (2026-10-22)
 
 - [x] Verify main7b2edfd0 CI39686882701 succeeded for all three jobs.

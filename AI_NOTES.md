@@ -1,3 +1,138 @@
+# Meal Basal Forecast Replay - 2026-10-22
+
+- Continue from PR18/8ff108fc after all six checks succeeded. Publication of a
+  tested APK is authorized; clinical recommendation admission stays independent.
+- Add one immutable basal replay receipt per scenario batch. Integrate signed
+  delivered-minus-scheduled rates over actual CGM intervals and the future tail
+  using the same transformed piecewise-linear kernel. Replay the disposable
+  Kalman/AR history with these known inputs before forecasting. Future proposed
+  food/insulin cannot alter historical trend, and the live engine is untouched.
+- Require history back to the earliest replay point minus the full insulin tail,
+  causal zero-on-delivery kernels, bounded work, adequate contiguous CGM and
+  compatible kernel/ISF/timestamps/horizon. Reject inferred or extended/emulated
+  bolus ambiguity. Missing data cannot become scheduled delivery. Physical basal
+  tails remain visible even when signed deviations cancel.
+- A failing regression showed NO_NEW_MEAL was omitted from the no-food urgency
+  summary. Both absent-food hypotheses now participate in the earliest risk and
+  waiting margin; neither becomes an eating observation after a posted message.
+- Initial focused run:65passed, one outdated personal-receipt assertion. Updated
+  the assertion to reflect completed assimilation while retaining clinical gates.
+  Final focused run:148passed, no failures/errors/skips. Release helper14tests pass.
+- Version0.1.9/code10 prepares internet distribution. Existing onset clock,
+  notification channel, hypoglycemia alarms and target/dose behavior are unchanged.
+  Upstream delivery attestation, varying historical sensitivity, future controller
+  response and prospective simultaneous uncertainty remain unvalidated. No live
+  meal instruction, source-of-truth COB mutation or AAPS update is enabled.
+- Frozen full test/lint/compile/assemble passed in8m25s:6708passed, six existing
+  private-input skips, no errors/failures. Pristine RC1 SDK TLS ran3.055s and was
+  not skipped. Lint has zero errors and382existing warnings. Source/test hashes
+  stayed unchanged. Exact-head CI and public APK verification are pending.
+
+# Meal Basal Accounting - 2026-10-22
+
+- Resume PR18/c108942b after all six exact-head push/PR checks succeeded.
+  Add research accounting only; no live recommendation or public APK activation.
+- Explicit observed-delivery and contemporaneous-schedule intervals are frozen
+  with source/kernel revisions. Integrate the existing piecewise-linear insulin
+  kernel at its transformed knots rather than collapsing basal to endpoint boluses.
+  Require uninterrupted history through the actual scaled/onset-shifted tail;
+  rounded DIA alone can omit part of that tail. Reject missing/overlapping/future,
+  late, incompatible or over-budget inventory without silent truncation.
+- Keep delivered, scheduled, positive and negative deviations, steps and tails
+  separately. Optional aligned basal/net differences are numeric diagnostics only.
+  Zero signed difference does not prove upstream completeness or eliminate positive
+  exposure. Supplied invalid basal history cannot degrade to a bolus-only batch.
+- Do not add this historical basal projection to hypothetical future insulin or
+  subtract its scalar from glucose: causal historical residual accounting remains
+  a prerequisite. Missed-food scenarios, existing production forecast, durable onset
+  clock, notification and therapy guards stay unchanged.
+- Failing-first compilation reproduced absent projection and integration APIs.
+  Initial projection suite passed9 cases; first focused integration/regression suite
+  passed94 cases without failures/errors/skips. An additional regression reproduced
+  false tail completion at zero net deviation; require physical delivered/scheduled
+  tails as well. Final focused suite passed99 cases without failures/errors/skips,
+  including qualified personal scenarios and unchanged missed-food paths. A missing
+  import in the added personal test was fixed before that final run.
+  Frozen full test/lint/compile/assemble passed in6m37s:6694passed, six existing
+  private-input skips, no failures/errors. Actual pristine RC1 SDK TLS ran2.749s,
+  not skipped. Lint zero errors/382existing warnings/eight hints. APK guard passed:
+  49,222,537bytes, all7144 compiled app classes retained; source/test hashes stayed
+  unchanged. Exact-head CI remains a separate publication gate.
+
+# Meal Timing Input Qualification - 2026-10-22
+
+- Continue from PR18/333c7684 after both exact-head Verify runs succeeded. Source
+  only; no main merge, APK publication, device/server/AAPS or therapeutic change.
+- Expose uncapped active and inferred modeled insulin using the same cumulative
+  kernel as the existing research projection. Step effects plus remaining tail
+  conserve this mass; this is not a replacement for the existing display/runtime
+  IOB clamp or a new clinical scalar. Unsupported semantics remain explicit.
+- Add exact-time/reference-kernel bolus-only accounting through the existing
+  InsulinRuntimeSnapshotResolver. Keep signed and positive basal separate; no
+  total/net-versus-bolus comparison, tolerance-based safety claim, kernel scaling
+  or extra IOB*ISF subtraction. Full IOB coverage is explicitly unavailable.
+- Add a personal research entry point using the actual existing historical-fit
+  qualification receipt, including profile/DIA, sensor/calibration, source/meal
+  revision, time/portion/GI and causal availability gates. Preserve original belief
+  support and missed-food paths; unsupported profiles/durations or late completion
+  reject without a partial matrix. Return the qualified shape only after a valid
+  candidate receipt. This is not clinical or prospective-accuracy validation.
+- Failing-first compilation confirmed absent accounting/personal APIs. A further
+  regression reproduced copied component snapshots bypassing validation; reusing
+  the existing resolver closes that gap. Final focused suite passed138 tests with
+  zero failures/errors/skips before final source freeze. Frozen full Android
+  test/lint/compile/assemble passed in5m21s:6676passed, six existing private-input
+  skips, zero failures/errors. Actual pristine SDK TLS ran2.815s, not skipped.
+  Lint has zero errors,382existing warnings/eight hints. APK retention/size guard
+  passed with all7136 compiled app classes retained; source/test hashes stayed
+  unchanged. Exact-head CI remains a separate publication gate.
+- No producer subscription/background work or notification/therapy authority was
+  added. Basal inventory, trajectory uncertainty, future control and prospective
+  personal-forecast validation remain live-admission blockers.
+
+# No-Button Meal Scenario Research - 2026-10-22
+
+- Start from main38b0b015 in the existing isolated checkout; no native subagent
+  tool is available. Implement the bounded no-button research foundation, not an
+  unvalidated live eating recommendation or a replacement for the onset clock.
+- Failing-first compilation reproduced the missing episode/store and assessment
+  APIs. Added immutable canonical/source-revision/insulin-linked message state
+  with a private atomic DataStore journal. Successful posting implies an assumed
+  start only, never proof the message was seen or the meal eaten. No confirmation
+  action is added. Reopen, concurrent posting, correction/deletion and stale
+  callbacks are covered; malformed state is preserved and rejected, not reset.
+- The frozen simulator accepts the existing cumulative research absorption shape.
+  The on-demand evaluator resolves same-anchor typed IOB and applies independently
+  known, revision-matched GI through declared PersonalGiModel coefficients.
+  Positive versus signed IOB stays distinct; greater than2U is salience only.
+  Missing IOB is unavailable, not zero. No instantaneous IOB*ISF subtraction.
+- GI changes food timing while preserving mass/tails and unrelated history. All
+  six food hypotheses and explicit insulin worlds survive posting. Absent-food
+  conditional-mean crossings are five-minute intervals, not calibrated bounds,
+  safe waiting times or a meal prescription. Numeric limits/tail/control flags
+  remain attached to each forecast. Source-specific unavailable states are explicit.
+- First focused run passed110 tests without failures/errors/skips, including the
+  existing durable onset and planner safeguards. Initial full quality passed6673
+  tests with six existing private-input skips (6667passed), zero errors; real
+  pristine SDK TLS ran2.807s. That run preceded final source-admission hardening.
+- Review regressions then reproduced a synthetic-food projection exception and
+  a conflicting flag-alias bypass. Reject synthetic/non-real food before simulation;
+  share existing recorded-insulin exclusions with the onset reader and make them
+  deny on any matching alias instead of accepting the last normalized value.
+  Final focused suite passed111 cases without failures/errors/skips. Frozen full
+  Android test/lint/compile/assemble passed in5m40s:6668passed, six existing
+  private-input skips, zero failures/errors. Actual pristine SDK TLS ran2.111s,
+  not skipped. Lint has zero errors,382existing warnings/eight hints. The APK
+  retention/size guard passed with all7132 compiled app classes retained; source
+  and test hashes stayed unchanged through the run. Exact-head CI remains a
+  separate publication gate.
+- Notification/therapy authority remains false. No personal-model qualification
+  or automatic CGM-derived GI is claimed. Live IOB-curve reconciliation, simultaneous
+  uncertainty and future-controller validation remain admission blockers. Existing
+  onset presentation/notifier and alerts are unchanged; source exclusions are
+  shared and hardened as above. AAPS, phone, backend, model/login and main are
+  unchanged.
+
 # Retained Native Profile Resolution - 2026-10-22
 
 - Continue from green main7b2edfd0/Verify39686882701 (all three jobs passed).

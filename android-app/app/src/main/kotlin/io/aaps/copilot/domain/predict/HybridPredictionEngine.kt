@@ -434,11 +434,59 @@ class HybridPredictionEngine(
             insulin.units * insulin.impactScale *
                 (1.0 - insulinCumulative((nowTs - ts) / 60_000.0 + horizonMinutes)).coerceIn(0.0, 1.0)
         }
-        require(steps.all { it.isFinite() } && remaining.isFinite())
+        var activeUnits = 0.0
+        var inferredUnits = 0.0
+        for ((ts, insulin) in relevant) {
+            val active = insulin.units * insulin.impactScale *
+                (1.0 - insulinCumulative((nowTs - ts) / 60_000.0)).coerceIn(0.0, 1.0)
+            activeUnits += active
+            if (insulin.inferred) inferredUnits += active
+        }
+        val unsupported = therapyEvents.count { event ->
+            val modeledEvent = modeledInsulinEvent(event)
+            if (modeledEvent == null || nowTs - event.ts > EVENT_LOOKBACK_MS) false else {
+                val parts = io.aaps.copilot.domain.model.resolveTherapyComponents(event)
+                !parts.wholeEventValid || parts.insulinU?.let { abs(it - modeledEvent.units) <= 1e-9 } != true
+            }
+        }
+        require(steps.all { it.isFinite() } && remaining.isFinite() && activeUnits.isFinite() && inferredUnits.isFinite())
         return MealInsulinProjection(nowTs, factors.isfMmolPerUnit, factors.carbSensitivityMmolPerGram,
             steps, remaining, relevant.all { (ts, _) ->
                 insulinCumulative((nowTs - ts) / 60_000.0 + horizonMinutes) >= 1.0
-            }, relevant.size, relevant.count { it.second.inferred })
+            }, relevant.size, relevant.count { it.second.inferred }, activeUnits, inferredUnits, unsupported)
+    }
+
+    internal fun projectMealTimingBasal(
+        glucose: List<GlucosePoint>,
+        therapyEvents: List<TherapyEvent>,
+        history: MealBasalHistory,
+        horizonMinutes: Int,
+        knownAtMs: Long
+    ): MealBasalProjection {
+        val bolus = projectMealTimingInsulin(glucose, therapyEvents, horizonMinutes)
+        require(history.predictionAtMs == bolus.predictionAtMs)
+        return MealBasalProjection.project(history, mealInsulinKernelIdentity(), knownAtMs,
+            horizonMinutes, bolus.isfMmolPerUnit, mealInsulinAgeKnots(), ::insulinCumulative)
+    }
+
+    private fun mealInsulinAgeKnots() = (listOf(0.0, maxOf(0.0, insulinOnsetShiftMinutes)) + insulinProfile.points.map {
+        maxOf(0.0, it.minute / insulinAgeScale + insulinOnsetShiftMinutes)
+    }).distinct().sorted()
+
+    internal fun prepareMealTimingBasal(glucose: List<GlucosePoint>, therapyEvents: List<TherapyEvent>,
+        history: MealBasalHistory, horizonMinutes: Int, knownAtMs: Long): MealBasalAssimilation {
+        require(glucose.size in 4..20_000 && glucose.zipWithNext().all { (a, b) ->
+            b.ts > a.ts && b.ts - a.ts <= 600_000L
+        })
+        val canonical = Glucose5mCanonicalizer.build(deduplicateAndSort(glucose)).points
+        require(glucose.all { it.quality == DataQuality.OK })
+        val bolus = projectMealTimingInsulin(glucose, therapyEvents, horizonMinutes)
+        require(bolus.inferredEventCount == 0 && bolus.unsupportedEventCount == 0)
+        require(therapyEvents.filter { eventCanCarryInsulin(it) }.all {
+            normalize(it.type) in setOf("bolus", "meal_bolus", "correction_bolus", "correction", "insulin")
+        }) { "Basal replay cannot resolve extended or emulated bolus delivery" }
+        return MealBasalAssimilation.prepare(projectMealTimingBasal(glucose, therapyEvents, history,
+            horizonMinutes, knownAtMs), canonical.map { it.ts }, mealInsulinAgeKnots(), ::insulinCumulative)
     }
 
     internal fun projectMealTimingFutureInsulin(
@@ -482,7 +530,8 @@ class HybridPredictionEngine(
         canonicalMealId: String,
         replacement: MealAbsorptionProjection,
         horizonMinutes: Int = 60,
-        futureInsulinPlan: MealFutureInsulinPlan? = null
+        futureInsulinPlan: MealFutureInsulinPlan? = null,
+        basalAssimilation: MealBasalAssimilation? = null
     ): MealForwardForecast {
         require(enableEnhancedPredictionV3)
         require(horizonMinutes in 60..720 && horizonMinutes % 5 == 0)
@@ -490,6 +539,11 @@ class HybridPredictionEngine(
             "Food projection must cover residual COB and the requested horizon"
         }
         val engine = forkForMealSimulation()
+        if (basalAssimilation?.hasEffect == true) {
+            // Refit from this frozen history; old residuals were learned without basal inputs.
+            engine.kalmanFilterV3 = RevisionAwareKalmanFilter()
+            engine.residualArModel = ResidualArModel()
+        }
         val baseline = engine.projectMealTimingAnnouncedFood(glucose, therapyEvents,
             replacement.points.last().offsetMinutes)
         require(baseline.any { it.canonicalMealId == canonicalMealId }) { "Unknown canonical meal" }
@@ -499,7 +553,7 @@ class HybridPredictionEngine(
             engine.projectFutureInsulin(it, insulin.predictionAtMs, insulin.isfMmolPerUnit, horizonMinutes)
         }
         val forecasts = engine.predictEnhancedV3(glucose, therapyEvents, food, horizonMinutes / 5,
-            futureInsulin?.stepEffectsMmol)
+            futureInsulin?.stepEffectsMmol, basalAssimilation = basalAssimilation)
         val diagnostics = requireNotNull(engine.diagnosticsSnapshot())
         val limitsReached = abs(diagnostics.trendCum60Raw - diagnostics.trendCum60Clamped) > 1e-9 ||
             (1 until diagnostics.glucosePath.size).any { index ->
@@ -511,7 +565,7 @@ class HybridPredictionEngine(
         return MealForwardForecast(food.predictionAtMs, forecasts, diagnostics.glucosePath, diagnostics.trendStep,
             food.points[horizonMinutes / 5].remainingGrams,
             insulin.remainingModeledUnitsAtHorizon + (futureInsulin?.remainingUnitsAtHorizon ?: 0.0),
-            limitsReached, futureInsulinPlan?.totalUnits ?: 0.0)
+            limitsReached, futureInsulinPlan?.totalUnits ?: 0.0, basalAssimilation?.projection)
     }
 
     internal fun mealInsulinKernelIdentity(): MealInsulinKernelIdentity {
@@ -558,7 +612,8 @@ class HybridPredictionEngine(
         forwardFood: MealScenarioFoodProjection? = null,
         predictionSteps: Int = STEPS_MAX,
         forwardInsulinSteps: List<Double>? = null,
-        personalMeal: PersonalMealCurve? = null
+        personalMeal: PersonalMealCurve? = null,
+        basalAssimilation: MealBasalAssimilation? = null
     ): List<Forecast> {
         val rawGlucose = deduplicateAndSort(glucose)
         if (rawGlucose.isEmpty()) return emptyList()
@@ -572,6 +627,12 @@ class HybridPredictionEngine(
 
         val trend = estimateTrend(canonicalGlucose)
         val factors = estimateSensitivityFactors(canonicalGlucose, causalTherapyEvents)
+        basalAssimilation?.let {
+            require(it.timestamps == canonicalGlucose.map { point -> point.ts })
+            require(it.projection.kernel == mealInsulinKernelIdentity() &&
+                it.projection.isfMmolPerUnit == factors.isfMmolPerUnit &&
+                it.projection.delivered.stepUnits.size == predictionSteps + 1)
+        }
         val volatility = estimateVolatility(canonicalGlucose)
         val intervalPenalty = estimateIntervalPenalty(canonicalGlucose)
         val volNorm = (volatility / 1.5).coerceIn(0.0, 1.0)
@@ -588,6 +649,14 @@ class HybridPredictionEngine(
             factors = factors,
             predictionSteps = predictionSteps
         )
+        if (basalAssimilation != null) {
+            val insulin = DoubleArray(predictionSteps + 1) {
+                therapySeries.insulinSteps[it] + basalAssimilation.projection.signedDeviationStepEffectsMmol[it]
+            }
+            require(insulin.all { it.isFinite() })
+            val (legacy, cumulative) = combinedClampedSteps(insulin, therapySeries.announcedCarbSteps)
+            therapySeries = therapySeries.copy(insulinSteps = insulin, legacySteps = legacy, cumClamped = cumulative)
+        }
         val causalTherapyComponents = if (canonicalGlucose.size >= 2) {
             intervalTherapyComponents(
                 events = causalTherapyEvents,
@@ -595,7 +664,10 @@ class HybridPredictionEngine(
                 startTs = canonicalGlucose[canonicalGlucose.lastIndex - 1].ts,
                 endTs = nowTs,
                 factors = factors
-            )
+            ).let { components ->
+                components.copy(insulinDelta = components.insulinDelta + (basalAssimilation?.effectBetween(
+                    canonicalGlucose[canonicalGlucose.lastIndex - 1].ts, nowTs) ?: 0.0))
+            }
         } else {
             TherapyIntervalComponents()
         }
@@ -696,7 +768,8 @@ class HybridPredictionEngine(
             glucose = canonicalGlucose,
             events = causalTherapyEvents,
             profiledCarbEvents = profiledCarbEvents,
-            factors = factors
+            factors = factors,
+            basalAssimilation = basalAssimilation?.takeIf { it.hasEffect }
         )
 
         val historyUpdate = kalmanFilterV3.update(
@@ -710,7 +783,8 @@ class HybridPredictionEngine(
                     glucose = previous.map { GlucosePoint(it.ts, it.glucose, "kalman_history", DataQuality.OK) },
                     events = causalTherapyEvents,
                     profiledCarbEvents = profiledCarbEvents,
-                    factors = factors
+                    factors = factors,
+                    basalAssimilation = basalAssimilation?.takeIf { it.hasEffect }
                 ).rocPerMin
             }
         )
@@ -1190,7 +1264,8 @@ class HybridPredictionEngine(
         glucose: List<GlucosePoint>,
         events: List<TherapyEvent>,
         profiledCarbEvents: List<ProfiledCarbEvent>,
-        factors: SensitivityFactors
+        factors: SensitivityFactors,
+        basalAssimilation: MealBasalAssimilation? = null
     ): HistoricalKnownInputSeries {
         val therapyDelta = DoubleArray(glucose.size)
         val uamDelta = DoubleArray(glucose.size)
@@ -1220,9 +1295,9 @@ class HybridPredictionEngine(
                 endTs = current.ts,
                 factors = factors
             )
-            insulinDelta[index] = components.insulinDelta
+            insulinDelta[index] = components.insulinDelta + (basalAssimilation?.effectBetween(prev.ts, current.ts) ?: 0.0)
             announcedCarbDelta[index] = components.announcedCarbDelta
-            therapyDelta[index] = (components.insulinDelta + components.announcedCarbDelta)
+            therapyDelta[index] = (insulinDelta[index] + components.announcedCarbDelta)
                 .coerceIn(-THERAPY_CUM_CLAMP_ABS, THERAPY_CUM_CLAMP_ABS)
             rocPerMin[index] = therapyDelta[index] / dtMinutes
         }

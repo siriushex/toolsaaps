@@ -6,6 +6,8 @@ import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import io.aaps.copilot.domain.model.TherapyEvent
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.MealFutureInsulinPlan
+import io.aaps.copilot.domain.predict.MealBasalHistory
+import io.aaps.copilot.domain.predict.MealBasalAssimilation
 import io.aaps.copilot.domain.nutrition.MealPortionObservation
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionShape
 import java.util.Collections
@@ -34,12 +36,19 @@ internal class MealSimulationContext private constructor(
     fun insulinProjection(horizonMinutes: Int) =
         seed.projectMealTimingInsulin(glucose, therapy, horizonMinutes)
 
+    fun basalProjection(history: MealBasalHistory, horizonMinutes: Int) =
+        seed.projectMealTimingBasal(glucose, therapy, history, horizonMinutes, capturedAtMs)
+
+    fun prepareBasal(history: MealBasalHistory, horizonMinutes: Int) =
+        seed.prepareMealTimingBasal(glucose, therapy, history, horizonMinutes, capturedAtMs)
+
     fun announcedFoodProjection(horizonMinutes: Int) =
         seed.projectMealTimingAnnouncedFood(glucose, therapy, horizonMinutes)
 
     fun forwardForecast(canonicalMealId: String, replacement: MealAbsorptionProjection, horizonMinutes: Int = 60,
-        futureInsulinPlan: MealFutureInsulinPlan? = null) =
-        seed.forecastMealTimingForward(glucose, therapy, canonicalMealId, replacement, horizonMinutes, futureInsulinPlan)
+        futureInsulinPlan: MealFutureInsulinPlan? = null, basalAssimilation: MealBasalAssimilation? = null) =
+        seed.forecastMealTimingForward(glucose, therapy, canonicalMealId, replacement, horizonMinutes,
+            futureInsulinPlan, basalAssimilation)
 
     companion object {
         /**

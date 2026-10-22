@@ -185,6 +185,21 @@ class MealTimingPlannerTest {
         assertEquals(15, result.noFoodRisk?.firstLowOffsetMinutes)
         assertNull(result.candidateOffsetMinutes)
     }
+    @Test fun noNewMealRiskIsNotLostWhenTheOtherAbsentWorldIsBenign() {
+        val e = envelope()
+        val paths = e.trajectories.map { t ->
+            if (t.scenarioId == MealHypothesisKind.NO_NEW_MEAL.name) t.copy(points = t.points.map { p ->
+                if (p.offsetMinutes == 10) p.copy(lowMmol = 3.5) else p
+            }) else t
+        }
+        val result = MealTimingPlanner().evaluate(belief, e.copy(trajectories = paths), now)
+        assertEquals(MealTimingStatus.ABSTAIN, result.status)
+        assertEquals(MealTimingReason.NO_FOOD_URGENCY, result.reason)
+        assertEquals(10, result.noFoodRisk?.firstLowOffsetMinutes)
+        assertNull(result.candidateOffsetMinutes)
+        assertFalse(result.notificationAllowed)
+    }
+
     @Test fun waitingRequiresMaterialImprovementOverEatingNow() {
         val e = envelope()
         val paths = e.trajectories.map { t -> t.copy(points = t.points.map { p ->

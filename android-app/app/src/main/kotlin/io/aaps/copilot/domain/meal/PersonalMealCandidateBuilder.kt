@@ -4,6 +4,7 @@ import io.aaps.copilot.domain.model.DataQuality
 import io.aaps.copilot.domain.model.GlucoseMeasurementBasis
 import io.aaps.copilot.domain.nutrition.MealPortionObservation
 import io.aaps.copilot.domain.nutrition.PersonalAbsorptionResearchModel
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionShape
 import io.aaps.copilot.domain.nutrition.PersonalGiEvidence
 import io.aaps.copilot.domain.nutrition.personalAbsorptionComparisonCohort
 import java.time.ZoneId
@@ -17,7 +18,8 @@ internal enum class PersonalMealCandidateStatus {
 }
 
 internal data class PersonalMealCandidateResult(val status: PersonalMealCandidateStatus,
-    val candidate: MealProspectiveCandidate? = null)
+    val candidate: MealProspectiveCandidate? = null,
+    val absorptionShape: PersonalAbsorptionShape? = null)
 
 /** On-demand LOCAL_ENGINE comparison. Caller registers against the same accepted runtime receipt. */
 internal object PersonalMealCandidateBuilder {
@@ -78,7 +80,7 @@ internal object PersonalMealCandidateBuilder {
             simulation.baselineForecasts.map { MealProspectiveValue(it.horizonMinutes, it.ts, it.valueMmol, it.ciLow, it.ciHigh) },
             candidate, completed)
         return if (registration.status == MealProspectiveRegistrationStatus.PAIRED)
-            PersonalMealCandidateResult(PersonalMealCandidateStatus.CREATED, candidate)
+            PersonalMealCandidateResult(PersonalMealCandidateStatus.CREATED, candidate, shape)
         else reject(PersonalMealCandidateStatus.INVALID_CONTEXT)
     }
 }
