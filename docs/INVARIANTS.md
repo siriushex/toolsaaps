@@ -11,6 +11,13 @@
   invalidated or malformed evidence cannot produce a partial usable profile.
 - Typed observation alone cannot select an active profile or lift the native
   clinical-admission guard. Signed offsets do not make timestamps/durations signed.
+- Local profile resolution uses one complete bounded retained snapshot, including
+  tombstones, at its captured collection revision. Over-limit/error cannot return
+  a partial profile. Neither that local revision nor signed connectivity proves
+  upstream clinical/backfill completeness or authorizes target publication.
+- Latest invalid/deleted EPS blocks fallback; same-time EPS identities conflict.
+  Event time outranks upload revision; original end cannot invent a reversion.
+  Retained latest versions are not a historical version archive.
 
 ## RC1 Target Admission
 

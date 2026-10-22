@@ -34,6 +34,15 @@ internal data class LocalV3Page(
     val hasMore: Boolean
 )
 
+/** Latest retained identities, including tombstones. Not evidence of upstream backfill completion. */
+internal sealed interface LocalV3RetainedSnapshot {
+    val collectionRevision: Long
+    data class Complete(override val collectionRevision: Long, val documents: List<LocalNightscoutV3DocumentEntity>) : LocalV3RetainedSnapshot {
+        override fun toString() = "LocalV3RetainedSnapshot.Complete(redacted)"
+    }
+    data class OverLimit(override val collectionRevision: Long) : LocalV3RetainedSnapshot
+}
+
 internal data class LocalV3StoreLimits(
     val documents: Long = 100_000,
     val payloadBytes: Long = 64L * 1024 * 1024,
@@ -112,6 +121,22 @@ internal class LocalNightscoutV3Store(
 
     suspend fun lastModified(): Map<LocalV3Collection, Long> = db.withTransaction {
         LocalV3Collection.entries.associateWith { dao.head(it.wireName) }
+    }
+
+    /** Refuse a partial snapshot before loading payloads, without splitting transactions across pages. */
+    suspend fun retainedSnapshot(collection: LocalV3Collection, maxRows: Int, maxPayloadBytes: Long): LocalV3RetainedSnapshot {
+        require(maxRows in 1..10_000 && maxPayloadBytes in 1..4L * 1024 * 1024)
+        return db.withTransaction {
+            val head = dao.head(collection.wireName)
+            val positions = dao.historyPositions(collection.wireName, 0, head, maxRows + 1)
+            if (positions.any { it.payloadBytes !in 1..MAX_PAYLOAD_BYTES }) fail(LocalV3StoreError.STATE)
+            if (positions.size > maxRows || positions.sumOf { it.payloadBytes.toLong() } > maxPayloadBytes) {
+                return@withTransaction LocalV3RetainedSnapshot.OverLimit(head)
+            }
+            val rows = dao.history(collection.wireName, 0, head, positions.size)
+            if (rows.size != positions.size) fail(LocalV3StoreError.STATE)
+            LocalV3RetainedSnapshot.Complete(head, rows)
+        }
     }
 
     suspend fun history(collection: LocalV3Collection, after: Long, limit: Int): LocalV3Page {

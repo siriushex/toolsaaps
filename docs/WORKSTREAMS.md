@@ -11,18 +11,20 @@ Native subagent execution is unavailable in the current session. The assignments
 below are prepared, not running agents. Do not substitute user-owned chats,
 unapproved external executors or reduced model settings for native subagents.
 The combined release was merged into main as ad678a84 with successful
-Verify39580751668. The coordinator now implements A1's single-record native EPS
-projection after the retained-timer release0.1.8/main01ccca90. A2's target
+Verify39580751668. A1's single-record native EPS projection was integrated in
+PR16/main7b2edfd0 with green source and main CI39686882701. The coordinator now
+implements bounded retained-history profile resolution and pairing diagnostics.
+A2's target
 transaction/privacy source is present; actual clinical readiness and device
 acceptance remain incomplete. The 48-case profile/TLS checks and full Android
 verification passed (6635 passed/six existing skips). Exact-head CI and main
-integration remain separate gates for this new slice. The
+integration remain separate gates for the retained-resolution slice. The
 other assignments remain **ready** or **dependency blocked**, not running agents.
 
 | Owner | Work | Current source state | Dispatch |
 | --- | --- | --- | --- |
-| Coordinator | Integration, review, main and release evidence | Retained-timer release delivered; A1 profile slice under verification | Active |
-| A1 | AAPS 4 clinical input and profile adapter | Typed EPS slice under verification; active resolution/live clinical gate remain closed | Coordinator active |
+| Coordinator | Integration, review, main and release evidence | Retained-timer release delivered; retained profile resolution under verification | Active |
+| A1 | AAPS 4 clinical input and profile adapter | EPS decoder in main; retained resolution in work, upstream coverage/live gate closed | Coordinator active |
 | A2 | AAPS 4 target admission, TLS, JugglucoNG | Target-only transaction/privacy source present; trust/device gates remain | Runtime wiring waits for A1 |
 | A3 | Meal timing and personal absorption evidence | Countdown lifetime repaired; recommendation/control not validated | Ready, research only |
 | A4 | Structured device history and compact context | Core history upload exists; full typed clinical coverage incomplete | Ready |

@@ -667,6 +667,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 assertThat(it.profile.sensitivity[1].value).isEqualTo(6.25)
                 assertThat(it.insulin.concentrationRatio).isEqualTo(1.0)
             }
+            val profileSource = AapsV3EffectiveProfileSource(store)
+            val latestProfile = effectiveProfiles.maxBy { it.eventAtMs }
+            val profileRead = profileSource.read(latestProfile.eventAtMs)
+            assertThat(profileRead.status).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
+            assertThat(profileRead.observation).isEqualTo(latestProfile)
+            assertThat(profileRead.retainedRevision).isEqualTo(store.lastModified().getValue(io.aaps.copilot.data.repository.LocalV3Collection.TREATMENTS))
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)
@@ -1646,7 +1652,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 check(release.await(5, TimeUnit.SECONDS))
             }
         })
-        assertThat(server?.update(true, port)).isEqualTo(port)
+        val startedPort = server?.update(true, port)
+        com.google.common.truth.Truth.assertWithMessage("server startup (${runtime.value.reason})").that(startedPort).isEqualTo(port)
         val client = trustedClient(caCertificate)
         val sid = openSocket(client, port)
         val executor = Executors.newFixedThreadPool(2)

@@ -1,3 +1,38 @@
+# Retained Native Profile Resolution - 2026-10-22
+
+- Continue from green main7b2edfd0/Verify39686882701 (all three jobs passed).
+  ADB still identifies MI8Lite only, not the designated Redmi23090RA98G, including
+  the check after the owner's connection reply. Do not inspect/update that phone.
+- Add a complete bounded retained treatment snapshot in one Room transaction;
+  metadata limits refuse before payload load. Keep tombstones and exact local
+  collection revision. No schema, transport DTO or AAPS change.
+- Resolve the latest locally observed EPS by event time, not upload order. Cache
+  only typed evidence by revision; re-evaluate future boundaries without a new
+  write. Latest deletion/malformed evidence or same-time identities cannot revive
+  an older profile. Original temporary end cannot invent a reversion.
+- Connect non-sensitive received/missing/conflict/invalid/limit status to the
+  existing pairing owner/UI. No new poller; status and signed connectivity remain
+  distinct from upstream completeness. The production clinical guard is unchanged.
+- Initial new-source compile reproduced absent symbols; focused source/store/
+  channel/projection tests passed60 cases. Final focused UI/TLS suite passed68
+  without skips/errors; native Russian320dp/1.5x status raster was inspected.
+- The first full run had one pre-existing TLS test fail at initial server startup
+  (null port), before the READY race under test. Its exact cause was not captured;
+  do not claim a proven port/TLS fix. Added a non-sensitive runtime-reason label
+  to the assertion, without altering production startup or retry behavior. The
+  complete TLS class then passed66 cases with one private-input skip; the failure
+  did not recur. A diagnostic-only Truth API spelling error was corrected first.
+- Final frozen full Android test/lint/compile/assemble passed in7m56s:6651passed,
+  six existing private-input skips, zero failures/errors. Actual pristine RC1 SDK
+  TLS ran2.740s, not skipped. Lint has0errors/382existing warnings/eight hints.
+  APK41,586,413bytes retains all7115 compiled app classes; size/icon-only removal
+  guard and unchanged source/test hash comparison passed. Exact-head source CI
+  and main integration remain separate pending gates.
+- Remaining: durable complete clinical projection/current IOB/COB/target inputs,
+  source reconciliation and designated-device TLS/JugglucoNG acceptance. This
+  source-only stage does not enable live targets, update a phone, publish an APK
+  or touch server/model/login. See AAPS4_EFFECTIVE_PROFILE_PROJECTION.md.
+
 # Native Effective Profile Projection - 2026-10-22
 
 - Continue from main01ccca90 after the delivered 0.1.8 release. The next bounded

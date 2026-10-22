@@ -7,7 +7,11 @@ The projector retains event/storage revisions, original modifiers, exact native
 units/timezone and historical insulin without applying modifiers twice. It
 decodes one record only: it cannot select a current profile, claim complete
 coverage or unlock clinical dispatch. Missing/conflicting/invalidated evidence
-is explicit. See AAPS4_EFFECTIVE_PROFILE_PROJECTION.md for native semantics and
+is explicit. A bounded transactional retained-history reader now selects the
+last locally observed EPS at an event time for pairing diagnostics only. It
+keeps tombstones/conflicts, refuses partial reads and caches typed evidence by
+collection revision. It does not prove upstream completeness or lift clinical
+dispatch. See AAPS4_EFFECTIVE_PROFILE_PROJECTION.md for native semantics and
 remaining clinical readiness. No AAPS source or therapy boundary is changed.
 
 ## RC1 Target Transaction Boundary

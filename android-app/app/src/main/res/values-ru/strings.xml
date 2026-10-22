@@ -2155,6 +2155,12 @@
     <string name="native_aaps_offline">Локальное соединение недоступно</string>
     <string name="native_aaps_error">Связь не подтверждена. Проверьте AAPS, PIN и локальную синхронизацию.</string>
     <string name="native_aaps_control_unavailable">Управление целями AAPS 4 заблокировано до проверки синхронизации клинической истории.</string>
+    <string name="native_aaps_profile_observed">Профиль получен. Полнота истории пока не подтверждена.</string>
+    <string name="native_aaps_profile_missing">Действующий профиль от AAPS ещё не получен.</string>
+    <string name="native_aaps_profile_invalidated">Последний действующий профиль удалён. Нужна новая запись AAPS.</string>
+    <string name="native_aaps_profile_conflicting">В AAPS получены разные профили на одно время.</string>
+    <string name="native_aaps_profile_limit">История превысила лимит локальной проверки профиля.</string>
+    <string name="native_aaps_profile_unavailable">Полученный профиль не удалось проверить. Проверьте локальный обмен.</string>
     <string name="native_aaps_pair">Сопрячь</string>
     <string name="native_aaps_check">Проверить связь</string>
     <string name="native_aaps_revoke">Отозвать локально</string>
