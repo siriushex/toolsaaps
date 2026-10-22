@@ -59,6 +59,42 @@ class MealTimingResearchAssessmentTest {
         }
     }
 
+    @Test fun hiddenOrNonInstantInsulinStopsAssessmentWithoutChangingLiveForecast() = runBlocking {
+        for ((type, fields) in listOf("treatment" to mapOf("insulin" to "1"),
+            "bolus" to mapOf("units" to "1", "duration" to "60"),
+            "bolus" to mapOf("units" to "1", "isBasalInsulin" to "true"))) {
+            val context = context(extraEvents = listOf(TherapyEvent(now - 60_000L, type, fields,
+                sourceRowId = "additional-delivery")))
+            val result = MealTimingResearchEvaluator().evaluate(context, belief(), episode, telemetry(), 180)
+            assertEquals(MealTimingResearchStatus.INSULIN_INVENTORY_UNAVAILABLE, result.status)
+            assertNull(result.batch)
+            assertTrue(result.blockers.any { it.startsWith("INSULIN_INVENTORY_") })
+            assertNull(result.recommendedStartAtMs)
+            assertFalse(result.notificationAllowed)
+            assertFalse(result.therapyAllowed)
+            assertEquals(context.baselineForecasts, context.newEngine().predict(context.glucose, context.therapy))
+        }
+    }
+
+    @Test fun directSimulationCannotBypassDeliveryInventoryAdmission() = runBlocking {
+        val context = context(extraEvents = listOf(TherapyEvent(now - 60_000L, "bolus",
+            mapOf("units" to "1", "duration" to "60"), sourceRowId = "additional-delivery")))
+        try {
+            MealScenarioSimulator().simulate(context, belief(), 180)
+            fail("Unsupported delivery returned a scenario batch")
+        } catch (error: IllegalArgumentException) {
+            assertEquals("Meal research insulin inventory is unsupported", error.message)
+        }
+    }
+
+    @Test fun directForwardProjectionCannotBypassInferredInventoryAdmission() = runBlocking {
+        val context = context(extraEvents = listOf(TherapyEvent(now - 60_000L, "bolus",
+            mapOf("units" to "1", "inferred" to "true"), sourceRowId = "inferred-delivery")))
+        val food = MealAbsorptionProjection.project(now, now, 35.0, MealAbsorptionProfile.MIXED, 120, 180)
+        assertThrows(IllegalArgumentException::class.java) { context.forwardForecast("12", food, 180) }
+        Unit
+    }
+
     @Test fun giChangesFoodTimingButCannotChangeAbsentFoodOrBaseline() = runBlocking {
         val context = context(previousFood = true)
         val evaluator = MealTimingResearchEvaluator()

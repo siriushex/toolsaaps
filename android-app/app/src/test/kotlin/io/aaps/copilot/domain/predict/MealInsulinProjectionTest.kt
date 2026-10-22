@@ -7,6 +7,74 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealInsulinProjectionTest {
+    @Test fun insulinPayloadCannotDisappearBehindAnUnrecognizedEventType() {
+        for (type in listOf("treatment", "meal", "note", "unknown")) {
+            val event = bolus.copy(type = type, payload = mapOf("insulin" to "2"))
+            val result = engine().projectMealTimingInsulin(glucose, listOf(event), 60)
+            assertEquals(type, 1, result.unsupportedEventCount)
+            assertEquals(0, result.modeledEventCount)
+        }
+    }
+
+    @Test fun extendedBasalAndEmulatedDeliveryCannotMasqueradeAsInstantBolus() {
+        for (fields in listOf(mapOf("duration" to "30"), mapOf("durationInMilliseconds" to "60000"),
+            mapOf("isBasalInsulin" to "true"), mapOf("isEmulatingTempBasal" to "1"),
+            mapOf("extendedEmulated" to "{}"), mapOf("splitExt" to "50"),
+            mapOf("bolusType" to "EXTENDED"), mapOf("type" to "UNRECOGNIZED"))) {
+            val result = engine().projectMealTimingInsulin(glucose, listOf(bolus.copy(payload = bolus.payload + fields)), 60)
+            assertEquals(fields.toString(), 1, result.unsupportedEventCount)
+        }
+    }
+
+    @Test fun malformedOrConflictingDeliveryFormCannotHideBehindAFalseOrZeroAlias() {
+        for (fields in listOf(mapOf("duration" to "NaN"), mapOf("duration" to "-1"),
+            mapOf("duration" to "0", "Duration" to "30"),
+            mapOf("isBasalInsulin" to "unknown"),
+            mapOf("isEmulatingTempBasal" to "false", "is_emulating_temp_basal" to "true"))) {
+            assertEquals(fields.toString(), 1, engine().projectMealTimingInsulin(glucose,
+                listOf(bolus.copy(payload = bolus.payload + fields)), 60).unsupportedEventCount)
+        }
+    }
+
+    @Test fun oldNonInstantDeliveryCannotBeDeclaredExpiredByAnInstantBolusKernel() {
+        val old = bolus.copy(ts = now - 24 * 60 * 60_000L, payload = bolus.payload + mapOf("duration" to "1440"))
+        assertEquals(1, engine().projectMealTimingInsulin(glucose, listOf(old), 60).unsupportedEventCount)
+    }
+
+    @Test fun explicitlyInstantNormalAndRecordedSmbRemainUsableForResearch() {
+        for (type in listOf("NORMAL", "SMB")) {
+            val event = bolus.copy(payload = bolus.payload + mapOf("type" to type, "duration" to "0",
+                "durationInMilliseconds" to "0", "isBasalInsulin" to "false", "isEmulatingTempBasal" to "0",
+                "splitExt" to "0"))
+            assertEquals(0, engine().projectMealTimingInsulin(glucose, listOf(event), 60).unsupportedEventCount)
+        }
+    }
+
+    @Test fun embeddedDeliveryCannotDisappearInsideABasalRecord() {
+        val event = TherapyEvent(now - 60_000L, "temp_basal", mapOf("extendedEmulated" to "{}"))
+        val result = engine().projectMealTimingInsulin(glucose, listOf(event), 60)
+        assertEquals(1, result.unsupportedEventCount)
+        assertTrue(result.unsupportedReasons.contains(MealInsulinInventoryIssue.NON_INSTANT_OR_AMBIGUOUS_DELIVERY))
+    }
+
+    @Test fun deliveryFormReasonsAreImmutableBoundedAndDoNotExposeRecordIdentifiers() {
+        val event = bolus.copy(sourceRowId = "private-record-1", payload = bolus.payload + mapOf("duration" to "30"))
+        val result = engine().projectMealTimingInsulin(glucose, listOf(event, event), 60)
+        assertEquals(2, result.unsupportedEventCount)
+        assertEquals(setOf(MealInsulinInventoryIssue.NON_INSTANT_OR_AMBIGUOUS_DELIVERY,
+            MealInsulinInventoryIssue.DUPLICATE_OR_EMPTY_IDENTITY), result.unsupportedReasons)
+        assertThrows(UnsupportedOperationException::class.java) { (result.unsupportedReasons as MutableSet).clear() }
+        assertFalse(result.unsupportedReasons.toString().contains(event.sourceRowId!!))
+    }
+
+    @Test fun nonInsulinMeasurementUnitsAndUnrelatedDurationAreNotDoses() {
+        val event = TherapyEvent(now, "exercise", mapOf("units" to "mmol/l", "duration" to "30"))
+        val result = engine().projectMealTimingInsulin(glucose, listOf(event), 60)
+        assertEquals(0, result.modeledEventCount)
+        assertEquals(0, result.unsupportedEventCount)
+        assertTrue(result.unsupportedReasons.isEmpty())
+    }
+
     @Test fun unmodeledInsulinRowsRemainVisibleAsUnsupportedInventory() {
         for (payload in listOf(emptyMap(), mapOf("units" to "NaN"), mapOf("units" to "-1"),
             mapOf("units" to "40"), mapOf("units" to "0.01"), mapOf("insulinUnits" to "2.0"))) {

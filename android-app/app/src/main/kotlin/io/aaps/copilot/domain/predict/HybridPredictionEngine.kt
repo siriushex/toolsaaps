@@ -442,20 +442,30 @@ class HybridPredictionEngine(
             activeUnits += active
             if (insulin.inferred) inferredUnits += active
         }
-        val inventory = therapyEvents.filter { eventCanCarryInsulin(it) &&
-            (nowTs - it.ts <= EVENT_LOOKBACK_MS ||
-                insulinCumulative(maxOf(0L, canonical.first().ts - it.ts) / 60_000.0) < 1.0) }
-        val repeatedIds = inventory.mapNotNull { it.sourceRowId }.groupingBy { it }.eachCount()
+        val inventory = therapyEvents.filter(::mealRecordMayContainInsulin).map { event ->
+            event to mealInsulinFormIssues(event)
+        }.filter { (event, issues) ->
+            // An instantaneous kernel cannot establish expiry of an unknown delivery form.
+            issues.isNotEmpty() || nowTs - event.ts <= EVENT_LOOKBACK_MS ||
+                insulinCumulative(maxOf(0L, canonical.first().ts - event.ts) / 60_000.0) < 1.0
+        }
+        val repeatedIds = inventory.mapNotNull { it.first.sourceRowId }.groupingBy { it }.eachCount()
             .filterValues { it > 1 }.keys
-        val unsupported = inventory.count { event ->
-            event.sourceRowId?.let { it.isBlank() || it in repeatedIds } == true ||
-                mealInsulinRecordUnsupported(event)
+        val unsupportedReasons = mutableSetOf<MealInsulinInventoryIssue>()
+        val unsupported = inventory.count { (event, formIssues) ->
+            val issues = formIssues.toMutableSet()
+            if (event.sourceRowId?.let { it.isBlank() || it in repeatedIds } == true)
+                issues += MealInsulinInventoryIssue.DUPLICATE_OR_EMPTY_IDENTITY
+            if (mealInsulinRecordUnsupported(event)) issues += MealInsulinInventoryIssue.INVALID_RECORD
+            unsupportedReasons += issues
+            issues.isNotEmpty()
         }
         require(steps.all { it.isFinite() } && remaining.isFinite() && activeUnits.isFinite() && inferredUnits.isFinite())
         return MealInsulinProjection(nowTs, factors.isfMmolPerUnit, factors.carbSensitivityMmolPerGram,
             steps, remaining, relevant.all { (ts, _) ->
                 insulinCumulative((nowTs - ts) / 60_000.0 + horizonMinutes) >= 1.0
-            }, relevant.size, inventory.count { isInferredInsulinEvent(it) }, activeUnits, inferredUnits, unsupported)
+            }, relevant.size, inventory.count { isInferredInsulinEvent(it.first) }, activeUnits, inferredUnits,
+            unsupported, unsupportedReasons)
     }
 
     internal fun projectMealTimingBasal(
@@ -551,6 +561,7 @@ class HybridPredictionEngine(
         require(baseline.any { it.canonicalMealId == canonicalMealId }) { "Unknown canonical meal" }
         val food = MealScenarioFoodProjection.replace(baseline, canonicalMealId, replacement)
         val insulin = engine.projectMealTimingInsulin(glucose, therapyEvents, horizonMinutes)
+        insulin.requireUsableInventory()
         val futureInsulin = futureInsulinPlan?.let {
             engine.projectFutureInsulin(it, insulin.predictionAtMs, insulin.isfMmolPerUnit, horizonMinutes)
         }
@@ -1547,6 +1558,33 @@ class HybridPredictionEngine(
     private fun eventCanCarryInsulin(event: TherapyEvent): Boolean {
         val type = normalize(event.type)
         return type.contains("bolus") || type.contains("correction") || type == "insulin"
+    }
+
+    private fun mealRecordMayContainInsulin(event: TherapyEvent): Boolean = eventCanCarryInsulin(event) ||
+        event.payload.any { (key, value) ->
+            when (key.lowercase(Locale.US).filter(Char::isLetterOrDigit)) {
+                "bolusunits", "insulinunits", "insulin", "enteredinsulin" -> true
+                "extendedemulated" -> value.trim() != "null"
+                "isbasalinsulin", "isemulatingtempbasal" -> value.trim().uppercase(Locale.US) !in setOf("FALSE", "0")
+                else -> false
+            }
+        }
+
+    private fun mealInsulinFormIssues(event: TherapyEvent): Set<MealInsulinInventoryIssue> = buildSet {
+        if (normalize(event.type) !in setOf("bolus", "meal_bolus", "correction_bolus", "insulin"))
+            add(MealInsulinInventoryIssue.UNSUPPORTED_EVENT_TYPE)
+        if (event.payload.any { (key, raw) ->
+                val value = raw.trim()
+                when (key.lowercase(Locale.US).filter(Char::isLetterOrDigit)) {
+                    "duration", "durationinmilliseconds", "splitext" -> value.replace(',', '.').toDoubleOrNull() != 0.0
+                    "splitnow" -> value.replace(',', '.').toDoubleOrNull() != 100.0
+                    "isbasalinsulin", "isemulatingtempbasal" -> value.uppercase(Locale.US) !in setOf("FALSE", "0")
+                    "extendedemulated" -> value != "null"
+                    "bolustype", "type" -> value.uppercase(Locale.US) !in setOf("NORMAL", "SMB", "MICROBOLUS")
+                    "rate", "absolute", "percent", "relative" -> true
+                    else -> false
+                }
+            }) add(MealInsulinInventoryIssue.NON_INSTANT_OR_AMBIGUOUS_DELIVERY)
     }
 
     /** Research admission only: an omitted record is not evidence of zero delivery. */

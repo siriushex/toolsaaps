@@ -65,7 +65,9 @@ internal class MealTimingResearchAssessment(
     val blockers: List<String> = Collections.unmodifiableList(listOf("SIMULTANEOUS_UNCERTAINTY_UNVALIDATED",
         "FUTURE_CONTROL_UNSUPPORTED", "IOB_CURVE_RECONCILIATION_REQUIRED", "PERSONAL_FORECAST_VALIDATION_REQUIRED",
         "UPSTREAM_DELIVERY_COVERAGE_UNVERIFIED") +
-        if (basalHistoryAssimilated) emptyList() else listOf("BASAL_HISTORY_NOT_ASSIMILATED"))
+        (if (basalHistoryAssimilated) emptyList() else listOf("BASAL_HISTORY_NOT_ASSIMILATED")) +
+        insulinAccounting?.projection?.unsupportedReasons.orEmpty().sortedBy { it.name }
+            .map { "INSULIN_INVENTORY_${it.name}" })
 }
 
 /** On-demand frozen research calculation; no subscription, message sender or treatment dependency. */
