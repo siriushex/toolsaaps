@@ -673,6 +673,19 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(profileRead.status).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
             assertThat(profileRead.observation).isEqualTo(latestProfile)
             assertThat(profileRead.retainedRevision).isEqualTo(store.lastModified().getValue(io.aaps.copilot.data.repository.LocalV3Collection.TREATMENTS))
+            val knownAt = maxOf(latestProfile.eventAtMs, checkNotNull(profileRead.retainedRevision))
+            val insulinRead = profileSource.readEvidence(1, latestProfile.eventAtMs, knownAt).insulin
+            assertThat(insulinRead.status).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)
+            assertThat(insulinRead.records).hasSize(2)
+            val retainedBolus = insulinRead.records.single { it.dose is AapsV3InsulinDose.Bolus }
+            assertThat(retainedBolus.invalidated).isTrue()
+            val nativeBolus = retainedBolus.dose as AapsV3InsulinDose.Bolus
+            assertThat(nativeBolus.units).isEqualTo(1.4)
+            assertThat(nativeBolus.configuration?.label).isEqualTo("synthetic insulin")
+            val emulated = insulinRead.records.single { it.dose is AapsV3InsulinDose.Extended }.dose as AapsV3InsulinDose.Extended
+            assertThat(emulated.units).isEqualTo(0.25)
+            assertThat(emulated.emulatingTempBasal).isTrue()
+            assertThat(insulinRead.upstreamCompletenessVerified).isFalse()
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

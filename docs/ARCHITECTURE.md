@@ -2480,6 +2480,18 @@ AAPS Predictive Copilot is a two-part system:
 - `insulin_real_onset_min` is a different, current runtime estimate: `estimateLocalCobIob` passes it to `modelSameCycleActiveInsulinStatic` and the prediction engine. Its existing insulin/forecast effect is preserved. The timer does not freeze it until the next night or replace it with the long-term fitted-profile onset.
 
 ## No-Button Meal Scenario Research (2026-10-22)
+- Native retained insulin observations use one bounded snapshot alongside the
+  effective-profile index. Per-record ICfg is never replaced with current settings.
+  Normal/SMB/priming, basal insulin, absolute/percentage temporary basal and extended
+  delivery retain separate typed semantics. RC1's emulated-basal branch selects the
+  extended child once, including its pump metadata. Pump keys are hashed and scoped
+  to native record kind; end IDs, revisions and tombstones survive. Window queries
+  include overlapping intervals, expose missing configuration and reject malformed,
+  duplicate or causally late records without a partial inventory. The existing
+  native connection owner publishes only status/count through the same lifecycle.
+  Cached indexes retain typed fields, not original treatment JSON. This observed
+  source supplies neither a historical delivery reconstruction nor uploader/pump
+  completeness evidence, and cannot enable clinical target or meal-time admission.
 - Research inventory also inspects explicit insulin payloads and embedded emulated
   delivery independently of the legacy event-type filter. Only known instantaneous
   forms can expire under the bolus kernel. Nonzero/unknown durations, split or

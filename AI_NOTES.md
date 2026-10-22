@@ -1,3 +1,27 @@
+# Native Insulin Observations - 2026-10-23
+
+- PR22 passed all six source checks and was merged as6d5a4fa8 with the identical
+  tested tree. Its automatic main CI is checked separately.
+- Retained native treatment observations now preserve normal/SMB/priming and
+  basal-insulin flags, per-bolus ICfg, temporary basal units/percentage adjustment,
+  extended delivery, revisions, invalidation and pump/end identity. Native emulated
+  basal selects only its extended child, avoiding double accounting. Pump identity
+  hashes include the native record kind; serials and raw JSON are not cached.
+- One bounded retained snapshot builds both profile and insulin indexes. Window
+  reads include overlapping intervals and reject malformed, conflicting or late
+  evidence without partial results. Missing bolus configuration remains explicit.
+  Existing native connection ownership publishes observation status/count only.
+- Pure and Room/source/owner tests pass, including real database reopen and actual
+  pristine SDK TLS. An initial SDK assertion used the host clock against a future
+  synthetic timestamp; bind knownAt to the fixture and retained revision. All100
+  focused checks pass. Frozen full Android quality passed in9m23s:6751passed, six
+  existing skips, no failures/errors; actual SDK TLS2.496s, lint zero errors and
+  382existing warnings/eight hints. Source hashes stayed unchanged. Feature CI and
+  main integration remain separate gates.
+- The private AAPS uploader cursor is not in treatment wire payloads. Observed
+  records do not attest upstream completeness. Live meal recommendation, native
+  clinical admission and therapy remain unchanged; AAPS sources need no new patch.
+
 # Delivery Form Admission - 2026-10-23
 
 - Continue from merged main8c5bbc38. Initial failing-first checks reproduced five
@@ -15,8 +39,8 @@
   all324 focused checks pass. Frozen full quality passed in15m2s:6735passed, six
   existing skips, zero failures/errors. Actual pristine RC1 SDK TLS ran3.631s;
   lint has zero errors/382existing warnings/eight hints. Source hashes stayed
-  unchanged. Main CI39849796709 passed all three jobs. Exact-head feature CI remains
-  a separate gate; this stage does not publish another APK.
+  unchanged. Main CI39849796709 and all six PR22 source checks passed. PR22 merged
+  as6d5a4fa8 with the identical tested tree. This stage publishes no new APK.
 - Live forecast, durable onset UI/notification, alarms, targets and doses are
   unchanged. A locally usable inventory still cannot attest complete upstream
   pump delivery or clinically safe waiting. Recommendation admission remains closed.

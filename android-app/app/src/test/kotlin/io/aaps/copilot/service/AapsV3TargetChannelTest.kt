@@ -153,4 +153,20 @@ class AapsV3TargetChannelTest {
         channel.stop()
         assertEquals(AapsV3ObservedProfileStatus.UNCHECKED, channel.state.value.observedProfile)
     }
+
+    @Test fun retainedInsulinStatusRefreshesAndClearsWithRuntimeOwnership() = runBlocking {
+        connected()
+        assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED, channel.state.value.observedInsulin)
+        val store = LocalNightscoutV3Store(db, now::get)
+        store.create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "observed-dose", "local-v3-owner", at,
+            buildJsonObject { put("eventType", "Correction Bolus"); put("date", at); put("insulin", 2.2) }.toString()))
+        now.addAndGet(100)
+        channel.checkConnection()
+        assertEquals(AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT, channel.state.value.observedInsulin)
+        assertEquals(1, channel.state.value.insulinRecordCount)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        channel.stop()
+        assertEquals(AapsV3ObservedInsulinStatus.UNCHECKED, channel.state.value.observedInsulin)
+        assertEquals(0, channel.state.value.insulinRecordCount)
+    }
 }

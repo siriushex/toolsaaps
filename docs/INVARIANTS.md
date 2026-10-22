@@ -1950,6 +1950,11 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- Native insulin observations retain each record's own ICfg and source revisions.
+  Missing configuration cannot inherit today's insulin. Deletions remain visible;
+  late revisions cannot masquerade as data available at an earlier prediction.
+  Emulated basal selects its extended child exactly once. Local retained snapshots,
+  counts or hashed pump references do not prove upstream history completeness.
 - Explicit insulin content must not vanish behind an unknown event type. Extended,
   basal, emulated, split or malformed delivery cannot be treated as instantaneous
   bolus exposure or declared expired by that kernel. Check every conflicting alias.
