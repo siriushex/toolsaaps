@@ -1950,6 +1950,11 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- Explicit insulin content must not vanish behind an unknown event type. Extended,
+  basal, emulated, split or malformed delivery cannot be treated as instantaneous
+  bolus exposure or declared expired by that kernel. Check every conflicting alias.
+  Direct scenario/forward callers must also reject unsupported/inferred inventory;
+  an evaluator-only check is insufficient. Diagnostic reasons contain no raw IDs.
 - Unsupported insulin records cannot disappear because the kernel parser omitted
   them. Inspect rows that can affect current or replayed glucose; conflicting dose
   aliases, duplicate source identities and invalid provenance block the batch.

@@ -1,3 +1,26 @@
+# Delivery Form Admission - 2026-10-23
+
+- Continue from merged main8c5bbc38. Initial failing-first checks reproduced five
+  omissions involving unknown event types and non-instant insulin forms; a sixth
+  regression reproduced direct simulator bypass of evaluator inventory admission.
+- Inspect explicit insulin payloads independently of the legacy prediction type
+  filter. Non-instant, basal, emulated, unknown and conflicting forms are rejected
+  by the research path, including old records whose end cannot be established by
+  an instantaneous kernel. Glucose units and unrelated durations are not doses.
+- Immutable reason codes accompany the inventory and research blockers without
+  raw records/identifiers. The direct forward simulator enforces the same check,
+  including inferred delivery. Recorded SMB remains exposure, not meal intent.
+- Initial expanded suite passed320 tests. The additional direct-forward test first
+  returned a non-Unit type and failed JUnit discovery; its corrected signature and
+  all324 focused checks pass. Frozen full quality passed in15m2s:6735passed, six
+  existing skips, zero failures/errors. Actual pristine RC1 SDK TLS ran3.631s;
+  lint has zero errors/382existing warnings/eight hints. Source hashes stayed
+  unchanged. Main CI39849796709 passed all three jobs. Exact-head feature CI remains
+  a separate gate; this stage does not publish another APK.
+- Live forecast, durable onset UI/notification, alarms, targets and doses are
+  unchanged. A locally usable inventory still cannot attest complete upstream
+  pump delivery or clinically safe waiting. Recommendation admission remains closed.
+
 # Insulin Inventory And 0.1.10 - 2026-10-22
 
 - Continue from PR20/main7e693fe8. Five initial failing-first regressions exposed
@@ -17,7 +40,9 @@
   ran3.038s, lint zero errors/382existing warnings/eight hints. Source hashes stayed
   unchanged; the APK retention guard preserved7147compiled app classes. Fourteen
   release-helper tests passed. Main7e693fe8 CI39839374032 passed all three jobs.
-- Exact-head CI and public0.1.10/code11 delivery are pending.
+- PR21 exact-head CI passed all six checks; merged main8c5bbc38 has the identical
+  tested tree. Public0.1.10/code11 was verified by full HTTPS download, signature,
+  metadata, resume-Range and rendered page. Post-merge CI is checked separately.
   Complete upstream delivery and clinical recommendation validation are not
   established by inventory agreement or by passing software tests.
 

@@ -1,5 +1,18 @@
 # PLAN
 
+## Delivery Form Admission (2026-10-23)
+
+- [x] Reproduce six failures in insulin-form inventory and direct simulator admission.
+- [x] Reject hidden, non-instant and ambiguous delivery without altering live prediction;
+      retain reason codes and all missed-food protections.
+- [x] Expanded suite:324 passed, no failures/errors/skips.
+- [x] Frozen full Android quality:6735passed/six existing skips, actual SDK TLS,
+      zero lint errors and successful APK build; source hashes unchanged.
+- [x] Current main CI39849796709 passed all three jobs.
+- [ ] Publish reviewed source PR and inspect exact-head CI.
+- Full upstream coverage, historical insulin/profile alignment and prospective
+  forecast/controller validation remain required before live recommended meal time.
+
 ## Insulin Inventory And 0.1.10 (2026-10-22)
 
 - [x] Reproduce omitted/ambiguous insulin inventory and grid-margin defects.
@@ -8,8 +21,8 @@
 - [x] Historical replay and130focused tests pass; full Android quality passed
       6724tests/six existing skips, real SDK TLS, lint and build. Source unchanged.
 - [x] Main7e693fe8 CI39839374032 passed all jobs; APK class retention passed.
-- [ ] Verify exact-head CI and unchanged APK signer.
-- [ ] Integrate reviewed source and publish immutable0.1.10/code11 with independent
+- [x] Verify exact-head CI and unchanged APK signer.
+- [x] Integrate reviewed source and publish immutable0.1.10/code11 with independent
       public download, metadata, signature and resume-Range checks.
 - Local consistency is not complete upstream delivery. Clinical recommendation
   admission remains separate and is not enabled by this release.
