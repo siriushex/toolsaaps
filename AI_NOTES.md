@@ -1,3 +1,31 @@
+# RC1 Loopback Trust - 2026-10-22
+
+- Continue the owner's AAPS4 migration request from verified main38b0b015.
+  Read-only phone checks found AAPS3.4.2.3, Copilot0.1.8 and matching RC1 debug
+  signer. Existing AAPS packaged user-CA trust is loopback-only; RC1 omits it.
+  Recent xDrip-action broadcast records mention JugglucoNG and AAPS, but do not
+  establish clinical ingestion or the selected runtime plugin. No device change.
+- Add a four-line resource-only loopback trust patch, with no global trust,
+  certificate installation, hostname bypass or change to cleartext permissions.
+  Combine it with existing admission/privacy patches under the checked helper.
+- Add explicit --package mode for real app tests/instrumented compilation,
+  release lint and unsigned APK assembly. Invalid/additional arguments reject;
+  source cleanup retains concurrent edits. The default CI retains native/SDK
+  verification and subsequent pristine-SDK rebuild.
+- Failing-first tests reproduced the absent patch and seven recipe expectations
+  before integration. All32 final tooling tests pass, including seven resource
+  and19 recipe cases. Combined native verification passed in3m16s:526 results,
+  zero failures/errors/skips;128 app tests reran, unchanged native/SDK tasks may
+  reuse valid outputs. Instrumented compilation and unsigned assembly passed;
+  lint has0errors/29existing warnings. Packaged binary XML retains exactly the
+  scoped anchors and the source was restored. Stock SDK rebuild passed in11s.
+  Frozen full Copilot test/lint/compile/assemble then passed in8m41s:6651passed,
+  six existing private-input skips,zero failures/errors. Actual pristine SDK
+  TLS ran6.804s,not skipped; lint0errors/382existing warnings. APK49,190,374bytes
+  retains all7115 compiled app classes; source hashes stayed unchanged.
+  Exact-head CI remains a separate publication receipt.
+- No clinical guard, phone, AAPS settings, therapy, server or model/login change.
+
 # Retained Native Profile Resolution - 2026-10-22
 
 - Continue from green main7b2edfd0/Verify39686882701 (all three jobs passed).

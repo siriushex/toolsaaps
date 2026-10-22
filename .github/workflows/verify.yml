@@ -93,7 +93,7 @@ jobs:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
         run: python3 -m unittest discover -s tools/aaps4_compat -p 'test_*.py'
-      - name: Check minimal RC1 admission and log privacy patches
+      - name: Check minimal RC1 admission, privacy and loopback trust patches
         env:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1

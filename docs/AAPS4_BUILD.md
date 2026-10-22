@@ -1,5 +1,11 @@
 # Pristine RC1 Android Packaging
 
+The separate combined-patch packaging command is now
+`bash tools/aaps4_compat/verify_master.sh --package`. It verifies the receiver,
+target transaction, log privacy and scoped loopback trust together before
+restoring the original source. See AAPS4_LOOPBACK_TRUST.md. Its unsigned output
+is not an admission to install or enable native Target Manager.
+
 Target: official AAPS 4.0.0-rc1, commit
 `d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0`. This is a build check, not admission
 to replace the phone's active therapy application. See AAPS4_COMPATIBILITY.md.

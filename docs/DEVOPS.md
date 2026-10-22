@@ -1,5 +1,15 @@
 # DEVOPS
 
+## RC1 Combined Packaging
+
+`verify_master.sh --package` applies the admission, log-privacy and scoped
+loopback trust patches in the existing checked temporary flow, adds FullDebug
+app tests/instrumented compilation and FullRelease lint/unsigned assembly with
+the reviewed Android JSON isolation recipe, then restores exact source. Default
+CI remains the native/SDK verification followed by pristine SDK preparation.
+See AAPS4_LOOPBACK_TRUST.md. No signing, app install, CA enrollment or clinical
+activation follows from a successful build.
+
 ## Native Profile Catalog Stage
 
 LOCAL_NS_V3_PROFILE.md adds an immutable catalog route to the existing listener
