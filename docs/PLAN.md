@@ -1,5 +1,19 @@
 # PLAN
 
+## RC1 Loopback Trust (2026-10-22)
+
+- [x] Verify phone identity, installed AAPS/Copilot versions and matching signer.
+- [x] Inspect packaged policy difference and a stock-compatible CGM wire route.
+- [x] Add scoped resource patch and combined recipe/packaging regression checks.
+- [x] Complete32 tooling checks and actual combined RC1 test/lint/APK build:
+      526 results,zero errors/skips; lint0errors/29existing warnings.
+- [x] Inspect packaged XML and unchanged upstream restoration; rebuild stock SDK.
+- [x] Complete Copilot test/lint/compile/build:6651passed/six existing private
+      input skips,zero failures/errors; real stock SDK TLS and APK guard pass.
+- [ ] Publish reviewed source and inspect exact-head CI.
+- Clinical readiness, actual Android TLS and JugglucoNG ingestion/continuity
+  remain separate migration gates. No phone or therapy change in this stage.
+
 ## Retained Native Profile Resolution (2026-10-22)
 
 - [x] Verify main7b2edfd0 CI39686882701 succeeded for all three jobs.

@@ -52,6 +52,8 @@ replace the active phone application before the remaining migration gates pass.
   If stock configuration cannot trust that identity, limit any AAPS patch to a
   narrowly scoped loopback trust configuration and verify it on device; do not
   modify AAPS algorithms or export credentials to solve this transport problem.
+  The separately verified resource-only candidate is in AAPS4_LOOPBACK_TRUST.md;
+  its packaged policy does not establish actual Android CA/handshake acceptance.
 - The old custom manifest includes `glucodata.Minute`; stock RC1's manifest and
   DataReceiver do not. Confirm the actual phone CGM source and a supported input
   route before migration. Do not remove an active custom CGM route merely because

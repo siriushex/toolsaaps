@@ -42,6 +42,10 @@ carbohydrates and pump queues retain upstream semantics and are not covered by
 the target-only guarantee. Copilot's codec must continue to admit only target-only
 actions. The source patch alone does not enable production Target Manager.
 
+The helper also applies the resource-only loopback trust patch described in
+AAPS4_LOOPBACK_TRUST.md. Its optional `--package` mode verifies all three patches
+in the real unsigned app build and then restores only their exact combined diff.
+
 ## Verification
 
 ```sh

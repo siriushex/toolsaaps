@@ -1,0 +1,13 @@
+diff --git a/app/src/main/res/xml/network_security_config.xml b/app/src/main/res/xml/network_security_config.xml
+--- a/app/src/main/res/xml/network_security_config.xml
++++ b/app/src/main/res/xml/network_security_config.xml
+@@ -3,5 +3,9 @@
+     <domain-config cleartextTrafficPermitted="true">
+         <domain includeSubdomains="false">localhost</domain>
+         <domain includeSubdomains="false">127.0.0.1</domain>
++        <trust-anchors>
++            <certificates src="system" />
++            <certificates src="user" />
++        </trust-anchors>
+     </domain-config>
+ </network-security-config>

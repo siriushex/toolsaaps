@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## RC1 Loopback User-CA Trust (2026-10-22)
+
+- A resource-only patch retains system/user anchors solely for exact localhost
+  and127.0.0.1. No base/debug trust override, new domain, pin bypass, automatic CA
+  installation, hostname-verifier change or expanded cleartext policy.
+- This trusts the user's CA store for those names, not a new certificate pin or
+  an app-identity attestation. Actual certificate ownership, installed CA and
+  Android handshake/restart acceptance remain device gates. Never downgrade HTTPS.
+- Combined patch application/reversal preserves concurrent edits and fails on a
+  missing trust patch. Package verification does not sign or install the result.
+- The clinical guard and existing credentials/therapy behavior remain unchanged;
+  see AAPS4_LOOPBACK_TRUST.md for remaining migration prerequisites.
+
 ## Native Profile Catalog (2026-10-21)
 
 - Existing loopback bearer/body/revision limits only; no new trust or authority.
