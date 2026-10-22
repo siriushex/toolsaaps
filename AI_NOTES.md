@@ -1,3 +1,46 @@
+# No-Button Meal Scenario Research - 2026-10-22
+
+- Start from main38b0b015 in the existing isolated checkout; no native subagent
+  tool is available. Implement the bounded no-button research foundation, not an
+  unvalidated live eating recommendation or a replacement for the onset clock.
+- Failing-first compilation reproduced the missing episode/store and assessment
+  APIs. Added immutable canonical/source-revision/insulin-linked message state
+  with a private atomic DataStore journal. Successful posting implies an assumed
+  start only, never proof the message was seen or the meal eaten. No confirmation
+  action is added. Reopen, concurrent posting, correction/deletion and stale
+  callbacks are covered; malformed state is preserved and rejected, not reset.
+- The frozen simulator accepts the existing cumulative research absorption shape.
+  The on-demand evaluator resolves same-anchor typed IOB and applies independently
+  known, revision-matched GI through declared PersonalGiModel coefficients.
+  Positive versus signed IOB stays distinct; greater than2U is salience only.
+  Missing IOB is unavailable, not zero. No instantaneous IOB*ISF subtraction.
+- GI changes food timing while preserving mass/tails and unrelated history. All
+  six food hypotheses and explicit insulin worlds survive posting. Absent-food
+  conditional-mean crossings are five-minute intervals, not calibrated bounds,
+  safe waiting times or a meal prescription. Numeric limits/tail/control flags
+  remain attached to each forecast. Source-specific unavailable states are explicit.
+- First focused run passed110 tests without failures/errors/skips, including the
+  existing durable onset and planner safeguards. Initial full quality passed6673
+  tests with six existing private-input skips (6667passed), zero errors; real
+  pristine SDK TLS ran2.807s. That run preceded final source-admission hardening.
+- Review regressions then reproduced a synthetic-food projection exception and
+  a conflicting flag-alias bypass. Reject synthetic/non-real food before simulation;
+  share existing recorded-insulin exclusions with the onset reader and make them
+  deny on any matching alias instead of accepting the last normalized value.
+  Final focused suite passed111 cases without failures/errors/skips. Frozen full
+  Android test/lint/compile/assemble passed in5m40s:6668passed, six existing
+  private-input skips, zero failures/errors. Actual pristine SDK TLS ran2.111s,
+  not skipped. Lint has zero errors,382existing warnings/eight hints. The APK
+  retention/size guard passed with all7132 compiled app classes retained; source
+  and test hashes stayed unchanged through the run. Exact-head CI remains a
+  separate publication gate.
+- Notification/therapy authority remains false. No personal-model qualification
+  or automatic CGM-derived GI is claimed. Live IOB-curve reconciliation, simultaneous
+  uncertainty and future-controller validation remain admission blockers. Existing
+  onset presentation/notifier and alerts are unchanged; source exclusions are
+  shared and hardened as above. AAPS, phone, backend, model/login and main are
+  unchanged.
+
 # Retained Native Profile Resolution - 2026-10-22
 
 - Continue from green main7b2edfd0/Verify39686882701 (all three jobs passed).

@@ -1950,6 +1950,18 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- A no-button meal message is not consumed-food confirmation. Persisted assumptions
+  cannot retire NOT_HAPPENING/NO_NEW_MEAL scenarios, change real COB/therapy, clear
+  glucose alarms or supply ingestion/training labels. Canonical source revision
+  and insulin row identity are explicit; do not infer linkage from nearby times.
+- Research GI shapes may affect only supported linked-food conditional scenarios.
+  Estimated GI is not independent known-GI evidence; missing/out-of-range support
+  cannot silently use the display-only heuristic. All delayed/absent-food and
+  insulin worlds remain, with the original baseline/history unchanged.
+- IOB salience above2U is not proof of a meal or a safe-wait threshold. Missing IOB
+  is not zero, signed net IOB is not positive active IOB, and a scalar snapshot
+  cannot be subtracted again from an already insulin-aware forecast. Research grid
+  crossings never authorize a meal message or replace hypoglycemia protection.
 - A completed model countdown is not delivery confirmation, permission to eat, or a target/dose command. The status and its detail text must preserve that distinction even when the owl shows the requested food animation.
 - No timer from positive IOB alone; require a usable insulin record and matching configured/model profile. Exclude SMB, inferred/recovered insulin and unconfirmed local commands. Insulin-only/correction records do not assert meal intent or trigger the meal gesture. Nonfinite, future, wrong-unit or conflicting onset evidence cannot create a clock. The estimate must be no more than15min older than its insulin record (a later estimate is allowed); evidence already stale at a new bolus cannot admit that bolus.
 - Header and notification share one timestamp-anchored session. Once shown, it survives navigation, restart and completion until explicit hide or replacement by a newer usable record. The15min post-onset window admits new sessions only, not lifetime expiry. Missing/invalid/conflicting evidence, profile mismatch, removed/cancelled anchors or failed persistence suppress the numerical projection and meal gesture, retaining a review tile. Dismissal is durable; corrected/older rows cannot resurrect it. Retained notifications use absolute estimated time with no auto-expiry or negative chronometer. Their distinct channel/id has no audio, vibration, full-screen intent, alarm-clock scheduling or therapy action. They cannot cancel, acknowledge or replace glucose alarms.

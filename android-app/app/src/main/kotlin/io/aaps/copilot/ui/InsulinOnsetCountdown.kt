@@ -5,6 +5,7 @@ import io.aaps.copilot.data.repository.AiInsulinContext
 import io.aaps.copilot.data.repository.BoundedClinicalPayloadParser
 import io.aaps.copilot.data.repository.TherapySanitizer
 import io.aaps.copilot.domain.model.resolveTherapyComponents
+import io.aaps.copilot.domain.model.isExcludedInsulinTimingRecord
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToLong
@@ -36,12 +37,7 @@ internal fun insulinOnsetCountdown(rows: List<TherapyEventEntity>, model: AiInsu
         // Freshness admits the estimate for this event, not for each screen visit.
         if (evidence < row.timestamp - 15 * 60_000L) return@mapNotNull null
         val payload = BoundedClinicalPayloadParser.parse(row.payloadJson) ?: return@mapNotNull null
-        val values = payload.scalarValues().mapKeys { io.aaps.copilot.data.repository.normalizeClinicalKey(it.key) }
-        fun flag(key: String) = values[key]?.trim()?.lowercase(Locale.US) in setOf("true", "1")
-        if (listOf("issmb", "inferred", "recovered", "synthetic", "cancelled", "canceled", "iscancelled", "iscanceled").any(::flag) ||
-            listOf("bolustype", "type").any { values[it]?.trim()?.uppercase(Locale.US) in setOf("SMB", "MICROBOLUS", "PRIMING") } ||
-            values["classification"]?.trim()?.uppercase(Locale.US) in setOf("INFERRED_IOB", "RECOVERED_MICROBOLUS", "LOCAL_ACTION", "UAM_SYNTHETIC") ||
-            row.id.startsWith("iob-inf-") || row.id.startsWith("br-local_broadcast-")) return@mapNotNull null
+        if (isExcludedInsulinTimingRecord(row.id, payload.scalarValues())) return@mapNotNull null
         val parts = resolveTherapyComponents(type, payload.scalarValues(), payload.componentTrust())
         if (!parts.wholeEventValid || parts.insulinU?.let { it.isFinite() && it > 0 } != true) return@mapNotNull null
         val estimatedAtMs = row.timestamp + (onset * 60_000).roundToLong()

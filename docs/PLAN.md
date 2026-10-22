@@ -1,5 +1,21 @@
 # PLAN
 
+## No-Button Meal Scenario Research (2026-10-22)
+
+- [x] Add immutable message/assumption state without an intake confirmation action.
+- [x] Persist it atomically; test reopen, concurrent callbacks, revisions and deletion.
+- [x] Add on-demand typed IOB and independently known GI sensitivity to the frozen
+      scenario simulator, preserving all absent-food/insulin worlds and baseline.
+- [x] Pass111 focused episode/store/simulator/onset/planner tests without skips.
+- [x] Complete frozen full Android quality:6668passed/six existing skips, no
+      errors; real pristine SDK TLS ran, lint and APK retention/size guard passed.
+- [ ] Publish reviewed source and inspect exact-head source CI.
+- [ ] Integrate a qualified personal-model producer, reconcile current IOB with
+      modeled delivery coverage, and validate simultaneous paths/future control
+      before admitting any recommended meal-time message or live timer producer.
+- The existing onset UI remains unchanged. No APK/server/device/therapy/main
+  deployment is part of this source-only research stage.
+
 ## Retained Native Profile Resolution (2026-10-22)
 
 - [x] Verify main7b2edfd0 CI39686882701 succeeded for all three jobs.

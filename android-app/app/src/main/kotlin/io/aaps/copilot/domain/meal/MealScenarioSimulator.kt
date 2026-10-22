@@ -4,6 +4,7 @@ import io.aaps.copilot.domain.predict.MealForwardForecast
 import io.aaps.copilot.domain.predict.MealFutureInsulinDelivery
 import io.aaps.copilot.domain.predict.MealFutureInsulinPlan
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
+import io.aaps.copilot.domain.nutrition.PersonalAbsorptionShape
 import java.util.Collections
 import kotlin.math.abs
 import kotlinx.coroutines.currentCoroutineContext
@@ -49,18 +50,20 @@ internal class MealScenarioSimulator {
         belief: MealBelief,
         horizonMinutes: Int,
         maximumScenarios: Int = 24,
-        futureInsulinScenarios: List<MealInsulinScenario>? = null
+        futureInsulinScenarios: List<MealInsulinScenario>? = null,
+        absorptionShape: PersonalAbsorptionShape? = null
     ): MealUncertainSimulation {
         currentCoroutineContext().ensureActive()
         require(maximumScenarios in 6..24)
         val expansion = MealScenarioExpansion.expand(belief, maximumScenarios)
-        val batch = simulate(context, expansion.belief, horizonMinutes, futureInsulinScenarios)
+        val batch = simulate(context, expansion.belief, horizonMinutes, futureInsulinScenarios, absorptionShape)
         currentCoroutineContext().ensureActive()
         return MealUncertainSimulation(expansion, batch)
     }
 
     suspend fun simulate(context: MealSimulationContext, belief: MealBelief, horizonMinutes: Int,
-        futureInsulinScenarios: List<MealInsulinScenario>? = null): MealSimulationBatch {
+        futureInsulinScenarios: List<MealInsulinScenario>? = null,
+        absorptionShape: PersonalAbsorptionShape? = null): MealSimulationBatch {
         val coroutine = currentCoroutineContext()
         coroutine.ensureActive()
         val cases = belief.scenarios.sortedBy { it.id }
@@ -83,6 +86,10 @@ internal class MealScenarioSimulator {
             (it.inferredStart == null || it.inferredStart.earliestMs == it.inferredStart.latestMs) }) {
             "Expand uncertain intervals and profiles into explicit cases first"
         }
+        require(absorptionShape == null || cases.filter { it.carbs.maximumGrams > 0 }.all {
+            it.absorption.single().profile == absorptionShape.profile &&
+                it.absorption.single().durationMinutes == absorptionShape.durationMinutes
+        }) { "Research absorption shape does not match scenario support" }
         require(horizonMinutes >= cases.maxOf { it.absorption.single().durationMinutes } +
             MealTimingPlanner.START_OFFSETS.last() + MealTimingPlanner.REACTION_DELAYS.last())
         // Conservative work admission before any engine execution; no evidence truncation.
@@ -118,7 +125,9 @@ internal class MealScenarioSimulator {
             val profile = case.absorption.single()
             val key = ProjectionKey(onset, case.carbs.maximumGrams, profile.profile, profile.durationMinutes, world?.plan?.deliveries)
             val forecast = cache.getOrPut(key) {
-                val replacement = MealAbsorptionProjection.project(anchor, onset ?: anchor, key.grams,
+                val replacement = if (absorptionShape != null && onset != null && key.grams > 0)
+                    MealAbsorptionProjection.fromCumulative(anchor, onset, key.grams, foodHorizon, absorptionShape::cumulative)
+                else MealAbsorptionProjection.project(anchor, onset ?: anchor, key.grams,
                     key.profile, key.duration, foodHorizon)
                 context.forwardForecast(canonicalId, replacement, horizonMinutes, world?.plan)
             }
