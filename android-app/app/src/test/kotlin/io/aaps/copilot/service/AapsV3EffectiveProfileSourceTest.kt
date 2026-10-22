@@ -99,6 +99,55 @@ class AapsV3EffectiveProfileSourceTest {
         assertTrue(db.therapyDao().since(0).isEmpty())
     }
 
+    @Test fun asKnownEvidenceCannotReuseAProfileObservedAfterThePrediction() = runBlocking {
+        store().create(input("profile", at - 60_000))
+        val read = AapsV3EffectiveProfileSource(store()).readEvidence(at - 30_000, at, at)
+        assertNull(read.profile.observation)
+    }
+
+    @Test fun cachedScheduleCannotBeModifiedByAReader() = runBlocking {
+        store().create(input("profile"))
+        val profile = observed(AapsV3EffectiveProfileSource(store()).read(at)).profile
+        listOf(profile.basal, profile.carbRatio, profile.sensitivity, profile.targetLow, profile.targetHigh).forEach {
+            assertThrows(UnsupportedOperationException::class.java) { (it as MutableList).clear() }
+        }
+        Unit
+    }
+
+    @Test fun profileHistorySharesRevisionAndRetainsCorrectionsAndDeletionAcrossReopen() = runBlocking {
+        store().create(input("old", at - 60_000))
+        val original = store().create(input("new", at - 10_000, 6.5)).document
+        val source = AapsV3EffectiveProfileSource(store())
+        val first = source.readEvidence(at - 30_000, at, at + 200_000)
+        assertEquals(first.profile.retainedRevision, first.profileHistory.retainedRevision)
+        assertEquals(first.insulin.retainedRevision, first.profileHistory.retainedRevision)
+        assertEquals(listOf("old", "new"), first.profileHistory.intervals.map { it.observation.identifier })
+        val updated = store().update(input("new", at - 10_000, 7.5), original.modifiedRevision).document
+        val changed = source.readEvidence(at - 30_000, at, at + 200_000)
+        assertEquals(7.5, changed.profileHistory.intervals.last().observation.profile.basal.single().value, 0.0)
+        assertTrue(changed.profileHistory.retainedRevision!! > first.profileHistory.retainedRevision!!)
+        store().delete(LocalV3Collection.TREATMENTS, "new", updated.modifiedRevision)
+        db.close(); db = open()
+        val reopened = AapsV3EffectiveProfileSource(store()).readEvidence(at - 30_000, at, at + 200_000)
+        assertEquals(AapsV3ObservedProfileStatus.INVALIDATED, reopened.profileHistory.status)
+        assertTrue(reopened.profileHistory.intervals.isEmpty())
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
+    @Test fun newerUnrelatedRevisionCannotReconstructThePreviousDatabaseAsKnown() = runBlocking {
+        store().create(input("profile", at - 60_000))
+        val source = AapsV3EffectiveProfileSource(store())
+        val before = source.readEvidence(at - 30_000, at, at + 200_000)
+        val previousRevision = checkNotNull(before.profile.retainedRevision)
+        store().create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "note", "local-v3-owner", at,
+            buildJsonObject { put("eventType", "Note"); put("date", at) }.toString()))
+        val after = source.readEvidence(at - 30_000, at, previousRevision)
+        assertEquals(AapsV3ObservedProfileStatus.LATE_EVIDENCE, after.profile.status)
+        assertEquals(AapsV3ObservedProfileStatus.LATE_EVIDENCE, after.profileHistory.status)
+        assertTrue(after.profileHistory.intervals.isEmpty())
+        assertNull(after.profile.observation)
+    }
+
     @Test fun correctionsAndTimeMovesReplaceTheIdentityAndInvalidateTheCachedProjection() = runBlocking {
         val first = store().create(input("first")).document
         val second = store().create(input("second", at + 10_000)).document

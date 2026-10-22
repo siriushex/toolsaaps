@@ -673,6 +673,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(profileRead.status).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
             assertThat(profileRead.observation).isEqualTo(latestProfile)
             assertThat(profileRead.retainedRevision).isEqualTo(store.lastModified().getValue(io.aaps.copilot.data.repository.LocalV3Collection.TREATMENTS))
+            val profileWindowEnd = latestProfile.eventAtMs + 1
+            val profileHistory = profileSource.readEvidence(latestProfile.eventAtMs, profileWindowEnd,
+                maxOf(profileWindowEnd, checkNotNull(profileRead.retainedRevision))).profileHistory
+            assertThat(profileHistory.status).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
+            assertThat(profileHistory.intervals.single().observation).isEqualTo(latestProfile)
+            assertThat(profileHistory.upstreamCompletenessVerified).isFalse()
             val knownAt = maxOf(latestProfile.eventAtMs, checkNotNull(profileRead.retainedRevision))
             val insulinRead = profileSource.readEvidence(1, latestProfile.eventAtMs, knownAt).insulin
             assertThat(insulinRead.status).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)

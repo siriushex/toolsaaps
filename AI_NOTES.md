@@ -1,3 +1,26 @@
+# Native Historical Profile Windows - 2026-10-23
+
+- Continue from verified PR23/main a63e0f3f. All six source checks passed and
+  merged/tested trees match; fresh main CI is observed separately.
+- Two failing-first regressions reproduced late profile reuse in as-known reads
+  and mutation of a cached basal schedule. Test discovery initially rejected a
+  non-Unit test method; its corrected run executed13tests and reproduced both
+  intended failures. New interval API checks also failed before implementation.
+- Add bounded half-open effective-profile windows from the same snapshot as
+  insulin/current profile. Missing, invalidated, conflicting, over-limit or late
+  evidence cannot return partial intervals. Retained latest versions are not an
+  as-of archive; future collection revisions cause conservative abstention.
+- Preserve exact schedules, historical insulin/timezone and original modifiers;
+  no duration-based reversion, reapplication or delivery-rate inference. Make
+  decoded schedule/window lists immutable and publish history diagnostics through
+  the existing owner. No new worker, schema, AAPS patch or live therapeutic change.
+- All66focused checks passed, including actual pristine RC1 SDK TLS. Frozen full
+  test/lint/compile/assemble passed in6m13s:6766passed, six existing skips,
+  zero failures/errors, SDK TLS2.184s and lint zero errors/382existing warnings/
+  eight hints. All1429source hashes stayed unchanged; the APK guard retained all
+  7164compiled application classes. Source CI and main integration are separate
+  gates; no APK/device/server deployment is part of this source stage.
+
 # Native Insulin Observations - 2026-10-23
 
 - PR22 passed all six source checks and was merged as6d5a4fa8 with the identical

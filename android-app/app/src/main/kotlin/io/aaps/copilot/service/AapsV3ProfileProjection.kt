@@ -4,6 +4,7 @@ import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
 import io.aaps.copilot.data.repository.HistoryJson
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import java.time.ZoneId
+import java.util.Collections
 import kotlinx.serialization.json.*
 
 internal data class AapsV3SchedulePoint(val label: String, val seconds: Int, val value: Double)
@@ -79,7 +80,7 @@ internal object AapsV3ProfileJson {
             AapsV3SchedulePoint(label, seconds, amount)
         }
         require(result.first().seconds == 0 && result.zipWithNext().all { (a, b) -> a.seconds < b.seconds })
-        return result
+        return Collections.unmodifiableList(result)
     }
 }
 
