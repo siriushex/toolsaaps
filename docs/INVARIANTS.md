@@ -1950,6 +1950,10 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- An anchored meal candidate cannot restart on reevaluation. Calculation latency
+  reduces the remaining no-food response margin. Expired optima require fresh
+  evidence, never an automatic later wait; absolute deadline overflow rejects.
+  Neither a research offset nor candidateAtMs authorizes a meal notification.
 - Basal accounting requires observed delivered and contemporaneously scheduled
   rates in U/hour, with contiguous half-open intervals through the anchor and
   the actual shifted/scaled kernel tail. Current schedules, commands or scalar

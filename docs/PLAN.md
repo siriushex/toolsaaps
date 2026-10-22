@@ -1,5 +1,22 @@
 # PLAN
 
+## Meal Clock Safety And API Recovery (2026-10-22)
+
+- [x] Reproduce three planner defects in failing-first synthetic tests.
+- [x] Bind candidates to the prediction anchor, reject expired optima and account
+      for computation age in absent-food urgency without enabling live advice.
+- [x] Restore existing owner API/socket and verify public unauthorized401.
+- [x] Add frame-free PID-bound text/image readiness;123focused and1958full backend
+      tests pass,27existing opt-in skips. Thirteen repair/freshness checks pass.
+- [x] Full Android quality:6712passed, six existing skips; lint/build and real RC1
+      SDK TLS passed. Original main CI39829526154 passed all three jobs.
+- [x] Controlled image dependency/readiness and official trust snapshot renewal;
+      local/public401 and unchanged model/settings/supervisor PIDs verified.
+- [ ] Publish reviewed source and inspect exact-head CI.
+- Live recommended meal timing remains blocked by complete delivery provenance,
+  prospective simultaneous uncertainty and future-controller validation. A normal
+  API start or401 does not establish an actual signed device/model exchange.
+
 ## Meal Basal Forecast Replay And 0.1.9 (2026-10-22)
 
 - [x] Verify all six PR18/8ff108fc checks and public0.1.8/code9 metadata.
@@ -9,8 +26,10 @@
       148 focused tests and14release-helper tests pass.
 - [x] Full Android quality:6708passed, six existing skips, zero errors/failures;
       real SDK TLS and lint pass in8m25s; source/test hashes unchanged.
-- [ ] Final APK retention/signature and exact-head CI.
-- [ ] Reviewed main integration and verified static0.1.9publication.
+- [x] Final APK retention/signature and exact-head PR/push CI.
+- [x] PR18merged as0f362539 with identical tested tree;0.1.9published, full public
+      download/signature/metadata/75percent-Range/browser checks passed. Prior
+      static pointer/page and0.1.8APK retained; phone installation is separate.
 - Live meal recommendation remains unavailable: the local interval contract does
   not attest complete upstream delivery, historical sensitivity or prospective
   forecast safety. The persistent onset clock remains operational and unchanged.

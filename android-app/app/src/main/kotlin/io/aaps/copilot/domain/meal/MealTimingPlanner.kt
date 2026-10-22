@@ -47,14 +47,15 @@ enum class MealTimingStatus { SHADOW_READY, OBSERVE, ABSTAIN, LATE_ENTRY }
 enum class MealTimingReason {
     SHADOW_ONLY, LATE_ENTRY, STAGE_UNCERTAIN, NOT_NOW, INVALID_CONTEXT,
     INCOMPLETE_SCENARIOS, INCOMPLETE_HORIZON, UNSAFE_TRAJECTORY, CONFLICTING_SCENARIOS, BUDGET_EXCEEDED,
-    NO_FOOD_URGENCY, UNCERTAINTY_UNSUPPORTED
+    NO_FOOD_URGENCY, UNCERTAINTY_UNSUPPORTED, EXPIRED_CANDIDATE
 }
 data class MealNoFoodRisk(val firstLowOffsetMinutes: Int?)
 data class MealTimingDecision(
     val status: MealTimingStatus,
     val reason: MealTimingReason,
     val candidateOffsetMinutes: Int? = null,
-    val noFoodRisk: MealNoFoodRisk? = null
+    val noFoodRisk: MealNoFoodRisk? = null,
+    val candidateAtMs: Long? = null
 ) {
     // No notification may consume a research decision before clinical validation.
     val notificationAllowed: Boolean get() = false
@@ -64,7 +65,8 @@ data class MealTimingDecision(
 class MealTimingPlanner {
     fun evaluate(belief: MealBelief, envelope: MealTimingEnvelope, nowMs: Long): MealTimingDecision {
         fun abstain(reason: MealTimingReason) = MealTimingDecision(MealTimingStatus.ABSTAIN, reason)
-        if (nowMs <= 0 || envelope.generatedAtMs <= 0 || envelope.generatedAtMs > nowMs ||
+        if (nowMs <= 0 || envelope.generatedAtMs <= 0 || envelope.generatedAtMs > Long.MAX_VALUE - 720 * MINUTE_MS ||
+            envelope.generatedAtMs > nowMs ||
             nowMs - envelope.generatedAtMs > 300_000L || envelope.beliefRevision != belief.revision ||
             envelope.runtimeIdentity.isBlank() ||
             (belief.runtimeIdentity != null && belief.runtimeIdentity != envelope.runtimeIdentity) ||
@@ -127,10 +129,13 @@ class MealTimingPlanner {
             .filter { it.lowMmol < 4.0 }.minOfOrNull { it.offsetMinutes }
         val noFoodRisk = MealNoFoodRisk(noFoodLow)
         fun assessed(status: MealTimingStatus, reason: MealTimingReason, start: Int? = null) =
-            MealTimingDecision(status, reason, start, noFoodRisk)
+            MealTimingDecision(status, reason, start, noFoodRisk,
+                start?.let { envelope.generatedAtMs + it * MINUTE_MS })
         // Imminent risk without food belongs to the hypo pathway, not a routine
         // invitation whose delivery and user response are not guaranteed.
-        if (noFoodLow != null && noFoodLow <= REACTION_DELAYS.last()) {
+        val elapsedSincePredictionMs = nowMs - envelope.generatedAtMs
+        if (noFoodLow != null && noFoodLow * MINUTE_MS <=
+            elapsedSincePredictionMs + REACTION_DELAYS.last() * MINUTE_MS) {
             return assessed(MealTimingStatus.ABSTAIN, MealTimingReason.NO_FOOD_URGENCY)
         }
         val eatingPaths = paths.filter {
@@ -180,6 +185,10 @@ class MealTimingPlanner {
         // All remaining starts are near-optimal in every plausible world. Do not
         // recommend waiting for an immaterial improvement in the weighted mean.
         val bestStart = common.min()
+        // A stale immediate optimum must request fresh evidence, not a new later wait.
+        if (bestStart * MINUTE_MS < elapsedSincePredictionMs) {
+            return assessed(MealTimingStatus.ABSTAIN, MealTimingReason.EXPIRED_CANDIDATE)
+        }
         return if (bestStart == 0) assessed(MealTimingStatus.SHADOW_READY, MealTimingReason.SHADOW_ONLY, 0)
         else assessed(MealTimingStatus.OBSERVE, MealTimingReason.NOT_NOW, bestStart)
     }
@@ -187,6 +196,7 @@ class MealTimingPlanner {
     private data class PathKey(val scenarioId: String, val start: Int, val delay: Int, val insulinId: String?)
 
     companion object {
+        private const val MINUTE_MS = 60_000L
         private val NO_FOOD_KINDS = setOf(MealHypothesisKind.NOT_HAPPENING, MealHypothesisKind.NO_NEW_MEAL)
         val START_OFFSETS: List<Int> = java.util.Collections.unmodifiableList(listOf(0, 5, 10, 15, 20, 30))
         val REACTION_DELAYS: List<Int> = java.util.Collections.unmodifiableList(listOf(0, 5, 10, 20))

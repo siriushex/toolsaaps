@@ -1,3 +1,41 @@
+# Meal Clock Safety And Owner API Recovery - 2026-10-22
+
+- Continue from main0f362539 after verified0.1.9 publication. Existing source
+  PR/push checks passed; the automatic main run is checked separately.
+- Three failing-first planner regressions reproduced ignored calculation latency
+  in no-food response margin, reuse of an expired immediate candidate, and unsafe
+  absolute-time arithmetic near Long.MAX_VALUE. Deduct elapsed calculation time,
+  abstain on an expired optimum instead of picking a later wait, and bind the
+  optional candidateAtMs to the original forecast anchor. Repeated assessments do
+  not restart the clock. No live recommendation or therapy permission is enabled.
+- Add frame-free, bounded owner API dependency readiness for both text and image
+  services: actual Unix peer PID/UID/GID, socket ownership/mode/link and identity
+  rechecks. Unsupported platforms fail closed. A mocked Linux socket constant
+  corrected three test failures on macOS;123focused API/readiness checks passed.
+- Full backend suite:1958passed,27existing opt-in skips,one dependency warning.
+  Thirteen synthetic operational checks cover successful trust renewal, official
+  HTTP cache freshness and guarded rollback on configuration/HTTP-readiness failure. No real model
+  request was made by these tests.
+- Read-only server diagnosis found the API/socket stopped, no unfinished jobs,
+  and valid configuration/storage/supervisor metadata. A normal start restored
+  public401, not a signed-chat/model acceptance claim. API startup depended on
+  text readiness but not image readiness; the old masked log does not establish
+  that this gap caused the historical failure. Separate controlled repair adds
+  image dependency/readiness and renews near-expiry official Android revocation
+  evidence without weakening its seven-day limit or changing model/login/data.
+- Full Android test/lint/compile/assemble passed in6m42s:6712passed, six existing
+  skips, no failures/errors. Pristine RC1 SDK TLS ran2.581s, not skipped. Lint has
+  zero errors,382existing warnings/eight hints. APK retention guard passed with
+  all7146 compiled app classes retained. Main0f362539 CI39829526154 passed all
+  three jobs. Exact-head CI for this new source stage remains separate.
+- Controlled API repair completed at18:44UTC: both supervisor PIDs unchanged,
+  API readiness/start and local/public unauthorized401 verified; refreshed official
+  CRL digest and private configuration backups checked. Initial cached HTTP Date
+  was rejected before service/config changes; use documented Date/Age/Cache-Control
+  freshness, bounded to24hours. Seven-day admission limit is not extended. Model,
+  login and unrelated settings/data remain unchanged. No signed device/model turn
+  was sent. Existing0.1.9download remains unchanged by this source stage.
+
 # Meal Basal Forecast Replay - 2026-10-22
 
 - Continue from PR18/8ff108fc after all six checks succeeded. Publication of a
